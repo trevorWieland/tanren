@@ -151,9 +151,17 @@ class TestManagerLifecycle:
         assert gate_result.gate_output is not None
         assert "all tests passed" in gate_result.gate_output
 
-        # Check nudge was written
+        # Check nudge was written in NanoClaw message envelope format
         input_files = list((ipc_dir / "input").glob("*.json"))
         assert len(input_files) >= 1
+        import json
+
+        nudge_envelope = json.loads(input_files[0].read_text())
+        assert nudge_envelope["type"] == "message"
+        assert "text" in nudge_envelope
+        nudge_inner = json.loads(nudge_envelope["text"])
+        assert nudge_inner["type"] == "workflow_result"
+        assert nudge_inner["workflow_id"] == "wf-test-project-1-1000"
 
         # Shutdown
         manager._signal_shutdown()

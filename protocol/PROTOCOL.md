@@ -125,14 +125,15 @@ processing logic; idempotency ensures at-most-once semantics.
 `results/`, the worker manager also writes a nudge file to `input/`:
 
 ```json
-{ "type": "workflow_result", "workflow_id": "wf-rentl-144-1741359600" }
+{ "type": "message", "text": "{\"type\": \"workflow_result\", \"workflow_id\": \"wf-rentl-144-1741359600\"}" }
 ```
 
-NanoClaw's host-level IPC watcher picks up the file from `input/` and
-delivers it as a follow-up message to the coordinator's persistent
-session. The coordinator processes the result immediately — reads
-`results/`, advances `workflows.json`, writes the next `dispatch/` file.
-Latency: ~500ms (NanoClaw's `input/` poll interval inside the
+Wrapped in NanoClaw's IPC message envelope. `drainIpcInput()` only
+processes `{"type": "message", "text": "..."}` files — it extracts the
+`text` field and delivers it to the coordinator as a follow-up message.
+The coordinator parses the inner JSON to identify the workflow result,
+reads `results/`, advances `workflows.json`, writes the next `dispatch/`
+file. Latency: ~500ms (NanoClaw's `input/` poll interval inside the
 container).
 
 **Fallback path (cron, 60s poll)**: The workflow monitor (NanoClaw

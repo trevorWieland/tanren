@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 import os
 import secrets
 import time
@@ -66,10 +67,18 @@ async def write_result(results_dir: Path, result: Result) -> Path:
 
 
 async def write_nudge(input_dir: Path, nudge: Nudge) -> Path:
-    """Write a nudge file to the input directory. Returns the file path."""
+    """Write a nudge file wrapped in NanoClaw's IPC message envelope.
+
+    NanoClaw's drainIpcInput() only processes {"type": "message", "text": "..."} files.
+    The Nudge JSON is serialized into the text field of this envelope.
+    """
     filename = generate_filename()
     path = input_dir / filename
-    await atomic_write(path, nudge.model_dump_json(indent=2))
+    envelope = json.dumps({
+        "type": "message",
+        "text": nudge.model_dump_json(),
+    })
+    await atomic_write(path, envelope)
     return path
 
 

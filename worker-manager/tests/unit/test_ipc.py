@@ -141,12 +141,16 @@ class TestWriteResult:
 
 class TestWriteNudge:
     @pytest.mark.asyncio
-    async def test_writes_nudge(self, tmp_path: Path):
+    async def test_writes_nudge_in_message_envelope(self, tmp_path: Path):
         nudge = Nudge(workflow_id="wf-rentl-144-1741359600")
         path = await write_nudge(tmp_path, nudge)
         assert path.exists()
-        data = json.loads(path.read_text())
-        assert data["type"] == "workflow_result"
+        envelope = json.loads(path.read_text())
+        assert envelope["type"] == "message"
+        assert "text" in envelope
+        inner = json.loads(envelope["text"])
+        assert inner["type"] == "workflow_result"
+        assert inner["workflow_id"] == "wf-rentl-144-1741359600"
 
 
 class TestDeleteFile:

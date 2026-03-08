@@ -85,13 +85,16 @@ class TestIPCRoundtrip:
 
     @pytest.mark.asyncio
     async def test_nudge_write_and_read(self, tmp_path: Path):
-        """Write a nudge, read it back, verify schema."""
+        """Write a nudge, read it back, verify NanoClaw message envelope."""
         nudge = Nudge(workflow_id="wf-rentl-144-1741359600")
         path = await write_nudge(tmp_path, nudge)
 
-        data = json.loads(path.read_text())
-        assert data["type"] == "workflow_result"
-        assert data["workflow_id"] == "wf-rentl-144-1741359600"
+        envelope = json.loads(path.read_text())
+        assert envelope["type"] == "message"
+        assert "text" in envelope
+        inner = json.loads(envelope["text"])
+        assert inner["type"] == "workflow_result"
+        assert inner["workflow_id"] == "wf-rentl-144-1741359600"
 
     @pytest.mark.asyncio
     async def test_concurrent_writes(self, tmp_path: Path):
