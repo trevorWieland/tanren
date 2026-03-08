@@ -4,20 +4,20 @@ Coverage is mandatory for features. Tests must directly exercise intended behavi
 
 ```python
 # ✓ Good: Tests exercise actual behavior
-# tests/unit/core/translator.py
-async def test_translates_scene_with_context(given_scene, given_context):
-    """Test that translation applies context to output."""
-    result = await translate_scene(given_scene, given_context)
-    
-    # Directly exercises translation behavior
+# tests/unit/core/processor.py
+async def test_processes_item_with_context(given_item, given_context):
+    """Test that processing applies context to output."""
+    result = await process_item(given_item, given_context)
+
+    # Directly exercises processing behavior
     assert "character_name" in result.text
     assert result.context_used == given_context.id
 
 # ✗ Bad: Tests don't exercise behavior
-async def test_translator_initialization():
+async def test_processor_initialization():
     """Just tests constructor, not behavior - NO COVERAGE VALUE."""
-    translator = Translator()
-    assert translator is not None  # No behavior tested
+    processor = Processor()
+    assert processor is not None  # No behavior tested
 ```
 
 **Coverage requirements:**

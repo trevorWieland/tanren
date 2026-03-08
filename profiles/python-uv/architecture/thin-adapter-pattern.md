@@ -15,7 +15,7 @@ def run_pipeline(run_id: str):
     """Start pipeline run - contains core logic."""
     validate_config(config)  # Business logic
     context = build_context(sources)  # Business logic
-    result = translate(context)  # Business logic
+    result = process(context)  # Business logic
     return result
 ```
 

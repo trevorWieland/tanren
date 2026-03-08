@@ -9,8 +9,8 @@ result: str | None
 
 # Pattern matching (Python 3.10+)
 match phase:
-    case "translate":
-        await translate()
+    case "process":
+        await process()
     case "qa":
         await run_qa()
     case _:
@@ -23,15 +23,15 @@ config = base_config | custom_config
 print(f"{result=}")  # Prints: result='value'
 
 # Async generators (Python 3.6+)
-async def stream_translations():
-    for scene in scenes:
-        yield await translate_scene(scene)
+async def stream_results():
+    for item in items:
+        yield await process_item(item)
 
 # ✗ Bad: Legacy patterns
 result: Optional[str]  # Old-style Union
 
-if phase == "translate":
-    await translate()
+if phase == "process":
+    await process()
 elif phase == "qa":
     await run_qa()
 else:
@@ -41,9 +41,9 @@ config = {**base_config, **custom_config}  # Old unpacking
 
 print(f"result={result}")  # No f-string debugging
 
-def stream_translations():  # Blocking generator
-    for scene in scenes:
-        yield translate_scene(scene)
+def stream_results():  # Blocking generator
+    for item in items:
+        yield process_item(item)
 ```
 
 **Modern Python 3.14 features to use:**

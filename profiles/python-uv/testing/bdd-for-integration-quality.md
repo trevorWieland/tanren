@@ -14,10 +14,10 @@ def configured_pipeline(tmp_path):
 async def run_pipeline(configured_pipeline):
     configured_pipeline.result = await configured_pipeline.run()
 
-@then("the pipeline produces a playable patch")
+@then("the pipeline produces a valid output")
 def check_output(configured_pipeline):
     assert configured_pipeline.result.success is True
-    assert (configured_pipeline.output_dir / "patch.json").exists()
+    assert (configured_pipeline.output_dir / "output.json").exists()
 
 # Integration tests: Use mock model adapter (no real LLMs)
 # Quality tests: Use real model adapter (actual LLMs)
@@ -72,12 +72,12 @@ def test_pipeline_completion():
 **Example scenario:**
 
 ```gherkin
-Scenario: Pipeline translates scene with context
+Scenario: Pipeline processes item with context
   Given a configured pipeline with sample script
-    And context layer with character definitions
+    And context layer with reference data
   When the pipeline runs to completion
-  Then the pipeline produces a playable patch
-    And translations respect character consistency
+  Then the pipeline produces a valid output
+    And outputs respect reference data
 ```
 
 **Never use BDD for:**

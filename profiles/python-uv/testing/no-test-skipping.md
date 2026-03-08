@@ -4,21 +4,21 @@ Never skip tests within a tier. Tests either run and pass or run and fail.
 
 ```python
 # ✓ Good: Test runs and passes or runs and fails
-async def test_translation_with_context(given_scene, given_context):
+async def test_processing_with_context(given_item, given_context):
     """Test runs and validates result."""
-    result = await translate_scene(given_scene, given_context)
-    
+    result = await process_item(given_item, given_context)
+
     if result.success:
         assert "character_name" in result.text
     else:
-        raise AssertionError(f"Translation failed: {result.error}")  # Test fails
+        raise AssertionError(f"Processing failed: {result.error}")  # Test fails
 
 # ✗ Bad: Skip test instead of fixing
 import pytest
 
 @pytest.mark.skip(reason="Flaky test, will fix later")  # NEVER DO THIS
-async def test_translation_with_context(given_scene, given_context):
-    result = await translate_scene(given_scene, given_context)
+async def test_processing_with_context(given_item, given_context):
+    result = await process_item(given_item, given_context)
     assert "character_name" in result.text
 ```
 

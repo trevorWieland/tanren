@@ -6,23 +6,23 @@ Never use dataclasses or plain classes for schemas. All schemas must use Pydanti
 # ✓ Good: Pydantic schema
 from pydantic import BaseModel, Field
 
-class TranslationRequest(BaseModel):
-    source_text: str = Field(..., min_length=1, description="Text to translate")
-    target_language: str = Field(..., pattern=r'^[a-z]{2}$', description="ISO 639-1 language code")
+class TaskRequest(BaseModel):
+    input_text: str = Field(..., min_length=1, description="Input text to process")
+    output_format: str = Field(..., pattern=r'^[a-z_]+$', description="Output format identifier")
 
 # ✗ Bad: dataclass
 from dataclasses import dataclass
 
 @dataclass
-class TranslationRequest:
-    source_text: str  # No validation, no serialization
-    target_language: str
+class TaskRequest:
+    input_text: str  # No validation, no serialization
+    output_format: str
 
 # ✗ Bad: Plain class
-class TranslationRequest:
-    def __init__(self, source_text: str, target_language: str):
-        self.source_text = source_text
-        self.target_language = target_language
+class TaskRequest:
+    def __init__(self, input_text: str, output_format: str):
+        self.input_text = input_text
+        self.output_format = output_format
 ```
 
 **When to use Pydantic schemas:**

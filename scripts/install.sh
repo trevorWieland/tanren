@@ -173,7 +173,6 @@ cat > tanren.yml <<EOF
 version: 0.1.0
 profile: $PROFILE
 installed: $(date +%Y-%m-%d)
-tanren_path: $TANREN_PATH
 EOF
 ok "Wrote tanren.yml"
 

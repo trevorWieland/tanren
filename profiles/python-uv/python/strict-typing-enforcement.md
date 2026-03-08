@@ -6,20 +6,20 @@ Never use `Any` or `object` in types. Always model explicit schema types.
 # ✓ Good: Explicit types
 from pydantic import BaseModel, Field
 
-class TranslationRequest(BaseModel):
-    source_text: str
-    target_language: str
-    model: str = Field(..., description="Model identifier for translation")
+class TaskRequest(BaseModel):
+    input_text: str
+    output_format: str
+    model: str = Field(..., description="Model identifier")
 
-def translate(request: TranslationRequest) -> TranslationResult:
-    """Translate with explicit types - ty will catch errors."""
+def process(request: TaskRequest) -> TaskResult:
+    """Process with explicit types - ty will catch errors."""
     ...
 
 # ✗ Bad: Any or object
 from typing import Any
 
-def translate(request: Any) -> Any:
-    """Translate with Any - no type safety."""
+def process(request: Any) -> Any:
+    """Process with Any - no type safety."""
     ...
 ```
 
@@ -37,17 +37,17 @@ def translate(request: Any) -> Any:
 # ✓ Good: Field with description and validators
 from pydantic import BaseModel, Field
 
-class TranslationRequest(BaseModel):
-    source_text: str = Field(..., min_length=1, description="Text to translate")
-    target_language: str = Field(..., pattern=r'^[a-z]{2}$', description="ISO 639-1 language code")
-    model: str = Field(..., description="Model identifier for translation")
+class TaskRequest(BaseModel):
+    input_text: str = Field(..., min_length=1, description="Input text to process")
+    output_format: str = Field(..., pattern=r'^[a-z_]+$', description="Output format identifier")
+    model: str = Field(..., description="Model identifier")
 
 # ✗ Bad: Raw type annotation without Field
 from pydantic import BaseModel
 
-class TranslationRequest(BaseModel):
-    source_text: str  # No description, no validators
-    target_language: str
+class TaskRequest(BaseModel):
+    input_text: str  # No description, no validators
+    output_format: str
     model: str
 ```
 

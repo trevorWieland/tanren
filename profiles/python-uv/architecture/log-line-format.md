@@ -15,8 +15,8 @@ class LogEntry(BaseModel):
         ..., description="Log level"
     )
     event: str = Field(..., description="Event type (e.g., run_started, phase_completed)")
-    run_id: str = Field(..., description="Pipeline run identifier")
-    phase: str | None = Field(None, description="Pipeline phase (e.g., translate, qa)")
+    run_id: str = Field(..., description="Run identifier")
+    phase: str | None = Field(None, description="Execution phase (e.g., process, qa)")
     message: str = Field(..., description="Human-readable log message")
     data: dict | None = Field(None, description="Structured event data")
 
@@ -29,17 +29,17 @@ def write_log(entry: LogEntry) -> None:
 
 ```json
 // ✓ Good: Log line examples
-{"timestamp":"2026-01-23T12:00:00Z","level":"info","event":"run_started","run_id":"abc123","phase":null,"message":"Pipeline started","data":{"config_file":"config.toml"}}
-{"timestamp":"2026-01-23T12:01:00Z","level":"info","event":"phase_completed","run_id":"abc123","phase":"translate","message":"Translation phase completed","data":{"lines_translated":1234,"duration_s":45.2}}
-{"timestamp":"2026-01-23T12:02:00Z","level":"error","event":"translation_failed","run_id":"abc123","phase":"translate","message":"Translation failed for scene 42","data":{"scene_id":42,"error_code":"RATE_LIMIT","retry_count":3}}
+{"timestamp":"2026-01-23T12:00:00Z","level":"info","event":"run_started","run_id":"abc123","phase":null,"message":"Run started","data":{"config_file":"config.toml"}}
+{"timestamp":"2026-01-23T12:01:00Z","level":"info","event":"phase_completed","run_id":"abc123","phase":"process","message":"Processing phase completed","data":{"items_processed":1234,"duration_s":45.2}}
+{"timestamp":"2026-01-23T12:02:00Z","level":"error","event":"processing_failed","run_id":"abc123","phase":"process","message":"Processing failed for item 42","data":{"item_id":42,"error_code":"RATE_LIMIT","retry_count":3}}
 ```
 
 **Log line Pydantic model requirements:**
 - `timestamp`: ISO-8601 timestamp string (required)
 - `level`: One of `debug`, `info`, `warn`, `error` (required)
 - `event`: Event name in `snake_case` (required)
-- `run_id`: Pipeline run identifier (required)
-- `phase`: Pipeline phase name or `None` (optional)
+- `run_id`: Run identifier (required)
+- `phase`: Execution phase name or `None` (optional)
 - `message`: Human-readable log message (required)
 - `data`: Structured event data as dict or `None` (optional)
 
@@ -51,8 +51,8 @@ def write_log(entry: LogEntry) -> None:
 
 **Event naming conventions:**
 - Use `snake_case` for event names
-- Examples: `run_started`, `phase_completed`, `translation_finished`, `error_occurred`
-- Prefix with phase name when applicable: `translate_completed`, `qa_failed`
+- Examples: `run_started`, `phase_completed`, `processing_finished`, `error_occurred`
+- Prefix with phase name when applicable: `process_completed`, `validate_failed`
 
 **Level usage guidelines:**
 - `debug`: Detailed diagnostics for development

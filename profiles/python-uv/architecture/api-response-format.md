@@ -35,7 +35,7 @@ class APIResponse[T](BaseModel, Generic[T]):
   "data": {
     "run_id": "abc123",
     "status": "running",
-    "phase": "translate"
+    "phase": "process"
   },
   "error": null,
   "meta": {
