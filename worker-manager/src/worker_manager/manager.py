@@ -348,6 +348,19 @@ class WorkerManager:
                 # Spawn process
                 proc_result = await spawn_process(dispatch, worktree_path, self._config)
 
+                # Always log process result for agent phases
+                if dispatch.phase not in (Phase.GATE, Phase.SETUP, Phase.CLEANUP):
+                    stdout_preview = (proc_result.stdout or "")[:500]
+                    logger.info(
+                        "Process result: exit=%d duration=%ds "
+                        "timed_out=%s stdout_len=%d stdout=%.200s",
+                        proc_result.exit_code,
+                        proc_result.duration_secs,
+                        proc_result.timed_out,
+                        len(proc_result.stdout or ""),
+                        stdout_preview,
+                    )
+
                 # Extract signal
                 command_name = dispatch.phase.value
                 raw_signal = extract_signal(
@@ -412,9 +425,15 @@ class WorkerManager:
                 lines = proc_result.stdout.strip().split("\n")
                 gate_output = "\n".join(lines[-100:])
 
-            # Build tail_output (last 50 lines for non-success)
+            # Build tail_output — always for agent phases (operational visibility),
+            # only on non-success for gate/setup/cleanup phases.
             tail_output = None
-            if outcome != Outcome.SUCCESS and proc_result.stdout:
+            is_agent_phase = dispatch.phase not in (
+                Phase.GATE, Phase.SETUP, Phase.CLEANUP,
+            )
+            if (
+                is_agent_phase or outcome != Outcome.SUCCESS
+            ) and proc_result.stdout:
                 lines = proc_result.stdout.strip().split("\n")
                 tail_output = "\n".join(lines[-50:])
 

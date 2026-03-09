@@ -113,9 +113,9 @@ def map_outcome(
                 # Unrecognized signal — treat as success with warning
                 return (Outcome.SUCCESS, signal)
 
-    # No signal: fall back to exit code
-    if exit_code == 0:
-        return (Outcome.SUCCESS, None)
+    # No signal: agent didn't write to .agent-status — treat as error.
+    # Agent phases should always write a signal; absence means something went wrong.
+    # This triggers the ambiguous-error retry path in the manager.
     return (Outcome.ERROR, None)
 
 

@@ -3,12 +3,13 @@
 CLI invocation patterns (VERIFIED live 2026-03-07):
 
 opencode run (do-task, run-demo):
-    opencode run --model {model} --dir {worktree_path} < prompt_on_stdin
+    opencode run --model {model} --dir {worktree_path} "short instruction" -f {prompt_file}
     Verified flags from `opencode run --help`:
       -m, --model   model to use in the format of provider/model
       --dir         directory to run in
-      -f, --file    file(s) to ATTACH to message (NOT prompt input)
-      stdin: prompt piped as initial message (verified working)
+      -f, --file    file(s) to ATTACH to message (carries the full prompt)
+      message: positional arg — short instruction to read the attached file
+      stdin: NOT read by opencode (verified: causes 1s silent exit)
       stdout: captured for signal extraction fallback
 
 codex exec (audit-task, audit-spec):
@@ -32,6 +33,7 @@ Timeout: SIGTERM -> 5s grace -> SIGKILL via os.killpg.
 
 import asyncio
 import contextlib
+import logging
 import os
 import tempfile
 from dataclasses import dataclass
@@ -39,6 +41,8 @@ from pathlib import Path
 
 from worker_manager.config import Config
 from worker_manager.schemas import Cli, Dispatch
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -108,14 +112,26 @@ async def _spawn_opencode(
         command_file, dispatch.spec_folder, command_name, dispatch.context
     )
 
-    cmd = [config.opencode_path, "run"]
-    if dispatch.model:
-        cmd.extend(["--model", dispatch.model])
-    cmd.extend(["--dir", str(worktree_path)])
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False, mode="w") as f:
+        f.write(prompt)
+        prompt_file_path = f.name
 
-    return await _run_with_timeout(
-        cmd, cwd=worktree_path, stdin_data=prompt, timeout=dispatch.timeout
-    )
+    try:
+
+        cmd = [config.opencode_path, "run"]
+        if dispatch.model:
+            cmd.extend(["--model", dispatch.model])
+        cmd.extend(["--dir", str(worktree_path)])
+        cmd.append("Read the attached file and follow its instructions exactly.")
+        cmd.extend(["-f", prompt_file_path])
+
+        logger.info("opencode cmd: %s", cmd)
+
+        return await _run_with_timeout(
+            cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout
+        )
+    finally:
+        Path(prompt_file_path).unlink(missing_ok=True)
 
 
 async def _spawn_codex(
@@ -141,6 +157,8 @@ async def _spawn_codex(
         cmd.extend(["--model", dispatch.model])
     cmd.extend(["-C", str(worktree_path)])
     cmd.extend(["-o", last_msg_file])
+
+    logger.info("codex cmd: %s", cmd)
 
     # For codex, discard stdout (noisy), capture last message from -o file
     result = await _run_with_timeout(

@@ -102,8 +102,9 @@ class TestMapOutcome:
     def test_error_maps_to_error(self):
         assert map_outcome(Phase.DO_TASK, "error", 1, False) == (Outcome.ERROR, "error")
 
-    def test_no_signal_exit_0(self):
-        assert map_outcome(Phase.DO_TASK, None, 0, False) == (Outcome.SUCCESS, None)
+    def test_no_signal_exit_0_is_error_for_agent_phases(self):
+        # Agent phases should always write a signal; no signal = error
+        assert map_outcome(Phase.DO_TASK, None, 0, False) == (Outcome.ERROR, None)
 
     def test_no_signal_nonzero_exit(self):
         assert map_outcome(Phase.DO_TASK, None, 1, False) == (Outcome.ERROR, None)
