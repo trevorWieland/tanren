@@ -303,6 +303,72 @@ class TestPush:
         assert "remote rejected" in result.push_error
 
 
+class TestSkipPush:
+    @pytest.mark.asyncio
+    async def test_skip_push_true(self, tmp_path: Path):
+        """When skip_push=True, push step is skipped entirely."""
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+
+        with patch("worker_manager.postflight.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                _make_proc_mock(stdout=b"my-branch\n"),  # branch check
+                _make_proc_mock(stdout=b""),  # status (clean)
+                # No push mock — should not be called
+            ]
+            result = await run_postflight(
+                worktree, "my-branch", "do-task", {}, {}, skip_push=True
+            )
+
+        assert result.pushed is False  # Default, push was skipped
+        assert result.push_error is None
+
+    @pytest.mark.asyncio
+    async def test_skip_push_false_default(self, tmp_path: Path):
+        """Default skip_push=False still pushes."""
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+
+        with patch("worker_manager.postflight.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                _make_proc_mock(stdout=b"my-branch\n"),
+                _make_proc_mock(stdout=b""),
+                _make_proc_mock(returncode=0),  # push
+            ]
+            result = await run_postflight(worktree, "my-branch", "do-task", {}, {})
+
+        assert result.pushed is True
+
+    @pytest.mark.asyncio
+    async def test_skip_push_integrity_still_runs(self, tmp_path: Path):
+        """With skip_push=True, integrity checks (branch, files, WIP) still run."""
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        original = "# Original"
+        (worktree / "spec.md").write_text("# Modified")
+
+        with patch("worker_manager.postflight.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                _make_proc_mock(stdout=b"my-branch\n"),  # branch check
+                _make_proc_mock(returncode=0),  # git add (revert)
+                _make_proc_mock(returncode=0),  # git commit (revert)
+                _make_proc_mock(stdout=b""),  # status (clean after revert)
+                # No push — skip_push=True
+            ]
+            result = await run_postflight(
+                worktree,
+                "my-branch",
+                "do-task",
+                {"spec.md": _hash(original)},
+                {"spec.md": original},
+                skip_push=True,
+            )
+
+        assert result.integrity_repairs["spec_reverted"] is True
+        assert (worktree / "spec.md").read_text() == original
+        assert result.pushed is False
+
+
 class TestNoRepairsNeeded:
     @pytest.mark.asyncio
     async def test_clean_state(self, tmp_path: Path):

@@ -7,12 +7,19 @@ from worker_manager.schemas import (
     AuditResult,
     Cli,
     Dispatch,
+    Finding,
+    FindingSeverity,
+    FindingsOutput,
+    GateExpectation,
     GateResult,
+    InvestigationReport,
+    InvestigationRootCause,
     Nudge,
     Outcome,
     Phase,
     ProgressState,
     Result,
+    TaskGateExpectation,
     TaskState,
     TaskStatus,
     WorkerHealth,
@@ -32,8 +39,11 @@ class TestPhaseEnum:
         assert Phase.SETUP == "setup"
         assert Phase.CLEANUP == "cleanup"
 
+    def test_investigate_phase(self):
+        assert Phase.INVESTIGATE == "investigate"
+
     def test_phase_count(self):
-        assert len(Phase) == 7
+        assert len(Phase) == 8
 
 
 class TestCliEnum:
@@ -407,3 +417,127 @@ class TestResultExtended:
         )
         assert r.integrity_repairs is None
         assert r.new_tasks == []
+        assert r.findings == []
+
+
+class TestFindingSeverity:
+    def test_values(self):
+        assert FindingSeverity.FIX == "fix"
+        assert FindingSeverity.NOTE == "note"
+        assert FindingSeverity.QUESTION == "question"
+
+    def test_count(self):
+        assert len(FindingSeverity) == 3
+
+
+class TestFinding:
+    def test_valid(self):
+        f = Finding(title="Missing error handling")
+        assert f.title == "Missing error handling"
+        assert f.severity == FindingSeverity.FIX
+        assert f.affected_files == []
+        assert f.line_numbers == []
+
+    def test_full(self):
+        f = Finding(
+            title="Bug",
+            description="Details",
+            severity=FindingSeverity.NOTE,
+            affected_files=["src/foo.py"],
+            line_numbers=[42],
+        )
+        assert f.severity == FindingSeverity.NOTE
+        assert f.affected_files == ["src/foo.py"]
+
+    def test_extra_forbid(self):
+        with pytest.raises(ValidationError):
+            Finding(title="Bug", extra="bad")
+
+
+class TestFindingsOutput:
+    def test_valid(self):
+        fo = FindingsOutput(signal="pass")
+        assert fo.signal == "pass"
+        assert fo.findings == []
+
+    def test_with_findings(self):
+        fo = FindingsOutput(
+            signal="fail",
+            findings=[Finding(title="Issue 1"), Finding(title="Issue 2")],
+        )
+        assert len(fo.findings) == 2
+        assert fo.findings[0].title == "Issue 1"
+
+    def test_json_roundtrip(self):
+        fo = FindingsOutput(
+            signal="fail",
+            findings=[Finding(title="Bug", severity=FindingSeverity.FIX)],
+        )
+        json_str = fo.model_dump_json()
+        fo2 = FindingsOutput.model_validate_json(json_str)
+        assert fo == fo2
+
+
+class TestInvestigationReport:
+    def test_valid(self):
+        report = InvestigationReport(trigger="gate_failure_persistent")
+        assert report.trigger == "gate_failure_persistent"
+        assert report.root_causes == []
+        assert report.escalation_needed is False
+
+    def test_with_root_causes(self):
+        rc = InvestigationRootCause(
+            description="Wrong function call",
+            confidence="high",
+            affected_files=["src/foo.py"],
+            category="code_bug",
+            suggested_tasks=[{"title": "Fix call"}],
+        )
+        report = InvestigationReport(
+            trigger="gate_failure_persistent",
+            root_causes=[rc],
+        )
+        assert len(report.root_causes) == 1
+        assert report.root_causes[0].confidence == "high"
+
+    def test_escalation(self):
+        report = InvestigationReport(
+            trigger="demo_failure",
+            escalation_needed=True,
+            escalation_reason="Spec is ambiguous",
+        )
+        assert report.escalation_needed is True
+
+
+class TestGateExpectation:
+    def test_defaults(self):
+        ge = GateExpectation()
+        assert ge.must_pass == []
+        assert ge.expect_fail == []
+        assert ge.skip == []
+        assert ge.gate_command_override is None
+
+    def test_full(self):
+        ge = GateExpectation(
+            must_pass=["lint", "typecheck", "unit:foo"],
+            expect_fail=["integration:bar"],
+            skip=["unit:baz"],
+            gate_command_override="make all",
+        )
+        assert "lint" in ge.must_pass
+        assert ge.gate_command_override == "make all"
+
+    def test_wildcard(self):
+        ge = GateExpectation(must_pass=["*"])
+        assert "*" in ge.must_pass
+
+
+class TestTaskGateExpectation:
+    def test_valid(self):
+        tge = TaskGateExpectation(
+            task_id=2,
+            title="Write module A",
+            gate=GateExpectation(must_pass=["lint"]),
+        )
+        assert tge.task_id == 2
+        assert tge.gate.must_pass == ["lint"]

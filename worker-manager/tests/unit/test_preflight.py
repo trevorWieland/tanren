@@ -189,6 +189,46 @@ class TestRunPreflightCommandFile:
         assert "Command file missing" in result.error
 
 
+class TestRunPreflightInvestigatePhase:
+    @pytest.mark.asyncio
+    async def test_investigate_checks_command_file(self, tmp_path: Path):
+        """investigate phase requires command file like other agent phases."""
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        spec = worktree / "spec"
+        spec.mkdir()
+        # No command file for investigate
+
+        with patch("worker_manager.preflight.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                _make_proc_mock(stdout=b"my-branch\n"),
+                _make_proc_mock(stdout=b""),
+            ]
+            result = await run_preflight(worktree, "my-branch", spec, "investigate")
+
+        assert result.passed is False
+        assert "Command file missing" in result.error
+
+    @pytest.mark.asyncio
+    async def test_investigate_passes_with_command_file(self, tmp_path: Path):
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        spec = worktree / "spec"
+        spec.mkdir()
+        cmd_dir = worktree / ".claude" / "commands" / "tanren"
+        cmd_dir.mkdir(parents=True)
+        (cmd_dir / "investigate.md").write_text("# investigate")
+
+        with patch("worker_manager.preflight.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                _make_proc_mock(stdout=b"my-branch\n"),
+                _make_proc_mock(stdout=b""),
+            ]
+            result = await run_preflight(worktree, "my-branch", spec, "investigate")
+
+        assert result.passed is True
+
+
 class TestRunPreflightCleanPass:
     @pytest.mark.asyncio
     async def test_clean_worktree_passes(self, tmp_path: Path):

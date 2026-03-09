@@ -2,8 +2,15 @@
 
 from pathlib import Path
 
-from worker_manager.schemas import Outcome, Phase
-from worker_manager.signals import extract_signal, map_outcome
+from worker_manager.schemas import FindingSeverity, Outcome, Phase
+from worker_manager.signals import (
+    extract_signal,
+    map_outcome,
+    parse_audit_findings,
+    parse_audit_spec_findings,
+    parse_demo_findings,
+    parse_investigation_report,
+)
 
 
 class TestExtractSignal:
@@ -129,3 +136,116 @@ class TestMapOutcome:
         outcome, signal = map_outcome(Phase.DO_TASK, "unknown-signal", 0, False)
         assert outcome == Outcome.SUCCESS
         assert signal == "unknown-signal"
+
+
+class TestParseAuditFindings:
+    def test_valid_findings(self, tmp_path: Path):
+        (tmp_path / "audit-findings.json").write_text(
+            '{"signal": "fail", "findings": [{"title": "Bug", "severity": "fix"}]}'
+        )
+        result = parse_audit_findings(tmp_path)
+        assert result is not None
+        assert result.signal == "fail"
+        assert len(result.findings) == 1
+        assert result.findings[0].title == "Bug"
+
+    def test_pass_no_findings(self, tmp_path: Path):
+        (tmp_path / "audit-findings.json").write_text(
+            '{"signal": "pass", "findings": []}'
+        )
+        result = parse_audit_findings(tmp_path)
+        assert result is not None
+        assert result.signal == "pass"
+        assert result.findings == []
+
+    def test_missing_file(self, tmp_path: Path):
+        assert parse_audit_findings(tmp_path) is None
+
+    def test_malformed_json(self, tmp_path: Path):
+        (tmp_path / "audit-findings.json").write_text("not json")
+        assert parse_audit_findings(tmp_path) is None
+
+    def test_best_effort_code_fences(self, tmp_path: Path):
+        (tmp_path / "audit-findings.json").write_text(
+            '```json\n{"signal": "fail", "findings": [{"title": "Bug"}]}\n```'
+        )
+        result = parse_audit_findings(tmp_path)
+        assert result is not None
+        assert result.signal == "fail"
+
+
+class TestParseDemoFindings:
+    def test_valid(self, tmp_path: Path):
+        (tmp_path / "demo-findings.json").write_text(
+            '{"signal": "fail", "findings": [{"title": "Step 2 failed", "severity": "fix"}]}'
+        )
+        result = parse_demo_findings(tmp_path)
+        assert result is not None
+        assert len(result.findings) == 1
+
+    def test_missing(self, tmp_path: Path):
+        assert parse_demo_findings(tmp_path) is None
+
+
+class TestParseAuditSpecFindings:
+    def test_with_markers(self, tmp_path: Path):
+        (tmp_path / "audit.md").write_text(
+            'status: fail\n\n'
+            '<!-- structured-findings-start -->\n'
+            '[{"title": "Missing tests", "severity": "fix"}]\n'
+            '<!-- structured-findings-end -->\n\n'
+            '# Audit details...'
+        )
+        result = parse_audit_spec_findings(tmp_path)
+        assert len(result) == 1
+        assert result[0].title == "Missing tests"
+        assert result[0].severity == FindingSeverity.FIX
+
+    def test_no_markers(self, tmp_path: Path):
+        (tmp_path / "audit.md").write_text("status: fail\n\n# Audit details")
+        result = parse_audit_spec_findings(tmp_path)
+        assert result == []
+
+    def test_missing_file(self, tmp_path: Path):
+        result = parse_audit_spec_findings(tmp_path)
+        assert result == []
+
+    def test_malformed_json_in_markers(self, tmp_path: Path):
+        (tmp_path / "audit.md").write_text(
+            '<!-- structured-findings-start -->\n'
+            'not json\n'
+            '<!-- structured-findings-end -->'
+        )
+        result = parse_audit_spec_findings(tmp_path)
+        assert result == []
+
+
+class TestParseInvestigationReport:
+    def test_valid(self, tmp_path: Path):
+        (tmp_path / "investigation-report.json").write_text(
+            '{"trigger": "gate_failure_persistent", "root_causes": ['
+            '{"description": "Wrong call", "confidence": "high", '
+            '"category": "code_bug", "suggested_tasks": [{"title": "Fix it"}]}'
+            ']}'
+        )
+        result = parse_investigation_report(tmp_path)
+        assert result is not None
+        assert result.trigger == "gate_failure_persistent"
+        assert len(result.root_causes) == 1
+        assert result.root_causes[0].confidence == "high"
+
+    def test_missing(self, tmp_path: Path):
+        assert parse_investigation_report(tmp_path) is None
+
+    def test_malformed(self, tmp_path: Path):
+        (tmp_path / "investigation-report.json").write_text("bad json")
+        assert parse_investigation_report(tmp_path) is None
+
+    def test_with_escalation(self, tmp_path: Path):
+        (tmp_path / "investigation-report.json").write_text(
+            '{"trigger": "demo_failure", "escalation_needed": true, '
+            '"escalation_reason": "Spec unclear"}'
+        )
+        result = parse_investigation_report(tmp_path)
+        assert result is not None
+        assert result.escalation_needed is True

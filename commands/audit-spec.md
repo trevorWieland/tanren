@@ -182,11 +182,19 @@ Do **not** edit roadmap.md during audit.
 
 ### Step 5: Write audit.md
 
-Write audit.md with a machine-readable header followed by the full audit report:
+Write audit.md with a machine-readable header, structured findings section, and full audit report.
+
+Include all Fix Now items in the `structured-findings-start/end` section with severity `fix`. Include informational findings with severity `note`. Questions needing human input use severity `question`. The orchestration system reads this section for structured routing.
 
 ```markdown
 status: pass|fail
 fix_now_count: N
+
+<!-- structured-findings-start -->
+[
+  {"title": "...", "description": "...", "severity": "fix", "affected_files": ["..."]}
+]
+<!-- structured-findings-end -->
 
 # Audit: {spec_id} {title}
 

@@ -91,6 +91,29 @@ For each failed step:
    - **Files affected:** which files/functions are involved
 5. **Record findings** — the orchestration system will route fix tasks based on the demo signal (pass/fail) and investigation findings in the signpost.
 
+### Step 4b: Write Structured Findings
+
+Write your findings to `demo-findings.json` in the spec folder:
+
+```json
+{
+  "signal": "pass|fail",
+  "findings": [
+    {
+      "title": "Short description of issue",
+      "description": "Detailed explanation with evidence",
+      "severity": "fix|note|question",
+      "affected_files": ["src/module.py"],
+      "line_numbers": [42, 67]
+    }
+  ]
+}
+```
+
+If all [RUN] steps pass, write `{"signal": "pass", "findings": []}`.
+
+**This file is required** — the orchestration system reads it for structured routing.
+
 ### Step 5: Record Results
 
 Append results to demo.md under `## Results`:
@@ -125,7 +148,7 @@ If audit-log.md doesn't exist, create it with the standard header.
 Commit demo.md, audit-log.md, and signposts.md changes:
 
 ```
-git add demo.md audit-log.md signposts.md
+git add demo.md audit-log.md signposts.md demo-findings.json
 git commit -m "Demo run N: PASS|FAIL"
 ```
 

@@ -77,6 +77,34 @@ Do NOT check:
 3. If a signpost documents an **architectural constraint** (e.g., "X is infeasible because Y"), verify the constraint by reading the cited code. Do NOT add fix items that ask do-task to do something the signpost proves is architecturally impossible. Instead, if you believe the constraint is wrong, write a NEW signpost with counter-evidence.
 4. If a signpost with **Status: deferred** exists: skip it — it's been explicitly deferred to a future spec.
 
+### Step 5b: Write Structured Findings
+
+Write your findings to `audit-findings.json` in the spec folder:
+
+```json
+{
+  "signal": "pass|fail",
+  "findings": [
+    {
+      "title": "Short description of issue",
+      "description": "Detailed explanation with evidence",
+      "severity": "fix|note|question",
+      "affected_files": ["src/module.py"],
+      "line_numbers": [42, 67]
+    }
+  ]
+}
+```
+
+Severity levels:
+- `fix`: Must be fixed — becomes a new task for do-task
+- `note`: Informational only — logged but not actionable
+- `question`: Needs human input — will be escalated to Discord
+
+If the task passes, write `{"signal": "pass", "findings": []}`.
+
+**This file is required** — the orchestration system reads it for structured routing.
+
 ### Step 6: Verdict
 
 **If the task passes:**
@@ -129,7 +157,7 @@ Future auditors: check this log for regressions and patterns.
 Commit changes to plan.md, audit-log.md, and signposts.md (if modified):
 
 ```
-git add plan.md audit-log.md signposts.md
+git add plan.md audit-log.md signposts.md audit-findings.json
 git commit -m "Audit: Task N — PASS|FAIL"
 ```
 

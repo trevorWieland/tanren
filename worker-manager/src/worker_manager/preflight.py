@@ -105,7 +105,7 @@ async def run_preflight(
             result.repairs.append(f"Cleared {name}")
 
     # 5. Verify command file (agent phases only — gates/setup/cleanup don't use command files)
-    _AGENT_PHASES = frozenset({"do-task", "audit-task", "run-demo", "audit-spec"})
+    _AGENT_PHASES = frozenset({"do-task", "audit-task", "run-demo", "audit-spec", "investigate"})
     if phase in _AGENT_PHASES:
         cmd_file = worktree_path / ".claude" / "commands" / "tanren" / f"{phase}.md"
         if not cmd_file.exists():

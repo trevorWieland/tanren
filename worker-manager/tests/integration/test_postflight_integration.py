@@ -127,3 +127,31 @@ class TestPostflightIntegration:
         assert result.integrity_repairs["wip_committed"] is False
         # Push will fail without a remote, but that's expected in test
         assert result.pushed is False
+
+    @pytest.mark.asyncio
+    async def test_skip_push_integrity_still_works(self, git_repo: Path):
+        """skip_push=True skips push but integrity checks still run."""
+        original = "# Original Spec"
+        original_hash = _hash(original)
+
+        # Simulate agent modifying spec.md
+        (git_repo / "spec.md").write_text("# Agent Modified")
+        # Also leave uncommitted work
+        (git_repo / "extra.py").write_text("# extra")
+
+        result = await run_postflight(
+            git_repo,
+            "test-branch",
+            "do-task",
+            {"spec.md": original_hash},
+            {"spec.md": original},
+            skip_push=True,
+        )
+
+        # Integrity ran: spec reverted and WIP committed
+        assert result.integrity_repairs["spec_reverted"] is True
+        assert result.integrity_repairs["wip_committed"] is True
+        assert (git_repo / "spec.md").read_text() == original
+        # Push was skipped
+        assert result.pushed is False
+        assert result.push_error is None

@@ -261,6 +261,34 @@ Think backwards from the demo: what would need to be tested to guarantee each de
 
 Present the plan to the user for confirmation.
 
+#### Gate Expectations
+
+For each task, define postconditions that the gate should evaluate after that task completes. This lets the orchestration system distinguish expected failures from real regressions.
+
+For each task, define:
+
+- **must_pass**: Tests/checks that MUST pass after this task. Always include `lint` and `typecheck`. Add specific test modules this task creates or must not break. Use prefix matching (e.g., `unit:module_a` matches all tests in that module).
+- **expect_fail**: Tests KNOWN to fail because they depend on later tasks. Be explicit — document which later task will fix each expected failure.
+- **skip**: Tests that don't exist yet or are irrelevant to this task.
+
+The final task MUST have `expect_fail: []` and `skip: []` — everything must pass before orchestration completes.
+
+Write gate expectations to `gate-expectations.json` in the spec folder alongside plan.md:
+
+```json
+[
+  {"task_id": 1, "title": "Save Spec Documentation", "gate": {"must_pass": ["lint"], "expect_fail": [], "skip": []}},
+  {"task_id": 2, "title": "...", "gate": {"must_pass": ["lint", "typecheck", "unit:module_a"], "expect_fail": ["integration:a_b"], "skip": []}},
+  {"task_id": 3, "title": "...", "gate": {"must_pass": ["*"], "expect_fail": [], "skip": []}}
+]
+```
+
+Think about task ordering from a testing perspective:
+- If task A writes tests that depend on task B's code, put B before A, or list those tests in A's `expect_fail` with a note about which task will make them pass.
+- If a task renames/removes something other tests depend on, either include updating those tests in the same task (`must_pass`), or list them in `expect_fail` with the task that will update them.
+
+Present the gate expectations to the user for confirmation alongside the task plan.
+
 ### Step 11: Spec Folder Name
 
 Create:
@@ -302,12 +330,13 @@ Next step: run the orchestrator script, which invokes `do-task`, `audit-task`, `
 
 ```
 tanren/specs/{YYYY-MM-DD-HHMM-spec_id-feature-slug}/
-├── spec.md          # Acceptance criteria, non-negotiables (IMMUTABLE)
-├── plan.md          # Checklist tasks, decision record (MUTABLE)
-├── demo.md          # Demo plan (plan section immutable, results appended later)
-├── standards.md     # Applicable standards list
-├── references.md    # Implementation files, issues, related specs
-└── visuals/         # Optional mockups, diagrams, screenshots
+├── spec.md                  # Acceptance criteria, non-negotiables (IMMUTABLE)
+├── plan.md                  # Checklist tasks, decision record (MUTABLE)
+├── demo.md                  # Demo plan (plan section immutable, results appended later)
+├── standards.md             # Applicable standards list
+├── references.md            # Implementation files, issues, related specs
+├── gate-expectations.json   # Per-task gate postconditions (IMMUTABLE)
+└── visuals/                 # Optional mockups, diagrams, screenshots
 ```
 
 ## File Format: spec.md

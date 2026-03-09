@@ -28,6 +28,7 @@ from worker_manager.process import spawn_process
 from worker_manager.queues import DispatchRouter
 from worker_manager.schemas import (
     Dispatch,
+    FindingSeverity,
     Nudge,
     Outcome,
     Phase,
@@ -35,7 +36,14 @@ from worker_manager.schemas import (
     WorkerHealth,
     parse_issue_from_workflow_id,
 )
-from worker_manager.signals import extract_signal, map_outcome
+from worker_manager.signals import (
+    extract_signal,
+    map_outcome,
+    parse_audit_findings,
+    parse_audit_spec_findings,
+    parse_demo_findings,
+    parse_investigation_report,
+)
 from worker_manager.worktree import (
     cleanup_worktree,
     create_worktree,
@@ -410,36 +418,72 @@ class WorkerManager:
                 lines = proc_result.stdout.strip().split("\n")
                 tail_output = "\n".join(lines[-50:])
 
-            # Post-flight integrity checks + push (replaces guard_spec_md + manual push)
+            # Post-flight integrity checks (always run — skip push for errors/timeouts)
             pushed: bool | None = None
             integrity_repairs: dict | None = None
             spec_modified = False
             if dispatch.phase in _PUSH_PHASES:
-                if outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
-                    postflight = await run_postflight(
-                        worktree_path,
-                        dispatch.branch,
-                        dispatch.phase.value,
-                        preflight.file_hashes,
-                        preflight.file_backups,
-                    )
-                    pushed = postflight.pushed
-                    integrity_repairs = postflight.integrity_repairs
-                    spec_modified = postflight.integrity_repairs.get(
-                        "spec_reverted", False
-                    )
-                    if not postflight.pushed and postflight.push_error:
-                        if tail_output:
-                            tail_output += (
-                                f"\n\n--- git push failed ---\n"
-                                f"{postflight.push_error}"
-                            )
-                        else:
-                            tail_output = (
-                                f"git push failed: {postflight.push_error}"
-                            )
-                else:
-                    pushed = None
+                postflight = await run_postflight(
+                    worktree_path,
+                    dispatch.branch,
+                    dispatch.phase.value,
+                    preflight.file_hashes,
+                    preflight.file_backups,
+                    skip_push=(outcome in (Outcome.ERROR, Outcome.TIMEOUT)),
+                )
+                pushed = postflight.pushed
+                integrity_repairs = postflight.integrity_repairs
+                spec_modified = postflight.integrity_repairs.get(
+                    "spec_reverted", False
+                )
+                if not postflight.pushed and postflight.push_error:
+                    if tail_output:
+                        tail_output += (
+                            f"\n\n--- git push failed ---\n"
+                            f"{postflight.push_error}"
+                        )
+                    else:
+                        tail_output = (
+                            f"git push failed: {postflight.push_error}"
+                        )
+
+            # Parse structured findings
+            new_tasks: list[dict] = []
+            findings_data: list[dict] = []
+
+            if dispatch.phase == Phase.AUDIT_TASK:
+                findings = parse_audit_findings(spec_folder_path)
+                if findings:
+                    findings_data = [f.model_dump() for f in findings.findings]
+                    new_tasks = [
+                        f.model_dump()
+                        for f in findings.findings
+                        if f.severity == FindingSeverity.FIX
+                    ]
+            elif dispatch.phase == Phase.RUN_DEMO:
+                findings = parse_demo_findings(spec_folder_path)
+                if findings:
+                    findings_data = [f.model_dump() for f in findings.findings]
+                    new_tasks = [
+                        f.model_dump()
+                        for f in findings.findings
+                        if f.severity == FindingSeverity.FIX
+                    ]
+            elif dispatch.phase == Phase.AUDIT_SPEC:
+                spec_findings = parse_audit_spec_findings(spec_folder_path)
+                if spec_findings:
+                    findings_data = [f.model_dump() for f in spec_findings]
+                    new_tasks = [
+                        f.model_dump()
+                        for f in spec_findings
+                        if f.severity == FindingSeverity.FIX
+                    ]
+            elif dispatch.phase == Phase.INVESTIGATE:
+                report = parse_investigation_report(spec_folder_path)
+                if report:
+                    findings_data = [{"report": report.model_dump()}]
+                    for rc in report.root_causes:
+                        new_tasks.extend(rc.suggested_tasks)
 
             result = Result(
                 workflow_id=dispatch.workflow_id,
@@ -455,6 +499,8 @@ class WorkerManager:
                 spec_modified=spec_modified,
                 pushed=pushed,
                 integrity_repairs=integrity_repairs,
+                new_tasks=new_tasks,
+                findings=findings_data,
             )
 
         except Exception as e:

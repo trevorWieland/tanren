@@ -46,6 +46,8 @@ async def run_postflight(
     phase: str,
     preflight_hashes: dict[str, str],
     preflight_backups: dict[str, str],
+    *,
+    skip_push: bool = False,
 ) -> PostflightResult:
     result = PostflightResult()
 
@@ -166,20 +168,21 @@ async def run_postflight(
         await proc.communicate()
         result.integrity_repairs["wip_committed"] = True
 
-    # 4. Git push
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "-C",
-        str(worktree_path),
-        "push",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode == 0:
-        result.pushed = True
-    else:
-        result.pushed = False
-        result.push_error = stderr.decode().strip()
+    # 4. Git push (skip for error/timeout outcomes)
+    if not skip_push:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "-C",
+            str(worktree_path),
+            "push",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            result.pushed = True
+        else:
+            result.pushed = False
+            result.push_error = stderr.decode().strip()
 
     return result

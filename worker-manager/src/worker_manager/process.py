@@ -7,7 +7,8 @@ opencode run (do-task, run-demo):
     Verified flags from `opencode run --help`:
       -m, --model   model to use in the format of provider/model
       --dir         directory to run in
-      stdin: prompt read as initial message (array positional, or piped)
+      -f, --file    file(s) to ATTACH to message (NOT prompt input)
+      stdin: prompt piped as initial message (verified working)
       stdout: captured for signal extraction fallback
 
 codex exec (audit-task, audit-spec):

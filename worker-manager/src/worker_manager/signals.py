@@ -1,9 +1,16 @@
 """Signal extraction and outcome mapping per PROTOCOL.md Section 3."""
 
+import json
 import re
 from pathlib import Path
 
-from worker_manager.schemas import Outcome, Phase
+from worker_manager.schemas import (
+    Finding,
+    FindingsOutput,
+    InvestigationReport,
+    Outcome,
+    Phase,
+)
 
 
 def extract_signal(
@@ -110,3 +117,65 @@ def map_outcome(
     if exit_code == 0:
         return (Outcome.SUCCESS, None)
     return (Outcome.ERROR, None)
+
+
+# --- Structured findings parsing ---
+
+
+def parse_audit_findings(spec_folder_path: Path) -> FindingsOutput | None:
+    """Parse {spec_folder}/audit-findings.json."""
+    return _parse_findings_file(spec_folder_path / "audit-findings.json")
+
+
+def parse_demo_findings(spec_folder_path: Path) -> FindingsOutput | None:
+    """Parse {spec_folder}/demo-findings.json."""
+    return _parse_findings_file(spec_folder_path / "demo-findings.json")
+
+
+def parse_audit_spec_findings(spec_folder_path: Path) -> list[Finding]:
+    """Extract structured findings from audit.md between markers."""
+    audit_path = spec_folder_path / "audit.md"
+    if not audit_path.exists():
+        return []
+    content = audit_path.read_text()
+    match = re.search(
+        r"<!--\s*structured-findings-start\s*-->(.*?)<!--\s*structured-findings-end\s*-->",
+        content,
+        re.DOTALL,
+    )
+    if not match:
+        return []
+    try:
+        raw = json.loads(match.group(1).strip())
+        return [Finding.model_validate(f) for f in raw]
+    except Exception:
+        return []
+
+
+def parse_investigation_report(spec_folder_path: Path) -> InvestigationReport | None:
+    """Parse {spec_folder}/investigation-report.json."""
+    path = spec_folder_path / "investigation-report.json"
+    if not path.exists():
+        return None
+    try:
+        return InvestigationReport.model_validate_json(path.read_text())
+    except Exception:
+        return None
+
+
+def _parse_findings_file(path: Path) -> FindingsOutput | None:
+    """Parse a findings JSON file with best-effort fallback."""
+    if not path.exists():
+        return None
+    try:
+        return FindingsOutput.model_validate_json(path.read_text())
+    except Exception:
+        pass
+    # Best-effort: strip markdown code fences and retry
+    try:
+        content = path.read_text().strip()
+        content = re.sub(r"^```\w*\n?", "", content)
+        content = re.sub(r"\n?```$", "", content)
+        return FindingsOutput.model_validate_json(content)
+    except Exception:
+        return None
