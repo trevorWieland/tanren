@@ -1,5 +1,6 @@
 """Tests for worktree module."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -7,9 +8,58 @@ import pytest
 from worker_manager.schemas import WorktreeEntry, WorktreeRegistry
 from worker_manager.worktree import (
     check_isolation,
+    get_default_branch,
     load_registry,
     save_registry,
 )
+
+
+async def _init_repo(repo: Path, default_branch: str = "main") -> None:
+    """Initialize a git repo with one commit."""
+    repo.mkdir(parents=True, exist_ok=True)
+    for cmd in [
+        ["git", "init"],
+        ["git", "config", "user.email", "test@test.com"],
+        ["git", "config", "user.name", "Test"],
+        ["git", "checkout", "-b", default_branch],
+    ]:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, cwd=str(repo),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+    (repo / "README.md").write_text("# Test")
+    for cmd in [["git", "add", "."], ["git", "commit", "-m", "init"]]:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, cwd=str(repo),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+
+
+class TestGetDefaultBranch:
+    @pytest.mark.asyncio
+    async def test_fallback_to_main(self, tmp_path: Path):
+        repo = tmp_path / "repo"
+        await _init_repo(repo, "main")
+        result = await get_default_branch(repo)
+        assert result == "main"
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_master(self, tmp_path: Path):
+        repo = tmp_path / "repo"
+        await _init_repo(repo, "master")
+        result = await get_default_branch(repo)
+        assert result == "master"
+
+    @pytest.mark.asyncio
+    async def test_no_default_raises(self, tmp_path: Path):
+        repo = tmp_path / "repo"
+        await _init_repo(repo, "develop")
+        with pytest.raises(RuntimeError, match="Cannot determine default branch"):
+            await get_default_branch(repo)
 
 
 class TestLoadRegistry:
@@ -83,7 +133,7 @@ class TestCheckIsolation:
     async def test_no_conflict(self, tmp_path: Path):
         reg = WorktreeRegistry()
         wt_path = tmp_path / "project-wt-1"
-        await check_isolation(reg, "feature-branch", wt_path, str(tmp_path))
+        await check_isolation(reg, "wf-new-1-1000", "feature-branch", wt_path, str(tmp_path))
 
     @pytest.mark.asyncio
     async def test_duplicate_branch(self, tmp_path: Path):
@@ -100,7 +150,7 @@ class TestCheckIsolation:
         )
         wt_path = tmp_path / "project-wt-2"
         with pytest.raises(RuntimeError, match="Branch shared-branch already in use"):
-            await check_isolation(reg, "shared-branch", wt_path, str(tmp_path))
+            await check_isolation(reg, "wf-other-2-2000", "shared-branch", wt_path, str(tmp_path))
 
     @pytest.mark.asyncio
     async def test_duplicate_path(self, tmp_path: Path):
@@ -117,11 +167,47 @@ class TestCheckIsolation:
         )
         wt_path = Path("/tmp/test-wt-1")
         with pytest.raises(RuntimeError, match=r"Worktree path .* already in use"):
-            await check_isolation(reg, "branch-b", wt_path, str(tmp_path))
+            await check_isolation(reg, "wf-other-2-2000", "branch-b", wt_path, str(tmp_path))
 
     @pytest.mark.asyncio
     async def test_main_working_copy_rejected(self, tmp_path: Path):
         reg = WorktreeRegistry()
         wt_path = tmp_path / "project"  # No -wt- suffix
         with pytest.raises(RuntimeError, match="main working copy"):
-            await check_isolation(reg, "some-branch", wt_path, str(tmp_path))
+            await check_isolation(reg, "wf-new-1-1000", "some-branch", wt_path, str(tmp_path))
+
+    @pytest.mark.asyncio
+    async def test_same_workflow_allowed(self, tmp_path: Path):
+        """Same workflow re-registering should not raise."""
+        reg = WorktreeRegistry(
+            worktrees={
+                "wf-test-1-1000": WorktreeEntry(
+                    project="test",
+                    issue=1,
+                    branch="feat-1",
+                    path="/tmp/test-wt-1",
+                    created_at="2026-01-01T00:00:00Z",
+                )
+            }
+        )
+        wt_path = Path("/tmp/test-wt-1")
+        # Same workflow_id, same branch — should NOT raise
+        await check_isolation(reg, "wf-test-1-1000", "feat-1", wt_path, str(tmp_path))
+
+    @pytest.mark.asyncio
+    async def test_different_workflow_same_branch_rejected(self, tmp_path: Path):
+        """Different workflow using same branch should raise."""
+        reg = WorktreeRegistry(
+            worktrees={
+                "wf-test-1-1000": WorktreeEntry(
+                    project="test",
+                    issue=1,
+                    branch="feat-1",
+                    path="/tmp/test-wt-1",
+                    created_at="2026-01-01T00:00:00Z",
+                )
+            }
+        )
+        wt_path = tmp_path / "project-wt-2"
+        with pytest.raises(RuntimeError, match="Branch feat-1 already in use"):
+            await check_isolation(reg, "wf-test-2-2000", "feat-1", wt_path, str(tmp_path))

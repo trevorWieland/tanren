@@ -6,13 +6,13 @@ Execute the demo plan and validate it works. If it fails, investigate and route 
 
 ## Important Guidelines
 
+- **IMPORTANT: Do NOT edit these files — they are read-only during orchestration: spec.md, plan.md, progress.json, .gitignore.**
 - Execute the demo — don't just read it and say it looks good
 - **[RUN] steps MUST be executed.** You do not get to decide a [RUN] step "can't run" — that decision was made during shape-spec, and the environment was verified at that time. If a [RUN] step fails to execute, that's a FAIL and a blocker.
 - **[SKIP] steps** were marked during shaping because the environment couldn't support them (probe failed). Skip them entirely — do not attempt to execute, do not count toward pass or fail.
 - If a step fails, investigate the root cause before adding tasks
 - If tests pass but the demo fails, that's a test gap — identify what's missing
-- Never fix code directly — add tasks to plan.md for do-task to pick up
-- Never modify spec.md
+- Never fix code directly — route fix tasks through the orchestration system
 - Signposts must include evidence
 
 ## Prerequisites
@@ -89,10 +89,7 @@ For each failed step:
    - **Evidence:** what the expected outcome was vs what happened
    - **Root cause:** the root cause (or best hypothesis if uncertain)
    - **Files affected:** which files/functions are involved
-5. **Add tasks to plan.md** for do-task to fix:
-   - If a test gap was found: add a task to write the missing test(s) first, then a task to fix the underlying issue
-   - If the code is simply wrong: add a task describing the fix needed
-   - Each new task must be specific enough for do-task to act on without ambiguity
+5. **Record findings** — the orchestration system will route fix tasks based on the demo signal (pass/fail) and investigation findings in the signpost.
 
 ### Step 5: Record Results
 
@@ -125,10 +122,10 @@ If audit-log.md doesn't exist, create it with the standard header.
 
 ### Step 7: Commit
 
-Commit demo.md, audit-log.md, signposts.md, and plan.md changes:
+Commit demo.md, audit-log.md, and signposts.md changes:
 
 ```
-git add demo.md audit-log.md signposts.md plan.md
+git add demo.md audit-log.md signposts.md
 git commit -m "Demo run N: PASS|FAIL"
 ```
 
@@ -144,8 +141,8 @@ Print one of these exit signals (machine-readable):
 
 ## Does NOT
 
-- Fix code itself (it adds tasks for do-task to pick up)
-- Modify spec.md
+- Fix code itself (findings route through the orchestration system)
+- Modify spec.md, plan.md, progress.json, or .gitignore
 - Push or touch GitHub
 - Score rubrics (that's audit-spec)
 - Skip investigation — every failure must be diagnosed before adding tasks

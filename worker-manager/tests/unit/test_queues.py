@@ -77,6 +77,37 @@ class TestDispatchRouter:
         await router.stop()
         assert "bash" in handled
 
+    def test_get_stats_idle(self):
+        async def handler(path: Path, dispatch: Dispatch) -> None:
+            pass
+
+        router = DispatchRouter(handler, max_opencode=1, max_codex=1, max_gate=3)
+        active, queued = router.get_stats()
+        assert active == 0
+        assert queued == 0
+
+    @pytest.mark.asyncio
+    async def test_get_stats_with_queued(self):
+        gate = asyncio.Event()
+
+        async def handler(path: Path, dispatch: Dispatch) -> None:
+            await gate.wait()
+
+        router = DispatchRouter(handler, max_opencode=1, max_codex=1, max_gate=3)
+        router.start_consumers()
+
+        # Route one opencode dispatch (will be picked up and block on gate)
+        router.route(Path("/tmp/test.json"), _make_dispatch(Cli.OPENCODE))
+        await asyncio.sleep(0.05)
+
+        active, queued = router.get_stats()
+        assert active == 1  # opencode is acquired
+        assert queued == 0
+
+        gate.set()
+        await asyncio.sleep(0.05)
+        await router.stop()
+
     @pytest.mark.asyncio
     async def test_parallel_gates(self):
         """Gates should run in parallel up to max_gate limit."""

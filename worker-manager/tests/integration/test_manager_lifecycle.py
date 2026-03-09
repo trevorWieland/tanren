@@ -163,6 +163,19 @@ class TestManagerLifecycle:
         assert nudge_inner["type"] == "workflow_result"
         assert nudge_inner["workflow_id"] == "wf-test-project-1-1000"
 
+        # Verify health file exists
+        health_file = ipc_dir / "worker-health.json"
+        assert health_file.exists()
+        import json as _json
+
+        health = _json.loads(health_file.read_text())
+        assert health["alive"] is True
+        assert "last_poll" in health
+        assert "pid" in health
+
+        # Verify gate result has pushed=None
+        assert gate_result.pushed is None
+
         # Shutdown
         manager._signal_shutdown()
         await asyncio.wait_for(manager_task, timeout=5)

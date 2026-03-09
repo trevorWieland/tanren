@@ -3,18 +3,27 @@
 import asyncio
 import contextlib
 import logging
+import os
 import signal
+from datetime import UTC, datetime
 from pathlib import Path
 
 from worker_manager.config import Config
+from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from worker_manager.heartbeat import HeartbeatWriter
-from worker_manager.ipc import delete_file, scan_dispatch_dir, write_nudge, write_result
+from worker_manager.ipc import (
+    atomic_write,
+    delete_file,
+    scan_dispatch_dir,
+    write_nudge,
+    write_result,
+)
 from worker_manager.metrics import (
     compute_plan_hash,
     count_unchecked_tasks,
-    guard_spec_md,
-    snapshot_spec,
 )
+from worker_manager.postflight import run_postflight
+from worker_manager.preflight import run_preflight
 from worker_manager.process import spawn_process
 from worker_manager.queues import DispatchRouter
 from worker_manager.schemas import (
@@ -23,6 +32,7 @@ from worker_manager.schemas import (
     Outcome,
     Phase,
     Result,
+    WorkerHealth,
     parse_issue_from_workflow_id,
 )
 from worker_manager.signals import extract_signal, map_outcome
@@ -30,10 +40,11 @@ from worker_manager.worktree import (
     cleanup_worktree,
     create_worktree,
     register_worktree,
-    validate_worktree,
 )
 
 logger = logging.getLogger(__name__)
+
+_PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase.AUDIT_SPEC})
 
 
 class WorkerManager:
@@ -79,6 +90,8 @@ class WorkerManager:
 
         # Startup recovery: clean stale heartbeats
         await self._heartbeat.cleanup_stale()
+
+        self._started_at = datetime.now(UTC).isoformat()
 
         # Start consumer tasks
         self._router.start_consumers()
@@ -128,9 +141,25 @@ class WorkerManager:
                 except Exception:
                     logger.exception("Error in poll loop")
 
+                # Write health file at end of each poll cycle
+                await self._write_health()
+
                 await asyncio.sleep(self._config.poll_interval)
         except asyncio.CancelledError:
             pass
+
+    async def _write_health(self) -> None:
+        """Write worker-health.json to IPC dir."""
+        active, queued = self._router.get_stats()
+        health = WorkerHealth(
+            pid=os.getpid(),
+            started_at=self._started_at,
+            last_poll=datetime.now(UTC).isoformat(),
+            active_processes=active,
+            queued_dispatches=queued,
+        )
+        health_path = Path(self._config.ipc_dir) / "worker-health.json"
+        await atomic_write(health_path, health.model_dump_json(indent=2))
 
     async def _handle_dispatch(self, path: Path, dispatch: Dispatch) -> None:
         """Handle a single dispatch through its full lifecycle."""
@@ -272,51 +301,102 @@ class WorkerManager:
         dispatch_stem: str,
         worktree_path: Path,
     ) -> None:
-        """Handle agent/gate phases: validate, spawn, extract, report."""
+        """Handle agent/gate phases: preflight, spawn, postflight, report."""
         import time
-
-        # Validate worktree
-        await validate_worktree(worktree_path, dispatch.branch)
 
         spec_folder_path = worktree_path / dispatch.spec_folder
 
-        # Snapshot spec.md + backup (for integrity guard)
-        spec_path = spec_folder_path / "spec.md"
-        original_md5, backup_content = await snapshot_spec(spec_path)
+        # Pre-flight checks (replaces validate_worktree + manual snapshot + status clear)
+        preflight = await run_preflight(
+            worktree_path, dispatch.branch, spec_folder_path, dispatch.phase.value
+        )
+        if not preflight.passed:
+            result = Result(
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase,
+                outcome=Outcome.ERROR,
+                signal=None,
+                exit_code=-1,
+                duration_secs=0,
+                gate_output=None,
+                tail_output=preflight.error,
+                unchecked_tasks=0,
+                plan_hash="00000000",
+                spec_modified=False,
+            )
+            await self._write_result_and_nudge(result, dispatch.workflow_id)
+            return
 
-        # Clear .agent-status file
-        status_file = spec_folder_path / ".agent-status"
-        if status_file.exists():
-            status_file.unlink()
+        if preflight.repairs:
+            logger.info("Preflight repairs: %s", preflight.repairs)
 
         # Start heartbeat
         await self._heartbeat.start(dispatch_stem)
 
         start = time.monotonic()
+        transient_retries = 0
         try:
-            # Spawn process
-            proc_result = await spawn_process(dispatch, worktree_path, self._config)
+            while True:
+                # Spawn process
+                proc_result = await spawn_process(dispatch, worktree_path, self._config)
 
-            # Extract signal
-            command_name = dispatch.phase.value
-            raw_signal = extract_signal(
-                dispatch.phase, command_name, spec_folder_path, proc_result.stdout
-            )
+                # Extract signal
+                command_name = dispatch.phase.value
+                raw_signal = extract_signal(
+                    dispatch.phase, command_name, spec_folder_path, proc_result.stdout
+                )
 
-            # Guard spec.md integrity
-            spec_modified = await guard_spec_md(spec_path, original_md5, backup_content)
+                # Map outcome
+                outcome, signal = map_outcome(
+                    dispatch.phase,
+                    raw_signal,
+                    proc_result.exit_code,
+                    proc_result.timed_out,
+                )
 
-            # Compute plan.md metrics
+                # Transient error retry
+                if outcome in (Outcome.ERROR, Outcome.TIMEOUT):
+                    stderr_text = ""
+                    error_class = classify_error(
+                        proc_result.exit_code,
+                        proc_result.stdout or "",
+                        stderr_text,
+                        signal,
+                    )
+                    if (
+                        error_class == ErrorClass.TRANSIENT
+                        and transient_retries < 3
+                    ):
+                        transient_retries += 1
+                        logger.warning(
+                            "Transient error (attempt %d/3), retrying in %ds",
+                            transient_retries,
+                            TRANSIENT_BACKOFF[transient_retries - 1],
+                        )
+                        await asyncio.sleep(
+                            TRANSIENT_BACKOFF[transient_retries - 1]
+                        )
+                        continue
+                    elif (
+                        error_class == ErrorClass.AMBIGUOUS
+                        and transient_retries < 1
+                    ):
+                        transient_retries += 1
+                        logger.warning(
+                            "Ambiguous error, retrying once in 10s"
+                        )
+                        await asyncio.sleep(10)
+                        continue
+
+                # Not retrying — break out of loop
+                break
+
+            duration = int(time.monotonic() - start)
+
+            # Compute plan.md metrics (backward compat for coordinator)
             plan_path = spec_folder_path / "plan.md"
             unchecked = await count_unchecked_tasks(plan_path)
             plan_hash = await compute_plan_hash(plan_path)
-
-            # Map outcome
-            outcome, signal = map_outcome(
-                dispatch.phase, raw_signal, proc_result.exit_code, proc_result.timed_out
-            )
-
-            duration = int(time.monotonic() - start)
 
             # Build gate_output (last 100 lines for gate phases)
             gate_output = None
@@ -330,6 +410,37 @@ class WorkerManager:
                 lines = proc_result.stdout.strip().split("\n")
                 tail_output = "\n".join(lines[-50:])
 
+            # Post-flight integrity checks + push (replaces guard_spec_md + manual push)
+            pushed: bool | None = None
+            integrity_repairs: dict | None = None
+            spec_modified = False
+            if dispatch.phase in _PUSH_PHASES:
+                if outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
+                    postflight = await run_postflight(
+                        worktree_path,
+                        dispatch.branch,
+                        dispatch.phase.value,
+                        preflight.file_hashes,
+                        preflight.file_backups,
+                    )
+                    pushed = postflight.pushed
+                    integrity_repairs = postflight.integrity_repairs
+                    spec_modified = postflight.integrity_repairs.get(
+                        "spec_reverted", False
+                    )
+                    if not postflight.pushed and postflight.push_error:
+                        if tail_output:
+                            tail_output += (
+                                f"\n\n--- git push failed ---\n"
+                                f"{postflight.push_error}"
+                            )
+                        else:
+                            tail_output = (
+                                f"git push failed: {postflight.push_error}"
+                            )
+                else:
+                    pushed = None
+
             result = Result(
                 workflow_id=dispatch.workflow_id,
                 phase=dispatch.phase,
@@ -342,6 +453,8 @@ class WorkerManager:
                 unchecked_tasks=unchecked,
                 plan_hash=plan_hash,
                 spec_modified=spec_modified,
+                pushed=pushed,
+                integrity_repairs=integrity_repairs,
             )
 
         except Exception as e:

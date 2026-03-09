@@ -30,6 +30,9 @@ class DispatchRouter:
         max_gate: int = 3,
     ) -> None:
         self._handler = handler
+        self._max_opencode = max_opencode
+        self._max_codex = max_codex
+        self._max_gate = max_gate
         self._opencode_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
         self._codex_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
         self._gate_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
@@ -104,6 +107,20 @@ class DispatchRouter:
 
             task = asyncio.create_task(_run(), name=f"gate-{path.stem}")
             self._tasks.append(task)
+
+    def get_stats(self) -> tuple[int, int]:
+        """Return (active_processes, queued_dispatches) across all lanes."""
+        active = (
+            (self._max_opencode - self._opencode_sem._value)
+            + (self._max_codex - self._codex_sem._value)
+            + (self._max_gate - self._gate_sem._value)
+        )
+        queued = (
+            self._opencode_queue.qsize()
+            + self._codex_queue.qsize()
+            + self._gate_queue.qsize()
+        )
+        return active, queued
 
     async def stop(self) -> None:
         """Cancel all consumer tasks."""

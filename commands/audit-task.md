@@ -6,10 +6,10 @@ Audit the most recently completed task. Lightweight, focused, fast. Fully autono
 
 ## Important Guidelines
 
+- **IMPORTANT: Do NOT edit these files: spec.md, progress.json, .gitignore. Do NOT check or uncheck task checkboxes in plan.md.**
 - Audit only the most recent task — not the full spec
 - Be specific in citations — file:line references and standard rule names
-- If issues found, uncheck the task and add concrete fix items — don't just describe what's wrong
-- Never modify spec.md
+- If issues found, add concrete fix items to plan.md — don't just describe what's wrong
 - Signposts must include evidence (exact errors, code snippets, or command output)
 
 ## Prerequisites
@@ -84,15 +84,14 @@ Do NOT check:
 - Skip to Step 8 (Update Audit Log)
 
 **If issues are found:**
-1. Uncheck the task: `[x]` → `[ ]` in plan.md
-2. Append specific fix items as indented `[ ]` entries below the task:
+1. Append specific fix items as indented `[ ]` entries below the task in plan.md:
    ```
-   - [ ] Task 6: Use OpenRouterModel for OpenRouter endpoints
+   - [x] Task 6: Use OpenRouterModel for OpenRouter endpoints
      - [ ] Fix: Missing type annotation on routing_settings field (audit round N)
      - [ ] Fix: Dead import of PromptedOutput in runtime.py:3 (audit round N)
    ```
-3. Each fix item must be specific enough that do-task can address it without ambiguity. Include file:line references.
-4. If a related signpost exists, reference it: `(see signposts.md: Task N, <problem summary>)`
+2. Each fix item must be specific enough that do-task can address it without ambiguity. Include file:line references.
+3. If a related signpost exists, reference it: `(see signposts.md: Task N, <problem summary>)`
 
 ### Step 7: Signpost (If Needed)
 
@@ -149,7 +148,7 @@ Print one of these exit signals (machine-readable):
 - Run the demo or verification gates (orchestrator handles gates)
 - Fix code (it adds fix items for do-task)
 - Push, create PRs, or touch GitHub
-- Modify spec.md
+- Modify spec.md, progress.json, or .gitignore
 
 ## Workflow
 

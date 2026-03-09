@@ -4,11 +4,13 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import secrets
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
-from worker_manager.schemas import Dispatch, Nudge, Result
+from worker_manager.schemas import Dispatch, Nudge, ProgressState, Result, TaskState
 
 
 def generate_filename() -> str:
@@ -90,3 +92,39 @@ async def delete_file(path: Path) -> None:
             path.unlink()
 
     await asyncio.to_thread(_delete)
+
+
+async def read_progress(path: Path) -> ProgressState:
+    """Read and parse progress.json."""
+
+    def _read() -> ProgressState:
+        content = path.read_text()
+        return ProgressState.model_validate_json(content)
+
+    return await asyncio.to_thread(_read)
+
+
+async def write_progress(path: Path, state: ProgressState) -> None:
+    """Write progress.json atomically, updating updated_at."""
+    state.updated_at = datetime.now(UTC).isoformat()
+    await atomic_write(path, state.model_dump_json(indent=2))
+
+
+async def init_progress_from_plan(plan_md_path: Path, spec_id: str) -> ProgressState:
+    """Parse plan.md for '- [ ] Task N: {title}' lines, create ProgressState."""
+
+    def _parse() -> ProgressState:
+        content = plan_md_path.read_text()
+        tasks = []
+        for match in re.finditer(
+            r"^\s*- \[[ x]\] Task (\d+):\s*(.+)$", content, re.MULTILINE
+        ):
+            tasks.append(
+                TaskState(id=int(match.group(1)), title=match.group(2).strip())
+            )
+        now = datetime.now(UTC).isoformat()
+        return ProgressState(
+            spec_id=spec_id, created_at=now, updated_at=now, tasks=tasks
+        )
+
+    return await asyncio.to_thread(_parse)

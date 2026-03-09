@@ -10,11 +10,23 @@ from worker_manager.ipc import (
     atomic_write,
     delete_file,
     generate_filename,
+    init_progress_from_plan,
+    read_progress,
     scan_dispatch_dir,
     write_nudge,
+    write_progress,
     write_result,
 )
-from worker_manager.schemas import Dispatch, Nudge, Outcome, Phase, Result
+from worker_manager.schemas import (
+    Dispatch,
+    Nudge,
+    Outcome,
+    Phase,
+    ProgressState,
+    Result,
+    TaskState,
+    TaskStatus,
+)
 
 
 class TestGenerateFilename:
@@ -164,3 +176,115 @@ class TestDeleteFile:
     @pytest.mark.asyncio
     async def test_ignores_missing(self, tmp_path: Path):
         await delete_file(tmp_path / "nonexistent.json")  # Should not raise
+
+
+class TestReadProgress:
+    @pytest.mark.asyncio
+    async def test_read_valid(self, tmp_path: Path):
+        state = ProgressState(
+            spec_id="s0146",
+            created_at="2026-03-08T10:00:00Z",
+            updated_at="2026-03-08T10:00:00Z",
+            tasks=[TaskState(id=1, title="Setup")],
+        )
+        path = tmp_path / "progress.json"
+        path.write_text(state.model_dump_json(indent=2))
+
+        loaded = await read_progress(path)
+        assert loaded.spec_id == "s0146"
+        assert len(loaded.tasks) == 1
+        assert loaded.tasks[0].title == "Setup"
+
+
+class TestWriteProgress:
+    @pytest.mark.asyncio
+    async def test_write_and_updated_at(self, tmp_path: Path):
+        state = ProgressState(
+            spec_id="s0146",
+            created_at="2026-03-08T10:00:00Z",
+            updated_at="2026-03-08T10:00:00Z",
+            tasks=[TaskState(id=1, title="Setup")],
+        )
+        path = tmp_path / "progress.json"
+        old_updated = state.updated_at
+
+        await write_progress(path, state)
+
+        assert path.exists()
+        loaded = json.loads(path.read_text())
+        assert loaded["spec_id"] == "s0146"
+        # updated_at should have changed
+        assert loaded["updated_at"] != old_updated
+
+
+class TestInitProgressFromPlan:
+    @pytest.mark.asyncio
+    async def test_standard_tasks(self, tmp_path: Path):
+        plan = tmp_path / "plan.md"
+        plan.write_text(
+            "# Plan\n\n"
+            "- [ ] Task 1: Save spec documentation\n"
+            "- [ ] Task 2: Implement core logic\n"
+            "- [ ] Task 3: Add tests\n"
+        )
+        state = await init_progress_from_plan(plan, "s0146")
+        assert state.spec_id == "s0146"
+        assert len(state.tasks) == 3
+        assert state.tasks[0].id == 1
+        assert state.tasks[0].title == "Save spec documentation"
+        assert state.tasks[2].id == 3
+
+    @pytest.mark.asyncio
+    async def test_mixed_checked_unchecked(self, tmp_path: Path):
+        plan = tmp_path / "plan.md"
+        plan.write_text(
+            "- [x] Task 1: Done task\n"
+            "- [ ] Task 2: Pending task\n"
+            "- [x] Task 3: Also done\n"
+        )
+        state = await init_progress_from_plan(plan, "s0001")
+        assert len(state.tasks) == 3
+        # All tasks are captured regardless of checkbox state
+        assert state.tasks[0].title == "Done task"
+        assert state.tasks[1].title == "Pending task"
+
+    @pytest.mark.asyncio
+    async def test_indented_fix_items_not_matched(self, tmp_path: Path):
+        """Indented fix items should not be parsed as tasks."""
+        plan = tmp_path / "plan.md"
+        plan.write_text(
+            "- [x] Task 1: Main task\n"
+            "  - [ ] Fix: Some fix item (audit round 1)\n"
+            "- [ ] Task 2: Another task\n"
+        )
+        state = await init_progress_from_plan(plan, "s0001")
+        # Fix items don't match "Task N:" pattern, only 2 tasks
+        assert len(state.tasks) == 2
+
+    @pytest.mark.asyncio
+    async def test_empty_plan(self, tmp_path: Path):
+        plan = tmp_path / "plan.md"
+        plan.write_text("# Plan\n\nNo tasks here.\n")
+        state = await init_progress_from_plan(plan, "s0001")
+        assert len(state.tasks) == 0
+
+
+class TestProgressRoundtrip:
+    @pytest.mark.asyncio
+    async def test_write_then_read(self, tmp_path: Path):
+        state = ProgressState(
+            spec_id="s0146",
+            created_at="2026-03-08T10:00:00Z",
+            updated_at="2026-03-08T10:00:00Z",
+            tasks=[
+                TaskState(id=1, title="Setup", status=TaskStatus.COMPLETED),
+                TaskState(id=2, title="Build", status=TaskStatus.IN_PROGRESS, attempts=2),
+            ],
+        )
+        path = tmp_path / "progress.json"
+        await write_progress(path, state)
+        loaded = await read_progress(path)
+        assert loaded.spec_id == state.spec_id
+        assert len(loaded.tasks) == 2
+        assert loaded.tasks[0].status == TaskStatus.COMPLETED
+        assert loaded.tasks[1].attempts == 2

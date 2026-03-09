@@ -36,6 +36,65 @@ class Outcome(StrEnum):
     TIMEOUT = "timeout"
 
 
+class TaskStatus(StrEnum):
+    """Progress tracking status for individual tasks."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    GATE_PASSED = "gate_passed"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+class GateResult(BaseModel):
+    """Record of a single gate execution for a task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempt: int
+    passed: bool
+    must_pass_failures: list[str] = Field(default_factory=list)
+    unexpected_passes: list[str] = Field(default_factory=list)
+
+
+class AuditResult(BaseModel):
+    """Record of a single audit execution for a task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempt: int
+    signal: str | None
+    findings: list = Field(default_factory=list)
+
+
+class TaskState(BaseModel):
+    """State of a single task in progress.json."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    title: str
+    status: TaskStatus = TaskStatus.PENDING
+    attempts: int = 0
+    gate_results: list[GateResult] = Field(default_factory=list)
+    audit_results: list[AuditResult] = Field(default_factory=list)
+    gate_expectations: dict | None = None
+    source: str | None = None
+
+
+class ProgressState(BaseModel):
+    """Full progress.json state for a spec's orchestration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec_id: str
+    version: int = 1
+    created_at: str
+    updated_at: str
+    tasks: list[TaskState]
+
+
 class Dispatch(BaseModel):
     """Dispatch schema from PROTOCOL.md Section 2."""
 
@@ -71,6 +130,16 @@ class Result(BaseModel):
     unchecked_tasks: int = Field(description="Count of unchecked Task N lines in plan.md")
     plan_hash: str = Field(description="MD5 of plan.md (first 8 hex chars)")
     spec_modified: bool = Field(description="True if spec.md was modified and reverted")
+    pushed: bool | None = Field(
+        default=None,
+        description="True if git push succeeded after agent phase, null for gates/setup/cleanup",
+    )
+    integrity_repairs: dict | None = Field(
+        default=None, description="Post-flight integrity repair actions"
+    )
+    new_tasks: list[dict] = Field(
+        default_factory=list, description="Tasks to add from audit findings"
+    )
 
 
 class Nudge(BaseModel):
@@ -80,6 +149,17 @@ class Nudge(BaseModel):
 
     type: str = Field(default="workflow_result", description="Nudge type identifier")
     workflow_id: str = Field(description="Workflow that produced the result")
+
+
+class WorkerHealth(BaseModel):
+    """Worker manager health status, written each poll cycle."""
+
+    alive: bool = Field(default=True)
+    pid: int
+    started_at: str
+    last_poll: str
+    active_processes: int
+    queued_dispatches: int
 
 
 class WorktreeEntry(BaseModel):

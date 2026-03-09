@@ -6,11 +6,12 @@ Pick up the next unchecked task from the plan, implement it, verify it, and comm
 
 ## Important Guidelines
 
+- **IMPORTANT: Do NOT edit these files — they are read-only during orchestration: spec.md, plan.md, progress.json, .gitignore.**
+- You do not need to check off tasks in plan.md. Task completion is tracked automatically by the orchestration system.
 - Autonomous execution — no shaping or interviewing
 - One task per invocation — implement, verify, commit, exit
 - **CRITICAL: `make check` must pass before you mark a task complete.** Run it, read every error, fix them all, and re-run until green. The orchestrator re-runs this gate externally — if it fails, you'll be called back to fix it, wasting a full cycle.
 - Read signposts before starting — but verify claims against their evidence before trusting them
-- Never modify spec.md — acceptance criteria and non-negotiables are immutable
 - Keep changes scoped to the current task
 
 ## Prerequisites
@@ -70,13 +71,7 @@ This typically runs format, lint, typecheck, and unit tests.
 - If it fails: read the error output, fix the issue, and re-run. Repeat until green. This self-fix avoids a full loop restart for trivial issues like formatting or type errors.
 - If stuck on a verification failure after reasonable attempts: write a signpost with the exact error output as evidence, and exit as blocked.
 
-### Step 6: Check Off Task
-
-Update plan.md: change `[ ]` to `[x]` for the completed task.
-
-If the task had fix items, check those off too.
-
-### Step 7: Signpost (If Needed)
+### Step 6: Signpost (If Needed)
 
 If you encountered any non-obvious issues, workarounds, or dead ends during implementation, write a signpost to signposts.md. Every signpost must include:
 
@@ -106,7 +101,7 @@ that demonstrates the problem.
 ---
 ```
 
-### Step 8: Commit
+### Step 7: Commit
 
 Create a descriptive commit scoped to this task:
 
@@ -115,9 +110,9 @@ git add [relevant files]
 git commit -m "Task N: [description]"
 ```
 
-Include plan.md (updated checkbox) and signposts.md (if modified) in the commit.
+Include signposts.md (if modified) in the commit.
 
-### Step 9: Exit
+### Step 8: Exit
 
 Print one of these exit signals (machine-readable):
 
@@ -131,7 +126,7 @@ Print one of these exit signals (machine-readable):
 - Run the demo (that's run-demo)
 - Audit its own work (that's audit-task)
 - Create branches, push, or touch GitHub issues
-- Modify spec.md (acceptance criteria and non-negotiables are immutable)
+- Modify spec.md, plan.md, progress.json, or .gitignore (read-only during orchestration)
 - Update roadmap.md
 - Ask the user questions (fully autonomous)
 

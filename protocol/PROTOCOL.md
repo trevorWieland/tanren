@@ -253,7 +253,8 @@ reads, processes, and deletes.
   "tail_output": null,
   "unchecked_tasks": 2,
   "plan_hash": "a3f2b8c1",
-  "spec_modified": false
+  "spec_modified": false,
+  "pushed": true
 }
 ```
 
@@ -272,6 +273,7 @@ reads, processes, and deletes.
 | `unchecked_tasks` | integer | Count of unchecked `- [ ] Task N` lines in plan.md after phase |
 | `plan_hash` | string | MD5 of plan.md after phase (first 8 hex chars) |
 | `spec_modified` | boolean | True if spec.md was modified and reverted |
+| `pushed` | boolean\|null | True if git push succeeded after agent phase, null for gates/setup/cleanup |
 
 ### Outcome Mapping
 

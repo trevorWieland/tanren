@@ -4,12 +4,18 @@ import pytest
 from pydantic import ValidationError
 
 from worker_manager.schemas import (
+    AuditResult,
     Cli,
     Dispatch,
+    GateResult,
     Nudge,
     Outcome,
     Phase,
+    ProgressState,
     Result,
+    TaskState,
+    TaskStatus,
+    WorkerHealth,
     WorktreeEntry,
     WorktreeRegistry,
     parse_issue_from_workflow_id,
@@ -143,9 +149,27 @@ class TestResult:
             unchecked_tasks=2,
             plan_hash="a3f2b8c1",
             spec_modified=False,
+            pushed=True,
         )
         assert r.outcome == Outcome.SUCCESS
         assert r.signal == "complete"
+        assert r.pushed is True
+
+    def test_pushed_defaults_to_none(self):
+        r = Result(
+            workflow_id="wf-rentl-144-1741359600",
+            phase=Phase.SETUP,
+            outcome=Outcome.SUCCESS,
+            signal=None,
+            exit_code=0,
+            duration_secs=1,
+            gate_output=None,
+            tail_output=None,
+            unchecked_tasks=0,
+            plan_hash="00000000",
+            spec_modified=False,
+        )
+        assert r.pushed is None
 
     def test_gate_result_with_output(self):
         r = Result(
@@ -162,6 +186,33 @@ class TestResult:
             spec_modified=False,
         )
         assert r.gate_output is not None
+        assert r.pushed is None
+
+
+class TestWorkerHealth:
+    def test_valid_health(self):
+        h = WorkerHealth(
+            pid=1234,
+            started_at="2026-03-08T10:00:00Z",
+            last_poll="2026-03-08T10:01:00Z",
+            active_processes=1,
+            queued_dispatches=0,
+        )
+        assert h.alive is True
+        assert h.pid == 1234
+        assert h.active_processes == 1
+
+    def test_health_json_roundtrip(self):
+        h = WorkerHealth(
+            pid=5678,
+            started_at="2026-03-08T10:00:00Z",
+            last_poll="2026-03-08T10:02:00Z",
+            active_processes=2,
+            queued_dispatches=3,
+        )
+        json_str = h.model_dump_json()
+        h2 = WorkerHealth.model_validate_json(json_str)
+        assert h == h2
 
 
 class TestNudge:
@@ -208,3 +259,151 @@ class TestParseIssueFromWorkflowId:
     def test_missing_prefix(self):
         with pytest.raises(ValueError):
             parse_issue_from_workflow_id("rentl-144-1741359600")
+
+
+class TestTaskStatus:
+    def test_all_values(self):
+        assert TaskStatus.PENDING == "pending"
+        assert TaskStatus.IN_PROGRESS == "in_progress"
+        assert TaskStatus.GATE_PASSED == "gate_passed"
+        assert TaskStatus.COMPLETED == "completed"
+        assert TaskStatus.BLOCKED == "blocked"
+        assert TaskStatus.FAILED == "failed"
+
+    def test_count(self):
+        assert len(TaskStatus) == 6
+
+
+class TestGateResult:
+    def test_valid(self):
+        g = GateResult(attempt=1, passed=True)
+        assert g.attempt == 1
+        assert g.passed is True
+        assert g.must_pass_failures == []
+        assert g.unexpected_passes == []
+
+    def test_extra_forbid(self):
+        with pytest.raises(ValidationError):
+            GateResult(attempt=1, passed=True, extra="bad")
+
+
+class TestAuditResult:
+    def test_valid(self):
+        a = AuditResult(attempt=1, signal="pass")
+        assert a.signal == "pass"
+        assert a.findings == []
+
+    def test_defaults(self):
+        a = AuditResult(attempt=2, signal=None)
+        assert a.findings == []
+
+
+class TestTaskState:
+    def test_defaults(self):
+        t = TaskState(id=1, title="Setup project")
+        assert t.status == TaskStatus.PENDING
+        assert t.attempts == 0
+        assert t.gate_results == []
+        assert t.audit_results == []
+        assert t.gate_expectations is None
+        assert t.source is None
+
+    def test_status_transitions(self):
+        t = TaskState(id=1, title="Test")
+        t.status = TaskStatus.IN_PROGRESS
+        assert t.status == TaskStatus.IN_PROGRESS
+        t.status = TaskStatus.COMPLETED
+        assert t.status == TaskStatus.COMPLETED
+
+
+class TestProgressState:
+    def test_valid(self):
+        p = ProgressState(
+            spec_id="s0146",
+            created_at="2026-03-08T10:00:00Z",
+            updated_at="2026-03-08T10:00:00Z",
+            tasks=[
+                TaskState(id=1, title="Setup"),
+                TaskState(id=2, title="Implement"),
+            ],
+        )
+        assert p.spec_id == "s0146"
+        assert len(p.tasks) == 2
+        assert p.version == 1
+
+    def test_empty_tasks(self):
+        p = ProgressState(
+            spec_id="s0001",
+            created_at="2026-03-08T10:00:00Z",
+            updated_at="2026-03-08T10:00:00Z",
+            tasks=[],
+        )
+        assert p.tasks == []
+
+    def test_json_roundtrip(self):
+        p = ProgressState(
+            spec_id="s0146",
+            created_at="2026-03-08T10:00:00Z",
+            updated_at="2026-03-08T10:00:00Z",
+            tasks=[TaskState(id=1, title="Setup")],
+        )
+        json_str = p.model_dump_json()
+        p2 = ProgressState.model_validate_json(json_str)
+        assert p == p2
+
+
+class TestResultExtended:
+    def test_integrity_repairs_default(self):
+        """integrity_repairs defaults to None for backward compat."""
+        r = Result(
+            workflow_id="wf-rentl-144-1741359600",
+            phase=Phase.DO_TASK,
+            outcome=Outcome.SUCCESS,
+            signal="complete",
+            exit_code=0,
+            duration_secs=100,
+            gate_output=None,
+            tail_output=None,
+            unchecked_tasks=0,
+            plan_hash="a3f2b8c1",
+            spec_modified=False,
+        )
+        assert r.integrity_repairs is None
+        assert r.new_tasks == []
+
+    def test_integrity_repairs_set(self):
+        r = Result(
+            workflow_id="wf-rentl-144-1741359600",
+            phase=Phase.DO_TASK,
+            outcome=Outcome.SUCCESS,
+            signal="complete",
+            exit_code=0,
+            duration_secs=100,
+            gate_output=None,
+            tail_output=None,
+            unchecked_tasks=0,
+            plan_hash="a3f2b8c1",
+            spec_modified=False,
+            integrity_repairs={"spec_reverted": True},
+            new_tasks=[{"id": 10, "title": "Fix bug"}],
+        )
+        assert r.integrity_repairs["spec_reverted"] is True
+        assert len(r.new_tasks) == 1
+
+    def test_backward_compat_no_new_fields(self):
+        """Constructing without the new fields should work."""
+        r = Result(
+            workflow_id="wf-rentl-144-1741359600",
+            phase=Phase.SETUP,
+            outcome=Outcome.SUCCESS,
+            signal=None,
+            exit_code=0,
+            duration_secs=1,
+            gate_output=None,
+            tail_output=None,
+            unchecked_tasks=0,
+            plan_hash="00000000",
+            spec_modified=False,
+        )
+        assert r.integrity_repairs is None
+        assert r.new_tasks == []

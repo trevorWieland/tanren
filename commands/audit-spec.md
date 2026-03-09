@@ -6,11 +6,11 @@ Bird's-eye audit of the full implementation after all tasks and demo pass. Score
 
 ## Important Guidelines
 
+- **IMPORTANT: Do NOT edit these files: spec.md, progress.json, .gitignore. Do NOT check or uncheck task checkboxes in plan.md.**
 - This is the full-picture audit — check everything, not just the latest task
 - Non-negotiables are hard pass/fail — no exceptions, no caveats
 - Be specific in citations — file:line and standard rule references
 - Write machine-readable status in audit.md so the orchestrator can parse it
-- Never modify spec.md
 - Prefer GitHub issues for deferrals instead of editing roadmap.md
 
 ## Prerequisites
@@ -132,11 +132,10 @@ file — they become orphaned and the task loop cannot track them.
 
 2. **Route to the relevant task.** For each new fix item, identify which
    existing task is responsible for the code/test it targets:
-   - Uncheck the task: `[x]` → `[ ]`
    - Append the fix item as an indented `[ ] Fix:` entry under that task
    - Include file:line citations, the audit round, and a clear fix description
    ```
-   - [ ] Task 7: `rentl benchmark` CLI subcommands
+   - [x] Task 7: `rentl benchmark` CLI subcommands
      - [x] (existing sub-items stay as-is)
      - [ ] Fix: Remove dead `_run_benchmark_async` placeholder path (`main.py:2590`) (audit round 3)
    ```
@@ -269,7 +268,7 @@ The exit signal is the `status:` field in audit.md (machine-readable):
 - Run the demo itself (reads results from demo.md)
 - Push or create PRs
 - Touch roadmap.md
-- Modify spec.md
+- Modify spec.md, progress.json, or .gitignore
 
 ## Success Criteria
 
