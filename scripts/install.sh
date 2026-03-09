@@ -176,6 +176,11 @@ installed: $(date +%Y-%m-%d)
 EOF
 ok "Wrote tanren.yml"
 
+# --- Hint for .env.example migration ---
+if [[ -f ".env.example" ]]; then
+    info "Found .env.example — run 'tanren env init' to scaffold env block in tanren.yml"
+fi
+
 # --- Summary ---
 echo ""
 echo -e "${BOLD}tanren installation complete${NC}"
@@ -194,4 +199,6 @@ if [[ "$MODE" == "fresh" ]]; then
     echo "  1. Review tanren/product/ templates and fill in your project details"
     echo "  2. Review tanren/standards/ and adjust for your project"
     echo "  3. Run /shape-spec to start your first spec"
+    echo "  4. Run 'tanren env check' to validate environment variables"
+    echo "  5. Run 'tanren secret set KEY VALUE' to store secrets in ~/.aegis"
 fi

@@ -5,10 +5,14 @@ description = "Host-level worker manager for tanren autonomous orchestration"
 requires-python = ">=3.14"
 dependencies = [
     "pydantic>=2",
+    "python-dotenv>=1.0",
+    "PyYAML>=6.0",
+    "click>=8.0",
 ]
 
 [project.scripts]
 worker-manager = "worker_manager.__main__:main"
+tanren = "worker_manager.cli:main"
 
 [dependency-groups]
 dev = [

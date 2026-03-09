@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from worker_manager.config import Config
+from worker_manager.env import load_and_validate_env
+from worker_manager.env.reporter import format_report
 from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from worker_manager.heartbeat import HeartbeatWriter
 from worker_manager.ipc import (
@@ -314,6 +316,27 @@ class WorkerManager:
 
         spec_folder_path = worktree_path / dispatch.spec_folder
 
+        # Environment preflight validation
+        env_report, task_env = await load_and_validate_env(worktree_path)
+        if not env_report.passed:
+            result = Result(
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase,
+                outcome=Outcome.ERROR,
+                signal=None,
+                exit_code=-1,
+                duration_secs=0,
+                gate_output=None,
+                tail_output=format_report(
+                    env_report, dispatch.project, str(worktree_path / "tanren.yml")
+                ),
+                unchecked_tasks=0,
+                plan_hash="00000000",
+                spec_modified=False,
+            )
+            await self._write_result_and_nudge(result, dispatch.workflow_id)
+            return
+
         # Pre-flight checks (replaces validate_worktree + manual snapshot + status clear)
         preflight = await run_preflight(
             worktree_path, dispatch.branch, spec_folder_path, dispatch.phase.value
@@ -346,7 +369,9 @@ class WorkerManager:
         try:
             while True:
                 # Spawn process
-                proc_result = await spawn_process(dispatch, worktree_path, self._config)
+                proc_result = await spawn_process(
+                    dispatch, worktree_path, self._config, task_env=task_env or None
+                )
 
                 # Always log process result for agent phases
                 if dispatch.phase not in (Phase.GATE, Phase.SETUP, Phase.CLEANUP):

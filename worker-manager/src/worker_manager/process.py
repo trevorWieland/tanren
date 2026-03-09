@@ -88,21 +88,23 @@ async def spawn_process(
     dispatch: Dispatch,
     worktree_path: Path,
     config: Config,
+    task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn a CLI process based on dispatch.cli type."""
     match dispatch.cli:
         case Cli.OPENCODE:
-            return await _spawn_opencode(dispatch, worktree_path, config)
+            return await _spawn_opencode(dispatch, worktree_path, config, task_env)
         case Cli.CODEX:
-            return await _spawn_codex(dispatch, worktree_path, config)
+            return await _spawn_codex(dispatch, worktree_path, config, task_env)
         case Cli.BASH:
-            return await _spawn_bash(dispatch, worktree_path)
+            return await _spawn_bash(dispatch, worktree_path, task_env)
 
 
 async def _spawn_opencode(
     dispatch: Dispatch,
     worktree_path: Path,
     config: Config,
+    task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn opencode run process."""
     command_name = dispatch.phase.value
@@ -128,7 +130,7 @@ async def _spawn_opencode(
         logger.info("opencode cmd: %s", cmd)
 
         return await _run_with_timeout(
-            cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout
+            cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout, env=task_env
         )
     finally:
         Path(prompt_file_path).unlink(missing_ok=True)
@@ -138,6 +140,7 @@ async def _spawn_codex(
     dispatch: Dispatch,
     worktree_path: Path,
     config: Config,
+    task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn codex exec process."""
     command_name = dispatch.phase.value
@@ -163,7 +166,7 @@ async def _spawn_codex(
     # For codex, discard stdout (noisy), capture last message from -o file
     result = await _run_with_timeout(
         cmd, cwd=worktree_path, stdin_data=prompt, timeout=dispatch.timeout,
-        discard_stdout=True,
+        discard_stdout=True, env=task_env,
     )
 
     # Read the last message file for stdout content
@@ -181,6 +184,7 @@ async def _spawn_codex(
 async def _spawn_bash(
     dispatch: Dispatch,
     worktree_path: Path,
+    task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn bash gate process."""
     if not dispatch.gate_cmd:
@@ -191,7 +195,7 @@ async def _spawn_bash(
     cmd = ["bash", "-c", dispatch.gate_cmd]
 
     return await _run_with_timeout(
-        cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout
+        cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout, env=task_env
     )
 
 
@@ -201,17 +205,24 @@ async def _run_with_timeout(
     stdin_data: str | None,
     timeout: int,
     discard_stdout: bool = False,
+    env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Run a process with timeout handling.
 
     Uses start_new_session=True (equiv of setsid).
     On timeout: SIGTERM -> 5s grace -> SIGKILL via os.killpg.
+    If env is provided, merges os.environ | env (env wins) so PATH/HOME etc. are preserved.
     """
     import time
 
     start_time = time.monotonic()
 
     stdout_target = asyncio.subprocess.DEVNULL if discard_stdout else asyncio.subprocess.PIPE
+
+    # Merge env: os.environ as base, task_env overrides
+    proc_env = None
+    if env:
+        proc_env = {**os.environ, **env}
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -220,6 +231,7 @@ async def _run_with_timeout(
         stdout=stdout_target,
         stderr=asyncio.subprocess.STDOUT if not discard_stdout else asyncio.subprocess.DEVNULL,
         start_new_session=True,
+        env=proc_env,
     )
 
     timed_out = False

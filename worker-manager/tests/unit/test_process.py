@@ -150,7 +150,7 @@ class TestSpawnOpencode:
 
         captured_file_path = None
 
-        async def fake_run(cmd, *, cwd, stdin_data, timeout):
+        async def fake_run(cmd, *, cwd, stdin_data, timeout, **kwargs):
             nonlocal captured_file_path
             # Find the file path after -f flag
             f_idx = cmd.index("-f")
@@ -176,7 +176,7 @@ class TestSpawnOpencode:
 
         captured_file_path = None
 
-        async def fake_run(cmd, *, cwd, stdin_data, timeout):
+        async def fake_run(cmd, *, cwd, stdin_data, timeout, **kwargs):
             nonlocal captured_file_path
             f_idx = cmd.index("-f")
             captured_file_path = cmd[f_idx + 1]
@@ -201,7 +201,7 @@ class TestSpawnOpencode:
 
         captured_file_path = None
 
-        async def fake_run(cmd, *, cwd, stdin_data, timeout):
+        async def fake_run(cmd, *, cwd, stdin_data, timeout, **kwargs):
             nonlocal captured_file_path
             f_idx = cmd.index("-f")
             captured_file_path = cmd[f_idx + 1]
