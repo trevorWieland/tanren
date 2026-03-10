@@ -186,6 +186,9 @@ class Dispatch(BaseModel):
     gate_cmd: str | None = Field(description="Shell command for gate phases, null for agent phases")
     context: str | None = Field(description="Extra context passed to the agent")
     timeout: int = Field(description="Maximum execution time in seconds")
+    environment_profile: str = Field(
+        default="default", description="Environment profile from tanren.yml"
+    )
 
 
 class Result(BaseModel):
