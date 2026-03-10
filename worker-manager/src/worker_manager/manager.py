@@ -137,6 +137,15 @@ class WorkerManager:
         self._env_validator = env_validator or DotenvEnvValidator()
         self._env_provisioner = env_provisioner or DotenvEnvProvisioner()
 
+        # Event emitter — auto-configure from config if not injected
+        # Must be initialized before execution environment (remote env references it)
+        if emitter is not None:
+            self._emitter: EventEmitter = emitter
+        elif self._config.events_db:
+            self._emitter = SqliteEventEmitter(self._config.events_db)
+        else:
+            self._emitter = NullEventEmitter()
+
         # Build execution environment — use injected or construct from config
         if execution_env is not None:
             self._execution_env = execution_env
@@ -151,14 +160,6 @@ class WorkerManager:
                 heartbeat=self._heartbeat,
                 config=self._config,
             )
-
-        # Event emitter — auto-configure from config if not injected
-        if emitter is not None:
-            self._emitter: EventEmitter = emitter
-        elif self._config.events_db:
-            self._emitter = SqliteEventEmitter(self._config.events_db)
-        else:
-            self._emitter = NullEventEmitter()
 
     async def run(self) -> None:
         """Main entry point: setup, poll loop, shutdown."""
@@ -332,7 +333,6 @@ class WorkerManager:
             emitter=self._emitter,
             ssh_config_defaults=ssh_defaults,
             repo_urls=remote_cfg.repos,
-            bootstrap_extra_script=extra_script,
         )
 
     async def _recover_vm_state(self) -> None:

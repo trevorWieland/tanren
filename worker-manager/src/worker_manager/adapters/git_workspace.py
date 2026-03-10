@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 from dataclasses import dataclass
 
 from worker_manager.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
@@ -71,8 +72,8 @@ class GitWorkspaceManager:
             logger.info("Pulling latest for %s on branch %s", spec.project, spec.branch)
             pull_cmd = (
                 f"cd {workspace_dir} && {git_prefix}git fetch origin"
-                f" && git checkout {spec.branch}"
-                f" && {git_prefix}git pull origin {spec.branch}"
+                f" && git checkout {shlex.quote(spec.branch)}"
+                f" && {git_prefix}git pull origin {shlex.quote(spec.branch)}"
             )
             result = await conn.run(pull_cmd, timeout=120)
             if result.exit_code != 0:
@@ -80,10 +81,11 @@ class GitWorkspaceManager:
         else:
             # Clone fresh
             logger.info("Cloning %s branch %s", spec.project, spec.branch)
-            result = await conn.run(
-                f"{git_prefix}git clone --branch {spec.branch} {spec.repo_url} {workspace_dir}",
-                timeout=300,
+            clone_cmd = (
+                f"{git_prefix}git clone --branch {shlex.quote(spec.branch)}"
+                f" {shlex.quote(spec.repo_url)} {workspace_dir}"
             )
+            result = await conn.run(clone_cmd, timeout=300)
             if result.exit_code != 0:
                 raise RuntimeError(f"Git clone failed: {result.stderr}")
 

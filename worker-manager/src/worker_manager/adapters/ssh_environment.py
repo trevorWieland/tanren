@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import time
 import uuid
 from pathlib import Path
@@ -62,7 +63,6 @@ class SSHExecutionEnvironment:
         emitter: EventEmitter,
         ssh_config_defaults: SSHConfig,
         repo_urls: dict[str, str],
-        bootstrap_extra_script: str | None = None,
     ) -> None:
         self._vm_provisioner = vm_provisioner
         self._bootstrapper = bootstrapper
@@ -73,7 +73,6 @@ class SSHExecutionEnvironment:
         self._emitter = emitter
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
-        self._bootstrap_extra_script = bootstrap_extra_script
 
     async def provision(
         self, dispatch: Dispatch, config: Config
@@ -276,7 +275,7 @@ class SSHExecutionEnvironment:
             and outcome not in (Outcome.ERROR, Outcome.TIMEOUT)
         ):
             await conn.run(
-                f"cd {workspace.path} && git push origin {dispatch.branch}",
+                f"cd {workspace.path} && git push origin {shlex.quote(dispatch.branch)}",
                 timeout=120,
             )
 
@@ -405,7 +404,7 @@ class SSHExecutionEnvironment:
             cmd = config.claude_path
             cmd += " -p --dangerously-skip-permissions"
             if dispatch.model:
-                cmd += f" --model {dispatch.model}"
+                cmd += f" --model {shlex.quote(dispatch.model)}"
             cmd += " < .tanren-prompt.md"
             return cmd
         if dispatch.cli.value == "bash":
@@ -416,7 +415,7 @@ class SSHExecutionEnvironment:
             cmd = config.opencode_path
             cmd += " run"
             if dispatch.model:
-                cmd += f" --model {dispatch.model}"
+                cmd += f" --model {shlex.quote(dispatch.model)}"
             cmd += " --dir ."
             cmd += ' "Read the attached file and follow its instructions exactly."'
             cmd += " -f .tanren-prompt.md"
@@ -425,7 +424,7 @@ class SSHExecutionEnvironment:
             cmd = config.codex_path
             cmd += " exec --dangerously-bypass-approvals-and-sandbox"
             if dispatch.model:
-                cmd += f" --model {dispatch.model}"
+                cmd += f" --model {shlex.quote(dispatch.model)}"
             cmd += " -C ."
             cmd += " < .tanren-prompt.md"
             return cmd
