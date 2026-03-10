@@ -59,6 +59,7 @@ class TestEnvCheck:
         result = runner.invoke(env, ["check", "--json"])
         assert result.exit_code == 0
         import json
+
         data = json.loads(result.output)
         assert data["passed"] is True
 

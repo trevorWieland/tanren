@@ -61,7 +61,7 @@ def assemble_prompt(
     command_name: str,
     context: str | None,
 ) -> str:
-    """Assemble prompt from command file + context, matching orchestrate.sh lines 337-350."""
+    """Assembles prompt from command file template with spec folder and context."""
     prompt = command_file.read_text()
 
     extra_context = context or ""
@@ -96,6 +96,8 @@ async def spawn_process(
             return await _spawn_opencode(dispatch, worktree_path, config, task_env)
         case Cli.CODEX:
             return await _spawn_codex(dispatch, worktree_path, config, task_env)
+        case Cli.CLAUDE:
+            return await _spawn_claude(dispatch, worktree_path, config, task_env)
         case Cli.BASH:
             return await _spawn_bash(dispatch, worktree_path, task_env)
 
@@ -110,16 +112,13 @@ async def _spawn_opencode(
     command_name = dispatch.phase.value
     command_file = worktree_path / config.commands_dir / f"{command_name}.md"
 
-    prompt = assemble_prompt(
-        command_file, dispatch.spec_folder, command_name, dispatch.context
-    )
+    prompt = assemble_prompt(command_file, dispatch.spec_folder, command_name, dispatch.context)
 
     with tempfile.NamedTemporaryFile(suffix=".md", delete=False, mode="w") as f:
         f.write(prompt)
         prompt_file_path = f.name
 
     try:
-
         cmd = [config.opencode_path, "run"]
         if dispatch.model:
             cmd.extend(["--model", dispatch.model])
@@ -146,14 +145,14 @@ async def _spawn_codex(
     command_name = dispatch.phase.value
     command_file = worktree_path / config.commands_dir / f"{command_name}.md"
 
-    prompt = assemble_prompt(
-        command_file, dispatch.spec_folder, command_name, dispatch.context
-    )
+    prompt = assemble_prompt(command_file, dispatch.spec_folder, command_name, dispatch.context)
 
-    last_msg_file = tempfile.mktemp(suffix=".txt")
+    fd, last_msg_file = tempfile.mkstemp(suffix=".txt")
+    os.close(fd)
 
     cmd = [
-        config.codex_path, "exec",
+        config.codex_path,
+        "exec",
         "--dangerously-bypass-approvals-and-sandbox",
     ]
     if dispatch.model:
@@ -165,8 +164,12 @@ async def _spawn_codex(
 
     # For codex, discard stdout (noisy), capture last message from -o file
     result = await _run_with_timeout(
-        cmd, cwd=worktree_path, stdin_data=prompt, timeout=dispatch.timeout,
-        discard_stdout=True, env=task_env,
+        cmd,
+        cwd=worktree_path,
+        stdin_data=prompt,
+        timeout=dispatch.timeout,
+        discard_stdout=True,
+        env=task_env,
     )
 
     # Read the last message file for stdout content
@@ -196,6 +199,29 @@ async def _spawn_bash(
 
     return await _run_with_timeout(
         cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout, env=task_env
+    )
+
+
+async def _spawn_claude(
+    dispatch: Dispatch,
+    worktree_path: Path,
+    config: Config,
+    task_env: dict[str, str] | None = None,
+) -> ProcessResult:
+    """Spawn Claude Code process. Uses -p (print mode) with prompt on stdin."""
+    command_name = dispatch.phase.value
+    command_file = worktree_path / config.commands_dir / f"{command_name}.md"
+
+    prompt = assemble_prompt(command_file, dispatch.spec_folder, command_name, dispatch.context)
+
+    cmd = [config.claude_path, "-p", "--dangerously-skip-permissions"]
+    if dispatch.model:
+        cmd.extend(["--model", dispatch.model])
+
+    logger.info("claude cmd: %s", cmd)
+
+    return await _run_with_timeout(
+        cmd, cwd=worktree_path, stdin_data=prompt, timeout=dispatch.timeout, env=task_env
     )
 
 

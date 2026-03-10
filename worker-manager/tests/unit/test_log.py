@@ -28,8 +28,13 @@ class TestTanrenFormatter:
     def test_format_includes_prefix(self):
         formatter = TanrenFormatter()
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="", lineno=0,
-            msg="hello world", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="hello world",
+            args=(),
+            exc_info=None,
         )
         output = formatter.format(record)
         assert output.startswith(PREFIX)

@@ -1,4 +1,4 @@
-"""Dispatch routing: 3 queues + semaphore-gated consumers per PROTOCOL.md Section 7."""
+"""Dispatch routing: 3 role-based lanes + semaphore-gated consumers per PROTOCOL.md Section 7."""
 
 import asyncio
 import logging
@@ -13,54 +13,66 @@ logger = logging.getLogger(__name__)
 # Type alias for dispatch handler
 DispatchHandler = Callable[[Path, Dispatch], Coroutine[Any, Any, None]]
 
+# Maps CLI type to role-based queue lane
+_CLI_QUEUE_MAP: dict[Cli, str] = {
+    Cli.OPENCODE: "impl",
+    Cli.CLAUDE: "impl",
+    Cli.CODEX: "audit",
+    Cli.BASH: "gate",
+}
+
 
 class DispatchRouter:
-    """Routes dispatches to three queues based on CLI type.
+    """Routes dispatches to three role-based queues.
 
-    opencode -> opencode_queue (max 1 concurrent)
-    codex -> codex_queue (max 1 concurrent)
-    bash -> gate_queue (max 3 concurrent)
+    impl  -> impl_queue  (OPENCODE, CLAUDE — max 1 concurrent)
+    audit -> audit_queue (CODEX — max 1 concurrent)
+    gate  -> gate_queue  (BASH — max 3 concurrent)
+
+    Serial consumers for impl/audit ensure one agent process at a time
+    (shared worktree state). Parallel consumer for gates allows concurrent
+    gate checks across different specs.
     """
 
     def __init__(
         self,
         handler: DispatchHandler,
-        max_opencode: int = 1,
-        max_codex: int = 1,
+        max_impl: int = 1,
+        max_audit: int = 1,
         max_gate: int = 3,
     ) -> None:
         self._handler = handler
-        self._max_opencode = max_opencode
-        self._max_codex = max_codex
+        self._max_impl = max_impl
+        self._max_audit = max_audit
         self._max_gate = max_gate
-        self._opencode_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
-        self._codex_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
+        self._impl_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
+        self._audit_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
         self._gate_queue: asyncio.Queue[tuple[Path, Dispatch]] = asyncio.Queue()
-        self._opencode_sem = asyncio.Semaphore(max_opencode)
-        self._codex_sem = asyncio.Semaphore(max_codex)
+        self._impl_sem = asyncio.Semaphore(max_impl)
+        self._audit_sem = asyncio.Semaphore(max_audit)
         self._gate_sem = asyncio.Semaphore(max_gate)
         self._tasks: list[asyncio.Task[None]] = []
 
     def route(self, path: Path, dispatch: Dispatch) -> None:
-        """Route a dispatch to the appropriate queue."""
-        match dispatch.cli:
-            case Cli.OPENCODE:
-                self._opencode_queue.put_nowait((path, dispatch))
-            case Cli.CODEX:
-                self._codex_queue.put_nowait((path, dispatch))
-            case Cli.BASH:
-                self._gate_queue.put_nowait((path, dispatch))
+        """Route a dispatch to the appropriate role-based queue."""
+        lane = _CLI_QUEUE_MAP.get(dispatch.cli)
+        if lane == "impl":
+            self._impl_queue.put_nowait((path, dispatch))
+        elif lane == "audit":
+            self._audit_queue.put_nowait((path, dispatch))
+        elif lane == "gate":
+            self._gate_queue.put_nowait((path, dispatch))
 
     def start_consumers(self) -> list[asyncio.Task[None]]:
         """Start the three consumer coroutines. Returns the tasks."""
         self._tasks = [
             asyncio.create_task(
-                self._consume(self._opencode_queue, self._opencode_sem, "opencode"),
-                name="opencode-consumer",
+                self._consume(self._impl_queue, self._impl_sem, "impl"),
+                name="impl-consumer",
             ),
             asyncio.create_task(
-                self._consume(self._codex_queue, self._codex_sem, "codex"),
-                name="codex-consumer",
+                self._consume(self._audit_queue, self._audit_sem, "audit"),
+                name="audit-consumer",
             ),
             asyncio.create_task(
                 self._consume_parallel(self._gate_queue, self._gate_sem, "gate"),
@@ -111,15 +123,11 @@ class DispatchRouter:
     def get_stats(self) -> tuple[int, int]:
         """Return (active_processes, queued_dispatches) across all lanes."""
         active = (
-            (self._max_opencode - self._opencode_sem._value)
-            + (self._max_codex - self._codex_sem._value)
+            (self._max_impl - self._impl_sem._value)
+            + (self._max_audit - self._audit_sem._value)
             + (self._max_gate - self._gate_sem._value)
         )
-        queued = (
-            self._opencode_queue.qsize()
-            + self._codex_queue.qsize()
-            + self._gate_queue.qsize()
-        )
+        queued = self._impl_queue.qsize() + self._audit_queue.qsize() + self._gate_queue.qsize()
         return active, queued
 
     async def stop(self) -> None:

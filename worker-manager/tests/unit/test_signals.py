@@ -151,9 +151,7 @@ class TestParseAuditFindings:
         assert result.findings[0].title == "Bug"
 
     def test_pass_no_findings(self, tmp_path: Path):
-        (tmp_path / "audit-findings.json").write_text(
-            '{"signal": "pass", "findings": []}'
-        )
+        (tmp_path / "audit-findings.json").write_text('{"signal": "pass", "findings": []}')
         result = parse_audit_findings(tmp_path)
         assert result is not None
         assert result.signal == "pass"
@@ -191,11 +189,11 @@ class TestParseDemoFindings:
 class TestParseAuditSpecFindings:
     def test_with_markers(self, tmp_path: Path):
         (tmp_path / "audit.md").write_text(
-            'status: fail\n\n'
-            '<!-- structured-findings-start -->\n'
+            "status: fail\n\n"
+            "<!-- structured-findings-start -->\n"
             '[{"title": "Missing tests", "severity": "fix"}]\n'
-            '<!-- structured-findings-end -->\n\n'
-            '# Audit details...'
+            "<!-- structured-findings-end -->\n\n"
+            "# Audit details..."
         )
         result = parse_audit_spec_findings(tmp_path)
         assert len(result) == 1
@@ -213,9 +211,7 @@ class TestParseAuditSpecFindings:
 
     def test_malformed_json_in_markers(self, tmp_path: Path):
         (tmp_path / "audit.md").write_text(
-            '<!-- structured-findings-start -->\n'
-            'not json\n'
-            '<!-- structured-findings-end -->'
+            "<!-- structured-findings-start -->\nnot json\n<!-- structured-findings-end -->"
         )
         result = parse_audit_spec_findings(tmp_path)
         assert result == []
@@ -227,7 +223,7 @@ class TestParseInvestigationReport:
             '{"trigger": "gate_failure_persistent", "root_causes": ['
             '{"description": "Wrong call", "confidence": "high", '
             '"category": "code_bug", "suggested_tasks": [{"title": "Fix it"}]}'
-            ']}'
+            "]}"
         )
         result = parse_investigation_report(tmp_path)
         assert result is not None

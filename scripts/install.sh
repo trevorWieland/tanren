@@ -147,12 +147,12 @@ fi
 # --- Both install and update: copy scripts ---
 info "Copying scripts..."
 mkdir -p tanren/scripts
-for script in orchestrate.sh list-candidates.py audit-standards.sh fanfare.wav; do
+for script in list-candidates.py audit-standards.sh; do
     if [[ -f "$TANREN_PATH/scripts/$script" ]]; then
         cp "$TANREN_PATH/scripts/$script" "tanren/scripts/$script"
     fi
 done
-chmod +x tanren/scripts/orchestrate.sh tanren/scripts/audit-standards.sh 2>/dev/null || true
+chmod +x tanren/scripts/audit-standards.sh 2>/dev/null || true
 ok "Scripts updated"
 
 # --- Both install and update: copy commands ---

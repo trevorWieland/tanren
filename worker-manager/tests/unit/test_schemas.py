@@ -52,6 +52,9 @@ class TestCliEnum:
         assert Cli.CODEX == "codex"
         assert Cli.BASH == "bash"
 
+    def test_claude_value(self):
+        assert Cli.CLAUDE == "claude"
+
 
 class TestOutcomeEnum:
     def test_all_outcomes(self):

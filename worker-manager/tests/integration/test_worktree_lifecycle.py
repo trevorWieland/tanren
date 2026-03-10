@@ -29,7 +29,8 @@ async def _setup_git_repo(tmp_path: Path) -> tuple[Path, str]:
         ["git", "checkout", "-b", "main"],
     ]:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=str(repo),
+            *cmd,
+            cwd=str(repo),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -42,7 +43,8 @@ async def _setup_git_repo(tmp_path: Path) -> tuple[Path, str]:
         ["git", "commit", "-m", "initial"],
     ]:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=str(repo),
+            *cmd,
+            cwd=str(repo),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -51,7 +53,9 @@ async def _setup_git_repo(tmp_path: Path) -> tuple[Path, str]:
     # Create feature branch
     branch = "feature-123"
     proc = await asyncio.create_subprocess_exec(
-        "git", "branch", branch,
+        "git",
+        "branch",
+        branch,
         cwd=str(repo),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -72,7 +76,9 @@ class TestWorktreeBranchSwitch:
 
         # Checkout the feature branch in the main repo
         proc = await _asyncio.create_subprocess_exec(
-            "git", "checkout", branch,
+            "git",
+            "checkout",
+            branch,
             cwd=str(repo),
             stdout=_asyncio.subprocess.DEVNULL,
             stderr=_asyncio.subprocess.DEVNULL,
@@ -81,7 +87,9 @@ class TestWorktreeBranchSwitch:
 
         # Verify we're on the feature branch
         proc = await _asyncio.create_subprocess_exec(
-            "git", "branch", "--show-current",
+            "git",
+            "branch",
+            "--show-current",
             cwd=str(repo),
             stdout=_asyncio.subprocess.PIPE,
             stderr=_asyncio.subprocess.PIPE,
@@ -95,7 +103,9 @@ class TestWorktreeBranchSwitch:
 
         # Verify main repo switched to default branch
         proc = await _asyncio.create_subprocess_exec(
-            "git", "branch", "--show-current",
+            "git",
+            "branch",
+            "--show-current",
             cwd=str(repo),
             stdout=_asyncio.subprocess.PIPE,
             stderr=_asyncio.subprocess.PIPE,

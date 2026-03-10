@@ -208,8 +208,8 @@ confirms `outcome: "success"` (worktree created) or `outcome: "error"`
 
 ### Context Field Usage
 
-The `context` field carries the same information that `orchestrate.sh`
-passes as `extra_context` to `invoke_agent`:
+The `context` field carries the same information that
+the worker manager passes to the agent process via prompt assembly:
 
 | Sub-State | Context Content |
 |---|---|
@@ -301,7 +301,7 @@ different agent types transparently:
 
 1. **Primary**: Read `.agent-status` file in the spec folder. Extract
    signal with pattern `{command}-status: {signal}` (same as
-   `extract_signal` in orchestrate.sh).
+   the worker manager's signal extraction (see `signals.py`).
 
 2. **Fallback**: Grep stdout for the signal pattern (fragile but
    backwards-compatible with agents that don't write the status file).
@@ -472,8 +472,8 @@ idle -> shaping -> await_confirm -> orchestrating -> await_walk -> walking -> pr
 
 ## 6. Orchestrating Sub-State Machine
 
-The core of the protocol. Maps the control flow of `orchestrate.sh`
-(lines 485-906) into dispatchable states that the workflow monitor
+The core of the protocol. Maps the control flow of the worker manager's dispatch handling pipeline
+into dispatchable states that the workflow monitor
 advances one phase at a time.
 
 ### Sub-States
@@ -600,9 +600,9 @@ On entry to `task_select`:
 
 | # | Outcome | Next Sub-State | Action |
 |---|---|---|---|
-| 27 | any | `task_select` | Always restart cycle. Increment `cycle`. (Matches orchestrate.sh `continue`.) |
+| 27 | any | `task_select` | Always restart cycle. Increment `cycle`. (Unconditional cycle restart.) |
 
-Note: orchestrate.sh does not inspect the do-task signal after spec gate
+Note: The protocol does not inspect the do-task signal after spec gate
 fix — it unconditionally restarts the cycle. Staleness detection catches
 persistent failures.
 
@@ -830,7 +830,7 @@ Workflow monitor (60s poll)
 
 Worker manager (5s poll)
   └── per-process timeout: dispatch.timeout seconds
-        └── SIGTERM -> 5s grace -> SIGKILL (same pattern as orchestrate.sh)
+        └── SIGTERM -> 5s grace -> SIGKILL (standard SIGTERM/SIGKILL cascade)
 ```
 
 ---
@@ -1470,20 +1470,3 @@ Signals defined in each tanren command file:
 | run-demo | `run-demo-status` | `pass`, `fail`, `error` |
 | audit-spec | (audit.md `status:` line) | `pass`, `fail` |
 
-## Appendix B: orchestrate.sh Line Reference
-
-Cross-reference from protocol sub-states to orchestrate.sh source:
-
-| Sub-State | orchestrate.sh Lines | Description |
-|---|---|---|
-| task_select | 485-549 | Cycle loop, staleness, task counting, retry tracking |
-| do_task | 555-588 | do-task invocation and signal handling |
-| task_gate | 594-598 | Gate execution |
-| do_task_gate_fix | 607-623 | Re-invoke do-task with gate errors |
-| audit_task | 627-674 | audit-task invocation, self-heal checkbox |
-| spec_gate | 679 | `run_gate "make all"` |
-| spec_gate_fix | 681-691 | do-task with spec gate errors, `continue` |
-| run_demo | 697-799 | run-demo invocation, retry loop |
-| demo_retry | 735-782 | Forceful retry with demand for tasks |
-| audit_spec | 810-903 | audit-spec invocation, audit.md validation, retry loop |
-| audit_spec_retry | 851-896 | Forceful retry with demand for fix items |

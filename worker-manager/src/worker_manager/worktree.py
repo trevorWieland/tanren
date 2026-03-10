@@ -23,7 +23,9 @@ async def get_default_branch(project_dir: Path) -> str:
     """
     # Try symbolic-ref for origin HEAD
     proc = await asyncio.create_subprocess_exec(
-        "git", "symbolic-ref", "refs/remotes/origin/HEAD",
+        "git",
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
         cwd=str(project_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -36,7 +38,10 @@ async def get_default_branch(project_dir: Path) -> str:
     # Fallback: check main then master
     for candidate in ("main", "master"):
         proc = await asyncio.create_subprocess_exec(
-            "git", "rev-parse", "--verify", candidate,
+            "git",
+            "rev-parse",
+            "--verify",
+            candidate,
             cwd=str(project_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -51,7 +56,10 @@ async def get_default_branch(project_dir: Path) -> str:
 async def _is_tracked_worktree(project_dir: Path, worktree_path: Path) -> bool:
     """Check if a path is tracked by git as a worktree."""
     proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "list", "--porcelain",
+        "git",
+        "worktree",
+        "list",
+        "--porcelain",
         cwd=str(project_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -70,7 +78,10 @@ async def _is_tracked_worktree(project_dir: Path, worktree_path: Path) -> bool:
 async def _get_worktree_branch(worktree_path: Path) -> str:
     """Get the current branch of a worktree directory."""
     proc = await asyncio.create_subprocess_exec(
-        "git", "rev-parse", "--abbrev-ref", "HEAD",
+        "git",
+        "rev-parse",
+        "--abbrev-ref",
+        "HEAD",
         cwd=str(worktree_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -109,7 +120,9 @@ async def create_worktree(
         logger.warning("Removing stale worktree directory: %s", worktree_path)
         shutil.rmtree(worktree_path)
         proc = await asyncio.create_subprocess_exec(
-            "git", "worktree", "prune",
+            "git",
+            "worktree",
+            "prune",
             cwd=str(project_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -118,7 +131,9 @@ async def create_worktree(
 
     # If main repo has the target branch checked out, switch away first
     proc = await asyncio.create_subprocess_exec(
-        "git", "branch", "--show-current",
+        "git",
+        "branch",
+        "--show-current",
         cwd=str(project_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -129,7 +144,9 @@ async def create_worktree(
     if current_branch == branch:
         default_branch = await get_default_branch(project_dir)
         proc = await asyncio.create_subprocess_exec(
-            "git", "checkout", default_branch,
+            "git",
+            "checkout",
+            default_branch,
             cwd=str(project_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -142,7 +159,11 @@ async def create_worktree(
             )
 
     proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", str(worktree_path), branch,
+        "git",
+        "worktree",
+        "add",
+        str(worktree_path),
+        branch,
         cwd=str(project_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -159,7 +180,11 @@ async def create_worktree(
 async def remove_worktree(worktree_path: Path, project_dir: Path) -> None:
     """Remove a git worktree. Falls back to rmtree + prune if git remove fails."""
     proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "remove", "--force", str(worktree_path),
+        "git",
+        "worktree",
+        "remove",
+        "--force",
+        str(worktree_path),
         cwd=str(project_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -173,7 +198,9 @@ async def remove_worktree(worktree_path: Path, project_dir: Path) -> None:
         logger.warning("Worktree directory persisted, removing via rmtree: %s", worktree_path)
         shutil.rmtree(worktree_path, ignore_errors=True)
         proc = await asyncio.create_subprocess_exec(
-            "git", "worktree", "prune",
+            "git",
+            "worktree",
+            "prune",
             cwd=str(project_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -220,20 +247,14 @@ async def check_isolation(
         if wf_id == workflow_id:
             continue
         if entry.branch == branch:
-            raise RuntimeError(
-                f"Branch {branch} already in use by workflow {wf_id}"
-            )
+            raise RuntimeError(f"Branch {branch} already in use by workflow {wf_id}")
         if entry.path == wt_str:
-            raise RuntimeError(
-                f"Worktree path {wt_str} already in use by workflow {wf_id}"
-            )
+            raise RuntimeError(f"Worktree path {wt_str} already in use by workflow {wf_id}")
 
     # Ensure worktree path is not the main working copy
     # Main copy would be ~/github/{project} without -wt- suffix
     if "-wt-" not in worktree_path.name:
-        raise RuntimeError(
-            f"Worktree path {wt_str} appears to be a main working copy"
-        )
+        raise RuntimeError(f"Worktree path {wt_str} appears to be a main working copy")
 
 
 async def register_worktree(

@@ -18,25 +18,24 @@ from worker_manager.adapters import (
     GitWorktreeManager,
     NullEventEmitter,
     PhaseCompleted,
-    PhaseStarted,
     PostflightCompleted,
     PreflightCompleted,
-    RetryScheduled,
     SqliteEventEmitter,
     SubprocessSpawner,
 )
+from worker_manager.adapters.local_environment import LocalExecutionEnvironment
 from worker_manager.adapters.protocols import (
     EnvProvisioner,
     EnvValidator,
     EventEmitter,
+    ExecutionEnvironment,
     PostflightRunner,
     PreflightRunner,
     ProcessSpawner,
     WorktreeManager,
 )
+from worker_manager.adapters.types import ProvisionError
 from worker_manager.config import Config
-from worker_manager.env.reporter import format_report
-from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from worker_manager.heartbeat import HeartbeatWriter
 from worker_manager.ipc import (
     atomic_write,
@@ -44,10 +43,6 @@ from worker_manager.ipc import (
     scan_dispatch_dir,
     write_nudge,
     write_result,
-)
-from worker_manager.metrics import (
-    compute_plan_hash,
-    count_unchecked_tasks,
 )
 from worker_manager.queues import DispatchRouter
 from worker_manager.schemas import (
@@ -61,8 +56,6 @@ from worker_manager.schemas import (
     parse_issue_from_workflow_id,
 )
 from worker_manager.signals import (
-    extract_signal,
-    map_outcome,
     parse_audit_findings,
     parse_audit_spec_findings,
     parse_demo_findings,
@@ -100,12 +93,19 @@ def _build_tail_output(stdout: str | None) -> str | None:
 
 
 class WorkerManager:
-    """Main worker manager service."""
+    """Host-level service that polls for dispatches, spawns agents, and writes results.
+
+    Lifecycle: poll dispatch/ → route to queue → provision environment →
+    execute agent process → extract signal → build result → write to results/.
+    Setup/cleanup phases manage worktree lifecycle. Work phases delegate to
+    an ExecutionEnvironment (local subprocess by default, Docker/VM in future).
+    """
 
     def __init__(
         self,
         config: Config | None = None,
         *,
+        execution_env: ExecutionEnvironment | None = None,
         worktree_mgr: WorktreeManager | None = None,
         preflight: PreflightRunner | None = None,
         postflight: PostflightRunner | None = None,
@@ -123,8 +123,8 @@ class WorkerManager:
         self._heartbeat = HeartbeatWriter(self._in_progress_dir, self._config.heartbeat_interval)
         self._router = DispatchRouter(
             handler=self._handle_dispatch,
-            max_opencode=self._config.max_opencode,
-            max_codex=self._config.max_codex,
+            max_impl=self._config.max_opencode,
+            max_audit=self._config.max_codex,
             max_gate=self._config.max_gate,
         )
 
@@ -135,6 +135,19 @@ class WorkerManager:
         self._spawner = spawner or SubprocessSpawner()
         self._env_validator = env_validator or DotenvEnvValidator()
         self._env_provisioner = env_provisioner or DotenvEnvProvisioner()
+
+        # Build execution environment — use injected or construct from fine-grained adapters
+        if execution_env is not None:
+            self._execution_env = execution_env
+        else:
+            self._execution_env = LocalExecutionEnvironment(
+                env_validator=self._env_validator,
+                preflight=self._preflight,
+                postflight=self._postflight,
+                spawner=self._spawner,
+                heartbeat=self._heartbeat,
+                config=self._config,
+            )
 
         # Event emitter — auto-configure from config if not injected
         if emitter is not None:
@@ -252,13 +265,15 @@ class WorkerManager:
         now = datetime.now(UTC).isoformat()
 
         # Emit DispatchReceived
-        await self._emitter.emit(DispatchReceived(
-            timestamp=now,
-            workflow_id=dispatch.workflow_id,
-            phase=dispatch.phase.value,
-            project=dispatch.project,
-            cli=dispatch.cli.value,
-        ))
+        await self._emitter.emit(
+            DispatchReceived(
+                timestamp=now,
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase.value,
+                project=dispatch.project,
+                cli=dispatch.cli.value,
+            )
+        )
 
         try:
             # Setup phase: create worktree
@@ -277,13 +292,15 @@ class WorkerManager:
         except Exception as exc:
             logger.exception("Unhandled error in dispatch %s", dispatch.workflow_id)
 
-            await self._emitter.emit(ErrorOccurred(
-                timestamp=datetime.now(UTC).isoformat(),
-                workflow_id=dispatch.workflow_id,
-                phase=dispatch.phase.value,
-                error=str(exc),
-                error_class=None,
-            ))
+            await self._emitter.emit(
+                ErrorOccurred(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    phase=dispatch.phase.value,
+                    error=str(exc),
+                    error_class=None,
+                )
+            )
 
             # Write error result
             result = Result(
@@ -301,9 +318,7 @@ class WorkerManager:
             )
             await self._write_result_and_nudge(result, dispatch.workflow_id)
 
-    async def _handle_setup(
-        self, dispatch: Dispatch, issue: int, worktree_path: Path
-    ) -> None:
+    async def _handle_setup(self, dispatch: Dispatch, issue: int, worktree_path: Path) -> None:
         """Handle setup phase: create worktree + register."""
         import time
 
@@ -313,9 +328,7 @@ class WorkerManager:
                 dispatch.project, issue, dispatch.branch, self._config.github_dir
             )
             project_dir = Path(self._config.github_dir) / dispatch.project
-            count = await asyncio.to_thread(
-                self._env_provisioner.provision, wt_path, project_dir
-            )
+            count = await asyncio.to_thread(self._env_provisioner.provision, wt_path, project_dir)
             if count:
                 logger.info("Provisioned %d env vars in worktree .env", count)
             await self._worktree_mgr.register(
@@ -409,271 +422,104 @@ class WorkerManager:
         dispatch_stem: str,
         worktree_path: Path,
     ) -> None:
-        """Handle agent/gate phases: preflight, spawn, postflight, report."""
+        """Handle agent/gate phases: provision, execute, report."""
         import time
 
-        spec_folder_path = worktree_path / dispatch.spec_folder
-
-        # Environment preflight validation
-        env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
-        if not env_report.passed:
-            result = Result(
-                workflow_id=dispatch.workflow_id,
-                phase=dispatch.phase,
-                outcome=Outcome.ERROR,
-                signal=None,
-                exit_code=-1,
-                duration_secs=0,
-                gate_output=None,
-                tail_output=format_report(
-                    env_report, dispatch.project, str(worktree_path / "tanren.yml")
-                ),
-                unchecked_tasks=0,
-                plan_hash="00000000",
-                spec_modified=False,
-            )
-            await self._write_result_and_nudge(result, dispatch.workflow_id)
-            return
-
-        # Pre-flight checks (replaces validate_worktree + manual snapshot + status clear)
-        preflight_result = await self._preflight.run(
-            worktree_path, dispatch.branch, spec_folder_path, dispatch.phase.value
-        )
-
-        await self._emitter.emit(PreflightCompleted(
-            timestamp=datetime.now(UTC).isoformat(),
-            workflow_id=dispatch.workflow_id,
-            passed=preflight_result.passed,
-            repairs=preflight_result.repairs,
-        ))
-
-        if not preflight_result.passed:
-            result = Result(
-                workflow_id=dispatch.workflow_id,
-                phase=dispatch.phase,
-                outcome=Outcome.ERROR,
-                signal=None,
-                exit_code=-1,
-                duration_secs=0,
-                gate_output=None,
-                tail_output=preflight_result.error,
-                unchecked_tasks=0,
-                plan_hash="00000000",
-                spec_modified=False,
-            )
-            await self._write_result_and_nudge(result, dispatch.workflow_id)
-            return
-
-        if preflight_result.repairs:
-            logger.info("Preflight repairs: %s", preflight_result.repairs)
-
-        # Start heartbeat
-        await self._heartbeat.start(dispatch_stem)
-
         start = time.monotonic()
-        transient_retries = 0
+
+        # 1. Provision
         try:
-            while True:
-                # Emit PhaseStarted before spawn
-                await self._emitter.emit(PhaseStarted(
+            handle = await self._execution_env.provision(dispatch, self._config)
+
+            await self._emitter.emit(
+                PreflightCompleted(
                     timestamp=datetime.now(UTC).isoformat(),
                     workflow_id=dispatch.workflow_id,
-                    phase=dispatch.phase.value,
-                    worktree_path=str(worktree_path),
-                ))
-
-                # Spawn process
-                proc_result = await self._spawner.spawn(
-                    dispatch, worktree_path, self._config, task_env=task_env or None
+                    passed=True,
+                    repairs=handle._preflight_result.repairs if handle._preflight_result else [],
                 )
+            )
 
-                # Always log process result for agent phases
-                if dispatch.phase not in (Phase.GATE, Phase.SETUP, Phase.CLEANUP):
-                    stdout_preview = (proc_result.stdout or "")[:500]
-                    logger.info(
-                        "Process result: exit=%d duration=%ds "
-                        "timed_out=%s stdout_len=%d stdout=%.200s",
-                        proc_result.exit_code,
-                        proc_result.duration_secs,
-                        proc_result.timed_out,
-                        len(proc_result.stdout or ""),
-                        stdout_preview,
-                    )
-
-                # Extract signal
-                command_name = dispatch.phase.value
-                raw_signal = extract_signal(
-                    dispatch.phase, command_name, spec_folder_path, proc_result.stdout
+        except ProvisionError as e:
+            # Emit PreflightCompleted(passed=False) if preflight ran
+            await self._emitter.emit(
+                PreflightCompleted(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    passed=False,
+                    repairs=[],
                 )
+            )
+            await self._write_result_and_nudge(e.result, dispatch.workflow_id)
+            return
 
-                # Map outcome
-                outcome, signal_val = map_outcome(
-                    dispatch.phase,
-                    raw_signal,
-                    proc_result.exit_code,
-                    proc_result.timed_out,
-                )
+        # 2. Execute
+        try:
+            phase_result = await self._execution_env.execute(
+                handle, dispatch, self._config, dispatch_stem=dispatch_stem
+            )
 
-                # Transient error retry
-                if outcome in (Outcome.ERROR, Outcome.TIMEOUT):
-                    stderr_text = ""
-                    error_class = classify_error(
-                        proc_result.exit_code,
-                        proc_result.stdout or "",
-                        stderr_text,
-                        signal_val,
-                    )
-                    if (
-                        error_class == ErrorClass.TRANSIENT
-                        and transient_retries < 3
-                    ):
-                        transient_retries += 1
-                        backoff = TRANSIENT_BACKOFF[transient_retries - 1]
-                        logger.warning(
-                            "Transient error (attempt %d/3), retrying in %ds",
-                            transient_retries,
-                            backoff,
-                        )
-                        await self._emitter.emit(RetryScheduled(
-                            timestamp=datetime.now(UTC).isoformat(),
-                            workflow_id=dispatch.workflow_id,
-                            phase=dispatch.phase.value,
-                            attempt=transient_retries,
-                            max_attempts=3,
-                            backoff_secs=backoff,
-                        ))
-                        await asyncio.sleep(backoff)
-                        continue
-                    elif (
-                        error_class == ErrorClass.AMBIGUOUS
-                        and transient_retries < 1
-                    ):
-                        transient_retries += 1
-                        logger.warning(
-                            "Ambiguous error, retrying once in 10s"
-                        )
-                        await self._emitter.emit(RetryScheduled(
-                            timestamp=datetime.now(UTC).isoformat(),
-                            workflow_id=dispatch.workflow_id,
-                            phase=dispatch.phase.value,
-                            attempt=transient_retries,
-                            max_attempts=1,
-                            backoff_secs=10,
-                        ))
-                        await asyncio.sleep(10)
-                        continue
+            duration = phase_result.duration_secs
+            spec_folder_path = worktree_path / dispatch.spec_folder
 
-                # Not retrying — break out of loop
-                break
-
-            duration = int(time.monotonic() - start)
-
-            # Compute plan.md metrics (backward compat for coordinator)
-            plan_path = spec_folder_path / "plan.md"
-            unchecked = await count_unchecked_tasks(plan_path)
-            plan_hash = await compute_plan_hash(plan_path)
-
-            # Build gate_output (gate phases only)
+            # 3. Build gate_output (gate phases only)
             gate_output = None
             if dispatch.phase == Phase.GATE:
-                gate_output = _build_gate_output(proc_result.stdout, outcome)
+                gate_output = _build_gate_output(phase_result.stdout, phase_result.outcome)
 
-            # Build tail_output — always for agent phases (operational visibility),
-            # only on non-success for gate/setup/cleanup phases.
+            # 4. Build tail_output
             tail_output = None
             is_agent_phase = dispatch.phase not in (
-                Phase.GATE, Phase.SETUP, Phase.CLEANUP,
+                Phase.GATE,
+                Phase.SETUP,
+                Phase.CLEANUP,
             )
-            if is_agent_phase or outcome != Outcome.SUCCESS:
-                tail_output = _build_tail_output(proc_result.stdout)
+            if is_agent_phase or phase_result.outcome != Outcome.SUCCESS:
+                tail_output = _build_tail_output(phase_result.stdout)
 
-            # Post-flight integrity checks (always run — skip push for errors/timeouts)
+            # 5. Apply postflight results
             pushed: bool | None = None
             integrity_repairs: dict | None = None
             spec_modified = False
-            if dispatch.phase in _PUSH_PHASES:
-                postflight_result = await self._postflight.run(
-                    worktree_path,
-                    dispatch.branch,
-                    dispatch.phase.value,
-                    preflight_result.file_hashes,
-                    preflight_result.file_backups,
-                    skip_push=(outcome in (Outcome.ERROR, Outcome.TIMEOUT)),
-                )
+            if phase_result.postflight_result is not None:
+                postflight_result = phase_result.postflight_result
 
-                await self._emitter.emit(PostflightCompleted(
-                    timestamp=datetime.now(UTC).isoformat(),
-                    workflow_id=dispatch.workflow_id,
-                    phase=dispatch.phase.value,
-                    pushed=postflight_result.pushed,
-                    integrity_repairs=postflight_result.integrity_repairs,
-                ))
+                await self._emitter.emit(
+                    PostflightCompleted(
+                        timestamp=datetime.now(UTC).isoformat(),
+                        workflow_id=dispatch.workflow_id,
+                        phase=dispatch.phase.value,
+                        pushed=postflight_result.pushed,
+                        integrity_repairs=postflight_result.integrity_repairs,
+                    )
+                )
 
                 pushed = postflight_result.pushed
                 integrity_repairs = postflight_result.integrity_repairs
-                spec_modified = postflight_result.integrity_repairs.get(
-                    "spec_reverted", False
-                )
+                spec_modified = postflight_result.integrity_repairs.get("spec_reverted", False)
                 if not postflight_result.pushed and postflight_result.push_error:
                     if tail_output:
                         tail_output += (
-                            f"\n\n--- git push failed ---\n"
-                            f"{postflight_result.push_error}"
+                            f"\n\n--- git push failed ---\n{postflight_result.push_error}"
                         )
                     else:
-                        tail_output = (
-                            f"git push failed: {postflight_result.push_error}"
-                        )
+                        tail_output = f"git push failed: {postflight_result.push_error}"
 
-            # Parse structured findings
-            new_tasks: list[dict] = []
-            findings_data: list[dict] = []
+            # 6. Parse structured findings
+            new_tasks, findings_data = self._parse_findings(dispatch, spec_folder_path)
 
-            if dispatch.phase == Phase.AUDIT_TASK:
-                findings = parse_audit_findings(spec_folder_path)
-                if findings:
-                    findings_data = [f.model_dump() for f in findings.findings]
-                    new_tasks = [
-                        f.model_dump()
-                        for f in findings.findings
-                        if f.severity == FindingSeverity.FIX
-                    ]
-            elif dispatch.phase == Phase.RUN_DEMO:
-                findings = parse_demo_findings(spec_folder_path)
-                if findings:
-                    findings_data = [f.model_dump() for f in findings.findings]
-                    new_tasks = [
-                        f.model_dump()
-                        for f in findings.findings
-                        if f.severity == FindingSeverity.FIX
-                    ]
-            elif dispatch.phase == Phase.AUDIT_SPEC:
-                spec_findings = parse_audit_spec_findings(spec_folder_path)
-                if spec_findings:
-                    findings_data = [f.model_dump() for f in spec_findings]
-                    new_tasks = [
-                        f.model_dump()
-                        for f in spec_findings
-                        if f.severity == FindingSeverity.FIX
-                    ]
-            elif dispatch.phase == Phase.INVESTIGATE:
-                report = parse_investigation_report(spec_folder_path)
-                if report:
-                    findings_data = [{"report": report.model_dump()}]
-                    for rc in report.root_causes:
-                        new_tasks.extend(rc.suggested_tasks)
-
+            # 7. Construct Result
             result = Result(
                 workflow_id=dispatch.workflow_id,
                 phase=dispatch.phase,
-                outcome=outcome,
-                signal=signal_val,
-                exit_code=proc_result.exit_code,
+                outcome=phase_result.outcome,
+                signal=phase_result.signal,
+                exit_code=phase_result.exit_code,
                 duration_secs=duration,
                 gate_output=gate_output,
                 tail_output=tail_output,
-                unchecked_tasks=unchecked,
-                plan_hash=plan_hash,
+                unchecked_tasks=phase_result.unchecked_tasks,
+                plan_hash=phase_result.plan_hash,
                 spec_modified=spec_modified,
                 pushed=pushed,
                 integrity_repairs=integrity_repairs,
@@ -681,16 +527,18 @@ class WorkerManager:
                 findings=findings_data,
             )
 
-            # Emit PhaseCompleted before writing result
-            await self._emitter.emit(PhaseCompleted(
-                timestamp=datetime.now(UTC).isoformat(),
-                workflow_id=dispatch.workflow_id,
-                phase=dispatch.phase.value,
-                outcome=outcome.value,
-                signal=signal_val,
-                duration_secs=duration,
-                exit_code=proc_result.exit_code,
-            ))
+            # 8. Emit PhaseCompleted
+            await self._emitter.emit(
+                PhaseCompleted(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    phase=dispatch.phase.value,
+                    outcome=phase_result.outcome.value,
+                    signal=phase_result.signal,
+                    duration_secs=duration,
+                    exit_code=phase_result.exit_code,
+                )
+            )
 
         except Exception as e:
             duration = int(time.monotonic() - start)
@@ -709,11 +557,46 @@ class WorkerManager:
             )
 
         finally:
-            # Stop heartbeat
-            await self._heartbeat.stop(dispatch_stem)
+            await self._execution_env.teardown(handle)
 
-        # Write result + nudge
         await self._write_result_and_nudge(result, dispatch.workflow_id)
+
+    def _parse_findings(
+        self, dispatch: Dispatch, spec_folder_path: Path
+    ) -> tuple[list[dict], list[dict]]:
+        """Parse structured findings from audit/demo/investigate phases."""
+        new_tasks: list[dict] = []
+        findings_data: list[dict] = []
+
+        if dispatch.phase == Phase.AUDIT_TASK:
+            findings = parse_audit_findings(spec_folder_path)
+            if findings:
+                findings_data = [f.model_dump() for f in findings.findings]
+                new_tasks = [
+                    f.model_dump() for f in findings.findings if f.severity == FindingSeverity.FIX
+                ]
+        elif dispatch.phase == Phase.RUN_DEMO:
+            findings = parse_demo_findings(spec_folder_path)
+            if findings:
+                findings_data = [f.model_dump() for f in findings.findings]
+                new_tasks = [
+                    f.model_dump() for f in findings.findings if f.severity == FindingSeverity.FIX
+                ]
+        elif dispatch.phase == Phase.AUDIT_SPEC:
+            spec_findings = parse_audit_spec_findings(spec_folder_path)
+            if spec_findings:
+                findings_data = [f.model_dump() for f in spec_findings]
+                new_tasks = [
+                    f.model_dump() for f in spec_findings if f.severity == FindingSeverity.FIX
+                ]
+        elif dispatch.phase == Phase.INVESTIGATE:
+            report = parse_investigation_report(spec_folder_path)
+            if report:
+                findings_data = [{"report": report.model_dump()}]
+                for rc in report.root_causes:
+                    new_tasks.extend(rc.suggested_tasks)
+
+        return new_tasks, findings_data
 
     async def _write_result_and_nudge(self, result: Result, workflow_id: str) -> None:
         """Write result to results/ and nudge to input/."""

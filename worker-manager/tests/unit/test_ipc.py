@@ -238,9 +238,7 @@ class TestInitProgressFromPlan:
     async def test_mixed_checked_unchecked(self, tmp_path: Path):
         plan = tmp_path / "plan.md"
         plan.write_text(
-            "- [x] Task 1: Done task\n"
-            "- [ ] Task 2: Pending task\n"
-            "- [x] Task 3: Also done\n"
+            "- [x] Task 1: Done task\n- [ ] Task 2: Pending task\n- [x] Task 3: Also done\n"
         )
         state = await init_progress_from_plan(plan, "s0001")
         assert len(state.tasks) == 3

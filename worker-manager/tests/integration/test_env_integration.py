@@ -21,9 +21,9 @@ class TestFullFlow:
             "env:\n"
             "  on_missing: error\n"
             "  required:\n"
-            '    - key: API_KEY\n'
+            "    - key: API_KEY\n"
             '      pattern: "^sk-or-v1-"\n'
-            '    - key: BASE_URL\n'
+            "    - key: BASE_URL\n"
             '      pattern: "^https://"\n'
             "  optional:\n"
             "    - key: LOG_LEVEL\n"
@@ -47,28 +47,20 @@ class TestFullFlow:
             "  required:\n"
             "    - key: NONEXISTENT_XYZ_KEY\n"
         )
-        report, _ = await load_and_validate_env(
-            tmp_path, aegis_dir=tmp_path / "aegis"
-        )
+        report, _ = await load_and_validate_env(tmp_path, aegis_dir=tmp_path / "aegis")
         assert not report.passed
 
     @pytest.mark.asyncio
     async def test_no_env_block_passes(self, tmp_path: Path):
         (tmp_path / "tanren.yml").write_text(
-            "version: 0.1.0\n"
-            "profile: default\n"
-            "installed: 2026-01-01\n"
+            "version: 0.1.0\nprofile: default\ninstalled: 2026-01-01\n"
         )
-        report, _env = await load_and_validate_env(
-            tmp_path, aegis_dir=tmp_path / "aegis"
-        )
+        report, _env = await load_and_validate_env(tmp_path, aegis_dir=tmp_path / "aegis")
         assert report.passed
 
     @pytest.mark.asyncio
     async def test_no_tanren_yml_passes(self, tmp_path: Path):
-        report, _env = await load_and_validate_env(
-            tmp_path, aegis_dir=tmp_path / "aegis"
-        )
+        report, _env = await load_and_validate_env(tmp_path, aegis_dir=tmp_path / "aegis")
         assert report.passed
 
     @pytest.mark.asyncio
@@ -79,9 +71,7 @@ class TestFullFlow:
         )
         (tmp_path / ".env.example").write_text("API_KEY=placeholder\n")
 
-        report, _ = await load_and_validate_env(
-            tmp_path, aegis_dir=tmp_path / "aegis"
-        )
+        report, _ = await load_and_validate_env(tmp_path, aegis_dir=tmp_path / "aegis")
         assert report.passed
 
     @pytest.mark.asyncio
@@ -125,8 +115,6 @@ class TestLayeredPriority:
             "env:\n  required:\n    - key: MY_VAR\n"
         )
 
-        report, env = await load_and_validate_env(
-            tmp_path, aegis_dir=tmp_path / "aegis"
-        )
+        report, env = await load_and_validate_env(tmp_path, aegis_dir=tmp_path / "aegis")
         assert report.passed
         assert env["MY_VAR"] == "from_real_env"

@@ -24,6 +24,7 @@ class Cli(StrEnum):
 
     OPENCODE = "opencode"
     CODEX = "codex"
+    CLAUDE = "claude"
     BASH = "bash"
 
 

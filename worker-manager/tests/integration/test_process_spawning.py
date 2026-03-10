@@ -155,15 +155,22 @@ class TestCliArgSmoke:
         prompt_file.write_text("Test prompt — ignore this.")
 
         cmd = [
-            "opencode", "run",
-            "--model", "nonexistent/model",
-            "--dir", str(tmp_path),
+            "opencode",
+            "run",
+            "--model",
+            "nonexistent/model",
+            "--dir",
+            str(tmp_path),
             "Read the attached file and follow its instructions exactly.",
-            "-f", str(prompt_file),
+            "-f",
+            str(prompt_file),
         ]
 
         result = await _run_with_timeout(
-            cmd, cwd=tmp_path, stdin_data=None, timeout=10,
+            cmd,
+            cwd=tmp_path,
+            stdin_data=None,
+            timeout=10,
         )
         # "File not found" in stdout means opencode interpreted -f as part of
         # the message rather than as a flag — i.e. arg ordering is wrong.
@@ -177,15 +184,22 @@ class TestCliArgSmoke:
         prompt_file.write_text("Test prompt — ignore this.")
 
         cmd = [
-            "opencode", "run",
-            "--model", "nonexistent/model",
-            "--dir", str(tmp_path),
-            "-f", str(prompt_file),
+            "opencode",
+            "run",
+            "--model",
+            "nonexistent/model",
+            "--dir",
+            str(tmp_path),
+            "-f",
+            str(prompt_file),
             "Read the attached file and follow its instructions exactly.",
         ]
 
         result = await _run_with_timeout(
-            cmd, cwd=tmp_path, stdin_data=None, timeout=10,
+            cmd,
+            cwd=tmp_path,
+            stdin_data=None,
+            timeout=10,
         )
         # With wrong order, we expect an error about the file or arg parsing.
         # This validates our test oracle — if this test fails, the oracle
@@ -199,15 +213,21 @@ class TestCodexCliArgSmoke:
     async def test_codex_accepts_correct_arg_order(self, tmp_path: Path):
         """Correct arg order passes clap arg parsing (exit_code != 2)."""
         cmd = [
-            "codex", "exec",
+            "codex",
+            "exec",
             "--dangerously-bypass-approvals-and-sandbox",
-            "--model", "nonexistent-model",
-            "-C", str(tmp_path),
+            "--model",
+            "nonexistent-model",
+            "-C",
+            str(tmp_path),
             "--skip-git-repo-check",
         ]
 
         result = await _run_with_timeout(
-            cmd, cwd=tmp_path, stdin_data="Test prompt", timeout=10,
+            cmd,
+            cwd=tmp_path,
+            stdin_data="Test prompt",
+            timeout=10,
         )
         # exit_code 2 = clap arg-parse error
         assert result.exit_code != 2

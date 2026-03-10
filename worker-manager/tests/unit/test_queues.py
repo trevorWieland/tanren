@@ -12,7 +12,7 @@ from worker_manager.schemas import Cli, Dispatch, Phase
 def _make_dispatch(cli: Cli, workflow_id: str = "wf-test-1-1000") -> Dispatch:
     return Dispatch(
         workflow_id=workflow_id,
-        phase=Phase.DO_TASK if cli == Cli.OPENCODE else Phase.GATE,
+        phase=Phase.DO_TASK if cli in (Cli.OPENCODE, Cli.CLAUDE) else Phase.GATE,
         project="test",
         spec_folder="tanren/specs/test",
         branch="main",
@@ -77,11 +77,28 @@ class TestDispatchRouter:
         await router.stop()
         assert "bash" in handled
 
+    @pytest.mark.asyncio
+    async def test_routes_claude_to_impl(self):
+        handled: list[str] = []
+
+        async def handler(path: Path, dispatch: Dispatch) -> None:
+            handled.append(dispatch.cli.value)
+
+        router = DispatchRouter(handler)
+        router.start_consumers()
+
+        dispatch = _make_dispatch(Cli.CLAUDE)
+        router.route(Path("/tmp/test.json"), dispatch)
+
+        await asyncio.sleep(0.1)
+        await router.stop()
+        assert "claude" in handled
+
     def test_get_stats_idle(self):
         async def handler(path: Path, dispatch: Dispatch) -> None:
             pass
 
-        router = DispatchRouter(handler, max_opencode=1, max_codex=1, max_gate=3)
+        router = DispatchRouter(handler, max_impl=1, max_audit=1, max_gate=3)
         active, queued = router.get_stats()
         assert active == 0
         assert queued == 0
@@ -93,7 +110,7 @@ class TestDispatchRouter:
         async def handler(path: Path, dispatch: Dispatch) -> None:
             await gate.wait()
 
-        router = DispatchRouter(handler, max_opencode=1, max_codex=1, max_gate=3)
+        router = DispatchRouter(handler, max_impl=1, max_audit=1, max_gate=3)
         router.start_consumers()
 
         # Route one opencode dispatch (will be picked up and block on gate)

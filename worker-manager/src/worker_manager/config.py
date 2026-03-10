@@ -39,6 +39,14 @@ class Config(BaseModel):
         default="codex",
         description="Path to codex CLI binary",
     )
+    claude_path: str = Field(
+        default="claude",
+        description="Path to Claude Code CLI binary",
+    )
+    roles_config_path: str | None = Field(
+        default=None,
+        description="Path to roles YAML config",
+    )
     data_dir: str = Field(
         description="Directory for worker manager runtime state",
     )
@@ -65,13 +73,9 @@ class Config(BaseModel):
     @classmethod
     def from_env(cls) -> Config:
         """Load configuration from WM_ prefixed environment variables."""
-        ipc_dir = _expand(
-            os.environ.get("WM_IPC_DIR", "~/github/nanoclaw/data/ipc/discord_main")
-        )
+        ipc_dir = _expand(os.environ.get("WM_IPC_DIR", "~/github/nanoclaw/data/ipc/discord_main"))
         github_dir = _expand(os.environ.get("WM_GITHUB_DIR", "~/github"))
-        data_dir = _expand(
-            os.environ.get("WM_DATA_DIR", "~/.local/share/tanren-worker")
-        )
+        data_dir = _expand(os.environ.get("WM_DATA_DIR", "~/.local/share/tanren-worker"))
 
         return cls(
             ipc_dir=ipc_dir,
@@ -81,6 +85,8 @@ class Config(BaseModel):
             heartbeat_interval=float(os.environ.get("WM_HEARTBEAT_INTERVAL", "30.0")),
             opencode_path=os.environ.get("WM_OPENCODE_PATH", "opencode"),
             codex_path=os.environ.get("WM_CODEX_PATH", "codex"),
+            claude_path=os.environ.get("WM_CLAUDE_PATH", "claude"),
+            roles_config_path=os.environ.get("WM_ROLES_CONFIG_PATH"),
             data_dir=data_dir,
             worktree_registry_path=os.environ.get(
                 "WM_WORKTREE_REGISTRY_PATH",

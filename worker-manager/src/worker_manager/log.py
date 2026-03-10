@@ -51,9 +51,7 @@ def phase_banner(phase: str, project: str | None = None, spec: str | None = None
     logger.info("\u2501\u2501\u2501 %s %s", label, bar[: 40 - len(label)])
 
 
-def phase_complete(
-    phase: str, duration_secs: float, outcome: str | None = None
-) -> None:
+def phase_complete(phase: str, duration_secs: float, outcome: str | None = None) -> None:
     """Log a phase completion line."""
     logger = logging.getLogger("tanren")
     bar = "\u2501" * 40

@@ -28,17 +28,13 @@ class TestValidateRequired:
         assert report.required_results[0].status == VarStatus.EMPTY
 
     def test_pattern_match(self):
-        block = EnvBlock(
-            required=[RequiredEnvVar(key="K", pattern="^sk-or-v1-")]
-        )
+        block = EnvBlock(required=[RequiredEnvVar(key="K", pattern="^sk-or-v1-")])
         report = validate_env(block, {"K": "sk-or-v1-abc123"}, {"K": ".env"})
         assert report.passed
         assert report.required_results[0].status == VarStatus.PASS
 
     def test_pattern_mismatch(self):
-        block = EnvBlock(
-            required=[RequiredEnvVar(key="K", pattern="^sk-or-v1-")]
-        )
+        block = EnvBlock(required=[RequiredEnvVar(key="K", pattern="^sk-or-v1-")])
         report = validate_env(block, {"K": "wrong-prefix"}, {"K": ".env"})
         assert not report.passed
         assert report.required_results[0].status == VarStatus.PATTERN_MISMATCH
@@ -102,18 +98,14 @@ class TestValidateOptional:
         assert report.optional_results[0].status == VarStatus.MISSING
 
     def test_pattern_mismatch_warning(self):
-        block = EnvBlock(
-            optional=[OptionalEnvVar(key="URL", pattern="^https://")]
-        )
+        block = EnvBlock(optional=[OptionalEnvVar(key="URL", pattern="^https://")])
         report = validate_env(block, {"URL": "http://bad"}, {"URL": ".env"})
         assert report.passed  # optional pattern mismatch is not a hard failure
         assert report.optional_results[0].status == VarStatus.PATTERN_MISMATCH
         assert len(report.warnings) == 1
 
     def test_pattern_match(self):
-        block = EnvBlock(
-            optional=[OptionalEnvVar(key="URL", pattern="^https://")]
-        )
+        block = EnvBlock(optional=[OptionalEnvVar(key="URL", pattern="^https://")])
         report = validate_env(block, {"URL": "https://ok"}, {"URL": ".env"})
         assert report.optional_results[0].status == VarStatus.PASS
 

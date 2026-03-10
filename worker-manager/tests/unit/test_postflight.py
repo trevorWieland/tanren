@@ -70,9 +70,7 @@ class TestSpecRevert:
                 _make_proc_mock(stdout=b""),  # status (clean)
                 _make_proc_mock(returncode=0),  # push
             ]
-            result = await run_postflight(
-                worktree, "my-branch", "do-task", hashes, backups
-            )
+            result = await run_postflight(worktree, "my-branch", "do-task", hashes, backups)
 
         assert result.integrity_repairs["spec_reverted"] is True
         # Verify file was reverted on disk
@@ -242,9 +240,7 @@ class TestRevertCommit:
 
         # Verify the commit command was called with -m (not --amend)
         commit_calls = [
-            c
-            for c in mock_exec.call_args_list
-            if "commit" in c.args and "-m" in c.args
+            c for c in mock_exec.call_args_list if "commit" in c.args and "-m" in c.args
         ]
         assert len(commit_calls) == 1
         assert "--amend" not in commit_calls[0].args
@@ -316,9 +312,7 @@ class TestSkipPush:
                 _make_proc_mock(stdout=b""),  # status (clean)
                 # No push mock — should not be called
             ]
-            result = await run_postflight(
-                worktree, "my-branch", "do-task", {}, {}, skip_push=True
-            )
+            result = await run_postflight(worktree, "my-branch", "do-task", {}, {}, skip_push=True)
 
         assert result.pushed is False  # Default, push was skipped
         assert result.push_error is None

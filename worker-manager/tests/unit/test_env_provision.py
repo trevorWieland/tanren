@@ -175,11 +175,7 @@ class TestProvisionWorktreeEnv:
 
         _write_tanren_yml(
             worktree,
-            "version: 0.1.0\n"
-            "profile: default\n"
-            "installed: 2026-01-01\n"
-            "env:\n"
-            "  on_missing: error\n",
+            "version: 0.1.0\nprofile: default\ninstalled: 2026-01-01\nenv:\n  on_missing: error\n",
         )
 
         count = provision_worktree_env(worktree, project)

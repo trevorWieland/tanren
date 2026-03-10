@@ -24,7 +24,8 @@ async def _init_repo(repo: Path, default_branch: str = "main") -> None:
         ["git", "checkout", "-b", default_branch],
     ]:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=str(repo),
+            *cmd,
+            cwd=str(repo),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -32,7 +33,8 @@ async def _init_repo(repo: Path, default_branch: str = "main") -> None:
     (repo / "README.md").write_text("# Test")
     for cmd in [["git", "add", "."], ["git", "commit", "-m", "init"]]:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=str(repo),
+            *cmd,
+            cwd=str(repo),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )

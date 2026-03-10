@@ -108,9 +108,7 @@ def _normalize_test_name(raw: str) -> str:
     return raw
 
 
-def load_gate_expectations(
-    spec_folder_path: Path, task_id: int
-) -> GateExpectation | None:
+def load_gate_expectations(spec_folder_path: Path, task_id: int) -> GateExpectation | None:
     """Load gate expectations for a specific task from gate-expectations.json."""
     path = spec_folder_path / "gate-expectations.json"
     if not path.exists():

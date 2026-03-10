@@ -106,9 +106,7 @@ async def run_postflight(
     # If any protected files were reverted, commit the reversion
     if reverted_any:
         reverted_names = [
-            f
-            for f in revert_files
-            if result.integrity_repairs.get(revert_files[f], False)
+            f for f in revert_files if result.integrity_repairs.get(revert_files[f], False)
         ]
         proc = await asyncio.create_subprocess_exec(
             "git",

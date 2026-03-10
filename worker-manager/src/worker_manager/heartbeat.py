@@ -61,7 +61,7 @@ class HeartbeatWriter:
                 if now - ts > 60:
                     logger.info("Cleaning up stale heartbeat: %s", entry.name)
                     entry.unlink()
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 # Can't parse or read — delete it
                 with contextlib.suppress(FileNotFoundError):
                     entry.unlink()

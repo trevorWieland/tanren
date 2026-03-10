@@ -1,9 +1,12 @@
 .PHONY: check lint format test ci all
 
-check: lint test
+check: lint typecheck test
 
 lint:
 	uv run ruff check src/ tests/
+
+typecheck:
+	uv run ty check src/
 
 format:
 	uv run ruff format src/ tests/

@@ -76,10 +76,12 @@ async def write_nudge(input_dir: Path, nudge: Nudge) -> Path:
     """
     filename = generate_filename()
     path = input_dir / filename
-    envelope = json.dumps({
-        "type": "message",
-        "text": nudge.model_dump_json(),
-    })
+    envelope = json.dumps(
+        {
+            "type": "message",
+            "text": nudge.model_dump_json(),
+        }
+    )
     await atomic_write(path, envelope)
     return path
 
@@ -116,15 +118,9 @@ async def init_progress_from_plan(plan_md_path: Path, spec_id: str) -> ProgressS
     def _parse() -> ProgressState:
         content = plan_md_path.read_text()
         tasks = []
-        for match in re.finditer(
-            r"^\s*- \[[ x]\] Task (\d+):\s*(.+)$", content, re.MULTILINE
-        ):
-            tasks.append(
-                TaskState(id=int(match.group(1)), title=match.group(2).strip())
-            )
+        for match in re.finditer(r"^\s*- \[[ x]\] Task (\d+):\s*(.+)$", content, re.MULTILINE):
+            tasks.append(TaskState(id=int(match.group(1)), title=match.group(2).strip()))
         now = datetime.now(UTC).isoformat()
-        return ProgressState(
-            spec_id=spec_id, created_at=now, updated_at=now, tasks=tasks
-        )
+        return ProgressState(spec_id=spec_id, created_at=now, updated_at=now, tasks=tasks)
 
     return await asyncio.to_thread(_parse)

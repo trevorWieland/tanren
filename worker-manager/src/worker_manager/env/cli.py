@@ -108,7 +108,7 @@ def init():
     lines.append("  required:")
 
     for key in values:
-        lines.append(f'    - key: {key}')
+        lines.append(f"    - key: {key}")
         lines.append('      description: ""')
 
     yaml_block = "\n".join(lines) + "\n"

@@ -30,7 +30,8 @@ class TestManagerLifecycle:
             ["git", "checkout", "-b", "main"],
         ]:
             proc = await asyncio.create_subprocess_exec(
-                *cmd, cwd=str(project_dir),
+                *cmd,
+                cwd=str(project_dir),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -43,7 +44,8 @@ class TestManagerLifecycle:
             ["git", "branch", "feat-1"],
         ]:
             proc = await asyncio.create_subprocess_exec(
-                *cmd, cwd=str(project_dir),
+                *cmd,
+                cwd=str(project_dir),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -117,7 +119,8 @@ class TestManagerLifecycle:
             ["git", "commit", "-m", "add spec files"],
         ]:
             proc = await asyncio.create_subprocess_exec(
-                *cmd, cwd=str(wt_path),
+                *cmd,
+                cwd=str(wt_path),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )

@@ -5,7 +5,7 @@ import contextlib
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from worker_manager.process import ProcessResult, _spawn_opencode, assemble_prompt
+from worker_manager.process import ProcessResult, _spawn_claude, _spawn_opencode, assemble_prompt
 
 
 class TestAssemblePrompt:
@@ -105,18 +105,14 @@ class TestSpawnOpencode:
         """opencode receives prompt via -f file attachment + positional message."""
         dispatch, config = self._make_dispatch_and_config(tmp_path)
 
-        mock_result = ProcessResult(
-            exit_code=0, stdout="done", timed_out=False, duration_secs=10
-        )
+        mock_result = ProcessResult(exit_code=0, stdout="done", timed_out=False, duration_secs=10)
 
         with patch(
             "worker_manager.process._run_with_timeout",
             new_callable=AsyncMock,
             return_value=mock_result,
         ) as mock_run:
-            result = asyncio.run(
-                _spawn_opencode(dispatch, tmp_path, config)
-            )
+            result = asyncio.run(_spawn_opencode(dispatch, tmp_path, config))
 
             mock_run.assert_called_once()
             call_args = mock_run.call_args
@@ -145,7 +141,9 @@ class TestSpawnOpencode:
     def test_prompt_written_to_temp_file(self, tmp_path: Path):
         """Assembled prompt content is written to the temp file referenced by -f."""
         dispatch, config = self._make_dispatch_and_config(
-            tmp_path, model=None, context="Extra context here",
+            tmp_path,
+            model=None,
+            context="Extra context here",
         )
 
         captured_file_path = None
@@ -161,9 +159,7 @@ class TestSpawnOpencode:
             "worker_manager.process._run_with_timeout",
             side_effect=fake_run,
         ):
-            asyncio.run(
-                _spawn_opencode(dispatch, tmp_path, config)
-            )
+            asyncio.run(_spawn_opencode(dispatch, tmp_path, config))
 
             # The file is cleaned up after _spawn_opencode returns,
             # so we read it inside the mock. Verify the path was captured.
@@ -188,9 +184,7 @@ class TestSpawnOpencode:
             "worker_manager.process._run_with_timeout",
             side_effect=fake_run,
         ):
-            asyncio.run(
-                _spawn_opencode(dispatch, tmp_path, config)
-            )
+            asyncio.run(_spawn_opencode(dispatch, tmp_path, config))
 
         # File should be cleaned up after return
         assert not Path(captured_file_path).exists()
@@ -208,14 +202,96 @@ class TestSpawnOpencode:
             assert Path(captured_file_path).exists()
             raise RuntimeError("process exploded")
 
-        with patch(
-            "worker_manager.process._run_with_timeout",
-            side_effect=fake_run,
-        ), contextlib.suppress(RuntimeError):
-            asyncio.run(
-                _spawn_opencode(dispatch, tmp_path, config)
-            )
+        with (
+            patch(
+                "worker_manager.process._run_with_timeout",
+                side_effect=fake_run,
+            ),
+            contextlib.suppress(RuntimeError),
+        ):
+            asyncio.run(_spawn_opencode(dispatch, tmp_path, config))
 
         # File should be cleaned up even after error
         assert captured_file_path is not None
         assert not Path(captured_file_path).exists()
+
+
+class TestSpawnClaude:
+    def _make_dispatch_and_config(self, tmp_path, model="claude-sonnet-4-20250514", context=None):
+        from worker_manager.config import Config
+        from worker_manager.schemas import Cli, Dispatch, Phase
+
+        commands_dir = tmp_path / ".claude" / "commands" / "tanren"
+        commands_dir.mkdir(parents=True, exist_ok=True)
+        (commands_dir / "do-task.md").write_text("# Do Task\n\nImplement it.")
+
+        dispatch = Dispatch(
+            workflow_id="wf-test-1-1234567890",
+            phase=Phase.DO_TASK,
+            project="test",
+            spec_folder="tanren/specs/test",
+            branch="test-branch",
+            cli=Cli.CLAUDE,
+            model=model,
+            gate_cmd=None,
+            context=context,
+            timeout=1800,
+        )
+
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(tmp_path),
+            commands_dir=".claude/commands/tanren",
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "worktrees.json"),
+        )
+
+        return dispatch, config
+
+    def test_command_construction(self, tmp_path):
+        """Claude receives prompt via stdin with -p --dangerously-skip-permissions."""
+        dispatch, config = self._make_dispatch_and_config(tmp_path)
+
+        mock_result = ProcessResult(exit_code=0, stdout="done", timed_out=False, duration_secs=10)
+
+        with patch(
+            "worker_manager.process._run_with_timeout",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            result = asyncio.run(_spawn_claude(dispatch, tmp_path, config))
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            cmd = call_args.args[0] if call_args.args else call_args.kwargs["cmd"]
+
+            # Verify -p and --dangerously-skip-permissions flags
+            assert "-p" in cmd
+            assert "--dangerously-skip-permissions" in cmd
+
+            # Verify model is passed
+            assert "--model" in cmd
+            assert "claude-sonnet-4-20250514" in cmd
+
+            # Verify stdin_data is the prompt (not None like opencode)
+            if "stdin_data" in call_args.kwargs:
+                assert call_args.kwargs["stdin_data"] is not None
+            else:
+                assert call_args.args[2] is not None
+
+        assert result.exit_code == 0
+
+    def test_no_model_flag_when_model_is_none(self, tmp_path):
+        dispatch, config = self._make_dispatch_and_config(tmp_path, model=None)
+
+        mock_result = ProcessResult(exit_code=0, stdout="done", timed_out=False, duration_secs=5)
+
+        with patch(
+            "worker_manager.process._run_with_timeout",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            asyncio.run(_spawn_claude(dispatch, tmp_path, config))
+
+            cmd = mock_run.call_args.args[0]
+            assert "--model" not in cmd

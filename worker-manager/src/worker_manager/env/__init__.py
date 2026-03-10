@@ -41,9 +41,7 @@ async def load_and_validate_env(
         env_block = config.env
     else:
         # Fallback to .env.example
-        required_vars = await asyncio.to_thread(
-            discover_env_vars_from_dotenv_example, project_root
-        )
+        required_vars = await asyncio.to_thread(discover_env_vars_from_dotenv_example, project_root)
         if required_vars:
             env_block = EnvBlock(required=required_vars)
 
@@ -55,9 +53,7 @@ async def load_and_validate_env(
     if daemon_mode and env_block.on_missing == OnMissing.PROMPT:
         env_block = env_block.model_copy(update={"on_missing": OnMissing.ERROR})
 
-    merged_env, source_map = await asyncio.to_thread(
-        load_env_layers, project_root, aegis_dir
-    )
+    merged_env, source_map = await asyncio.to_thread(load_env_layers, project_root, aegis_dir)
 
     report = validate_env(env_block, merged_env, source_map)
 

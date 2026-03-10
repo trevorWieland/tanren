@@ -63,8 +63,7 @@ def _check_permissions(path: Path) -> None:
         mode = path.stat().st_mode
         if mode & stat.S_IROTH:
             logger.warning(
-                "Secrets file %s is world-readable (mode %o) — "
-                "run 'chmod 600 %s' to fix",
+                "Secrets file %s is world-readable (mode %o) — run 'chmod 600 %s' to fix",
                 path,
                 stat.S_IMODE(mode),
                 path,

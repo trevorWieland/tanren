@@ -21,6 +21,10 @@ class GitPostflightRunner:
         skip_push: bool = False,
     ) -> PostflightResult:
         return await run_postflight(
-            worktree_path, branch, phase, preflight_hashes, preflight_backups,
+            worktree_path,
+            branch,
+            phase,
+            preflight_hashes,
+            preflight_backups,
             skip_push=skip_push,
         )

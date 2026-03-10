@@ -38,8 +38,8 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30
 
-[tool.ty]
-src = ["src"]
+[tool.ty.src]
+include = ["src"]
 
 [build-system]
 requires = ["hatchling"]

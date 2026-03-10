@@ -1,0 +1,258 @@
+"""LocalExecutionEnvironment — wraps existing fine-grained adapters."""
+
+import asyncio
+import logging
+import time
+import uuid
+from pathlib import Path
+
+from worker_manager.adapters.protocols import (
+    EnvValidator,
+    PostflightRunner,
+    PreflightRunner,
+    ProcessSpawner,
+)
+from worker_manager.adapters.types import (
+    AccessInfo,
+    EnvironmentHandle,
+    PhaseResult,
+    ProvisionError,
+)
+from worker_manager.config import Config
+from worker_manager.env.reporter import format_report
+from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
+from worker_manager.heartbeat import HeartbeatWriter
+from worker_manager.metrics import compute_plan_hash, count_unchecked_tasks
+from worker_manager.schemas import Dispatch, Outcome, Phase, Result
+from worker_manager.signals import extract_signal, map_outcome
+
+logger = logging.getLogger(__name__)
+
+_PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase.AUDIT_SPEC})
+
+
+class LocalExecutionEnvironment:
+    """ExecutionEnvironment backed by local subprocess adapters.
+
+    Wraps EnvValidator, PreflightRunner, PostflightRunner, ProcessSpawner,
+    and HeartbeatWriter into the provision/execute/teardown lifecycle.
+    """
+
+    def __init__(
+        self,
+        *,
+        env_validator: EnvValidator,
+        preflight: PreflightRunner,
+        postflight: PostflightRunner,
+        spawner: ProcessSpawner,
+        heartbeat: HeartbeatWriter,
+        config: Config,
+    ) -> None:
+        self._env_validator = env_validator
+        self._preflight = preflight
+        self._postflight = postflight
+        self._spawner = spawner
+        self._heartbeat = heartbeat
+        self._config = config
+
+    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
+        """Env validation -> preflight -> return handle.
+
+        Raises ProvisionError if either step fails.
+        """
+        issue = _parse_issue(dispatch.workflow_id)
+        worktree_path = Path(config.github_dir) / f"{dispatch.project}-wt-{issue}"
+        spec_folder_path = worktree_path / dispatch.spec_folder
+
+        # 1. Environment validation
+        env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
+        if not env_report.passed:
+            result = Result(
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase,
+                outcome=Outcome.ERROR,
+                signal=None,
+                exit_code=-1,
+                duration_secs=0,
+                gate_output=None,
+                tail_output=format_report(
+                    env_report, dispatch.project, str(worktree_path / "tanren.yml")
+                ),
+                unchecked_tasks=0,
+                plan_hash="00000000",
+                spec_modified=False,
+            )
+            raise ProvisionError(result)
+
+        # 2. Preflight checks
+        preflight_result = await self._preflight.run(
+            worktree_path, dispatch.branch, spec_folder_path, dispatch.phase.value
+        )
+
+        if not preflight_result.passed:
+            result = Result(
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase,
+                outcome=Outcome.ERROR,
+                signal=None,
+                exit_code=-1,
+                duration_secs=0,
+                gate_output=None,
+                tail_output=preflight_result.error,
+                unchecked_tasks=0,
+                plan_hash="00000000",
+                spec_modified=False,
+            )
+            raise ProvisionError(result, preflight_result)
+
+        if preflight_result.repairs:
+            logger.info("Preflight repairs: %s", preflight_result.repairs)
+
+        # 3. Return handle
+        return EnvironmentHandle(
+            env_id=str(uuid.uuid4()),
+            worktree_path=worktree_path,
+            branch=dispatch.branch,
+            project=dispatch.project,
+            _preflight_result=preflight_result,
+            _task_env=task_env,
+            _env_report=env_report,
+        )
+
+    async def execute(
+        self,
+        handle: EnvironmentHandle,
+        dispatch: Dispatch,
+        config: Config,
+        *,
+        dispatch_stem: str = "",
+    ) -> PhaseResult:
+        """Heartbeat start -> retry loop -> plan metrics -> postflight -> heartbeat stop."""
+        spec_folder_path = handle.worktree_path / dispatch.spec_folder
+
+        # Start heartbeat
+        await self._heartbeat.start(dispatch_stem)
+
+        start = time.monotonic()
+        transient_retries = 0
+        try:
+            while True:
+                # Spawn process
+                proc_result = await self._spawner.spawn(
+                    dispatch,
+                    handle.worktree_path,
+                    config,
+                    task_env=handle._task_env or None,
+                )
+
+                # Log process result for agent phases
+                if dispatch.phase not in (Phase.GATE, Phase.SETUP, Phase.CLEANUP):
+                    stdout_preview = (proc_result.stdout or "")[:500]
+                    logger.info(
+                        "Process result: exit=%d duration=%ds "
+                        "timed_out=%s stdout_len=%d stdout=%.200s",
+                        proc_result.exit_code,
+                        proc_result.duration_secs,
+                        proc_result.timed_out,
+                        len(proc_result.stdout or ""),
+                        stdout_preview,
+                    )
+
+                # Extract signal
+                command_name = dispatch.phase.value
+                raw_signal = extract_signal(
+                    dispatch.phase, command_name, spec_folder_path, proc_result.stdout
+                )
+
+                # Map outcome
+                outcome, signal_val = map_outcome(
+                    dispatch.phase,
+                    raw_signal,
+                    proc_result.exit_code,
+                    proc_result.timed_out,
+                )
+
+                # Transient error retry
+                if outcome in (Outcome.ERROR, Outcome.TIMEOUT):
+                    stderr_text = ""
+                    error_class = classify_error(
+                        proc_result.exit_code,
+                        proc_result.stdout or "",
+                        stderr_text,
+                        signal_val,
+                    )
+                    if error_class == ErrorClass.TRANSIENT and transient_retries < 3:
+                        transient_retries += 1
+                        backoff = TRANSIENT_BACKOFF[transient_retries - 1]
+                        logger.warning(
+                            "Transient error (attempt %d/3), retrying in %ds",
+                            transient_retries,
+                            backoff,
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    elif error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
+                        transient_retries += 1
+                        logger.warning("Ambiguous error, retrying once in 10s")
+                        await asyncio.sleep(10)
+                        continue
+
+                # Not retrying — break out of loop
+                break
+
+            duration = int(time.monotonic() - start)
+
+            # Compute plan.md metrics
+            plan_path = spec_folder_path / "plan.md"
+            unchecked = await count_unchecked_tasks(plan_path)
+            plan_hash = await compute_plan_hash(plan_path)
+
+            # Post-flight integrity checks
+            postflight_result = None
+            if dispatch.phase in _PUSH_PHASES:
+                preflight = handle._preflight_result
+                postflight_result = await self._postflight.run(
+                    handle.worktree_path,
+                    dispatch.branch,
+                    dispatch.phase.value,
+                    preflight.file_hashes if preflight else {},
+                    preflight.file_backups if preflight else {},
+                    skip_push=(outcome in (Outcome.ERROR, Outcome.TIMEOUT)),
+                )
+
+            return PhaseResult(
+                outcome=outcome,
+                signal=signal_val,
+                exit_code=proc_result.exit_code,
+                stdout=proc_result.stdout,
+                duration_secs=duration,
+                preflight_passed=True,
+                postflight_result=postflight_result,
+                env_report=handle._env_report,
+                gate_output=None,  # Manager builds this
+                unchecked_tasks=unchecked,
+                plan_hash=plan_hash,
+                retries=transient_retries,
+            )
+
+        finally:
+            # Stop heartbeat
+            await self._heartbeat.stop(dispatch_stem)
+
+    async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
+        """Return local worktree path. No SSH/VSCode for local."""
+        return AccessInfo(working_dir=str(handle.worktree_path), status="local")
+
+    async def teardown(self, handle: EnvironmentHandle) -> None:
+        """No-op for local (heartbeat already stopped in execute).
+
+        Future Docker/VM envs would destroy containers here.
+        """
+        pass
+
+
+def _parse_issue(workflow_id: str) -> int:
+    """Extract issue number from workflow_id."""
+    from worker_manager.schemas import parse_issue_from_workflow_id
+
+    return parse_issue_from_workflow_id(workflow_id)

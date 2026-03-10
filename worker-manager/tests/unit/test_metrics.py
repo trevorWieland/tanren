@@ -39,10 +39,7 @@ class TestCountUncheckedTasks:
     @pytest.mark.asyncio
     async def test_does_not_count_fix_items(self, tmp_path: Path):
         plan = tmp_path / "plan.md"
-        plan.write_text(
-            "- [ ] Task 1: Something\n"
-            "  - [ ] Fix: not a Task N\n"
-        )
+        plan.write_text("- [ ] Task 1: Something\n  - [ ] Fix: not a Task N\n")
         assert await count_unchecked_tasks(plan) == 1
 
 
@@ -76,5 +73,3 @@ class TestComputePlanHash:
         plan.write_text("content B")
         h2 = await compute_plan_hash(plan)
         assert h1 != h2
-
-

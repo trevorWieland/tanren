@@ -53,16 +53,18 @@ class TestPreflightIntegration:
         (git_repo / "dirty.txt").write_text("uncommitted")
 
         spec_folder = git_repo / "specs" / "test-spec"
-        result = await run_preflight(
-            git_repo, "test-branch", spec_folder, "do-task"
-        )
+        result = await run_preflight(git_repo, "test-branch", spec_folder, "do-task")
 
         assert result.passed is True
         assert any("Stashed" in r for r in result.repairs)
 
         # Verify tree is clean after preflight
         proc = await asyncio.create_subprocess_exec(
-            "git", "-C", str(git_repo), "status", "--porcelain",
+            "git",
+            "-C",
+            str(git_repo),
+            "status",
+            "--porcelain",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -73,9 +75,7 @@ class TestPreflightIntegration:
     async def test_file_snapshots_real(self, git_repo: Path):
         """Verify file snapshots on real files."""
         spec_folder = git_repo / "specs" / "test-spec"
-        result = await run_preflight(
-            git_repo, "test-branch", spec_folder, "do-task"
-        )
+        result = await run_preflight(git_repo, "test-branch", spec_folder, "do-task")
 
         assert result.passed is True
         assert "spec.md" in result.file_hashes
@@ -86,9 +86,7 @@ class TestPreflightIntegration:
     async def test_clean_repo_passes(self, git_repo: Path):
         """Clean repo should pass with no repairs."""
         spec_folder = git_repo / "specs" / "test-spec"
-        result = await run_preflight(
-            git_repo, "test-branch", spec_folder, "do-task"
-        )
+        result = await run_preflight(git_repo, "test-branch", spec_folder, "do-task")
 
         assert result.passed is True
         assert result.repairs == []

@@ -102,9 +102,7 @@ class TestPostflightIntegration:
         # Simulate agent leaving uncommitted work
         (git_repo / "new_file.py").write_text("# agent work")
 
-        result = await run_postflight(
-            git_repo, "test-branch", "do-task", {}, {}
-        )
+        result = await run_postflight(git_repo, "test-branch", "do-task", {}, {})
 
         assert result.integrity_repairs["wip_committed"] is True
 
@@ -119,9 +117,7 @@ class TestPostflightIntegration:
     @pytest.mark.asyncio
     async def test_no_changes_clean(self, git_repo: Path):
         """No modifications — no repairs needed (push will fail without remote, that's OK)."""
-        result = await run_postflight(
-            git_repo, "test-branch", "do-task", {}, {}
-        )
+        result = await run_postflight(git_repo, "test-branch", "do-task", {}, {})
 
         assert result.integrity_repairs["spec_reverted"] is False
         assert result.integrity_repairs["wip_committed"] is False

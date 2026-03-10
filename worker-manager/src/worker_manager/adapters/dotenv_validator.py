@@ -11,7 +11,5 @@ from worker_manager.env.validator import EnvReport
 class DotenvEnvValidator:
     """Delegates to env.load_and_validate_env()."""
 
-    async def load_and_validate(
-        self, project_root: Path
-    ) -> tuple[EnvReport, dict[str, str]]:
+    async def load_and_validate(self, project_root: Path) -> tuple[EnvReport, dict[str, str]]:
         return await load_and_validate_env(project_root)
