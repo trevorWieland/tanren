@@ -25,7 +25,7 @@ codex exec (audit-task, audit-spec):
 
 bash (gates):
     bash -c "{gate_cmd}" (cwd=worktree_path)
-    stdout+stderr captured (last 100 lines -> gate_output)
+    stdout+stderr captured (last 100/300 lines -> gate_output)
 
 All processes: start_new_session=True (Python equiv of setsid).
 Timeout: SIGTERM -> 5s grace -> SIGKILL via os.killpg.

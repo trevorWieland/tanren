@@ -10,6 +10,7 @@ from pathlib import Path
 
 from worker_manager.config import Config
 from worker_manager.env import load_and_validate_env
+from worker_manager.env.provision import provision_worktree_env
 from worker_manager.env.reporter import format_report
 from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from worker_manager.heartbeat import HeartbeatWriter
@@ -55,6 +56,31 @@ from worker_manager.worktree import (
 logger = logging.getLogger(__name__)
 
 _PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase.AUDIT_SPEC})
+
+_GATE_OUTPUT_LINES_SUCCESS = 100
+_GATE_OUTPUT_LINES_FAIL = 300
+_TAIL_OUTPUT_LINES = 200
+
+
+def _build_gate_output(stdout: str | None, outcome: Outcome) -> str | None:
+    """Extract last N lines of stdout for gate phases.
+
+    Returns more lines on failure (300) than success (100) so the coordinator
+    sees enough diagnostic detail to act on gate failures.
+    """
+    if not stdout:
+        return None
+    limit = _GATE_OUTPUT_LINES_SUCCESS if outcome == Outcome.SUCCESS else _GATE_OUTPUT_LINES_FAIL
+    lines = stdout.strip().split("\n")
+    return "\n".join(lines[-limit:])
+
+
+def _build_tail_output(stdout: str | None) -> str | None:
+    """Extract last 200 lines of stdout for operational visibility."""
+    if not stdout:
+        return None
+    lines = stdout.strip().split("\n")
+    return "\n".join(lines[-_TAIL_OUTPUT_LINES:])
 
 
 class WorkerManager:
@@ -220,6 +246,12 @@ class WorkerManager:
             wt_path = await create_worktree(
                 dispatch.project, issue, dispatch.branch, self._config.github_dir
             )
+            project_dir = Path(self._config.github_dir) / dispatch.project
+            count = await asyncio.to_thread(
+                provision_worktree_env, wt_path, project_dir
+            )
+            if count:
+                logger.info("Provisioned %d env vars in worktree .env", count)
             await register_worktree(
                 Path(self._config.worktree_registry_path),
                 dispatch.workflow_id,
@@ -444,11 +476,10 @@ class WorkerManager:
             unchecked = await count_unchecked_tasks(plan_path)
             plan_hash = await compute_plan_hash(plan_path)
 
-            # Build gate_output (last 100 lines for gate phases)
+            # Build gate_output (gate phases only)
             gate_output = None
-            if dispatch.phase == Phase.GATE and proc_result.stdout:
-                lines = proc_result.stdout.strip().split("\n")
-                gate_output = "\n".join(lines[-100:])
+            if dispatch.phase == Phase.GATE:
+                gate_output = _build_gate_output(proc_result.stdout, outcome)
 
             # Build tail_output — always for agent phases (operational visibility),
             # only on non-success for gate/setup/cleanup phases.
@@ -456,11 +487,8 @@ class WorkerManager:
             is_agent_phase = dispatch.phase not in (
                 Phase.GATE, Phase.SETUP, Phase.CLEANUP,
             )
-            if (
-                is_agent_phase or outcome != Outcome.SUCCESS
-            ) and proc_result.stdout:
-                lines = proc_result.stdout.strip().split("\n")
-                tail_output = "\n".join(lines[-50:])
+            if is_agent_phase or outcome != Outcome.SUCCESS:
+                tail_output = _build_tail_output(proc_result.stdout)
 
             # Post-flight integrity checks (always run — skip push for errors/timeouts)
             pushed: bool | None = None

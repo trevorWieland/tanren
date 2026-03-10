@@ -268,8 +268,8 @@ reads, processes, and deletes.
 | `signal` | string\|null | Raw agent signal or null (gates, no signal) |
 | `exit_code` | integer | Process exit code |
 | `duration_secs` | integer | Wall-clock execution time |
-| `gate_output` | string\|null | Last 100 lines of gate output (gate phases only) |
-| `tail_output` | string\|null | Last 50 lines of output (non-success outcomes only) |
+| `gate_output` | string\|null | Last 100/300 lines of gate stdout (success/fail); gate phases only |
+| `tail_output` | string\|null | Last 200 lines of stdout (agent phases always, others on non-success) |
 | `unchecked_tasks` | integer | Count of unchecked `- [ ] Task N` lines in plan.md after phase |
 | `plan_hash` | string | MD5 of plan.md after phase (first 8 hex chars) |
 | `spec_modified` | boolean | True if spec.md was modified and reverted |
@@ -787,6 +787,21 @@ The worker manager maintains `worktrees.json` to enforce isolation:
 - No two workflows share the same branch.
 - No two workflows share the same worktree path.
 - The worktree path must not be the main working copy.
+
+### Environment Provisioning
+
+During the SETUP phase, after creating the worktree, the worker manager
+generates a `.env` file in the worktree from resolved env layers. The process:
+
+1. Parse `tanren.yml` from the worktree to discover required/optional var keys.
+2. Resolve values from all env sources (main repo `.env`, `~/.aegis/secrets.env`,
+   `~/.aegis/secrets.d/*.env`, `os.environ`).
+3. Write only the `tanren.yml`-defined keys to the worktree `.env`.
+
+This ensures that `make quality` and other direct-invocation workflows have
+access to the same env vars that the worker-manager subprocess path provides
+via `task_env`. Gitignored files like `.env` are not copied by
+`git worktree add`, so this provisioning step is required.
 
 ---
 

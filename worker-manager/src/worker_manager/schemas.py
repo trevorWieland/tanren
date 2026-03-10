@@ -198,9 +198,11 @@ class Result(BaseModel):
     signal: str | None = Field(description="Raw agent signal or null")
     exit_code: int = Field(description="Process exit code")
     duration_secs: int = Field(description="Wall-clock execution time")
-    gate_output: str | None = Field(description="Last 100 lines of gate output (gate phases only)")
+    gate_output: str | None = Field(
+        description="Last 100/300 lines of gate stdout (success/fail); gate phases only"
+    )
     tail_output: str | None = Field(
-        description="Last 50 lines of output (non-success outcomes only)"
+        description="Last 200 lines of stdout (agent phases always, others on non-success)"
     )
     unchecked_tasks: int = Field(description="Count of unchecked Task N lines in plan.md")
     plan_hash: str = Field(description="MD5 of plan.md (first 8 hex chars)")
