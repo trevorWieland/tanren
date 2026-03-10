@@ -1,9 +1,9 @@
-# NanoClaw-Tanren IPC Protocol Specification
+# Tanren IPC Protocol Specification
 
-Version: 1.1
-Date: 2026-03-07
+Version: 1.2
+Date: 2026-03-10
 
-Protocol for autonomous code orchestration between a NanoClaw coordinator
+Protocol for autonomous code orchestration between a coordinator
 container and a host-level worker manager, using file-based IPC with
 polling, atomic writes, and delete-after-process semantics.
 
@@ -28,14 +28,14 @@ polling, atomic writes, and delete-after-process semantics.
 
 Three components participate in the protocol:
 
-**Coordinator container** (Claude Max, persistent NanoClaw group)
-- Runs inside a NanoClaw container with persistent session
-- Handles interactive phases (shape-spec, walk-spec) over Discord
+**Coordinator container** (persistent session)
+- Runs inside a coordinator container with persistent session
+- Handles interactive phases (shape-spec, walk-spec) via the messaging platform
 - Owns workflows.json — reads and writes on every state change
 - Processes workflow updates: reads results/, writes dispatch/
 - Two trigger paths for processing (see Result Notification)
 
-**Worker manager** (host-level service, not a NanoClaw group)
+**Worker manager** (host-level service)
 - Runs on the host, outside any container
 - Polls dispatch/ every 5s for new work
 - Spawns CLI processes (opencode, codex, bash) in worktrees
@@ -43,8 +43,8 @@ Three components participate in the protocol:
 - Writes results to results/ and nudges coordinator via input/
 - Maintains heartbeat files for crash detection
 
-**Workflow monitor** (NanoClaw scheduled task, 60s cron)
-- Runs inside the coordinator container as a NanoClaw cron task
+**Workflow monitor** (scheduled task, 60s cron)
+- Runs inside the coordinator container as a scheduled cron task
 - Safety-net fallback: polls results/ every 60s for unprocessed results
 - Detects stale dispatches and crashed workers via heartbeat checks
 - Not the primary processing path (nudge is — see Section 1.1)
@@ -59,9 +59,9 @@ at `/workspace/ipc/`.
 
 ```
 data/ipc/{coordinator-group}/
-  messages/         # existing — Discord messages (coordinator -> NanoClaw)
+  messages/         # existing — messages (coordinator -> messaging platform)
   tasks/            # existing — scheduled tasks
-  input/            # existing — follow-up messages (NanoClaw -> coordinator)
+  input/            # existing — follow-up messages (messaging platform -> coordinator)
   dispatch/         # NEW — coordinator writes, worker manager reads+deletes
   results/          # NEW — worker manager writes, coordinator reads+deletes
   in-progress/      # NEW — worker manager writes heartbeat files
@@ -87,8 +87,7 @@ From inside the coordinator container:
 
 ### File Naming Convention
 
-All dispatch and result files follow the NanoClaw convention established
-in `ipc-mcp-stdio.ts`:
+All dispatch and result files follow the IPC convention:
 
 ```
 {timestamp}-{random6}.json
@@ -128,15 +127,15 @@ processing logic; idempotency ensures at-most-once semantics.
 { "type": "message", "text": "{\"type\": \"workflow_result\", \"workflow_id\": \"wf-rentl-144-1741359600\"}" }
 ```
 
-Wrapped in NanoClaw's IPC message envelope. `drainIpcInput()` only
-processes `{"type": "message", "text": "..."}` files — it extracts the
-`text` field and delivers it to the coordinator as a follow-up message.
+Wrapped in the coordinator's IPC message envelope. The coordinator's IPC input
+handler only processes `{"type": "message", "text": "..."}` files — it extracts
+the `text` field and delivers it to the coordinator as a follow-up message.
 The coordinator parses the inner JSON to identify the workflow result,
 reads `results/`, advances `workflows.json`, writes the next `dispatch/`
-file. Latency: ~500ms (NanoClaw's `input/` poll interval inside the
+file. Latency: ~500ms (the coordinator's `input/` poll interval inside the
 container).
 
-**Fallback path (cron, 60s poll)**: The workflow monitor (NanoClaw
+**Fallback path (cron, 60s poll)**: The workflow monitor (coordinator
 scheduled task) independently polls `results/` on every tick. Catches
 missed nudges, handles coordinator restarts, and serves as crash
 recovery.
@@ -182,6 +181,7 @@ Worker manager reads, processes, and deletes.
 | `gate_cmd` | string\|null | Shell command for gate phases, null for agent phases |
 | `context` | string\|null | Extra context passed to the agent (gate errors, retry prompts) |
 | `timeout` | integer | Maximum execution time in seconds |
+| `environment_profile` | string | Environment profile from tanren.yml (default: `"default"`) |
 
 ### CLI Routing Table
 
@@ -437,11 +437,11 @@ idle -> shaping -> await_confirm -> orchestrating -> await_walk -> walking -> pr
 | State | Description | Actor |
 |---|---|---|
 | `idle` | No active work. Workflow not yet started or completed. | — |
-| `shaping` | shape-spec running interactively in coordinator container over Discord. | Coordinator |
+| `shaping` | shape-spec running interactively in coordinator container via the messaging platform. | Coordinator |
 | `await_confirm` | Spec shaped, waiting for human confirmation to proceed. | Human |
 | `orchestrating` | Autonomous implementation loop. Sub-state machine active. | Workflow monitor + Worker manager |
 | `await_walk` | Orchestration complete. Waiting for human to start walk-spec. | Human |
-| `walking` | walk-spec running interactively in coordinator container over Discord. | Coordinator + Human |
+| `walking` | walk-spec running interactively in coordinator container via the messaging platform. | Coordinator + Human |
 | `pr_review` | PR created, awaiting merge. | Human |
 | `halted` | Unrecoverable error during orchestrating. Needs human intervention. Can resume. | Human |
 | `completed` | PR merged, workflow finished. | — |
@@ -450,13 +450,13 @@ idle -> shaping -> await_confirm -> orchestrating -> await_walk -> walking -> pr
 
 | Current State | Event | Next State | Action |
 |---|---|---|---|
-| `idle` | Human: `@Aegis shape {project} #{issue}` | `shaping` | Coordinator starts shape-spec interactively |
+| `idle` | Human: `shape {project} #{issue}` | `shaping` | Coordinator starts shape-spec interactively |
 | `shaping` | shape-spec completes | `await_confirm` | Coordinator asks human to confirm |
 | `shaping` | shape-spec error/abort | `idle` | Clean up, notify human |
 | `await_confirm` | Human confirms | `orchestrating` | Set sub_state=`worktree_setup`, dispatch setup phase |
 | `await_confirm` | Human rejects | `idle` | Notify, no cleanup needed |
-| `orchestrating` | Sub-state machine reaches COMPLETE | `await_walk` | Post to Discord: "Orchestration complete for #N. Say 'walk' to start walk-spec or 'defer' to do it later." |
-| `orchestrating` | Sub-state machine reaches HALT | `halted` | Notify human via Discord with halt reason |
+| `orchestrating` | Sub-state machine reaches COMPLETE | `await_walk` | Notify human: "Orchestration complete for #N. Say 'walk' to start walk-spec or 'defer' to do it later." |
+| `orchestrating` | Sub-state machine reaches HALT | `halted` | Notify human via the messaging platform with halt reason |
 | `orchestrating` | Human cancels | `idle` | Clean up worktree, notify |
 | `await_walk` | Human says "walk" | `walking` | Coordinator starts walk-spec interactively |
 | `await_walk` | Human says "defer" | `await_walk` | Stays, reminder posted later |
@@ -465,7 +465,7 @@ idle -> shaping -> await_confirm -> orchestrating -> await_walk -> walking -> pr
 | `walking` | walk-spec finds issues | `orchestrating` | Set sub_state=`task_select`, tasks already added by walk-spec |
 | `pr_review` | PR merged | `completed` | Clean up worktree, archive workflow |
 | `pr_review` | PR changes requested | `orchestrating` | Set sub_state=`task_select` with change-request tasks |
-| `halted` | Human: `@Aegis resume {workflow_id}` | `orchestrating` | Resume from last sub_state or task_select |
+| `halted` | Human: `resume {workflow_id}` | `orchestrating` | Resume from last sub_state or task_select |
 | `halted` | Human cancels | `idle` | Clean up worktree |
 
 ---
@@ -794,8 +794,8 @@ During the SETUP phase, after creating the worktree, the worker manager
 generates a `.env` file in the worktree from resolved env layers. The process:
 
 1. Parse `tanren.yml` from the worktree to discover required/optional var keys.
-2. Resolve values from all env sources (main repo `.env`, `~/.aegis/secrets.env`,
-   `~/.aegis/secrets.d/*.env`, `os.environ`).
+2. Resolve values from all env sources (main repo `.env`, `~/.config/tanren/secrets.env`,
+   `~/.config/tanren/secrets.d/*.env`, `os.environ`).
 3. Write only the `tanren.yml`-defined keys to the worktree `.env`.
 
 This ensures that `make quality` and other direct-invocation workflows have
@@ -819,7 +819,7 @@ via `task_env`. Gitignored files like `.env` are not copied by
 | Max audit-spec retries | 3 | `ORCH_MAX_DEMO_RETRIES` (shared constant) |
 | Dispatch pickup timeout | 120s | Hardcoded |
 | Worker manager poll interval | 5s | `dispatch/` scanning interval |
-| Workflow monitor poll interval | 60s | NanoClaw scheduled task cron (fallback; primary path is nudge at ~500ms) |
+| Workflow monitor poll interval | 60s | Coordinator scheduled task cron (fallback; primary path is nudge at ~500ms) |
 
 ### Timeout Hierarchy
 
@@ -882,10 +882,10 @@ reconstruct all workflow states. Then:
 
 **Recovery**:
 1. First occurrence: Delete the stale dispatch file. Re-dispatch the
-   same phase (write a new dispatch file). Post to Discord: "Dispatch
+   same phase (write a new dispatch file). Notify human: "Dispatch
    retry for {workflow_id} — worker manager may be slow."
 2. Second occurrence: HALT with `"Worker manager not processing
-   dispatches — check worker manager health"`. Post to Discord: "Worker
+   dispatches — check worker manager health"`. Notify human: "Worker
    manager not processing dispatches for {workflow_id}. Check worker
    health."
 
@@ -926,15 +926,15 @@ If 3 workflows are already orchestrating and a new one reaches
 
 ## 11. Worked Example
 
-Complete trace of a workflow from Discord trigger through PR merge.
+Complete trace of a workflow from trigger through PR merge.
 
 **Scenario**: Implement rentl issue #144 with 3 tasks in the plan.
 
 ### Step 1: Shape Trigger
 
-Human sends on Discord: `@Aegis shape rentl #144`
+Human sends: `shape rentl #144`
 
-Coordinator receives the message via NanoClaw message routing. Starts
+Coordinator receives the message via the messaging platform. Starts
 shape-spec interactively.
 
 **workflows.json** after state change:
@@ -993,7 +993,7 @@ Shape-spec creates branch `s0146-slug`, writes spec folder, pushes.
 }
 ```
 
-Coordinator posts to Discord: "Spec shaped for #144. Plan has 3 tasks.
+Coordinator notifies human: "Spec shaped for #144. Plan has 3 tasks.
 Ready to orchestrate?"
 
 ### Step 3: Human Confirms
@@ -1427,7 +1427,7 @@ Transition #38: audit_spec pass -> COMPLETE. Top-level transitions to
 }
 ```
 
-Coordinator posts to Discord: "Orchestration complete for #144
+Coordinator notifies human: "Orchestration complete for #144
 (3 tasks, 1 cycle, 13 phases, 48m 41s). Say 'walk' to start walk-spec
 or 'defer' to do it later."
 
@@ -1439,7 +1439,7 @@ State: `await_walk` -> `walking`
 
 ### Step 25: Walk-Spec
 
-Coordinator runs walk-spec interactively over Discord. Human reviews
+Coordinator runs walk-spec interactively via the messaging platform. Human reviews
 demo, checks implementation, approves.
 
 State: `walking` -> `pr_review`

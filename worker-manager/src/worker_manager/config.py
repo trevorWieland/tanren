@@ -69,11 +69,18 @@ class Config(BaseModel):
         default=None,
         description="Path to SQLite events DB (enables event emission)",
     )
+    remote_config_path: str | None = Field(
+        default=None,
+        description="Path to remote.yml (enables remote execution)",
+    )
 
     @classmethod
     def from_env(cls) -> Config:
         """Load configuration from WM_ prefixed environment variables."""
-        ipc_dir = _expand(os.environ.get("WM_IPC_DIR", "~/github/nanoclaw/data/ipc/discord_main"))
+        ipc_dir_raw = os.environ.get("WM_IPC_DIR")
+        if not ipc_dir_raw:
+            raise ValueError("WM_IPC_DIR environment variable is required")
+        ipc_dir = _expand(ipc_dir_raw)
         github_dir = _expand(os.environ.get("WM_GITHUB_DIR", "~/github"))
         data_dir = _expand(os.environ.get("WM_DATA_DIR", "~/.local/share/tanren-worker"))
 
@@ -96,4 +103,5 @@ class Config(BaseModel):
             max_codex=int(os.environ.get("WM_MAX_CODEX", "1")),
             max_gate=int(os.environ.get("WM_MAX_GATE", "3")),
             events_db=os.environ.get("WM_EVENTS_DB"),
+            remote_config_path=os.environ.get("WM_REMOTE_CONFIG"),
         )

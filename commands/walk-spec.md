@@ -8,7 +8,7 @@ The human validation checkpoint. The agent does the inspection work — reads th
 
 - Human-in-the-loop — the user validates; the agent investigates and presents
 - Do NOT ask the user generic yes/no checklist questions. Instead, read the code yourself, summarize what you found, and ask the user to confirm specific behaviors.
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. In Discord/NanoClaw: use send_message with numbered options and wait for reply.
+- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
 - If the demo fails during the walkthrough, stop and discuss with the user — do not silently fix
 
 ## Prerequisites

@@ -124,13 +124,13 @@ class TestEnvInit:
 
 class TestSecretSet:
     def test_set_secret(self, tmp_path: Path, monkeypatch):
-        aegis = tmp_path / "aegis"
+        sd = tmp_path / "secrets"
         monkeypatch.setattr(
             "worker_manager.env.cli.set_secret",
             lambda key, value: (
-                aegis.mkdir(parents=True, exist_ok=True),
-                (aegis / "secrets.env").write_text(f'{key}="{value}"\n'),
-                aegis / "secrets.env",
+                sd.mkdir(parents=True, exist_ok=True),
+                (sd / "secrets.env").write_text(f'{key}="{value}"\n'),
+                sd / "secrets.env",
             )[-1],
         )
         runner = CliRunner()

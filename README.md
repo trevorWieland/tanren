@@ -52,7 +52,7 @@ Integrations are pluggable via adapter interfaces:
 | Secret Management | Flat file (~/.tanren/secrets.env) | Vault, AWS/GCP Secret Manager |
 | Event/Metrics Storage | SQLite | Postgres, BigQuery, custom |
 | Token Usage Collection | Log parsing | Metering proxy |
-| Coordinator Interface | Web dashboard + CLI | Discord, Slack, Teams |
+| Coordinator Interface | Web dashboard + CLI | Messaging platforms (pluggable) |
 
 ## Agent Roles
 

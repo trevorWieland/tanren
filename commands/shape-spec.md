@@ -6,7 +6,7 @@ Plan the work with the user. Produce all spec artifacts and push. This is the on
 
 ## Important Guidelines
 
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. In Discord/NanoClaw: use send_message with numbered options and wait for reply.
+- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
 - Offer suggestions — present options the user can confirm or adjust
 - Keep it lightweight — this is shaping, not exhaustive documentation
 - Prefer GitHub issues as the source of truth for spec id, title, status, and dependencies

@@ -1,7 +1,7 @@
 """Generate .env in worktrees from resolved env layers.
 
 Reads tanren.yml from the worktree to determine required/optional vars,
-resolves values from all env sources (main repo .env, ~/.aegis/*, os.environ),
+resolves values from all env sources (main repo .env, secrets store, os.environ),
 and writes a .env file to the worktree.
 """
 
@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 def provision_worktree_env(
     worktree_path: Path,
     project_dir: Path,
-    aegis_dir: Path | None = None,
+    secrets_dir: Path | None = None,
 ) -> int:
     """Generate .env in worktree from resolved env layers.
 
     Reads tanren.yml from the worktree to determine required/optional vars,
-    resolves values from all env sources (main repo .env, ~/.aegis/*, os.environ),
+    resolves values from all env sources (main repo .env, secrets store, os.environ),
     and writes a .env file to the worktree.
 
     Returns the number of vars written.
@@ -35,7 +35,7 @@ def provision_worktree_env(
     if not keys:
         return 0
 
-    merged, source_map = load_env_layers(project_dir, aegis_dir)
+    merged, source_map = load_env_layers(project_dir, secrets_dir)
 
     lines: list[str] = []
     for key in keys:

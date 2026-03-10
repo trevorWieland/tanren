@@ -142,14 +142,14 @@ class TestProvisionWorktreeEnv:
         assert "API_KEY=sk-123" in dotenv
         assert "LOG_LEVEL" not in dotenv
 
-    def test_aegis_secrets_resolved(self, tmp_path: Path):
+    def test_secrets_resolved(self, tmp_path: Path):
         worktree = tmp_path / "wt"
         worktree.mkdir()
         project = tmp_path / "proj"
         project.mkdir()
-        aegis = tmp_path / "aegis"
-        aegis.mkdir()
-        (aegis / "secrets.env").write_text("SECRET_KEY=aegis-val\n")
+        sd = tmp_path / "secrets"
+        sd.mkdir()
+        (sd / "secrets.env").write_text("SECRET_KEY=secret-val\n")
 
         _write_tanren_yml(
             worktree,
@@ -161,11 +161,11 @@ class TestProvisionWorktreeEnv:
             "    - key: SECRET_KEY\n",
         )
 
-        count = provision_worktree_env(worktree, project, aegis_dir=aegis)
+        count = provision_worktree_env(worktree, project, secrets_dir=sd)
         assert count == 1
 
         dotenv = (worktree / ".env").read_text()
-        assert "SECRET_KEY=aegis-val" in dotenv
+        assert "SECRET_KEY=secret-val" in dotenv
 
     def test_empty_env_block_returns_zero(self, tmp_path: Path):
         worktree = tmp_path / "wt"

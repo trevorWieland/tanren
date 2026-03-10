@@ -85,7 +85,7 @@ class TestIPCRoundtrip:
 
     @pytest.mark.asyncio
     async def test_nudge_write_and_read(self, tmp_path: Path):
-        """Write a nudge, read it back, verify NanoClaw message envelope."""
+        """Write a nudge, read it back, verify coordinator message envelope."""
         nudge = Nudge(workflow_id="wf-rentl-144-1741359600")
         path = await write_nudge(tmp_path, nudge)
 

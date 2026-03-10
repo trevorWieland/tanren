@@ -7,7 +7,7 @@ Load standards audit reports, analyze violations across all standards, group fin
 ## Important Guidelines
 
 - Human-in-the-loop — the user approves the triage before any issues are created
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. In Discord/NanoClaw: use send_message with numbered options and wait for reply.
+- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
 - Group by root cause / natural fix scope, not per-standard
 - Priority is a function of score, importance, and violation count
 - Every created issue must be actionable with clear scope

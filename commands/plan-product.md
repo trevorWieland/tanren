@@ -4,7 +4,7 @@ Establish foundational product documentation through an interactive conversation
 
 ## Important Guidelines
 
-- **Always use AskUserQuestion tool** when asking the user anything. In TUI: use AskUserQuestion. In Discord/NanoClaw: use send_message with numbered options and wait for reply.
+- **Always use AskUserQuestion tool** when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
 - **Keep it lightweight** — gather enough to create useful docs without over-documenting
 - **One question at a time** — don't overwhelm with multiple questions
 

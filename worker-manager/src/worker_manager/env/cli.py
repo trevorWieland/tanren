@@ -121,14 +121,14 @@ def init():
 
 @click.group()
 def secret():
-    """Manage secrets in ~/.aegis/secrets.env."""
+    """Manage secrets in ~/.config/tanren/secrets.env."""
 
 
 @secret.command("set")
 @click.argument("key")
 @click.argument("value")
 def secret_set(key: str, value: str):
-    """Store a secret in ~/.aegis/secrets.env."""
+    """Store a secret in ~/.config/tanren/secrets.env."""
     path = set_secret(key, value)
     click.echo(f"Secret {key} written to {path}")
 
@@ -138,7 +138,7 @@ def secret_list():
     """List secrets with redacted values."""
     secrets = list_secrets()
     if not secrets:
-        click.echo("No secrets found in ~/.aegis/secrets.env")
+        click.echo("No secrets found in ~/.config/tanren/secrets.env")
         return
 
     for key, redacted in secrets:

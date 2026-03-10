@@ -7,7 +7,7 @@ Investigate blockers that halted the orchestrator, propose solutions, and reconc
 ## Important Guidelines
 
 - Human-in-the-loop — investigate and present options, but the user decides
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. In Discord/NanoClaw: use send_message with numbered options and wait for reply.
+- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
 - Never modify spec.md without explicit user approval (and even then, present the exact diff first)
 - Signposts must include evidence — verify every claim before trusting it
 - Changes must be committed with clear "Resolve blockers" messages

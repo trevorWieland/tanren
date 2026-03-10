@@ -89,63 +89,63 @@ class TestLoadEnvLayers:
     def test_dotenv_loaded(self, tmp_path: Path):
         dotenv = tmp_path / ".env"
         dotenv.write_text("MY_VAR=from_dotenv\n")
-        merged, source_map = load_env_layers(tmp_path, aegis_dir=tmp_path / "aegis")
+        merged, source_map = load_env_layers(tmp_path, secrets_dir=tmp_path / "secrets")
         assert merged["MY_VAR"] == "from_dotenv"
         assert source_map["MY_VAR"] == ".env"
 
     def test_secrets_env_loaded(self, tmp_path: Path):
-        aegis = tmp_path / "aegis"
-        aegis.mkdir()
-        secrets = aegis / "secrets.env"
+        sd = tmp_path / "secrets"
+        sd.mkdir()
+        secrets = sd / "secrets.env"
         secrets.write_text("SECRET_KEY=abc123\n")
-        merged, source_map = load_env_layers(tmp_path, aegis_dir=aegis)
+        merged, source_map = load_env_layers(tmp_path, secrets_dir=sd)
         assert merged["SECRET_KEY"] == "abc123"
         assert source_map["SECRET_KEY"] == str(secrets)
 
     def test_dotenv_overrides_secrets(self, tmp_path: Path):
-        aegis = tmp_path / "aegis"
-        aegis.mkdir()
-        secrets = aegis / "secrets.env"
+        sd = tmp_path / "secrets"
+        sd.mkdir()
+        secrets = sd / "secrets.env"
         secrets.write_text("MY_VAR=from_secrets\n")
         dotenv = tmp_path / ".env"
         dotenv.write_text("MY_VAR=from_dotenv\n")
-        merged, _ = load_env_layers(tmp_path, aegis_dir=aegis)
+        merged, _ = load_env_layers(tmp_path, secrets_dir=sd)
         assert merged["MY_VAR"] == "from_dotenv"
 
     def test_os_environ_overrides_all(self, tmp_path: Path, monkeypatch):
         dotenv = tmp_path / ".env"
         dotenv.write_text("MY_VAR=from_dotenv\n")
         monkeypatch.setenv("MY_VAR", "from_env")
-        merged, source_map = load_env_layers(tmp_path, aegis_dir=tmp_path / "aegis")
+        merged, source_map = load_env_layers(tmp_path, secrets_dir=tmp_path / "secrets")
         assert merged["MY_VAR"] == "from_env"
         assert source_map["MY_VAR"] == "os.environ"
 
     def test_secrets_d_alphabetical(self, tmp_path: Path):
-        aegis = tmp_path / "aegis"
-        secrets_d = aegis / "secrets.d"
+        sd = tmp_path / "secrets"
+        secrets_d = sd / "secrets.d"
         secrets_d.mkdir(parents=True)
         (secrets_d / "a.env").write_text("VAR=from_a\n")
         (secrets_d / "b.env").write_text("VAR=from_b\n")
-        merged, _ = load_env_layers(tmp_path, aegis_dir=aegis)
+        merged, _ = load_env_layers(tmp_path, secrets_dir=sd)
         # b.env comes after a.env alphabetically, so it wins
         assert merged["VAR"] == "from_b"
 
     def test_world_readable_warning(self, tmp_path: Path, caplog):
         import os
 
-        aegis = tmp_path / "aegis"
-        aegis.mkdir()
-        secrets = aegis / "secrets.env"
+        sd = tmp_path / "secrets"
+        sd.mkdir()
+        secrets = sd / "secrets.env"
         secrets.write_text("KEY=val\n")
         os.chmod(secrets, 0o644)
         import logging
 
         with caplog.at_level(logging.WARNING):
-            load_env_layers(tmp_path, aegis_dir=aegis)
+            load_env_layers(tmp_path, secrets_dir=sd)
         assert "world-readable" in caplog.text
 
     def test_no_sources(self, tmp_path: Path):
-        merged, source_map = load_env_layers(tmp_path, aegis_dir=tmp_path / "aegis")
+        merged, source_map = load_env_layers(tmp_path, secrets_dir=tmp_path / "secrets")
         assert merged == {}
         assert source_map == {}
 
