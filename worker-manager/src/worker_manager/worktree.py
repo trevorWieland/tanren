@@ -156,40 +156,6 @@ async def create_worktree(
     return worktree_path
 
 
-async def validate_worktree(worktree_path: Path, branch: str) -> None:
-    """Validate worktree: correct branch checked out and clean working tree.
-
-    Raises RuntimeError if validation fails.
-    """
-    if not worktree_path.exists():
-        raise RuntimeError(f"Worktree does not exist: {worktree_path}")
-
-    # Check current branch
-    proc = await asyncio.create_subprocess_exec(
-        "git", "rev-parse", "--abbrev-ref", "HEAD",
-        cwd=str(worktree_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    current_branch = stdout.decode().strip()
-    if current_branch != branch:
-        raise RuntimeError(
-            f"Worktree on wrong branch: expected {branch}, got {current_branch}"
-        )
-
-    # Check for clean working tree
-    proc = await asyncio.create_subprocess_exec(
-        "git", "status", "--porcelain",
-        cwd=str(worktree_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    if stdout.decode().strip():
-        raise RuntimeError(f"Worktree has uncommitted changes: {worktree_path}")
-
-
 async def remove_worktree(worktree_path: Path, project_dir: Path) -> None:
     """Remove a git worktree. Falls back to rmtree + prune if git remove fails."""
     proc = await asyncio.create_subprocess_exec(

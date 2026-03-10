@@ -57,6 +57,10 @@ class Config(BaseModel):
         default=3,
         description="Maximum concurrent gate (bash) processes",
     )
+    events_db: str | None = Field(
+        default=None,
+        description="Path to SQLite events DB (enables event emission)",
+    )
 
     @classmethod
     def from_env(cls) -> Config:
@@ -85,4 +89,5 @@ class Config(BaseModel):
             max_opencode=int(os.environ.get("WM_MAX_OPENCODE", "1")),
             max_codex=int(os.environ.get("WM_MAX_CODEX", "1")),
             max_gate=int(os.environ.get("WM_MAX_GATE", "3")),
+            events_db=os.environ.get("WM_EVENTS_DB"),
         )

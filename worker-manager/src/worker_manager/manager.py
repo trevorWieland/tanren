@@ -8,9 +8,33 @@ import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
+from worker_manager.adapters import (
+    DispatchReceived,
+    DotenvEnvProvisioner,
+    DotenvEnvValidator,
+    ErrorOccurred,
+    GitPostflightRunner,
+    GitPreflightRunner,
+    GitWorktreeManager,
+    NullEventEmitter,
+    PhaseCompleted,
+    PhaseStarted,
+    PostflightCompleted,
+    PreflightCompleted,
+    RetryScheduled,
+    SqliteEventEmitter,
+    SubprocessSpawner,
+)
+from worker_manager.adapters.protocols import (
+    EnvProvisioner,
+    EnvValidator,
+    EventEmitter,
+    PostflightRunner,
+    PreflightRunner,
+    ProcessSpawner,
+    WorktreeManager,
+)
 from worker_manager.config import Config
-from worker_manager.env import load_and_validate_env
-from worker_manager.env.provision import provision_worktree_env
 from worker_manager.env.reporter import format_report
 from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from worker_manager.heartbeat import HeartbeatWriter
@@ -25,9 +49,6 @@ from worker_manager.metrics import (
     compute_plan_hash,
     count_unchecked_tasks,
 )
-from worker_manager.postflight import run_postflight
-from worker_manager.preflight import run_preflight
-from worker_manager.process import spawn_process
 from worker_manager.queues import DispatchRouter
 from worker_manager.schemas import (
     Dispatch,
@@ -46,11 +67,6 @@ from worker_manager.signals import (
     parse_audit_spec_findings,
     parse_demo_findings,
     parse_investigation_report,
-)
-from worker_manager.worktree import (
-    cleanup_worktree,
-    create_worktree,
-    register_worktree,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,7 +102,18 @@ def _build_tail_output(stdout: str | None) -> str | None:
 class WorkerManager:
     """Main worker manager service."""
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(
+        self,
+        config: Config | None = None,
+        *,
+        worktree_mgr: WorktreeManager | None = None,
+        preflight: PreflightRunner | None = None,
+        postflight: PostflightRunner | None = None,
+        spawner: ProcessSpawner | None = None,
+        env_validator: EnvValidator | None = None,
+        env_provisioner: EnvProvisioner | None = None,
+        emitter: EventEmitter | None = None,
+    ) -> None:
         self._config = config or Config.from_env()
         self._shutdown_event = asyncio.Event()
         self._dispatch_dir = Path(self._config.ipc_dir) / "dispatch"
@@ -100,6 +127,22 @@ class WorkerManager:
             max_codex=self._config.max_codex,
             max_gate=self._config.max_gate,
         )
+
+        # Adapters — default to concrete implementations when not injected
+        self._worktree_mgr = worktree_mgr or GitWorktreeManager()
+        self._preflight = preflight or GitPreflightRunner()
+        self._postflight = postflight or GitPostflightRunner()
+        self._spawner = spawner or SubprocessSpawner()
+        self._env_validator = env_validator or DotenvEnvValidator()
+        self._env_provisioner = env_provisioner or DotenvEnvProvisioner()
+
+        # Event emitter — auto-configure from config if not injected
+        if emitter is not None:
+            self._emitter: EventEmitter = emitter
+        elif self._config.events_db:
+            self._emitter = SqliteEventEmitter(self._config.events_db)
+        else:
+            self._emitter = NullEventEmitter()
 
     async def run(self) -> None:
         """Main entry point: setup, poll loop, shutdown."""
@@ -149,6 +192,9 @@ class WorkerManager:
 
         # Stop consumers
         await self._router.stop()
+
+        # Close event emitter
+        await self._emitter.close()
 
         logger.info("Worker manager stopped")
 
@@ -203,6 +249,17 @@ class WorkerManager:
         issue = parse_issue_from_workflow_id(dispatch.workflow_id)
         worktree_path = Path(self._config.github_dir) / f"{dispatch.project}-wt-{issue}"
 
+        now = datetime.now(UTC).isoformat()
+
+        # Emit DispatchReceived
+        await self._emitter.emit(DispatchReceived(
+            timestamp=now,
+            workflow_id=dispatch.workflow_id,
+            phase=dispatch.phase.value,
+            project=dispatch.project,
+            cli=dispatch.cli.value,
+        ))
+
         try:
             # Setup phase: create worktree
             if dispatch.phase == Phase.SETUP:
@@ -217,8 +274,17 @@ class WorkerManager:
             # All other phases: validate worktree, spawn process, extract results
             await self._handle_work_phase(path, dispatch, dispatch_stem, worktree_path)
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Unhandled error in dispatch %s", dispatch.workflow_id)
+
+            await self._emitter.emit(ErrorOccurred(
+                timestamp=datetime.now(UTC).isoformat(),
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase.value,
+                error=str(exc),
+                error_class=None,
+            ))
+
             # Write error result
             result = Result(
                 workflow_id=dispatch.workflow_id,
@@ -243,16 +309,16 @@ class WorkerManager:
 
         start = time.monotonic()
         try:
-            wt_path = await create_worktree(
+            wt_path = await self._worktree_mgr.create(
                 dispatch.project, issue, dispatch.branch, self._config.github_dir
             )
             project_dir = Path(self._config.github_dir) / dispatch.project
             count = await asyncio.to_thread(
-                provision_worktree_env, wt_path, project_dir
+                self._env_provisioner.provision, wt_path, project_dir
             )
             if count:
                 logger.info("Provisioned %d env vars in worktree .env", count)
-            await register_worktree(
+            await self._worktree_mgr.register(
                 Path(self._config.worktree_registry_path),
                 dispatch.workflow_id,
                 dispatch.project,
@@ -299,7 +365,7 @@ class WorkerManager:
 
         start = time.monotonic()
         try:
-            await cleanup_worktree(
+            await self._worktree_mgr.cleanup(
                 dispatch.workflow_id,
                 Path(self._config.worktree_registry_path),
                 self._config.github_dir,
@@ -349,7 +415,7 @@ class WorkerManager:
         spec_folder_path = worktree_path / dispatch.spec_folder
 
         # Environment preflight validation
-        env_report, task_env = await load_and_validate_env(worktree_path)
+        env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
         if not env_report.passed:
             result = Result(
                 workflow_id=dispatch.workflow_id,
@@ -370,10 +436,18 @@ class WorkerManager:
             return
 
         # Pre-flight checks (replaces validate_worktree + manual snapshot + status clear)
-        preflight = await run_preflight(
+        preflight_result = await self._preflight.run(
             worktree_path, dispatch.branch, spec_folder_path, dispatch.phase.value
         )
-        if not preflight.passed:
+
+        await self._emitter.emit(PreflightCompleted(
+            timestamp=datetime.now(UTC).isoformat(),
+            workflow_id=dispatch.workflow_id,
+            passed=preflight_result.passed,
+            repairs=preflight_result.repairs,
+        ))
+
+        if not preflight_result.passed:
             result = Result(
                 workflow_id=dispatch.workflow_id,
                 phase=dispatch.phase,
@@ -382,7 +456,7 @@ class WorkerManager:
                 exit_code=-1,
                 duration_secs=0,
                 gate_output=None,
-                tail_output=preflight.error,
+                tail_output=preflight_result.error,
                 unchecked_tasks=0,
                 plan_hash="00000000",
                 spec_modified=False,
@@ -390,8 +464,8 @@ class WorkerManager:
             await self._write_result_and_nudge(result, dispatch.workflow_id)
             return
 
-        if preflight.repairs:
-            logger.info("Preflight repairs: %s", preflight.repairs)
+        if preflight_result.repairs:
+            logger.info("Preflight repairs: %s", preflight_result.repairs)
 
         # Start heartbeat
         await self._heartbeat.start(dispatch_stem)
@@ -400,8 +474,16 @@ class WorkerManager:
         transient_retries = 0
         try:
             while True:
+                # Emit PhaseStarted before spawn
+                await self._emitter.emit(PhaseStarted(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    phase=dispatch.phase.value,
+                    worktree_path=str(worktree_path),
+                ))
+
                 # Spawn process
-                proc_result = await spawn_process(
+                proc_result = await self._spawner.spawn(
                     dispatch, worktree_path, self._config, task_env=task_env or None
                 )
 
@@ -425,7 +507,7 @@ class WorkerManager:
                 )
 
                 # Map outcome
-                outcome, signal = map_outcome(
+                outcome, signal_val = map_outcome(
                     dispatch.phase,
                     raw_signal,
                     proc_result.exit_code,
@@ -439,21 +521,28 @@ class WorkerManager:
                         proc_result.exit_code,
                         proc_result.stdout or "",
                         stderr_text,
-                        signal,
+                        signal_val,
                     )
                     if (
                         error_class == ErrorClass.TRANSIENT
                         and transient_retries < 3
                     ):
                         transient_retries += 1
+                        backoff = TRANSIENT_BACKOFF[transient_retries - 1]
                         logger.warning(
                             "Transient error (attempt %d/3), retrying in %ds",
                             transient_retries,
-                            TRANSIENT_BACKOFF[transient_retries - 1],
+                            backoff,
                         )
-                        await asyncio.sleep(
-                            TRANSIENT_BACKOFF[transient_retries - 1]
-                        )
+                        await self._emitter.emit(RetryScheduled(
+                            timestamp=datetime.now(UTC).isoformat(),
+                            workflow_id=dispatch.workflow_id,
+                            phase=dispatch.phase.value,
+                            attempt=transient_retries,
+                            max_attempts=3,
+                            backoff_secs=backoff,
+                        ))
+                        await asyncio.sleep(backoff)
                         continue
                     elif (
                         error_class == ErrorClass.AMBIGUOUS
@@ -463,6 +552,14 @@ class WorkerManager:
                         logger.warning(
                             "Ambiguous error, retrying once in 10s"
                         )
+                        await self._emitter.emit(RetryScheduled(
+                            timestamp=datetime.now(UTC).isoformat(),
+                            workflow_id=dispatch.workflow_id,
+                            phase=dispatch.phase.value,
+                            attempt=transient_retries,
+                            max_attempts=1,
+                            backoff_secs=10,
+                        ))
                         await asyncio.sleep(10)
                         continue
 
@@ -495,28 +592,37 @@ class WorkerManager:
             integrity_repairs: dict | None = None
             spec_modified = False
             if dispatch.phase in _PUSH_PHASES:
-                postflight = await run_postflight(
+                postflight_result = await self._postflight.run(
                     worktree_path,
                     dispatch.branch,
                     dispatch.phase.value,
-                    preflight.file_hashes,
-                    preflight.file_backups,
+                    preflight_result.file_hashes,
+                    preflight_result.file_backups,
                     skip_push=(outcome in (Outcome.ERROR, Outcome.TIMEOUT)),
                 )
-                pushed = postflight.pushed
-                integrity_repairs = postflight.integrity_repairs
-                spec_modified = postflight.integrity_repairs.get(
+
+                await self._emitter.emit(PostflightCompleted(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    phase=dispatch.phase.value,
+                    pushed=postflight_result.pushed,
+                    integrity_repairs=postflight_result.integrity_repairs,
+                ))
+
+                pushed = postflight_result.pushed
+                integrity_repairs = postflight_result.integrity_repairs
+                spec_modified = postflight_result.integrity_repairs.get(
                     "spec_reverted", False
                 )
-                if not postflight.pushed and postflight.push_error:
+                if not postflight_result.pushed and postflight_result.push_error:
                     if tail_output:
                         tail_output += (
                             f"\n\n--- git push failed ---\n"
-                            f"{postflight.push_error}"
+                            f"{postflight_result.push_error}"
                         )
                     else:
                         tail_output = (
-                            f"git push failed: {postflight.push_error}"
+                            f"git push failed: {postflight_result.push_error}"
                         )
 
             # Parse structured findings
@@ -561,7 +667,7 @@ class WorkerManager:
                 workflow_id=dispatch.workflow_id,
                 phase=dispatch.phase,
                 outcome=outcome,
-                signal=signal,
+                signal=signal_val,
                 exit_code=proc_result.exit_code,
                 duration_secs=duration,
                 gate_output=gate_output,
@@ -574,6 +680,17 @@ class WorkerManager:
                 new_tasks=new_tasks,
                 findings=findings_data,
             )
+
+            # Emit PhaseCompleted before writing result
+            await self._emitter.emit(PhaseCompleted(
+                timestamp=datetime.now(UTC).isoformat(),
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase.value,
+                outcome=outcome.value,
+                signal=signal_val,
+                duration_secs=duration,
+                exit_code=proc_result.exit_code,
+            ))
 
         except Exception as e:
             duration = int(time.monotonic() - start)

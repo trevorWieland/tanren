@@ -8,6 +8,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "PyYAML>=6.0",
     "click>=8.0",
+    "aiosqlite>=0.20",
 ]
 
 [project.scripts]

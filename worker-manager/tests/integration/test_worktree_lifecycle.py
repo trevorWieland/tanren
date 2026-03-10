@@ -11,7 +11,6 @@ from worker_manager.worktree import (
     load_registry,
     register_worktree,
     remove_worktree,
-    validate_worktree,
 )
 
 
@@ -109,8 +108,8 @@ class TestWorktreeBranchSwitch:
 
 class TestWorktreeLifecycle:
     @pytest.mark.asyncio
-    async def test_create_validate_remove(self, tmp_path: Path):
-        """Full lifecycle: create -> validate -> remove."""
+    async def test_create_and_remove(self, tmp_path: Path):
+        """Full lifecycle: create -> remove."""
         github_dir = tmp_path
         repo, branch = await _setup_git_repo(tmp_path)
 
@@ -119,24 +118,9 @@ class TestWorktreeLifecycle:
         assert wt_path.exists()
         assert wt_path.name == "test-project-wt-123"
 
-        # Validate
-        await validate_worktree(wt_path, branch)
-
         # Remove
         await remove_worktree(wt_path, repo)
         assert not wt_path.exists()
-
-    @pytest.mark.asyncio
-    async def test_validate_wrong_branch(self, tmp_path: Path):
-        """Validation should fail if wrong branch."""
-        github_dir = tmp_path
-        repo, branch = await _setup_git_repo(tmp_path)
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
-
-        with pytest.raises(RuntimeError, match="wrong branch"):
-            await validate_worktree(wt_path, "nonexistent-branch")
-
-        await remove_worktree(wt_path, repo)
 
     @pytest.mark.asyncio
     async def test_register_and_cleanup(self, tmp_path: Path):
@@ -268,7 +252,6 @@ class TestWorktreeResilience:
         await register_worktree(
             registry_path, workflow_id, "test-project", 123, branch, wt_path, str(github_dir)
         )
-        await validate_worktree(wt_path, branch)
 
         # Cleanup (simulates halt)
         await cleanup_worktree(workflow_id, registry_path, str(github_dir))
@@ -279,7 +262,6 @@ class TestWorktreeResilience:
         await register_worktree(
             registry_path, workflow_id, "test-project", 123, branch, wt_path2, str(github_dir)
         )
-        await validate_worktree(wt_path2, branch)
 
         # Verify
         reg = await load_registry(registry_path)

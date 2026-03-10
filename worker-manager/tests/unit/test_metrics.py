@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from worker_manager.metrics import compute_plan_hash, count_unchecked_tasks, snapshot_spec
+from worker_manager.metrics import compute_plan_hash, count_unchecked_tasks
 
 
 class TestCountUncheckedTasks:
@@ -78,17 +78,3 @@ class TestComputePlanHash:
         assert h1 != h2
 
 
-class TestSnapshotSpec:
-    @pytest.mark.asyncio
-    async def test_snapshot(self, tmp_path: Path):
-        spec = tmp_path / "spec.md"
-        spec.write_text("# Spec Content")
-        md5, content = await snapshot_spec(spec)
-        assert len(md5) == 32
-        assert content == "# Spec Content"
-
-    @pytest.mark.asyncio
-    async def test_missing_file(self, tmp_path: Path):
-        md5, content = await snapshot_spec(tmp_path / "spec.md")
-        assert md5 == ""
-        assert content == ""
