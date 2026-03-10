@@ -31,10 +31,10 @@ Interface) are handled by other components but listed here for completeness.
 | Source Control | GitHub | GitHub Enterprise, GitLab, Bitbucket |
 | Execution Environment | Local subprocess | Docker, remote VM via SSH, cloud VM w/ lifecycle |
 | CI/CD | GitHub Actions | GitLab CI, Jenkins, CircleCI |
-| Secret Management | Flat file (`~/.tanren/secrets.env`) | Vault, AWS/GCP Secret Manager |
+| Secret Management | Flat file (`~/.config/tanren/secrets.env`) | Vault, AWS/GCP Secret Manager |
 | Event/Metrics Storage | SQLite | Postgres, BigQuery, custom |
 | Token Usage Collection | Log parsing (ccusage-style) | Metering proxy |
-| Coordinator Interface | Web dashboard + CLI (built-in) | Discord, Slack, Teams (pluggable) |
+| Coordinator Interface | Web dashboard + CLI (built-in) | Messaging platforms (pluggable) |
 
 
 ## Current Protocol Interfaces
@@ -132,7 +132,7 @@ the secrets store, and returns an `EnvReport` (pass/fail with diagnostics) plus
 a `dict` of resolved key-value pairs to inject into the agent process.
 
 **Default:** `DotenvEnvValidator` -- reads `tanren.yml` env requirements and
-resolves from `.env` + `~/.tanren/secrets.env`.
+resolves from `.env` + `~/.config/tanren/secrets.env`.
 
 ### EnvProvisioner
 
@@ -186,7 +186,11 @@ class ExecutionEnvironment(Protocol):
     async def teardown(self, handle: EnvironmentHandle) -> None: ...
 ```
 
-**Default:** `LocalExecutionEnvironment`.
+**Defaults:**
+- `LocalExecutionEnvironment` -- local subprocess execution (default when
+  no `remote_config_path` is set).
+- `SSHExecutionEnvironment` -- remote VM execution via SSH (used when
+  `WM_REMOTE_CONFIG` points to a `remote.yml` file).
 
 
 ## ExecutionEnvironment Deep Dive
@@ -286,6 +290,84 @@ class LocalExecutionEnvironment:
     async def teardown(self, handle) -> None:
         # No-op (heartbeat already stopped in execute)
 ```
+
+### SSHExecutionEnvironment
+
+The remote implementation composes sub-adapters for VM provisioning,
+bootstrapping, workspace management, agent execution, and state persistence:
+
+```python
+class SSHExecutionEnvironment:
+    def __init__(self, *, vm_provisioner, bootstrapper, workspace_mgr,
+                 runner, state_store, secret_loader, emitter,
+                 ssh_config_defaults, repo_urls): ...
+
+    async def provision(self, dispatch, config) -> EnvironmentHandle:
+        # 1. Read tanren.yml LOCALLY for environment profile
+        # 2. Acquire VM from pool
+        # 3. Create SSH connection
+        # 4. Bootstrap VM (idempotent — docker, node, uv, claude)
+        # 5. Setup workspace (git clone + branch checkout)
+        # 6. Inject secrets (developer + project .env)
+        # 7. Record assignment in SQLite
+        # 8. Return EnvironmentHandle with VM metadata
+        # On failure at any step: release VM (no orphans)
+
+    async def execute(self, handle, dispatch, config) -> PhaseResult:
+        # 1. Upload prompt, build CLI command with secret sourcing
+        # 2. Execute via SSH with timeout
+        # 3. Extract signal from remote filesystem
+        # 4. Retry on transient errors (same logic as local)
+        # 5. Push on push phases via SSH
+
+    async def get_access_info(self, handle) -> AccessInfo:
+        # Returns SSH command + VS Code Remote URI
+
+    async def teardown(self, handle) -> None:
+        # Guaranteed VM release with try/finally at every level:
+        # 1. Run teardown commands from profile
+        # 2. Cleanup workspace (remove secrets)
+        # 3. Close SSH connection
+        # 4. Release VM (MUST happen — no orphaned VMs)
+        # 5. Record release in SQLite
+```
+
+**Sub-adapters:**
+
+| Adapter | Protocol | Default | Purpose |
+|---------|----------|---------|---------|
+| `ManualVMProvisioner` | `VMProvisioner` | -- | Acquire/release from static VM list |
+| `UbuntuBootstrapper` | `EnvironmentBootstrapper` | -- | Install dev tools (docker, node, uv, claude) |
+| `GitWorkspaceManager` | `WorkspaceManager` | -- | Clone/pull, secret injection, cleanup |
+| `RemoteAgentRunner` | -- | -- | Upload prompt, execute CLI, extract signal |
+| `SqliteVMStateStore` | `VMStateStore` | -- | Persist VM assignments for recovery |
+| `SecretLoader` | -- | -- | Load and bundle secrets for injection |
+
+**Configuration via `remote.yml`:**
+
+```yaml
+execution_mode: remote
+ssh:
+  user: root
+  key_path: ~/.ssh/tanren_vm
+  connect_timeout: 10
+git:
+  auth: token
+  token_env: GIT_TOKEN
+vms:
+  - id: vm-1
+    host: 203.0.113.10
+  - id: vm-2
+    host: 203.0.113.11
+bootstrap:
+  extra_script: ./scripts/vm-setup.sh  # optional
+secrets:
+  developer_secrets_path: ~/.config/tanren/secrets.env
+repos:
+  my-project: https://github.com/org/my-project.git
+```
+
+Set `WM_REMOTE_CONFIG=/path/to/remote.yml` to enable remote execution.
 
 ### Dispatch-Aware vs. Generic Signatures
 

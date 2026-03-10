@@ -45,6 +45,7 @@ from worker_manager.ipc import (
     write_result,
 )
 from worker_manager.queues import DispatchRouter
+from worker_manager.remote_config import load_remote_config
 from worker_manager.schemas import (
     Dispatch,
     FindingSeverity,
@@ -136,9 +137,11 @@ class WorkerManager:
         self._env_validator = env_validator or DotenvEnvValidator()
         self._env_provisioner = env_provisioner or DotenvEnvProvisioner()
 
-        # Build execution environment — use injected or construct from fine-grained adapters
+        # Build execution environment — use injected or construct from config
         if execution_env is not None:
             self._execution_env = execution_env
+        elif self._config.remote_config_path:
+            self._execution_env = self._build_remote_env()
         else:
             self._execution_env = LocalExecutionEnvironment(
                 env_validator=self._env_validator,
@@ -182,6 +185,9 @@ class WorkerManager:
 
         # Startup recovery: clean stale heartbeats
         await self._heartbeat.cleanup_stale()
+
+        # Startup recovery: check active VM assignments
+        await self._recover_vm_state()
 
         self._started_at = datetime.now(UTC).isoformat()
 
@@ -255,6 +261,120 @@ class WorkerManager:
         )
         health_path = Path(self._config.ipc_dir) / "worker-health.json"
         await atomic_write(health_path, health.model_dump_json(indent=2))
+
+    def _build_remote_env(self) -> ExecutionEnvironment:
+        """Construct SSHExecutionEnvironment from remote.yml."""
+        import os
+
+        from worker_manager.adapters.git_workspace import (
+            GitAuthConfig,
+            GitWorkspaceManager,
+        )
+        from worker_manager.adapters.manual_vm import ManualVMProvisioner
+        from worker_manager.adapters.remote_runner import RemoteAgentRunner
+        from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
+        from worker_manager.adapters.ssh import SSHConfig
+        from worker_manager.adapters.ssh_environment import (
+            SSHExecutionEnvironment,
+        )
+        from worker_manager.adapters.ubuntu_bootstrap import (
+            UbuntuBootstrapper,
+        )
+        from worker_manager.secrets import SecretConfig, SecretLoader
+
+        assert self._config.remote_config_path is not None
+        remote_cfg = load_remote_config(self._config.remote_config_path)
+
+        ssh_defaults = SSHConfig(
+            host="",  # placeholder — overridden per VM
+            user=remote_cfg.ssh.user,
+            key_path=remote_cfg.ssh.key_path,
+            connect_timeout=remote_cfg.ssh.connect_timeout,
+        )
+
+        token = os.environ.get(remote_cfg.git.token_env, "")
+        git_auth = GitAuthConfig(
+            auth_method=remote_cfg.git.auth,
+            token=token or None,
+        )
+
+        state_store = SqliteVMStateStore(
+            f"{self._config.data_dir}/vm-state.db"
+        )
+
+        # Read extra bootstrap script if configured
+        extra_script = None
+        if remote_cfg.bootstrap.extra_script:
+            script_path = Path(remote_cfg.bootstrap.extra_script).expanduser()
+            if script_path.exists():
+                extra_script = script_path.read_text()
+            else:
+                logger.warning(
+                    "Bootstrap extra script not found: %s", script_path
+                )
+
+        secret_config = SecretConfig(
+            developer_secrets_path=(
+                remote_cfg.secrets.developer_secrets_path
+                or SecretConfig().developer_secrets_path
+            ),
+        )
+
+        return SSHExecutionEnvironment(
+            vm_provisioner=ManualVMProvisioner(
+                remote_cfg.vms, state_store
+            ),
+            bootstrapper=UbuntuBootstrapper(extra_script=extra_script),
+            workspace_mgr=GitWorkspaceManager(git_auth),
+            runner=RemoteAgentRunner(),
+            state_store=state_store,
+            secret_loader=SecretLoader(secret_config),
+            emitter=self._emitter,
+            ssh_config_defaults=ssh_defaults,
+            repo_urls=remote_cfg.repos,
+            bootstrap_extra_script=extra_script,
+        )
+
+    async def _recover_vm_state(self) -> None:
+        """Startup recovery: check active assignments, release unreachable VMs."""
+        if not self._config.remote_config_path:
+            return
+
+        from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
+        from worker_manager.adapters.ssh import SSHConfig, SSHConnection
+
+        store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
+        try:
+            assignments = await store.get_active_assignments()
+            if not assignments:
+                return
+
+            logger.info(
+                "Checking %d active VM assignment(s) for recovery...",
+                len(assignments),
+            )
+            for a in assignments:
+                conn = SSHConnection(SSHConfig(host=a.host))
+                try:
+                    reachable = await conn.check_connection()
+                    if not reachable:
+                        await store.record_release(a.vm_id)
+                        logger.warning(
+                            "Released unreachable VM %s (%s)",
+                            a.vm_id,
+                            a.host,
+                        )
+                except Exception:
+                    await store.record_release(a.vm_id)
+                    logger.warning(
+                        "Released VM %s (%s) due to connection error",
+                        a.vm_id,
+                        a.host,
+                    )
+                finally:
+                    await conn.close()
+        finally:
+            await store.close()
 
     async def _handle_dispatch(self, path: Path, dispatch: Dispatch) -> None:
         """Handle a single dispatch through its full lifecycle."""
