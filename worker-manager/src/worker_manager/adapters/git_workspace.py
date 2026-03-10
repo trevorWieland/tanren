@@ -10,6 +10,11 @@ from worker_manager.adapters.remote_types import SecretBundle, WorkspacePath, Wo
 logger = logging.getLogger(__name__)
 
 
+def _shell_quote(value: str) -> str:
+    """Quote a value for safe sourcing in bash."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
 @dataclass(frozen=True)
 class GitAuthConfig:
     """Git authentication configuration."""
@@ -29,20 +34,34 @@ class GitWorkspaceManager:
     def __init__(self, auth: GitAuthConfig) -> None:
         self._auth = auth
 
-    def _build_repo_url(self, repo_url: str) -> str:
-        """Build authenticated repo URL. Token is used inline, never written to disk."""
+    _ASKPASS_PATH = "/workspace/.git-askpass"
+
+    async def _setup_git_auth(self, conn) -> None:
+        """Upload a GIT_ASKPASS helper so the token never appears in process args."""
         if (
             self._auth.auth_method == "token"
             and self._auth.token
-            and repo_url.startswith("https://")
         ):
-            return repo_url.replace("https://", f"https://{self._auth.token}@", 1)
-        return repo_url
+            script = (
+                "#!/bin/sh\n"
+                f"echo {_shell_quote(self._auth.token)}\n"
+            )
+            await conn.upload_content(script, self._ASKPASS_PATH)
+            await conn.run(f"chmod 700 {self._ASKPASS_PATH}", timeout=10)
+
+    def _git_env_prefix(self) -> str:
+        """Return env prefix for git commands when using token auth."""
+        if self._auth.auth_method == "token" and self._auth.token:
+            return f"GIT_ASKPASS={self._ASKPASS_PATH} GIT_TERMINAL_PROMPT=0 "
+        return ""
 
     async def setup(self, conn, spec: WorkspaceSpec) -> WorkspacePath:
         """Clone or pull repo, checkout branch, run setup commands."""
         workspace_dir = f"/workspace/{spec.project}"
-        auth_url = self._build_repo_url(spec.repo_url)
+
+        # Setup askpass-based auth
+        await self._setup_git_auth(conn)
+        git_prefix = self._git_env_prefix()
 
         # Check if already cloned
         check = await conn.run(f"test -d {workspace_dir}/.git && echo exists", timeout=10)
@@ -51,9 +70,9 @@ class GitWorkspaceManager:
             # Pull latest
             logger.info("Pulling latest for %s on branch %s", spec.project, spec.branch)
             pull_cmd = (
-                f"cd {workspace_dir} && git fetch origin"
+                f"cd {workspace_dir} && {git_prefix}git fetch origin"
                 f" && git checkout {spec.branch}"
-                f" && git pull origin {spec.branch}"
+                f" && {git_prefix}git pull origin {spec.branch}"
             )
             result = await conn.run(pull_cmd, timeout=120)
             if result.exit_code != 0:
@@ -62,7 +81,7 @@ class GitWorkspaceManager:
             # Clone fresh
             logger.info("Cloning %s branch %s", spec.project, spec.branch)
             result = await conn.run(
-                f"git clone --branch {spec.branch} {auth_url} {workspace_dir}",
+                f"{git_prefix}git clone --branch {spec.branch} {spec.repo_url} {workspace_dir}",
                 timeout=300,
             )
             if result.exit_code != 0:
@@ -87,20 +106,21 @@ class GitWorkspaceManager:
         """Write secret files to remote workspace. Files are chmod 600."""
         # Developer secrets -> /workspace/.developer-secrets
         if secrets.developer:
-            lines = [f"{k}={v}" for k, v in secrets.developer.items()]
+            lines = [f"{k}={_shell_quote(v)}" for k, v in secrets.developer.items()]
             content = "\n".join(lines) + "\n"
             await conn.upload_content(content, "/workspace/.developer-secrets")
             await conn.run("chmod 600 /workspace/.developer-secrets", timeout=10)
 
         # Project secrets -> /workspace/{project}/.env
         if secrets.project:
-            lines = [f"{k}={v}" for k, v in secrets.project.items()]
+            lines = [f"{k}={_shell_quote(v)}" for k, v in secrets.project.items()]
             content = "\n".join(lines) + "\n"
             env_path = f"{workspace.path}/.env"
             await conn.upload_content(content, env_path)
             await conn.run(f"chmod 600 {env_path}", timeout=10)
 
     async def cleanup(self, conn, workspace: WorkspacePath) -> None:
-        """Remove secret files from remote workspace."""
+        """Remove secret files and auth helpers from remote workspace."""
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
         await conn.run(f"rm -f {workspace.path}/.env", timeout=10)
+        await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)

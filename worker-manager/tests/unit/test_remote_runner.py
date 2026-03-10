@@ -125,7 +125,9 @@ class TestRemoteAgentRunnerRun:
         assert result.signal_content == ""
 
     async def test_returns_remote_agent_result_with_correct_fields(self):
-        conn = _make_conn(exit_code=1, stdout="some output", timed_out=False)
+        conn = _make_conn(
+            exit_code=1, stdout="some output", stderr="warn: something", timed_out=False,
+        )
         ws = _make_workspace()
         runner = RemoteAgentRunner()
 
@@ -140,6 +142,7 @@ class TestRemoteAgentRunnerRun:
         assert isinstance(result, RemoteAgentResult)
         assert result.exit_code == 1
         assert result.stdout == "some output"
+        assert result.stderr == "warn: something"
         assert result.timed_out is False
         assert isinstance(result.duration_secs, int)
         assert result.signal_content == "LGTM"

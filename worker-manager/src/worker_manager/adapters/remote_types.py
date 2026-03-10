@@ -96,4 +96,5 @@ class RemoteAgentResult:
     stdout: str
     timed_out: bool
     duration_secs: int
+    stderr: str = ""
     signal_content: str = ""

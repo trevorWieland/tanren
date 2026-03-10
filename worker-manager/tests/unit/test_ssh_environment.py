@@ -94,6 +94,7 @@ def _make_profile() -> EnvironmentProfile:
 def _make_agent_result(
     exit_code: int = 0,
     stdout: str = "done",
+    stderr: str = "",
     timed_out: bool = False,
     signal_content: str = "success",
 ) -> RemoteAgentResult:
@@ -102,6 +103,7 @@ def _make_agent_result(
         stdout=stdout,
         timed_out=timed_out,
         duration_secs=30,
+        stderr=stderr,
         signal_content=signal_content,
     )
 
@@ -475,3 +477,110 @@ class TestTeardown:
         # VM still released despite SSH close failure
         env_kit["vm_provisioner"].release.assert_awaited_once_with(vm_handle)
         env_kit["state_store"].record_release.assert_awaited_once_with("vm-abc-123")
+
+
+class TestBuildCliCommand:
+    """Test _build_cli_command for each CLI type."""
+
+    def _build(self, env_kit, cli: Cli, model: str = "sonnet", gate_cmd: str | None = None):
+        env = env_kit["env"]
+        dispatch = _make_dispatch(cli=cli)
+        dispatch = Dispatch(
+            workflow_id=dispatch.workflow_id,
+            phase=dispatch.phase,
+            project=dispatch.project,
+            spec_folder=dispatch.spec_folder,
+            branch=dispatch.branch,
+            cli=cli,
+            model=model,
+            gate_cmd=gate_cmd,
+            context=dispatch.context,
+            timeout=dispatch.timeout,
+            environment_profile=dispatch.environment_profile,
+        )
+        config = env_kit["config"]
+        return env._build_cli_command(dispatch, config)
+
+    def test_claude_command(self, env_kit):
+        cmd = self._build(env_kit, Cli.CLAUDE)
+        assert "-p" in cmd
+        assert "--dangerously-skip-permissions" in cmd
+        assert "--model sonnet" in cmd
+        assert "< .tanren-prompt.md" in cmd
+
+    def test_opencode_command(self, env_kit):
+        cmd = self._build(env_kit, Cli.OPENCODE)
+        assert "opencode run" in cmd
+        assert "--model sonnet" in cmd
+        assert "--dir ." in cmd
+        assert "-f .tanren-prompt.md" in cmd
+        assert "Read the attached file" in cmd
+
+    def test_codex_command(self, env_kit):
+        cmd = self._build(env_kit, Cli.CODEX)
+        assert "codex exec" in cmd
+        assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+        assert "--model sonnet" in cmd
+        assert "-C ." in cmd
+        assert "< .tanren-prompt.md" in cmd
+
+    def test_bash_command_with_gate(self, env_kit):
+        cmd = self._build(env_kit, Cli.BASH, gate_cmd="make check")
+        assert cmd == "make check"
+
+    def test_bash_command_without_gate(self, env_kit):
+        cmd = self._build(env_kit, Cli.BASH, gate_cmd=None)
+        assert "no gate command" in cmd
+
+    def test_opencode_without_model(self, env_kit):
+        cmd = self._build(env_kit, Cli.OPENCODE, model="")
+        assert "--model" not in cmd
+        assert "opencode run" in cmd
+
+    def test_codex_without_model(self, env_kit):
+        cmd = self._build(env_kit, Cli.CODEX, model="")
+        assert "--model" not in cmd
+        assert "codex exec" in cmd
+
+
+class TestClassifyErrorReceivesStderr:
+    async def test_classify_error_gets_stderr(self, env_kit):
+        """classify_error receives actual stderr from agent_result, not empty string."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0, stdout="", stderr="", timed_out=False,
+        )
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        error_result = _make_agent_result(
+            exit_code=1, stdout="", stderr="rate limit 429", signal_content="",
+        )
+        env_kit["runner"].run.side_effect = [error_result]
+
+        with patch("worker_manager.adapters.ssh_environment.map_outcome") as mock_map, \
+             patch("worker_manager.adapters.ssh_environment.classify_error") as mock_classify:
+            mock_map.return_value = (Outcome.ERROR, None)
+            mock_classify.return_value = ErrorClass.FATAL
+
+            await env.execute(handle, dispatch, config)
+
+        mock_classify.assert_called_once_with(1, "", "rate limit 429", None)
+
+
+class TestProvisionWorkflowId:
+    async def test_handle_contains_workflow_id(self, env_kit):
+        """provision() stores workflow_id in handle metadata."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        with patch.object(env, "_resolve_profile", return_value=_make_profile()), \
+             patch.object(env, "_load_project_env", return_value={}), \
+             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH:
+            MockSSH.return_value = AsyncMock()
+            handle = await env.provision(dispatch, config)
+
+        assert handle.metadata["workflow_id"] == "wf-myproj-42-1000"

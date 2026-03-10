@@ -50,21 +50,38 @@ def _workspace() -> WorkspacePath:
 # _build_repo_url
 # ---------------------------------------------------------------------------
 
-class TestBuildRepoUrl:
-    def test_token_auth_injects_token(self):
+class TestGitAuth:
+    @pytest.mark.asyncio
+    async def test_setup_git_auth_uploads_askpass_script(self):
+        conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_abc"))
-        result = mgr._build_repo_url("https://github.com/org/repo.git")
-        assert result == "https://ghp_abc@github.com/org/repo.git"
+        await mgr._setup_git_auth(conn)
 
-    def test_no_token_returns_unchanged(self):
+        conn.upload_content.assert_called_once()
+        script = conn.upload_content.call_args.args[0]
+        assert script.startswith("#!/bin/sh\n")
+        assert "ghp_abc" in script
+        # Token is single-quoted for safety
+        assert "'ghp_abc'" in script
+        conn.run.assert_any_call("chmod 700 /workspace/.git-askpass", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_setup_git_auth_skipped_without_token(self):
+        conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
-        url = "https://github.com/org/repo.git"
-        assert mgr._build_repo_url(url) == url
+        await mgr._setup_git_auth(conn)
 
-    def test_non_https_returns_unchanged(self):
+        conn.upload_content.assert_not_called()
+
+    def test_git_env_prefix_with_token(self):
         mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_abc"))
-        url = "git@github.com:org/repo.git"
-        assert mgr._build_repo_url(url) == url
+        prefix = mgr._git_env_prefix()
+        assert "GIT_ASKPASS=/workspace/.git-askpass" in prefix
+        assert "GIT_TERMINAL_PROMPT=0" in prefix
+
+    def test_git_env_prefix_without_token(self):
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
+        assert mgr._git_env_prefix() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -76,19 +93,39 @@ class TestSetup:
     async def test_clone_fresh_when_git_dir_missing(self):
         conn = _make_conn()
         conn.run.side_effect = [
+            _ok(),            # chmod askpass
             _ok(""),          # test -d .git -> no "exists"
             _ok(),            # git clone
         ]
-        mgr = GitWorkspaceManager(GitAuthConfig())
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_tok"))
         spec = _spec()
         wp = await mgr.setup(conn, spec)
 
         assert wp.path == "/workspace/myapp"
         assert wp.project == "myapp"
         assert wp.branch == "main"
-        # First call is the existence check, second is clone
-        clone_call = conn.run.call_args_list[1]
-        assert "git clone" in clone_call.args[0]
+        # Find the clone call
+        clone_calls = [c for c in conn.run.call_args_list if "git clone" in str(c)]
+        assert len(clone_calls) == 1
+        clone_cmd = clone_calls[0].args[0]
+        # Token must NOT be in the clone URL
+        assert "ghp_tok" not in clone_cmd
+        assert "GIT_ASKPASS" in clone_cmd
+
+    @pytest.mark.asyncio
+    async def test_clone_without_token_uses_plain_url(self):
+        conn = _make_conn()
+        conn.run.side_effect = [
+            _ok(""),          # test -d .git -> no "exists"
+            _ok(),            # git clone
+        ]
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
+        await mgr.setup(conn, _spec())
+
+        clone_calls = [c for c in conn.run.call_args_list if "git clone" in str(c)]
+        assert len(clone_calls) == 1
+        clone_cmd = clone_calls[0].args[0]
+        assert "GIT_ASKPASS" not in clone_cmd
 
     @pytest.mark.asyncio
     async def test_pull_when_git_dir_exists(self):
@@ -117,10 +154,11 @@ class TestSetup:
         spec = _spec(setup_commands=("make install", "make build"))
         await mgr.setup(conn, spec)
 
-        setup1 = conn.run.call_args_list[2]
-        setup2 = conn.run.call_args_list[3]
-        assert "make install" in setup1.args[0]
-        assert "make build" in setup2.args[0]
+        setup_calls = [
+            c for c in conn.run.call_args_list
+            if "make install" in str(c) or "make build" in str(c)
+        ]
+        assert len(setup_calls) == 2
 
     @pytest.mark.asyncio
     async def test_clone_failure_raises(self):
@@ -151,24 +189,24 @@ class TestSetup:
 
 class TestInjectSecrets:
     @pytest.mark.asyncio
-    async def test_writes_developer_secrets(self):
+    async def test_writes_developer_secrets_shell_quoted(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         secrets = SecretBundle(developer={"API_KEY": "abc123"})
         await mgr.inject_secrets(conn, _workspace(), secrets)
 
-        conn.upload_content.assert_any_call("API_KEY=abc123\n", "/workspace/.developer-secrets")
+        conn.upload_content.assert_any_call("API_KEY='abc123'\n", "/workspace/.developer-secrets")
         conn.run.assert_any_call("chmod 600 /workspace/.developer-secrets", timeout=10)
 
     @pytest.mark.asyncio
-    async def test_writes_project_secrets(self):
+    async def test_writes_project_secrets_shell_quoted(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         secrets = SecretBundle(project={"DB_URL": "postgres://localhost"})
         await mgr.inject_secrets(conn, _workspace(), secrets)
 
         conn.upload_content.assert_any_call(
-            "DB_URL=postgres://localhost\n", "/workspace/myapp/.env"
+            "DB_URL='postgres://localhost'\n", "/workspace/myapp/.env"
         )
         conn.run.assert_any_call("chmod 600 /workspace/myapp/.env", timeout=10)
 
@@ -182,6 +220,29 @@ class TestInjectSecrets:
         conn.upload_content.assert_not_called()
         conn.run.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_special_characters_escaped(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={
+            "PASS": "it's a $ecret; rm -rf /",
+        })
+        await mgr.inject_secrets(conn, _workspace(), secrets)
+
+        content = conn.upload_content.call_args_list[0].args[0]
+        # Single quotes protect special chars; embedded single quote is escaped
+        assert content == "PASS='it'\\''s a $ecret; rm -rf /'\n"
+
+    @pytest.mark.asyncio
+    async def test_empty_value_quoted(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"EMPTY": ""})
+        await mgr.inject_secrets(conn, _workspace(), secrets)
+
+        content = conn.upload_content.call_args_list[0].args[0]
+        assert content == "EMPTY=''\n"
+
 
 # ---------------------------------------------------------------------------
 # cleanup
@@ -189,11 +250,12 @@ class TestInjectSecrets:
 
 class TestCleanup:
     @pytest.mark.asyncio
-    async def test_removes_secret_files(self):
+    async def test_removes_secret_files_and_askpass(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         await mgr.cleanup(conn, _workspace())
 
         conn.run.assert_any_call("rm -f /workspace/.developer-secrets", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout=10)
-        assert conn.run.call_count == 2
+        conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout=10)
+        assert conn.run.call_count == 3

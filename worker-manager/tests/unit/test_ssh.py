@@ -182,6 +182,27 @@ class TestRunSync:
         chan.sendall.assert_called_once_with(b"payload")
         chan.shutdown_write.assert_called_once()
 
+    @patch("worker_manager.adapters.ssh.time")
+    def test_sleeps_when_no_data_available(self, mock_time, mock_paramiko):
+        """Verify sleep is called when neither stdout nor stderr has data."""
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+
+        chan = MagicMock()
+        mock_client.get_transport.return_value.open_session.return_value = chan
+
+        # Loop: first iteration no data (sleep), second iteration exit ready
+        chan.exit_status_ready.side_effect = [False, True]
+        chan.recv_ready.side_effect = [False, False]  # no stdout in loop, no drain
+        chan.recv_stderr_ready.side_effect = [False, False]  # no stderr in loop, no drain
+        chan.recv_exit_status.return_value = 0
+
+        conn = _make_conn()
+        result = conn._run_sync("echo test")
+
+        mock_time.sleep.assert_called_with(0.05)
+        assert result.exit_code == 0
+
 
 # ---------------------------------------------------------------------------
 # Async wrappers

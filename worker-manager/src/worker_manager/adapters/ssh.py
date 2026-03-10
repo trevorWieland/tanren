@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -126,8 +127,10 @@ class SSHConnection:
 
                 if channel.recv_ready():
                     stdout_data += channel.recv(65536)
-                if channel.recv_stderr_ready():
+                elif channel.recv_stderr_ready():
                     stderr_data += channel.recv_stderr(65536)
+                else:
+                    time.sleep(0.05)
 
             exit_code = channel.recv_exit_status()
         except TimeoutError:

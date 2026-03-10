@@ -343,6 +343,8 @@ class WorkerManager:
         from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
         from worker_manager.adapters.ssh import SSHConfig, SSHConnection
 
+        remote_cfg = load_remote_config(self._config.remote_config_path)
+
         store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
         try:
             assignments = await store.get_active_assignments()
@@ -354,7 +356,12 @@ class WorkerManager:
                 len(assignments),
             )
             for a in assignments:
-                conn = SSHConnection(SSHConfig(host=a.host))
+                conn = SSHConnection(SSHConfig(
+                    host=a.host,
+                    user=remote_cfg.ssh.user,
+                    key_path=remote_cfg.ssh.key_path,
+                    connect_timeout=remote_cfg.ssh.connect_timeout,
+                ))
                 try:
                     reachable = await conn.check_connection()
                     if not reachable:

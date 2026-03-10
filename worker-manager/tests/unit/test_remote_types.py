@@ -97,6 +97,19 @@ class TestDefaults:
         )
         assert result.signal_content == ""
 
+    def test_remote_agent_result_stderr_default(self):
+        result = RemoteAgentResult(
+            exit_code=0, stdout="ok", timed_out=False, duration_secs=10
+        )
+        assert result.stderr == ""
+
+    def test_remote_agent_result_stderr_preserved(self):
+        result = RemoteAgentResult(
+            exit_code=1, stdout="", timed_out=False, duration_secs=5,
+            stderr="something went wrong",
+        )
+        assert result.stderr == "something went wrong"
+
 
 class TestWorkspaceSpecTupleFields:
     def test_setup_commands_default_empty_tuple(self):

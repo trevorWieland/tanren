@@ -72,5 +72,6 @@ class RemoteAgentRunner:
             stdout=result.stdout,
             timed_out=result.timed_out,
             duration_secs=duration,
+            stderr=result.stderr,
             signal_content=signal_content,
         )

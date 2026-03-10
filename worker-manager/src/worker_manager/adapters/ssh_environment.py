@@ -178,6 +178,7 @@ class SSHExecutionEnvironment:
                     "profile": profile,
                     "teardown_commands": profile.teardown,
                     "provision_start": time.monotonic(),
+                    "workflow_id": dispatch.workflow_id,
                 },
             )
 
@@ -236,7 +237,7 @@ class SSHExecutionEnvironment:
                 error_class = classify_error(
                     agent_result.exit_code,
                     agent_result.stdout,
-                    "",
+                    agent_result.stderr,
                     signal_val,
                 )
                 if (
@@ -402,17 +403,35 @@ class SSHExecutionEnvironment:
         """Build the CLI command string for remote execution."""
         if dispatch.cli.value == "claude":
             cmd = config.claude_path
+            cmd += " -p --dangerously-skip-permissions"
             if dispatch.model:
                 cmd += f" --model {dispatch.model}"
-            cmd += " --print"
-            cmd += " -p \"$(cat .tanren-prompt.md)\""
+            cmd += " < .tanren-prompt.md"
             return cmd
         if dispatch.cli.value == "bash":
             if dispatch.gate_cmd:
                 return dispatch.gate_cmd
             return "echo 'no gate command specified'"
-        # Default: use the CLI name directly
-        return f"{dispatch.cli.value} --print -p \"$(cat .tanren-prompt.md)\""
+        if dispatch.cli.value == "opencode":
+            cmd = config.opencode_path
+            cmd += " run"
+            if dispatch.model:
+                cmd += f" --model {dispatch.model}"
+            cmd += " --dir ."
+            cmd += ' "Read the attached file and follow its instructions exactly."'
+            cmd += " -f .tanren-prompt.md"
+            return cmd
+        if dispatch.cli.value == "codex":
+            cmd = config.codex_path
+            cmd += " exec --dangerously-bypass-approvals-and-sandbox"
+            if dispatch.model:
+                cmd += f" --model {dispatch.model}"
+            cmd += " -C ."
+            cmd += " < .tanren-prompt.md"
+            return cmd
+        raise ValueError(
+            f"Unsupported CLI for remote execution: {dispatch.cli.value}"
+        )
 
 
 def _now() -> str:
