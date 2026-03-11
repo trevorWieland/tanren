@@ -271,18 +271,33 @@ class SSHExecutionEnvironment:
         duration = int(time.monotonic() - start)
 
         # Remote postflight: push on push phases
+        final_stdout = agent_result.stdout
         if (
             dispatch.phase in _PUSH_PHASES
             and outcome not in (Outcome.ERROR, Outcome.TIMEOUT)
         ):
             push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
-            await conn.run(push_cmd, timeout=120)
+            push_result = await conn.run(push_cmd, timeout=120)
+            if push_result.exit_code != 0:
+                logger.error(
+                    "Remote git push failed (exit %d) for %s branch %s: %s",
+                    push_result.exit_code,
+                    dispatch.project,
+                    dispatch.branch,
+                    push_result.stderr,
+                )
+                push_diag = (
+                    "\n[worker] Remote git push failed during postflight.\n"
+                    f"[worker] exit_code={push_result.exit_code}\n"
+                    f"[worker] stderr: {push_result.stderr}\n"
+                )
+                final_stdout = (final_stdout or "") + push_diag
 
         return PhaseResult(
             outcome=outcome,
             signal=signal_val,
             exit_code=agent_result.exit_code,
-            stdout=agent_result.stdout,
+            stdout=final_stdout,
             duration_secs=duration,
             preflight_passed=True,
             postflight_result=None,

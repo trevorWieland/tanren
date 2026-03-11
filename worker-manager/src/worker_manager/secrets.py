@@ -34,7 +34,7 @@ class SecretLoader:
 
     def load_developer(self) -> dict[str, str]:
         """Load developer secrets from secrets.env file."""
-        path = Path(self._config.developer_secrets_path)
+        path = Path(self._config.developer_secrets_path).expanduser()
         if not path.exists():
             return {}
         values = dotenv_values(path)

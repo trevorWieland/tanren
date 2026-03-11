@@ -73,7 +73,7 @@ class ManualVMProvisioner:
         for assignment in active:
             # Find the VM config for this assignment
             for vm_config in self._vms:
-                if vm_config["id"] == assignment.vm_id:
+                if str(vm_config["id"]) == assignment.vm_id:
                     handles.append(
                         VMHandle(
                             vm_id=assignment.vm_id,
