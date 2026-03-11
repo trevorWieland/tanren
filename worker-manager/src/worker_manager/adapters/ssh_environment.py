@@ -79,6 +79,11 @@ class SSHExecutionEnvironment:
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
 
+    @property
+    def ssh_defaults(self) -> SSHConfig:
+        """Return default SSH settings used for remote connections."""
+        return self._ssh_defaults
+
     async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets."""
         # 1. Read tanren.yml LOCALLY to get environment profile

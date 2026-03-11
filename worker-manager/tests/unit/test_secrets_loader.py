@@ -66,12 +66,23 @@ class TestDefaultPath:
 
 
 class TestAutoload:
-    def test_autoloads_developer_secrets_into_process_env(self, tmp_path: Path, monkeypatch):
+    def test_constructor_does_not_mutate_process_env(self, tmp_path: Path, monkeypatch):
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
         monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
 
         SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        import os
+
+        assert os.environ.get("HCLOUD_TOKEN") is None
+
+    def test_autoloads_developer_secrets_into_process_env(self, tmp_path: Path, monkeypatch):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
+        monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
+
+        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file))).autoload_into_env()
 
         import os
 
@@ -82,7 +93,7 @@ class TestAutoload:
         secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
         monkeypatch.setenv("HCLOUD_TOKEN", "explicit")
 
-        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file))).autoload_into_env()
 
         import os
 

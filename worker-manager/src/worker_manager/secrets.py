@@ -32,14 +32,13 @@ class SecretLoader:
 
     def __init__(self, config: SecretConfig | None = None) -> None:
         self._config = config or SecretConfig()
-        self._autoload_developer_env()
 
-    def _autoload_developer_env(self) -> None:
-        """Load developer secrets into process env without overriding explicit vars."""
+    def autoload_into_env(self, *, override: bool = False) -> None:
+        """Load developer secrets into process env."""
         path = Path(self._config.developer_secrets_path).expanduser()
         if not path.exists():
             return
-        load_dotenv(dotenv_path=path, override=False)
+        load_dotenv(dotenv_path=path, override=override)
 
     def load_developer(self) -> dict[str, str]:
         """Load developer secrets from secrets.env file."""

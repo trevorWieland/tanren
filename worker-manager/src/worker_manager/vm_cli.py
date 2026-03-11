@@ -13,7 +13,7 @@ from dotenv import dotenv_values
 from worker_manager.adapters.hetzner_vm import HetznerProvisionerSettings
 from worker_manager.adapters.manual_vm import ManualProvisionerSettings
 from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
-from worker_manager.adapters.ubuntu_bootstrap import _APT_PACKAGES, _BOOTSTRAP_STEPS
+from worker_manager.adapters.ubuntu_bootstrap import UbuntuBootstrapper
 from worker_manager.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from worker_manager.remote_config import ProvisionerType, load_remote_config
 from worker_manager.secrets import SecretConfig, SecretLoader
@@ -180,9 +180,10 @@ def vm_dry_run(
         raise typer.Exit(code=1)
 
     typer.echo("bootstrap_steps:")
-    typer.echo(f"  apt: {' '.join(_APT_PACKAGES)}")
-    for tool_name, _check_cmd, _install_cmd in _BOOTSTRAP_STEPS:
-        typer.echo(f"  install: {tool_name}")
+    bootstrap_plan = UbuntuBootstrapper.plan()
+    typer.echo(f"  apt: {' '.join(bootstrap_plan.apt_packages)}")
+    for step in bootstrap_plan.install_steps:
+        typer.echo(f"  install: {step.name}")
     if remote_cfg.bootstrap.extra_script:
         typer.echo(f"  extra_script: {remote_cfg.bootstrap.extra_script}")
 

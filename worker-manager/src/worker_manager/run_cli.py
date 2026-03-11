@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, cast
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from worker_manager.adapters.null_emitter import NullEventEmitter
 from worker_manager.adapters.remote_types import VMHandle, WorkspacePath
@@ -51,7 +52,7 @@ class PersistedRunHandle(BaseModel):
     local_worktree_path: str = Field(...)
     workspace_path: str = Field(...)
     teardown_commands: tuple[str, ...] = Field(default_factory=tuple)
-    provision_start: float = Field(...)
+    provisioned_at_utc: str = Field(...)
     vm_handle: VMHandle = Field(...)
     ssh_defaults: PersistedSSHDefaults = Field(...)
 
@@ -75,7 +76,7 @@ def _build_remote_execution_env(config: Config) -> SSHExecutionEnvironment:
         config=config,
         emitter=NullEventEmitter(),
     )
-    env = manager._execution_env
+    env = manager.get_execution_environment()
     if not isinstance(env, SSHExecutionEnvironment):
         typer.echo("Remote execution environment is not enabled.", err=True)
         raise typer.Exit(code=1)
@@ -99,12 +100,29 @@ def _save_handle(config: Config, persisted: PersistedRunHandle) -> Path:
 
 
 def _load_handle(config: Config, identifier: str) -> tuple[PersistedRunHandle, Path]:
+    def _parse(path: Path) -> PersistedRunHandle:
+        try:
+            parsed = PersistedRunHandle.model_validate_json(path.read_text())
+        except ValidationError as exc:
+            typer.echo(f"Invalid run handle schema in {path}: {exc}", err=True)
+            typer.echo(
+                "Run handle schema has changed. Re-provision with `tanren run provision`.",
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+        try:
+            _parse_provisioned_at_utc(parsed.provisioned_at_utc)
+        except ValueError as exc:
+            typer.echo(f"Invalid run handle timestamp in {path}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        return parsed
+
     direct = _handle_path(config, identifier)
     if direct.exists():
-        return PersistedRunHandle.model_validate_json(direct.read_text()), direct
+        return _parse(direct), direct
 
     for candidate in _handle_dir(config).glob("*.json"):
-        loaded = PersistedRunHandle.model_validate_json(candidate.read_text())
+        loaded = _parse(candidate)
         if loaded.vm_id == identifier:
             return loaded, candidate
 
@@ -141,10 +159,34 @@ def _reconstruct_handle(persisted: PersistedRunHandle) -> EnvironmentHandle:
             ),
             profile=_profile_for_runtime(persisted.environment_profile),
             teardown_commands=persisted.teardown_commands,
-            provision_start=persisted.provision_start,
+            provision_start=_provision_start_monotonic(persisted.provisioned_at_utc),
             workflow_id=persisted.workflow_id,
         ),
     )
+
+
+def _now_utc_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _parse_provisioned_at_utc(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid provisioned_at_utc timestamp: {value}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"provisioned_at_utc must include timezone offset: {value}")
+    return parsed.astimezone(UTC)
+
+
+def _elapsed_seconds(provisioned_at_utc: str) -> float:
+    provisioned_at = _parse_provisioned_at_utc(provisioned_at_utc)
+    return max(0.0, (datetime.now(UTC) - provisioned_at).total_seconds())
+
+
+def _provision_start_monotonic(provisioned_at_utc: str) -> float:
+    # Reconstruct a process-local monotonic baseline from persisted wall-clock start.
+    return time.monotonic() - _elapsed_seconds(provisioned_at_utc)
 
 
 def _role_for_phase(phase: Phase) -> RoleName:
@@ -240,13 +282,13 @@ def run_provision(
             local_worktree_path=str(Path(config.github_dir) / project),
             workspace_path=runtime.workspace_path.path,
             teardown_commands=runtime.teardown_commands,
-            provision_start=runtime.provision_start,
+            provisioned_at_utc=_now_utc_iso(),
             vm_handle=runtime.vm_handle,
             ssh_defaults=PersistedSSHDefaults(
-                user=env._ssh_defaults.user,
-                key_path=env._ssh_defaults.key_path,
-                port=env._ssh_defaults.port,
-                connect_timeout=env._ssh_defaults.connect_timeout,
+                user=env.ssh_defaults.user,
+                key_path=env.ssh_defaults.key_path,
+                port=env.ssh_defaults.port,
+                connect_timeout=env.ssh_defaults.connect_timeout,
             ),
         )
         path = _save_handle(config, persisted)
@@ -341,7 +383,7 @@ def run_teardown(
 
         handle_path.unlink(missing_ok=True)
 
-        duration = max(0.0, time.monotonic() - persisted.provision_start)
+        duration = _elapsed_seconds(persisted.provisioned_at_utc)
         estimated_cost: float | None = None
         vm_hourly_cost = persisted.vm_handle.hourly_cost
         if vm_hourly_cost is not None:
@@ -401,13 +443,13 @@ def run_full(
             local_worktree_path=str(Path(config.github_dir) / project),
             workspace_path=runtime.workspace_path.path,
             teardown_commands=runtime.teardown_commands,
-            provision_start=runtime.provision_start,
+            provisioned_at_utc=_now_utc_iso(),
             vm_handle=runtime.vm_handle,
             ssh_defaults=PersistedSSHDefaults(
-                user=env._ssh_defaults.user,
-                key_path=env._ssh_defaults.key_path,
-                port=env._ssh_defaults.port,
-                connect_timeout=env._ssh_defaults.connect_timeout,
+                user=env.ssh_defaults.user,
+                key_path=env.ssh_defaults.key_path,
+                port=env.ssh_defaults.port,
+                connect_timeout=env.ssh_defaults.connect_timeout,
             ),
         )
         handle_path = _save_handle(config, persisted)
@@ -439,7 +481,7 @@ def run_full(
             typer.echo(f"signal: {result.signal}")
             typer.echo(f"exit_code: {result.exit_code}")
             typer.echo(f"duration_secs: {result.duration_secs}")
-            if result.outcome in (Outcome.ERROR, Outcome.TIMEOUT):
+            if result.outcome != Outcome.SUCCESS:
                 execute_failed = True
         finally:
             teardown_handle = _reconstruct_handle(persisted)

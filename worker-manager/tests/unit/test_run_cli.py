@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -70,7 +72,7 @@ def _persisted(config: Config) -> Path:
         local_worktree_path=str(Path(config.github_dir) / "proj"),
         workspace_path="/workspace/proj",
         teardown_commands=("make clean",),
-        provision_start=time.monotonic(),
+        provisioned_at_utc=datetime.now(UTC).isoformat(),
         vm_handle=VMHandle(
             vm_id="vm-1",
             host="203.0.113.10",
@@ -94,7 +96,7 @@ def test_run_provision_prints_and_saves_handle(tmp_path: Path, monkeypatch):
     config = _config(tmp_path)
     env = AsyncMock()
     env.provision.return_value = _env_handle()
-    env._ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
+    env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
     monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
@@ -180,7 +182,7 @@ def test_run_full_executes_in_order(tmp_path: Path, monkeypatch):
         preflight_passed=True,
         retries=0,
     )
-    env._ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
+    env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
     monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
@@ -225,7 +227,7 @@ def test_run_full_teardown_runs_even_on_execute_failure(tmp_path: Path, monkeypa
         preflight_passed=True,
         retries=0,
     )
-    env._ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
+    env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
     monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
@@ -253,3 +255,105 @@ def test_run_full_teardown_runs_even_on_execute_failure(tmp_path: Path, monkeypa
 
     assert result.exit_code == 1
     assert env.teardown.await_count == 1
+
+
+def test_run_full_exits_nonzero_for_blocked(tmp_path: Path, monkeypatch):
+    config = _config(tmp_path)
+    env = AsyncMock()
+    env.provision.return_value = _env_handle()
+    env.execute.return_value = PhaseResult(
+        outcome=Outcome.BLOCKED,
+        signal="blocked",
+        exit_code=0,
+        stdout="blocked",
+        duration_secs=1,
+        preflight_passed=True,
+        retries=0,
+    )
+    env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
+
+    monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
+    monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "worker_manager.run_cli._resolve_agent_tool",
+        lambda config, phase: AgentTool(cli=Cli.CLAUDE),
+    )
+
+    result = CliRunner().invoke(
+        run,
+        [
+            "full",
+            "--project",
+            "proj",
+            "--environment-profile",
+            "default",
+            "--branch",
+            "main",
+            "--spec-path",
+            "tanren/specs/s1",
+            "--phase",
+            "do-task",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert env.teardown.await_count == 1
+
+
+def test_run_execute_rejects_legacy_handle_schema(tmp_path: Path, monkeypatch):
+    config = _config(tmp_path)
+    path = Path(config.data_dir) / "run-handles"
+    path.mkdir(parents=True, exist_ok=True)
+    legacy = {
+        "env_id": "env-legacy",
+        "vm_id": "vm-legacy",
+        "project": "proj",
+        "branch": "main",
+        "workflow_id": "run-proj-legacy",
+        "environment_profile": "default",
+        "local_worktree_path": str(Path(config.github_dir) / "proj"),
+        "workspace_path": "/workspace/proj",
+        "teardown_commands": ["make clean"],
+        "provision_start": time.monotonic(),
+        "vm_handle": {
+            "vm_id": "vm-legacy",
+            "host": "203.0.113.10",
+            "provider": "hetzner",
+            "created_at": "2026-01-01T00:00:00Z",
+            "labels": {},
+            "hourly_cost": 0.5,
+        },
+        "ssh_defaults": {
+            "user": "root",
+            "key_path": "~/.ssh/id_rsa",
+            "port": 22,
+            "connect_timeout": 10,
+        },
+    }
+    (path / "env-legacy.json").write_text(json.dumps(legacy))
+
+    env = AsyncMock()
+    monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
+    monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "worker_manager.run_cli._resolve_agent_tool",
+        lambda config, phase: AgentTool(cli=Cli.CLAUDE),
+    )
+
+    result = CliRunner().invoke(
+        run,
+        [
+            "execute",
+            "--handle",
+            "env-legacy",
+            "--project",
+            "proj",
+            "--spec-path",
+            "tanren/specs/s1",
+            "--phase",
+            "do-task",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Run handle schema has changed" in result.output

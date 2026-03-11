@@ -164,6 +164,10 @@ class WorkerManager:
                 config=self._config,
             )
 
+    def get_execution_environment(self) -> ExecutionEnvironment:
+        """Return the configured execution environment."""
+        return self._execution_env
+
     async def run(self) -> None:
         """Main entry point: setup, poll loop, shutdown."""
         logging.basicConfig(
@@ -330,6 +334,7 @@ class WorkerManager:
             ),
         )
         secret_loader = SecretLoader(secret_config)
+        secret_loader.autoload_into_env(override=False)
 
         token = os.environ.get(remote_cfg.git.token_env, "")
         git_auth = GitAuthConfig(

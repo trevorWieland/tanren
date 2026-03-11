@@ -373,6 +373,8 @@ repos:
 
 Set `WM_REMOTE_CONFIG=/path/to/remote.yml` to enable remote execution.
 For Hetzner support, install optional dependency: `uv sync --extra hetzner`.
+Secrets are loaded explicitly from `remote.yml.secrets.developer_secrets_path`
+during remote environment initialization (no global startup autoload).
 
 ### Dispatch-Aware vs. Generic Signatures
 

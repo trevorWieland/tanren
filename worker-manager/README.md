@@ -142,7 +142,8 @@ When `WM_REMOTE_CONFIG` is set, the manager automatically constructs an
 1. Create a `remote.yml` config with `provisioner: {type, settings}` (see [ADAPTERS.md](ADAPTERS.md) for schema)
 2. Set `WM_REMOTE_CONFIG=/path/to/remote.yml`
 3. Ensure SSH key access to your VMs
-4. Set `GIT_TOKEN` env var for repo cloning
+4. Provide git/cloud tokens via shell env or `remote.yml -> secrets.developer_secrets_path`
+   (the worker loads that file when remote execution initializes)
 5. If using Hetzner, install optional dependency: `uv sync --extra hetzner`
 
 ### VM Management
@@ -163,6 +164,9 @@ tanren run execute --handle <env_id|vm_id> --project my-project --spec-path tanr
 tanren run teardown --handle <env_id|vm_id>
 tanren run full --project my-project --environment-profile default --branch main --spec-path tanren/specs/s0001 --phase do-task
 ```
+
+Run handles now persist a wall-clock `provisioned_at_utc` timestamp.
+Handle files using older schema are rejected; re-run `tanren run provision`.
 
 On startup, the manager automatically runs recovery to release VMs from
 previous crashed sessions.

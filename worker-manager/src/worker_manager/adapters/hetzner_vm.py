@@ -119,29 +119,33 @@ class HetznerVMProvisioner:
         )
         server = create.server
 
-        deadline = time.monotonic() + self._settings.readiness_timeout_secs
-        while time.monotonic() < deadline:
-            server.reload()
-            if self._is_running(server):
-                host = self._extract_public_ipv4(server)
-                if host:
-                    hourly_cost = self._resolve_hourly_cost(
-                        server_type_name, self._settings.location
-                    )
-                    return VMHandle(
-                        vm_id=str(server.id),
-                        host=host,
-                        provider=VMProvider.HETZNER,
-                        created_at=datetime.now(UTC).isoformat(),
-                        labels=labels,
-                        hourly_cost=hourly_cost,
-                    )
-            await asyncio.sleep(self._settings.poll_interval_secs)
+        try:
+            deadline = time.monotonic() + self._settings.readiness_timeout_secs
+            while time.monotonic() < deadline:
+                server.reload()
+                if self._is_running(server):
+                    host = self._extract_public_ipv4(server)
+                    if host:
+                        hourly_cost = self._resolve_hourly_cost(
+                            server_type_name, self._settings.location
+                        )
+                        return VMHandle(
+                            vm_id=str(server.id),
+                            host=host,
+                            provider=VMProvider.HETZNER,
+                            created_at=datetime.now(UTC).isoformat(),
+                            labels=labels,
+                            hourly_cost=hourly_cost,
+                        )
+                await asyncio.sleep(self._settings.poll_interval_secs)
 
-        raise TimeoutError(
-            f"Hetzner server {server_name} did not become ready "
-            f"within {self._settings.readiness_timeout_secs}s"
-        )
+            raise TimeoutError(
+                f"Hetzner server {server_name} did not become ready "
+                f"within {self._settings.readiness_timeout_secs}s"
+            )
+        except Exception:
+            self._delete_server_best_effort(server, context="acquire cleanup")
+            raise
 
     async def release(self, handle: VMHandle) -> None:
         """Delete server best-effort; log failures without raising."""
@@ -206,6 +210,17 @@ class HetznerVMProvisioner:
             if callable(get_by_name):
                 server = get_by_name(handle.vm_id)
         return server
+
+    def _delete_server_best_effort(self, server: object, *, context: str) -> None:
+        delete = getattr(server, "delete", None)
+        if not callable(delete):
+            logger.warning("Hetzner %s: server has no delete() method", context)
+            return
+        try:
+            delete()
+        except Exception:
+            server_id = getattr(server, "id", "<unknown>")
+            logger.warning("Hetzner %s: failed deleting server %s", context, server_id, exc_info=True)
 
     def _resolve_hourly_cost(self, server_type_name: str, location_name: str) -> float | None:
         server_type = self._client.server_types.get_by_name(server_type_name)

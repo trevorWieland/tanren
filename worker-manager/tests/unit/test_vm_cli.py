@@ -197,3 +197,34 @@ class TestVmDryRun:
         assert result.exit_code == 0
         assert "provisioner: hetzner" in result.output
         assert "server_type: cpx31 (profile.server_type)" in result.output
+
+    def test_dry_run_does_not_mutate_process_env(self, tmp_path, monkeypatch):
+        github_dir = tmp_path / "github"
+        project_dir = github_dir / "myproject"
+        project_dir.mkdir(parents=True)
+        secrets_file = tmp_path / "dev-secrets.env"
+        secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - id: vm-1\n"
+            "        host: 10.0.0.1\n"
+            "secrets:\n"
+            f"  developer_secrets_path: {secrets_file}\n"
+        )
+        monkeypatch.setenv("WM_REMOTE_CONFIG", str(remote_cfg))
+        monkeypatch.setenv("WM_GITHUB_DIR", str(github_dir))
+        monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
+
+        result = CliRunner().invoke(
+            vm,
+            ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+        )
+
+        assert result.exit_code == 0
+        import os
+
+        assert os.environ.get("HCLOUD_TOKEN") is None

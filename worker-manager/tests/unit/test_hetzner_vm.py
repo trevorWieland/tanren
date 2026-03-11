@@ -125,6 +125,7 @@ async def test_acquire_times_out_when_server_not_ready(monkeypatch):
 
     with pytest.raises(TimeoutError):
         await provisioner.acquire(VMRequirements(profile="default"))
+    server.delete.assert_called_once()
 
 
 def test_init_raises_when_ssh_key_missing(monkeypatch):
