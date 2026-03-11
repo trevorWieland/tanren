@@ -193,8 +193,8 @@ class TestRunSync:
 
         # Loop: first iteration no data (sleep), second iteration exit ready
         chan.exit_status_ready.side_effect = [False, True]
-        chan.recv_ready.side_effect = [False, False]  # no stdout in loop, no drain
-        chan.recv_stderr_ready.side_effect = [False, False]  # no stderr in loop, no drain
+        chan.recv_ready.side_effect = [False, False, False]  # loop check, sleep guard, drain
+        chan.recv_stderr_ready.side_effect = [False, False, False]  # loop check, sleep guard, drain
         chan.recv_exit_status.return_value = 0
 
         conn = _make_conn()

@@ -127,9 +127,9 @@ class SSHConnection:
 
                 if channel.recv_ready():
                     stdout_data += channel.recv(65536)
-                elif channel.recv_stderr_ready():
+                if channel.recv_stderr_ready():
                     stderr_data += channel.recv_stderr(65536)
-                else:
+                if not channel.recv_ready() and not channel.recv_stderr_ready():
                     time.sleep(0.05)
 
             exit_code = channel.recv_exit_status()

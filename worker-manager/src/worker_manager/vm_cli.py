@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 from pathlib import Path
 
 import click
@@ -64,8 +63,9 @@ def vm_release(vm_id: str):
         try:
             assignment = await store.get_assignment(vm_id)
             if assignment is None:
-                click.echo(f"No active assignment found for VM: {vm_id}")
-                sys.exit(1)
+                raise click.ClickException(
+                    f"No active assignment found for VM: {vm_id}"
+                )
             await store.record_release(vm_id)
             click.echo(
                 f"Released VM {vm_id} "
@@ -83,6 +83,7 @@ def vm_recover():
 
     async def _run():
         from worker_manager.adapters.ssh import SSHConfig, SSHConnection
+        from worker_manager.remote_config import RemoteSSHConfig
 
         store = _get_state_store()
         try:
@@ -93,8 +94,23 @@ def vm_recover():
 
             click.echo(f"Checking {len(assignments)} active assignment(s)...")
 
+            remote_config_path = os.environ.get("WM_REMOTE_CONFIG")
+            ssh_defaults: RemoteSSHConfig | None = None
+            if remote_config_path:
+                from worker_manager.remote_config import load_remote_config
+
+                ssh_defaults = load_remote_config(remote_config_path).ssh
+
             for a in assignments:
-                ssh_config = SSHConfig(host=a.host)
+                if ssh_defaults is not None:
+                    ssh_config = SSHConfig(
+                        host=a.host,
+                        user=ssh_defaults.user,
+                        key_path=ssh_defaults.key_path,
+                        connect_timeout=ssh_defaults.connect_timeout,
+                    )
+                else:
+                    ssh_config = SSHConfig(host=a.host)
                 conn = SSHConnection(ssh_config)
                 try:
                     reachable = await conn.check_connection()
