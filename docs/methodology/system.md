@@ -25,6 +25,16 @@ instructions, output expectations, and failure handling.
 | `triage-audits` | audit | Prioritize audit backlog |
 | `sync-roadmap` | conversation | Align roadmap with real state |
 
+## Agent Roles
+
+Tanren's workflow uses role-specialized agents with clear execution boundaries:
+
+- `conversation`: shape specs, clarify requirements, and coordinate with developers
+- `implementation`: execute planned tasks and produce code/documentation changes
+- `audit`: validate outputs against spec intent and quality standards
+- `feedback`: triage and apply PR review feedback
+- `conflict-resolution`: resolve merge conflicts using spec intent and dependency context
+
 ## Standards Profiles
 
 Profiles in `profiles/` package standards by stack.

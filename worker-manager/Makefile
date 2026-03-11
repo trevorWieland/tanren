@@ -1,6 +1,9 @@
-.PHONY: check lint format test ci all integration integration-ssh integration-local
+.PHONY: check docs-check lint format test ci all integration integration-ssh integration-local
 
-check: lint typecheck test
+check: docs-check lint typecheck test
+
+docs-check:
+	uv run python -m worker_manager.docs_links --repo-root ..
 
 lint:
 	uv run ruff check src/ tests/
