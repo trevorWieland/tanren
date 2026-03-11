@@ -64,14 +64,16 @@ class GitWorkspaceManager:
         await self._setup_git_auth(conn)
         git_prefix = self._git_env_prefix()
 
+        quoted_dir = shlex.quote(workspace_dir)
+
         # Check if already cloned
-        check = await conn.run(f"test -d {workspace_dir}/.git && echo exists", timeout=10)
+        check = await conn.run(f"test -d {quoted_dir}/.git && echo exists", timeout=10)
 
         if "exists" in check.stdout:
             # Pull latest
             logger.info("Pulling latest for %s on branch %s", spec.project, spec.branch)
             pull_cmd = (
-                f"cd {workspace_dir} && {git_prefix}git fetch origin"
+                f"cd {quoted_dir} && {git_prefix}git fetch origin"
                 f" && git checkout {shlex.quote(spec.branch)}"
                 f" && {git_prefix}git pull origin {shlex.quote(spec.branch)}"
             )
@@ -83,7 +85,7 @@ class GitWorkspaceManager:
             logger.info("Cloning %s branch %s", spec.project, spec.branch)
             clone_cmd = (
                 f"{git_prefix}git clone --branch {shlex.quote(spec.branch)}"
-                f" {shlex.quote(spec.repo_url)} {workspace_dir}"
+                f" {shlex.quote(spec.repo_url)} {quoted_dir}"
             )
             result = await conn.run(clone_cmd, timeout=300)
             if result.exit_code != 0:
@@ -92,7 +94,7 @@ class GitWorkspaceManager:
         # Run setup commands
         for cmd in spec.setup_commands:
             logger.info("Running setup command: %s", cmd)
-            result = await conn.run(f"cd {workspace_dir} && {cmd}", timeout=300)
+            result = await conn.run(f"cd {quoted_dir} && {cmd}", timeout=300)
             if result.exit_code != 0:
                 raise RuntimeError(f"Setup command failed ({cmd}): {result.stderr}")
 
@@ -119,10 +121,10 @@ class GitWorkspaceManager:
             content = "\n".join(lines) + "\n"
             env_path = f"{workspace.path}/.env"
             await conn.upload_content(content, env_path)
-            await conn.run(f"chmod 600 {env_path}", timeout=10)
+            await conn.run(f"chmod 600 {shlex.quote(env_path)}", timeout=10)
 
     async def cleanup(self, conn, workspace: WorkspacePath) -> None:
         """Remove secret files and auth helpers from remote workspace."""
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
-        await conn.run(f"rm -f {workspace.path}/.env", timeout=10)
+        await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
         await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
