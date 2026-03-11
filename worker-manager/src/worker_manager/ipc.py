@@ -14,7 +14,7 @@ from worker_manager.schemas import Dispatch, Nudge, ProgressState, Result, TaskS
 
 
 def generate_filename() -> str:
-    """Generate a filename matching NanoClaw convention: {timestamp_ms}-{random6}.json."""
+    """Generate a filename matching IPC convention: {timestamp_ms}-{random6}.json."""
     timestamp = int(time.time() * 1000)
     random_hex = secrets.token_hex(3)
     return f"{timestamp}-{random_hex}.json"
@@ -69,10 +69,10 @@ async def write_result(results_dir: Path, result: Result) -> Path:
 
 
 async def write_nudge(input_dir: Path, nudge: Nudge) -> Path:
-    """Write a nudge file wrapped in NanoClaw's IPC message envelope.
+    """Write a nudge file wrapped in the coordinator's IPC message envelope.
 
-    NanoClaw's drainIpcInput() only processes {"type": "message", "text": "..."} files.
-    The Nudge JSON is serialized into the text field of this envelope.
+    The coordinator's IPC input handler only processes {"type": "message", "text": "..."} files.
+    The Nudge JSON is serialized into the text field of this coordinator IPC message envelope.
     """
     filename = generate_filename()
     path = input_dir / filename

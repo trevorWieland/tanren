@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 async def load_and_validate_env(
     project_root: Path,
     daemon_mode: bool = True,
-    aegis_dir: Path | None = None,
+    secrets_dir: Path | None = None,
 ) -> tuple[EnvReport, dict[str, str]]:
     """Orchestrator: parse config, load layers, validate, return report + env dict.
 
@@ -53,7 +53,7 @@ async def load_and_validate_env(
     if daemon_mode and env_block.on_missing == OnMissing.PROMPT:
         env_block = env_block.model_copy(update={"on_missing": OnMissing.ERROR})
 
-    merged_env, source_map = await asyncio.to_thread(load_env_layers, project_root, aegis_dir)
+    merged_env, source_map = await asyncio.to_thread(load_env_layers, project_root, secrets_dir)
 
     report = validate_env(env_block, merged_env, source_map)
 

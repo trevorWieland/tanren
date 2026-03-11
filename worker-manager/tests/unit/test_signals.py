@@ -10,7 +10,32 @@ from worker_manager.signals import (
     parse_audit_spec_findings,
     parse_demo_findings,
     parse_investigation_report,
+    parse_signal_token,
 )
+
+
+class TestParseSignalToken:
+    def test_extracts_token_from_status_line(self):
+        content = "do-task-status: complete\n"
+        assert parse_signal_token("do-task", content) == "complete"
+
+    def test_returns_none_when_no_match(self):
+        assert parse_signal_token("do-task", "no signal here") is None
+
+    def test_extracts_from_multi_line_content(self):
+        content = "some preamble\ndo-task-status: blocked\nmore text"
+        assert parse_signal_token("do-task", content) == "blocked"
+
+    def test_handles_different_command_names(self):
+        content = "audit-task-status: pass\n"
+        assert parse_signal_token("audit-task", content) == "pass"
+
+    def test_returns_none_for_empty_content(self):
+        assert parse_signal_token("do-task", "") is None
+
+    def test_returns_none_for_wrong_command_name(self):
+        content = "audit-task-status: pass\n"
+        assert parse_signal_token("do-task", content) is None
 
 
 class TestExtractSignal:

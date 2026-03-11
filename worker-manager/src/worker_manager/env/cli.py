@@ -12,7 +12,7 @@ from worker_manager.env.loader import (
 )
 from worker_manager.env.reporter import format_report, format_report_json
 from worker_manager.env.schema import EnvBlock
-from worker_manager.env.secrets import list_secrets, set_secret
+from worker_manager.env.secrets import DEFAULT_SECRETS_DIR, list_secrets, set_secret
 from worker_manager.env.validator import validate_env
 
 
@@ -121,14 +121,14 @@ def init():
 
 @click.group()
 def secret():
-    """Manage secrets in ~/.aegis/secrets.env."""
+    """Manage secrets in secrets.env (default: $XDG_CONFIG_HOME/tanren/)."""
 
 
 @secret.command("set")
 @click.argument("key")
 @click.argument("value")
 def secret_set(key: str, value: str):
-    """Store a secret in ~/.aegis/secrets.env."""
+    """Store a secret in secrets.env (default: $XDG_CONFIG_HOME/tanren/)."""
     path = set_secret(key, value)
     click.echo(f"Secret {key} written to {path}")
 
@@ -136,9 +136,10 @@ def secret_set(key: str, value: str):
 @secret.command("list")
 def secret_list():
     """List secrets with redacted values."""
+    secrets_path = DEFAULT_SECRETS_DIR / "secrets.env"
     secrets = list_secrets()
     if not secrets:
-        click.echo("No secrets found in ~/.aegis/secrets.env")
+        click.echo(f"No secrets found in {secrets_path}")
         return
 
     for key, redacted in secrets:

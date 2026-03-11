@@ -45,6 +45,7 @@ from worker_manager.ipc import (
     write_result,
 )
 from worker_manager.queues import DispatchRouter
+from worker_manager.remote_config import load_remote_config
 from worker_manager.schemas import (
     Dispatch,
     FindingSeverity,
@@ -136,9 +137,20 @@ class WorkerManager:
         self._env_validator = env_validator or DotenvEnvValidator()
         self._env_provisioner = env_provisioner or DotenvEnvProvisioner()
 
-        # Build execution environment — use injected or construct from fine-grained adapters
+        # Event emitter — auto-configure from config if not injected
+        # Must be initialized before execution environment (remote env references it)
+        if emitter is not None:
+            self._emitter: EventEmitter = emitter
+        elif self._config.events_db:
+            self._emitter = SqliteEventEmitter(self._config.events_db)
+        else:
+            self._emitter = NullEventEmitter()
+
+        # Build execution environment — use injected or construct from config
         if execution_env is not None:
             self._execution_env = execution_env
+        elif self._config.remote_config_path:
+            self._execution_env = self._build_remote_env()
         else:
             self._execution_env = LocalExecutionEnvironment(
                 env_validator=self._env_validator,
@@ -148,14 +160,6 @@ class WorkerManager:
                 heartbeat=self._heartbeat,
                 config=self._config,
             )
-
-        # Event emitter — auto-configure from config if not injected
-        if emitter is not None:
-            self._emitter: EventEmitter = emitter
-        elif self._config.events_db:
-            self._emitter = SqliteEventEmitter(self._config.events_db)
-        else:
-            self._emitter = NullEventEmitter()
 
     async def run(self) -> None:
         """Main entry point: setup, poll loop, shutdown."""
@@ -183,6 +187,9 @@ class WorkerManager:
         # Startup recovery: clean stale heartbeats
         await self._heartbeat.cleanup_stale()
 
+        # Startup recovery: check active VM assignments
+        await self._recover_vm_state()
+
         self._started_at = datetime.now(UTC).isoformat()
 
         # Start consumer tasks
@@ -208,6 +215,10 @@ class WorkerManager:
 
         # Close event emitter
         await self._emitter.close()
+
+        # Close remote state store if present
+        if hasattr(self, "_remote_state_store"):
+            await self._remote_state_store.close()
 
         logger.info("Worker manager stopped")
 
@@ -255,6 +266,130 @@ class WorkerManager:
         )
         health_path = Path(self._config.ipc_dir) / "worker-health.json"
         await atomic_write(health_path, health.model_dump_json(indent=2))
+
+    def _build_remote_env(self) -> ExecutionEnvironment:
+        """Construct SSHExecutionEnvironment from remote.yml."""
+        import os
+
+        from worker_manager.adapters.git_workspace import (
+            GitAuthConfig,
+            GitWorkspaceManager,
+        )
+        from worker_manager.adapters.manual_vm import ManualVMProvisioner
+        from worker_manager.adapters.remote_runner import RemoteAgentRunner
+        from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
+        from worker_manager.adapters.ssh import SSHConfig
+        from worker_manager.adapters.ssh_environment import (
+            SSHExecutionEnvironment,
+        )
+        from worker_manager.adapters.ubuntu_bootstrap import (
+            UbuntuBootstrapper,
+        )
+        from worker_manager.secrets import SecretConfig, SecretLoader
+
+        assert self._config.remote_config_path is not None
+        remote_cfg = load_remote_config(self._config.remote_config_path)
+
+        ssh_defaults = SSHConfig(
+            host="",  # placeholder — overridden per VM
+            user=remote_cfg.ssh.user,
+            key_path=remote_cfg.ssh.key_path,
+            connect_timeout=remote_cfg.ssh.connect_timeout,
+        )
+
+        token = os.environ.get(remote_cfg.git.token_env, "")
+        git_auth = GitAuthConfig(
+            auth_method=remote_cfg.git.auth,
+            token=token or None,
+        )
+
+        state_store = SqliteVMStateStore(
+            f"{self._config.data_dir}/vm-state.db"
+        )
+        self._remote_state_store = state_store
+
+        # Read extra bootstrap script if configured
+        extra_script = None
+        if remote_cfg.bootstrap.extra_script:
+            script_path = Path(remote_cfg.bootstrap.extra_script).expanduser()
+            if not script_path.is_absolute():
+                config_dir = Path(self._config.remote_config_path).resolve().parent
+                script_path = config_dir / script_path
+            if script_path.exists():
+                extra_script = script_path.read_text()
+            else:
+                logger.warning(
+                    "Bootstrap extra script not found: %s", script_path
+                )
+
+        secret_config = SecretConfig(
+            developer_secrets_path=(
+                remote_cfg.secrets.developer_secrets_path
+                or SecretConfig().developer_secrets_path
+            ),
+        )
+
+        return SSHExecutionEnvironment(
+            vm_provisioner=ManualVMProvisioner(
+                remote_cfg.vms, state_store
+            ),
+            bootstrapper=UbuntuBootstrapper(extra_script=extra_script),
+            workspace_mgr=GitWorkspaceManager(git_auth),
+            runner=RemoteAgentRunner(),
+            state_store=state_store,
+            secret_loader=SecretLoader(secret_config),
+            emitter=self._emitter,
+            ssh_config_defaults=ssh_defaults,
+            repo_urls=remote_cfg.repos,
+        )
+
+    async def _recover_vm_state(self) -> None:
+        """Startup recovery: check active assignments, release unreachable VMs."""
+        if not self._config.remote_config_path:
+            return
+
+        from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
+        from worker_manager.adapters.ssh import SSHConfig, SSHConnection
+
+        remote_cfg = load_remote_config(self._config.remote_config_path)
+
+        store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
+        try:
+            assignments = await store.get_active_assignments()
+            if not assignments:
+                return
+
+            logger.info(
+                "Checking %d active VM assignment(s) for recovery...",
+                len(assignments),
+            )
+            for a in assignments:
+                conn = SSHConnection(SSHConfig(
+                    host=a.host,
+                    user=remote_cfg.ssh.user,
+                    key_path=remote_cfg.ssh.key_path,
+                    connect_timeout=remote_cfg.ssh.connect_timeout,
+                ))
+                try:
+                    reachable = await conn.check_connection()
+                    if not reachable:
+                        await store.record_release(a.vm_id)
+                        logger.warning(
+                            "Released unreachable VM %s (%s)",
+                            a.vm_id,
+                            a.host,
+                        )
+                except Exception:
+                    await store.record_release(a.vm_id)
+                    logger.warning(
+                        "Released VM %s (%s) due to connection error",
+                        a.vm_id,
+                        a.host,
+                    )
+                finally:
+                    await conn.close()
+        finally:
+            await store.close()
 
     async def _handle_dispatch(self, path: Path, dispatch: Dispatch) -> None:
         """Handle a single dispatch through its full lifecycle."""
@@ -462,6 +597,10 @@ class WorkerManager:
             duration = phase_result.duration_secs
             spec_folder_path = worktree_path / dispatch.spec_folder
 
+            # 2b. Sync remote changes to local worktree for findings parsing
+            if self._config.remote_config_path:
+                await self._sync_remote_changes(worktree_path)
+
             # 3. Build gate_output (gate phases only)
             gate_output = None
             if dispatch.phase == Phase.GATE:
@@ -597,6 +736,33 @@ class WorkerManager:
                     new_tasks.extend(rc.suggested_tasks)
 
         return new_tasks, findings_data
+
+    async def _sync_remote_changes(self, worktree_path: Path) -> None:
+        """Pull remote changes into local worktree after remote execution."""
+        import subprocess
+
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["git", "pull", "--ff-only"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "git pull failed in worktree %s: %s",
+                    worktree_path,
+                    result.stderr.strip(),
+                )
+        except Exception:
+            logger.warning(
+                "Failed to sync remote changes to %s",
+                worktree_path,
+                exc_info=True,
+            )
 
     async def _write_result_and_nudge(self, result: Result, workflow_id: str) -> None:
         """Write result to results/ and nudge to input/."""

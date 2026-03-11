@@ -7,7 +7,7 @@ Sync `tanren/product/roadmap.md` with GitHub issues labeled `type:spec`. Use Git
 ## Important Guidelines
 
 - Human-in-the-loop — the user approves all sync actions before execution
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. In Discord/NanoClaw: use send_message with numbered options and wait for reply.
+- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
 - Prefer GitHub issues for spec id allocation and dependency relationships
 - Ask on conflicts — never overwrite silently
 - Never modify spec.md files

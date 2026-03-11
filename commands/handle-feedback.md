@@ -7,7 +7,7 @@ Pull PR review comments and automated analysis feedback, evaluate their correctn
 ## Important Guidelines
 
 - Human-in-the-loop — the user approves the triage before any changes or replies are posted
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. In Discord/NanoClaw: use send_message with numbered options and wait for reply.
+- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
 - Never blindly accept feedback — verify every claim against the actual code
 - Never blindly reject feedback — incorrect dismissals erode reviewer trust
 - Never modify spec.md

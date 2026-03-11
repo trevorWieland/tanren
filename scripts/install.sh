@@ -200,5 +200,5 @@ if [[ "$MODE" == "fresh" ]]; then
     echo "  2. Review tanren/standards/ and adjust for your project"
     echo "  3. Run /shape-spec to start your first spec"
     echo "  4. Run 'tanren env check' to validate environment variables"
-    echo "  5. Run 'tanren secret set KEY VALUE' to store secrets in ~/.aegis"
+    echo "  5. Run 'tanren secret set KEY VALUE' to store secrets in ~/.config/tanren"
 fi

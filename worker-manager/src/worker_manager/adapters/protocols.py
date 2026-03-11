@@ -6,6 +6,16 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from worker_manager.adapters.events import Event
+from worker_manager.adapters.remote_types import (
+    BootstrapResult,
+    RemoteResult,
+    SecretBundle,
+    VMAssignment,
+    VMHandle,
+    VMRequirements,
+    WorkspacePath,
+    WorkspaceSpec,
+)
 from worker_manager.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
 from worker_manager.config import Config
 from worker_manager.env.validator import EnvReport
@@ -166,3 +176,87 @@ class ExecutionEnvironment(Protocol):
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo: ...
 
     async def teardown(self, handle: EnvironmentHandle) -> None: ...
+
+
+@runtime_checkable
+class VMProvisioner(Protocol):
+    """Provision and release VMs.
+
+    Manages a pool of VMs — acquires one matching the requirements
+    and releases it back when done.
+    """
+
+    async def acquire(self, requirements: VMRequirements) -> VMHandle: ...
+    async def release(self, handle: VMHandle) -> None: ...
+    async def list_active(self) -> list[VMHandle]: ...
+
+
+@runtime_checkable
+class EnvironmentBootstrapper(Protocol):
+    """Bootstrap a VM with required development tools.
+
+    Idempotent — checks for existing installations before running
+    install commands. Writes a marker file on completion.
+    """
+
+    async def bootstrap(
+        self, conn: RemoteConnection, *, force: bool = False
+    ) -> BootstrapResult: ...
+
+    async def is_bootstrapped(self, conn: RemoteConnection) -> bool: ...
+
+
+@runtime_checkable
+class WorkspaceManager(Protocol):
+    """Manage remote workspaces — clone, secrets, cleanup.
+
+    Note: This is distinct from WorktreeManager which handles local git worktrees.
+    """
+
+    async def setup(
+        self, conn: RemoteConnection, spec: WorkspaceSpec
+    ) -> WorkspacePath: ...
+
+    async def inject_secrets(
+        self, conn: RemoteConnection, workspace: WorkspacePath, secrets: SecretBundle
+    ) -> None: ...
+
+    def push_command(self, workspace_path: str, branch: str) -> str: ...
+
+    async def cleanup(
+        self, conn: RemoteConnection, workspace: WorkspacePath
+    ) -> None: ...
+
+
+@runtime_checkable
+class RemoteConnection(Protocol):
+    """Execute commands and transfer files on a remote host.
+
+    All operations are async. download_content returns None for
+    missing files (agent-proof — the agent may delete signal files).
+    """
+
+    async def run(
+        self, command: str, *, timeout: int | None = None, stdin_data: str | None = None
+    ) -> RemoteResult: ...
+    async def upload_content(self, content: str, remote_path: str) -> None: ...
+    async def download_content(self, remote_path: str) -> str | None: ...
+    async def check_connection(self) -> bool: ...
+    def get_host_identifier(self) -> str: ...
+
+
+@runtime_checkable
+class VMStateStore(Protocol):
+    """Persist VM assignment state for startup recovery.
+
+    Records which VMs are assigned to which workflows. On startup,
+    the manager can check active assignments and release unreachable VMs.
+    """
+
+    async def record_assignment(
+        self, vm_id: str, workflow_id: str, project: str, spec: str, host: str
+    ) -> None: ...
+    async def record_release(self, vm_id: str) -> None: ...
+    async def get_active_assignments(self) -> list[VMAssignment]: ...
+    async def get_assignment(self, vm_id: str) -> VMAssignment | None: ...
+    async def close(self) -> None: ...

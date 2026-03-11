@@ -49,10 +49,10 @@ Integrations are pluggable via adapter interfaces:
 | Source Control | GitHub | GitHub Enterprise, GitLab, Bitbucket |
 | Execution Environment | Local subprocess | Docker, remote VM via SSH |
 | CI/CD | GitHub Actions | GitLab CI, Jenkins, CircleCI |
-| Secret Management | Flat file (~/.tanren/secrets.env) | Vault, AWS/GCP Secret Manager |
+| Secret Management | Flat file (`$XDG_CONFIG_HOME/tanren/secrets.env`, default `~/.config/tanren/`) | Vault, AWS/GCP Secret Manager |
 | Event/Metrics Storage | SQLite | Postgres, BigQuery, custom |
 | Token Usage Collection | Log parsing | Metering proxy |
-| Coordinator Interface | Web dashboard + CLI | Discord, Slack, Teams |
+| Coordinator Interface | Web dashboard + CLI | Messaging platforms (pluggable) |
 
 ## Agent Roles
 

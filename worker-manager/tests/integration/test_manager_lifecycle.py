@@ -154,7 +154,7 @@ class TestManagerLifecycle:
         assert gate_result.gate_output is not None
         assert "all tests passed" in gate_result.gate_output
 
-        # Check nudge was written in NanoClaw message envelope format
+        # Check nudge was written in coordinator message envelope format
         input_files = list((ipc_dir / "input").glob("*.json"))
         assert len(input_files) >= 1
         import json

@@ -13,6 +13,17 @@ from worker_manager.schemas import (
 )
 
 
+def parse_signal_token(command_name: str, content: str) -> str | None:
+    """Parse signal token from raw .agent-status content.
+
+    Extracts the token from a line like ``{command_name}-status: {token}``.
+    Returns the token string (e.g. ``"complete"``) or ``None`` if not found.
+    """
+    pattern = rf"{re.escape(command_name)}-status:\s*(\w[\w-]*)"
+    match = re.search(pattern, content)
+    return match.group(1) if match else None
+
+
 def extract_signal(
     phase: Phase,
     command_name: str,
@@ -35,10 +46,9 @@ def extract_signal(
     status_file = spec_folder_path / ".agent-status"
     if status_file.exists():
         content = status_file.read_text()
-        pattern = rf"{re.escape(command_name)}-status:\s*(\w[\w-]*)"
-        match = re.search(pattern, content)
-        if match:
-            return match.group(1)
+        token = parse_signal_token(command_name, content)
+        if token:
+            return token
 
     # Fallback: grep stdout
     if stdout:

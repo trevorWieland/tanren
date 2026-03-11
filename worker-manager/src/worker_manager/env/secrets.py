@@ -1,9 +1,15 @@
-"""Manage ~/.aegis/secrets.env: read/write secrets with redaction."""
+"""Manage secrets.env: read/write secrets with redaction.
+
+Default location: $XDG_CONFIG_HOME/tanren/secrets.env (falls back to ~/.config/tanren/).
+"""
 
 import os
 from pathlib import Path
 
 from dotenv import dotenv_values
+
+_xdg_config = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+DEFAULT_SECRETS_DIR = (Path(_xdg_config) / "tanren").expanduser()
 
 
 def redact(value: str) -> str:
@@ -13,20 +19,21 @@ def redact(value: str) -> str:
     return value[:4] + "..."
 
 
-def ensure_aegis_dir(aegis_dir: Path | None = None) -> Path:
-    """Create ~/.aegis with chmod 700 (lazy — only on first write)."""
-    d = aegis_dir or Path.home() / ".aegis"
+def ensure_secrets_dir(secrets_dir: Path | None = None) -> Path:
+    """Create secrets directory with chmod 700 (lazy — only on first write)."""
+    d = secrets_dir or DEFAULT_SECRETS_DIR
     d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
     return d
 
 
 def set_secret(
     key: str,
     value: str,
-    aegis_dir: Path | None = None,
+    secrets_dir: Path | None = None,
 ) -> Path:
-    """Write/update a key in ~/.aegis/secrets.env. Creates file with chmod 600."""
-    d = ensure_aegis_dir(aegis_dir)
+    """Write/update a key in secrets.env. Creates file with chmod 600."""
+    d = ensure_secrets_dir(secrets_dir)
     secrets_path = d / "secrets.env"
 
     # Read existing entries
@@ -45,10 +52,10 @@ def set_secret(
 
 
 def list_secrets(
-    aegis_dir: Path | None = None,
+    secrets_dir: Path | None = None,
 ) -> list[tuple[str, str]]:
-    """Return (key, redacted_value) pairs from ~/.aegis/secrets.env."""
-    d = aegis_dir or Path.home() / ".aegis"
+    """Return (key, redacted_value) pairs from secrets.env."""
+    d = secrets_dir or DEFAULT_SECRETS_DIR
     secrets_path = d / "secrets.env"
 
     if not secrets_path.exists():

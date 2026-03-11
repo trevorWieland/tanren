@@ -9,6 +9,7 @@ dependencies = [
     "PyYAML>=6.0",
     "click>=8.0",
     "aiosqlite>=0.20",
+    "paramiko>=3.0",
 ]
 
 [project.scripts]
@@ -37,6 +38,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30
+addopts = "--cov=worker_manager --cov-fail-under=80 --cov-report=term-missing -m 'not ssh and not local_env'"
+markers = [
+    "ssh: requires real SSH connection to remote VM",
+    "local_env: requires real local environment with git, CLIs",
+]
 
 [tool.ty.src]
 include = ["src"]

@@ -60,7 +60,7 @@ All configuration is read from environment variables with the `WM_` prefix.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WM_IPC_DIR` | `~/github/nanoclaw/data/ipc/discord_main` | IPC directory path for the coordinator group |
+| `WM_IPC_DIR` | *(required)* | IPC directory path for the coordinator group |
 | `WM_GITHUB_DIR` | `~/github` | Root directory containing git repositories |
 | `WM_COMMANDS_DIR` | `.claude/commands/tanren` | Relative path to tanren commands within a project |
 | `WM_POLL_INTERVAL` | `5.0` | Seconds between dispatch directory polls |
@@ -75,6 +75,7 @@ All configuration is read from environment variables with the `WM_` prefix.
 | `WM_MAX_GATE` | `3` | Max concurrent gate (bash) processes |
 | `WM_EVENTS_DB` | *(none)* | SQLite events DB path; enables event emission when set |
 | `WM_ROLES_CONFIG_PATH` | *(none)* | Path to roles YAML config file |
+| `WM_REMOTE_CONFIG` | *(none)* | Path to `remote.yml`; enables remote VM execution when set |
 
 
 ## Roles Configuration
@@ -130,9 +131,29 @@ provision() --> execute() --> get_access_info() --> teardown()
 - **`teardown()`** -- Clean up resources.
 
 The default `LocalExecutionEnvironment` wraps the fine-grained adapters into
-this lifecycle, running agents as local subprocesses in git worktrees. The
-protocol is designed to also support Docker containers or remote VMs in the
-future.
+this lifecycle, running agents as local subprocesses in git worktrees.
+
+When `WM_REMOTE_CONFIG` is set, the manager automatically constructs an
+`SSHExecutionEnvironment` that runs agents on remote VMs via SSH. See
+[ADAPTERS.md](ADAPTERS.md) for the full sub-adapter decomposition.
+
+### Remote Execution Setup
+
+1. Create a `remote.yml` config (see [ADAPTERS.md](ADAPTERS.md) for schema)
+2. Set `WM_REMOTE_CONFIG=/path/to/remote.yml`
+3. Ensure SSH key access to your VMs
+4. Set `GIT_TOKEN` env var for repo cloning
+
+### VM Management
+
+```bash
+tanren vm list      # Show active VM assignments
+tanren vm release VM_ID  # Manually release a stuck VM
+tanren vm recover   # Check connectivity, release unreachable VMs
+```
+
+On startup, the manager automatically runs recovery to release VMs from
+previous crashed sessions.
 
 
 ## Running
@@ -188,6 +209,9 @@ indexes on workflow_id, event_type, and timestamp).
 | `PostflightCompleted` | Post-flight integrity checks done (pushed, repairs) |
 | `ErrorOccurred` | Unhandled error during dispatch handling |
 | `RetryScheduled` | Transient/ambiguous error triggered retry |
+| `VMProvisioned` | VM acquired for remote execution |
+| `VMReleased` | VM released after workflow completion |
+| `BootstrapCompleted` | VM bootstrap finished (installed/skipped tools) |
 
 All events carry `timestamp` (ISO 8601) and `workflow_id`.
 
@@ -204,8 +228,8 @@ Communication uses a shared filesystem IPC directory:
 | `input/` | Worker --> Coordinator | Nudge files that wake the coordinator |
 
 Files use atomic writes (`.tmp` + fsync + rename). Filenames:
-`{timestamp_ms}-{random6}.json`. Nudge files are wrapped in NanoClaw's IPC
-envelope: `{"type": "message", "text": "<nudge-json>"}`.
+`{timestamp_ms}-{random6}.json`. Nudge files are wrapped in the coordinator's
+IPC envelope: `{"type": "message", "text": "<nudge-json>"}`.
 
 
 ## tanren.yml Environment Schema
@@ -229,10 +253,11 @@ env:
 
 Environment variables are loaded from multiple layers (highest priority first):
 
-1. Process environment
-2. `~/.aegis/secrets.env` (managed via `tanren secret set`)
-3. Project `.env` file
-4. Defaults from tanren.yml optional vars
+1. Process environment (`os.environ`)
+2. Project `.env` file
+3. `~/.config/tanren/secrets.d/*.env` files (alphabetical order)
+4. `~/.config/tanren/secrets.env` (managed via `tanren secret set`)
+5. Defaults from tanren.yml optional vars
 
 The `tanren env check` command validates the current environment locally.
 The `tanren env init` command scaffolds an env block from `.env.example`.
@@ -244,8 +269,8 @@ tanren secret set OPENROUTER_API_KEY sk-or-v1-...
 tanren secret list
 ```
 
-Secrets are stored in `~/.aegis/secrets.env` and automatically loaded during
-environment validation.
+Secrets are stored in `~/.config/tanren/secrets.env` (or `$XDG_CONFIG_HOME/tanren/secrets.env`)
+and automatically loaded during environment validation.
 
 
 ## Development
@@ -256,10 +281,13 @@ management and requires Python 3.14+.
 ```bash
 cd worker-manager
 uv sync                      # Install dependencies
-make check                   # Lint (ruff) + unit tests
-make ci                      # check + integration tests
+make check                   # Lint (ruff) + typecheck (ty) + unit tests
+make ci                      # check + integration tests (no real SSH)
 make format                  # Auto-format with ruff
 make test                    # Unit tests only
+make integration             # Integration tests (excludes SSH/local_env)
+make integration-ssh         # SSH integration tests (requires --ssh-host)
+make integration-local       # Local environment integration tests
 ```
 
 ### Source Layout
@@ -267,8 +295,11 @@ make test                    # Unit tests only
 ```
 src/worker_manager/
   __main__.py           # Entry point (asyncio.run)
-  cli.py                # tanren CLI (env check, secret set/list)
+  cli.py                # tanren CLI (env, secret, vm subcommands)
+  vm_cli.py             # tanren vm list/release/recover
   config.py             # WM_ env var configuration
+  remote_config.py      # remote.yml loader
+  secrets.py            # SecretLoader for remote injection
   manager.py            # Poll loop, dispatch handling, result writing
   queues.py             # 3-lane dispatch router with semaphores
   schemas.py            # Pydantic models (Dispatch, Result, Phase, Cli, ...)

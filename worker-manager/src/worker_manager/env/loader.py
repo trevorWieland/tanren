@@ -3,8 +3,8 @@
 Priority (highest wins):
 1. os.environ (real environment)
 2. Project-local .env file (via python-dotenv)
-3. ~/.aegis/secrets.d/*.env files (alphabetical)
-4. ~/.aegis/secrets.env
+3. secrets.d/*.env files (alphabetical)
+4. secrets.env
 5. tanren.yml optional defaults (lowest)
 
 Does NOT mutate os.environ — returns a dict.
@@ -19,6 +19,7 @@ import yaml
 from dotenv import dotenv_values
 
 from worker_manager.env.schema import RequiredEnvVar, TanrenConfig
+from worker_manager.env.secrets import DEFAULT_SECRETS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -74,22 +75,22 @@ def _check_permissions(path: Path) -> None:
 
 def load_env_layers(
     project_root: Path,
-    aegis_dir: Path | None = None,
+    secrets_dir: Path | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Load env vars from multiple sources with priority.
 
     Returns (merged_env, source_map) where source_map tracks where each key
-    came from (e.g. "os.environ", ".env", "~/.aegis/secrets.env").
+    came from (e.g. "os.environ", ".env", "secrets.env").
     """
-    aegis = aegis_dir or Path.home() / ".aegis"
+    sd = secrets_dir or DEFAULT_SECRETS_DIR
 
     merged: dict[str, str] = {}
     source_map: dict[str, str] = {}
 
     # Layer 5 (lowest): tanren.yml optional defaults — handled by validator
 
-    # Layer 4: ~/.aegis/secrets.env
-    secrets_path = aegis / "secrets.env"
+    # Layer 4: secrets.env
+    secrets_path = sd / "secrets.env"
     if secrets_path.exists():
         _check_permissions(secrets_path)
         values = dotenv_values(secrets_path)
@@ -98,8 +99,8 @@ def load_env_layers(
                 merged[k] = v
                 source_map[k] = str(secrets_path)
 
-    # Layer 3: ~/.aegis/secrets.d/*.env (alphabetical)
-    secrets_d = aegis / "secrets.d"
+    # Layer 3: secrets.d/*.env (alphabetical)
+    secrets_d = sd / "secrets.d"
     if secrets_d.is_dir():
         for env_file in sorted(secrets_d.glob("*.env")):
             _check_permissions(env_file)

@@ -99,7 +99,7 @@ Write your findings to `audit-findings.json` in the spec folder:
 Severity levels:
 - `fix`: Must be fixed — becomes a new task for do-task
 - `note`: Informational only — logged but not actionable
-- `question`: Needs human input — will be escalated to Discord
+- `question`: Needs human input — will be escalated to the messaging platform
 
 If the task passes, write `{"signal": "pass", "findings": []}`.
 

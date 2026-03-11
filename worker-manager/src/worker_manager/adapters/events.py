@@ -75,3 +75,34 @@ class RetryScheduled(Event):
     attempt: int
     max_attempts: int
     backoff_secs: int
+
+
+@dataclass
+class VMProvisioned(Event):
+    """A VM was provisioned for a workflow."""
+
+    vm_id: str
+    host: str
+    provider: str
+    project: str
+    profile: str
+    hourly_cost: float | None = None
+
+
+@dataclass
+class VMReleased(Event):
+    """A VM was released after workflow completion."""
+
+    vm_id: str
+    duration_secs: int
+    estimated_cost: float | None = None
+
+
+@dataclass
+class BootstrapCompleted(Event):
+    """VM bootstrap finished."""
+
+    vm_id: str
+    installed: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    duration_secs: int = 0
