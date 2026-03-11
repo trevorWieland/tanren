@@ -22,8 +22,14 @@ from worker_manager.adapters.git_postflight import GitPostflightRunner
 from worker_manager.adapters.git_preflight import GitPreflightRunner
 from worker_manager.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
 from worker_manager.adapters.git_worktree import GitWorktreeManager
+from worker_manager.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 from worker_manager.adapters.local_environment import LocalExecutionEnvironment
-from worker_manager.adapters.manual_vm import ManualVMProvisioner, NoVMAvailableError
+from worker_manager.adapters.manual_vm import (
+    ManualProvisionerSettings,
+    ManualVMConfig,
+    ManualVMProvisioner,
+    NoVMAvailableError,
+)
 from worker_manager.adapters.null_emitter import NullEventEmitter
 from worker_manager.adapters.protocols import (
     EnvironmentBootstrapper,
@@ -52,6 +58,7 @@ from worker_manager.adapters.remote_types import (
     SecretBundle,
     VMAssignment,
     VMHandle,
+    VMProvider,
     VMRequirements,
     WorkspacePath,
     WorkspaceSpec,
@@ -89,7 +96,11 @@ __all__ = [
     "GitPreflightRunner",
     "GitWorkspaceManager",
     "GitWorktreeManager",
+    "HetznerProvisionerSettings",
+    "HetznerVMProvisioner",
     "LocalExecutionEnvironment",
+    "ManualProvisionerSettings",
+    "ManualVMConfig",
     "ManualVMProvisioner",
     "NoVMAvailableError",
     "NullEventEmitter",
@@ -117,6 +128,7 @@ __all__ = [
     "UbuntuBootstrapper",
     "VMAssignment",
     "VMHandle",
+    "VMProvider",
     "VMProvisioned",
     "VMProvisionerProtocol",
     "VMReleased",

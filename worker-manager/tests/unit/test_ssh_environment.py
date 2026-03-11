@@ -14,6 +14,7 @@ from worker_manager.adapters.remote_types import (
     RemoteResult,
     SecretBundle,
     VMHandle,
+    VMProvider,
     WorkspacePath,
 )
 from worker_manager.adapters.ssh import SSHConfig
@@ -71,7 +72,7 @@ def _make_vm_handle() -> VMHandle:
     return VMHandle(
         vm_id="vm-abc-123",
         host="10.0.0.42",
-        provider="hetzner",
+        provider=VMProvider.HETZNER,
         created_at="2025-01-01T00:00:00Z",
         hourly_cost=0.50,
     )

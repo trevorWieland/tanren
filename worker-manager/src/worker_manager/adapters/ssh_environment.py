@@ -90,6 +90,7 @@ class SSHExecutionEnvironment:
             cpu=profile.resources.cpu,
             memory_gb=profile.resources.memory_gb,
             gpu=profile.resources.gpu,
+            server_type=profile.server_type,
         )
 
         # 3. Acquire VM

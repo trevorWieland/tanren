@@ -1,7 +1,10 @@
 """Tests for environment_schema module."""
 
+import pytest
+
 from worker_manager.env.environment_schema import (
     EnvironmentProfile,
+    EnvironmentProfileType,
     ResourceRequirements,
     parse_environment_profiles,
 )
@@ -13,7 +16,7 @@ class TestParseEnvironmentProfilesEmptyDict:
         assert "default" in result
         assert len(result) == 1
         assert result["default"].name == "default"
-        assert result["default"].type == "local"
+        assert result["default"].type == EnvironmentProfileType.LOCAL
 
 
 class TestParseEnvironmentProfilesFullConfig:
@@ -22,6 +25,7 @@ class TestParseEnvironmentProfilesFullConfig:
             "environment": {
                 "ci": {
                     "type": "docker",
+                    "server_type": "cpx31",
                     "resources": {"cpu": 4, "memory_gb": 8, "gpu": True},
                     "setup": ["pip install -e .", "make build"],
                     "teardown": ["make clean"],
@@ -32,7 +36,8 @@ class TestParseEnvironmentProfilesFullConfig:
         result = parse_environment_profiles(data)
         ci = result["ci"]
         assert ci.name == "ci"
-        assert ci.type == "docker"
+        assert ci.type == EnvironmentProfileType.DOCKER
+        assert ci.server_type == "cpx31"
         assert ci.resources.cpu == 4
         assert ci.resources.memory_gb == 8
         assert ci.resources.gpu is True
@@ -52,19 +57,19 @@ class TestResourceRequirementsDefaults:
 class TestEnvironmentProfileDefaults:
     def test_defaults(self):
         p = EnvironmentProfile(name="test")
-        assert p.type == "local"
+        assert p.type == EnvironmentProfileType.LOCAL
         assert p.setup == ()
         assert p.teardown == ()
         assert p.gate_cmd == "make check"
+        assert p.server_type is None
         assert p.resources == ResourceRequirements()
 
 
-class TestInvalidTypeNotRaised:
-    def test_arbitrary_type_stored_as_string(self):
-        """The parser coerces type via str(); no ValueError is raised."""
+class TestInvalidTypeRaised:
+    def test_arbitrary_type_raises(self):
         data = {"environment": {"bad": {"type": 12345}}}
-        result = parse_environment_profiles(data)
-        assert result["bad"].type == "12345"
+        with pytest.raises(ValueError):
+            parse_environment_profiles(data)
 
 
 class TestMultipleProfiles:

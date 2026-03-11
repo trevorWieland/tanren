@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from worker_manager.adapters.remote_types import VMProvider
 from worker_manager.postflight import IntegrityRepairs
 
 
@@ -78,7 +79,7 @@ class VMProvisioned(Event):
 
     vm_id: str = Field(...)
     host: str = Field(...)
-    provider: str = Field(...)
+    provider: VMProvider = Field(...)
     project: str = Field(...)
     profile: str = Field(...)
     hourly_cost: float | None = Field(default=None, ge=0.0)

@@ -278,7 +278,14 @@ class WorkerManager:
             GitAuthConfig,
             GitWorkspaceManager,
         )
-        from worker_manager.adapters.manual_vm import ManualVMProvisioner
+        from worker_manager.adapters.hetzner_vm import (
+            HetznerProvisionerSettings,
+            HetznerVMProvisioner,
+        )
+        from worker_manager.adapters.manual_vm import (
+            ManualProvisionerSettings,
+            ManualVMProvisioner,
+        )
         from worker_manager.adapters.remote_runner import RemoteAgentRunner
         from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
         from worker_manager.adapters.ssh import SSHConfig
@@ -288,6 +295,7 @@ class WorkerManager:
         from worker_manager.adapters.ubuntu_bootstrap import (
             UbuntuBootstrapper,
         )
+        from worker_manager.remote_config import ProvisionerType
         from worker_manager.secrets import SecretConfig, SecretLoader
 
         assert self._config.remote_config_path is not None
@@ -299,12 +307,6 @@ class WorkerManager:
             key_path=remote_cfg.ssh.key_path,
             port=remote_cfg.ssh.port,
             connect_timeout=remote_cfg.ssh.connect_timeout,
-        )
-
-        token = os.environ.get(remote_cfg.git.token_env, "")
-        git_auth = GitAuthConfig(
-            auth_method=remote_cfg.git.auth,
-            token=token or None,
         )
 
         state_store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
@@ -327,14 +329,34 @@ class WorkerManager:
                 remote_cfg.secrets.developer_secrets_path or SecretConfig().developer_secrets_path
             ),
         )
+        secret_loader = SecretLoader(secret_config)
+
+        token = os.environ.get(remote_cfg.git.token_env, "")
+        git_auth = GitAuthConfig(
+            auth_method=remote_cfg.git.auth,
+            token=token or None,
+        )
+
+        if remote_cfg.provisioner.type == ProvisionerType.MANUAL:
+            manual_settings = ManualProvisionerSettings.from_settings(
+                remote_cfg.provisioner.settings
+            )
+            vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), state_store)
+        elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+            hetzner_settings = HetznerProvisionerSettings.from_settings(
+                remote_cfg.provisioner.settings
+            )
+            vm_provisioner = HetznerVMProvisioner(hetzner_settings)
+        else:
+            raise ValueError(f"Unsupported provisioner type: {remote_cfg.provisioner.type}")
 
         return SSHExecutionEnvironment(
-            vm_provisioner=ManualVMProvisioner(remote_cfg.vms, state_store),
+            vm_provisioner=vm_provisioner,
             bootstrapper=UbuntuBootstrapper(extra_script=extra_script),
             workspace_mgr=GitWorkspaceManager(git_auth),
             runner=RemoteAgentRunner(),
             state_store=state_store,
-            secret_loader=SecretLoader(secret_config),
+            secret_loader=secret_loader,
             emitter=self._emitter,
             ssh_config_defaults=ssh_defaults,
             repo_urls={binding.project: binding.repo_url for binding in remote_cfg.repos},

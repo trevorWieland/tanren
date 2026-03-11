@@ -14,6 +14,10 @@ class AuthMode(StrEnum):
     OAUTH = "oauth"
 
 
+# Backward-compatible alias.
+CliAuthMethod = AuthMode
+
+
 class RoleName(StrEnum):
     """Supported workflow role names."""
 

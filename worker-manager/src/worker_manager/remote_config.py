@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
+from typing import cast
 
 import yaml
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class ExecutionMode(StrEnum):
@@ -15,6 +16,13 @@ class ExecutionMode(StrEnum):
 
     REMOTE = "remote"
     LOCAL = "local"
+
+
+class ProvisionerType(StrEnum):
+    """Supported VM provisioner backends."""
+
+    MANUAL = "manual"
+    HETZNER = "hetzner"
 
 
 class GitAuthMethod(StrEnum):
@@ -44,6 +52,15 @@ class RemoteGitConfig(BaseModel):
     token_env: str = Field(default="GIT_TOKEN")
 
 
+class RemoteProvisionerConfig(BaseModel):
+    """Provider-agnostic provisioner config from remote.yml."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: ProvisionerType = Field(...)
+    settings: dict[str, JsonValue] = Field(default_factory=dict)
+
+
 class RemoteBootstrapConfig(BaseModel):
     """Bootstrap config from remote.yml."""
 
@@ -58,19 +75,6 @@ class RemoteSecretsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     developer_secrets_path: str = Field(default="")
-
-
-class RemoteVMConfig(BaseModel):
-    """Typed VM entry for remote execution pools."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    vm_id: str = Field(..., validation_alias=AliasChoices("vm_id", "id"))
-    host: str = Field(...)
-    provider: str = Field(default="manual", min_length=1)
-    labels: dict[str, str] = Field(default_factory=dict)
-    metadata: dict[str, str] = Field(default_factory=dict)
-    hourly_cost: float | None = Field(default=None, ge=0.0)
 
 
 class RemoteRepoBinding(BaseModel):
@@ -91,7 +95,7 @@ class RemoteConfig(BaseModel):
     execution_mode: ExecutionMode = Field(default=ExecutionMode.REMOTE)
     ssh: RemoteSSHConfig = Field(default_factory=RemoteSSHConfig)
     git: RemoteGitConfig = Field(default_factory=RemoteGitConfig)
-    vms: list[RemoteVMConfig] = Field(default_factory=list)
+    provisioner: RemoteProvisionerConfig = Field(...)
     bootstrap: RemoteBootstrapConfig = Field(default_factory=RemoteBootstrapConfig)
     secrets: RemoteSecretsConfig = Field(default_factory=RemoteSecretsConfig)
     repos: list[RemoteRepoBinding] = Field(default_factory=list)
@@ -125,6 +129,23 @@ def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:
     return []
 
 
+def _coerce_provisioner(raw: object) -> dict[str, JsonValue]:
+    """Coerce provisioner section to a plain dict for Pydantic validation."""
+    if not isinstance(raw, Mapping):
+        return {}
+    raw_mapping = {str(k): v for k, v in raw.items()}
+    settings_raw = raw_mapping.get("settings", {})
+    settings: dict[str, JsonValue]
+    if isinstance(settings_raw, Mapping):
+        settings = {str(k): cast(JsonValue, v) for k, v in settings_raw.items()}
+    else:
+        settings = {}
+    return {
+        "type": cast(JsonValue, raw_mapping.get("type")),
+        "settings": cast(JsonValue, settings),
+    }
+
+
 def load_remote_config(path: str | Path) -> RemoteConfig:
     """Load and parse remote.yml."""
     path_obj = Path(path)
@@ -139,4 +160,5 @@ def load_remote_config(path: str | Path) -> RemoteConfig:
 
     data: dict[str, object] = dict(data_raw)
     data["repos"] = _coerce_repos(data.get("repos", []))
+    data["provisioner"] = _coerce_provisioner(data.get("provisioner", {}))
     return RemoteConfig.model_validate(data)
