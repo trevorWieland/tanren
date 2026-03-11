@@ -213,9 +213,7 @@ class WorkspaceManager(Protocol):
     Note: This is distinct from WorktreeManager which handles local git worktrees.
     """
 
-    async def setup(
-        self, conn: RemoteConnection, spec: WorkspaceSpec
-    ) -> WorkspacePath: ...
+    async def setup(self, conn: RemoteConnection, spec: WorkspaceSpec) -> WorkspacePath: ...
 
     async def inject_secrets(
         self, conn: RemoteConnection, workspace: WorkspacePath, secrets: SecretBundle
@@ -223,9 +221,7 @@ class WorkspaceManager(Protocol):
 
     def push_command(self, workspace_path: str, branch: str) -> str: ...
 
-    async def cleanup(
-        self, conn: RemoteConnection, workspace: WorkspacePath
-    ) -> None: ...
+    async def cleanup(self, conn: RemoteConnection, workspace: WorkspacePath) -> None: ...
 
 
 @runtime_checkable

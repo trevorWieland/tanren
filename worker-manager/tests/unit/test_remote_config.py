@@ -7,7 +7,9 @@ import pytest
 from worker_manager.remote_config import (
     RemoteConfig,
     RemoteGitConfig,
+    RemoteRepoBinding,
     RemoteSSHConfig,
+    RemoteVMConfig,
     load_remote_config,
 )
 
@@ -54,10 +56,11 @@ class TestLoadRemoteConfig:
         assert cfg.git.auth == "ssh"
         assert cfg.git.token_env == "MY_GIT_TOKEN"
         assert len(cfg.vms) == 2
-        assert cfg.vms[0]["host"] == "10.0.0.1"
+        assert cfg.vms[0].host == "10.0.0.1"
         assert cfg.bootstrap.extra_script == "setup.sh"
         assert cfg.secrets.developer_secrets_path == "/tmp/secrets"
-        assert cfg.repos["myproject"] == "https://github.com/org/myproject.git"
+        assert cfg.repos[0].project == "myproject"
+        assert cfg.repos[0].repo_url == "https://github.com/org/myproject.git"
 
     def test_minimal_yaml_uses_defaults(self, tmp_path: Path):
         cfg_file = tmp_path / "remote.yml"
@@ -68,13 +71,15 @@ class TestLoadRemoteConfig:
         assert cfg.execution_mode == "remote"
         assert cfg.ssh.user == "root"
         assert cfg.ssh.key_path == "~/.ssh/tanren_vm"
+        assert cfg.ssh.port == 22
         assert cfg.ssh.connect_timeout == 10
         assert cfg.git.auth == "token"
         assert cfg.git.token_env == "GIT_TOKEN"
         assert len(cfg.vms) == 1
+        assert isinstance(cfg.vms[0], RemoteVMConfig)
         assert cfg.bootstrap.extra_script is None
         assert cfg.secrets.developer_secrets_path == ""
-        assert cfg.repos == {}
+        assert cfg.repos == []
 
     def test_missing_file_raises(self, tmp_path: Path):
         missing = tmp_path / "nonexistent.yml"
@@ -92,7 +97,7 @@ class TestRemoteConfigDefaults:
         assert cfg.vms == []
         assert cfg.bootstrap.extra_script is None
         assert cfg.secrets.developer_secrets_path == ""
-        assert cfg.repos == {}
+        assert cfg.repos == []
 
 
 class TestSSHAndGitDefaults:
@@ -100,9 +105,20 @@ class TestSSHAndGitDefaults:
         ssh = RemoteSSHConfig()
         assert ssh.user == "root"
         assert ssh.key_path == "~/.ssh/tanren_vm"
+        assert ssh.port == 22
         assert ssh.connect_timeout == 10
 
     def test_git_defaults(self):
         git = RemoteGitConfig()
         assert git.auth == "token"
         assert git.token_env == "GIT_TOKEN"
+
+
+class TestRepoBindings:
+    def test_repos_map_coerces_to_bindings(self, tmp_path: Path):
+        cfg_file = tmp_path / "remote.yml"
+        cfg_file.write_text("repos:\n  api: https://example.com/repo.git\n")
+        cfg = load_remote_config(cfg_file)
+        assert cfg.repos == [
+            RemoteRepoBinding(project="api", repo_url="https://example.com/repo.git")
+        ]

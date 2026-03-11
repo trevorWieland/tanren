@@ -2,12 +2,31 @@
 
 from pathlib import Path
 
-from click.testing import CliRunner
+from typer.testing import CliRunner
 
 from worker_manager.env.cli import env, secret
 
 
 class TestEnvCheck:
+    def test_pass_with_environment_block_present(self, tmp_path: Path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MY_KEY", "hello")
+        (tmp_path / "tanren.yml").write_text(
+            "version: 0.1.0\n"
+            "profile: default\n"
+            "installed: 2026-01-01\n"
+            "environment:\n"
+            "  ci:\n"
+            "    type: docker\n"
+            "env:\n"
+            "  required:\n"
+            "    - key: MY_KEY\n"
+        )
+        runner = CliRunner()
+        result = runner.invoke(env, ["check"])
+        assert result.exit_code == 0
+        assert "PASSED" in result.output
+
     def test_no_tanren_yml(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -90,6 +109,25 @@ class TestEnvCheck:
 
 
 class TestEnvInit:
+    def test_scaffolds_env_block_when_environment_present(self, tmp_path: Path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "tanren.yml").write_text(
+            "version: 0.1.0\n"
+            "profile: default\n"
+            "installed: 2026-01-01\n"
+            "environment:\n"
+            "  default:\n"
+            "    type: local\n"
+        )
+        (tmp_path / ".env.example").write_text("API_KEY=xxx\n")
+        runner = CliRunner()
+        result = runner.invoke(env, ["init"])
+        assert result.exit_code == 0
+        content = (tmp_path / "tanren.yml").read_text()
+        assert "environment:" in content
+        assert "env:" in content
+        assert "API_KEY" in content
+
     def test_scaffolds_env_block(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "tanren.yml").write_text(

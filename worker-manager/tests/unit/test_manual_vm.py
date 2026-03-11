@@ -6,10 +6,11 @@ import pytest
 
 from worker_manager.adapters.manual_vm import ManualVMProvisioner, NoVMAvailableError
 from worker_manager.adapters.remote_types import VMAssignment, VMHandle, VMRequirements
+from worker_manager.remote_config import RemoteVMConfig
 
 
 def _make_provisioner(
-    vms: list[dict],
+    vms: list[RemoteVMConfig],
     active_assignments: list[VMAssignment] | None = None,
 ) -> ManualVMProvisioner:
     state_store = AsyncMock()
@@ -19,8 +20,8 @@ def _make_provisioner(
 
 REQUIREMENTS = VMRequirements(profile="default")
 
-VM_A = {"id": "vm-1", "host": "10.0.0.1"}
-VM_B = {"id": "vm-2", "host": "10.0.0.2", "labels": {"gpu": "true"}}
+VM_A = RemoteVMConfig(vm_id="vm-1", host="10.0.0.1")
+VM_B = RemoteVMConfig(vm_id="vm-2", host="10.0.0.2", labels={"gpu": "true"})
 
 
 class TestAcquire:

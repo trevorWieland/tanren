@@ -3,7 +3,9 @@
 import re
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
+
+from worker_manager.postflight import IntegrityRepairs
 
 
 class Phase(StrEnum):
@@ -49,54 +51,6 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
 
 
-class GateResult(BaseModel):
-    """Record of a single gate execution for a task."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    attempt: int
-    passed: bool
-    must_pass_failures: list[str] = Field(default_factory=list)
-    unexpected_passes: list[str] = Field(default_factory=list)
-
-
-class AuditResult(BaseModel):
-    """Record of a single audit execution for a task."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    attempt: int
-    signal: str | None
-    findings: list = Field(default_factory=list)
-
-
-class TaskState(BaseModel):
-    """State of a single task in progress.json."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: int
-    title: str
-    status: TaskStatus = TaskStatus.PENDING
-    attempts: int = 0
-    gate_results: list[GateResult] = Field(default_factory=list)
-    audit_results: list[AuditResult] = Field(default_factory=list)
-    gate_expectations: dict | None = None
-    source: str | None = None
-
-
-class ProgressState(BaseModel):
-    """Full progress.json state for a spec's orchestration."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    spec_id: str
-    version: int = 1
-    created_at: str
-    updated_at: str
-    tasks: list[TaskState]
-
-
 class FindingSeverity(StrEnum):
     """Severity levels for structured findings."""
 
@@ -110,9 +64,9 @@ class Finding(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    title: str
-    description: str = ""
-    severity: FindingSeverity = FindingSeverity.FIX
+    title: str = Field(...)
+    description: str = Field(default="")
+    severity: FindingSeverity = Field(default=FindingSeverity.FIX)
     affected_files: list[str] = Field(default_factory=list)
     line_numbers: list[int] = Field(default_factory=list)
 
@@ -122,32 +76,19 @@ class FindingsOutput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    signal: str
+    signal: str = Field(...)
     findings: list[Finding] = Field(default_factory=list)
 
 
-class InvestigationRootCause(BaseModel):
-    """Single root cause identified by the INVESTIGATE phase."""
+class GateResult(BaseModel):
+    """Record of a single gate execution for a task."""
 
     model_config = ConfigDict(extra="forbid")
 
-    description: str
-    confidence: str
-    affected_files: list[str] = Field(default_factory=list)
-    category: str
-    suggested_tasks: list[dict] = Field(default_factory=list)
-
-
-class InvestigationReport(BaseModel):
-    """Output of the INVESTIGATE phase."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    trigger: str
-    root_causes: list[InvestigationRootCause] = Field(default_factory=list)
-    unrelated_failures: list[dict] = Field(default_factory=list)
-    escalation_needed: bool = False
-    escalation_reason: str | None = None
+    attempt: int = Field(..., ge=0)
+    passed: bool = Field(...)
+    must_pass_failures: list[str] = Field(default_factory=list)
+    unexpected_passes: list[str] = Field(default_factory=list)
 
 
 class GateExpectation(BaseModel):
@@ -158,7 +99,7 @@ class GateExpectation(BaseModel):
     must_pass: list[str] = Field(default_factory=list)
     expect_fail: list[str] = Field(default_factory=list)
     skip: list[str] = Field(default_factory=list)
-    gate_command_override: str | None = None
+    gate_command_override: str | None = Field(default=None)
 
 
 class TaskGateExpectation(BaseModel):
@@ -166,9 +107,70 @@ class TaskGateExpectation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    task_id: int
-    title: str
-    gate: GateExpectation
+    task_id: int = Field(...)
+    title: str = Field(...)
+    gate: GateExpectation = Field(...)
+
+
+class AuditResult(BaseModel):
+    """Record of a single audit execution for a task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempt: int = Field(..., ge=0)
+    signal: str | None = Field(default=None)
+    findings: list[Finding] = Field(default_factory=list)
+
+
+class TaskState(BaseModel):
+    """State of a single task in progress.json."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int = Field(...)
+    title: str = Field(...)
+    status: TaskStatus = Field(default=TaskStatus.PENDING)
+    attempts: int = Field(default=0, ge=0)
+    gate_results: list[GateResult] = Field(default_factory=list)
+    audit_results: list[AuditResult] = Field(default_factory=list)
+    gate_expectations: GateExpectation | None = Field(default=None)
+    source: str | None = Field(default=None)
+
+
+class ProgressState(BaseModel):
+    """Full progress.json state for a spec's orchestration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec_id: str = Field(...)
+    version: int = Field(default=1, ge=1)
+    created_at: str = Field(...)
+    updated_at: str = Field(...)
+    tasks: list[TaskState] = Field(default_factory=list)
+
+
+class InvestigationRootCause(BaseModel):
+    """Single root cause identified by the INVESTIGATE phase."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(...)
+    confidence: str = Field(...)
+    affected_files: list[str] = Field(default_factory=list)
+    category: str = Field(...)
+    suggested_tasks: list[dict[str, JsonValue]] = Field(default_factory=list)
+
+
+class InvestigationReport(BaseModel):
+    """Output of the INVESTIGATE phase."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trigger: str = Field(...)
+    root_causes: list[InvestigationRootCause] = Field(default_factory=list)
+    unrelated_failures: list[dict[str, JsonValue]] = Field(default_factory=list)
+    escalation_needed: bool = Field(default=False)
+    escalation_reason: str | None = Field(default=None)
 
 
 class Dispatch(BaseModel):
@@ -176,18 +178,22 @@ class Dispatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    workflow_id: str = Field(description="Unique workflow identifier: wf-{project}-{issue}-{epoch}")
-    phase: Phase = Field(description="Dispatch phase type")
-    project: str = Field(description="Project name (matches repo name)")
-    spec_folder: str = Field(description="Relative path from project root to spec folder")
-    branch: str = Field(description="Git branch name for this workflow")
-    cli: Cli = Field(description="CLI tool to use")
-    model: str | None = Field(description="Model identifier passed to CLI, null for gates")
-    gate_cmd: str | None = Field(description="Shell command for gate phases, null for agent phases")
-    context: str | None = Field(description="Extra context passed to the agent")
-    timeout: int = Field(description="Maximum execution time in seconds")
+    workflow_id: str = Field(
+        ...,
+        description="Unique workflow identifier: wf-{project}-{issue}-{epoch}",
+    )
+    phase: Phase = Field(..., description="Dispatch phase type")
+    project: str = Field(..., description="Project name (matches repo name)")
+    spec_folder: str = Field(..., description="Relative path from project root to spec folder")
+    branch: str = Field(..., description="Git branch name for this workflow")
+    cli: Cli = Field(..., description="CLI tool to use")
+    model: str | None = Field(default=None, description="Model identifier passed to CLI")
+    gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
+    context: str | None = Field(default=None, description="Extra context passed to the agent")
+    timeout: int = Field(..., ge=1, description="Maximum execution time in seconds")
     environment_profile: str = Field(
-        default="default", description="Environment profile from tanren.yml"
+        default="default",
+        description="Environment profile from tanren.yml",
     )
 
 
@@ -196,32 +202,36 @@ class Result(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    workflow_id: str = Field(description="Matches the dispatch's workflow_id")
-    phase: Phase = Field(description="Matches the dispatch's phase")
-    outcome: Outcome = Field(description="Result outcome")
-    signal: str | None = Field(description="Raw agent signal or null")
-    exit_code: int = Field(description="Process exit code")
-    duration_secs: int = Field(description="Wall-clock execution time")
+    workflow_id: str = Field(..., description="Matches the dispatch's workflow_id")
+    phase: Phase = Field(..., description="Matches the dispatch's phase")
+    outcome: Outcome = Field(..., description="Result outcome")
+    signal: str | None = Field(default=None, description="Raw agent signal or null")
+    exit_code: int = Field(..., description="Process exit code")
+    duration_secs: int = Field(..., ge=0, description="Wall-clock execution time")
     gate_output: str | None = Field(
-        description="Last 100/300 lines of gate stdout (success/fail); gate phases only"
+        default=None,
+        description="Last 100/300 lines of gate stdout (success/fail); gate phases only",
     )
     tail_output: str | None = Field(
-        description="Last 200 lines of stdout (agent phases always, others on non-success)"
+        default=None,
+        description="Last 200 lines of stdout (agent phases always, others on non-success)",
     )
-    unchecked_tasks: int = Field(description="Count of unchecked Task N lines in plan.md")
-    plan_hash: str = Field(description="MD5 of plan.md (first 8 hex chars)")
-    spec_modified: bool = Field(description="True if spec.md was modified and reverted")
+    unchecked_tasks: int = Field(default=0, ge=0, description="Count of unchecked Task N lines")
+    plan_hash: str = Field(default="00000000", description="MD5 of plan.md (first 8 hex chars)")
+    spec_modified: bool = Field(..., description="True if spec.md was modified and reverted")
     pushed: bool | None = Field(
         default=None,
         description="True if git push succeeded after agent phase, null for gates/setup/cleanup",
     )
-    integrity_repairs: dict | None = Field(
-        default=None, description="Post-flight integrity repair actions"
+    integrity_repairs: IntegrityRepairs | None = Field(
+        default=None,
+        description="Post-flight integrity repair actions",
     )
-    new_tasks: list[dict] = Field(
-        default_factory=list, description="Tasks to add from audit findings"
+    new_tasks: list[dict[str, JsonValue]] = Field(
+        default_factory=list,
+        description="Tasks to add from audit findings",
     )
-    findings: list[dict] = Field(
+    findings: list[dict[str, JsonValue]] = Field(
         default_factory=list,
         description="Structured findings from audit/demo/investigate phases",
     )
@@ -233,35 +243,42 @@ class Nudge(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str = Field(default="workflow_result", description="Nudge type identifier")
-    workflow_id: str = Field(description="Workflow that produced the result")
+    workflow_id: str = Field(..., description="Workflow that produced the result")
 
 
 class WorkerHealth(BaseModel):
     """Worker manager health status, written each poll cycle."""
 
+    model_config = ConfigDict(extra="forbid")
+
     alive: bool = Field(default=True)
-    pid: int
-    started_at: str
-    last_poll: str
-    active_processes: int
-    queued_dispatches: int
+    pid: int = Field(...)
+    started_at: str = Field(...)
+    last_poll: str = Field(...)
+    active_processes: int = Field(...)
+    queued_dispatches: int = Field(...)
 
 
 class WorktreeEntry(BaseModel):
     """Single worktree entry in the registry."""
 
-    project: str = Field(description="Project name")
-    issue: int = Field(description="GitHub issue number")
-    branch: str = Field(description="Git branch name")
-    path: str = Field(description="Absolute path to the worktree")
-    created_at: str = Field(description="ISO 8601 creation timestamp")
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(..., description="Project name")
+    issue: int = Field(..., description="GitHub issue number")
+    branch: str = Field(..., description="Git branch name")
+    path: str = Field(..., description="Absolute path to the worktree")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
 
 
 class WorktreeRegistry(BaseModel):
     """Worktree registry for isolation enforcement."""
 
+    model_config = ConfigDict(extra="forbid")
+
     worktrees: dict[str, WorktreeEntry] = Field(
-        default_factory=dict, description="Map of workflow_id to worktree entry"
+        default_factory=dict,
+        description="Map of workflow_id to worktree entry",
     )
 
 

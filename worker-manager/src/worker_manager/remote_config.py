@@ -2,104 +2,141 @@
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
 
 import yaml
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-logger = logging.getLogger(__name__)
+
+class ExecutionMode(StrEnum):
+    """Execution mode selector for worker runtime."""
+
+    REMOTE = "remote"
+    LOCAL = "local"
 
 
-@dataclass(frozen=True)
-class RemoteSSHConfig:
+class GitAuthMethod(StrEnum):
+    """Supported git authentication methods for remote clone/push."""
+
+    TOKEN = "token"
+    SSH = "ssh"
+
+
+class RemoteSSHConfig(BaseModel):
     """SSH defaults from remote.yml."""
 
-    user: str = "root"
-    key_path: str = "~/.ssh/tanren_vm"
-    connect_timeout: int = 10
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    user: str = Field(default="root")
+    key_path: str = Field(default="~/.ssh/tanren_vm")
+    port: int = Field(default=22, ge=1, le=65535)
+    connect_timeout: int = Field(default=10, ge=1)
 
 
-@dataclass(frozen=True)
-class RemoteGitConfig:
+class RemoteGitConfig(BaseModel):
     """Git auth config from remote.yml."""
 
-    auth: str = "token"
-    token_env: str = "GIT_TOKEN"
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    auth: GitAuthMethod = Field(default=GitAuthMethod.TOKEN)
+    token_env: str = Field(default="GIT_TOKEN")
 
 
-@dataclass(frozen=True)
-class RemoteBootstrapConfig:
+class RemoteBootstrapConfig(BaseModel):
     """Bootstrap config from remote.yml."""
 
-    extra_script: str | None = None
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    extra_script: str | None = Field(default=None)
 
 
-@dataclass(frozen=True)
-class RemoteSecretsConfig:
+class RemoteSecretsConfig(BaseModel):
     """Secrets config from remote.yml."""
 
-    developer_secrets_path: str = ""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    developer_secrets_path: str = Field(default="")
 
 
-@dataclass(frozen=True)
-class RemoteConfig:
+class RemoteVMConfig(BaseModel):
+    """Typed VM entry for remote execution pools."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vm_id: str = Field(..., validation_alias=AliasChoices("vm_id", "id"))
+    host: str = Field(...)
+    provider: str = Field(default="manual", min_length=1)
+    labels: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, str] = Field(default_factory=dict)
+    hourly_cost: float | None = Field(default=None, ge=0.0)
+
+
+class RemoteRepoBinding(BaseModel):
+    """Repository URL binding for a specific project."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project: str = Field(...)
+    repo_url: str = Field(...)
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class RemoteConfig(BaseModel):
     """Full remote execution configuration."""
 
-    execution_mode: str = "remote"
-    ssh: RemoteSSHConfig = field(default_factory=RemoteSSHConfig)
-    git: RemoteGitConfig = field(default_factory=RemoteGitConfig)
-    vms: list[dict] = field(default_factory=list)
-    bootstrap: RemoteBootstrapConfig = field(
-        default_factory=RemoteBootstrapConfig
-    )
-    secrets: RemoteSecretsConfig = field(default_factory=RemoteSecretsConfig)
-    repos: dict[str, str] = field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    execution_mode: ExecutionMode = Field(default=ExecutionMode.REMOTE)
+    ssh: RemoteSSHConfig = Field(default_factory=RemoteSSHConfig)
+    git: RemoteGitConfig = Field(default_factory=RemoteGitConfig)
+    vms: list[RemoteVMConfig] = Field(default_factory=list)
+    bootstrap: RemoteBootstrapConfig = Field(default_factory=RemoteBootstrapConfig)
+    secrets: RemoteSecretsConfig = Field(default_factory=RemoteSecretsConfig)
+    repos: list[RemoteRepoBinding] = Field(default_factory=list)
+
+    def repo_url_for(self, project: str) -> str | None:
+        """Return configured repo URL for a project name."""
+        for binding in self.repos:
+            if binding.project == project:
+                return binding.repo_url
+        return None
+
+
+def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:
+    """Coerce repos section into a typed list of bindings."""
+    if isinstance(raw, list):
+        bindings: list[RemoteRepoBinding] = []
+        for item in raw:
+            if isinstance(item, Mapping):
+                bindings.append(RemoteRepoBinding.model_validate(item))
+        return bindings
+    if isinstance(raw, Mapping):
+        bindings = []
+        for project, url in raw.items():
+            bindings.append(
+                RemoteRepoBinding(
+                    project=str(project),
+                    repo_url=str(url),
+                )
+            )
+        return bindings
+    return []
 
 
 def load_remote_config(path: str | Path) -> RemoteConfig:
     """Load and parse remote.yml."""
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Remote config not found: {path}")
+    path_obj = Path(path)
+    if not path_obj.exists():
+        raise FileNotFoundError(f"Remote config not found: {path_obj}")
 
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
+    with open(path_obj) as file_obj:
+        data_raw = yaml.safe_load(file_obj) or {}
 
-    ssh_data = data.get("ssh", {})
-    ssh = RemoteSSHConfig(
-        user=str(ssh_data.get("user", "root")),
-        key_path=str(ssh_data.get("key_path", "~/.ssh/tanren_vm")),
-        connect_timeout=int(ssh_data.get("connect_timeout", 10)),
-    )
+    if not isinstance(data_raw, Mapping):
+        data_raw = {}
 
-    git_data = data.get("git", {})
-    git = RemoteGitConfig(
-        auth=str(git_data.get("auth", "token")),
-        token_env=str(git_data.get("token_env", "GIT_TOKEN")),
-    )
-
-    bootstrap_data = data.get("bootstrap", {})
-    bootstrap = RemoteBootstrapConfig(
-        extra_script=bootstrap_data.get("extra_script"),
-    )
-
-    secrets_data = data.get("secrets", {})
-    secrets = RemoteSecretsConfig(
-        developer_secrets_path=str(
-            secrets_data.get("developer_secrets_path", "")
-        ),
-    )
-
-    vms = data.get("vms", [])
-    repos = data.get("repos", {})
-
-    return RemoteConfig(
-        execution_mode=str(data.get("execution_mode", "remote")),
-        ssh=ssh,
-        git=git,
-        vms=vms if isinstance(vms, list) else [],
-        bootstrap=bootstrap,
-        secrets=secrets,
-        repos=repos if isinstance(repos, dict) else {},
-    )
+    data: dict[str, object] = dict(data_raw)
+    data["repos"] = _coerce_repos(data.get("repos", []))
+    return RemoteConfig.model_validate(data)

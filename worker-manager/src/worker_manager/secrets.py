@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import dotenv_values
+from pydantic import BaseModel, ConfigDict, Field
 
 from worker_manager.adapters.remote_types import SecretBundle
 from worker_manager.env.secrets import DEFAULT_SECRETS_DIR
 
 
-@dataclass(frozen=True)
-class SecretConfig:
+class SecretConfig(BaseModel):
     """Configuration for secret loading."""
 
-    developer_secrets_path: str = str(DEFAULT_SECRETS_DIR / "secrets.env")
-    infrastructure_env_vars: tuple[str, ...] = ("GIT_TOKEN",)
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    developer_secrets_path: str = Field(default=str(DEFAULT_SECRETS_DIR / "secrets.env"))
+    infrastructure_env_vars: tuple[str, ...] = Field(default=("GIT_TOKEN",))
 
 
 class SecretLoader:

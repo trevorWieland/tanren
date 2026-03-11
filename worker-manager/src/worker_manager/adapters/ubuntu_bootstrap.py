@@ -12,8 +12,7 @@ logger = logging.getLogger(__name__)
 _APT_PACKAGES = ("git", "curl", "build-essential", "jq")
 
 _NODE_INSTALL = (
-    "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -"
-    " && apt-get install -y nodejs"
+    "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs"
 )
 
 _BOOTSTRAP_STEPS: tuple[tuple[str, str, str], ...] = (

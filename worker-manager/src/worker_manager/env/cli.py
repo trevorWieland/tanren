@@ -1,9 +1,8 @@
-"""Click subcommands for env and secret management."""
+"""Typer subcommands for env and secret management."""
 
-import sys
 from pathlib import Path
 
-import click
+import typer
 
 from worker_manager.env.loader import (
     discover_env_vars_from_dotenv_example,
@@ -15,23 +14,22 @@ from worker_manager.env.schema import EnvBlock
 from worker_manager.env.secrets import DEFAULT_SECRETS_DIR, list_secrets, set_secret
 from worker_manager.env.validator import validate_env
 
-
-@click.group()
-def env():
-    """Validate and manage environment variables."""
+env_app = typer.Typer(help="Validate and manage environment variables.")
+secret_app = typer.Typer(help="Manage secrets in secrets.env (default: $XDG_CONFIG_HOME/tanren/).")
 
 
-@env.command()
-@click.option("--all", "check_all", is_flag=True, help="Validate all tanren.yml recursively")
-@click.option("--verbose", is_flag=True, help="Include passing vars in output")
-@click.option("--json", "json_output", is_flag=True, help="JSON output")
-def check(check_all: bool, verbose: bool, json_output: bool):
+@env_app.command("check")
+def check(
+    check_all: bool = typer.Option(False, "--all", help="Validate all tanren.yml recursively"),
+    verbose: bool = typer.Option(False, "--verbose", help="Include passing vars in output"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+) -> None:
     """Validate environment variables against tanren.yml."""
     if check_all:
         roots = list(Path.cwd().rglob("tanren.yml"))
         if not roots:
-            click.echo("No tanren.yml files found", err=True)
-            sys.exit(1)
+            typer.echo("No tanren.yml files found", err=True)
+            raise typer.Exit(code=1)
     else:
         roots = [Path.cwd() / "tanren.yml"]
 
@@ -42,67 +40,64 @@ def check(check_all: bool, verbose: bool, json_output: bool):
         config = parse_tanren_yml(project_root)
 
         if config is None:
-            click.echo(f"Could not parse {yml_path}", err=True)
+            typer.echo(f"Could not parse {yml_path}", err=True)
             any_failed = True
             continue
 
         env_block = config.env
         if env_block is None:
-            # Fallback to .env.example
+            # Fallback to .env.example.
             required_vars = discover_env_vars_from_dotenv_example(project_root)
             if required_vars:
                 env_block = EnvBlock(required=required_vars)
             else:
                 if not json_output:
-                    click.echo(f"No env requirements in {yml_path}")
+                    typer.echo(f"No env requirements in {yml_path}")
                 continue
 
         merged_env, source_map = load_env_layers(project_root)
         report = validate_env(env_block, merged_env, source_map)
 
         if json_output:
-            click.echo(format_report_json(report))
+            typer.echo(format_report_json(report))
         else:
             project_name = project_root.name
-            click.echo(format_report(report, project_name, str(yml_path), verbose))
+            typer.echo(format_report(report, project_name, str(yml_path), verbose))
 
         if not report.passed:
             any_failed = True
 
     if any_failed:
-        sys.exit(1)
+        raise typer.Exit(code=1)
 
 
-@env.command()
-def init():
+@env_app.command("init")
+def init() -> None:
     """Scaffold env block in tanren.yml from .env.example."""
     project_root = Path.cwd()
     yml_path = project_root / "tanren.yml"
     example_path = project_root / ".env.example"
 
     if not yml_path.exists():
-        click.echo("No tanren.yml found in current directory", err=True)
-        sys.exit(1)
+        typer.echo("No tanren.yml found in current directory", err=True)
+        raise typer.Exit(code=1)
 
-    # Check if env block already exists
     config = parse_tanren_yml(project_root)
     if config and config.env:
-        click.echo("tanren.yml already has an env block", err=True)
-        sys.exit(1)
+        typer.echo("tanren.yml already has an env block", err=True)
+        raise typer.Exit(code=1)
 
     if not example_path.exists():
-        click.echo("No .env.example found — nothing to scaffold", err=True)
-        sys.exit(1)
+        typer.echo("No .env.example found - nothing to scaffold", err=True)
+        raise typer.Exit(code=1)
 
-    # Parse .env.example keys
     from dotenv import dotenv_values
 
     values = dotenv_values(example_path)
     if not values:
-        click.echo("No variables found in .env.example")
+        typer.echo("No variables found in .env.example")
         return
 
-    # Build YAML text via string concatenation (preserves comments in tanren.yml)
     lines = ["\nenv:"]
     lines.append("  on_missing: error")
     lines.append("  required:")
@@ -113,34 +108,35 @@ def init():
 
     yaml_block = "\n".join(lines) + "\n"
 
-    with open(yml_path, "a") as f:
-        f.write(yaml_block)
+    with open(yml_path, "a") as file_obj:
+        file_obj.write(yaml_block)
 
-    click.echo(f"Scaffolded env block with {len(values)} variables in {yml_path}")
-
-
-@click.group()
-def secret():
-    """Manage secrets in secrets.env (default: $XDG_CONFIG_HOME/tanren/)."""
+    typer.echo(f"Scaffolded env block with {len(values)} variables in {yml_path}")
 
 
-@secret.command("set")
-@click.argument("key")
-@click.argument("value")
-def secret_set(key: str, value: str):
+@secret_app.command("set")
+def secret_set(
+    key: str = typer.Argument(...),
+    value: str = typer.Argument(...),
+) -> None:
     """Store a secret in secrets.env (default: $XDG_CONFIG_HOME/tanren/)."""
     path = set_secret(key, value)
-    click.echo(f"Secret {key} written to {path}")
+    typer.echo(f"Secret {key} written to {path}")
 
 
-@secret.command("list")
-def secret_list():
+@secret_app.command("list")
+def secret_list() -> None:
     """List secrets with redacted values."""
     secrets_path = DEFAULT_SECRETS_DIR / "secrets.env"
     secrets = list_secrets()
     if not secrets:
-        click.echo(f"No secrets found in {secrets_path}")
+        typer.echo(f"No secrets found in {secrets_path}")
         return
 
     for key, redacted in secrets:
-        click.echo(f"  {key} = {redacted}")
+        typer.echo(f"  {key} = {redacted}")
+
+
+# Backward-compatible names imported by top-level CLI module.
+env = env_app
+secret = secret_app

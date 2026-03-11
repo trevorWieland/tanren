@@ -7,6 +7,7 @@ import shlex
 import time
 import uuid
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -28,7 +29,12 @@ from worker_manager.adapters.remote_types import (
     WorkspaceSpec,
 )
 from worker_manager.adapters.ssh import SSHConfig, SSHConnection
-from worker_manager.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
+from worker_manager.adapters.types import (
+    AccessInfo,
+    EnvironmentHandle,
+    PhaseResult,
+    RemoteEnvironmentRuntime,
+)
 from worker_manager.config import Config
 from worker_manager.env.environment_schema import parse_environment_profiles
 from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
@@ -39,9 +45,7 @@ from worker_manager.signals import map_outcome, parse_signal_token
 
 logger = logging.getLogger(__name__)
 
-_PUSH_PHASES = frozenset(
-    {Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase.AUDIT_SPEC}
-)
+_PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase.AUDIT_SPEC})
 
 
 class SSHExecutionEnvironment:
@@ -75,9 +79,7 @@ class SSHExecutionEnvironment:
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
 
-    async def provision(
-        self, dispatch: Dispatch, config: Config
-    ) -> EnvironmentHandle:
+    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets."""
         # 1. Read tanren.yml LOCALLY to get environment profile
         profile = self._resolve_profile(dispatch, config)
@@ -122,9 +124,7 @@ class SSHExecutionEnvironment:
             # 6. Setup workspace
             repo_url = self._repo_urls.get(dispatch.project, "")
             if not repo_url:
-                raise RuntimeError(
-                    f"No repo URL configured for project: {dispatch.project}"
-                )
+                raise RuntimeError(f"No repo URL configured for project: {dispatch.project}")
 
             workspace_spec = WorkspaceSpec(
                 project=dispatch.project,
@@ -132,16 +132,12 @@ class SSHExecutionEnvironment:
                 branch=dispatch.branch,
                 setup_commands=profile.setup,
             )
-            workspace_path = await self._workspace_mgr.setup(
-                conn, workspace_spec
-            )
+            workspace_path = await self._workspace_mgr.setup(conn, workspace_spec)
 
             # 7. Inject secrets
             project_env = self._load_project_env(dispatch, config)
             bundle = self._secret_loader.build_bundle(project_env)
-            await self._workspace_mgr.inject_secrets(
-                conn, workspace_path, bundle
-            )
+            await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
             # 8. Record assignment
             await self._state_store.record_assignment(
@@ -171,15 +167,15 @@ class SSHExecutionEnvironment:
                 worktree_path=Path(workspace_path.path),
                 branch=dispatch.branch,
                 project=dispatch.project,
-                metadata={
-                    "vm_handle": vm_handle,
-                    "conn": conn,
-                    "workspace_path": workspace_path,
-                    "profile": profile,
-                    "teardown_commands": profile.teardown,
-                    "provision_start": time.monotonic(),
-                    "workflow_id": dispatch.workflow_id,
-                },
+                runtime=RemoteEnvironmentRuntime(
+                    vm_handle=vm_handle,
+                    connection=conn,
+                    workspace_path=workspace_path,
+                    profile=profile,
+                    teardown_commands=profile.teardown,
+                    provision_start=time.monotonic(),
+                    workflow_id=dispatch.workflow_id,
+                ),
             )
 
         except Exception:
@@ -202,17 +198,18 @@ class SSHExecutionEnvironment:
         dispatch_stem: str = "",
     ) -> PhaseResult:
         """Run agent on remote VM with retry logic."""
-        conn = handle.metadata["conn"]
-        workspace = handle.metadata["workspace_path"]
+        if handle.runtime.kind != "remote":
+            raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
+        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+        conn = cast(SSHConnection, remote_runtime.connection)
+        workspace = remote_runtime.workspace_path
 
         start = time.monotonic()
         transient_retries = 0
 
         # Build full prompt (same as local path)
         command_name = dispatch.phase.value
-        command_file = (
-            handle.worktree_path / config.commands_dir / f"{command_name}.md"
-        )
+        command_file = handle.worktree_path / config.commands_dir / f"{command_name}.md"
         prompt_content = assemble_prompt(
             command_file, dispatch.spec_folder, command_name, dispatch.context
         )
@@ -220,9 +217,7 @@ class SSHExecutionEnvironment:
         while True:
             # Build CLI command
             cli_command = self._build_cli_command(dispatch, config)
-            signal_path = (
-                f"{workspace.path}/{dispatch.spec_folder}/.agent-status"
-            )
+            signal_path = f"{workspace.path}/{dispatch.spec_folder}/.agent-status"
 
             # Run agent
             agent_result = await self._runner.run(
@@ -237,9 +232,7 @@ class SSHExecutionEnvironment:
             # Parse signal token from raw file content
             raw_signal = agent_result.signal_content or ""
             signal_token = (
-                parse_signal_token(command_name, raw_signal)
-                if raw_signal.strip()
-                else None
+                parse_signal_token(command_name, raw_signal) if raw_signal.strip() else None
             )
 
             # Map outcome
@@ -258,10 +251,7 @@ class SSHExecutionEnvironment:
                     agent_result.stderr,
                     signal_val,
                 )
-                if (
-                    error_class == ErrorClass.TRANSIENT
-                    and transient_retries < 3
-                ):
+                if error_class == ErrorClass.TRANSIENT and transient_retries < 3:
                     transient_retries += 1
                     import asyncio
 
@@ -273,10 +263,7 @@ class SSHExecutionEnvironment:
                     )
                     await asyncio.sleep(backoff)
                     continue
-                if (
-                    error_class == ErrorClass.AMBIGUOUS
-                    and transient_retries < 1
-                ):
+                if error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
                     transient_retries += 1
                     import asyncio
 
@@ -290,10 +277,7 @@ class SSHExecutionEnvironment:
 
         # Remote postflight: push on push phases
         final_stdout = agent_result.stdout
-        if (
-            dispatch.phase in _PUSH_PHASES
-            and outcome not in (Outcome.ERROR, Outcome.TIMEOUT)
-        ):
+        if dispatch.phase in _PUSH_PHASES and outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
             push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
             push_result = await conn.run(push_cmd, timeout=120)
             if push_result.exit_code != 0:
@@ -328,7 +312,10 @@ class SSHExecutionEnvironment:
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
         """Return SSH and VS Code connection info."""
-        vm_handle = handle.metadata["vm_handle"]
+        if handle.runtime.kind != "remote":
+            raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
+        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+        vm_handle = remote_runtime.vm_handle
         ssh_str = f"ssh {self._ssh_defaults.user}@{vm_handle.host}"
         vscode_str = (
             f"vscode://vscode-remote/ssh-remote+"
@@ -344,11 +331,14 @@ class SSHExecutionEnvironment:
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
         """Guaranteed VM release with try/finally at every step."""
-        conn = handle.metadata["conn"]
-        workspace = handle.metadata["workspace_path"]
-        teardown_cmds = handle.metadata["teardown_commands"]
-        vm_handle = handle.metadata["vm_handle"]
-        provision_start = handle.metadata.get("provision_start", 0)
+        if handle.runtime.kind != "remote":
+            raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
+        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+        conn = cast(SSHConnection, remote_runtime.connection)
+        workspace = remote_runtime.workspace_path
+        teardown_cmds = remote_runtime.teardown_commands
+        vm_handle = remote_runtime.vm_handle
+        provision_start = remote_runtime.provision_start
 
         try:
             for cmd in teardown_cmds:
@@ -382,9 +372,7 @@ class SSHExecutionEnvironment:
                     await self._emitter.emit(
                         VMReleased(
                             timestamp=_now(),
-                            workflow_id=handle.metadata.get(
-                                "workflow_id", ""
-                            ),
+                            workflow_id=remote_runtime.workflow_id,
                             vm_id=vm_handle.vm_id,
                             duration_secs=duration,
                             estimated_cost=cost,
@@ -395,12 +383,11 @@ class SSHExecutionEnvironment:
         """Read tanren.yml locally and resolve environment profile."""
         from worker_manager.env.environment_schema import EnvironmentProfile
 
-        tanren_yml = (
-            Path(config.github_dir) / dispatch.project / "tanren.yml"
-        )
+        tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
         if tanren_yml.exists():
             with open(tanren_yml) as f:
-                data = yaml.safe_load(f) or {}
+                loaded = yaml.safe_load(f) or {}
+            data = loaded if isinstance(loaded, dict) else {}
             profiles = parse_environment_profiles(data)
         else:
             profiles = parse_environment_profiles({})
@@ -415,23 +402,17 @@ class SSHExecutionEnvironment:
 
         return profile
 
-    def _load_project_env(
-        self, dispatch: Dispatch, config: Config
-    ) -> dict[str, str]:
+    def _load_project_env(self, dispatch: Dispatch, config: Config) -> dict[str, str]:
         """Load project .env file locally for secret injection."""
         from dotenv import dotenv_values
 
-        env_file = (
-            Path(config.github_dir) / dispatch.project / ".env"
-        )
+        env_file = Path(config.github_dir) / dispatch.project / ".env"
         if not env_file.exists():
             return {}
         values = dotenv_values(env_file)
         return {k: v for k, v in values.items() if v is not None}
 
-    def _build_cli_command(
-        self, dispatch: Dispatch, config: Config
-    ) -> str:
+    def _build_cli_command(self, dispatch: Dispatch, config: Config) -> str:
         """Build the CLI command string for remote execution."""
         if dispatch.cli.value == "claude":
             cmd = config.claude_path
@@ -461,9 +442,7 @@ class SSHExecutionEnvironment:
             cmd += " -C ."
             cmd += " < .tanren-prompt.md"
             return cmd
-        raise ValueError(
-            f"Unsupported CLI for remote execution: {dispatch.cli.value}"
-        )
+        raise ValueError(f"Unsupported CLI for remote execution: {dispatch.cli.value}")
 
 
 def _now() -> str:

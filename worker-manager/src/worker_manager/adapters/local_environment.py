@@ -5,6 +5,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
+from typing import cast
 
 from worker_manager.adapters.protocols import (
     EnvValidator,
@@ -15,6 +16,7 @@ from worker_manager.adapters.protocols import (
 from worker_manager.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
+    LocalEnvironmentRuntime,
     PhaseResult,
     ProvisionError,
 )
@@ -114,9 +116,11 @@ class LocalExecutionEnvironment:
             worktree_path=worktree_path,
             branch=dispatch.branch,
             project=dispatch.project,
-            _preflight_result=preflight_result,
-            _task_env=task_env,
-            _env_report=env_report,
+            runtime=LocalEnvironmentRuntime(
+                preflight_result=preflight_result,
+                task_env=task_env,
+                env_report=env_report,
+            ),
         )
 
     async def execute(
@@ -129,6 +133,9 @@ class LocalExecutionEnvironment:
     ) -> PhaseResult:
         """Heartbeat start -> retry loop -> plan metrics -> postflight -> heartbeat stop."""
         spec_folder_path = handle.worktree_path / dispatch.spec_folder
+        if handle.runtime.kind != "local":
+            raise RuntimeError("LocalExecutionEnvironment requires local runtime handle")
+        local_runtime = cast(LocalEnvironmentRuntime, handle.runtime)
 
         # Start heartbeat
         await self._heartbeat.start(dispatch_stem)
@@ -142,7 +149,7 @@ class LocalExecutionEnvironment:
                     dispatch,
                     handle.worktree_path,
                     config,
-                    task_env=handle._task_env or None,
+                    task_env=local_runtime.task_env or None,
                 )
 
                 # Log process result for agent phases
@@ -210,7 +217,7 @@ class LocalExecutionEnvironment:
             # Post-flight integrity checks
             postflight_result = None
             if dispatch.phase in _PUSH_PHASES:
-                preflight = handle._preflight_result
+                preflight = local_runtime.preflight_result
                 postflight_result = await self._postflight.run(
                     handle.worktree_path,
                     dispatch.branch,
@@ -228,7 +235,7 @@ class LocalExecutionEnvironment:
                 duration_secs=duration,
                 preflight_passed=True,
                 postflight_result=postflight_result,
-                env_report=handle._env_report,
+                env_report=local_runtime.env_report,
                 gate_output=None,  # Manager builds this
                 unchecked_tasks=unchecked,
                 plan_hash=plan_hash,

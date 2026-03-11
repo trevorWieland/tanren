@@ -1,8 +1,9 @@
 """Validate required/optional env vars against loaded layers."""
 
 import re
-from dataclasses import dataclass, field
 from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from worker_manager.env.loader import resolve_env_var
 from worker_manager.env.schema import EnvBlock
@@ -16,22 +17,28 @@ class VarStatus(StrEnum):
     DEFAULTED = "defaulted"
 
 
-@dataclass
-class VarResult:
-    key: str
-    status: VarStatus
-    description: str = ""
-    hint: str = ""
-    source: str | None = None
-    message: str = ""
+class VarResult(BaseModel):
+    """Validation result for one environment variable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(...)
+    status: VarStatus = Field(...)
+    description: str = Field(default="")
+    hint: str = Field(default="")
+    source: str | None = Field(default=None)
+    message: str = Field(default="")
 
 
-@dataclass
-class EnvReport:
-    passed: bool
-    required_results: list[VarResult] = field(default_factory=list)
-    optional_results: list[VarResult] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+class EnvReport(BaseModel):
+    """Validation report for all required/optional environment variables."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool = Field(...)
+    required_results: list[VarResult] = Field(default_factory=list)
+    optional_results: list[VarResult] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 def validate_env(

@@ -3,8 +3,9 @@
 import asyncio
 import hashlib
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -23,21 +24,28 @@ _WARN_ONLY = {
 _IMPLEMENTATION_PHASES = frozenset({"do-task", "run-demo"})
 
 
-@dataclass
-class PostflightResult:
-    integrity_repairs: dict = field(
-        default_factory=lambda: {
-            "branch_switched": False,
-            "spec_reverted": False,
-            "plan_reverted": False,
-            "makefile_modified": False,
-            "deps_modified": False,
-            "gitignore_modified": False,
-            "wip_committed": False,
-        }
-    )
-    pushed: bool = False
-    push_error: str | None = None
+class IntegrityRepairs(BaseModel):
+    """Typed post-flight integrity repair indicators."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    branch_switched: bool = Field(default=False)
+    spec_reverted: bool = Field(default=False)
+    plan_reverted: bool = Field(default=False)
+    makefile_modified: bool = Field(default=False)
+    deps_modified: bool = Field(default=False)
+    gitignore_modified: bool = Field(default=False)
+    wip_committed: bool = Field(default=False)
+
+
+class PostflightResult(BaseModel):
+    """Result of post-flight integrity and push operations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    integrity_repairs: IntegrityRepairs = Field(default_factory=IntegrityRepairs)
+    pushed: bool = Field(default=False)
+    push_error: str | None = Field(default=None)
 
 
 async def run_postflight(
@@ -80,7 +88,7 @@ async def run_postflight(
             stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
-        result.integrity_repairs["branch_switched"] = True
+        result.integrity_repairs.branch_switched = True
 
     # 2. Protected file integrity (phase-aware)
     reverted_any = False
@@ -96,17 +104,17 @@ async def run_postflight(
         if fname in revert_files and fname in preflight_backups:
             # Revert: write original content from backup
             fpath.write_text(preflight_backups[fname])
-            result.integrity_repairs[revert_files[fname]] = True
+            setattr(result.integrity_repairs, revert_files[fname], True)
             reverted_any = True
             logger.warning("Reverted unauthorized change to %s", fname)
         elif fname in _WARN_ONLY:
-            result.integrity_repairs[_WARN_ONLY[fname]] = True
+            setattr(result.integrity_repairs, _WARN_ONLY[fname], True)
             logger.warning("Agent modified %s — may be legitimate", fname)
 
     # If any protected files were reverted, commit the reversion
     if reverted_any:
         reverted_names = [
-            f for f in revert_files if result.integrity_repairs.get(revert_files[f], False)
+            f for f in revert_files if getattr(result.integrity_repairs, revert_files[f], False)
         ]
         proc = await asyncio.create_subprocess_exec(
             "git",
@@ -164,7 +172,7 @@ async def run_postflight(
             stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
-        result.integrity_repairs["wip_committed"] = True
+        result.integrity_repairs.wip_committed = True
 
     # 4. Git push (skip for error/timeout outcomes)
     if not skip_push:

@@ -1,11 +1,12 @@
 """Load role mapping configuration from YAML."""
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 
 import yaml
 
-from worker_manager.roles import AgentTool, RoleMapping
+from worker_manager.roles import AgentTool, AuthMode, RoleMapping
 from worker_manager.schemas import Cli
 
 logger = logging.getLogger(__name__)
@@ -22,34 +23,54 @@ def load_roles_config(path: str | Path) -> RoleMapping:
     path = Path(path)
     if not path.exists():
         logger.info("Roles config not found at %s, using defaults", path)
-        return RoleMapping(default=AgentTool(cli="claude"))
+        return RoleMapping(default=AgentTool(cli=Cli.CLAUDE))
 
     data = yaml.safe_load(path.read_text())
-    if not data or "agents" not in data:
-        return RoleMapping(default=AgentTool(cli="claude"))
+    if not isinstance(data, Mapping):
+        return RoleMapping(default=AgentTool(cli=Cli.CLAUDE))
 
-    agents = data["agents"]
+    agents = data.get("agents")
+    if not isinstance(agents, Mapping):
+        return RoleMapping(default=AgentTool(cli=Cli.CLAUDE))
 
-    def _parse_tool(tool_data: dict) -> AgentTool:
-        cli = tool_data.get("cli", "claude")
-        if cli not in _VALID_CLIS:
-            raise ValueError(f"Invalid CLI value '{cli}'. Must be one of: {sorted(_VALID_CLIS)}")
+    def _as_str(raw: object) -> str | None:
+        return raw if isinstance(raw, str) else None
+
+    def _parse_cli(raw: object) -> Cli:
+        cli_raw = _as_str(raw) or Cli.CLAUDE.value
+        if cli_raw not in _VALID_CLIS:
+            allowed = sorted(_VALID_CLIS)
+            raise ValueError(f"Invalid CLI value '{cli_raw}'. Must be one of: {allowed}")
+        return Cli(cli_raw)
+
+    def _parse_auth(raw: object) -> AuthMode:
+        auth_raw = _as_str(raw) or AuthMode.API_KEY.value
+        return AuthMode(auth_raw)
+
+    def _parse_tool(tool_data: Mapping[str, object] | None) -> AgentTool:
+        source = tool_data if tool_data is not None else {}
         return AgentTool(
-            cli=cli,
-            model=tool_data.get("model"),
-            endpoint=tool_data.get("endpoint"),
-            auth=tool_data.get("auth", "api_key"),
-            cli_path=tool_data.get("cli_path"),
+            cli=_parse_cli(source.get("cli")),
+            model=_as_str(source.get("model")),
+            endpoint=_as_str(source.get("endpoint")),
+            auth=_parse_auth(source.get("auth")),
+            cli_path=_as_str(source.get("cli_path")),
         )
 
-    default = _parse_tool(agents.get("default", {"cli": "claude"}))
+    default_source = agents.get("default")
+    default_tool = (
+        _parse_tool(default_source)
+        if isinstance(default_source, Mapping)
+        else AgentTool(cli=Cli.CLAUDE)
+    )
 
-    kwargs: dict = {"default": default}
+    role_tools: dict[str, AgentTool] = {"default": default_tool}
     for role in ("conversation", "implementation", "audit", "feedback", "conflict_resolution"):
         yaml_key = role.replace("_", "-")
-        if yaml_key in agents:
-            kwargs[role] = _parse_tool(agents[yaml_key])
-        elif role in agents:
-            kwargs[role] = _parse_tool(agents[role])
+        role_source = agents.get(yaml_key)
+        if not isinstance(role_source, Mapping):
+            role_source = agents.get(role)
+        if isinstance(role_source, Mapping):
+            role_tools[role] = _parse_tool(role_source)
 
-    return RoleMapping(**kwargs)
+    return RoleMapping.model_validate(role_tools)

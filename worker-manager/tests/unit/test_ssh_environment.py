@@ -18,7 +18,12 @@ from worker_manager.adapters.remote_types import (
 )
 from worker_manager.adapters.ssh import SSHConfig
 from worker_manager.adapters.ssh_environment import SSHExecutionEnvironment
-from worker_manager.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
+from worker_manager.adapters.types import (
+    AccessInfo,
+    EnvironmentHandle,
+    PhaseResult,
+    RemoteEnvironmentRuntime,
+)
 from worker_manager.config import Config
 from worker_manager.env.environment_schema import EnvironmentProfile, ResourceRequirements
 from worker_manager.errors import ErrorClass
@@ -29,6 +34,7 @@ _SSH_ENV = "worker_manager.adapters.ssh_environment"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_config(tmp_path: Path) -> Config:
     return Config(
@@ -114,6 +120,7 @@ def _make_agent_result(
 # Fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def env_kit(tmp_path: Path):
     """Build an SSHExecutionEnvironment with all sub-adapters mocked."""
@@ -178,20 +185,22 @@ def _make_handle(conn=None, vm_handle=None, workspace=None) -> EnvironmentHandle
         worktree_path=Path("/workspace/myproj"),
         branch="feature-1",
         project="myproj",
-        metadata={
-            "vm_handle": vm_handle or _make_vm_handle(),
-            "conn": conn or AsyncMock(),
-            "workspace_path": workspace or _make_workspace(),
-            "profile": _make_profile(),
-            "teardown_commands": ("make clean",),
-            "provision_start": time.monotonic(),
-        },
+        runtime=RemoteEnvironmentRuntime(
+            vm_handle=vm_handle or _make_vm_handle(),
+            connection=conn or AsyncMock(),
+            workspace_path=workspace or _make_workspace(),
+            profile=_make_profile(),
+            teardown_commands=("make clean",),
+            provision_start=time.monotonic(),
+            workflow_id="wf-myproj-42-1000",
+        ),
     )
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestProvision:
     async def test_acquires_vm_bootstraps_workspace_returns_handle(self, env_kit):
@@ -201,9 +210,11 @@ class TestProvision:
         dispatch = _make_dispatch()
         config = env_kit["config"]
 
-        with patch.object(env, "_resolve_profile", return_value=_make_profile()), \
-             patch.object(env, "_load_project_env", return_value={"KEY": "val"}), \
-             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH:
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_load_project_env", return_value={"KEY": "val"}),
+            patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
             mock_conn = AsyncMock()
             MockSSH.return_value = mock_conn
 
@@ -233,8 +244,9 @@ class TestProvision:
         assert isinstance(handle, EnvironmentHandle)
         assert handle.project == "myproj"
         assert handle.branch == "feature-1"
-        assert handle.metadata["vm_handle"] == _make_vm_handle()
-        assert handle.metadata["conn"] is mock_conn
+        assert handle.runtime.kind == "remote"
+        assert handle.runtime.vm_handle == _make_vm_handle()
+        assert handle.runtime.connection is mock_conn
 
     async def test_releases_vm_on_failure(self, env_kit):
         """provision() releases VM when a step fails (no orphaned VMs)."""
@@ -245,8 +257,10 @@ class TestProvision:
         # Make bootstrap fail
         env_kit["bootstrapper"].bootstrap.side_effect = RuntimeError("bootstrap boom")
 
-        with patch.object(env, "_resolve_profile", return_value=_make_profile()), \
-             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH:
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
             mock_conn = AsyncMock()
             MockSSH.return_value = mock_conn
 
@@ -264,8 +278,10 @@ class TestProvision:
         dispatch = _make_dispatch(project="unknown-project")
         config = env_kit["config"]
 
-        with patch.object(env, "_resolve_profile", return_value=_make_profile()), \
-             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH:
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
             MockSSH.return_value = AsyncMock()
 
             with pytest.raises(RuntimeError, match="No repo URL configured"):
@@ -281,14 +297,19 @@ class TestExecute:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="pushed", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="pushed",
+            stderr="",
+            timed_out=False,
         )
         handle = _make_handle(conn=conn)
         dispatch = _make_dispatch()
         config = env_kit["config"]
 
-        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
-             patch(f"{_SSH_ENV}.map_outcome") as mock_map:
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome") as mock_map,
+        ):
             mock_map.return_value = (Outcome.SUCCESS, "success")
 
             result = await env.execute(handle, dispatch, config)
@@ -303,7 +324,10 @@ class TestExecute:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="ok", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="ok",
+            stderr="",
+            timed_out=False,
         )
         handle = _make_handle(conn=conn)
         dispatch = _make_dispatch()
@@ -311,17 +335,24 @@ class TestExecute:
 
         # First two calls: transient error. Third call: success.
         transient_result = _make_agent_result(
-            exit_code=1, stdout="rate limit 429", timed_out=False, signal_content="",
+            exit_code=1,
+            stdout="rate limit 429",
+            timed_out=False,
+            signal_content="",
         )
         success_result = _make_agent_result(exit_code=0, signal_content="do-task-status: complete")
         env_kit["runner"].run.side_effect = [
-            transient_result, transient_result, success_result,
+            transient_result,
+            transient_result,
+            success_result,
         ]
 
-        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
-             patch(f"{_SSH_ENV}.map_outcome") as mock_map, \
-             patch(f"{_SSH_ENV}.classify_error") as mock_classify, \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome") as mock_map,
+            patch(f"{_SSH_ENV}.classify_error") as mock_classify,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             mock_map.side_effect = [
                 (Outcome.ERROR, None),
                 (Outcome.ERROR, None),
@@ -340,19 +371,23 @@ class TestExecute:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
         )
         handle = _make_handle(conn=conn)
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         config = env_kit["config"]
 
         env_kit["workspace_mgr"].push_command.return_value = (
-            "GIT_ASKPASS=/workspace/.git-askpass GIT_TERMINAL_PROMPT=0 "
-            "git push origin feature-1"
+            "GIT_ASKPASS=/workspace/.git-askpass GIT_TERMINAL_PROMPT=0 git push origin feature-1"
         )
 
-        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
-             patch(f"{_SSH_ENV}.map_outcome") as mock_map:
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome") as mock_map,
+        ):
             mock_map.return_value = (Outcome.SUCCESS, "success")
 
             await env.execute(handle, dispatch, config)
@@ -362,10 +397,7 @@ class TestExecute:
             "/workspace/myproj", "feature-1"
         )
         # conn.run should have been called with the auth-prefixed push command
-        push_calls = [
-            c for c in conn.run.call_args_list
-            if "git push" in str(c)
-        ]
+        push_calls = [c for c in conn.run.call_args_list if "git push" in str(c)]
         assert len(push_calls) == 1
         assert "GIT_ASKPASS" in str(push_calls[0])
 
@@ -374,29 +406,33 @@ class TestExecute:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
         )
         handle = _make_handle(conn=conn)
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         config = env_kit["config"]
 
         env_kit["runner"].run.return_value = _make_agent_result(
-            exit_code=1, stdout="fatal error", signal_content="do-task-status: error",
+            exit_code=1,
+            stdout="fatal error",
+            signal_content="do-task-status: error",
         )
 
-        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
-             patch(f"{_SSH_ENV}.map_outcome") as mock_map, \
-             patch(f"{_SSH_ENV}.classify_error") as mock_classify:
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome") as mock_map,
+            patch(f"{_SSH_ENV}.classify_error") as mock_classify,
+        ):
             mock_map.return_value = (Outcome.ERROR, "error")
             mock_classify.return_value = ErrorClass.FATAL
 
             await env.execute(handle, dispatch, config)
 
         # conn.run should NOT have been called for git push
-        push_calls = [
-            c for c in conn.run.call_args_list
-            if "git push" in str(c)
-        ]
+        push_calls = [c for c in conn.run.call_args_list if "git push" in str(c)]
         assert len(push_calls) == 0
 
 
@@ -422,7 +458,10 @@ class TestTeardown:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
         )
         vm_handle = _make_vm_handle()
         workspace = _make_workspace()
@@ -466,7 +505,10 @@ class TestTeardown:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
         )
         vm_handle = _make_vm_handle()
         handle = _make_handle(conn=conn, vm_handle=vm_handle)
@@ -483,7 +525,10 @@ class TestTeardown:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
         )
         conn.close.side_effect = RuntimeError("ssh close boom")
         vm_handle = _make_vm_handle()
@@ -566,20 +611,28 @@ class TestClassifyErrorReceivesStderr:
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
-            exit_code=0, stdout="", stderr="", timed_out=False,
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
         )
         handle = _make_handle(conn=conn)
         dispatch = _make_dispatch()
         config = env_kit["config"]
 
         error_result = _make_agent_result(
-            exit_code=1, stdout="", stderr="rate limit 429", signal_content="",
+            exit_code=1,
+            stdout="",
+            stderr="rate limit 429",
+            signal_content="",
         )
         env_kit["runner"].run.side_effect = [error_result]
 
-        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
-             patch(f"{_SSH_ENV}.map_outcome") as mock_map, \
-             patch(f"{_SSH_ENV}.classify_error") as mock_classify:
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome") as mock_map,
+            patch(f"{_SSH_ENV}.classify_error") as mock_classify,
+        ):
             mock_map.return_value = (Outcome.ERROR, None)
             mock_classify.return_value = ErrorClass.FATAL
 
@@ -590,15 +643,18 @@ class TestClassifyErrorReceivesStderr:
 
 class TestProvisionWorkflowId:
     async def test_handle_contains_workflow_id(self, env_kit):
-        """provision() stores workflow_id in handle metadata."""
+        """provision() stores workflow_id in the typed runtime context."""
         env = env_kit["env"]
         dispatch = _make_dispatch()
         config = env_kit["config"]
 
-        with patch.object(env, "_resolve_profile", return_value=_make_profile()), \
-             patch.object(env, "_load_project_env", return_value={}), \
-             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH:
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_load_project_env", return_value={}),
+            patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
             MockSSH.return_value = AsyncMock()
             handle = await env.provision(dispatch, config)
 
-        assert handle.metadata["workflow_id"] == "wf-myproj-42-1000"
+        assert handle.runtime.kind == "remote"
+        assert handle.runtime.workflow_id == "wf-myproj-42-1000"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 from pathlib import Path
@@ -47,7 +46,7 @@ class SqliteEventEmitter:
     async def emit(self, event: Event) -> None:
         conn = await self._ensure_conn()
         event_type = type(event).__name__
-        payload = json.dumps(dataclasses.asdict(event))
+        payload = json.dumps(event.model_dump(mode="json"))
         await conn.execute(
             "INSERT INTO events (timestamp, workflow_id, event_type, payload) VALUES (?, ?, ?, ?)",
             (event.timestamp, event.workflow_id, event_type, payload),

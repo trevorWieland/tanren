@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import shlex
-from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from worker_manager.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
+from worker_manager.remote_config import GitAuthMethod
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +18,14 @@ def _shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\\''") + "'"
 
 
-@dataclass(frozen=True)
-class GitAuthConfig:
+class GitAuthConfig(BaseModel):
     """Git authentication configuration."""
 
-    auth_method: str = "token"  # "token" or "ssh"
-    token: str | None = None
-    ssh_key_path: str | None = None
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    auth_method: GitAuthMethod = Field(default=GitAuthMethod.TOKEN)
+    token: str | None = Field(default=None)
+    ssh_key_path: str | None = Field(default=None)
 
 
 class GitWorkspaceManager:
@@ -39,20 +42,14 @@ class GitWorkspaceManager:
 
     async def _setup_git_auth(self, conn) -> None:
         """Upload a GIT_ASKPASS helper so the token never appears in process args."""
-        if (
-            self._auth.auth_method == "token"
-            and self._auth.token
-        ):
-            script = (
-                "#!/bin/sh\n"
-                f"echo {_shell_quote(self._auth.token)}\n"
-            )
+        if self._auth.auth_method == GitAuthMethod.TOKEN and self._auth.token:
+            script = f"#!/bin/sh\necho {_shell_quote(self._auth.token)}\n"
             await conn.upload_content(script, self._ASKPASS_PATH)
             await conn.run(f"chmod 700 {self._ASKPASS_PATH}", timeout=10)
 
     def _git_env_prefix(self) -> str:
         """Return env prefix for git commands when using token auth."""
-        if self._auth.auth_method == "token" and self._auth.token:
+        if self._auth.auth_method == GitAuthMethod.TOKEN and self._auth.token:
             return f"GIT_ASKPASS={self._ASKPASS_PATH} GIT_TERMINAL_PROMPT=0 "
         return ""
 
@@ -104,9 +101,7 @@ class GitWorkspaceManager:
             branch=spec.branch,
         )
 
-    async def inject_secrets(
-        self, conn, workspace: WorkspacePath, secrets: SecretBundle
-    ) -> None:
+    async def inject_secrets(self, conn, workspace: WorkspacePath, secrets: SecretBundle) -> None:
         """Write secret files to remote workspace. Files are chmod 600."""
         # Developer secrets -> /workspace/.developer-secrets
         if secrets.developer:

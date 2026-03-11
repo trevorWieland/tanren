@@ -43,9 +43,7 @@ class TestRemoteAgentRunnerRun:
             signal_path="/workspace/myproj/.signal",
         )
 
-        conn.upload_content.assert_any_call(
-            "Do the thing", "/workspace/myproj/.tanren-prompt.md"
-        )
+        conn.upload_content.assert_any_call("Do the thing", "/workspace/myproj/.tanren-prompt.md")
 
     async def test_builds_correct_command_with_secret_sourcing(self):
         conn = _make_conn()
@@ -77,9 +75,7 @@ class TestRemoteAgentRunnerRun:
 
         for cli in ["claude --prompt p.md", "bash run.sh", "opencode exec"]:
             conn.reset_mock()
-            conn.run.return_value = RemoteResult(
-                exit_code=0, stdout="", stderr="", timed_out=False
-            )
+            conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
             conn.download_content.return_value = ""
 
             await runner.run(
@@ -126,7 +122,10 @@ class TestRemoteAgentRunnerRun:
 
     async def test_returns_remote_agent_result_with_correct_fields(self):
         conn = _make_conn(
-            exit_code=1, stdout="some output", stderr="warn: something", timed_out=False,
+            exit_code=1,
+            stdout="some output",
+            stderr="warn: something",
+            timed_out=False,
         )
         ws = _make_workspace()
         runner = RemoteAgentRunner()

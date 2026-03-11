@@ -2,107 +2,100 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, ConfigDict, Field
+
+from worker_manager.postflight import IntegrityRepairs
 
 
-@dataclass
-class Event:
+class Event(BaseModel):
     """Base event with common fields."""
 
-    timestamp: str  # ISO 8601
-    workflow_id: str
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+    workflow_id: str = Field(...)
 
 
-@dataclass
 class DispatchReceived(Event):
     """A dispatch was received and processing begins."""
 
-    phase: str
-    project: str
-    cli: str
+    phase: str = Field(...)
+    project: str = Field(...)
+    cli: str = Field(...)
 
 
-@dataclass
 class PhaseStarted(Event):
     """An agent/gate process is about to be spawned."""
 
-    phase: str
-    worktree_path: str
+    phase: str = Field(...)
+    worktree_path: str = Field(...)
 
 
-@dataclass
 class PhaseCompleted(Event):
     """A phase finished (successfully or not)."""
 
-    phase: str
-    outcome: str
-    signal: str | None
-    duration_secs: int
-    exit_code: int
+    phase: str = Field(...)
+    outcome: str = Field(...)
+    signal: str | None = Field(default=None)
+    duration_secs: int = Field(..., ge=0)
+    exit_code: int = Field(...)
 
 
-@dataclass
 class PreflightCompleted(Event):
     """Pre-flight checks finished."""
 
-    passed: bool
-    repairs: list[str] = field(default_factory=list)
+    passed: bool = Field(...)
+    repairs: list[str] = Field(default_factory=list)
 
 
-@dataclass
 class PostflightCompleted(Event):
     """Post-flight integrity checks finished."""
 
-    phase: str
-    pushed: bool | None
-    integrity_repairs: dict = field(default_factory=dict)
+    phase: str = Field(...)
+    pushed: bool | None = Field(default=None)
+    integrity_repairs: IntegrityRepairs = Field(default_factory=IntegrityRepairs)
 
 
-@dataclass
 class ErrorOccurred(Event):
     """An unhandled error occurred during dispatch handling."""
 
-    phase: str
-    error: str
-    error_class: str | None = None
+    phase: str = Field(...)
+    error: str = Field(...)
+    error_class: str | None = Field(default=None)
 
 
-@dataclass
 class RetryScheduled(Event):
     """A transient error triggered a retry."""
 
-    phase: str
-    attempt: int
-    max_attempts: int
-    backoff_secs: int
+    phase: str = Field(...)
+    attempt: int = Field(..., ge=1)
+    max_attempts: int = Field(..., ge=1)
+    backoff_secs: int = Field(..., ge=0)
 
 
-@dataclass
 class VMProvisioned(Event):
     """A VM was provisioned for a workflow."""
 
-    vm_id: str
-    host: str
-    provider: str
-    project: str
-    profile: str
-    hourly_cost: float | None = None
+    vm_id: str = Field(...)
+    host: str = Field(...)
+    provider: str = Field(...)
+    project: str = Field(...)
+    profile: str = Field(...)
+    hourly_cost: float | None = Field(default=None, ge=0.0)
 
 
-@dataclass
 class VMReleased(Event):
     """A VM was released after workflow completion."""
 
-    vm_id: str
-    duration_secs: int
-    estimated_cost: float | None = None
+    vm_id: str = Field(...)
+    duration_secs: int = Field(..., ge=0)
+    estimated_cost: float | None = Field(default=None, ge=0.0)
 
 
-@dataclass
 class BootstrapCompleted(Event):
     """VM bootstrap finished."""
 
-    vm_id: str
-    installed: list[str] = field(default_factory=list)
-    skipped: list[str] = field(default_factory=list)
-    duration_secs: int = 0
+    vm_id: str = Field(...)
+    installed: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+    duration_secs: int = Field(default=0, ge=0)

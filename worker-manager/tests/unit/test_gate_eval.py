@@ -16,13 +16,19 @@ from worker_manager.schemas import GateExpectation
 
 class TestEvaluateGateNoExpectations:
     def test_all_pass(self):
-        results = [GateTestResult("test_a", True), GateTestResult("test_b", True)]
+        results = [
+            GateTestResult(name="test_a", passed=True),
+            GateTestResult(name="test_b", passed=True),
+        ]
         gate = evaluate_gate(results, None)
         assert gate.passed is True
         assert gate.must_pass_failures == []
 
     def test_some_fail(self):
-        results = [GateTestResult("test_a", True), GateTestResult("test_b", False)]
+        results = [
+            GateTestResult(name="test_a", passed=True),
+            GateTestResult(name="test_b", passed=False),
+        ]
         gate = evaluate_gate(results, None)
         assert gate.passed is False
         assert gate.must_pass_failures == ["test_b"]
@@ -36,8 +42,8 @@ class TestEvaluateGateWithExpectations:
     def test_must_pass_all_pass(self):
         exp = GateExpectation(must_pass=["lint", "unit:foo"])
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("unit:foo::test_a", True),
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="unit:foo::test_a", passed=True),
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is True
@@ -46,8 +52,8 @@ class TestEvaluateGateWithExpectations:
     def test_must_pass_failure(self):
         exp = GateExpectation(must_pass=["lint", "unit:foo"])
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("unit:foo::test_a", False),
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="unit:foo::test_a", passed=False),
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is False
@@ -59,8 +65,8 @@ class TestEvaluateGateWithExpectations:
             expect_fail=["integration:bar"],
         )
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("integration:bar::test_x", False),
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="integration:bar::test_x", passed=False),
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is True
@@ -72,8 +78,8 @@ class TestEvaluateGateWithExpectations:
             expect_fail=["integration:bar"],
         )
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("integration:bar::test_x", True),
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="integration:bar::test_x", passed=True),
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is True  # Not a failure, just a warning
@@ -85,8 +91,8 @@ class TestEvaluateGateWithExpectations:
             skip=["unit:baz"],
         )
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("unit:baz::test_y", False),  # Skipped, ignored
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="unit:baz::test_y", passed=False),  # Skipped, ignored
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is True
@@ -95,8 +101,8 @@ class TestEvaluateGateWithExpectations:
     def test_unlisted_failure_conservative(self):
         exp = GateExpectation(must_pass=["lint"])
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("unknown_test", False),  # Not in any list
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="unknown_test", passed=False),  # Not in any list
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is False
@@ -105,9 +111,9 @@ class TestEvaluateGateWithExpectations:
     def test_wildcard_must_pass(self):
         exp = GateExpectation(must_pass=["*"])
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("unit:foo::test_a", True),
-            GateTestResult("integration:bar::test_b", False),
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="unit:foo::test_a", passed=True),
+            GateTestResult(name="integration:bar::test_b", passed=False),
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is False
@@ -116,8 +122,8 @@ class TestEvaluateGateWithExpectations:
     def test_wildcard_all_pass(self):
         exp = GateExpectation(must_pass=["*"])
         results = [
-            GateTestResult("lint", True),
-            GateTestResult("unit:foo", True),
+            GateTestResult(name="lint", passed=True),
+            GateTestResult(name="unit:foo", passed=True),
         ]
         gate = evaluate_gate(results, exp)
         assert gate.passed is True

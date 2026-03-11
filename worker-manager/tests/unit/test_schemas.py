@@ -400,7 +400,7 @@ class TestResultExtended:
             integrity_repairs={"spec_reverted": True},
             new_tasks=[{"id": 10, "title": "Fix bug"}],
         )
-        assert r.integrity_repairs["spec_reverted"] is True
+        assert r.integrity_repairs.spec_reverted is True
         assert len(r.new_tasks) == 1
 
     def test_backward_compat_no_new_fields(self):

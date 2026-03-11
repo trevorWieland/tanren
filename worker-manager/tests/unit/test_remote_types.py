@@ -1,8 +1,7 @@
 """Tests for remote_types module."""
 
-import dataclasses
-
 import pytest
+from pydantic import ValidationError
 
 from worker_manager.adapters.remote_types import (
     BootstrapResult,
@@ -20,17 +19,17 @@ from worker_manager.adapters.remote_types import (
 class TestImmutability:
     def test_vm_requirements_frozen(self):
         req = VMRequirements(profile="small")
-        with pytest.raises(dataclasses.FrozenInstanceError):
+        with pytest.raises(ValidationError, match="Instance is frozen"):
             req.cpu = 8  # type: ignore[misc]
 
     def test_vm_handle_frozen(self):
-        handle = VMHandle(vm_id="v1", host="h", provider="p", created_at="t")
-        with pytest.raises(dataclasses.FrozenInstanceError):
+        handle = VMHandle(vm_id="v1", host="h", provider="manual", created_at="t")
+        with pytest.raises(ValidationError, match="Instance is frozen"):
             handle.host = "other"  # type: ignore[misc]
 
     def test_workspace_spec_frozen(self):
         spec = WorkspaceSpec(project="proj", repo_url="url", branch="main")
-        with pytest.raises(dataclasses.FrozenInstanceError):
+        with pytest.raises(ValidationError, match="Instance is frozen"):
             spec.branch = "dev"  # type: ignore[misc]
 
 
@@ -71,7 +70,7 @@ class TestDefaults:
         assert req.labels == {}
 
     def test_vm_handle_defaults(self):
-        handle = VMHandle(vm_id="v1", host="h", provider="p", created_at="t")
+        handle = VMHandle(vm_id="v1", host="h", provider="manual", created_at="t")
         assert handle.labels == {}
         assert handle.hourly_cost is None
 
@@ -92,20 +91,19 @@ class TestDefaults:
         assert result.timed_out is False
 
     def test_remote_agent_result_signal_content_default(self):
-        result = RemoteAgentResult(
-            exit_code=0, stdout="ok", timed_out=False, duration_secs=10
-        )
+        result = RemoteAgentResult(exit_code=0, stdout="ok", timed_out=False, duration_secs=10)
         assert result.signal_content == ""
 
     def test_remote_agent_result_stderr_default(self):
-        result = RemoteAgentResult(
-            exit_code=0, stdout="ok", timed_out=False, duration_secs=10
-        )
+        result = RemoteAgentResult(exit_code=0, stdout="ok", timed_out=False, duration_secs=10)
         assert result.stderr == ""
 
     def test_remote_agent_result_stderr_preserved(self):
         result = RemoteAgentResult(
-            exit_code=1, stdout="", timed_out=False, duration_secs=5,
+            exit_code=1,
+            stdout="",
+            timed_out=False,
+            duration_secs=5,
             stderr="something went wrong",
         )
         assert result.stderr == "something went wrong"

@@ -1,34 +1,60 @@
 """Agent role definitions and mapping."""
 
-from dataclasses import dataclass
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from worker_manager.schemas import Cli
 
 
-@dataclass
-class AgentTool:
+class AuthMode(StrEnum):
+    """Authentication mode for agent CLI backends."""
+
+    API_KEY = "api_key"
+    OAUTH = "oauth"
+
+
+class RoleName(StrEnum):
+    """Supported workflow role names."""
+
+    DEFAULT = "default"
+    CONVERSATION = "conversation"
+    IMPLEMENTATION = "implementation"
+    AUDIT = "audit"
+    FEEDBACK = "feedback"
+    CONFLICT_RESOLUTION = "conflict_resolution"
+
+
+class AgentTool(BaseModel):
     """Configuration for a specific agent tool."""
 
-    cli: str
-    model: str | None = None
-    endpoint: str | None = None
-    auth: str = "api_key"
-    cli_path: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    cli: Cli = Field(...)
+    model: str | None = Field(default=None)
+    endpoint: str | None = Field(default=None)
+    auth: AuthMode = Field(default=AuthMode.API_KEY)
+    cli_path: str | None = Field(default=None)
 
 
-@dataclass
-class RoleMapping:
+class RoleMapping(BaseModel):
     """Maps workflow roles to agent tools.
 
     Each role can be fulfilled by a different CLI + model combination.
     Missing roles fall back to the default.
     """
 
-    default: AgentTool
-    conversation: AgentTool | None = None
-    implementation: AgentTool | None = None
-    audit: AgentTool | None = None
-    feedback: AgentTool | None = None
-    conflict_resolution: AgentTool | None = None
+    model_config = ConfigDict(extra="forbid")
 
-    def resolve(self, role: str) -> AgentTool:
+    default: AgentTool = Field(...)
+    conversation: AgentTool | None = Field(default=None)
+    implementation: AgentTool | None = Field(default=None)
+    audit: AgentTool | None = Field(default=None)
+    feedback: AgentTool | None = Field(default=None)
+    conflict_resolution: AgentTool | None = Field(default=None)
+
+    def resolve(self, role: RoleName | str) -> AgentTool:
         """Resolve a role to its agent tool, falling back to default."""
-        return getattr(self, role, None) or self.default
+        role_name = role.value if isinstance(role, RoleName) else role
+        resolved = getattr(self, role_name, None)
+        return resolved or self.default

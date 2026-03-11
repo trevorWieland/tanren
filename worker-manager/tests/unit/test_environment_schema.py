@@ -62,11 +62,7 @@ class TestEnvironmentProfileDefaults:
 class TestInvalidTypeNotRaised:
     def test_arbitrary_type_stored_as_string(self):
         """The parser coerces type via str(); no ValueError is raised."""
-        data = {
-            "environment": {
-                "bad": {"type": 12345}
-            }
-        }
+        data = {"environment": {"bad": {"type": 12345}}}
         result = parse_environment_profiles(data)
         assert result["bad"].type == "12345"
 

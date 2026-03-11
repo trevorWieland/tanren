@@ -6,7 +6,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from worker_manager.adapters.local_environment import LocalExecutionEnvironment
-from worker_manager.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult, ProvisionError
+from worker_manager.adapters.types import (
+    AccessInfo,
+    EnvironmentHandle,
+    LocalEnvironmentRuntime,
+    PhaseResult,
+    ProvisionError,
+)
 from worker_manager.config import Config
 from worker_manager.env.validator import EnvReport
 from worker_manager.postflight import PostflightResult
@@ -90,11 +96,12 @@ class TestProvision:
         assert handle.worktree_path == tmp_path / "test-wt-1"
         assert handle.branch == "test-branch"
         assert handle.project == "test"
-        assert handle._task_env == {"KEY": "val"}
-        assert handle._preflight_result is not None
-        assert handle._preflight_result.passed is True
-        assert handle._env_report is not None
-        assert handle._env_report.passed is True
+        assert handle.runtime.kind == "local"
+        assert handle.runtime.task_env == {"KEY": "val"}
+        assert handle.runtime.preflight_result is not None
+        assert handle.runtime.preflight_result.passed is True
+        assert handle.runtime.env_report is not None
+        assert handle.runtime.env_report.passed is True
 
         env_validator.load_and_validate.assert_awaited_once_with(tmp_path / "test-wt-1")
         preflight.run.assert_awaited_once()
@@ -156,13 +163,15 @@ class TestExecute:
             worktree_path=wt_path,
             branch="test-branch",
             project="test",
-            _preflight_result=PreflightResult(
-                passed=True,
-                file_hashes={"spec.md": "abc123"},
-                file_backups={"spec.md": "# Spec"},
+            runtime=LocalEnvironmentRuntime(
+                preflight_result=PreflightResult(
+                    passed=True,
+                    file_hashes={"spec.md": "abc123"},
+                    file_backups={"spec.md": "# Spec"},
+                ),
+                task_env={"KEY": "val"},
+                env_report=EnvReport(passed=True),
             ),
-            _task_env={"KEY": "val"},
-            _env_report=EnvReport(passed=True),
         )
 
     @pytest.mark.asyncio
@@ -308,6 +317,7 @@ class TestGetAccessInfo:
             worktree_path=wt_path,
             branch="test-branch",
             project="test",
+            runtime=LocalEnvironmentRuntime(),
         )
 
         access_info = await env.get_access_info(handle)
@@ -329,6 +339,7 @@ class TestTeardown:
             worktree_path=wt_path,
             branch="test-branch",
             project="test",
+            runtime=LocalEnvironmentRuntime(),
         )
 
         # Should complete without raising any errors

@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from worker_manager.env.loader import (
     discover_env_vars_from_dotenv_example,
     load_env_layers,
@@ -11,6 +14,30 @@ from worker_manager.env.loader import (
 
 
 class TestParseTanrenYml:
+    def test_valid_with_environment_block(self, tmp_path: Path):
+        yml = tmp_path / "tanren.yml"
+        yml.write_text(
+            "version: 0.1.0\n"
+            "profile: default\n"
+            "installed: 2026-01-01\n"
+            "environment:\n"
+            "  ci:\n"
+            "    type: docker\n"
+            "    gate_cmd: make test\n"
+        )
+        config = parse_tanren_yml(tmp_path)
+        assert config is not None
+        assert config.environment is not None
+        assert config.environment["ci"] == {"type": "docker", "gate_cmd": "make test"}
+
+    def test_unknown_top_level_key_rejected(self, tmp_path: Path):
+        yml = tmp_path / "tanren.yml"
+        yml.write_text(
+            "version: 0.1.0\nprofile: default\ninstalled: 2026-01-01\nunknown_top_level_key: true\n"
+        )
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            parse_tanren_yml(tmp_path)
+
     def test_valid_with_env(self, tmp_path: Path):
         yml = tmp_path / "tanren.yml"
         yml.write_text(

@@ -59,7 +59,7 @@ class TestPostflightIntegration:
             {"spec.md": original},
         )
 
-        assert result.integrity_repairs["spec_reverted"] is True
+        assert result.integrity_repairs.spec_reverted is True
         # Verify file content is reverted
         assert (git_repo / "spec.md").read_text() == original
 
@@ -85,7 +85,7 @@ class TestPostflightIntegration:
             {"spec.md": original},
         )
 
-        assert result.integrity_repairs["spec_reverted"] is True
+        assert result.integrity_repairs.spec_reverted is True
         assert (git_repo / "spec.md").read_text() == original
 
         # Verify a revert commit was created (separate from agent's commit)
@@ -104,7 +104,7 @@ class TestPostflightIntegration:
 
         result = await run_postflight(git_repo, "test-branch", "do-task", {}, {})
 
-        assert result.integrity_repairs["wip_committed"] is True
+        assert result.integrity_repairs.wip_committed is True
 
         # Verify WIP commit exists
         proc = subprocess.run(
@@ -119,8 +119,8 @@ class TestPostflightIntegration:
         """No modifications — no repairs needed (push will fail without remote, that's OK)."""
         result = await run_postflight(git_repo, "test-branch", "do-task", {}, {})
 
-        assert result.integrity_repairs["spec_reverted"] is False
-        assert result.integrity_repairs["wip_committed"] is False
+        assert result.integrity_repairs.spec_reverted is False
+        assert result.integrity_repairs.wip_committed is False
         # Push will fail without a remote, but that's expected in test
         assert result.pushed is False
 
@@ -145,8 +145,8 @@ class TestPostflightIntegration:
         )
 
         # Integrity ran: spec reverted and WIP committed
-        assert result.integrity_repairs["spec_reverted"] is True
-        assert result.integrity_repairs["wip_committed"] is True
+        assert result.integrity_repairs.spec_reverted is True
+        assert result.integrity_repairs.wip_committed is True
         assert (git_repo / "spec.md").read_text() == original
         # Push was skipped
         assert result.pushed is False

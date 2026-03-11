@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from worker_manager.adapters.remote_types import RemoteResult
 from worker_manager.adapters.ssh import SSHConfig, SSHConnection
@@ -12,6 +13,7 @@ from worker_manager.adapters.ssh import SSHConfig, SSHConnection
 # ---------------------------------------------------------------------------
 # SSHConfig defaults
 # ---------------------------------------------------------------------------
+
 
 class TestSSHConfig:
     def test_defaults(self):
@@ -24,13 +26,14 @@ class TestSSHConfig:
 
     def test_frozen(self):
         cfg = SSHConfig(host="10.0.0.1")
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValidationError, match="Instance is frozen"):
             cfg.host = "other"  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_conn(host: str = "10.0.0.1", **kw) -> SSHConnection:
     return SSHConnection(SSHConfig(host=host, **kw))
@@ -61,6 +64,7 @@ def _mock_channel(
 # ---------------------------------------------------------------------------
 # SSHConnection._ensure_connected
 # ---------------------------------------------------------------------------
+
 
 @patch("worker_manager.adapters.ssh.paramiko")
 class TestEnsureConnected:
@@ -137,6 +141,7 @@ class TestEnsureConnected:
 # ---------------------------------------------------------------------------
 # SSHConnection._run_sync / run
 # ---------------------------------------------------------------------------
+
 
 @patch("worker_manager.adapters.ssh.paramiko")
 class TestRunSync:
@@ -232,6 +237,7 @@ class TestRunSync:
 # Async wrappers
 # ---------------------------------------------------------------------------
 
+
 @patch("worker_manager.adapters.ssh.paramiko")
 class TestAsyncRun:
     @pytest.mark.asyncio
@@ -264,6 +270,7 @@ class TestAsyncRun:
 # ---------------------------------------------------------------------------
 # SFTP upload / download
 # ---------------------------------------------------------------------------
+
 
 @patch("worker_manager.adapters.ssh.paramiko")
 class TestSFTP:
@@ -316,6 +323,7 @@ class TestSFTP:
 # ---------------------------------------------------------------------------
 # check_connection / get_host_identifier / close
 # ---------------------------------------------------------------------------
+
 
 @patch("worker_manager.adapters.ssh.paramiko")
 class TestMisc:

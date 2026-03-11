@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-from click.testing import CliRunner
+from typer.testing import CliRunner
 
 from worker_manager.adapters.remote_types import VMAssignment
 from worker_manager.vm_cli import vm

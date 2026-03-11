@@ -2,65 +2,97 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from typing import cast
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-@dataclass(frozen=True)
-class ResourceRequirements:
+class ResourceRequirements(BaseModel):
     """Resource requirements for an execution environment."""
 
-    cpu: int = 2
-    memory_gb: int = 4
-    gpu: bool = False
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    cpu: int = Field(default=2, ge=1)
+    memory_gb: int = Field(default=4, ge=1)
+    gpu: bool = Field(default=False)
 
 
-@dataclass(frozen=True)
-class EnvironmentProfile:
+class EnvironmentProfile(BaseModel):
     """Parsed environment profile from tanren.yml."""
 
-    name: str
-    type: str = "local"
-    resources: ResourceRequirements = field(default_factory=ResourceRequirements)
-    setup: tuple[str, ...] = ()
-    teardown: tuple[str, ...] = ()
-    gate_cmd: str = "make check"
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(...)
+    type: str = Field(default="local")
+    resources: ResourceRequirements = Field(default_factory=ResourceRequirements)
+    setup: tuple[str, ...] = Field(default_factory=tuple)
+    teardown: tuple[str, ...] = Field(default_factory=tuple)
+    gate_cmd: str = Field(default="make check")
 
 
-def parse_environment_profiles(data: dict) -> dict[str, EnvironmentProfile]:
+def _coerce_str_tuple(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    return tuple(str(v) for v in raw)
+
+
+def _coerce_environment_type(raw: object) -> str:
+    raw_value = str(raw).strip()
+    return raw_value if raw_value else "local"
+
+
+def _coerce_int(raw: object, default: int) -> int:
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+    return default
+
+
+def parse_environment_profiles(data: dict[str, object]) -> dict[str, EnvironmentProfile]:
     """Parse 'environment' section of tanren.yml.
 
     Always returns at least 'default' (type=local).
     """
     profiles: dict[str, EnvironmentProfile] = {}
 
-    env_section = data.get("environment", {})
-    if not isinstance(env_section, dict):
-        env_section = {}
+    env_section_raw = data.get("environment", {})
+    env_section: dict[str, object] = (
+        cast(dict[str, object], env_section_raw) if isinstance(env_section_raw, dict) else {}
+    )
 
-    for name, raw in env_section.items():
+    for raw_name, raw in env_section.items():
+        name = str(raw_name)
         if not isinstance(raw, dict):
             continue
 
-        raw_resources = raw.get("resources", {})
-        if not isinstance(raw_resources, dict):
-            raw_resources = {}
+        raw_dict = cast(dict[str, object], raw)
+        raw_resources_data = raw_dict.get("resources", {})
+        raw_resources: dict[str, object] = (
+            cast(dict[str, object], raw_resources_data)
+            if isinstance(raw_resources_data, dict)
+            else {}
+        )
 
         resources = ResourceRequirements(
-            cpu=int(raw_resources.get("cpu", 2)),
-            memory_gb=int(raw_resources.get("memory_gb", 4)),
+            cpu=_coerce_int(raw_resources.get("cpu", 2), 2),
+            memory_gb=_coerce_int(raw_resources.get("memory_gb", 4), 4),
             gpu=bool(raw_resources.get("gpu", False)),
         )
 
-        setup_raw = raw.get("setup", [])
-        teardown_raw = raw.get("teardown", [])
+        setup_raw = raw_dict.get("setup", [])
+        teardown_raw = raw_dict.get("teardown", [])
 
         profiles[name] = EnvironmentProfile(
             name=name,
-            type=str(raw.get("type", "local")),
+            type=_coerce_environment_type(raw_dict.get("type", "local")),
             resources=resources,
-            setup=tuple(setup_raw) if isinstance(setup_raw, list) else (),
-            teardown=tuple(teardown_raw) if isinstance(teardown_raw, list) else (),
-            gate_cmd=str(raw.get("gate_cmd", "make check")),
+            setup=_coerce_str_tuple(setup_raw),
+            teardown=_coerce_str_tuple(teardown_raw),
+            gate_cmd=str(raw_dict.get("gate_cmd", "make check")),
         )
 
     # Always provide a default profile

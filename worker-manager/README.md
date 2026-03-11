@@ -87,7 +87,7 @@ allows different phases to use different backends.
 ```yaml
 agents:
   conversation:
-    cli: claude-code
+    cli: claude
     model: claude-opus-4-6
     auth: oauth
   implementation:
@@ -99,7 +99,7 @@ agents:
     cli: codex
     auth: api_key
   default:
-    cli: claude-code
+    cli: claude
     model: claude-sonnet-4-20250514
     auth: oauth
 ```
@@ -151,6 +151,9 @@ tanren vm list      # Show active VM assignments
 tanren vm release VM_ID  # Manually release a stuck VM
 tanren vm recover   # Check connectivity, release unreachable VMs
 ```
+
+All CLI commands are implemented with Typer and keep stable command/flag
+surface for `tanren env`, `tanren secret`, and `tanren vm`.
 
 On startup, the manager automatically runs recovery to release VMs from
 previous crashed sessions.

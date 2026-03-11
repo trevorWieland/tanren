@@ -26,10 +26,10 @@ class TestPostflightResult:
         r = PostflightResult()
         assert r.pushed is False
         assert r.push_error is None
-        assert r.integrity_repairs["branch_switched"] is False
-        assert r.integrity_repairs["spec_reverted"] is False
-        assert r.integrity_repairs["plan_reverted"] is False
-        assert r.integrity_repairs["wip_committed"] is False
+        assert r.integrity_repairs.branch_switched is False
+        assert r.integrity_repairs.spec_reverted is False
+        assert r.integrity_repairs.plan_reverted is False
+        assert r.integrity_repairs.wip_committed is False
 
 
 class TestBranchRecovery:
@@ -47,7 +47,7 @@ class TestBranchRecovery:
             ]
             result = await run_postflight(worktree, "my-branch", "do-task", {}, {})
 
-        assert result.integrity_repairs["branch_switched"] is True
+        assert result.integrity_repairs.branch_switched is True
 
 
 class TestSpecRevert:
@@ -72,7 +72,7 @@ class TestSpecRevert:
             ]
             result = await run_postflight(worktree, "my-branch", "do-task", hashes, backups)
 
-        assert result.integrity_repairs["spec_reverted"] is True
+        assert result.integrity_repairs.spec_reverted is True
         # Verify file was reverted on disk
         assert (worktree / "spec.md").read_text() == original_spec
 
@@ -100,7 +100,7 @@ class TestSpecRevert:
                 {"spec.md": original},
             )
 
-        assert result.integrity_repairs["spec_reverted"] is True
+        assert result.integrity_repairs.spec_reverted is True
 
 
 class TestPlanRevert:
@@ -128,7 +128,7 @@ class TestPlanRevert:
                 {"plan.md": original},
             )
 
-        assert result.integrity_repairs["plan_reverted"] is True
+        assert result.integrity_repairs.plan_reverted is True
         assert (worktree / "plan.md").read_text() == original
 
     @pytest.mark.asyncio
@@ -154,7 +154,7 @@ class TestPlanRevert:
                 {"plan.md": original},
             )
 
-        assert result.integrity_repairs["plan_reverted"] is False
+        assert result.integrity_repairs.plan_reverted is False
         # plan.md should still have the modified content
         assert (worktree / "plan.md").read_text() == modified
 
@@ -181,7 +181,7 @@ class TestPlanRevert:
                 {"plan.md": original},
             )
 
-        assert result.integrity_repairs["plan_reverted"] is False
+        assert result.integrity_repairs.plan_reverted is False
 
 
 class TestWarnOnly:
@@ -208,7 +208,7 @@ class TestWarnOnly:
                 {"Makefile": original},
             )
 
-        assert result.integrity_repairs["makefile_modified"] is True
+        assert result.integrity_repairs.makefile_modified is True
         # Makefile should NOT be reverted
         assert (worktree / "Makefile").read_text() == modified
 
@@ -262,7 +262,7 @@ class TestUncommittedWork:
             ]
             result = await run_postflight(worktree, "my-branch", "do-task", {}, {})
 
-        assert result.integrity_repairs["wip_committed"] is True
+        assert result.integrity_repairs.wip_committed is True
 
 
 class TestPush:
@@ -358,7 +358,7 @@ class TestSkipPush:
                 skip_push=True,
             )
 
-        assert result.integrity_repairs["spec_reverted"] is True
+        assert result.integrity_repairs.spec_reverted is True
         assert (worktree / "spec.md").read_text() == original
         assert result.pushed is False
 
@@ -377,8 +377,8 @@ class TestNoRepairsNeeded:
             ]
             result = await run_postflight(worktree, "my-branch", "do-task", {}, {})
 
-        assert result.integrity_repairs["branch_switched"] is False
-        assert result.integrity_repairs["spec_reverted"] is False
-        assert result.integrity_repairs["plan_reverted"] is False
-        assert result.integrity_repairs["wip_committed"] is False
+        assert result.integrity_repairs.branch_switched is False
+        assert result.integrity_repairs.spec_reverted is False
+        assert result.integrity_repairs.plan_reverted is False
+        assert result.integrity_repairs.wip_committed is False
         assert result.pushed is True
