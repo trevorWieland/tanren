@@ -129,6 +129,7 @@ def env_kit(tmp_path: Path):
     workspace_mgr.setup.return_value = _make_workspace()
     workspace_mgr.inject_secrets.return_value = None
     workspace_mgr.cleanup.return_value = None
+    workspace_mgr.push_command = MagicMock(return_value="git push origin main")
     runner.run.return_value = _make_agent_result()
     secret_loader.build_bundle.return_value = SecretBundle()
     state_store.record_assignment.return_value = None
@@ -331,7 +332,7 @@ class TestExecute:
         assert env_kit["runner"].run.await_count == 3
 
     async def test_pushes_on_push_phases(self, env_kit):
-        """execute() pushes to remote on push phases (DO_TASK, etc.)."""
+        """execute() pushes to remote on push phases using workspace_mgr.push_command()."""
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(
@@ -341,17 +342,27 @@ class TestExecute:
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         config = env_kit["config"]
 
+        env_kit["workspace_mgr"].push_command.return_value = (
+            "GIT_ASKPASS=/workspace/.git-askpass GIT_TERMINAL_PROMPT=0 "
+            "git push origin feature-1"
+        )
+
         with patch("worker_manager.adapters.ssh_environment.map_outcome") as mock_map:
             mock_map.return_value = (Outcome.SUCCESS, "success")
 
             await env.execute(handle, dispatch, config)
 
-        # conn.run should have been called for the git push
+        # push_command called with correct args
+        env_kit["workspace_mgr"].push_command.assert_called_once_with(
+            "/workspace/myproj", "feature-1"
+        )
+        # conn.run should have been called with the auth-prefixed push command
         push_calls = [
             c for c in conn.run.call_args_list
             if "git push" in str(c)
         ]
         assert len(push_calls) == 1
+        assert "GIT_ASKPASS" in str(push_calls[0])
 
     async def test_skips_push_on_error_outcome(self, env_kit):
         """execute() skips push when outcome is ERROR or TIMEOUT."""

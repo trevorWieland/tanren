@@ -253,10 +253,11 @@ env:
 
 Environment variables are loaded from multiple layers (highest priority first):
 
-1. Process environment
-2. `~/.config/tanren/secrets.env` (managed via `tanren secret set`)
-3. Project `.env` file
-4. Defaults from tanren.yml optional vars
+1. Process environment (`os.environ`)
+2. Project `.env` file
+3. `~/.config/tanren/secrets.d/*.env` files (alphabetical order)
+4. `~/.config/tanren/secrets.env` (managed via `tanren secret set`)
+5. Defaults from tanren.yml optional vars
 
 The `tanren env check` command validates the current environment locally.
 The `tanren env init` command scaffolds an env block from `.env.example`.

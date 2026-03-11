@@ -88,8 +88,8 @@ class TestMultipleProfiles:
         result = parse_environment_profiles(data)
         assert "local" in result
         assert "staging" in result
-        # default is not injected because "default" key is absent but
-        # the function always adds one if missing
+        # "default" key is absent from input, but the function always adds
+        # one if missing
         assert "default" in result
         assert len(result) == 3
 

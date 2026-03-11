@@ -274,10 +274,8 @@ class SSHExecutionEnvironment:
             dispatch.phase in _PUSH_PHASES
             and outcome not in (Outcome.ERROR, Outcome.TIMEOUT)
         ):
-            await conn.run(
-                f"cd {workspace.path} && git push origin {shlex.quote(dispatch.branch)}",
-                timeout=120,
-            )
+            push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
+            await conn.run(push_cmd, timeout=120)
 
         return PhaseResult(
             outcome=outcome,

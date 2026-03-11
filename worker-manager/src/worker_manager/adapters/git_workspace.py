@@ -123,6 +123,12 @@ class GitWorkspaceManager:
             await conn.upload_content(content, env_path)
             await conn.run(f"chmod 600 {shlex.quote(env_path)}", timeout=10)
 
+    def push_command(self, workspace_path: str, branch: str) -> str:
+        """Return an auth-prefixed git push command string."""
+        quoted_path = shlex.quote(workspace_path)
+        quoted_branch = shlex.quote(branch)
+        return f"cd {quoted_path} && {self._git_env_prefix()}git push origin {quoted_branch}"
+
     async def cleanup(self, conn, workspace: WorkspacePath) -> None:
         """Remove secret files and auth helpers from remote workspace."""
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)

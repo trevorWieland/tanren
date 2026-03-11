@@ -245,6 +245,34 @@ class TestInjectSecrets:
 
 
 # ---------------------------------------------------------------------------
+# push_command
+# ---------------------------------------------------------------------------
+
+class TestPushCommand:
+    def test_push_command_with_token_includes_auth_env(self):
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_abc"))
+        cmd = mgr.push_command("/workspace/myapp", "feature-1")
+        assert "GIT_ASKPASS=/workspace/.git-askpass" in cmd
+        assert "GIT_TERMINAL_PROMPT=0" in cmd
+        assert "git push origin" in cmd
+        assert "feature-1" in cmd
+        assert "cd /workspace/myapp" in cmd
+
+    def test_push_command_without_token_no_auth_env(self):
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
+        cmd = mgr.push_command("/workspace/myapp", "main")
+        assert "GIT_ASKPASS" not in cmd
+        assert "git push origin main" in cmd
+
+    def test_push_command_quotes_branch_with_special_chars(self):
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        cmd = mgr.push_command("/workspace/myapp", "feature/my branch")
+        assert "feature/my branch" in cmd
+        # Branch should be shell-quoted
+        assert "'" in cmd or '"' in cmd
+
+
+# ---------------------------------------------------------------------------
 # cleanup
 # ---------------------------------------------------------------------------
 
