@@ -220,7 +220,12 @@ class HetznerVMProvisioner:
             delete()
         except Exception:
             server_id = getattr(server, "id", "<unknown>")
-            logger.warning("Hetzner %s: failed deleting server %s", context, server_id, exc_info=True)
+            logger.warning(
+                "Hetzner %s: failed deleting server %s",
+                context,
+                server_id,
+                exc_info=True,
+            )
 
     def _resolve_hourly_cost(self, server_type_name: str, location_name: str) -> float | None:
         server_type = self._client.server_types.get_by_name(server_type_name)

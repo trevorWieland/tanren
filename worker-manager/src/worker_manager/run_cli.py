@@ -1,4 +1,9 @@
-"""tanren run - standalone execution lifecycle commands."""
+"""tanren run - standalone execution lifecycle commands.
+
+Reference docs:
+- docs/interfaces.md
+- docs/getting-started/bootstrap.md
+"""
 
 from __future__ import annotations
 

@@ -7,6 +7,12 @@ the appropriate CLI process inside a git worktree, extracts structured signals
 from agent output, runs pre/post-flight integrity checks, and writes results
 back through the IPC layer.
 
+## Documentation Boundaries
+
+- This README is the canonical runtime and operations reference for worker-manager.
+- Project-level architecture and lifecycle policy live in `../docs/`.
+- Protocol wire contracts live in `../protocol/PROTOCOL.md`.
+
 
 ## Architecture
 
@@ -288,6 +294,9 @@ tanren secret list
 Secrets are stored in `~/.config/tanren/secrets.env` (or `$XDG_CONFIG_HOME/tanren/secrets.env`)
 and automatically loaded during environment validation.
 
+For canonical secret scope, config scope, and security model guidance, see
+`../docs/operations/security-secrets.md`.
+
 
 ## Development
 
@@ -329,3 +338,11 @@ src/worker_manager/
 tests/unit/             # make test
 tests/integration/      # make ci
 ```
+
+## Related Documentation
+
+- `../docs/architecture/overview.md` - architecture boundaries and layering
+- `../docs/workflow/spec-lifecycle.md` - lifecycle policy and orchestration intent
+- `../docs/operations/observability.md` - event model and metering queries
+- `../docs/interfaces.md` - CLI/library/IPC interaction surfaces
+- `ADAPTERS.md` - adapter decomposition and extension points

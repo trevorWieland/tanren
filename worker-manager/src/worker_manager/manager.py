@@ -1,4 +1,9 @@
-"""Top-level worker manager: poll loop, dispatch handling, startup/shutdown."""
+"""Top-level worker manager: poll loop, dispatch handling, startup/shutdown.
+
+Reference docs:
+- docs/workflow/spec-lifecycle.md
+- protocol/PROTOCOL.md
+"""
 
 import asyncio
 import contextlib
