@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 _xdg_config = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-DEFAULT_SECRETS_DIR = Path(_xdg_config) / "tanren"
+DEFAULT_SECRETS_DIR = (Path(_xdg_config) / "tanren").expanduser()
 
 
 def redact(value: str) -> str:

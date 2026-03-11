@@ -599,7 +599,7 @@ class WorkerManager:
 
             # 2b. Sync remote changes to local worktree for findings parsing
             if self._config.remote_config_path:
-                await self._sync_remote_changes(worktree_path, dispatch.branch)
+                await self._sync_remote_changes(worktree_path)
 
             # 3. Build gate_output (gate phases only)
             gate_output = None
@@ -737,7 +737,7 @@ class WorkerManager:
 
         return new_tasks, findings_data
 
-    async def _sync_remote_changes(self, worktree_path: Path, branch: str) -> None:
+    async def _sync_remote_changes(self, worktree_path: Path) -> None:
         """Pull remote changes into local worktree after remote execution."""
         import subprocess
 
