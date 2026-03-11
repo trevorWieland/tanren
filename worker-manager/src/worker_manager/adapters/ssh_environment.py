@@ -320,7 +320,8 @@ class SSHExecutionEnvironment:
             for cmd in teardown_cmds:
                 try:
                     await conn.run(
-                        f"cd {workspace.path} && {cmd}", timeout=120
+                        f"cd {shlex.quote(workspace.path)} && {cmd}",
+                        timeout=120,
                     )
                 except Exception:
                     logger.warning("Teardown command failed: %s", cmd)

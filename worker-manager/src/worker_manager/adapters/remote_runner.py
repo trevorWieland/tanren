@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import time
 
 from worker_manager.adapters.remote_types import RemoteAgentResult, WorkspacePath
@@ -47,12 +48,13 @@ class RemoteAgentRunner:
         await conn.upload_content(prompt_content, prompt_path)
 
         # Build command with secret sourcing
+        ws = shlex.quote(workspace.path)
         command = (
             f"set -a && "
             f"source /workspace/.developer-secrets 2>/dev/null; "
-            f"source {workspace.path}/.env 2>/dev/null; "
+            f"source {ws}/.env 2>/dev/null; "
             f"set +a && "
-            f"cd {workspace.path} && "
+            f"cd {ws} && "
             f"{cli_command}"
         )
 
@@ -65,7 +67,7 @@ class RemoteAgentRunner:
         signal_content = await conn.download_content(signal_path) or ""
 
         # Clean up prompt file
-        await conn.run(f"rm -f {prompt_path}", timeout=10)
+        await conn.run(f"rm -f {shlex.quote(prompt_path)}", timeout=10)
 
         return RemoteAgentResult(
             exit_code=result.exit_code,

@@ -216,6 +216,10 @@ class WorkerManager:
         # Close event emitter
         await self._emitter.close()
 
+        # Close remote state store if present
+        if hasattr(self, "_remote_state_store"):
+            await self._remote_state_store.close()
+
         logger.info("Worker manager stopped")
 
     def _signal_shutdown(self) -> None:
@@ -302,11 +306,15 @@ class WorkerManager:
         state_store = SqliteVMStateStore(
             f"{self._config.data_dir}/vm-state.db"
         )
+        self._remote_state_store = state_store
 
         # Read extra bootstrap script if configured
         extra_script = None
         if remote_cfg.bootstrap.extra_script:
             script_path = Path(remote_cfg.bootstrap.extra_script).expanduser()
+            if not script_path.is_absolute():
+                config_dir = Path(self._config.remote_config_path).resolve().parent
+                script_path = config_dir / script_path
             if script_path.exists():
                 extra_script = script_path.read_text()
             else:
@@ -589,6 +597,10 @@ class WorkerManager:
             duration = phase_result.duration_secs
             spec_folder_path = worktree_path / dispatch.spec_folder
 
+            # 2b. Sync remote changes to local worktree for findings parsing
+            if self._config.remote_config_path:
+                await self._sync_remote_changes(worktree_path, dispatch.branch)
+
             # 3. Build gate_output (gate phases only)
             gate_output = None
             if dispatch.phase == Phase.GATE:
@@ -724,6 +736,33 @@ class WorkerManager:
                     new_tasks.extend(rc.suggested_tasks)
 
         return new_tasks, findings_data
+
+    async def _sync_remote_changes(self, worktree_path: Path, branch: str) -> None:
+        """Pull remote changes into local worktree after remote execution."""
+        import subprocess
+
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["git", "pull", "--ff-only"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "git pull failed in worktree %s: %s",
+                    worktree_path,
+                    result.stderr.strip(),
+                )
+        except Exception:
+            logger.warning(
+                "Failed to sync remote changes to %s",
+                worktree_path,
+                exc_info=True,
+            )
 
     async def _write_result_and_nudge(self, result: Result, workflow_id: str) -> None:
         """Write result to results/ and nudge to input/."""
