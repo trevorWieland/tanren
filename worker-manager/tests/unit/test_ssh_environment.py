@@ -24,6 +24,8 @@ from worker_manager.env.environment_schema import EnvironmentProfile, ResourceRe
 from worker_manager.errors import ErrorClass
 from worker_manager.schemas import Cli, Dispatch, Outcome, Phase
 
+_SSH_ENV = "worker_manager.adapters.ssh_environment"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -285,7 +287,8 @@ class TestExecute:
         dispatch = _make_dispatch()
         config = env_kit["config"]
 
-        with patch("worker_manager.adapters.ssh_environment.map_outcome") as mock_map:
+        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
+             patch(f"{_SSH_ENV}.map_outcome") as mock_map:
             mock_map.return_value = (Outcome.SUCCESS, "success")
 
             result = await env.execute(handle, dispatch, config)
@@ -310,18 +313,19 @@ class TestExecute:
         transient_result = _make_agent_result(
             exit_code=1, stdout="rate limit 429", timed_out=False, signal_content="",
         )
-        success_result = _make_agent_result(exit_code=0, signal_content="success")
+        success_result = _make_agent_result(exit_code=0, signal_content="do-task-status: complete")
         env_kit["runner"].run.side_effect = [
             transient_result, transient_result, success_result,
         ]
 
-        with patch("worker_manager.adapters.ssh_environment.map_outcome") as mock_map, \
-             patch("worker_manager.adapters.ssh_environment.classify_error") as mock_classify, \
+        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
+             patch(f"{_SSH_ENV}.map_outcome") as mock_map, \
+             patch(f"{_SSH_ENV}.classify_error") as mock_classify, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             mock_map.side_effect = [
                 (Outcome.ERROR, None),
                 (Outcome.ERROR, None),
-                (Outcome.SUCCESS, "success"),
+                (Outcome.SUCCESS, "complete"),
             ]
             mock_classify.return_value = ErrorClass.TRANSIENT
 
@@ -347,7 +351,8 @@ class TestExecute:
             "git push origin feature-1"
         )
 
-        with patch("worker_manager.adapters.ssh_environment.map_outcome") as mock_map:
+        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
+             patch(f"{_SSH_ENV}.map_outcome") as mock_map:
             mock_map.return_value = (Outcome.SUCCESS, "success")
 
             await env.execute(handle, dispatch, config)
@@ -376,11 +381,12 @@ class TestExecute:
         config = env_kit["config"]
 
         env_kit["runner"].run.return_value = _make_agent_result(
-            exit_code=1, stdout="fatal error", signal_content="error",
+            exit_code=1, stdout="fatal error", signal_content="do-task-status: error",
         )
 
-        with patch("worker_manager.adapters.ssh_environment.map_outcome") as mock_map, \
-             patch("worker_manager.adapters.ssh_environment.classify_error") as mock_classify:
+        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
+             patch(f"{_SSH_ENV}.map_outcome") as mock_map, \
+             patch(f"{_SSH_ENV}.classify_error") as mock_classify:
             mock_map.return_value = (Outcome.ERROR, "error")
             mock_classify.return_value = ErrorClass.FATAL
 
@@ -571,8 +577,9 @@ class TestClassifyErrorReceivesStderr:
         )
         env_kit["runner"].run.side_effect = [error_result]
 
-        with patch("worker_manager.adapters.ssh_environment.map_outcome") as mock_map, \
-             patch("worker_manager.adapters.ssh_environment.classify_error") as mock_classify:
+        with patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"), \
+             patch(f"{_SSH_ENV}.map_outcome") as mock_map, \
+             patch(f"{_SSH_ENV}.classify_error") as mock_classify:
             mock_map.return_value = (Outcome.ERROR, None)
             mock_classify.return_value = ErrorClass.FATAL
 

@@ -170,6 +170,30 @@ class TestRunSync:
         assert "timed out" in result.stderr.lower()
         chan.settimeout.assert_called_once_with(1.0)
 
+    @patch("worker_manager.adapters.ssh.time")
+    def test_wall_clock_timeout_catches_silent_hang(self, mock_time, mock_paramiko):
+        """Wall-clock timeout fires when command hangs without producing output."""
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        chan = MagicMock()
+        mock_client.get_transport.return_value.open_session.return_value = chan
+
+        # Channel never becomes ready — simulates a hung command
+        chan.exit_status_ready.return_value = False
+        chan.recv_ready.return_value = False
+        chan.recv_stderr_ready.return_value = False
+
+        # Simulate time advancing past the timeout on the second monotonic() call
+        mock_time.monotonic.side_effect = [0.0, 0.0, 11.0]
+        mock_time.sleep = MagicMock()
+
+        conn = _make_conn()
+        result = conn._run_sync("hang-forever", timeout=10)
+
+        assert result.timed_out is True
+        assert result.exit_code == -1
+        assert "timed out" in result.stderr.lower()
+
     def test_stdin_data_sent_via_channel(self, mock_paramiko):
         mock_client = MagicMock()
         mock_paramiko.SSHClient.return_value = mock_client

@@ -112,11 +112,16 @@ class SSHConnection:
             channel.shutdown_write()
 
         timed_out = False
+        start_time = time.monotonic()
         try:
             stdout_data = b""
             stderr_data = b""
 
             while True:
+                # Wall-clock timeout check (catches silent hung commands)
+                if timeout is not None and (time.monotonic() - start_time) > timeout:
+                    raise TimeoutError("Command timed out")
+
                 if channel.exit_status_ready():
                     # Drain remaining data
                     while channel.recv_ready():

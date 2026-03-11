@@ -32,9 +32,10 @@ from worker_manager.adapters.types import AccessInfo, EnvironmentHandle, PhaseRe
 from worker_manager.config import Config
 from worker_manager.env.environment_schema import parse_environment_profiles
 from worker_manager.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
+from worker_manager.process import assemble_prompt
 from worker_manager.schemas import Dispatch, Outcome, Phase
 from worker_manager.secrets import SecretLoader
-from worker_manager.signals import map_outcome
+from worker_manager.signals import map_outcome, parse_signal_token
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,15 @@ class SSHExecutionEnvironment:
         start = time.monotonic()
         transient_retries = 0
 
+        # Build full prompt (same as local path)
+        command_name = dispatch.phase.value
+        command_file = (
+            handle.worktree_path / config.commands_dir / f"{command_name}.md"
+        )
+        prompt_content = assemble_prompt(
+            command_file, dispatch.spec_folder, command_name, dispatch.context
+        )
+
         while True:
             # Build CLI command
             cli_command = self._build_cli_command(dispatch, config)
@@ -218,16 +228,24 @@ class SSHExecutionEnvironment:
             agent_result = await self._runner.run(
                 conn,
                 workspace,
-                prompt_content=dispatch.context or "",
+                prompt_content=prompt_content,
                 cli_command=cli_command,
                 signal_path=signal_path,
                 timeout=dispatch.timeout,
             )
 
+            # Parse signal token from raw file content
+            raw_signal = agent_result.signal_content or ""
+            signal_token = (
+                parse_signal_token(command_name, raw_signal)
+                if raw_signal.strip()
+                else None
+            )
+
             # Map outcome
             outcome, signal_val = map_outcome(
                 dispatch.phase,
-                agent_result.signal_content or None,
+                signal_token,
                 agent_result.exit_code,
                 agent_result.timed_out,
             )
