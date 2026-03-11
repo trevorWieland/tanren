@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dotenv import dotenv_values
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
 from worker_manager.adapters.remote_types import SecretBundle
@@ -32,6 +32,13 @@ class SecretLoader:
 
     def __init__(self, config: SecretConfig | None = None) -> None:
         self._config = config or SecretConfig()
+
+    def autoload_into_env(self, *, override: bool = False) -> None:
+        """Load developer secrets into process env."""
+        path = Path(self._config.developer_secrets_path).expanduser()
+        if not path.exists():
+            return
+        load_dotenv(dotenv_path=path, override=override)
 
     def load_developer(self) -> dict[str, str]:
         """Load developer secrets from secrets.env file."""

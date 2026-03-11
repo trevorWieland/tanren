@@ -7,8 +7,16 @@ import os
 from pathlib import Path
 
 import typer
+import yaml
+from dotenv import dotenv_values
 
+from worker_manager.adapters.hetzner_vm import HetznerProvisionerSettings
+from worker_manager.adapters.manual_vm import ManualProvisionerSettings
 from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
+from worker_manager.adapters.ubuntu_bootstrap import UbuntuBootstrapper
+from worker_manager.env.environment_schema import EnvironmentProfile, parse_environment_profiles
+from worker_manager.remote_config import ProvisionerType, load_remote_config
+from worker_manager.secrets import SecretConfig, SecretLoader
 
 vm_app = typer.Typer(help="Manage remote VM assignments.")
 
@@ -18,6 +26,10 @@ def _get_state_store() -> SqliteVMStateStore:
     data_dir = str(Path(os.environ.get("WM_DATA_DIR", "~/.local/share/tanren-worker")).expanduser())
     db_path = f"{data_dir}/vm-state.db"
     return SqliteVMStateStore(db_path)
+
+
+def _github_dir() -> Path:
+    return Path(os.environ.get("WM_GITHUB_DIR", "~/github")).expanduser()
 
 
 @vm_app.command("list")
@@ -120,6 +132,97 @@ def vm_recover() -> None:
             await store.close()
 
     asyncio.run(_run())
+
+
+@vm_app.command("dry-run")
+def vm_dry_run(
+    project: str = typer.Option(..., "--project"),
+    environment_profile: str = typer.Option("default", "--environment-profile"),
+) -> None:
+    """Show what remote provision would do without creating resources."""
+    remote_config_path = os.environ.get("WM_REMOTE_CONFIG")
+    if not remote_config_path:
+        typer.echo("WM_REMOTE_CONFIG is required for vm dry-run.", err=True)
+        raise typer.Exit(code=1)
+
+    remote_cfg = load_remote_config(remote_config_path)
+
+    tanren_yml = _github_dir() / project / "tanren.yml"
+    if tanren_yml.exists():
+        raw = yaml.safe_load(tanren_yml.read_text()) or {}
+        data = raw if isinstance(raw, dict) else {}
+        profiles = parse_environment_profiles(data)
+    else:
+        profiles = parse_environment_profiles({})
+    profile = profiles.get(environment_profile, EnvironmentProfile(name=environment_profile))
+
+    typer.echo(f"project: {project}")
+    typer.echo(f"profile: {profile.name}")
+    typer.echo(f"provisioner: {remote_cfg.provisioner.type.value}")
+
+    if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+        settings = HetznerProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
+        resolved_server_type = profile.server_type or settings.default_server_type
+        source = (
+            "profile.server_type"
+            if profile.server_type
+            else "provisioner.settings.default_server_type"
+        )
+        typer.echo(f"server_type: {resolved_server_type} ({source})")
+        typer.echo(f"location: {settings.location}")
+        typer.echo(f"image: {settings.image}")
+        typer.echo(f"ssh_key_name: {settings.ssh_key_name}")
+    elif remote_cfg.provisioner.type == ProvisionerType.MANUAL:
+        settings = ManualProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
+        typer.echo(f"manual_vm_pool_size: {len(settings.vms)}")
+    else:
+        typer.echo(f"unsupported provisioner type: {remote_cfg.provisioner.type}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo("bootstrap_steps:")
+    bootstrap_plan = UbuntuBootstrapper.plan()
+    typer.echo(f"  apt: {' '.join(bootstrap_plan.apt_packages)}")
+    for step in bootstrap_plan.install_steps:
+        typer.echo(f"  install: {step.name}")
+    if remote_cfg.bootstrap.extra_script:
+        typer.echo(f"  extra_script: {remote_cfg.bootstrap.extra_script}")
+
+    repo_url = remote_cfg.repo_url_for(project)
+    if repo_url:
+        typer.echo(f"repo_clone: {repo_url}")
+    else:
+        typer.echo("repo_clone: <missing repo mapping>")
+
+    typer.echo("setup_commands:")
+    if profile.setup:
+        for cmd in profile.setup:
+            typer.echo(f"  - {cmd}")
+    else:
+        typer.echo("  - <none>")
+
+    project_env_file = _github_dir() / project / ".env"
+    project_secret_keys = []
+    if project_env_file.exists():
+        project_secret_keys = sorted(dotenv_values(project_env_file).keys())
+
+    secret_config = SecretConfig(
+        developer_secrets_path=(
+            remote_cfg.secrets.developer_secrets_path or SecretConfig().developer_secrets_path
+        ),
+    )
+    loader = SecretLoader(secret_config)
+    developer_secret_keys = sorted(loader.load_developer().keys())
+    infrastructure_secret_keys = sorted(secret_config.infrastructure_env_vars)
+
+    typer.echo("secret_keys:")
+    developer_display = ", ".join(developer_secret_keys) if developer_secret_keys else "<none>"
+    project_display = ", ".join(project_secret_keys) if project_secret_keys else "<none>"
+    typer.echo(f"  developer: {developer_display}")
+    typer.echo(f"  project_env: {project_display}")
+    typer.echo(
+        "  infrastructure: "
+        f"{', '.join(infrastructure_secret_keys) if infrastructure_secret_keys else '<none>'}"
+    )
 
 
 # Backward-compatible name imported by top-level CLI module.

@@ -4,13 +4,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from worker_manager.adapters.manual_vm import ManualVMProvisioner, NoVMAvailableError
-from worker_manager.adapters.remote_types import VMAssignment, VMHandle, VMRequirements
-from worker_manager.remote_config import RemoteVMConfig
+from worker_manager.adapters.manual_vm import (
+    ManualVMConfig,
+    ManualProvisionerSettings,
+    ManualVMProvisioner,
+    NoVMAvailableError,
+)
+from worker_manager.adapters.remote_types import VMAssignment, VMHandle, VMProvider, VMRequirements
 
 
 def _make_provisioner(
-    vms: list[RemoteVMConfig],
+    vms: list[ManualVMConfig],
     active_assignments: list[VMAssignment] | None = None,
 ) -> ManualVMProvisioner:
     state_store = AsyncMock()
@@ -20,8 +24,8 @@ def _make_provisioner(
 
 REQUIREMENTS = VMRequirements(profile="default")
 
-VM_A = RemoteVMConfig(vm_id="vm-1", host="10.0.0.1")
-VM_B = RemoteVMConfig(vm_id="vm-2", host="10.0.0.2", labels={"gpu": "true"})
+VM_A = ManualVMConfig(vm_id="vm-1", host="10.0.0.1")
+VM_B = ManualVMConfig(vm_id="vm-2", host="10.0.0.2", labels={"gpu": "true"})
 
 
 class TestAcquire:
@@ -33,7 +37,7 @@ class TestAcquire:
         assert isinstance(handle, VMHandle)
         assert handle.vm_id == "vm-1"
         assert handle.host == "10.0.0.1"
-        assert handle.provider == "manual"
+        assert handle.provider == VMProvider.MANUAL
 
     async def test_skips_already_assigned_vms(self):
         assigned = VMAssignment(
@@ -82,7 +86,7 @@ class TestRelease:
         handle = VMHandle(
             vm_id="vm-1",
             host="10.0.0.1",
-            provider="manual",
+            provider=VMProvider.MANUAL,
             created_at="2026-01-01T00:00:00",
         )
 
@@ -115,3 +119,28 @@ class TestListActive:
         handles = await provisioner.list_active()
 
         assert handles == []
+
+
+class TestManualProvisionerSettings:
+    def test_missing_vms_uses_empty_pool(self):
+        parsed = ManualProvisionerSettings.from_settings({})
+
+        assert parsed.vms == ()
+
+    def test_rejects_non_list_vms(self):
+        with pytest.raises(TypeError, match="must be a list of mappings"):
+            ManualProvisionerSettings.from_settings({"vms": "not-a-list"})
+
+    def test_rejects_non_mapping_entry(self):
+        with pytest.raises(TypeError, match="item at index 1 is str"):
+            ManualProvisionerSettings.from_settings(
+                {"vms": [{"vm_id": "vm-1", "host": "10.0.0.1"}, "bad-entry"]}
+            )
+
+    def test_parses_valid_vm_entries(self):
+        parsed = ManualProvisionerSettings.from_settings(
+            {"vms": [{"id": "vm-1", "host": "10.0.0.1"}]}
+        )
+
+        assert len(parsed.vms) == 1
+        assert parsed.vms[0].vm_id == "vm-1"

@@ -10,6 +10,7 @@ from worker_manager.adapters.remote_types import (
     SecretBundle,
     VMAssignment,
     VMHandle,
+    VMProvider,
     VMRequirements,
     WorkspacePath,
     WorkspaceSpec,
@@ -23,7 +24,7 @@ class TestImmutability:
             req.cpu = 8  # type: ignore[misc]
 
     def test_vm_handle_frozen(self):
-        handle = VMHandle(vm_id="v1", host="h", provider="manual", created_at="t")
+        handle = VMHandle(vm_id="v1", host="h", provider=VMProvider.MANUAL, created_at="t")
         with pytest.raises(ValidationError, match="Instance is frozen"):
             handle.host = "other"  # type: ignore[misc]
 
@@ -70,7 +71,7 @@ class TestDefaults:
         assert req.labels == {}
 
     def test_vm_handle_defaults(self):
-        handle = VMHandle(vm_id="v1", host="h", provider="manual", created_at="t")
+        handle = VMHandle(vm_id="v1", host="h", provider=VMProvider.MANUAL, created_at="t")
         assert handle.labels == {}
         assert handle.hourly_cost is None
 

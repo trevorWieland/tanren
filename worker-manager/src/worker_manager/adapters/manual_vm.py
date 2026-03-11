@@ -3,16 +3,69 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
-from worker_manager.adapters.remote_types import VMHandle, VMRequirements
-from worker_manager.remote_config import RemoteVMConfig
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
+
+from worker_manager.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 
 logger = logging.getLogger(__name__)
 
 
 class NoVMAvailableError(Exception):
     """Raised when no VMs are available for assignment."""
+
+
+class ManualVMConfig(BaseModel):
+    """Typed VM entry for manual VM pools."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vm_id: str = Field(...)
+    host: str = Field(...)
+    labels: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, str] = Field(default_factory=dict)
+    hourly_cost: float | None = Field(default=None, ge=0.0)
+
+    @classmethod
+    def from_raw(cls, raw: Mapping[str, JsonValue]) -> ManualVMConfig:
+        """Build from raw settings, supporting 'id' alias."""
+        data = dict(raw)
+        if "vm_id" not in data and "id" in data:
+            data["vm_id"] = data.pop("id")
+        return cls.model_validate(data)
+
+
+class ManualProvisionerSettings(BaseModel):
+    """Provider-owned settings for manual VM provisioning."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vms: tuple[ManualVMConfig, ...] = Field(default_factory=tuple)
+
+    @classmethod
+    def from_settings(cls, settings: Mapping[str, JsonValue]) -> ManualProvisionerSettings:
+        """Parse provider settings from remote.yml provisioner.settings."""
+        if "vms" not in settings:
+            return cls()
+
+        raw_vms = settings["vms"]
+        if not isinstance(raw_vms, list):
+            raise TypeError(
+                "ManualProvisionerSettings 'vms' must be a list of mappings, "
+                f"got {type(raw_vms).__name__}"
+            )
+
+        vm_entries: list[ManualVMConfig] = []
+        for idx, vm in enumerate(raw_vms):
+            if not isinstance(vm, Mapping):
+                raise TypeError(
+                    "ManualProvisionerSettings 'vms' entries must be mappings; "
+                    f"item at index {idx} is {type(vm).__name__}"
+                )
+            vm_entries.append(ManualVMConfig.from_raw(vm))
+        return cls(vms=tuple(vm_entries))
 
 
 class ManualVMProvisioner:
@@ -25,10 +78,10 @@ class ManualVMProvisioner:
 
     def __init__(
         self,
-        vms: list[RemoteVMConfig],
+        vms: list[ManualVMConfig] | tuple[ManualVMConfig, ...],
         state_store,
     ) -> None:
-        self._vms = vms
+        self._vms = list(vms)
         self._state_store = state_store
 
     async def acquire(self, requirements: VMRequirements) -> VMHandle:
@@ -43,7 +96,7 @@ class ManualVMProvisioner:
                 handle = VMHandle(
                     vm_id=vm_id,
                     host=vm_config.host,
-                    provider=vm_config.provider,
+                    provider=VMProvider.MANUAL,
                     created_at=now,
                     labels=vm_config.labels,
                     hourly_cost=vm_config.hourly_cost,
@@ -69,7 +122,7 @@ class ManualVMProvisioner:
                         VMHandle(
                             vm_id=assignment.vm_id,
                             host=assignment.host,
-                            provider=vm_config.provider,
+                            provider=VMProvider.MANUAL,
                             created_at=assignment.assigned_at,
                             labels=vm_config.labels,
                             hourly_cost=vm_config.hourly_cost,

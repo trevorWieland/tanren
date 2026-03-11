@@ -334,6 +334,7 @@ class SSHExecutionEnvironment:
 | Adapter | Protocol | Default | Purpose |
 |---------|----------|---------|---------|
 | `ManualVMProvisioner` | `VMProvisioner` | -- | Acquire/release from static VM list |
+| `HetznerVMProvisioner` | `VMProvisioner` | -- | Create/delete/list Hetzner Cloud servers |
 | `UbuntuBootstrapper` | `EnvironmentBootstrapper` | -- | Install dev tools (docker, node, uv, claude) |
 | `GitWorkspaceManager` | `WorkspaceManager` | -- | Clone/pull, secret injection, cleanup |
 | `RemoteAgentRunner` | -- | -- | Upload prompt, execute CLI, extract signal |
@@ -352,14 +353,14 @@ ssh:
 git:
   auth: token
   token_env: GIT_TOKEN
-vms:
-  - vm_id: vm-1
-    host: 203.0.113.10
-    provider: manual
-    labels: {}
-    metadata: {}
-  - vm_id: vm-2
-    host: 203.0.113.11
+provisioner:
+  type: manual  # manual | hetzner
+  settings:
+    vms:
+      - vm_id: vm-1
+        host: 203.0.113.10
+      - vm_id: vm-2
+        host: 203.0.113.11
 bootstrap:
   extra_script: ./scripts/vm-setup.sh  # optional
 secrets:
@@ -371,6 +372,9 @@ repos:
 ```
 
 Set `WM_REMOTE_CONFIG=/path/to/remote.yml` to enable remote execution.
+For Hetzner support, install optional dependency: `uv sync --extra hetzner`.
+Secrets are loaded explicitly from `remote.yml.secrets.developer_secrets_path`
+during remote environment initialization (no global startup autoload).
 
 ### Dispatch-Aware vs. Generic Signatures
 

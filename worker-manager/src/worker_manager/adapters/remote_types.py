@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class VMProvider(StrEnum):
+    """Supported VM providers."""
+
+    MANUAL = "manual"
+    HETZNER = "hetzner"
 
 
 class VMRequirements(BaseModel):
@@ -14,6 +23,7 @@ class VMRequirements(BaseModel):
     cpu: int = Field(default=2, ge=1)
     memory_gb: int = Field(default=4, ge=1)
     gpu: bool = Field(default=False)
+    server_type: str | None = Field(default=None)
     labels: dict[str, str] = Field(default_factory=dict)
 
 
@@ -24,7 +34,7 @@ class VMHandle(BaseModel):
 
     vm_id: str = Field(...)
     host: str = Field(...)
-    provider: str = Field(default="manual", min_length=1)
+    provider: VMProvider = Field(default=VMProvider.MANUAL)
     created_at: str = Field(...)
     labels: dict[str, str] = Field(default_factory=dict)
     hourly_cost: float | None = Field(default=None, ge=0.0)

@@ -63,3 +63,38 @@ class TestDefaultPath:
 
         assert "tanren" in config.developer_secrets_path
         assert "secrets.env" in config.developer_secrets_path
+
+
+class TestAutoload:
+    def test_constructor_does_not_mutate_process_env(self, tmp_path: Path, monkeypatch):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
+        monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
+
+        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        import os
+
+        assert os.environ.get("HCLOUD_TOKEN") is None
+
+    def test_autoloads_developer_secrets_into_process_env(self, tmp_path: Path, monkeypatch):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
+        monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
+
+        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file))).autoload_into_env()
+
+        import os
+
+        assert os.environ.get("HCLOUD_TOKEN") == "from-file"
+
+    def test_autoload_does_not_override_existing_env(self, tmp_path: Path, monkeypatch):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
+        monkeypatch.setenv("HCLOUD_TOKEN", "explicit")
+
+        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file))).autoload_into_env()
+
+        import os
+
+        assert os.environ.get("HCLOUD_TOKEN") == "explicit"

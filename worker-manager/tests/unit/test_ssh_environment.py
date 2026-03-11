@@ -14,6 +14,7 @@ from worker_manager.adapters.remote_types import (
     RemoteResult,
     SecretBundle,
     VMHandle,
+    VMProvider,
     WorkspacePath,
 )
 from worker_manager.adapters.ssh import SSHConfig
@@ -71,7 +72,7 @@ def _make_vm_handle() -> VMHandle:
     return VMHandle(
         vm_id="vm-abc-123",
         host="10.0.0.42",
-        provider="hetzner",
+        provider=VMProvider.HETZNER,
         created_at="2025-01-01T00:00:00Z",
         hourly_cost=0.50,
     )
@@ -591,8 +592,8 @@ class TestBuildCliCommand:
         assert cmd == "make check"
 
     def test_bash_command_without_gate(self, env_kit):
-        cmd = self._build(env_kit, Cli.BASH, gate_cmd=None)
-        assert "no gate command" in cmd
+        with pytest.raises(ValueError, match="requires a non-empty gate_cmd"):
+            self._build(env_kit, Cli.BASH, gate_cmd=None)
 
     def test_opencode_without_model(self, env_kit):
         cmd = self._build(env_kit, Cli.OPENCODE, model="")

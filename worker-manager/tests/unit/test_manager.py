@@ -1,7 +1,13 @@
 """Tests for manager module."""
 
+import os
 from pathlib import Path
+from unittest.mock import AsyncMock
 
+import pytest
+
+from worker_manager.adapters.null_emitter import NullEventEmitter
+from worker_manager.adapters.remote_types import VMAssignment, VMProvider
 from worker_manager.config import Config
 from worker_manager.manager import (
     _GATE_OUTPUT_LINES_FAIL,
@@ -38,6 +44,94 @@ class TestWorkerManagerInit:
         assert manager._results_dir == ipc / "results"
         assert manager._in_progress_dir == ipc / "in-progress"
         assert manager._input_dir == ipc / "input"
+
+    def test_get_execution_environment_returns_configured_env(self, tmp_path: Path):
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(tmp_path / "github"),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+        )
+        manager = WorkerManager(config)
+        assert manager.get_execution_environment() is manager._execution_env
+
+    def test_remote_env_autoloads_before_git_token_read(self, tmp_path: Path, monkeypatch):
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "git:\n"
+            "  auth: token\n"
+            "  token_env: CUSTOM_GIT_TOKEN\n"
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - vm_id: vm-1\n"
+            "        host: 10.0.0.1\n"
+            "secrets:\n"
+            "  developer_secrets_path: /tmp/unused.env\n"
+            "repos:\n"
+            "  demo: https://github.com/org/demo.git\n"
+        )
+
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(tmp_path / "github"),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            remote_config_path=str(remote_cfg),
+        )
+
+        monkeypatch.delenv("CUSTOM_GIT_TOKEN", raising=False)
+
+        seen: dict[str, object] = {}
+
+        class _FakeSecretLoader:
+            def __init__(self, config):
+                seen["secret_config"] = config
+
+            def autoload_into_env(self, *, override: bool = False) -> None:
+                seen["autoload_override"] = override
+                os.environ["CUSTOM_GIT_TOKEN"] = "from-loader"
+
+        class _FakeGitWorkspaceManager:
+            def __init__(self, git_auth):
+                seen["git_token"] = git_auth.token
+
+        class _FakeSSHExecutionEnvironment:
+            def __init__(self, **kwargs):
+                seen["secret_loader"] = kwargs["secret_loader"]
+                seen["repo_urls"] = kwargs["repo_urls"]
+
+        monkeypatch.setattr("worker_manager.secrets.SecretLoader", _FakeSecretLoader)
+        monkeypatch.setattr(
+            "worker_manager.adapters.git_workspace.GitWorkspaceManager",
+            _FakeGitWorkspaceManager,
+        )
+        monkeypatch.setattr(
+            "worker_manager.adapters.ssh_environment.SSHExecutionEnvironment",
+            _FakeSSHExecutionEnvironment,
+        )
+        monkeypatch.setattr(
+            "worker_manager.adapters.sqlite_vm_state.SqliteVMStateStore",
+            lambda _: object(),
+        )
+        monkeypatch.setattr(
+            "worker_manager.adapters.manual_vm.ManualVMProvisioner",
+            lambda _vms, _store: object(),
+        )
+        monkeypatch.setattr(
+            "worker_manager.adapters.ubuntu_bootstrap.UbuntuBootstrapper",
+            lambda *args, **kwargs: object(),
+        )
+        monkeypatch.setattr(
+            "worker_manager.adapters.remote_runner.RemoteAgentRunner",
+            lambda: object(),
+        )
+
+        manager = WorkerManager(config=config, emitter=NullEventEmitter())
+        assert manager.get_execution_environment() is not None
+        assert seen["autoload_override"] is False
+        assert seen["git_token"] == "from-loader"
 
 
 class TestBuildGateOutput:
@@ -92,3 +186,100 @@ class TestBuildTailOutput:
     def test_short_output_returned_intact(self):
         result = _build_tail_output("one\ntwo\nthree")
         assert result == "one\ntwo\nthree"
+
+
+class TestRecoverVmState:
+    @pytest.mark.asyncio
+    async def test_releases_all_stale_assignments_via_provider(self, tmp_path: Path, monkeypatch):
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - vm_id: vm-1\n"
+            "        host: 10.0.0.1\n"
+        )
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(tmp_path / "github"),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            remote_config_path=str(remote_cfg),
+        )
+        assignment = VMAssignment(
+            vm_id="vm-1",
+            workflow_id="wf-1",
+            project="proj",
+            spec="spec",
+            host="10.0.0.1",
+            assigned_at="2026-01-01T00:00:00Z",
+        )
+        store = AsyncMock()
+        store.get_active_assignments.return_value = [assignment]
+        provisioner = AsyncMock()
+
+        monkeypatch.setattr(
+            "worker_manager.adapters.sqlite_vm_state.SqliteVMStateStore",
+            lambda _path: store,
+        )
+        monkeypatch.setattr(
+            "worker_manager.adapters.manual_vm.ManualVMProvisioner",
+            lambda _vms, _store: provisioner,
+        )
+
+        manager = WorkerManager(config=config, execution_env=AsyncMock(), emitter=NullEventEmitter())
+        await manager._recover_vm_state()
+
+        assert provisioner.release.await_count == 1
+        handle = provisioner.release.await_args.args[0]
+        assert handle.vm_id == "vm-1"
+        assert handle.host == "10.0.0.1"
+        assert handle.provider == VMProvider.MANUAL
+        store.record_release.assert_awaited_once_with("vm-1")
+        store.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_records_release_even_if_provider_release_fails(self, tmp_path: Path, monkeypatch):
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - vm_id: vm-1\n"
+            "        host: 10.0.0.1\n"
+        )
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(tmp_path / "github"),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            remote_config_path=str(remote_cfg),
+        )
+        assignment = VMAssignment(
+            vm_id="vm-1",
+            workflow_id="wf-1",
+            project="proj",
+            spec="spec",
+            host="10.0.0.1",
+            assigned_at="2026-01-01T00:00:00Z",
+        )
+        store = AsyncMock()
+        store.get_active_assignments.return_value = [assignment]
+        provisioner = AsyncMock()
+        provisioner.release.side_effect = RuntimeError("release failed")
+
+        monkeypatch.setattr(
+            "worker_manager.adapters.sqlite_vm_state.SqliteVMStateStore",
+            lambda _path: store,
+        )
+        monkeypatch.setattr(
+            "worker_manager.adapters.manual_vm.ManualVMProvisioner",
+            lambda _vms, _store: provisioner,
+        )
+
+        manager = WorkerManager(config=config, execution_env=AsyncMock(), emitter=NullEventEmitter())
+        await manager._recover_vm_state()
+
+        store.record_release.assert_awaited_once_with("vm-1")

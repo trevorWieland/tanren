@@ -164,6 +164,10 @@ class WorkerManager:
                 config=self._config,
             )
 
+    def get_execution_environment(self) -> ExecutionEnvironment:
+        """Return the configured execution environment."""
+        return self._execution_env
+
     async def run(self) -> None:
         """Main entry point: setup, poll loop, shutdown."""
         logging.basicConfig(
@@ -278,7 +282,14 @@ class WorkerManager:
             GitAuthConfig,
             GitWorkspaceManager,
         )
-        from worker_manager.adapters.manual_vm import ManualVMProvisioner
+        from worker_manager.adapters.hetzner_vm import (
+            HetznerProvisionerSettings,
+            HetznerVMProvisioner,
+        )
+        from worker_manager.adapters.manual_vm import (
+            ManualProvisionerSettings,
+            ManualVMProvisioner,
+        )
         from worker_manager.adapters.remote_runner import RemoteAgentRunner
         from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
         from worker_manager.adapters.ssh import SSHConfig
@@ -288,6 +299,7 @@ class WorkerManager:
         from worker_manager.adapters.ubuntu_bootstrap import (
             UbuntuBootstrapper,
         )
+        from worker_manager.remote_config import ProvisionerType
         from worker_manager.secrets import SecretConfig, SecretLoader
 
         assert self._config.remote_config_path is not None
@@ -299,12 +311,6 @@ class WorkerManager:
             key_path=remote_cfg.ssh.key_path,
             port=remote_cfg.ssh.port,
             connect_timeout=remote_cfg.ssh.connect_timeout,
-        )
-
-        token = os.environ.get(remote_cfg.git.token_env, "")
-        git_auth = GitAuthConfig(
-            auth_method=remote_cfg.git.auth,
-            token=token or None,
         )
 
         state_store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
@@ -327,26 +333,57 @@ class WorkerManager:
                 remote_cfg.secrets.developer_secrets_path or SecretConfig().developer_secrets_path
             ),
         )
+        secret_loader = SecretLoader(secret_config)
+        secret_loader.autoload_into_env(override=False)
+
+        token = os.environ.get(remote_cfg.git.token_env, "")
+        git_auth = GitAuthConfig(
+            auth_method=remote_cfg.git.auth,
+            token=token or None,
+        )
+
+        if remote_cfg.provisioner.type == ProvisionerType.MANUAL:
+            manual_settings = ManualProvisionerSettings.from_settings(
+                remote_cfg.provisioner.settings
+            )
+            vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), state_store)
+        elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+            hetzner_settings = HetznerProvisionerSettings.from_settings(
+                remote_cfg.provisioner.settings
+            )
+            vm_provisioner = HetznerVMProvisioner(hetzner_settings)
+        else:
+            raise ValueError(f"Unsupported provisioner type: {remote_cfg.provisioner.type}")
 
         return SSHExecutionEnvironment(
-            vm_provisioner=ManualVMProvisioner(remote_cfg.vms, state_store),
+            vm_provisioner=vm_provisioner,
             bootstrapper=UbuntuBootstrapper(extra_script=extra_script),
             workspace_mgr=GitWorkspaceManager(git_auth),
             runner=RemoteAgentRunner(),
             state_store=state_store,
-            secret_loader=SecretLoader(secret_config),
+            secret_loader=secret_loader,
             emitter=self._emitter,
             ssh_config_defaults=ssh_defaults,
             repo_urls={binding.project: binding.repo_url for binding in remote_cfg.repos},
         )
 
     async def _recover_vm_state(self) -> None:
-        """Startup recovery: check active assignments, release unreachable VMs."""
+        """Startup recovery: release stale assignments via provider cleanup."""
         if not self._config.remote_config_path:
             return
 
+        from worker_manager.adapters.hetzner_vm import (
+            HetznerProvisionerSettings,
+            HetznerVMProvisioner,
+        )
+        from worker_manager.adapters.manual_vm import (
+            ManualProvisionerSettings,
+            ManualVMProvisioner,
+        )
+        from worker_manager.adapters.protocols import VMProvisioner as VMProvisionerProtocol
+        from worker_manager.adapters.remote_types import VMHandle, VMProvider
         from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
-        from worker_manager.adapters.ssh import SSHConfig, SSHConnection
+        from worker_manager.remote_config import ProvisionerType
 
         remote_cfg = load_remote_config(self._config.remote_config_path)
 
@@ -357,37 +394,55 @@ class WorkerManager:
                 return
 
             logger.info(
-                "Checking %d active VM assignment(s) for recovery...",
+                "Recovering %d stale VM assignment(s) at startup...",
                 len(assignments),
             )
-            for a in assignments:
-                conn = SSHConnection(
-                    SSHConfig(
-                        host=a.host,
-                        user=remote_cfg.ssh.user,
-                        key_path=remote_cfg.ssh.key_path,
-                        port=remote_cfg.ssh.port,
-                        connect_timeout=remote_cfg.ssh.connect_timeout,
+
+            vm_provisioner: VMProvisionerProtocol
+            provider: VMProvider
+            try:
+                if remote_cfg.provisioner.type == ProvisionerType.MANUAL:
+                    manual_settings = ManualProvisionerSettings.from_settings(
+                        remote_cfg.provisioner.settings
                     )
+                    vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), store)
+                    provider = VMProvider.MANUAL
+                elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+                    hetzner_settings = HetznerProvisionerSettings.from_settings(
+                        remote_cfg.provisioner.settings
+                    )
+                    vm_provisioner = HetznerVMProvisioner(hetzner_settings)
+                    provider = VMProvider.HETZNER
+                else:
+                    raise ValueError(
+                        f"Unsupported provisioner type for recovery: {remote_cfg.provisioner.type}"
+                    )
+            except Exception:
+                logger.warning(
+                    "Skipping stale VM cleanup: unable to initialize VM provisioner",
+                    exc_info=True,
+                )
+                return
+
+            for a in assignments:
+                stale_handle = VMHandle(
+                    vm_id=a.vm_id,
+                    host=a.host,
+                    provider=provider,
+                    created_at=a.assigned_at,
                 )
                 try:
-                    reachable = await conn.check_connection()
-                    if not reachable:
-                        await store.record_release(a.vm_id)
-                        logger.warning(
-                            "Released unreachable VM %s (%s)",
-                            a.vm_id,
-                            a.host,
-                        )
+                    await vm_provisioner.release(stale_handle)
                 except Exception:
-                    await store.record_release(a.vm_id)
                     logger.warning(
-                        "Released VM %s (%s) due to connection error",
+                        "Failed provider release during stale VM recovery: %s (%s)",
                         a.vm_id,
                         a.host,
+                        exc_info=True,
                     )
                 finally:
-                    await conn.close()
+                    await store.record_release(a.vm_id)
+                    logger.warning("Recovered stale VM %s (%s) at startup", a.vm_id, a.host)
         finally:
             await store.close()
 

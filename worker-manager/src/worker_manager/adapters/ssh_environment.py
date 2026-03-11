@@ -79,6 +79,11 @@ class SSHExecutionEnvironment:
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
 
+    @property
+    def ssh_defaults(self) -> SSHConfig:
+        """Return default SSH settings used for remote connections."""
+        return self._ssh_defaults
+
     async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets."""
         # 1. Read tanren.yml LOCALLY to get environment profile
@@ -90,6 +95,7 @@ class SSHExecutionEnvironment:
             cpu=profile.resources.cpu,
             memory_gb=profile.resources.memory_gb,
             gpu=profile.resources.gpu,
+            server_type=profile.server_type,
         )
 
         # 3. Acquire VM
@@ -422,9 +428,10 @@ class SSHExecutionEnvironment:
             cmd += " < .tanren-prompt.md"
             return cmd
         if dispatch.cli.value == "bash":
-            if dispatch.gate_cmd:
-                return dispatch.gate_cmd
-            return "echo 'no gate command specified'"
+            gate_cmd = (dispatch.gate_cmd or "").strip()
+            if gate_cmd:
+                return gate_cmd
+            raise ValueError("Gate dispatch requires a non-empty gate_cmd when cli=bash")
         if dispatch.cli.value == "opencode":
             cmd = config.opencode_path
             cmd += " run"

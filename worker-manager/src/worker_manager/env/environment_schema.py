@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class EnvironmentProfileType(StrEnum):
+    """Supported environment profile types."""
+
+    LOCAL = "local"
+    REMOTE = "remote"
+    DOCKER = "docker"
 
 
 class ResourceRequirements(BaseModel):
@@ -23,11 +32,12 @@ class EnvironmentProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(...)
-    type: str = Field(default="local")
+    type: EnvironmentProfileType = Field(default=EnvironmentProfileType.LOCAL)
     resources: ResourceRequirements = Field(default_factory=ResourceRequirements)
     setup: tuple[str, ...] = Field(default_factory=tuple)
     teardown: tuple[str, ...] = Field(default_factory=tuple)
     gate_cmd: str = Field(default="make check")
+    server_type: str | None = Field(default=None)
 
 
 def _coerce_str_tuple(raw: object) -> tuple[str, ...]:
@@ -36,9 +46,13 @@ def _coerce_str_tuple(raw: object) -> tuple[str, ...]:
     return tuple(str(v) for v in raw)
 
 
-def _coerce_environment_type(raw: object) -> str:
+def _coerce_environment_type(raw: object) -> EnvironmentProfileType:
+    if isinstance(raw, EnvironmentProfileType):
+        return raw
     raw_value = str(raw).strip()
-    return raw_value if raw_value else "local"
+    if not raw_value:
+        return EnvironmentProfileType.LOCAL
+    return EnvironmentProfileType(raw_value)
 
 
 def _coerce_int(raw: object, default: int) -> int:
@@ -88,11 +102,16 @@ def parse_environment_profiles(data: dict[str, object]) -> dict[str, Environment
 
         profiles[name] = EnvironmentProfile(
             name=name,
-            type=_coerce_environment_type(raw_dict.get("type", "local")),
+            type=_coerce_environment_type(raw_dict.get("type", EnvironmentProfileType.LOCAL.value)),
             resources=resources,
             setup=_coerce_str_tuple(setup_raw),
             teardown=_coerce_str_tuple(teardown_raw),
             gate_cmd=str(raw_dict.get("gate_cmd", "make check")),
+            server_type=(
+                str(raw_dict["server_type"])
+                if "server_type" in raw_dict and raw_dict["server_type"] is not None
+                else None
+            ),
         )
 
     # Always provide a default profile

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import time
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from worker_manager.adapters.remote_types import BootstrapResult
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,25 @@ _BOOTSTRAP_STEPS: tuple[tuple[str, str, str], ...] = (
 _MARKER_PATH = "~/.tanren-bootstrapped"
 
 
+class BootstrapInstallStep(BaseModel):
+    """One conditional bootstrap installation step."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(...)
+    check_command: str = Field(...)
+    install_command: str = Field(...)
+
+
+class BootstrapPlan(BaseModel):
+    """Public bootstrap plan metadata for dry-run/introspection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    apt_packages: tuple[str, ...] = Field(default_factory=tuple)
+    install_steps: tuple[BootstrapInstallStep, ...] = Field(default_factory=tuple)
+
+
 class UbuntuBootstrapper:
     """Bootstraps an Ubuntu VM with development tools.
 
@@ -35,6 +56,21 @@ class UbuntuBootstrapper:
 
     def __init__(self, *, extra_script: str | None = None) -> None:
         self._extra_script = extra_script
+
+    @classmethod
+    def plan(cls) -> BootstrapPlan:
+        """Return the static bootstrap plan used by this bootstrapper."""
+        return BootstrapPlan(
+            apt_packages=_APT_PACKAGES,
+            install_steps=tuple(
+                BootstrapInstallStep(
+                    name=name,
+                    check_command=check_cmd,
+                    install_command=install_cmd,
+                )
+                for name, check_cmd, install_cmd in _BOOTSTRAP_STEPS
+            ),
+        )
 
     async def bootstrap(self, conn, *, force: bool = False) -> BootstrapResult:
         """Install development tools on the remote VM.

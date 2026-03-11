@@ -116,3 +116,115 @@ class TestVmRecover:
 
         assert result.exit_code == 0
         assert "No active assignments to recover." in result.output
+
+
+class TestVmDryRun:
+    def test_prints_dry_run_without_connecting(self, tmp_path, monkeypatch):
+        github_dir = tmp_path / "github"
+        project_dir = github_dir / "myproject"
+        project_dir.mkdir(parents=True)
+        (project_dir / ".env").write_text("API_KEY=abc\n")
+        (project_dir / "tanren.yml").write_text(
+            "version: 0.1.0\n"
+            "profile: default\n"
+            "installed: 2026-01-01\n"
+            "environment:\n"
+            "  default:\n"
+            "    type: remote\n"
+            "    server_type: cpx31\n"
+            "    setup:\n"
+            "      - make setup\n"
+        )
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - id: vm-1\n"
+            "        host: 10.0.0.1\n"
+            "repos:\n"
+            "  myproject: https://github.com/org/myproject.git\n"
+        )
+
+        monkeypatch.setenv("WM_REMOTE_CONFIG", str(remote_cfg))
+        monkeypatch.setenv("WM_GITHUB_DIR", str(github_dir))
+
+        runner = CliRunner()
+        result = runner.invoke(
+            vm,
+            ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+        )
+
+        assert result.exit_code == 0
+        assert "provisioner: manual" in result.output
+        assert "repo_clone: https://github.com/org/myproject.git" in result.output
+        assert "setup_commands:" in result.output
+
+    def test_uses_hetzner_server_type_override(self, tmp_path, monkeypatch):
+        github_dir = tmp_path / "github"
+        project_dir = github_dir / "myproject"
+        project_dir.mkdir(parents=True)
+        (project_dir / "tanren.yml").write_text(
+            "version: 0.1.0\n"
+            "profile: default\n"
+            "installed: 2026-01-01\n"
+            "environment:\n"
+            "  default:\n"
+            "    type: remote\n"
+            "    server_type: cpx31\n"
+        )
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "provisioner:\n"
+            "  type: hetzner\n"
+            "  settings:\n"
+            "    token_env: HCLOUD_TOKEN\n"
+            "    default_server_type: cpx21\n"
+            "    location: ash\n"
+            "    image: ubuntu-24.04\n"
+            "    ssh_key_name: tanren\n"
+        )
+        monkeypatch.setenv("WM_REMOTE_CONFIG", str(remote_cfg))
+        monkeypatch.setenv("WM_GITHUB_DIR", str(github_dir))
+
+        runner = CliRunner()
+        result = runner.invoke(
+            vm,
+            ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+        )
+
+        assert result.exit_code == 0
+        assert "provisioner: hetzner" in result.output
+        assert "server_type: cpx31 (profile.server_type)" in result.output
+
+    def test_dry_run_does_not_mutate_process_env(self, tmp_path, monkeypatch):
+        github_dir = tmp_path / "github"
+        project_dir = github_dir / "myproject"
+        project_dir.mkdir(parents=True)
+        secrets_file = tmp_path / "dev-secrets.env"
+        secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - id: vm-1\n"
+            "        host: 10.0.0.1\n"
+            "secrets:\n"
+            f"  developer_secrets_path: {secrets_file}\n"
+        )
+        monkeypatch.setenv("WM_REMOTE_CONFIG", str(remote_cfg))
+        monkeypatch.setenv("WM_GITHUB_DIR", str(github_dir))
+        monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
+
+        result = CliRunner().invoke(
+            vm,
+            ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+        )
+
+        assert result.exit_code == 0
+        import os
+
+        assert os.environ.get("HCLOUD_TOKEN") is None
