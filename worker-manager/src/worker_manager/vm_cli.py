@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+from pathlib import Path
 
 import click
 
 from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
-from worker_manager.config import Config
 
 
 def _get_state_store() -> SqliteVMStateStore:
     """Create a VMStateStore from config."""
-    config = Config.from_env()
-    db_path = f"{config.data_dir}/vm-state.db"
+    data_dir = str(Path(os.environ.get(
+        "WM_DATA_DIR", "~/.local/share/tanren-worker"
+    )).expanduser())
+    db_path = f"{data_dir}/vm-state.db"
     return SqliteVMStateStore(db_path)
 
 

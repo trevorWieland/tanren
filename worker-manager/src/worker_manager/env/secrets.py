@@ -23,6 +23,7 @@ def ensure_secrets_dir(secrets_dir: Path | None = None) -> Path:
     """Create secrets directory with chmod 700 (lazy — only on first write)."""
     d = secrets_dir or DEFAULT_SECRETS_DIR
     d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
     return d
 
 
