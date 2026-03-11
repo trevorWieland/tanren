@@ -428,9 +428,10 @@ class SSHExecutionEnvironment:
             cmd += " < .tanren-prompt.md"
             return cmd
         if dispatch.cli.value == "bash":
-            if dispatch.gate_cmd:
-                return dispatch.gate_cmd
-            return "echo 'no gate command specified'"
+            gate_cmd = (dispatch.gate_cmd or "").strip()
+            if gate_cmd:
+                return gate_cmd
+            raise ValueError("Gate dispatch requires a non-empty gate_cmd when cli=bash")
         if dispatch.cli.value == "opencode":
             cmd = config.opencode_path
             cmd += " run"

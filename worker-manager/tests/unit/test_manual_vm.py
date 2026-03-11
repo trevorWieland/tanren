@@ -6,6 +6,7 @@ import pytest
 
 from worker_manager.adapters.manual_vm import (
     ManualVMConfig,
+    ManualProvisionerSettings,
     ManualVMProvisioner,
     NoVMAvailableError,
 )
@@ -118,3 +119,28 @@ class TestListActive:
         handles = await provisioner.list_active()
 
         assert handles == []
+
+
+class TestManualProvisionerSettings:
+    def test_missing_vms_uses_empty_pool(self):
+        parsed = ManualProvisionerSettings.from_settings({})
+
+        assert parsed.vms == ()
+
+    def test_rejects_non_list_vms(self):
+        with pytest.raises(TypeError, match="must be a list of mappings"):
+            ManualProvisionerSettings.from_settings({"vms": "not-a-list"})
+
+    def test_rejects_non_mapping_entry(self):
+        with pytest.raises(TypeError, match="item at index 1 is str"):
+            ManualProvisionerSettings.from_settings(
+                {"vms": [{"vm_id": "vm-1", "host": "10.0.0.1"}, "bad-entry"]}
+            )
+
+    def test_parses_valid_vm_entries(self):
+        parsed = ManualProvisionerSettings.from_settings(
+            {"vms": [{"id": "vm-1", "host": "10.0.0.1"}]}
+        )
+
+        assert len(parsed.vms) == 1
+        assert parsed.vms[0].vm_id == "vm-1"

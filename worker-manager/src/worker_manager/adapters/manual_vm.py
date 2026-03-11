@@ -47,12 +47,24 @@ class ManualProvisionerSettings(BaseModel):
     @classmethod
     def from_settings(cls, settings: Mapping[str, JsonValue]) -> ManualProvisionerSettings:
         """Parse provider settings from remote.yml provisioner.settings."""
-        raw_vms = settings.get("vms", [])
+        if "vms" not in settings:
+            return cls()
+
+        raw_vms = settings["vms"]
+        if not isinstance(raw_vms, list):
+            raise TypeError(
+                "ManualProvisionerSettings 'vms' must be a list of mappings, "
+                f"got {type(raw_vms).__name__}"
+            )
+
         vm_entries: list[ManualVMConfig] = []
-        if isinstance(raw_vms, list):
-            for vm in raw_vms:
-                if isinstance(vm, Mapping):
-                    vm_entries.append(ManualVMConfig.from_raw(vm))
+        for idx, vm in enumerate(raw_vms):
+            if not isinstance(vm, Mapping):
+                raise TypeError(
+                    "ManualProvisionerSettings 'vms' entries must be mappings; "
+                    f"item at index {idx} is {type(vm).__name__}"
+                )
+            vm_entries.append(ManualVMConfig.from_raw(vm))
         return cls(vms=tuple(vm_entries))
 
 

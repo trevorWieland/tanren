@@ -92,6 +92,12 @@ def _persisted(config: Config) -> Path:
     return handle_file
 
 
+def _write_tanren_yml(config: Config, content: str) -> None:
+    project_dir = Path(config.github_dir) / "proj"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "tanren.yml").write_text(content)
+
+
 def test_run_provision_prints_and_saves_handle(tmp_path: Path, monkeypatch):
     config = _config(tmp_path)
     env = AsyncMock()
@@ -357,3 +363,113 @@ def test_run_execute_rejects_legacy_handle_schema(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 1
     assert "Run handle schema has changed" in result.output
+
+
+def test_run_execute_gate_uses_profile_gate_cmd_when_missing_flag(tmp_path: Path, monkeypatch):
+    config = _config(tmp_path)
+    _persisted(config)
+    _write_tanren_yml(
+        config,
+        "environment:\n"
+        "  default:\n"
+        "    type: remote\n"
+        "    gate_cmd: make integration-check\n",
+    )
+    env = AsyncMock()
+    env.execute.return_value = PhaseResult(
+        outcome=Outcome.SUCCESS,
+        signal="ok",
+        exit_code=0,
+        stdout="gate ok",
+        duration_secs=1,
+        preflight_passed=True,
+        retries=0,
+    )
+
+    monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
+    monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
+
+    result = CliRunner().invoke(
+        run,
+        [
+            "execute",
+            "--handle",
+            "env-123",
+            "--project",
+            "proj",
+            "--spec-path",
+            "tanren/specs/s1",
+            "--phase",
+            "gate",
+        ],
+    )
+
+    assert result.exit_code == 0
+    dispatch = env.execute.await_args.args[1]
+    assert dispatch.cli == Cli.BASH
+    assert dispatch.gate_cmd == "make integration-check"
+
+
+def test_run_execute_gate_rejects_blank_gate_cmd(tmp_path: Path, monkeypatch):
+    config = _config(tmp_path)
+    _persisted(config)
+    env = AsyncMock()
+
+    monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
+    monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
+
+    result = CliRunner().invoke(
+        run,
+        [
+            "execute",
+            "--handle",
+            "env-123",
+            "--project",
+            "proj",
+            "--spec-path",
+            "tanren/specs/s1",
+            "--phase",
+            "gate",
+            "--gate-cmd",
+            "   ",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "requires a non-empty gate command" in result.output
+    env.execute.assert_not_called()
+
+
+def test_run_full_teardown_runs_even_when_handle_save_fails(tmp_path: Path, monkeypatch):
+    config = _config(tmp_path)
+    env = AsyncMock()
+    env.provision.return_value = _env_handle()
+    env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
+
+    monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
+    monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "worker_manager.run_cli._save_handle",
+        lambda _config, _persisted: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    result = CliRunner().invoke(
+        run,
+        [
+            "full",
+            "--project",
+            "proj",
+            "--environment-profile",
+            "default",
+            "--branch",
+            "main",
+            "--spec-path",
+            "tanren/specs/s1",
+            "--phase",
+            "do-task",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert env.execute.await_count == 0
+    assert env.teardown.await_count == 1

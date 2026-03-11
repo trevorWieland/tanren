@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated, cast
 
 import typer
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from worker_manager.adapters.null_emitter import NullEventEmitter
@@ -18,7 +19,11 @@ from worker_manager.adapters.ssh import SSHConfig, SSHConnection
 from worker_manager.adapters.ssh_environment import SSHExecutionEnvironment
 from worker_manager.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from worker_manager.config import Config
-from worker_manager.env.environment_schema import EnvironmentProfile, EnvironmentProfileType
+from worker_manager.env.environment_schema import (
+    EnvironmentProfile,
+    EnvironmentProfileType,
+    parse_environment_profiles,
+)
 from worker_manager.manager import WorkerManager, _build_tail_output
 from worker_manager.roles import AgentTool, RoleMapping, RoleName
 from worker_manager.roles_config import load_roles_config
@@ -132,6 +137,43 @@ def _load_handle(config: Config, identifier: str) -> tuple[PersistedRunHandle, P
 
 def _profile_for_runtime(name: str) -> EnvironmentProfile:
     return EnvironmentProfile(name=name, type=EnvironmentProfileType.REMOTE)
+
+
+def _resolve_profile(config: Config, project: str, environment_profile: str) -> EnvironmentProfile:
+    tanren_yml = Path(config.github_dir) / project / "tanren.yml"
+    if tanren_yml.exists():
+        loaded = yaml.safe_load(tanren_yml.read_text()) or {}
+        data = loaded if isinstance(loaded, dict) else {}
+        profiles = parse_environment_profiles(data)
+    else:
+        profiles = parse_environment_profiles({})
+    return profiles.get(environment_profile, profiles["default"])
+
+
+def _resolve_gate_cmd(
+    *,
+    config: Config,
+    project: str,
+    environment_profile: str,
+    phase: Phase,
+    gate_cmd: str | None,
+) -> str | None:
+    if phase != Phase.GATE:
+        return gate_cmd
+
+    resolved = gate_cmd
+    if resolved is None:
+        resolved = _resolve_profile(config, project, environment_profile).gate_cmd
+
+    normalized = resolved.strip() if resolved is not None else ""
+    if not normalized:
+        typer.echo(
+            "Gate phase requires a non-empty gate command. "
+            "Provide --gate-cmd or configure environment.<profile>.gate_cmd in tanren.yml.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return normalized
 
 
 def _reconstruct_handle(persisted: PersistedRunHandle) -> EnvironmentHandle:
@@ -333,6 +375,13 @@ def run_execute(
             raise typer.Exit(code=1)
 
         tool = _resolve_agent_tool(config, phase)
+        resolved_gate_cmd = _resolve_gate_cmd(
+            config=config,
+            project=project,
+            environment_profile=persisted.environment_profile,
+            phase=phase,
+            gate_cmd=gate_cmd,
+        )
         dispatch = _build_dispatch(
             project=project,
             phase=phase,
@@ -342,7 +391,7 @@ def run_execute(
             workflow_id=persisted.workflow_id,
             timeout=timeout,
             context=context,
-            gate_cmd=gate_cmd,
+            gate_cmd=resolved_gate_cmd,
             tool=tool,
         )
         env_handle = _reconstruct_handle(persisted)
@@ -452,11 +501,18 @@ def run_full(
                 connect_timeout=env.ssh_defaults.connect_timeout,
             ),
         )
-        handle_path = _save_handle(config, persisted)
-
+        handle_path: Path | None = None
         execute_failed = False
         try:
+            handle_path = _save_handle(config, persisted)
             tool = _resolve_agent_tool(config, phase)
+            resolved_gate_cmd = _resolve_gate_cmd(
+                config=config,
+                project=project,
+                environment_profile=environment_profile,
+                phase=phase,
+                gate_cmd=gate_cmd,
+            )
             dispatch = _build_dispatch(
                 project=project,
                 phase=phase,
@@ -466,7 +522,7 @@ def run_full(
                 workflow_id=workflow_id,
                 timeout=timeout,
                 context=context,
-                gate_cmd=gate_cmd,
+                gate_cmd=resolved_gate_cmd,
                 tool=tool,
             )
             exec_handle = _reconstruct_handle(persisted)
@@ -486,7 +542,8 @@ def run_full(
         finally:
             teardown_handle = _reconstruct_handle(persisted)
             await env.teardown(teardown_handle)
-            handle_path.unlink(missing_ok=True)
+            if handle_path is not None:
+                handle_path.unlink(missing_ok=True)
 
         typer.echo(f"provisioned_vm_id: {persisted.vm_id}")
         typer.echo("teardown: completed")

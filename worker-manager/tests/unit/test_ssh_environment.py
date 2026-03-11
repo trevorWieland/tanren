@@ -592,8 +592,8 @@ class TestBuildCliCommand:
         assert cmd == "make check"
 
     def test_bash_command_without_gate(self, env_kit):
-        cmd = self._build(env_kit, Cli.BASH, gate_cmd=None)
-        assert "no gate command" in cmd
+        with pytest.raises(ValueError, match="requires a non-empty gate_cmd"):
+            self._build(env_kit, Cli.BASH, gate_cmd=None)
 
     def test_opencode_without_model(self, env_kit):
         cmd = self._build(env_kit, Cli.OPENCODE, model="")
