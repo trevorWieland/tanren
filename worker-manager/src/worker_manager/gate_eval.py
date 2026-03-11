@@ -2,19 +2,21 @@
 
 import json
 import re
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from worker_manager.schemas import GateExpectation, GateResult
 
 
-@dataclass
-class GateTestResult:
+class GateTestResult(BaseModel):
     """Normalized result of a single test or check."""
 
-    name: str
-    passed: bool
-    output: str = ""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(...)
+    passed: bool = Field(...)
+    output: str = Field(default="")
 
 
 def evaluate_gate(

@@ -36,8 +36,9 @@ import contextlib
 import logging
 import os
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from worker_manager.config import Config
 from worker_manager.schemas import Cli, Dispatch
@@ -45,14 +46,15 @@ from worker_manager.schemas import Cli, Dispatch
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ProcessResult:
+class ProcessResult(BaseModel):
     """Result of a spawned process."""
 
-    exit_code: int
-    stdout: str
-    timed_out: bool
-    duration_secs: int
+    model_config = ConfigDict(extra="forbid")
+
+    exit_code: int = Field(...)
+    stdout: str = Field(default="")
+    timed_out: bool = Field(...)
+    duration_secs: int = Field(..., ge=0)
 
 
 def assemble_prompt(

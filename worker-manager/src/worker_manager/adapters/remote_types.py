@@ -2,99 +2,108 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-@dataclass(frozen=True)
-class VMRequirements:
+class VMRequirements(BaseModel):
     """Resource requirements for VM provisioning."""
 
-    profile: str
-    cpu: int = 2
-    memory_gb: int = 4
-    gpu: bool = False
-    labels: dict[str, str] = field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile: str = Field(...)
+    cpu: int = Field(default=2, ge=1)
+    memory_gb: int = Field(default=4, ge=1)
+    gpu: bool = Field(default=False)
+    labels: dict[str, str] = Field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class VMHandle:
+class VMHandle(BaseModel):
     """Handle to a provisioned VM."""
 
-    vm_id: str
-    host: str
-    provider: str
-    created_at: str
-    labels: dict[str, str] = field(default_factory=dict)
-    hourly_cost: float | None = None
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vm_id: str = Field(...)
+    host: str = Field(...)
+    provider: str = Field(default="manual", min_length=1)
+    created_at: str = Field(...)
+    labels: dict[str, str] = Field(default_factory=dict)
+    hourly_cost: float | None = Field(default=None, ge=0.0)
 
 
-@dataclass(frozen=True)
-class VMAssignment:
+class VMAssignment(BaseModel):
     """Record of a VM assigned to a workflow."""
 
-    vm_id: str
-    workflow_id: str
-    project: str
-    spec: str
-    host: str
-    assigned_at: str
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vm_id: str = Field(...)
+    workflow_id: str = Field(...)
+    project: str = Field(...)
+    spec: str = Field(...)
+    host: str = Field(...)
+    assigned_at: str = Field(...)
 
 
-@dataclass(frozen=True)
-class WorkspaceSpec:
+class WorkspaceSpec(BaseModel):
     """Specification for setting up a remote workspace."""
 
-    project: str
-    repo_url: str
-    branch: str
-    setup_commands: tuple[str, ...] = ()
-    teardown_commands: tuple[str, ...] = ()
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project: str = Field(...)
+    repo_url: str = Field(...)
+    branch: str = Field(...)
+    setup_commands: tuple[str, ...] = Field(default_factory=tuple)
+    teardown_commands: tuple[str, ...] = Field(default_factory=tuple)
 
 
-@dataclass(frozen=True)
-class WorkspacePath:
+class WorkspacePath(BaseModel):
     """Path to a remote workspace."""
 
-    path: str
-    project: str
-    branch: str
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(...)
+    project: str = Field(...)
+    branch: str = Field(...)
 
 
-@dataclass(frozen=True)
-class SecretBundle:
+class SecretBundle(BaseModel):
     """Grouped secrets for remote injection."""
 
-    developer: dict[str, str] = field(default_factory=dict)
-    project: dict[str, str] = field(default_factory=dict)
-    infrastructure: dict[str, str] = field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    developer: dict[str, str] = Field(default_factory=dict)
+    project: dict[str, str] = Field(default_factory=dict)
+    infrastructure: dict[str, str] = Field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class BootstrapResult:
+class BootstrapResult(BaseModel):
     """Result of VM bootstrapping."""
 
-    installed: tuple[str, ...] = ()
-    skipped: tuple[str, ...] = ()
-    duration_secs: int = 0
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    installed: tuple[str, ...] = Field(default_factory=tuple)
+    skipped: tuple[str, ...] = Field(default_factory=tuple)
+    duration_secs: int = Field(default=0, ge=0)
 
 
-@dataclass(frozen=True)
-class RemoteResult:
+class RemoteResult(BaseModel):
     """Result of a remote command execution."""
 
-    exit_code: int
-    stdout: str
-    stderr: str
-    timed_out: bool = False
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    exit_code: int = Field(...)
+    stdout: str = Field(default="")
+    stderr: str = Field(default="")
+    timed_out: bool = Field(default=False)
 
 
-@dataclass(frozen=True)
-class RemoteAgentResult:
+class RemoteAgentResult(BaseModel):
     """Result of a remote agent execution."""
 
-    exit_code: int
-    stdout: str
-    timed_out: bool
-    duration_secs: int
-    stderr: str = ""
-    signal_content: str = ""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    exit_code: int = Field(...)
+    stdout: str = Field(default="")
+    timed_out: bool = Field(...)
+    duration_secs: int = Field(..., ge=0)
+    stderr: str = Field(default="")
+    signal_content: str = Field(default="")

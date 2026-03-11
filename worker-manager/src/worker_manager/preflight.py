@@ -3,9 +3,10 @@
 import asyncio
 import hashlib
 import logging
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +14,16 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_FILES = ("spec.md", "plan.md", "Makefile", "pyproject.toml", ".gitignore")
 
 
-@dataclass
-class PreflightResult:
-    passed: bool
-    repairs: list[str] = field(default_factory=list)
-    error: str | None = None
-    file_hashes: dict[str, str] = field(default_factory=dict)  # filename -> md5
-    file_backups: dict[str, str] = field(default_factory=dict)  # filename -> content
+class PreflightResult(BaseModel):
+    """Outcome of pre-flight checks before process execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool = Field(...)
+    repairs: list[str] = Field(default_factory=list)
+    error: str | None = Field(default=None)
+    file_hashes: dict[str, str] = Field(default_factory=dict)
+    file_backups: dict[str, str] = Field(default_factory=dict)
 
 
 async def run_preflight(

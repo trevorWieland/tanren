@@ -16,15 +16,15 @@ test:
 	uv run pytest tests/unit/ -x -q
 
 integration:
-	uv run pytest tests/integration/ -x -q -m "not ssh and not local_env"
+	uv run pytest tests/integration/ -x -q --no-cov -m "not ssh and not local_env"
 
 integration-ssh:
-	uv run pytest tests/integration/ -x -q -m ssh
+	uv run pytest tests/integration/ -x -q --no-cov -m ssh
 
 integration-local:
-	uv run pytest tests/integration/ -x -q -m local_env
+	uv run pytest tests/integration/ -x -q --no-cov -m local_env
 
 ci: check
-	uv run pytest tests/integration/ -x -q -m "not ssh and not local_env"
+	uv run pytest tests/integration/ -x -q --no-cov -m "not ssh and not local_env"
 
 all: ci

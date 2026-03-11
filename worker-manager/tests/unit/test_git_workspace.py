@@ -16,6 +16,7 @@ from worker_manager.adapters.remote_types import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ok(stdout: str = "") -> RemoteResult:
     return RemoteResult(exit_code=0, stdout=stdout, stderr="")
 
@@ -49,6 +50,7 @@ def _workspace() -> WorkspacePath:
 # ---------------------------------------------------------------------------
 # _build_repo_url
 # ---------------------------------------------------------------------------
+
 
 class TestGitAuth:
     @pytest.mark.asyncio
@@ -88,14 +90,15 @@ class TestGitAuth:
 # setup
 # ---------------------------------------------------------------------------
 
+
 class TestSetup:
     @pytest.mark.asyncio
     async def test_clone_fresh_when_git_dir_missing(self):
         conn = _make_conn()
         conn.run.side_effect = [
-            _ok(),            # chmod askpass
-            _ok(""),          # test -d .git -> no "exists"
-            _ok(),            # git clone
+            _ok(),  # chmod askpass
+            _ok(""),  # test -d .git -> no "exists"
+            _ok(),  # git clone
         ]
         mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_tok"))
         spec = _spec()
@@ -116,8 +119,8 @@ class TestSetup:
     async def test_clone_without_token_uses_plain_url(self):
         conn = _make_conn()
         conn.run.side_effect = [
-            _ok(""),          # test -d .git -> no "exists"
-            _ok(),            # git clone
+            _ok(""),  # test -d .git -> no "exists"
+            _ok(),  # git clone
         ]
         mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
         await mgr.setup(conn, _spec())
@@ -131,8 +134,8 @@ class TestSetup:
     async def test_pull_when_git_dir_exists(self):
         conn = _make_conn()
         conn.run.side_effect = [
-            _ok("exists"),    # test -d .git -> "exists"
-            _ok(),            # git pull
+            _ok("exists"),  # test -d .git -> "exists"
+            _ok(),  # git pull
         ]
         mgr = GitWorkspaceManager(GitAuthConfig())
         wp = await mgr.setup(conn, _spec())
@@ -145,18 +148,17 @@ class TestSetup:
     async def test_runs_setup_commands_after_clone(self):
         conn = _make_conn()
         conn.run.side_effect = [
-            _ok(""),          # test -d .git
-            _ok(),            # git clone
-            _ok(),            # setup cmd 1
-            _ok(),            # setup cmd 2
+            _ok(""),  # test -d .git
+            _ok(),  # git clone
+            _ok(),  # setup cmd 1
+            _ok(),  # setup cmd 2
         ]
         mgr = GitWorkspaceManager(GitAuthConfig())
         spec = _spec(setup_commands=("make install", "make build"))
         await mgr.setup(conn, spec)
 
         setup_calls = [
-            c for c in conn.run.call_args_list
-            if "make install" in str(c) or "make build" in str(c)
+            c for c in conn.run.call_args_list if "make install" in str(c) or "make build" in str(c)
         ]
         assert len(setup_calls) == 2
 
@@ -164,8 +166,8 @@ class TestSetup:
     async def test_clone_failure_raises(self):
         conn = _make_conn()
         conn.run.side_effect = [
-            _ok(""),                          # test -d .git
-            _fail("fatal: repo not found"),   # git clone fails
+            _ok(""),  # test -d .git
+            _fail("fatal: repo not found"),  # git clone fails
         ]
         mgr = GitWorkspaceManager(GitAuthConfig())
         with pytest.raises(RuntimeError, match="Git clone failed"):
@@ -175,8 +177,8 @@ class TestSetup:
     async def test_pull_failure_raises(self):
         conn = _make_conn()
         conn.run.side_effect = [
-            _ok("exists"),                        # test -d .git
-            _fail("error: merge conflict"),       # git pull fails
+            _ok("exists"),  # test -d .git
+            _fail("error: merge conflict"),  # git pull fails
         ]
         mgr = GitWorkspaceManager(GitAuthConfig())
         with pytest.raises(RuntimeError, match="Git pull failed"):
@@ -186,6 +188,7 @@ class TestSetup:
 # ---------------------------------------------------------------------------
 # inject_secrets
 # ---------------------------------------------------------------------------
+
 
 class TestInjectSecrets:
     @pytest.mark.asyncio
@@ -224,9 +227,11 @@ class TestInjectSecrets:
     async def test_special_characters_escaped(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
-        secrets = SecretBundle(developer={
-            "PASS": "it's a $ecret; rm -rf /",
-        })
+        secrets = SecretBundle(
+            developer={
+                "PASS": "it's a $ecret; rm -rf /",
+            }
+        )
         await mgr.inject_secrets(conn, _workspace(), secrets)
 
         content = conn.upload_content.call_args_list[0].args[0]
@@ -247,6 +252,7 @@ class TestInjectSecrets:
 # ---------------------------------------------------------------------------
 # push_command
 # ---------------------------------------------------------------------------
+
 
 class TestPushCommand:
     def test_push_command_with_token_includes_auth_env(self):
@@ -275,6 +281,7 @@ class TestPushCommand:
 # ---------------------------------------------------------------------------
 # cleanup
 # ---------------------------------------------------------------------------
+
 
 class TestCleanup:
     @pytest.mark.asyncio

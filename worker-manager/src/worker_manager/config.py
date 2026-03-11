@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def _expand(path: str) -> str:
@@ -12,6 +12,8 @@ def _expand(path: str) -> str:
 
 class Config(BaseModel):
     """Worker manager configuration loaded from environment variables."""
+
+    model_config = ConfigDict(extra="forbid")
 
     ipc_dir: str = Field(
         description="IPC directory path for coordinator group",

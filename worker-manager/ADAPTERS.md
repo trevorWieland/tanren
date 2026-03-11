@@ -231,23 +231,20 @@ teardown()  --> cleanup
 ### Data Types
 
 ```python
-@dataclass
-class EnvironmentHandle:
+class EnvironmentHandle(BaseModel):
     env_id: str              # UUID identifying this environment instance
     worktree_path: Path      # Where the code lives
     branch: str              # Git branch
     project: str             # Project name
-    metadata: dict[str, Any] # Extensible metadata (container ID, VM IP, etc.)
+    runtime: LocalEnvironmentRuntime | RemoteEnvironmentRuntime
 
-@dataclass
-class AccessInfo:
+class AccessInfo(BaseModel):
     ssh: str | None          # e.g., "ssh dev@10.0.1.42"
     vscode: str | None       # e.g., "code --remote ssh-remote+tanren-vm-3 /workspace"
     working_dir: str | None  # Local path or remote mount point
     status: str              # "running", "local", "stopped", etc.
 
-@dataclass
-class PhaseResult:
+class PhaseResult(BaseModel):
     outcome: Outcome         # SUCCESS, ERROR, TIMEOUT, etc.
     signal: str | None       # Extracted signal from agent output
     exit_code: int
@@ -350,21 +347,27 @@ execution_mode: remote
 ssh:
   user: root
   key_path: ~/.ssh/tanren_vm
+  port: 22
   connect_timeout: 10
 git:
   auth: token
   token_env: GIT_TOKEN
 vms:
-  - id: vm-1
+  - vm_id: vm-1
     host: 203.0.113.10
-  - id: vm-2
+    provider: manual
+    labels: {}
+    metadata: {}
+  - vm_id: vm-2
     host: 203.0.113.11
 bootstrap:
   extra_script: ./scripts/vm-setup.sh  # optional
 secrets:
   developer_secrets_path: ~/.config/tanren/secrets.env
 repos:
-  my-project: https://github.com/org/my-project.git
+  - project: my-project
+    repo_url: https://github.com/org/my-project.git
+    metadata: {}
 ```
 
 Set `WM_REMOTE_CONFIG=/path/to/remote.yml` to enable remote execution.
@@ -421,6 +424,7 @@ from pathlib import Path
 from worker_manager.adapters.protocols import ExecutionEnvironment
 from worker_manager.adapters.types import (
     AccessInfo,
+    CustomEnvironmentRuntime,
     EnvironmentHandle,
     PhaseResult,
     ProvisionError,
@@ -445,13 +449,16 @@ class DockerExecutionEnvironment:
             worktree_path=worktree_path,
             branch=dispatch.branch,
             project=dispatch.project,
-            metadata={"container_id": container_id},
+            runtime=CustomEnvironmentRuntime(
+                adapter="docker",
+                metadata={"container_id": container_id},
+            ),
         )
 
     async def execute(
         self, handle: EnvironmentHandle, dispatch: Dispatch, config: Config
     ) -> PhaseResult:
-        container_id = handle.metadata["container_id"]
+        container_id = handle.runtime.metadata["container_id"]
         exit_code, stdout = await self._docker_exec(container_id, dispatch)
 
         return PhaseResult(
@@ -467,7 +474,7 @@ class DockerExecutionEnvironment:
         )
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
-        container_id = handle.metadata["container_id"]
+        container_id = handle.runtime.metadata["container_id"]
         return AccessInfo(
             ssh=f"docker exec -it {container_id} /bin/bash",
             working_dir=str(handle.worktree_path),
@@ -475,7 +482,7 @@ class DockerExecutionEnvironment:
         )
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
-        container_id = handle.metadata["container_id"]
+        container_id = handle.runtime.metadata["container_id"]
         await self._destroy_container(container_id)
 
     # -- private helpers (implement these) --
@@ -493,9 +500,9 @@ class DockerExecutionEnvironment:
         raise NotImplementedError
 ```
 
-The `metadata` dict on `EnvironmentHandle` is the extension point for
-carrying environment-specific state (container IDs, VM instance IDs, SSH
-keys) through the lifecycle without modifying the core data types.
+The typed `runtime` field on `EnvironmentHandle` is the extension point for
+carrying environment-specific state (for example local preflight context or
+remote VM connection/workspace state) through the lifecycle.
 
 For simpler adapters (e.g., a custom `EventEmitter` that posts to a webhook),
 the pattern is the same: implement the protocol methods and inject via the

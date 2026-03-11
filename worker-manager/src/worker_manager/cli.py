@@ -1,20 +1,15 @@
 """Top-level tanren CLI dispatcher."""
 
-import click
+import typer
 
-from worker_manager.env.cli import env, secret
-from worker_manager.vm_cli import vm
+from worker_manager.env.cli import env_app, secret_app
+from worker_manager.vm_cli import vm_app
 
-
-@click.group()
-def tanren():
-    """tanren — development lifecycle framework CLI."""
-
-
-tanren.add_command(env)
-tanren.add_command(secret)
-tanren.add_command(vm)
+tanren = typer.Typer(help="tanren - development lifecycle framework CLI.")
+tanren.add_typer(env_app, name="env")
+tanren.add_typer(secret_app, name="secret")
+tanren.add_typer(vm_app, name="vm")
 
 
-def main():
+def main() -> None:
     tanren()

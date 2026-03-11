@@ -16,6 +16,30 @@ def _write_dotenv(path: Path, content: str) -> None:
 
 
 class TestProvisionWorktreeEnv:
+    def test_environment_block_does_not_break_provisioning(self, tmp_path: Path):
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        _write_tanren_yml(
+            worktree,
+            "version: 0.1.0\n"
+            "profile: default\n"
+            "installed: 2026-01-01\n"
+            "environment:\n"
+            "  ci:\n"
+            "    type: docker\n"
+            "env:\n"
+            "  required:\n"
+            "    - key: API_KEY\n",
+        )
+        _write_dotenv(project, "API_KEY=sk-abc\n")
+
+        count = provision_worktree_env(worktree, project)
+        assert count == 1
+        assert "API_KEY=sk-abc" in (worktree / ".env").read_text()
+
     def test_no_tanren_yml_returns_zero(self, tmp_path: Path):
         worktree = tmp_path / "wt"
         worktree.mkdir()

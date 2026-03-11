@@ -2,16 +2,15 @@
 
 import asyncio
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
 
 from worker_manager.schemas import Cli, Dispatch
 
 logger = logging.getLogger(__name__)
 
 # Type alias for dispatch handler
-DispatchHandler = Callable[[Path, Dispatch], Coroutine[Any, Any, None]]
+DispatchHandler = Callable[[Path, Dispatch], Awaitable[None]]
 
 # Maps CLI type to role-based queue lane
 _CLI_QUEUE_MAP: dict[Cli, str] = {

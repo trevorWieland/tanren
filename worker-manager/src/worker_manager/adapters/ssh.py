@@ -5,25 +5,26 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import paramiko
+from pydantic import BaseModel, ConfigDict, Field
 
 from worker_manager.adapters.remote_types import RemoteResult
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class SSHConfig:
+class SSHConfig(BaseModel):
     """SSH connection configuration."""
 
-    host: str
-    user: str = "root"
-    key_path: str = "~/.ssh/tanren_vm"
-    port: int = 22
-    connect_timeout: int = 10
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str = Field(...)
+    user: str = Field(default="root")
+    key_path: str = Field(default="~/.ssh/tanren_vm")
+    port: int = Field(default=22, ge=1, le=65535)
+    connect_timeout: int = Field(default=10, ge=1)
 
 
 class SSHConnection:
@@ -66,15 +67,15 @@ class SSHConnection:
                 f"SSH auth failed for {self._config.user}@{self._config.host}: {e}"
             ) from e
         except paramiko.SSHException as e:
-            raise ConnectionError(
-                f"SSH connection failed to {self._config.host}: {e}"
-            ) from e
+            raise ConnectionError(f"SSH connection failed to {self._config.host}: {e}") from e
 
         self._client = client
         self._sftp = None  # Reset SFTP on reconnect
         logger.info(
             "SSH connected to %s@%s:%d",
-            self._config.user, self._config.host, self._config.port,
+            self._config.user,
+            self._config.host,
+            self._config.port,
         )
         return client
 

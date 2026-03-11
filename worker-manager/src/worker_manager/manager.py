@@ -7,6 +7,9 @@ import os
 import signal
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
+
+from pydantic import JsonValue
 
 from worker_manager.adapters import (
     DispatchReceived,
@@ -34,7 +37,7 @@ from worker_manager.adapters.protocols import (
     ProcessSpawner,
     WorktreeManager,
 )
-from worker_manager.adapters.types import ProvisionError
+from worker_manager.adapters.types import EnvironmentHandle, LocalEnvironmentRuntime, ProvisionError
 from worker_manager.config import Config
 from worker_manager.heartbeat import HeartbeatWriter
 from worker_manager.ipc import (
@@ -294,6 +297,7 @@ class WorkerManager:
             host="",  # placeholder — overridden per VM
             user=remote_cfg.ssh.user,
             key_path=remote_cfg.ssh.key_path,
+            port=remote_cfg.ssh.port,
             connect_timeout=remote_cfg.ssh.connect_timeout,
         )
 
@@ -303,9 +307,7 @@ class WorkerManager:
             token=token or None,
         )
 
-        state_store = SqliteVMStateStore(
-            f"{self._config.data_dir}/vm-state.db"
-        )
+        state_store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
         self._remote_state_store = state_store
 
         # Read extra bootstrap script if configured
@@ -318,21 +320,16 @@ class WorkerManager:
             if script_path.exists():
                 extra_script = script_path.read_text()
             else:
-                logger.warning(
-                    "Bootstrap extra script not found: %s", script_path
-                )
+                logger.warning("Bootstrap extra script not found: %s", script_path)
 
         secret_config = SecretConfig(
             developer_secrets_path=(
-                remote_cfg.secrets.developer_secrets_path
-                or SecretConfig().developer_secrets_path
+                remote_cfg.secrets.developer_secrets_path or SecretConfig().developer_secrets_path
             ),
         )
 
         return SSHExecutionEnvironment(
-            vm_provisioner=ManualVMProvisioner(
-                remote_cfg.vms, state_store
-            ),
+            vm_provisioner=ManualVMProvisioner(remote_cfg.vms, state_store),
             bootstrapper=UbuntuBootstrapper(extra_script=extra_script),
             workspace_mgr=GitWorkspaceManager(git_auth),
             runner=RemoteAgentRunner(),
@@ -340,7 +337,7 @@ class WorkerManager:
             secret_loader=SecretLoader(secret_config),
             emitter=self._emitter,
             ssh_config_defaults=ssh_defaults,
-            repo_urls=remote_cfg.repos,
+            repo_urls={binding.project: binding.repo_url for binding in remote_cfg.repos},
         )
 
     async def _recover_vm_state(self) -> None:
@@ -364,12 +361,15 @@ class WorkerManager:
                 len(assignments),
             )
             for a in assignments:
-                conn = SSHConnection(SSHConfig(
-                    host=a.host,
-                    user=remote_cfg.ssh.user,
-                    key_path=remote_cfg.ssh.key_path,
-                    connect_timeout=remote_cfg.ssh.connect_timeout,
-                ))
+                conn = SSHConnection(
+                    SSHConfig(
+                        host=a.host,
+                        user=remote_cfg.ssh.user,
+                        key_path=remote_cfg.ssh.key_path,
+                        port=remote_cfg.ssh.port,
+                        connect_timeout=remote_cfg.ssh.connect_timeout,
+                    )
+                )
                 try:
                     reachable = await conn.check_connection()
                     if not reachable:
@@ -571,7 +571,7 @@ class WorkerManager:
                     timestamp=datetime.now(UTC).isoformat(),
                     workflow_id=dispatch.workflow_id,
                     passed=True,
-                    repairs=handle._preflight_result.repairs if handle._preflight_result else [],
+                    repairs=self._preflight_repairs(handle),
                 )
             )
 
@@ -618,7 +618,7 @@ class WorkerManager:
 
             # 5. Apply postflight results
             pushed: bool | None = None
-            integrity_repairs: dict | None = None
+            integrity_repairs = None
             spec_modified = False
             if phase_result.postflight_result is not None:
                 postflight_result = phase_result.postflight_result
@@ -635,7 +635,7 @@ class WorkerManager:
 
                 pushed = postflight_result.pushed
                 integrity_repairs = postflight_result.integrity_repairs
-                spec_modified = postflight_result.integrity_repairs.get("spec_reverted", False)
+                spec_modified = postflight_result.integrity_repairs.spec_reverted
                 if not postflight_result.pushed and postflight_result.push_error:
                     if tail_output:
                         tail_output += (
@@ -702,10 +702,10 @@ class WorkerManager:
 
     def _parse_findings(
         self, dispatch: Dispatch, spec_folder_path: Path
-    ) -> tuple[list[dict], list[dict]]:
+    ) -> tuple[list[dict[str, JsonValue]], list[dict[str, JsonValue]]]:
         """Parse structured findings from audit/demo/investigate phases."""
-        new_tasks: list[dict] = []
-        findings_data: list[dict] = []
+        new_tasks: list[dict[str, JsonValue]] = []
+        findings_data: list[dict[str, JsonValue]] = []
 
         if dispatch.phase == Phase.AUDIT_TASK:
             findings = parse_audit_findings(spec_folder_path)
@@ -731,11 +731,20 @@ class WorkerManager:
         elif dispatch.phase == Phase.INVESTIGATE:
             report = parse_investigation_report(spec_folder_path)
             if report:
-                findings_data = [{"report": report.model_dump()}]
+                findings_data = [{"report": report.model_dump(mode="json")}]
                 for rc in report.root_causes:
                     new_tasks.extend(rc.suggested_tasks)
 
         return new_tasks, findings_data
+
+    def _preflight_repairs(self, handle: EnvironmentHandle) -> list[str]:
+        """Extract preflight repairs from local runtime handles."""
+        if handle.runtime.kind != "local":
+            return []
+        local_runtime = cast(LocalEnvironmentRuntime, handle.runtime)
+        if local_runtime.preflight_result is None:
+            return []
+        return local_runtime.preflight_result.repairs
 
     async def _sync_remote_changes(self, worktree_path: Path) -> None:
         """Pull remote changes into local worktree after remote execution."""

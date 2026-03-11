@@ -1,45 +1,68 @@
 """Pydantic models for the tanren.yml env block."""
 
 from enum import StrEnum
+from typing import cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class OnMissing(StrEnum):
+    """Policy for handling missing required environment variables."""
+
     ERROR = "error"
     WARN = "warn"
     PROMPT = "prompt"
 
 
 class RequiredEnvVar(BaseModel):
-    key: str
-    description: str = ""
-    pattern: str | None = None  # regex for re.fullmatch()
-    hint: str = ""
+    """Required environment variable declaration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(...)
+    description: str = Field(default="")
+    pattern: str | None = Field(default=None, description="Regex for re.fullmatch()")
+    hint: str = Field(default="")
 
 
 class OptionalEnvVar(BaseModel):
-    key: str
-    description: str = ""
-    pattern: str | None = None
-    default: str | None = None
+    """Optional environment variable declaration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(...)
+    description: str = Field(default="")
+    pattern: str | None = Field(default=None)
+    default: str | None = Field(default=None)
 
 
 class EnvBlock(BaseModel):
-    on_missing: OnMissing = OnMissing.ERROR
+    """Environment policy and variable requirements for a project."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    on_missing: OnMissing = Field(default=OnMissing.ERROR)
     required: list[RequiredEnvVar] = Field(default_factory=list)
     optional: list[OptionalEnvVar] = Field(default_factory=list)
 
 
 class TanrenConfig(BaseModel):
-    version: str
-    profile: str
-    installed: str  # YAML may parse dates; coerce via validator
-    env: EnvBlock | None = None
+    """Top-level tanren.yml model needed by worker-manager env tooling."""
 
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(...)
+    profile: str = Field(...)
+    installed: str = Field(...)
+    env: EnvBlock | None = Field(default=None)
+    # Consumed by runtime environment selection logic outside env tooling.
+    environment: dict[str, object] | None = Field(default=None)
+
+    @model_validator(mode="before")
     @classmethod
-    def model_validate(cls, obj, *args, **kwargs):
-        # YAML parses bare dates (2026-01-01) as datetime.date objects
-        if isinstance(obj, dict) and "installed" in obj:
-            obj = {**obj, "installed": str(obj["installed"])}
-        return super().model_validate(obj, *args, **kwargs)
+    def _coerce_installed(cls, value: object) -> object:
+        # YAML can parse bare dates (e.g., 2026-01-01) as datetime.date.
+        if isinstance(value, dict) and "installed" in value:
+            value_dict = cast(dict[str, object], value)
+            return {**value_dict, "installed": str(value_dict.get("installed"))}
+        return value
