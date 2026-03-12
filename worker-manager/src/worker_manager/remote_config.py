@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -41,6 +41,7 @@ class RemoteSSHConfig(BaseModel):
     key_path: str = Field(default="~/.ssh/tanren_vm")
     port: int = Field(default=22, ge=1, le=65535)
     connect_timeout: int = Field(default=10, ge=1)
+    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
 
 
 class RemoteGitConfig(BaseModel):

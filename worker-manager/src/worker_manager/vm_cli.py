@@ -114,6 +114,7 @@ def vm_recover() -> None:
                         key_path=ssh_defaults.key_path,
                         port=ssh_defaults.port,
                         connect_timeout=ssh_defaults.connect_timeout,
+                        host_key_policy=ssh_defaults.host_key_policy,
                     )
                 else:
                     ssh_config = SSHConfig(host=assignment.host)

@@ -508,3 +508,99 @@ def test_run_full_teardown_runs_even_when_handle_save_fails(tmp_path: Path, monk
     assert result.exit_code == 1
     assert env.execute.await_count == 0
     assert env.teardown.await_count == 1
+
+
+def test_teardown_retains_external_handle_file(tmp_path: Path, monkeypatch):
+    """Handle files outside run-handles/ are not deleted on teardown."""
+    config = _config(tmp_path)
+    persisted = PersistedRunHandle(
+        env_id="env-ext",
+        vm_id="vm-ext",
+        project="proj",
+        branch="main",
+        workflow_id="run-proj-ext",
+        environment_profile="default",
+        local_worktree_path=str(Path(config.github_dir) / "proj"),
+        workspace_path="/workspace/proj",
+        teardown_commands=(),
+        provisioned_at_utc=datetime.now(UTC).isoformat(),
+        vm_handle=VMHandle(
+            vm_id="vm-ext",
+            host="203.0.113.10",
+            provider=VMProvider.HETZNER,
+            created_at="2026-01-01T00:00:00Z",
+            hourly_cost=0.5,
+        ),
+        ssh_defaults=PersistedSSHDefaults(
+            user="root",
+            key_path="~/.ssh/id_rsa",
+            port=22,
+            connect_timeout=10,
+        ),
+    )
+    external_file = tmp_path / "external-handle.json"
+    external_file.write_text(persisted.model_dump_json(indent=2))
+
+    env = AsyncMock()
+    monkeypatch.setattr("worker_manager.run_cli._load_config", lambda: config)
+    monkeypatch.setattr("worker_manager.run_cli._build_remote_execution_env", lambda cfg: env)
+
+    result = CliRunner().invoke(run, ["teardown", "--handle", str(external_file)])
+
+    assert result.exit_code == 0
+    assert external_file.exists(), "external handle file should NOT be deleted"
+    assert "handle_retained" in result.output
+
+
+def test_load_handle_registry_not_shadowed_by_cwd_file(tmp_path: Path, monkeypatch):
+    """A file named like an env_id in cwd must not shadow the registry."""
+    config = _config(tmp_path)
+    _persisted(config)  # creates env-123.json in registry
+
+    # Create a decoy file named "env-123" in cwd (not valid JSON)
+    monkeypatch.chdir(tmp_path)
+    decoy = tmp_path / "env-123"
+    decoy.write_text("not a handle")
+
+    loaded, loaded_path = _load_handle(config, "env-123")
+
+    assert loaded.env_id == "env-123"
+    # Must resolve from registry, not from cwd decoy
+    assert "run-handles" in str(loaded_path)
+
+
+def test_persisted_handle_roundtrips_host_key_policy(tmp_path: Path):
+    """host_key_policy survives save → load roundtrip."""
+    config = _config(tmp_path)
+    persisted = PersistedRunHandle(
+        env_id="env-hkp",
+        vm_id="vm-hkp",
+        project="proj",
+        branch="main",
+        workflow_id="run-proj-hkp",
+        environment_profile="default",
+        local_worktree_path=str(Path(config.github_dir) / "proj"),
+        workspace_path="/workspace/proj",
+        teardown_commands=(),
+        provisioned_at_utc=datetime.now(UTC).isoformat(),
+        vm_handle=VMHandle(
+            vm_id="vm-hkp",
+            host="203.0.113.10",
+            provider=VMProvider.HETZNER,
+            created_at="2026-01-01T00:00:00Z",
+            hourly_cost=0.5,
+        ),
+        ssh_defaults=PersistedSSHDefaults(
+            user="root",
+            key_path="~/.ssh/id_rsa",
+            port=22,
+            connect_timeout=10,
+            host_key_policy="reject",
+        ),
+    )
+    from worker_manager.run_cli import _save_handle
+
+    _save_handle(config, persisted)
+
+    loaded, _ = _load_handle(config, "env-hkp")
+    assert loaded.ssh_defaults.host_key_policy == "reject"

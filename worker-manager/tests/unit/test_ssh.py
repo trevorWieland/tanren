@@ -23,6 +23,7 @@ class TestSSHConfig:
         assert cfg.key_path == "~/.ssh/tanren_vm"
         assert cfg.port == 22
         assert cfg.connect_timeout == 10
+        assert cfg.host_key_policy == "auto_add"
 
     def test_frozen(self):
         cfg = SSHConfig(host="10.0.0.1")
@@ -76,6 +77,7 @@ class TestEnsureConnected:
         result = conn._ensure_connected()
 
         assert result is mock_client
+        mock_client.load_system_host_keys.assert_called_once()
         mock_client.set_missing_host_key_policy.assert_called_once_with(
             mock_paramiko.AutoAddPolicy()
         )
@@ -85,6 +87,30 @@ class TestEnsureConnected:
         assert call_kwargs["port"] == 2222
         assert call_kwargs["username"] == "deploy"
         assert call_kwargs["timeout"] == 5
+
+    def test_warn_policy_sets_warning_policy(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+
+        conn = _make_conn(host_key_policy="warn")
+        conn._ensure_connected()
+
+        mock_client.load_system_host_keys.assert_called_once()
+        mock_client.set_missing_host_key_policy.assert_called_once_with(
+            mock_paramiko.WarningPolicy()
+        )
+
+    def test_reject_policy_sets_reject_policy(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+
+        conn = _make_conn(host_key_policy="reject")
+        conn._ensure_connected()
+
+        mock_client.load_system_host_keys.assert_called_once()
+        mock_client.set_missing_host_key_policy.assert_called_once_with(
+            mock_paramiko.RejectPolicy()
+        )
 
     def test_reuses_active_transport(self, mock_paramiko):
         mock_client = MagicMock()

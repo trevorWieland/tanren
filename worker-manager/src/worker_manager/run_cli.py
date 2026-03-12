@@ -12,7 +12,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 import typer
 import yaml
@@ -46,6 +46,7 @@ class PersistedSSHDefaults(BaseModel):
     key_path: str = Field(...)
     port: int = Field(...)
     connect_timeout: int = Field(...)
+    host_key_policy: str = Field(default="auto_add")
 
 
 class PersistedRunHandle(BaseModel):
@@ -109,6 +110,20 @@ def _save_handle(config: Config, persisted: PersistedRunHandle) -> Path:
     return path
 
 
+def _is_managed_handle(config: Config, handle_path: Path) -> bool:
+    """Return True if handle_path lives inside the managed run-handles directory."""
+    try:
+        handle_path.resolve().relative_to(_handle_dir(config).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _is_explicit_path(identifier: str) -> bool:
+    """True if identifier contains a path separator, indicating an explicit file path."""
+    return "/" in identifier or "\\" in identifier
+
+
 def _load_handle(config: Config, identifier: str) -> tuple[PersistedRunHandle, Path]:
     def _parse(path: Path) -> PersistedRunHandle:
         try:
@@ -127,19 +142,22 @@ def _load_handle(config: Config, identifier: str) -> tuple[PersistedRunHandle, P
             raise typer.Exit(code=1) from exc
         return parsed
 
-    # Accept file paths directly
-    file_path = Path(identifier)
-    if file_path.is_file():
-        return _parse(file_path), file_path
-
+    # 1. Registry lookup by env_id
     direct = _handle_path(config, identifier)
     if direct.exists():
         return _parse(direct), direct
 
+    # 2. Registry lookup by vm_id
     for candidate in _handle_dir(config).glob("*.json"):
         loaded = _parse(candidate)
         if loaded.vm_id == identifier:
             return loaded, candidate
+
+    # 3. Explicit file path (only for path-like identifiers)
+    if _is_explicit_path(identifier):
+        file_path = Path(identifier)
+        if file_path.is_file():
+            return _parse(file_path), file_path
 
     typer.echo(f"No run handle found for identifier: {identifier}", err=True)
     raise typer.Exit(code=1)
@@ -193,6 +211,10 @@ def _reconstruct_handle(persisted: PersistedRunHandle) -> EnvironmentHandle:
         key_path=persisted.ssh_defaults.key_path,
         port=persisted.ssh_defaults.port,
         connect_timeout=persisted.ssh_defaults.connect_timeout,
+        host_key_policy=cast(
+            Literal["auto_add", "warn", "reject"],
+            persisted.ssh_defaults.host_key_policy,
+        ),
     )
     conn = SSHConnection(ssh_cfg)
 
@@ -345,6 +367,7 @@ def run_provision(
                     key_path=env.ssh_defaults.key_path,
                     port=env.ssh_defaults.port,
                     connect_timeout=env.ssh_defaults.connect_timeout,
+                    host_key_policy=env.ssh_defaults.host_key_policy,
                 ),
             )
             path = _save_handle(config, persisted)
@@ -450,8 +473,6 @@ def run_teardown(
             env_handle = _reconstruct_handle(persisted)
             await env.teardown(env_handle)
 
-            handle_path.unlink(missing_ok=True)
-
             duration = _elapsed_seconds(persisted.provisioned_at_utc)
             estimated_cost: float | None = None
             vm_hourly_cost = persisted.vm_handle.hourly_cost
@@ -459,7 +480,11 @@ def run_teardown(
                 estimated_cost = vm_hourly_cost * (duration / 3600.0)
 
             typer.echo(f"released_vm_id: {persisted.vm_id}")
-            typer.echo(f"removed_handle: {handle_path}")
+            if _is_managed_handle(config, handle_path):
+                handle_path.unlink(missing_ok=True)
+                typer.echo(f"removed_handle: {handle_path}")
+            else:
+                typer.echo(f"handle_retained: {handle_path} (external file)")
             if estimated_cost is not None:
                 typer.echo(f"estimated_cost: {estimated_cost:.4f}")
         finally:
@@ -521,6 +546,7 @@ def run_full(
                     key_path=env.ssh_defaults.key_path,
                     port=env.ssh_defaults.port,
                     connect_timeout=env.ssh_defaults.connect_timeout,
+                    host_key_policy=env.ssh_defaults.host_key_policy,
                 ),
             )
             handle_path: Path | None = None
@@ -564,7 +590,7 @@ def run_full(
             finally:
                 teardown_handle = _reconstruct_handle(persisted)
                 await env.teardown(teardown_handle)
-                if handle_path is not None:
+                if handle_path is not None and _is_managed_handle(config, handle_path):
                     handle_path.unlink(missing_ok=True)
 
             typer.echo(f"provisioned_vm_id: {persisted.vm_id}")

@@ -316,6 +316,7 @@ class WorkerManager:
             key_path=remote_cfg.ssh.key_path,
             port=remote_cfg.ssh.port,
             connect_timeout=remote_cfg.ssh.connect_timeout,
+            host_key_policy=remote_cfg.ssh.host_key_policy,
         )
 
         state_store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
