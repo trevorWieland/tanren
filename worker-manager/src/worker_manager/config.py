@@ -1,13 +1,89 @@
 """Worker manager configuration from environment variables with WM_ prefix."""
 
+import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger(__name__)
 
 
 def _expand(path: str) -> str:
     return str(Path(path).expanduser())
+
+
+@runtime_checkable
+class ConfigSource(Protocol):
+    """Provide WM_* configuration values from an external source.
+
+    Implementations load configuration from different backends
+    (dotenv files, Vault, SSM). Resolution in Config.from_env():
+    sources provide base values, os.environ overrides.
+    All required fields must be present — no built-in defaults.
+
+    Default implementation: DotenvConfigSource.
+    """
+
+    def load(self) -> dict[str, str]: ...
+
+
+class DotenvConfigSource:
+    """Load config from a dotenv file.
+
+    Default: $XDG_CONFIG_HOME/tanren/tanren.env (~/.config/tanren/tanren.env).
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        if path is None:
+            xdg = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+            path = Path(xdg) / "tanren" / "tanren.env"
+        self._path = path
+
+    def load(self) -> dict[str, str]:
+        if not self._path.exists():
+            logger.debug("No config file at %s — skipping", self._path)
+            return {}
+        values = dotenv_values(self._path)
+        loaded = {k: v for k, v in values.items() if v is not None}
+        logger.debug("Loaded %d config values from %s", len(loaded), self._path)
+        return loaded
+
+
+def load_config_env(source: ConfigSource | None = None) -> None:
+    """Load config into os.environ from the given source (default: tanren.env).
+
+    Only sets variables not already present in os.environ (env wins).
+    Convenience for entry points — ensures vm_cli.py and other code
+    reading os.environ.get("WM_*") directly picks up values.
+    """
+    src = source or DotenvConfigSource()
+    values = src.load()
+    for key, value in values.items():
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+_REQUIRED_KEYS = (
+    "WM_IPC_DIR",
+    "WM_GITHUB_DIR",
+    "WM_DATA_DIR",
+    "WM_COMMANDS_DIR",
+    "WM_POLL_INTERVAL",
+    "WM_HEARTBEAT_INTERVAL",
+    "WM_OPENCODE_PATH",
+    "WM_CODEX_PATH",
+    "WM_CLAUDE_PATH",
+    "WM_MAX_OPENCODE",
+    "WM_MAX_CODEX",
+    "WM_MAX_GATE",
+    "WM_WORKTREE_REGISTRY_PATH",
+)
+
+_OPTIONAL_KEYS = ("WM_ROLES_CONFIG_PATH", "WM_EVENTS_DB", "WM_REMOTE_CONFIG")
 
 
 class Config(BaseModel):
@@ -77,33 +153,46 @@ class Config(BaseModel):
     )
 
     @classmethod
-    def from_env(cls) -> Config:
-        """Load configuration from WM_ prefixed environment variables."""
-        ipc_dir_raw = os.environ.get("WM_IPC_DIR")
-        if not ipc_dir_raw:
-            raise ValueError("WM_IPC_DIR environment variable is required")
-        ipc_dir = _expand(ipc_dir_raw)
-        github_dir = _expand(os.environ.get("WM_GITHUB_DIR", "~/github"))
-        data_dir = _expand(os.environ.get("WM_DATA_DIR", "~/.local/share/tanren-worker"))
+    def from_env(cls, sources: Sequence[ConfigSource] = ()) -> Config:
+        """Load configuration from sources and environment variables.
+
+        Sources provide base values. Environment variables override.
+        All required WM_* fields must be present — no built-in defaults.
+        """
+        # 1. Collect values from sources
+        resolved: dict[str, str] = {}
+        for source in sources:
+            resolved.update(source.load())
+
+        # 2. Environment variables override source values
+        for key in (*_REQUIRED_KEYS, *_OPTIONAL_KEYS):
+            env_val = os.environ.get(key)
+            if env_val is not None:
+                resolved[key] = env_val
+
+        # 3. Validate — all required keys must be present
+        missing = [k for k in _REQUIRED_KEYS if k not in resolved]
+        if missing:
+            raise ValueError(
+                f"Missing required config: {', '.join(missing)}. "
+                "Set them in tanren.env or as environment variables."
+            )
 
         return cls(
-            ipc_dir=ipc_dir,
-            github_dir=github_dir,
-            commands_dir=os.environ.get("WM_COMMANDS_DIR", ".claude/commands/tanren"),
-            poll_interval=float(os.environ.get("WM_POLL_INTERVAL", "5.0")),
-            heartbeat_interval=float(os.environ.get("WM_HEARTBEAT_INTERVAL", "30.0")),
-            opencode_path=os.environ.get("WM_OPENCODE_PATH", "opencode"),
-            codex_path=os.environ.get("WM_CODEX_PATH", "codex"),
-            claude_path=os.environ.get("WM_CLAUDE_PATH", "claude"),
-            roles_config_path=os.environ.get("WM_ROLES_CONFIG_PATH"),
-            data_dir=data_dir,
-            worktree_registry_path=os.environ.get(
-                "WM_WORKTREE_REGISTRY_PATH",
-                str(Path(data_dir) / "worktrees.json"),
-            ),
-            max_opencode=int(os.environ.get("WM_MAX_OPENCODE", "1")),
-            max_codex=int(os.environ.get("WM_MAX_CODEX", "1")),
-            max_gate=int(os.environ.get("WM_MAX_GATE", "3")),
-            events_db=os.environ.get("WM_EVENTS_DB"),
-            remote_config_path=os.environ.get("WM_REMOTE_CONFIG"),
+            ipc_dir=_expand(resolved["WM_IPC_DIR"]),
+            github_dir=_expand(resolved["WM_GITHUB_DIR"]),
+            data_dir=_expand(resolved["WM_DATA_DIR"]),
+            commands_dir=resolved["WM_COMMANDS_DIR"],
+            poll_interval=float(resolved["WM_POLL_INTERVAL"]),
+            heartbeat_interval=float(resolved["WM_HEARTBEAT_INTERVAL"]),
+            opencode_path=resolved["WM_OPENCODE_PATH"],
+            codex_path=resolved["WM_CODEX_PATH"],
+            claude_path=resolved["WM_CLAUDE_PATH"],
+            roles_config_path=resolved.get("WM_ROLES_CONFIG_PATH"),
+            worktree_registry_path=resolved["WM_WORKTREE_REGISTRY_PATH"],
+            max_opencode=int(resolved["WM_MAX_OPENCODE"]),
+            max_codex=int(resolved["WM_MAX_CODEX"]),
+            max_gate=int(resolved["WM_MAX_GATE"]),
+            events_db=resolved.get("WM_EVENTS_DB"),
+            remote_config_path=resolved.get("WM_REMOTE_CONFIG"),
         )

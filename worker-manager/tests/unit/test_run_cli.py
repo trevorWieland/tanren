@@ -370,10 +370,7 @@ def test_run_execute_gate_uses_profile_gate_cmd_when_missing_flag(tmp_path: Path
     _persisted(config)
     _write_tanren_yml(
         config,
-        "environment:\n"
-        "  default:\n"
-        "    type: remote\n"
-        "    gate_cmd: make integration-check\n",
+        "environment:\n  default:\n    type: remote\n    gate_cmd: make integration-check\n",
     )
     env = AsyncMock()
     env.execute.return_value = PhaseResult(

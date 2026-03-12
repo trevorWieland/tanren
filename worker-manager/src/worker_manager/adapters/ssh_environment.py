@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shlex
 import time
@@ -46,6 +47,9 @@ from worker_manager.signals import map_outcome, parse_signal_token
 logger = logging.getLogger(__name__)
 
 _PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase.AUDIT_SPEC})
+
+_SSH_READY_TIMEOUT_SECS = 120
+_SSH_READY_POLL_SECS = 3
 
 
 class SSHExecutionEnvironment:
@@ -112,6 +116,9 @@ class SSHExecutionEnvironment:
                 connect_timeout=self._ssh_defaults.connect_timeout,
             )
             conn = SSHConnection(ssh_config)
+
+            # 4b. Wait for SSH to accept connections (sshd lags behind API status)
+            await self._await_ssh_ready(conn)
 
             # 5. Bootstrap VM (idempotent)
             bootstrap_result = await self._bootstrapper.bootstrap(conn)
@@ -259,8 +266,6 @@ class SSHExecutionEnvironment:
                 )
                 if error_class == ErrorClass.TRANSIENT and transient_retries < 3:
                     transient_retries += 1
-                    import asyncio
-
                     backoff = TRANSIENT_BACKOFF[transient_retries - 1]
                     logger.warning(
                         "Transient error (attempt %d/3), retrying in %ds",
@@ -271,8 +276,6 @@ class SSHExecutionEnvironment:
                     continue
                 if error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
                     transient_retries += 1
-                    import asyncio
-
                     logger.warning("Ambiguous error, retrying once in 10s")
                     await asyncio.sleep(10)
                     continue
@@ -384,6 +387,25 @@ class SSHExecutionEnvironment:
                             estimated_cost=cost,
                         )
                     )
+
+    async def _await_ssh_ready(
+        self, conn: SSHConnection, *, timeout: int = _SSH_READY_TIMEOUT_SECS
+    ) -> None:
+        """Poll SSH until the host accepts connections or deadline expires."""
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while time.monotonic() < deadline:
+            attempt += 1
+            if await conn.check_connection():
+                logger.info("SSH ready after %d attempt(s)", attempt)
+                return
+            logger.debug(
+                "SSH not ready (attempt %d), retrying in %ds",
+                attempt,
+                _SSH_READY_POLL_SECS,
+            )
+            await asyncio.sleep(_SSH_READY_POLL_SECS)
+        raise TimeoutError(f"SSH not reachable within {timeout}s on {conn.get_host_identifier()}")
 
     def _resolve_profile(self, dispatch: Dispatch, config: Config):
         """Read tanren.yml locally and resolve environment profile."""

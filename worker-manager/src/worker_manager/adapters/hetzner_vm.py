@@ -160,9 +160,7 @@ class HetznerVMProvisioner:
 
     async def list_active(self) -> list[VMHandle]:
         """List active tanren-managed Hetzner VMs."""
-        selector = (
-            f"{self._settings.managed_by_label_key}={self._settings.managed_by_label_value}"
-        )
+        selector = f"{self._settings.managed_by_label_key}={self._settings.managed_by_label_value}"
 
         servers: list[object]
         try:
@@ -302,7 +300,7 @@ class HetznerVMProvisioner:
                 return None
             try:
                 return float(value)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
 
         price_hourly = getattr(price, "price_hourly", None)
