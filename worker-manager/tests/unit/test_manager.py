@@ -228,7 +228,11 @@ class TestRecoverVmState:
             lambda _vms, _store: provisioner,
         )
 
-        manager = WorkerManager(config=config, execution_env=AsyncMock(), emitter=NullEventEmitter())
+        manager = WorkerManager(
+            config=config,
+            execution_env=AsyncMock(),
+            emitter=NullEventEmitter(),
+        )
         await manager._recover_vm_state()
 
         assert provisioner.release.await_count == 1
@@ -240,7 +244,9 @@ class TestRecoverVmState:
         store.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_records_release_even_if_provider_release_fails(self, tmp_path: Path, monkeypatch):
+    async def test_records_release_even_if_provider_release_fails(
+        self, tmp_path: Path, monkeypatch
+    ):
         remote_cfg = tmp_path / "remote.yml"
         remote_cfg.write_text(
             "provisioner:\n"
@@ -279,7 +285,11 @@ class TestRecoverVmState:
             lambda _vms, _store: provisioner,
         )
 
-        manager = WorkerManager(config=config, execution_env=AsyncMock(), emitter=NullEventEmitter())
+        manager = WorkerManager(
+            config=config,
+            execution_env=AsyncMock(),
+            emitter=NullEventEmitter(),
+        )
         await manager._recover_vm_state()
 
         store.record_release.assert_awaited_once_with("vm-1")

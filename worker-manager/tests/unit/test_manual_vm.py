@@ -5,12 +5,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 from worker_manager.adapters.manual_vm import (
-    ManualVMConfig,
     ManualProvisionerSettings,
+    ManualVMConfig,
     ManualVMProvisioner,
     NoVMAvailableError,
 )
-from worker_manager.adapters.remote_types import VMAssignment, VMHandle, VMProvider, VMRequirements
+from worker_manager.adapters.remote_types import (
+    VMAssignment,
+    VMHandle,
+    VMProvider,
+    VMRequirements,
+)
 
 
 def _make_provisioner(
