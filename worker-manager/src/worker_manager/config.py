@@ -16,6 +16,10 @@ def _expand(path: str) -> str:
     return str(Path(path).expanduser())
 
 
+def _expand_optional(path: str | None) -> str | None:
+    return _expand(path) if path is not None else None
+
+
 @runtime_checkable
 class ConfigSource(Protocol):
     """Provide WM_* configuration values from an external source.
@@ -171,7 +175,7 @@ class Config(BaseModel):
                 resolved[key] = env_val
 
         # 3. Validate — all required keys must be present
-        missing = [k for k in _REQUIRED_KEYS if k not in resolved]
+        missing = [k for k in _REQUIRED_KEYS if not resolved.get(k, "").strip()]
         if missing:
             raise ValueError(
                 f"Missing required config: {', '.join(missing)}. "
@@ -188,11 +192,11 @@ class Config(BaseModel):
             opencode_path=resolved["WM_OPENCODE_PATH"],
             codex_path=resolved["WM_CODEX_PATH"],
             claude_path=resolved["WM_CLAUDE_PATH"],
-            roles_config_path=resolved.get("WM_ROLES_CONFIG_PATH"),
-            worktree_registry_path=resolved["WM_WORKTREE_REGISTRY_PATH"],
+            roles_config_path=_expand_optional(resolved.get("WM_ROLES_CONFIG_PATH")),
+            worktree_registry_path=_expand(resolved["WM_WORKTREE_REGISTRY_PATH"]),
             max_opencode=int(resolved["WM_MAX_OPENCODE"]),
             max_codex=int(resolved["WM_MAX_CODEX"]),
             max_gate=int(resolved["WM_MAX_GATE"]),
-            events_db=resolved.get("WM_EVENTS_DB"),
-            remote_config_path=resolved.get("WM_REMOTE_CONFIG"),
+            events_db=_expand_optional(resolved.get("WM_EVENTS_DB")),
+            remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
         )

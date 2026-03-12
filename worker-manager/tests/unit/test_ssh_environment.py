@@ -751,8 +751,13 @@ class TestAwaitSshReady:
         conn.check_connection.return_value = False
         conn.get_host_identifier = MagicMock(return_value="dev@10.0.0.42:22")
 
+        # Advance monotonic clock by 50s per call: 0, 50, 100, 150...
+        # With timeout=120, the loop runs ~2 iterations then exits
+        clock = iter(range(0, 1000, 50))
+
         with (
             patch(f"{_SSH_ENV}.asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{_SSH_ENV}.time.monotonic", side_effect=lambda: next(clock)),
             pytest.raises(TimeoutError, match="SSH not reachable"),
         ):
-            await env._await_ssh_ready(conn, timeout=1)
+            await env._await_ssh_ready(conn, timeout=120)

@@ -202,6 +202,34 @@ class TestConfig:
         config = Config.from_env()
         assert config.worktree_registry_path == "/tmp/data/worktrees.json"
 
+    def test_worktree_registry_path_expanded(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_WORKTREE_REGISTRY_PATH", "~/wt.json")
+        config = Config.from_env()
+        assert "~" not in config.worktree_registry_path
+
+    def test_optional_paths_expanded(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_ROLES_CONFIG_PATH", "~/roles.yml")
+        monkeypatch.setenv("WM_EVENTS_DB", "~/events.db")
+        monkeypatch.setenv("WM_REMOTE_CONFIG", "~/remote.yml")
+        config = Config.from_env()
+        assert "~" not in config.roles_config_path
+        assert "~" not in config.events_db
+        assert "~" not in config.remote_config_path
+
+    def test_raises_on_empty_required_value(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_IPC_DIR", "")
+        with pytest.raises(ValueError, match="WM_IPC_DIR"):
+            Config.from_env()
+
+    def test_raises_on_whitespace_only_value(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_IPC_DIR", "   ")
+        with pytest.raises(ValueError, match="WM_IPC_DIR"):
+            Config.from_env()
+
 
 # ---------------------------------------------------------------------------
 # ConfigSource protocol check
