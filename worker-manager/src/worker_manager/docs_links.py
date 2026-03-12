@@ -15,13 +15,15 @@ _CODE_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _TITLE_SUFFIX_RE = re.compile(r'\s+"[^"]*"\s*$')
 _WHITESPACE_RE = re.compile(r"[\s-]+")
 
-_DIRECT_DOC_PATHS = (
-    "README.md",
-    "CONTRIBUTING.md",
-    "protocol/README.md",
-    "worker-manager/README.md",
-    "worker-manager/ADAPTERS.md",
-)
+_EXCLUDED_DIR_NAMES = {
+    ".git",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+}
 
 
 @dataclass(frozen=True)
@@ -63,13 +65,20 @@ def _extract_anchors(markdown_file: Path) -> set[str]:
 
 def _iter_local_links(markdown_text: str) -> list[str]:
     links: list[str] = []
-    for raw_target in _LINK_RE.findall(markdown_text):
-        target = raw_target.strip()
-        target = _TITLE_SUFFIX_RE.sub("", target).strip()
-        if target.startswith("<") and target.endswith(">"):
-            target = target[1:-1].strip()
-        target = unquote(target)
-        links.append(target)
+    in_fence = False
+    for line in markdown_text.splitlines():
+        if _CODE_FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        for raw_target in _LINK_RE.findall(line):
+            target = raw_target.strip()
+            target = _TITLE_SUFFIX_RE.sub("", target).strip()
+            if target.startswith("<") and target.endswith(">"):
+                target = target[1:-1].strip()
+            target = unquote(target)
+            links.append(target)
     return links
 
 
@@ -86,19 +95,36 @@ def _is_external_link(target: str) -> bool:
     return lowered.startswith(("http://", "https://", "mailto:", "tel:"))
 
 
+def _is_excluded_markdown(path: Path, repo_root: Path) -> bool:
+    try:
+        rel_parts = path.relative_to(repo_root).parts
+    except ValueError:
+        return True
+    return any(part in _EXCLUDED_DIR_NAMES for part in rel_parts[:-1])
+
+
+def _format_repo_relative(path: Path, repo_root: Path) -> str:
+    try:
+        return str(path.relative_to(repo_root))
+    except ValueError:
+        return str(path)
+
+
 def discover_markdown_files(repo_root: Path) -> list[Path]:
+    repo_root = repo_root.resolve()
     files: set[Path] = set()
-    for relative in _DIRECT_DOC_PATHS:
-        path = repo_root / relative
-        if path.exists():
-            files.add(path)
-    docs_dir = repo_root / "docs"
-    if docs_dir.exists():
-        files.update(path for path in docs_dir.rglob("*.md") if path.is_file())
+    for path in repo_root.rglob("*.md"):
+        if not path.is_file():
+            continue
+        resolved = path.resolve()
+        if _is_excluded_markdown(resolved, repo_root):
+            continue
+        files.add(resolved)
     return sorted(files)
 
 
 def validate_markdown_files(files: list[Path], repo_root: Path) -> list[LinkError]:
+    repo_root = repo_root.resolve()
     errors: list[LinkError] = []
     anchor_cache: dict[Path, set[str]] = {}
 
@@ -117,9 +143,21 @@ def validate_markdown_files(files: list[Path], repo_root: Path) -> list[LinkErro
             path_part, fragment = _strip_query_and_fragment(target)
 
             if path_part:
-                resolved = (source_file.parent / path_part).resolve()
+                candidate = Path(path_part)
+                if candidate.is_absolute():
+                    errors.append(
+                        LinkError(source_file, target, "absolute target paths are not allowed")
+                    )
+                    continue
+                resolved = (source_file.parent / candidate).resolve()
             else:
                 resolved = source_file.resolve()
+
+            try:
+                resolved.relative_to(repo_root)
+            except ValueError:
+                errors.append(LinkError(source_file, target, "target path escapes repository root"))
+                continue
 
             if not resolved.exists():
                 errors.append(LinkError(source_file, target, f"target path not found: {path_part}"))
@@ -136,7 +174,7 @@ def validate_markdown_files(files: list[Path], repo_root: Path) -> list[LinkErro
                     LinkError(
                         source_file,
                         target,
-                        f"anchor not found in {resolved.relative_to(repo_root)}",
+                        f"anchor not found in {_format_repo_relative(resolved, repo_root)}",
                     )
                 )
     return errors
@@ -164,7 +202,7 @@ def main() -> int:
         return 0
 
     for error in errors:
-        rel_source = error.source_file.relative_to(repo_root)
+        rel_source = _format_repo_relative(error.source_file, repo_root)
         print(f"{rel_source}: {error.message} [{error.target}]")
     print(f"Docs link check failed with {len(errors)} error(s).")
     return 1

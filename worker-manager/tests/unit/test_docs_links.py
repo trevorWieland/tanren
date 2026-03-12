@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from worker_manager.docs_links import validate_markdown_files
+from worker_manager.docs_links import discover_markdown_files, validate_markdown_files
 
 
 def _write(path: Path, content: str) -> Path:
@@ -67,3 +67,61 @@ class TestValidateMarkdownFiles:
         errors = validate_markdown_files([source], repo)
 
         assert errors == []
+
+    def test_ignores_links_in_fenced_code_blocks(self, tmp_path: Path):
+        repo = tmp_path
+        source = _write(
+            repo / "docs" / "map.md",
+            "```md\n[example](missing.md)\n```\n",
+        )
+
+        errors = validate_markdown_files([source], repo)
+
+        assert errors == []
+
+    def test_rejects_absolute_target_paths(self, tmp_path: Path):
+        repo = tmp_path
+        source = _write(repo / "docs" / "map.md", "[absolute](/tmp/outside.md)\n")
+
+        errors = validate_markdown_files([source], repo)
+
+        assert len(errors) == 1
+        assert errors[0].message == "absolute target paths are not allowed"
+
+    def test_rejects_paths_that_escape_repo_root(self, tmp_path: Path):
+        root = tmp_path
+        repo = root / "repo"
+        source = _write(repo / "docs" / "map.md", "[outside](../../outside.md)\n")
+        _write(root / "outside.md", "# Outside\n")
+
+        errors = validate_markdown_files([source], repo)
+
+        assert len(errors) == 1
+        assert errors[0].message == "target path escapes repository root"
+
+    def test_does_not_crash_for_escaped_markdown_anchor(self, tmp_path: Path):
+        root = tmp_path
+        repo = root / "repo"
+        source = _write(repo / "docs" / "map.md", "[outside](../../outside.md#missing)\n")
+        _write(root / "outside.md", "# Outside\n")
+
+        errors = validate_markdown_files([source], repo)
+
+        assert len(errors) == 1
+        assert errors[0].message == "target path escapes repository root"
+
+
+class TestDiscoverMarkdownFiles:
+    def test_discovers_repo_markdown_files_including_protocol_spec(self, tmp_path: Path):
+        repo = tmp_path
+        _write(repo / "README.md", "# Root\n")
+        _write(repo / "docs" / "guide.md", "# Guide\n")
+        _write(repo / "protocol" / "PROTOCOL.md", "# Protocol\n")
+        _write(repo / ".venv" / "docs.md", "# Ignored\n")
+
+        files = {path.relative_to(repo).as_posix() for path in discover_markdown_files(repo)}
+
+        assert "README.md" in files
+        assert "docs/guide.md" in files
+        assert "protocol/PROTOCOL.md" in files
+        assert ".venv/docs.md" not in files
