@@ -7,7 +7,18 @@ from unittest.mock import AsyncMock, patch
 from typer.testing import CliRunner
 
 from worker_manager.adapters.remote_types import VMAssignment
+from worker_manager.config import Config
 from worker_manager.vm_cli import vm
+
+
+def _mock_config(tmp_path=None) -> Config:
+    base = str(tmp_path) if tmp_path else "/tmp"
+    return Config(
+        ipc_dir=f"{base}/ipc",
+        github_dir=f"{base}/github",
+        data_dir=f"{base}/data",
+        worktree_registry_path=f"{base}/data/worktrees.json",
+    )
 
 
 def _make_assignment(**overrides) -> VMAssignment:
@@ -40,7 +51,10 @@ class TestVmList:
             _make_assignment(vm_id="vm-002", host="10.0.0.2"),
         ]
 
-        with patch("worker_manager.vm_cli._get_state_store", return_value=store):
+        with (
+            patch("worker_manager.vm_cli._load_config", return_value=_mock_config()),
+            patch("worker_manager.vm_cli._get_state_store", return_value=store),
+        ):
             runner = CliRunner()
             result = runner.invoke(vm, ["list"])
 
@@ -54,7 +68,10 @@ class TestVmList:
         store = _mock_store()
         store.get_active_assignments.return_value = []
 
-        with patch("worker_manager.vm_cli._get_state_store", return_value=store):
+        with (
+            patch("worker_manager.vm_cli._load_config", return_value=_mock_config()),
+            patch("worker_manager.vm_cli._get_state_store", return_value=store),
+        ):
             runner = CliRunner()
             result = runner.invoke(vm, ["list"])
 
@@ -65,7 +82,10 @@ class TestVmList:
         store = _mock_store()
         store.get_active_assignments.return_value = [_make_assignment()]
 
-        with patch("worker_manager.vm_cli._get_state_store", return_value=store):
+        with (
+            patch("worker_manager.vm_cli._load_config", return_value=_mock_config()),
+            patch("worker_manager.vm_cli._get_state_store", return_value=store),
+        ):
             runner = CliRunner()
             result = runner.invoke(vm, ["list"])
 
@@ -84,7 +104,10 @@ class TestVmRelease:
         assignment = _make_assignment()
         store.get_assignment.return_value = assignment
 
-        with patch("worker_manager.vm_cli._get_state_store", return_value=store):
+        with (
+            patch("worker_manager.vm_cli._load_config", return_value=_mock_config()),
+            patch("worker_manager.vm_cli._get_state_store", return_value=store),
+        ):
             runner = CliRunner()
             result = runner.invoke(vm, ["release", "vm-001"])
 
@@ -97,7 +120,10 @@ class TestVmRelease:
         store = _mock_store()
         store.get_assignment.return_value = None
 
-        with patch("worker_manager.vm_cli._get_state_store", return_value=store):
+        with (
+            patch("worker_manager.vm_cli._load_config", return_value=_mock_config()),
+            patch("worker_manager.vm_cli._get_state_store", return_value=store),
+        ):
             runner = CliRunner()
             result = runner.invoke(vm, ["release", "vm-unknown"])
 
@@ -110,7 +136,10 @@ class TestVmRecover:
         store = _mock_store()
         store.get_active_assignments.return_value = []
 
-        with patch("worker_manager.vm_cli._get_state_store", return_value=store):
+        with (
+            patch("worker_manager.vm_cli._load_config", return_value=_mock_config()),
+            patch("worker_manager.vm_cli._get_state_store", return_value=store),
+        ):
             runner = CliRunner()
             result = runner.invoke(vm, ["recover"])
 
@@ -119,7 +148,7 @@ class TestVmRecover:
 
 
 class TestVmDryRun:
-    def test_prints_dry_run_without_connecting(self, tmp_path, monkeypatch):
+    def test_prints_dry_run_without_connecting(self, tmp_path):
         github_dir = tmp_path / "github"
         project_dir = github_dir / "myproject"
         project_dir.mkdir(parents=True)
@@ -147,21 +176,26 @@ class TestVmDryRun:
             "  myproject: https://github.com/org/myproject.git\n"
         )
 
-        monkeypatch.setenv("WM_REMOTE_CONFIG", str(remote_cfg))
-        monkeypatch.setenv("WM_GITHUB_DIR", str(github_dir))
-
-        runner = CliRunner()
-        result = runner.invoke(
-            vm,
-            ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(github_dir),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            remote_config_path=str(remote_cfg),
         )
+        with patch("worker_manager.vm_cli._load_config", return_value=config):
+            runner = CliRunner()
+            result = runner.invoke(
+                vm,
+                ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+            )
 
         assert result.exit_code == 0
         assert "provisioner: manual" in result.output
         assert "repo_clone: https://github.com/org/myproject.git" in result.output
         assert "setup_commands:" in result.output
 
-    def test_uses_hetzner_server_type_override(self, tmp_path, monkeypatch):
+    def test_uses_hetzner_server_type_override(self, tmp_path):
         github_dir = tmp_path / "github"
         project_dir = github_dir / "myproject"
         project_dir.mkdir(parents=True)
@@ -185,14 +219,20 @@ class TestVmDryRun:
             "    image: ubuntu-24.04\n"
             "    ssh_key_name: tanren\n"
         )
-        monkeypatch.setenv("WM_REMOTE_CONFIG", str(remote_cfg))
-        monkeypatch.setenv("WM_GITHUB_DIR", str(github_dir))
 
-        runner = CliRunner()
-        result = runner.invoke(
-            vm,
-            ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(github_dir),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            remote_config_path=str(remote_cfg),
         )
+        with patch("worker_manager.vm_cli._load_config", return_value=config):
+            runner = CliRunner()
+            result = runner.invoke(
+                vm,
+                ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+            )
 
         assert result.exit_code == 0
         assert "provisioner: hetzner" in result.output
@@ -215,14 +255,20 @@ class TestVmDryRun:
             "secrets:\n"
             f"  developer_secrets_path: {secrets_file}\n"
         )
-        monkeypatch.setenv("WM_REMOTE_CONFIG", str(remote_cfg))
-        monkeypatch.setenv("WM_GITHUB_DIR", str(github_dir))
         monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
 
-        result = CliRunner().invoke(
-            vm,
-            ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(github_dir),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            remote_config_path=str(remote_cfg),
         )
+        with patch("worker_manager.vm_cli._load_config", return_value=config):
+            result = CliRunner().invoke(
+                vm,
+                ["dry-run", "--project", "myproject", "--environment-profile", "default"],
+            )
 
         assert result.exit_code == 0
         import os

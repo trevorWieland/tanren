@@ -46,7 +46,7 @@ class DotenvConfigSource:
     def __init__(self, path: Path | None = None) -> None:
         if path is None:
             xdg = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-            path = Path(xdg) / "tanren" / "tanren.env"
+            path = Path(xdg).expanduser() / "tanren" / "tanren.env"
         self._path = path
 
     def load(self) -> dict[str, str]:
@@ -57,20 +57,6 @@ class DotenvConfigSource:
         loaded = {k: v for k, v in values.items() if v is not None}
         logger.debug("Loaded %d config values from %s", len(loaded), self._path)
         return loaded
-
-
-def load_config_env(source: ConfigSource | None = None) -> None:
-    """Load config into os.environ from the given source (default: tanren.env).
-
-    Only sets variables not already present in os.environ (env wins).
-    Convenience for entry points — ensures vm_cli.py and other code
-    reading os.environ.get("WM_*") directly picks up values.
-    """
-    src = source or DotenvConfigSource()
-    values = src.load()
-    for key, value in values.items():
-        if key not in os.environ:
-            os.environ[key] = value
 
 
 _REQUIRED_KEYS = (
@@ -90,6 +76,22 @@ _REQUIRED_KEYS = (
 )
 
 _OPTIONAL_KEYS = ("WM_ROLES_CONFIG_PATH", "WM_EVENTS_DB", "WM_REMOTE_CONFIG")
+
+_WM_KEYS = frozenset((*_REQUIRED_KEYS, *_OPTIONAL_KEYS))
+
+
+def load_config_env(source: ConfigSource | None = None) -> None:
+    """Load WM_* config into os.environ from the given source (default: tanren.env).
+
+    Only sets WM_* variables not already present in os.environ (env wins).
+    Non-WM keys from the source file are silently ignored to prevent
+    leaking credentials or path overrides into child processes.
+    """
+    src = source or DotenvConfigSource()
+    values = src.load()
+    for key, value in values.items():
+        if key in _WM_KEYS and key not in os.environ:
+            os.environ[key] = value
 
 
 class Config(BaseModel):

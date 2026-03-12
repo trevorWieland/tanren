@@ -77,6 +77,11 @@ class TestDotenvConfigSource:
         values = source.load()
         assert values == {"WM_IPC_DIR": "/xdg/ipc"}
 
+    def test_expands_tilde_in_xdg_config_home(self, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", "~/custom-config")
+        source = DotenvConfigSource()
+        assert "~" not in str(source._path)
+
 
 # ---------------------------------------------------------------------------
 # TestLoadConfigEnv
@@ -98,13 +103,15 @@ class TestLoadConfigEnv:
         load_config_env(source=source)
         assert os.environ["WM_IPC_DIR"] == "/from/env"
 
-    def test_accepts_custom_source(self, monkeypatch):
-        monkeypatch.delenv("_TEST_CUSTOM_KEY", raising=False)
-        source = _DictSource({"_TEST_CUSTOM_KEY": "custom-value"})
+    def test_ignores_non_wm_keys(self, monkeypatch):
+        """load_config_env only injects known WM_* keys, not arbitrary keys."""
+        monkeypatch.delenv("LEAKED_SECRET", raising=False)
+        monkeypatch.delenv("WM_IPC_DIR", raising=False)
+        source = _DictSource({"LEAKED_SECRET": "oops", "WM_IPC_DIR": "/from/source"})
         load_config_env(source=source)
-        assert os.environ["_TEST_CUSTOM_KEY"] == "custom-value"
-        # Clean up
-        monkeypatch.delenv("_TEST_CUSTOM_KEY")
+        assert os.environ.get("LEAKED_SECRET") is None
+        assert os.environ["WM_IPC_DIR"] == "/from/source"
+        monkeypatch.delenv("WM_IPC_DIR")
 
 
 # ---------------------------------------------------------------------------
