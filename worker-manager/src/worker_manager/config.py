@@ -17,7 +17,9 @@ def _expand(path: str) -> str:
 
 
 def _expand_optional(path: str | None) -> str | None:
-    return _expand(path) if path is not None else None
+    if not path or not path.strip():
+        return None
+    return _expand(path)
 
 
 @runtime_checkable

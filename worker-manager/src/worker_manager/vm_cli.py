@@ -96,6 +96,8 @@ def vm_recover() -> None:
             typer.echo(f"Checking {len(assignments)} active assignment(s)...")
 
             remote_config_path = os.environ.get("WM_REMOTE_CONFIG")
+            if remote_config_path:
+                remote_config_path = str(Path(remote_config_path).expanduser())
             ssh_defaults: RemoteSSHConfig | None = None
             if remote_config_path:
                 from worker_manager.remote_config import load_remote_config
@@ -144,6 +146,7 @@ def vm_dry_run(
     if not remote_config_path:
         typer.echo("WM_REMOTE_CONFIG is required for vm dry-run.", err=True)
         raise typer.Exit(code=1)
+    remote_config_path = str(Path(remote_config_path).expanduser())
 
     remote_cfg = load_remote_config(remote_config_path)
 

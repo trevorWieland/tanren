@@ -63,22 +63,25 @@ The manager accepts injected adapters or falls back to concrete defaults:
 ## Configuration
 
 All configuration is read from environment variables with the `WM_` prefix.
+Values are loaded from `~/.config/tanren/tanren.env` (or `$XDG_CONFIG_HOME/tanren/tanren.env`)
+at startup; environment variables override file values. All required keys must be
+explicitly set — there are no built-in defaults.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WM_IPC_DIR` | *(required)* | IPC directory path for the coordinator group |
-| `WM_GITHUB_DIR` | `~/github` | Root directory containing git repositories |
-| `WM_COMMANDS_DIR` | `.claude/commands/tanren` | Relative path to tanren commands within a project |
-| `WM_POLL_INTERVAL` | `5.0` | Seconds between dispatch directory polls |
-| `WM_HEARTBEAT_INTERVAL` | `30.0` | Seconds between heartbeat file updates |
-| `WM_OPENCODE_PATH` | `opencode` | Path to opencode CLI binary |
-| `WM_CODEX_PATH` | `codex` | Path to codex CLI binary |
-| `WM_CLAUDE_PATH` | `claude` | Path to Claude Code CLI binary |
-| `WM_DATA_DIR` | `~/.local/share/tanren-worker` | Directory for worker manager runtime state |
-| `WM_WORKTREE_REGISTRY_PATH` | `{data_dir}/worktrees.json` | Path to the worktree registry file |
-| `WM_MAX_OPENCODE` | `1` | Max concurrent implementation (opencode/claude) processes |
-| `WM_MAX_CODEX` | `1` | Max concurrent audit (codex) processes |
-| `WM_MAX_GATE` | `3` | Max concurrent gate (bash) processes |
+| `WM_GITHUB_DIR` | *(required)* | Root directory containing git repositories |
+| `WM_DATA_DIR` | *(required)* | Directory for worker manager runtime state |
+| `WM_COMMANDS_DIR` | *(required)* | Relative path to tanren commands within a project |
+| `WM_POLL_INTERVAL` | *(required)* | Seconds between dispatch directory polls |
+| `WM_HEARTBEAT_INTERVAL` | *(required)* | Seconds between heartbeat file updates |
+| `WM_OPENCODE_PATH` | *(required)* | Path to opencode CLI binary |
+| `WM_CODEX_PATH` | *(required)* | Path to codex CLI binary |
+| `WM_CLAUDE_PATH` | *(required)* | Path to Claude Code CLI binary |
+| `WM_MAX_OPENCODE` | *(required)* | Max concurrent implementation (opencode/claude) processes |
+| `WM_MAX_CODEX` | *(required)* | Max concurrent audit (codex) processes |
+| `WM_MAX_GATE` | *(required)* | Max concurrent gate (bash) processes |
+| `WM_WORKTREE_REGISTRY_PATH` | *(required)* | Path to the worktree registry file |
 | `WM_EVENTS_DB` | *(none)* | SQLite events DB path; enables event emission when set |
 | `WM_ROLES_CONFIG_PATH` | *(none)* | Path to roles YAML config file |
 | `WM_REMOTE_CONFIG` | *(none)* | Path to `remote.yml`; enables remote VM execution when set |

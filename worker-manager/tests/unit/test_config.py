@@ -230,6 +230,18 @@ class TestConfig:
         with pytest.raises(ValueError, match="WM_IPC_DIR"):
             Config.from_env()
 
+    def test_empty_optional_value_treated_as_none(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_REMOTE_CONFIG", "")
+        config = Config.from_env()
+        assert config.remote_config_path is None
+
+    def test_whitespace_optional_value_treated_as_none(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_EVENTS_DB", "   ")
+        config = Config.from_env()
+        assert config.events_db is None
+
 
 # ---------------------------------------------------------------------------
 # ConfigSource protocol check

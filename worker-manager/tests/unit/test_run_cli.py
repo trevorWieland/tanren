@@ -18,6 +18,7 @@ from worker_manager.roles import AgentTool
 from worker_manager.run_cli import (
     PersistedRunHandle,
     PersistedSSHDefaults,
+    _load_handle,
     run,
 )
 from worker_manager.schemas import Cli, Outcome
@@ -435,6 +436,43 @@ def test_run_execute_gate_rejects_blank_gate_cmd(tmp_path: Path, monkeypatch):
     assert result.exit_code == 1
     assert "requires a non-empty gate command" in result.output
     env.execute.assert_not_called()
+
+
+def test_load_handle_accepts_file_path(tmp_path: Path):
+    config = _config(tmp_path)
+    persisted = PersistedRunHandle(
+        env_id="env-fp",
+        vm_id="vm-fp",
+        project="proj",
+        branch="main",
+        workflow_id="run-proj-fp",
+        environment_profile="default",
+        local_worktree_path=str(Path(config.github_dir) / "proj"),
+        workspace_path="/workspace/proj",
+        teardown_commands=(),
+        provisioned_at_utc=datetime.now(UTC).isoformat(),
+        vm_handle=VMHandle(
+            vm_id="vm-fp",
+            host="203.0.113.10",
+            provider=VMProvider.HETZNER,
+            created_at="2026-01-01T00:00:00Z",
+            hourly_cost=0.5,
+        ),
+        ssh_defaults=PersistedSSHDefaults(
+            user="root",
+            key_path="~/.ssh/id_rsa",
+            port=22,
+            connect_timeout=10,
+        ),
+    )
+    handle_file = tmp_path / "custom-handle.json"
+    handle_file.write_text(persisted.model_dump_json(indent=2))
+
+    loaded, loaded_path = _load_handle(config, str(handle_file))
+
+    assert loaded.env_id == "env-fp"
+    assert loaded.vm_id == "vm-fp"
+    assert loaded_path == handle_file
 
 
 def test_run_full_teardown_runs_even_when_handle_save_fails(tmp_path: Path, monkeypatch):

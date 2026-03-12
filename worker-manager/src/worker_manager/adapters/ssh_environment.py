@@ -88,6 +88,10 @@ class SSHExecutionEnvironment:
         """Return default SSH settings used for remote connections."""
         return self._ssh_defaults
 
+    async def close(self) -> None:
+        """Release resources held by the environment (DB connections)."""
+        await self._state_store.close()
+
     async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets."""
         # 1. Read tanren.yml LOCALLY to get environment profile

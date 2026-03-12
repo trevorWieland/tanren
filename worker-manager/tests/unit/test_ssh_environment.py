@@ -719,6 +719,14 @@ class TestProvisionWorkflowId:
         assert handle.runtime.workflow_id == "wf-myproj-42-1000"
 
 
+class TestClose:
+    async def test_close_closes_state_store(self, env_kit):
+        """close() delegates to _state_store.close()."""
+        env = env_kit["env"]
+        await env.close()
+        env_kit["state_store"].close.assert_awaited_once()
+
+
 class TestAwaitSshReady:
     async def test_returns_immediately_when_ready(self, env_kit):
         """First check_connection() = True -> no sleep, immediate return."""
