@@ -220,6 +220,10 @@ def test_run_full_executes_in_order(tmp_path: Path, monkeypatch):
     assert env.execute.await_count == 1
     assert env.teardown.await_count == 1
 
+    # Provision-time SSH connection must be closed
+    runtime_conn = env.provision.return_value.runtime.connection
+    runtime_conn.close.assert_awaited_once()
+
 
 def test_run_full_teardown_runs_even_on_execute_failure(tmp_path: Path, monkeypatch):
     config = _config(tmp_path)
@@ -263,6 +267,10 @@ def test_run_full_teardown_runs_even_on_execute_failure(tmp_path: Path, monkeypa
     assert result.exit_code == 1
     assert env.teardown.await_count == 1
 
+    # Provision-time SSH connection must be closed
+    runtime_conn = env.provision.return_value.runtime.connection
+    runtime_conn.close.assert_awaited_once()
+
 
 def test_run_full_exits_nonzero_for_blocked(tmp_path: Path, monkeypatch):
     config = _config(tmp_path)
@@ -305,6 +313,10 @@ def test_run_full_exits_nonzero_for_blocked(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 1
     assert env.teardown.await_count == 1
+
+    # Provision-time SSH connection must be closed
+    runtime_conn = env.provision.return_value.runtime.connection
+    runtime_conn.close.assert_awaited_once()
 
 
 def test_run_execute_rejects_legacy_handle_schema(tmp_path: Path, monkeypatch):
@@ -604,3 +616,47 @@ def test_persisted_handle_roundtrips_host_key_policy(tmp_path: Path):
 
     loaded, _ = _load_handle(config, "env-hkp")
     assert loaded.ssh_defaults.host_key_policy == "reject"
+
+
+def test_persisted_handle_rejects_invalid_host_key_policy(tmp_path: Path, capsys):
+    """Invalid host_key_policy values are rejected at load time."""
+    import pytest
+    import typer
+
+    config = _config(tmp_path)
+    path = Path(config.data_dir) / "run-handles"
+    path.mkdir(parents=True, exist_ok=True)
+    handle_data = {
+        "env_id": "env-bad-hkp",
+        "vm_id": "vm-bad-hkp",
+        "project": "proj",
+        "branch": "main",
+        "workflow_id": "run-proj-bad-hkp",
+        "environment_profile": "default",
+        "local_worktree_path": str(Path(config.github_dir) / "proj"),
+        "workspace_path": "/workspace/proj",
+        "teardown_commands": [],
+        "provisioned_at_utc": datetime.now(UTC).isoformat(),
+        "vm_handle": {
+            "vm_id": "vm-bad-hkp",
+            "host": "203.0.113.10",
+            "provider": "hetzner",
+            "created_at": "2026-01-01T00:00:00Z",
+            "hourly_cost": 0.5,
+        },
+        "ssh_defaults": {
+            "user": "root",
+            "key_path": "~/.ssh/id_rsa",
+            "port": 22,
+            "connect_timeout": 10,
+            "host_key_policy": "bogus",
+        },
+    }
+    (path / "env-bad-hkp.json").write_text(json.dumps(handle_data))
+
+    with pytest.raises(typer.Exit) as exc_info:
+        _load_handle(config, "env-bad-hkp")
+
+    assert exc_info.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "Run handle schema has changed" in captured.err

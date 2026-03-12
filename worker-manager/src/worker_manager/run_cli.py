@@ -46,7 +46,7 @@ class PersistedSSHDefaults(BaseModel):
     key_path: str = Field(...)
     port: int = Field(...)
     connect_timeout: int = Field(...)
-    host_key_policy: str = Field(default="auto_add")
+    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
 
 
 class PersistedRunHandle(BaseModel):
@@ -211,10 +211,7 @@ def _reconstruct_handle(persisted: PersistedRunHandle) -> EnvironmentHandle:
         key_path=persisted.ssh_defaults.key_path,
         port=persisted.ssh_defaults.port,
         connect_timeout=persisted.ssh_defaults.connect_timeout,
-        host_key_policy=cast(
-            Literal["auto_add", "warn", "reject"],
-            persisted.ssh_defaults.host_key_policy,
-        ),
+        host_key_policy=persisted.ssh_defaults.host_key_policy,
     )
     conn = SSHConnection(ssh_cfg)
 
@@ -528,6 +525,10 @@ def run_full(
             handle = await env.provision(provision_dispatch, config)
             runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
             vm = runtime.vm_handle
+
+            # Close the SSH connection from provision (not needed after handle save)
+            conn = cast(SSHConnection, runtime.connection)
+            await conn.close()
 
             persisted = PersistedRunHandle(
                 env_id=handle.env_id,
