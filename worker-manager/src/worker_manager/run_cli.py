@@ -12,7 +12,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 import typer
 import yaml
@@ -46,6 +46,7 @@ class PersistedSSHDefaults(BaseModel):
     key_path: str = Field(...)
     port: int = Field(...)
     connect_timeout: int = Field(...)
+    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
 
 
 class PersistedRunHandle(BaseModel):
@@ -109,6 +110,20 @@ def _save_handle(config: Config, persisted: PersistedRunHandle) -> Path:
     return path
 
 
+def _is_managed_handle(config: Config, handle_path: Path) -> bool:
+    """Return True if handle_path lives inside the managed run-handles directory."""
+    try:
+        handle_path.resolve().relative_to(_handle_dir(config).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _is_explicit_path(identifier: str) -> bool:
+    """True if identifier contains a path separator, indicating an explicit file path."""
+    return "/" in identifier or "\\" in identifier
+
+
 def _load_handle(config: Config, identifier: str) -> tuple[PersistedRunHandle, Path]:
     def _parse(path: Path) -> PersistedRunHandle:
         try:
@@ -127,14 +142,22 @@ def _load_handle(config: Config, identifier: str) -> tuple[PersistedRunHandle, P
             raise typer.Exit(code=1) from exc
         return parsed
 
+    # 1. Registry lookup by env_id
     direct = _handle_path(config, identifier)
     if direct.exists():
         return _parse(direct), direct
 
+    # 2. Registry lookup by vm_id
     for candidate in _handle_dir(config).glob("*.json"):
         loaded = _parse(candidate)
         if loaded.vm_id == identifier:
             return loaded, candidate
+
+    # 3. Explicit file path (only for path-like identifiers)
+    if _is_explicit_path(identifier):
+        file_path = Path(identifier)
+        if file_path.is_file():
+            return _parse(file_path), file_path
 
     typer.echo(f"No run handle found for identifier: {identifier}", err=True)
     raise typer.Exit(code=1)
@@ -188,6 +211,7 @@ def _reconstruct_handle(persisted: PersistedRunHandle) -> EnvironmentHandle:
         key_path=persisted.ssh_defaults.key_path,
         port=persisted.ssh_defaults.port,
         connect_timeout=persisted.ssh_defaults.connect_timeout,
+        host_key_policy=persisted.ssh_defaults.host_key_policy,
     )
     conn = SSHConnection(ssh_cfg)
 
@@ -300,56 +324,64 @@ def run_provision(
         config = _load_config()
         _require_remote_config(config)
         env = _build_remote_execution_env(config)
+        try:
+            workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
+            dispatch = Dispatch(
+                workflow_id=workflow_id,
+                phase=Phase.DO_TASK,
+                project=project,
+                spec_folder=".",
+                branch=branch,
+                cli=Cli.CLAUDE,
+                model=None,
+                gate_cmd=None,
+                context=None,
+                timeout=1800,
+                environment_profile=environment_profile,
+            )
+            handle = await env.provision(dispatch, config)
+            runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+            vm = runtime.vm_handle
 
-        workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
-        dispatch = Dispatch(
-            workflow_id=workflow_id,
-            phase=Phase.DO_TASK,
-            project=project,
-            spec_folder=".",
-            branch=branch,
-            cli=Cli.CLAUDE,
-            model=None,
-            gate_cmd=None,
-            context=None,
-            timeout=1800,
-            environment_profile=environment_profile,
-        )
-        handle = await env.provision(dispatch, config)
-        runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-        vm = runtime.vm_handle
+            # Close the SSH connection from provision (not needed after handle save)
+            conn = cast(SSHConnection, runtime.connection)
+            await conn.close()
 
-        persisted = PersistedRunHandle(
-            env_id=handle.env_id,
-            vm_id=vm.vm_id,
-            project=project,
-            branch=branch,
-            workflow_id=workflow_id,
-            environment_profile=environment_profile,
-            local_worktree_path=str(Path(config.github_dir) / project),
-            workspace_path=runtime.workspace_path.path,
-            teardown_commands=runtime.teardown_commands,
-            provisioned_at_utc=_now_utc_iso(),
-            vm_handle=runtime.vm_handle,
-            ssh_defaults=PersistedSSHDefaults(
-                user=env.ssh_defaults.user,
-                key_path=env.ssh_defaults.key_path,
-                port=env.ssh_defaults.port,
-                connect_timeout=env.ssh_defaults.connect_timeout,
-            ),
-        )
-        path = _save_handle(config, persisted)
+            persisted = PersistedRunHandle(
+                env_id=handle.env_id,
+                vm_id=vm.vm_id,
+                project=project,
+                branch=branch,
+                workflow_id=workflow_id,
+                environment_profile=environment_profile,
+                local_worktree_path=str(Path(config.github_dir) / project),
+                workspace_path=runtime.workspace_path.path,
+                teardown_commands=runtime.teardown_commands,
+                provisioned_at_utc=_now_utc_iso(),
+                vm_handle=runtime.vm_handle,
+                ssh_defaults=PersistedSSHDefaults(
+                    user=env.ssh_defaults.user,
+                    key_path=env.ssh_defaults.key_path,
+                    port=env.ssh_defaults.port,
+                    connect_timeout=env.ssh_defaults.connect_timeout,
+                    host_key_policy=env.ssh_defaults.host_key_policy,
+                ),
+            )
+            path = _save_handle(config, persisted)
 
-        typer.echo(f"env_id: {persisted.env_id}")
-        typer.echo(f"vm_id: {persisted.vm_id}")
-        typer.echo(f"host: {vm.host}")
-        typer.echo(f"ssh: ssh {persisted.ssh_defaults.user}@{vm.host}")
-        typer.echo(
-            "vscode: "
-            f"code --remote ssh-remote+{persisted.ssh_defaults.user}@{vm.host} "
-            f"{runtime.workspace_path.path}"
-        )
-        typer.echo(f"handle_file: {path}")
+            typer.echo(f"env_id: {persisted.env_id}")
+            typer.echo(f"vm_id: {persisted.vm_id}")
+            typer.echo(f"host: {vm.host}")
+            typer.echo(f"ssh: ssh {persisted.ssh_defaults.user}@{vm.host}")
+            typer.echo(
+                "vscode: "
+                f"code --folder-uri vscode-remote://ssh-remote+"
+                f"{persisted.ssh_defaults.user}@{vm.host}"
+                f"{runtime.workspace_path.path}"
+            )
+            typer.echo(f"handle_file: {path}")
+        finally:
+            await env.close()
 
     asyncio.run(_run())
 
@@ -370,52 +402,54 @@ def run_execute(
         config = _load_config()
         _require_remote_config(config)
         env = _build_remote_execution_env(config)
-
-        persisted, _ = _load_handle(config, handle)
-        if persisted.project != project:
-            typer.echo(
-                f"Handle project mismatch: expected {persisted.project}, got {project}",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-
-        tool = _resolve_agent_tool(config, phase)
-        resolved_gate_cmd = _resolve_gate_cmd(
-            config=config,
-            project=project,
-            environment_profile=persisted.environment_profile,
-            phase=phase,
-            gate_cmd=gate_cmd,
-        )
-        dispatch = _build_dispatch(
-            project=project,
-            phase=phase,
-            spec_path=spec_path,
-            branch=persisted.branch,
-            environment_profile=persisted.environment_profile,
-            workflow_id=persisted.workflow_id,
-            timeout=timeout,
-            context=context,
-            gate_cmd=resolved_gate_cmd,
-            tool=tool,
-        )
-        env_handle = _reconstruct_handle(persisted)
-        runtime = cast(RemoteEnvironmentRuntime, env_handle.runtime)
-        conn = cast(SSHConnection, runtime.connection)
-
         try:
-            result = await env.execute(env_handle, dispatch, config)
-        finally:
-            await conn.close()
+            persisted, _ = _load_handle(config, handle)
+            if persisted.project != project:
+                typer.echo(
+                    f"Handle project mismatch: expected {persisted.project}, got {project}",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
 
-        typer.echo(f"outcome: {result.outcome.value}")
-        typer.echo(f"signal: {result.signal}")
-        typer.echo(f"exit_code: {result.exit_code}")
-        typer.echo(f"duration_secs: {result.duration_secs}")
-        tail = _build_tail_output(result.stdout)
-        if tail:
-            typer.echo("stdout_tail:")
-            typer.echo(tail)
+            tool = _resolve_agent_tool(config, phase)
+            resolved_gate_cmd = _resolve_gate_cmd(
+                config=config,
+                project=project,
+                environment_profile=persisted.environment_profile,
+                phase=phase,
+                gate_cmd=gate_cmd,
+            )
+            dispatch = _build_dispatch(
+                project=project,
+                phase=phase,
+                spec_path=spec_path,
+                branch=persisted.branch,
+                environment_profile=persisted.environment_profile,
+                workflow_id=persisted.workflow_id,
+                timeout=timeout,
+                context=context,
+                gate_cmd=resolved_gate_cmd,
+                tool=tool,
+            )
+            env_handle = _reconstruct_handle(persisted)
+            runtime = cast(RemoteEnvironmentRuntime, env_handle.runtime)
+            conn = cast(SSHConnection, runtime.connection)
+
+            try:
+                result = await env.execute(env_handle, dispatch, config)
+            finally:
+                await conn.close()
+
+            typer.echo(f"outcome: {result.outcome.value}")
+            typer.echo(f"signal: {result.signal}")
+            typer.echo(f"exit_code: {result.exit_code}")
+            typer.echo(f"duration_secs: {result.duration_secs}")
+            tail = _build_tail_output(result.stdout)
+            if tail:
+                typer.echo("stdout_tail:")
+                typer.echo(tail)
+        finally:
+            await env.close()
 
     asyncio.run(_run())
 
@@ -430,23 +464,28 @@ def run_teardown(
         config = _load_config()
         _require_remote_config(config)
         env = _build_remote_execution_env(config)
-        persisted, handle_path = _load_handle(config, handle)
+        try:
+            persisted, handle_path = _load_handle(config, handle)
 
-        env_handle = _reconstruct_handle(persisted)
-        await env.teardown(env_handle)
+            env_handle = _reconstruct_handle(persisted)
+            await env.teardown(env_handle)
 
-        handle_path.unlink(missing_ok=True)
+            duration = _elapsed_seconds(persisted.provisioned_at_utc)
+            estimated_cost: float | None = None
+            vm_hourly_cost = persisted.vm_handle.hourly_cost
+            if vm_hourly_cost is not None:
+                estimated_cost = vm_hourly_cost * (duration / 3600.0)
 
-        duration = _elapsed_seconds(persisted.provisioned_at_utc)
-        estimated_cost: float | None = None
-        vm_hourly_cost = persisted.vm_handle.hourly_cost
-        if vm_hourly_cost is not None:
-            estimated_cost = vm_hourly_cost * (duration / 3600.0)
-
-        typer.echo(f"released_vm_id: {persisted.vm_id}")
-        typer.echo(f"removed_handle: {handle_path}")
-        if estimated_cost is not None:
-            typer.echo(f"estimated_cost: {estimated_cost:.4f}")
+            typer.echo(f"released_vm_id: {persisted.vm_id}")
+            if _is_managed_handle(config, handle_path):
+                handle_path.unlink(missing_ok=True)
+                typer.echo(f"removed_handle: {handle_path}")
+            else:
+                typer.echo(f"handle_retained: {handle_path} (external file)")
+            if estimated_cost is not None:
+                typer.echo(f"estimated_cost: {estimated_cost:.4f}")
+        finally:
+            await env.close()
 
     asyncio.run(_run())
 
@@ -468,92 +507,99 @@ def run_full(
         config = _load_config()
         _require_remote_config(config)
         env = _build_remote_execution_env(config)
-
-        workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
-        provision_dispatch = Dispatch(
-            workflow_id=workflow_id,
-            phase=Phase.DO_TASK,
-            project=project,
-            spec_folder=spec_path,
-            branch=branch,
-            cli=Cli.CLAUDE,
-            model=None,
-            gate_cmd=None,
-            context=None,
-            timeout=timeout,
-            environment_profile=environment_profile,
-        )
-        handle = await env.provision(provision_dispatch, config)
-        runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-        vm = runtime.vm_handle
-
-        persisted = PersistedRunHandle(
-            env_id=handle.env_id,
-            vm_id=vm.vm_id,
-            project=project,
-            branch=branch,
-            workflow_id=workflow_id,
-            environment_profile=environment_profile,
-            local_worktree_path=str(Path(config.github_dir) / project),
-            workspace_path=runtime.workspace_path.path,
-            teardown_commands=runtime.teardown_commands,
-            provisioned_at_utc=_now_utc_iso(),
-            vm_handle=runtime.vm_handle,
-            ssh_defaults=PersistedSSHDefaults(
-                user=env.ssh_defaults.user,
-                key_path=env.ssh_defaults.key_path,
-                port=env.ssh_defaults.port,
-                connect_timeout=env.ssh_defaults.connect_timeout,
-            ),
-        )
-        handle_path: Path | None = None
-        execute_failed = False
         try:
-            handle_path = _save_handle(config, persisted)
-            tool = _resolve_agent_tool(config, phase)
-            resolved_gate_cmd = _resolve_gate_cmd(
-                config=config,
-                project=project,
-                environment_profile=environment_profile,
-                phase=phase,
-                gate_cmd=gate_cmd,
-            )
-            dispatch = _build_dispatch(
-                project=project,
-                phase=phase,
-                spec_path=spec_path,
-                branch=branch,
-                environment_profile=environment_profile,
+            workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
+            provision_dispatch = Dispatch(
                 workflow_id=workflow_id,
+                phase=Phase.DO_TASK,
+                project=project,
+                spec_folder=spec_path,
+                branch=branch,
+                cli=Cli.CLAUDE,
+                model=None,
+                gate_cmd=None,
+                context=None,
                 timeout=timeout,
-                context=context,
-                gate_cmd=resolved_gate_cmd,
-                tool=tool,
+                environment_profile=environment_profile,
             )
-            exec_handle = _reconstruct_handle(persisted)
-            exec_runtime = cast(RemoteEnvironmentRuntime, exec_handle.runtime)
-            exec_conn = cast(SSHConnection, exec_runtime.connection)
+            handle = await env.provision(provision_dispatch, config)
+            runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+            vm = runtime.vm_handle
+
+            # Close the SSH connection from provision (not needed after handle save)
+            conn = cast(SSHConnection, runtime.connection)
+            await conn.close()
+
+            persisted = PersistedRunHandle(
+                env_id=handle.env_id,
+                vm_id=vm.vm_id,
+                project=project,
+                branch=branch,
+                workflow_id=workflow_id,
+                environment_profile=environment_profile,
+                local_worktree_path=str(Path(config.github_dir) / project),
+                workspace_path=runtime.workspace_path.path,
+                teardown_commands=runtime.teardown_commands,
+                provisioned_at_utc=_now_utc_iso(),
+                vm_handle=runtime.vm_handle,
+                ssh_defaults=PersistedSSHDefaults(
+                    user=env.ssh_defaults.user,
+                    key_path=env.ssh_defaults.key_path,
+                    port=env.ssh_defaults.port,
+                    connect_timeout=env.ssh_defaults.connect_timeout,
+                    host_key_policy=env.ssh_defaults.host_key_policy,
+                ),
+            )
+            handle_path: Path | None = None
+            execute_failed = False
             try:
-                result = await env.execute(exec_handle, dispatch, config)
+                handle_path = _save_handle(config, persisted)
+                tool = _resolve_agent_tool(config, phase)
+                resolved_gate_cmd = _resolve_gate_cmd(
+                    config=config,
+                    project=project,
+                    environment_profile=environment_profile,
+                    phase=phase,
+                    gate_cmd=gate_cmd,
+                )
+                dispatch = _build_dispatch(
+                    project=project,
+                    phase=phase,
+                    spec_path=spec_path,
+                    branch=branch,
+                    environment_profile=environment_profile,
+                    workflow_id=workflow_id,
+                    timeout=timeout,
+                    context=context,
+                    gate_cmd=resolved_gate_cmd,
+                    tool=tool,
+                )
+                exec_handle = _reconstruct_handle(persisted)
+                exec_runtime = cast(RemoteEnvironmentRuntime, exec_handle.runtime)
+                exec_conn = cast(SSHConnection, exec_runtime.connection)
+                try:
+                    result = await env.execute(exec_handle, dispatch, config)
+                finally:
+                    await exec_conn.close()
+
+                typer.echo(f"outcome: {result.outcome.value}")
+                typer.echo(f"signal: {result.signal}")
+                typer.echo(f"exit_code: {result.exit_code}")
+                typer.echo(f"duration_secs: {result.duration_secs}")
+                if result.outcome != Outcome.SUCCESS:
+                    execute_failed = True
             finally:
-                await exec_conn.close()
+                teardown_handle = _reconstruct_handle(persisted)
+                await env.teardown(teardown_handle)
+                if handle_path is not None and _is_managed_handle(config, handle_path):
+                    handle_path.unlink(missing_ok=True)
 
-            typer.echo(f"outcome: {result.outcome.value}")
-            typer.echo(f"signal: {result.signal}")
-            typer.echo(f"exit_code: {result.exit_code}")
-            typer.echo(f"duration_secs: {result.duration_secs}")
-            if result.outcome != Outcome.SUCCESS:
-                execute_failed = True
+            typer.echo(f"provisioned_vm_id: {persisted.vm_id}")
+            typer.echo("teardown: completed")
+            if execute_failed:
+                raise typer.Exit(code=1)
         finally:
-            teardown_handle = _reconstruct_handle(persisted)
-            await env.teardown(teardown_handle)
-            if handle_path is not None:
-                handle_path.unlink(missing_ok=True)
-
-        typer.echo(f"provisioned_vm_id: {persisted.vm_id}")
-        typer.echo("teardown: completed")
-        if execute_failed:
-            raise typer.Exit(code=1)
+            await env.close()
 
     asyncio.run(_run())
 

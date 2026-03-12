@@ -118,9 +118,7 @@ async def test_acquire_times_out_when_server_not_ready(monkeypatch):
         "worker_manager.adapters.hetzner_vm._build_hcloud_client",
         lambda token: client,
     )
-    settings = _settings().model_copy(
-        update={"readiness_timeout_secs": 1, "poll_interval_secs": 1}
-    )
+    settings = _settings().model_copy(update={"readiness_timeout_secs": 1, "poll_interval_secs": 1})
     provisioner = HetznerVMProvisioner(settings)
 
     with pytest.raises(TimeoutError):

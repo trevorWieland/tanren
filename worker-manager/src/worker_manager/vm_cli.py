@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
 import typer
@@ -14,6 +13,7 @@ from worker_manager.adapters.hetzner_vm import HetznerProvisionerSettings
 from worker_manager.adapters.manual_vm import ManualProvisionerSettings
 from worker_manager.adapters.sqlite_vm_state import SqliteVMStateStore
 from worker_manager.adapters.ubuntu_bootstrap import UbuntuBootstrapper
+from worker_manager.config import Config
 from worker_manager.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from worker_manager.remote_config import ProvisionerType, load_remote_config
 from worker_manager.secrets import SecretConfig, SecretLoader
@@ -21,15 +21,19 @@ from worker_manager.secrets import SecretConfig, SecretLoader
 vm_app = typer.Typer(help="Manage remote VM assignments.")
 
 
-def _get_state_store() -> SqliteVMStateStore:
-    """Create a VMStateStore from WM_DATA_DIR config."""
-    data_dir = str(Path(os.environ.get("WM_DATA_DIR", "~/.local/share/tanren-worker")).expanduser())
-    db_path = f"{data_dir}/vm-state.db"
+def _load_config() -> Config:
+    """Load worker-manager Config, exiting on failure."""
+    try:
+        return Config.from_env()
+    except Exception as exc:
+        typer.echo(f"Failed to load config: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _get_state_store(config: Config) -> SqliteVMStateStore:
+    """Create a VMStateStore from Config.data_dir."""
+    db_path = f"{config.data_dir}/vm-state.db"
     return SqliteVMStateStore(db_path)
-
-
-def _github_dir() -> Path:
-    return Path(os.environ.get("WM_GITHUB_DIR", "~/github")).expanduser()
 
 
 @vm_app.command("list")
@@ -37,7 +41,8 @@ def vm_list() -> None:
     """Show active VM assignments."""
 
     async def _run() -> None:
-        store = _get_state_store()
+        config = _load_config()
+        store = _get_state_store(config)
         try:
             assignments = await store.get_active_assignments()
             if not assignments:
@@ -64,7 +69,8 @@ def vm_release(vm_id: str = typer.Argument(...)) -> None:
     """Manually release a stuck VM assignment."""
 
     async def _run() -> None:
-        store = _get_state_store()
+        config = _load_config()
+        store = _get_state_store(config)
         try:
             assignment = await store.get_assignment(vm_id)
             if assignment is None:
@@ -86,7 +92,8 @@ def vm_recover() -> None:
         from worker_manager.adapters.ssh import SSHConfig, SSHConnection
         from worker_manager.remote_config import RemoteSSHConfig
 
-        store = _get_state_store()
+        config = _load_config()
+        store = _get_state_store(config)
         try:
             assignments = await store.get_active_assignments()
             if not assignments:
@@ -95,12 +102,9 @@ def vm_recover() -> None:
 
             typer.echo(f"Checking {len(assignments)} active assignment(s)...")
 
-            remote_config_path = os.environ.get("WM_REMOTE_CONFIG")
             ssh_defaults: RemoteSSHConfig | None = None
-            if remote_config_path:
-                from worker_manager.remote_config import load_remote_config
-
-                ssh_defaults = load_remote_config(remote_config_path).ssh
+            if config.remote_config_path:
+                ssh_defaults = load_remote_config(config.remote_config_path).ssh
 
             for assignment in assignments:
                 if ssh_defaults is not None:
@@ -110,6 +114,7 @@ def vm_recover() -> None:
                         key_path=ssh_defaults.key_path,
                         port=ssh_defaults.port,
                         connect_timeout=ssh_defaults.connect_timeout,
+                        host_key_policy=ssh_defaults.host_key_policy,
                     )
                 else:
                     ssh_config = SSHConfig(host=assignment.host)
@@ -140,14 +145,14 @@ def vm_dry_run(
     environment_profile: str = typer.Option("default", "--environment-profile"),
 ) -> None:
     """Show what remote provision would do without creating resources."""
-    remote_config_path = os.environ.get("WM_REMOTE_CONFIG")
-    if not remote_config_path:
+    config = _load_config()
+    if not config.remote_config_path:
         typer.echo("WM_REMOTE_CONFIG is required for vm dry-run.", err=True)
         raise typer.Exit(code=1)
 
-    remote_cfg = load_remote_config(remote_config_path)
+    remote_cfg = load_remote_config(config.remote_config_path)
 
-    tanren_yml = _github_dir() / project / "tanren.yml"
+    tanren_yml = Path(config.github_dir) / project / "tanren.yml"
     if tanren_yml.exists():
         raw = yaml.safe_load(tanren_yml.read_text()) or {}
         data = raw if isinstance(raw, dict) else {}
@@ -200,7 +205,7 @@ def vm_dry_run(
     else:
         typer.echo("  - <none>")
 
-    project_env_file = _github_dir() / project / ".env"
+    project_env_file = Path(config.github_dir) / project / ".env"
     project_secret_keys = []
     if project_env_file.exists():
         project_secret_keys = sorted(dotenv_values(project_env_file).keys())

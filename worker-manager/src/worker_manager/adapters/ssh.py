@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
+from typing import Literal
 
 import paramiko
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,6 +26,7 @@ class SSHConfig(BaseModel):
     key_path: str = Field(default="~/.ssh/tanren_vm")
     port: int = Field(default=22, ge=1, le=65535)
     connect_timeout: int = Field(default=10, ge=1)
+    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
 
 
 class SSHConnection:
@@ -51,7 +53,14 @@ class SSHConnection:
             self._close_sync()
 
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.load_system_host_keys()
+
+        if self._config.host_key_policy == "reject":
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        elif self._config.host_key_policy == "warn":
+            client.set_missing_host_key_policy(paramiko.WarningPolicy())
+        else:
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         key_path = str(Path(self._config.key_path).expanduser())
         try:

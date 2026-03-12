@@ -214,6 +214,7 @@ class TestProvision:
         with (
             patch.object(env, "_resolve_profile", return_value=_make_profile()),
             patch.object(env, "_load_project_env", return_value={"KEY": "val"}),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
             mock_conn = AsyncMock()
@@ -260,6 +261,7 @@ class TestProvision:
 
         with (
             patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
             mock_conn = AsyncMock()
@@ -281,6 +283,7 @@ class TestProvision:
 
         with (
             patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
             MockSSH.return_value = AsyncMock()
@@ -290,6 +293,58 @@ class TestProvision:
 
         # VM must still be released
         env_kit["vm_provisioner"].release.assert_awaited_once()
+
+    async def test_waits_for_ssh_before_bootstrap(self, env_kit):
+        """provision() calls _await_ssh_ready between SSH creation and bootstrap."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+        call_order: list[str] = []
+
+        async def _track_ssh_ready(conn):
+            call_order.append("ssh_ready")
+
+        async def _track_bootstrap(conn):
+            call_order.append("bootstrap")
+            return _make_bootstrap_result()
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_load_project_env", return_value={}),
+            patch.object(env, "_await_ssh_ready", side_effect=_track_ssh_ready),
+            patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            MockSSH.return_value = AsyncMock()
+            env_kit["bootstrapper"].bootstrap.side_effect = _track_bootstrap
+            await env.provision(dispatch, config)
+
+        assert call_order == ["ssh_ready", "bootstrap"]
+
+    async def test_releases_vm_on_ssh_timeout(self, env_kit):
+        """provision() releases VM when SSH never becomes reachable."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(
+                env,
+                "_await_ssh_ready",
+                new_callable=AsyncMock,
+                side_effect=TimeoutError("SSH not reachable"),
+            ),
+            patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            MockSSH.return_value = mock_conn
+
+            with pytest.raises(TimeoutError, match="SSH not reachable"):
+                await env.provision(dispatch, config)
+
+        # VM must be released on SSH timeout
+        env_kit["vm_provisioner"].release.assert_awaited_once_with(_make_vm_handle())
+        mock_conn.close.assert_awaited_once()
 
 
 class TestExecute:
@@ -381,7 +436,9 @@ class TestExecute:
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         config = env_kit["config"]
 
-        env_kit["workspace_mgr"].push_command.return_value = (
+        env_kit[
+            "workspace_mgr"
+        ].push_command.return_value = (
             "GIT_ASKPASS=/workspace/.git-askpass GIT_TERMINAL_PROMPT=0 git push origin feature-1"
         )
 
@@ -652,6 +709,7 @@ class TestProvisionWorkflowId:
         with (
             patch.object(env, "_resolve_profile", return_value=_make_profile()),
             patch.object(env, "_load_project_env", return_value={}),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("worker_manager.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
             MockSSH.return_value = AsyncMock()
@@ -659,3 +717,55 @@ class TestProvisionWorkflowId:
 
         assert handle.runtime.kind == "remote"
         assert handle.runtime.workflow_id == "wf-myproj-42-1000"
+
+
+class TestClose:
+    async def test_close_closes_state_store(self, env_kit):
+        """close() delegates to _state_store.close()."""
+        env = env_kit["env"]
+        await env.close()
+        env_kit["state_store"].close.assert_awaited_once()
+
+
+class TestAwaitSshReady:
+    async def test_returns_immediately_when_ready(self, env_kit):
+        """First check_connection() = True -> no sleep, immediate return."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.check_connection.return_value = True
+
+        with patch(f"{_SSH_ENV}.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await env._await_ssh_ready(conn)
+
+        conn.check_connection.assert_awaited_once()
+        mock_sleep.assert_not_awaited()
+
+    async def test_polls_until_ready(self, env_kit):
+        """False x2 then True -> 2 sleeps, success."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.check_connection.side_effect = [False, False, True]
+
+        with patch(f"{_SSH_ENV}.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await env._await_ssh_ready(conn)
+
+        assert conn.check_connection.await_count == 3
+        assert mock_sleep.await_count == 2
+
+    async def test_raises_timeout_when_never_ready(self, env_kit):
+        """Always False -> TimeoutError raised."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.check_connection.return_value = False
+        conn.get_host_identifier = MagicMock(return_value="dev@10.0.0.42:22")
+
+        # Advance monotonic clock by 50s per call: 0, 50, 100, 150...
+        # With timeout=120, the loop runs ~2 iterations then exits
+        clock = iter(range(0, 1000, 50))
+
+        with (
+            patch(f"{_SSH_ENV}.asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{_SSH_ENV}.time.monotonic", side_effect=lambda: next(clock)),
+            pytest.raises(TimeoutError, match="SSH not reachable"),
+        ):
+            await env._await_ssh_ready(conn, timeout=120)
