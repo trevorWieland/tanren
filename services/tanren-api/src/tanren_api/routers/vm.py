@@ -38,7 +38,8 @@ def _derive_provider(config: Config) -> VMProvider:
     try:
         remote_cfg = load_remote_config(config.remote_config_path)
     except Exception as exc:
-        raise ServiceError(f"Failed to load remote config: {exc}") from exc
+        logger.exception("Failed to load remote config from %s", config.remote_config_path)
+        raise ServiceError("Failed to load remote config") from exc
     if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
         return VMProvider.HETZNER
     return VMProvider.MANUAL
@@ -93,7 +94,11 @@ async def provision_vm(
         timeout=1800,
         environment_profile=body.environment_profile,
     )
-    handle = await execution_env.provision(dispatch, config)
+    try:
+        handle = await execution_env.provision(dispatch, config)
+    except Exception as exc:
+        logger.exception("VM provision failed for %s", dispatch.workflow_id)
+        raise ServiceError("Failed to provision VM") from exc
     runtime = handle.runtime
     if not isinstance(runtime, RemoteEnvironmentRuntime):
         raise ServiceError("Provisioned environment is not a remote runtime")
@@ -132,7 +137,11 @@ async def release_vm(
             provider=provider,
             created_at=assignment.assigned_at,
         )
-        await execution_env.release_vm(vm_handle)
+        try:
+            await execution_env.release_vm(vm_handle)
+        except Exception as exc:
+            logger.exception("VM release failed for %s", vm_id)
+            raise ServiceError("Failed to release VM") from exc
 
     # Update state tracking only after successful provider release
     await vm_state_store.record_release(vm_id)

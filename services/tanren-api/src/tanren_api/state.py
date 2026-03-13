@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -96,9 +97,10 @@ class APIStateStore:
             del self._dispatches[dispatch_id]
 
     async def get_dispatch(self, dispatch_id: str) -> DispatchRecord | None:
-        """Look up a dispatch by ID."""
+        """Look up a dispatch by ID. Returns a defensive copy."""
         async with self._lock:
-            return self._dispatches.get(dispatch_id)
+            record = self._dispatches.get(dispatch_id)
+            return replace(record) if record is not None else None
 
     async def update_dispatch(
         self,
@@ -127,9 +129,10 @@ class APIStateStore:
                 record.task = task
 
     async def remove_dispatch(self, dispatch_id: str) -> DispatchRecord | None:
-        """Remove and return a dispatch record."""
+        """Remove and return a dispatch record (defensive copy)."""
         async with self._lock:
-            return self._dispatches.pop(dispatch_id, None)
+            record = self._dispatches.pop(dispatch_id, None)
+            return replace(record) if record is not None else None
 
     # -- Environment operations --
 
@@ -139,9 +142,10 @@ class APIStateStore:
             self._environments[record.env_id] = record
 
     async def get_environment(self, env_id: str) -> EnvironmentRecord | None:
-        """Look up an environment by ID."""
+        """Look up an environment by ID. Returns a defensive copy."""
         async with self._lock:
-            return self._environments.get(env_id)
+            record = self._environments.get(env_id)
+            return replace(record) if record is not None else None
 
     async def update_environment(
         self,
@@ -175,10 +179,62 @@ class APIStateStore:
             if task is not None:
                 record.task = task
 
-    async def remove_environment(self, env_id: str) -> EnvironmentRecord | None:
-        """Remove and return an environment record."""
+    async def cancel_environment_task(self, env_id: str, *, wait_secs: float = 5.0) -> bool:
+        """Cancel the running task on the live record. Returns True if cancelled."""
+        task: asyncio.Task[None] | None = None
         async with self._lock:
-            return self._environments.pop(env_id, None)
+            record = self._environments.get(env_id)
+            if record is not None and record.task is not None and not record.task.done():
+                record.task.cancel()
+                task = record.task
+        # Await outside lock so task can acquire lock for status updates
+        if task is not None:
+            with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
+                await asyncio.wait_for(asyncio.shield(task), timeout=wait_secs)
+            return True
+        return False
+
+    async def remove_environment(self, env_id: str) -> EnvironmentRecord | None:
+        """Remove and return an environment record (defensive copy)."""
+        async with self._lock:
+            record = self._environments.pop(env_id, None)
+            return replace(record) if record is not None else None
+
+    async def try_transition_environment(
+        self,
+        env_id: str,
+        *,
+        from_statuses: frozenset[RunEnvironmentStatus],
+        to_status: RunEnvironmentStatus,
+        phase: Phase | None = None,
+        outcome: Outcome | None = None,
+        dispatch_id: str | None = None,
+        started_at: str | None = None,
+        completed_at: str | None = None,
+        task: asyncio.Task[None] | None = None,
+    ) -> EnvironmentRecord | None:
+        """Atomically transition if current status is in *from_statuses*.
+
+        Returns copy of updated record on success, None on mismatch/not-found.
+        """
+        async with self._lock:
+            record = self._environments.get(env_id)
+            if record is None or record.status not in from_statuses:
+                return None
+            record.status = to_status
+            if phase is not None:
+                record.phase = phase
+            if outcome is not None:
+                record.outcome = outcome
+            if dispatch_id is not None:
+                record.dispatch_id = dispatch_id
+            if started_at is not None:
+                record.started_at = started_at
+            if completed_at is not None:
+                record.completed_at = completed_at
+            if task is not None:
+                record.task = task
+            return replace(record)
 
     # -- Shutdown --
 

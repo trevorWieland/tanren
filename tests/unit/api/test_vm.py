@@ -118,7 +118,7 @@ class TestVM:
     async def test_release_vm_provider_failure_propagates(
         self, client, auth_headers, app, mock_execution_env
     ):
-        """Provider release_vm failure propagates; record_release is NOT called."""
+        """Provider release_vm failure returns structured 500; record_release is NOT called."""
         app.state.vm_state_store.get_assignment.return_value = VMAssignment(
             vm_id="vm-1",
             workflow_id="wf-1",
@@ -129,9 +129,27 @@ class TestVM:
         )
         mock_execution_env.release_vm = AsyncMock(side_effect=RuntimeError("provider exploded"))
 
-        with pytest.raises(RuntimeError, match="provider exploded"):
-            await client.delete("/api/v1/vm/vm-1", headers=auth_headers)
+        resp = await client.delete("/api/v1/vm/vm-1", headers=auth_headers)
+        assert resp.status_code == 500
+        data = resp.json()
+        assert data["error_code"] == "service_error"
         app.state.vm_state_store.record_release.assert_not_called()
+
+    async def test_provision_vm_wraps_provider_exception(
+        self, client, auth_headers, mock_execution_env
+    ):
+        """provision_vm wraps provider exceptions in ServiceError (500)."""
+        mock_execution_env.provision = AsyncMock(side_effect=RuntimeError("boom"))
+
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 500
+        data = resp.json()
+        assert data["error_code"] == "service_error"
+        assert "boom" not in data["detail"]
 
     async def test_derive_provider_raises_on_bad_config(self, client, auth_headers, app):
         """_derive_provider wraps config load errors in ServiceError (500)."""
@@ -143,6 +161,7 @@ class TestVM:
         data = resp.json()
         assert data["error_code"] == "service_error"
         assert "Failed to load remote config" in data["detail"]
+        assert "/nonexistent/bad-config.toml" not in data["detail"]
 
     async def test_dry_run(self, client, auth_headers):
         resp = await client.post(

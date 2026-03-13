@@ -144,7 +144,8 @@ async def create_dispatch(
 ) -> DispatchAccepted:
     """Accept a new dispatch request."""
     epoch = time.time_ns()
-    workflow_id = f"wf-{body.project}-{body.issue}-{epoch}"
+    issue = body.issue if body.issue != 0 else epoch % 10**8
+    workflow_id = f"wf-{body.project}-{issue}-{epoch}"
 
     dispatch = Dispatch(
         workflow_id=workflow_id,
@@ -259,6 +260,22 @@ async def cancel_dispatch(
         raise ConflictError(f"Dispatch {dispatch_id} is already {record.status}")
 
     if record.status == DispatchRunStatus.PENDING:
+        # For daemon-delegated: reclaim IPC file before marking cancelled.
+        # If the daemon already picked it up (deleted), we cannot cancel.
+        # Narrow race: daemon may have read but not yet deleted — microseconds
+        # between scan and delete in the poll loop, acceptable.
+        if record.dispatch_path is not None and record.task is None:
+            try:
+                record.dispatch_path.unlink()
+            except FileNotFoundError:
+                raise ConflictError(
+                    f"Dispatch {dispatch_id} has been picked up by the daemon "
+                    "and cannot be cancelled"
+                ) from None
+            except OSError:
+                logger.debug("Could not remove dispatch file for %s", dispatch_id)
+        if record.task is not None and not record.task.done():
+            record.task.cancel()
         await store.update_dispatch(
             dispatch_id,
             status=DispatchRunStatus.CANCELLED,
@@ -273,12 +290,5 @@ async def cancel_dispatch(
             status=DispatchRunStatus.CANCELLED,
             completed_at=_now(),
         )
-
-    # Remove IPC dispatch file to prevent daemon pickup
-    if record.dispatch_path is not None:
-        try:
-            record.dispatch_path.unlink(missing_ok=True)
-        except OSError:
-            logger.debug("Could not remove dispatch file for %s", dispatch_id)
 
     return DispatchCancelled(dispatch_id=dispatch_id)

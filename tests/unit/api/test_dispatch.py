@@ -1,11 +1,16 @@
 """Tests for dispatch endpoints."""
 
+import asyncio
 import json
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+
+from tanren_api.models import DispatchRunStatus
+from tanren_api.state import DispatchRecord
+from tanren_core.schemas import Cli, Dispatch, Phase
 
 
 @pytest.mark.api
@@ -315,6 +320,69 @@ class TestDispatch:
             headers=auth_headers,
         )
         mock_emitter.emit.assert_not_called()
+
+    async def test_cancel_daemon_dispatch_after_pickup_returns_409(self, client, auth_headers, app):
+        """Cancel after daemon pickup returns 409."""
+        app.state.execution_env = None
+
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # Simulate daemon pickup by deleting the IPC file
+        store = app.state.api_store
+        record = await store.get_dispatch(dispatch_id)
+        assert record is not None
+        assert record.dispatch_path is not None
+        record.dispatch_path.unlink()
+
+        # Cancel — daemon already picked it up
+        cancel_resp = await client.delete(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+        assert cancel_resp.status_code == 409
+        assert "picked up by the daemon" in cancel_resp.json()["detail"]
+
+    async def test_cancel_pending_local_dispatch_cancels_task(self, client, auth_headers, app):
+        """Cancel of a PENDING local dispatch cancels the background task."""
+        store = app.state.api_store
+
+        async def _hang_forever() -> None:
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(_hang_forever())
+        dispatch = Dispatch(
+            workflow_id="wf-cancel-pending",
+            project="test",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+        )
+        record = DispatchRecord(
+            dispatch_id="wf-cancel-pending",
+            dispatch=dispatch,
+            status=DispatchRunStatus.PENDING,
+            created_at="2026-01-01T00:00:00Z",
+        )
+        record.task = task
+        await store.add_dispatch(record)
+
+        cancel_resp = await client.delete(
+            "/api/v1/dispatch/wf-cancel-pending", headers=auth_headers
+        )
+        assert cancel_resp.status_code == 200
+        # Let the event loop process the cancellation
+        await asyncio.sleep(0)
+        assert task.cancelled() or task.done()
 
     async def test_create_dispatch_emits_event_when_execution_env_present(
         self, client, auth_headers, app

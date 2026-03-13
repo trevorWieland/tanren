@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
+
+from tanren_api.models import RunEnvironmentStatus
 
 
 @pytest.mark.api
@@ -178,6 +182,48 @@ class TestRun:
         data = resp.json()
         assert data["env_id"] == env_id
         assert data["status"] == "tearing_down"
+
+    async def test_execute_on_tearing_down_env_returns_409(self, client, auth_headers, app):
+        """Execute on a tearing-down environment returns 409."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Set status to TEARING_DOWN directly to avoid background removal race
+        store = app.state.api_store
+        await store.update_environment(env_id, status=RunEnvironmentStatus.TEARING_DOWN)
+
+        # Attempt execute — should be 409
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/execute",
+            json={
+                "project": "test",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
+
+    async def test_provision_wraps_provider_exception(
+        self, client, auth_headers, mock_execution_env
+    ):
+        """run_provision wraps provider exceptions in ServiceError (500)."""
+        mock_execution_env.provision = AsyncMock(side_effect=RuntimeError("boom"))
+
+        resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 500
+        data = resp.json()
+        assert data["error_code"] == "service_error"
+        assert "boom" not in data["detail"]
 
     async def test_full_returns_accepted(self, client, auth_headers):
         resp = await client.post(

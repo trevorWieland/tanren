@@ -202,6 +202,93 @@ class TestAPIStateStore:
         assert await store.get_dispatch("recent-completed") is not None
         assert await store.get_dispatch("trigger") is not None
 
+    async def test_get_dispatch_returns_defensive_copy(self):
+        store = APIStateStore()
+        await store.add_dispatch(_make_dispatch_record())
+
+        copy = await store.get_dispatch("wf-1")
+        assert copy is not None
+        copy.status = DispatchRunStatus.FAILED
+
+        original = await store.get_dispatch("wf-1")
+        assert original is not None
+        assert original.status == DispatchRunStatus.PENDING
+
+    async def test_get_environment_returns_defensive_copy(self):
+        store = APIStateStore()
+        await store.add_environment(_make_env_record())
+
+        copy = await store.get_environment("env-1")
+        assert copy is not None
+        copy.status = RunEnvironmentStatus.FAILED
+
+        original = await store.get_environment("env-1")
+        assert original is not None
+        assert original.status == RunEnvironmentStatus.PROVISIONED
+
+    async def test_try_transition_environment_succeeds(self):
+        store = APIStateStore()
+        await store.add_environment(_make_env_record())
+
+        result = await store.try_transition_environment(
+            "env-1",
+            from_statuses=frozenset({RunEnvironmentStatus.PROVISIONED}),
+            to_status=RunEnvironmentStatus.EXECUTING,
+            phase=Phase.DO_TASK,
+        )
+        assert result is not None
+        assert result.status == RunEnvironmentStatus.EXECUTING
+        assert result.phase == Phase.DO_TASK
+
+        # Verify the internal record was updated too
+        fetched = await store.get_environment("env-1")
+        assert fetched is not None
+        assert fetched.status == RunEnvironmentStatus.EXECUTING
+
+    async def test_try_transition_environment_rejects_wrong_status(self):
+        store = APIStateStore()
+        record = _make_env_record()
+        record.status = RunEnvironmentStatus.EXECUTING
+        await store.add_environment(record)
+
+        result = await store.try_transition_environment(
+            "env-1",
+            from_statuses=frozenset({RunEnvironmentStatus.PROVISIONED}),
+            to_status=RunEnvironmentStatus.EXECUTING,
+        )
+        assert result is None
+
+    async def test_try_transition_environment_not_found(self):
+        store = APIStateStore()
+
+        result = await store.try_transition_environment(
+            "nonexistent",
+            from_statuses=frozenset({RunEnvironmentStatus.PROVISIONED}),
+            to_status=RunEnvironmentStatus.EXECUTING,
+        )
+        assert result is None
+
+    async def test_cancel_environment_task_cancels_running_task(self):
+        store = APIStateStore()
+        record = _make_env_record()
+
+        async def long_running():
+            await asyncio.sleep(3600)
+
+        record.task = asyncio.create_task(long_running())
+        await store.add_environment(record)
+
+        result = await store.cancel_environment_task("env-1")
+        assert result is True
+        assert record.task.cancelled() or record.task.done()
+
+    async def test_cancel_environment_task_returns_false_when_no_task(self):
+        store = APIStateStore()
+        await store.add_environment(_make_env_record())
+
+        result = await store.cancel_environment_task("env-1")
+        assert result is False
+
     async def test_reap_preserves_recent_terminal_dispatches(self):
         store = APIStateStore()
         recent_time = datetime.now(UTC).isoformat()
