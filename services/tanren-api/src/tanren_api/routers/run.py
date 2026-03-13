@@ -6,13 +6,21 @@ from typing import Annotated
 from fastapi import APIRouter, Path
 
 from tanren_api.errors import NotImplementedAPIError
-from tanren_api.models import DispatchAccepted, ProvisionRequest, RunFullRequest
+from tanren_api.models import (
+    DispatchAccepted,
+    ProvisionRequest,
+    RunEnvironment,
+    RunExecuteAccepted,
+    RunFullRequest,
+    RunStatus,
+    RunTeardownAccepted,
+)
 
 router = APIRouter(tags=["run"])
 
 
 @router.post("/run/provision")
-async def run_provision(body: ProvisionRequest) -> dict:
+async def run_provision(body: ProvisionRequest) -> RunEnvironment:
     """Provision a remote execution environment."""
     raise NotImplementedAPIError(detail="Run provisioning not yet implemented")
 
@@ -20,7 +28,7 @@ async def run_provision(body: ProvisionRequest) -> dict:
 @router.post("/run/{env_id}/execute")
 async def run_execute(
     env_id: Annotated[str, Path(description="Environment identifier")],
-) -> dict:
+) -> RunExecuteAccepted:
     """Execute a phase against a provisioned environment."""
     raise NotImplementedAPIError(detail="Run execution not yet implemented")
 
@@ -28,7 +36,7 @@ async def run_execute(
 @router.post("/run/{env_id}/teardown")
 async def run_teardown(
     env_id: Annotated[str, Path(description="Environment identifier")],
-) -> dict:
+) -> RunTeardownAccepted:
     """Teardown a provisioned environment."""
     raise NotImplementedAPIError(detail="Run teardown not yet implemented")
 
@@ -42,6 +50,6 @@ async def run_full(body: RunFullRequest) -> DispatchAccepted:
 @router.get("/run/{env_id}/status")
 async def run_status(
     env_id: Annotated[str, Path(description="Environment identifier")],
-) -> dict:
+) -> RunStatus:
     """Poll status of a running environment."""
     raise NotImplementedAPIError(detail="Run status polling not yet implemented")

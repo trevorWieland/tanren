@@ -4,30 +4,64 @@ Core domain models (Dispatch, Result, VMAssignment, etc.) are reused directly
 from tanren_core. Only models that are genuinely API-specific live here.
 """
 
+from enum import StrEnum
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
 
-from tanren_core.schemas import Cli, Phase
+from tanren_core.adapters.events import (
+    BootstrapCompleted,
+    DispatchReceived,
+    ErrorOccurred,
+    PhaseCompleted,
+    PhaseStarted,
+    PostflightCompleted,
+    PreflightCompleted,
+    RetryScheduled,
+    VMProvisioned,
+    VMReleased,
+)
+from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.schemas import Cli, Outcome, Phase
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
 
 
-class ErrorResponse(BaseModel):
-    """Consistent error envelope for API error responses."""
+class DispatchRunStatus(StrEnum):
+    """Runtime status of a dispatch."""
 
-    model_config = ConfigDict(extra="forbid")
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
-    detail: str = Field(..., description="Human-readable error message")
-    error_code: str = Field(..., description="Machine-readable error code")
-    timestamp: str = Field(..., description="ISO 8601 timestamp")
-    request_id: str | None = Field(default=None, description="Request correlation ID")
+
+class VMStatus(StrEnum):
+    """Lifecycle status of a VM."""
+
+    ACTIVE = "active"
+    PROVISIONING = "provisioning"
+    RELEASING = "releasing"
+    RELEASED = "released"
 
 
-class HealthResponse(BaseModel):
-    """Service health and version info."""
+class RunEnvironmentStatus(StrEnum):
+    """Lifecycle status of a run environment."""
 
-    model_config = ConfigDict(extra="forbid")
+    PROVISIONING = "provisioning"
+    PROVISIONED = "provisioned"
+    EXECUTING = "executing"
+    TEARING_DOWN = "tearing_down"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
-    status: str = Field(..., description="Service status")
-    version: str = Field(..., description="Service version")
-    uptime_seconds: float = Field(..., description="Seconds since service start")
+
+# ---------------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------------
 
 
 class DispatchRequest(BaseModel):
@@ -72,13 +106,38 @@ class RunFullRequest(BaseModel):
     gate_cmd: str | None = Field(default=None, description="Gate command")
 
 
-class DispatchAccepted(BaseModel):
-    """Thin response confirming dispatch acceptance."""
+# ---------------------------------------------------------------------------
+# Response models — general
+# ---------------------------------------------------------------------------
+
+
+class ErrorResponse(BaseModel):
+    """Consistent error envelope for API error responses."""
 
     model_config = ConfigDict(extra="forbid")
 
-    dispatch_id: str = Field(..., description="Auto-generated workflow identifier")
-    status: str = Field(default="accepted", description="Acceptance status")
+    detail: str = Field(..., description="Human-readable error message")
+    error_code: str = Field(..., description="Machine-readable error code")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+    request_id: str | None = Field(default=None, description="Request correlation ID")
+
+
+class HealthResponse(BaseModel):
+    """Service health and version info."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(..., description="Service status")
+    version: str = Field(..., description="Service version")
+    uptime_seconds: float = Field(..., description="Seconds since service start")
+
+
+class ReadinessResponse(BaseModel):
+    """Readiness probe response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(..., description="Readiness indicator")
 
 
 class ConfigResponse(BaseModel):
@@ -97,12 +156,175 @@ class ConfigResponse(BaseModel):
     remote_enabled: bool = Field(..., description="Whether remote execution is configured")
 
 
+class DispatchAccepted(BaseModel):
+    """Thin response confirming dispatch acceptance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dispatch_id: str = Field(..., description="Auto-generated workflow identifier")
+    status: str = Field(default="accepted", description="Acceptance status")
+
+
+# ---------------------------------------------------------------------------
+# Response models — dispatch
+# ---------------------------------------------------------------------------
+
+
+class DispatchDetail(BaseModel):
+    """Full dispatch detail including runtime tracking."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: str = Field(..., description="Unique workflow identifier")
+    phase: Phase = Field(..., description="Dispatch phase type")
+    project: str = Field(..., description="Project name")
+    spec_folder: str = Field(..., description="Relative path to spec folder")
+    branch: str = Field(..., description="Git branch name")
+    cli: Cli = Field(..., description="CLI tool used")
+    model: str | None = Field(default=None, description="Model identifier")
+    timeout: int = Field(..., ge=1, description="Max execution time in seconds")
+    environment_profile: str = Field(..., description="Environment profile name")
+    context: str | None = Field(default=None, description="Extra context for the agent")
+    gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
+    status: DispatchRunStatus = Field(..., description="Current dispatch status")
+    outcome: Outcome | None = Field(default=None, description="Final outcome if completed")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
+    started_at: str | None = Field(default=None, description="ISO 8601 start timestamp")
+    completed_at: str | None = Field(default=None, description="ISO 8601 completion timestamp")
+
+
+class DispatchCancelled(BaseModel):
+    """Confirmation that a dispatch was cancelled."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dispatch_id: str = Field(..., description="Cancelled workflow identifier")
+    status: DispatchRunStatus = Field(
+        default=DispatchRunStatus.CANCELLED, description="Cancellation status"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Response models — VM
+# ---------------------------------------------------------------------------
+
+
+class VMSummary(BaseModel):
+    """Summary of a VM assignment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vm_id: str = Field(..., description="VM identifier")
+    host: str = Field(..., description="VM hostname or IP")
+    provider: VMProvider = Field(..., description="VM provider")
+    workflow_id: str | None = Field(default=None, description="Associated workflow ID")
+    project: str | None = Field(default=None, description="Associated project name")
+    status: VMStatus = Field(..., description="Current VM status")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
+
+
+class VMReleaseConfirmed(BaseModel):
+    """Confirmation that a VM was released."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vm_id: str = Field(..., description="Released VM identifier")
+    status: VMStatus = Field(default=VMStatus.RELEASED, description="Release status")
+
+
+class VMDryRunResult(BaseModel):
+    """Result of a VM dry-run provisioning check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: VMProvider = Field(..., description="VM provider that would be used")
+    server_type: str | None = Field(default=None, description="Server type that would be used")
+    estimated_cost_hourly: float | None = Field(
+        default=None, ge=0.0, description="Estimated hourly cost"
+    )
+    would_provision: bool = Field(..., description="Whether provisioning would proceed")
+    requirements: VMRequirements = Field(..., description="Resolved VM requirements")
+
+
+# ---------------------------------------------------------------------------
+# Response models — run
+# ---------------------------------------------------------------------------
+
+
+class RunEnvironment(BaseModel):
+    """Provisioned run environment handle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_id: str = Field(..., description="Environment identifier")
+    vm_id: str = Field(..., description="Backing VM identifier")
+    host: str = Field(..., description="VM hostname or IP")
+    status: RunEnvironmentStatus = Field(
+        default=RunEnvironmentStatus.PROVISIONED, description="Environment status"
+    )
+
+
+class RunExecuteAccepted(BaseModel):
+    """Confirmation that execution was accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_id: str = Field(..., description="Environment identifier")
+    dispatch_id: str = Field(..., description="Dispatch workflow identifier")
+    status: RunEnvironmentStatus = Field(
+        default=RunEnvironmentStatus.EXECUTING, description="Execution status"
+    )
+
+
+class RunTeardownAccepted(BaseModel):
+    """Confirmation that teardown was accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_id: str = Field(..., description="Environment identifier")
+    status: RunEnvironmentStatus = Field(
+        default=RunEnvironmentStatus.TEARING_DOWN, description="Teardown status"
+    )
+
+
+class RunStatus(BaseModel):
+    """Status of a running environment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_id: str = Field(..., description="Environment identifier")
+    status: RunEnvironmentStatus = Field(..., description="Current environment status")
+    phase: Phase | None = Field(default=None, description="Current phase if executing")
+    outcome: Outcome | None = Field(default=None, description="Final outcome if completed")
+    started_at: str | None = Field(default=None, description="ISO 8601 start timestamp")
+    duration_secs: int | None = Field(default=None, ge=0, description="Elapsed seconds")
+
+
+# ---------------------------------------------------------------------------
+# Events — discriminated union
+# ---------------------------------------------------------------------------
+
+EventPayload = Annotated[
+    DispatchReceived
+    | PhaseStarted
+    | PhaseCompleted
+    | PreflightCompleted
+    | PostflightCompleted
+    | ErrorOccurred
+    | RetryScheduled
+    | VMProvisioned
+    | VMReleased
+    | BootstrapCompleted,
+    Field(discriminator="type"),
+]
+
+
 class PaginatedEvents(BaseModel):
     """Pagination wrapper for event queries."""
 
     model_config = ConfigDict(extra="forbid")
 
-    events: list[dict] = Field(default_factory=list, description="Event records (raw payloads)")
+    events: list[EventPayload] = Field(default_factory=list, description="Typed event records")
     total: int = Field(..., description="Total matching events")
     limit: int = Field(..., description="Page size")
     offset: int = Field(..., description="Current offset")

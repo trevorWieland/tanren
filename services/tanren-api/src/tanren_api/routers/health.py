@@ -4,7 +4,7 @@ import time
 
 from fastapi import APIRouter, Request
 
-from tanren_api.models import HealthResponse
+from tanren_api.models import HealthResponse, ReadinessResponse
 
 router = APIRouter(tags=["health"])
 
@@ -22,10 +22,10 @@ async def health(request: Request) -> HealthResponse:
 
 
 @router.get("/api/v1/health/ready")
-async def readiness(request: Request) -> dict[str, str]:
+async def readiness(request: Request) -> ReadinessResponse:
     """Readiness probe.
 
     Returns:
-        Dict with status key indicating readiness.
+        ReadinessResponse with status key indicating readiness.
     """
-    return {"status": "ready"}
+    return ReadinessResponse(status="ready")
