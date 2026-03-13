@@ -1,6 +1,6 @@
 # Adapter Architecture
 
-The worker-manager uses protocol-based dependency injection to keep its core
+The tanren-core library uses protocol-based dependency injection to keep its core
 orchestration logic decoupled from concrete infrastructure. Every external
 concern -- git operations, process spawning, environment validation, event
 storage -- is accessed through a `typing.Protocol` interface. The
@@ -21,7 +21,7 @@ with `isinstance()`.
 ## Adapter Categories
 
 The table below lists every integration category in the tanren ecosystem.
-The worker-manager directly owns protocols for the first six categories. The
+The tanren-core library directly owns protocols for the first six categories. The
 remaining categories (CI/CD, Secret Management, Token Usage, Coordinator
 Interface) are handled by other components but listed here for completeness.
 
@@ -39,7 +39,7 @@ Interface) are handled by other components but listed here for completeness.
 
 ## Current Protocol Interfaces
 
-The worker-manager defines eight protocols. Each one covers a single
+The tanren-core library defines eight protocols. Each one covers a single
 responsibility and has exactly one built-in concrete implementation (two in
 the case of `EventEmitter`).
 
@@ -403,9 +403,9 @@ during remote environment initialization (no global startup autoload).
 
 ### Dispatch-Aware vs. Generic Signatures
 
-The worker-manager's `ExecutionEnvironment` protocol takes `Dispatch` and
+The tanren-core `ExecutionEnvironment` protocol takes `Dispatch` and
 `Config` arguments, making it dispatch-aware. This is intentional: the
-worker-manager always has a dispatch context when it provisions and executes
+worker manager always has a dispatch context when it provisions and executes
 environments.
 
 The tanren architecture document defines a more generic version intended for
@@ -437,7 +437,7 @@ environment:
 ```
 
 When the standalone orchestration engine is built, it will use the generic
-protocol. The worker-manager's dispatch-aware version will remain as a
+protocol. The tanren-core dispatch-aware version will remain as a
 specialization that bridges dispatch semantics into the generic interface.
 
 
@@ -450,16 +450,16 @@ To add a new execution environment (e.g., Docker), implement the
 import uuid
 from pathlib import Path
 
-from worker_manager.adapters.protocols import ExecutionEnvironment
-from worker_manager.adapters.types import (
+from tanren_core.adapters.protocols import ExecutionEnvironment
+from tanren_core.adapters.types import (
     AccessInfo,
     CustomEnvironmentRuntime,
     EnvironmentHandle,
     PhaseResult,
     ProvisionError,
 )
-from worker_manager.config import Config
-from worker_manager.schemas import Dispatch, Outcome
+from tanren_core.config import Config
+from tanren_core.schemas import Dispatch, Outcome
 
 
 class DockerExecutionEnvironment:
@@ -544,8 +544,8 @@ All adapters are injected through the `WorkerManager` constructor. Any
 parameter left as `None` gets its built-in default:
 
 ```python
-from worker_manager.manager import WorkerManager
-from worker_manager.config import Config
+from tanren_core.manager import WorkerManager
+from tanren_core.config import Config
 
 # Use all defaults
 manager = WorkerManager()

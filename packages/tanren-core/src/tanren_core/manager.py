@@ -34,7 +34,6 @@ from tanren_core.adapters import (
     SubprocessSpawner,
 )
 from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
-from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
 from tanren_core.adapters.protocols import (
@@ -356,6 +355,11 @@ class WorkerManager:
             )
             vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), state_store)
         elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+            from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415
+                HetznerProvisionerSettings,
+                HetznerVMProvisioner,
+            )
+
             hetzner_settings = HetznerProvisionerSettings.from_settings(
                 remote_cfg.provisioner.settings
             )
@@ -407,6 +411,11 @@ class WorkerManager:
                     vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), store)
                     provider = VMProvider.MANUAL
                 elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+                    from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415
+                        HetznerProvisionerSettings,
+                        HetznerVMProvisioner,
+                    )
+
                     hetzner_settings = HetznerProvisionerSettings.from_settings(
                         remote_cfg.provisioner.settings
                     )

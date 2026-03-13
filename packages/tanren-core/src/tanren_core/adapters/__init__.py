@@ -22,7 +22,11 @@ from tanren_core.adapters.git_postflight import GitPostflightRunner
 from tanren_core.adapters.git_preflight import GitPreflightRunner
 from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
 from tanren_core.adapters.git_worktree import GitWorktreeManager
-from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
+
+try:  # noqa: SIM105, RUF067
+    from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
+except ImportError:  # hcloud not installed
+    pass
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import (
     ManualProvisionerSettings,

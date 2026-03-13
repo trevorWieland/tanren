@@ -9,7 +9,6 @@ import typer
 import yaml
 from dotenv import dotenv_values
 
-from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
@@ -180,6 +179,8 @@ def vm_dry_run(
     typer.echo(f"provisioner: {remote_cfg.provisioner.type.value}")
 
     if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+        from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings  # noqa: PLC0415
+
         settings = HetznerProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         resolved_server_type = profile.server_type or settings.default_server_type
         source = (

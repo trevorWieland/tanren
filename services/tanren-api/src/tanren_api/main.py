@@ -23,19 +23,6 @@ from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 from tanren_core.config import Config
 
 
-def _middleware(cls: object, **kwargs: object) -> Middleware:
-    """Construct a ``Middleware`` entry without triggering ParamSpec issues in ty.
-
-    Returns:
-        Configured Middleware instance.
-    """
-    mw = object.__new__(Middleware)
-    mw.cls = cls
-    mw.args = ()
-    mw.kwargs = kwargs
-    return mw
-
-
 def create_app(settings: APISettings | None = None) -> FastAPI:
     """Build and configure the FastAPI application.
 
@@ -64,13 +51,13 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
     # Build middleware stack before creating app (order matters: outermost first)
     middleware_stack: list[Middleware] = [
-        _middleware(RequestIDMiddleware),
-        _middleware(RequestLoggingMiddleware),
+        Middleware(RequestIDMiddleware),  # type: ignore[arg-type]
+        Middleware(RequestLoggingMiddleware),  # type: ignore[arg-type]
     ]
     if settings.cors_origins:
         middleware_stack.append(
-            _middleware(
-                CORSMiddleware,
+            Middleware(
+                CORSMiddleware,  # type: ignore[arg-type]
                 allow_origins=settings.cors_origins,
                 allow_credentials=True,
                 allow_methods=["*"],

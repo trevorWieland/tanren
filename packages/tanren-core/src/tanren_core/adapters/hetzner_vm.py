@@ -8,12 +8,34 @@ import os
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from hcloud import Client
-from hcloud.servers.client import BoundServer
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
+
+if TYPE_CHECKING:
+    from hcloud.servers.client import BoundServer
+
+
+def _import_hcloud() -> type:
+    """Import and return the hcloud Client class at runtime.
+
+    Returns:
+        The hcloud Client class.
+
+    Raises:
+        ImportError: If the hcloud package is not installed.
+    """
+    try:
+        from hcloud import Client as _Client  # noqa: PLC0415
+
+        return _Client
+    except ImportError:
+        raise ImportError(
+            "hcloud is required for Hetzner provisioning. Install it with: uv sync --extra hetzner"
+        ) from None
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +82,8 @@ class HetznerVMProvisioner:
             raise ValueError(
                 f"Missing Hetzner API token in environment variable: {settings.token_env}"
             )
-        self._client = Client(token=token)
+        ClientCls = _import_hcloud()
+        self._client = ClientCls(token=token)
         self._validate_prerequisites()
 
     def _validate_prerequisites(self) -> None:

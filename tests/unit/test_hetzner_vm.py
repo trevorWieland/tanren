@@ -92,8 +92,8 @@ async def test_acquire_creates_server_with_expected_params(monkeypatch):
     server = _FakeServer(statuses=["off", "running"], ips=[None, "203.0.113.10"])
     client = _build_client(server)
     monkeypatch.setattr(
-        "tanren_core.adapters.hetzner_vm.Client",
-        lambda **kwargs: client,
+        "tanren_core.adapters.hetzner_vm._import_hcloud",
+        lambda: lambda **kwargs: client,
     )
 
     provisioner = HetznerVMProvisioner(_settings())
@@ -115,8 +115,8 @@ async def test_acquire_times_out_when_server_not_ready(monkeypatch):
     server = _FakeServer(statuses=["off", "off", "off"], ips=[None, None, None])
     client = _build_client(server)
     monkeypatch.setattr(
-        "tanren_core.adapters.hetzner_vm.Client",
-        lambda **kwargs: client,
+        "tanren_core.adapters.hetzner_vm._import_hcloud",
+        lambda: lambda **kwargs: client,
     )
     settings = _settings().model_copy(update={"readiness_timeout_secs": 1, "poll_interval_secs": 1})
     provisioner = HetznerVMProvisioner(settings)
@@ -132,8 +132,8 @@ def test_init_raises_when_ssh_key_missing(monkeypatch):
     client = _build_client(server)
     client.ssh_keys.get_by_name.return_value = None
     monkeypatch.setattr(
-        "tanren_core.adapters.hetzner_vm.Client",
-        lambda **kwargs: client,
+        "tanren_core.adapters.hetzner_vm._import_hcloud",
+        lambda: lambda **kwargs: client,
     )
 
     with pytest.raises(ValueError, match="SSH key"):
@@ -146,8 +146,8 @@ async def test_release_deletes_server(monkeypatch):
     server = _FakeServer()
     client = _build_client(server)
     monkeypatch.setattr(
-        "tanren_core.adapters.hetzner_vm.Client",
-        lambda **kwargs: client,
+        "tanren_core.adapters.hetzner_vm._import_hcloud",
+        lambda: lambda **kwargs: client,
     )
     provisioner = HetznerVMProvisioner(_settings())
 
@@ -165,8 +165,8 @@ async def test_release_missing_server_is_graceful(monkeypatch):
     client.servers.get_by_id.return_value = None
     client.servers.get_by_name.return_value = None
     monkeypatch.setattr(
-        "tanren_core.adapters.hetzner_vm.Client",
-        lambda **kwargs: client,
+        "tanren_core.adapters.hetzner_vm._import_hcloud",
+        lambda: lambda **kwargs: client,
     )
     provisioner = HetznerVMProvisioner(_settings())
 
@@ -188,8 +188,8 @@ async def test_list_active_filters_by_managed_label(monkeypatch):
     client = _build_client(managed)
     client.servers.get_all.return_value = [managed, unmanaged]
     monkeypatch.setattr(
-        "tanren_core.adapters.hetzner_vm.Client",
-        lambda **kwargs: client,
+        "tanren_core.adapters.hetzner_vm._import_hcloud",
+        lambda: lambda **kwargs: client,
     )
     provisioner = HetznerVMProvisioner(_settings())
 
@@ -202,10 +202,12 @@ async def test_list_active_filters_by_managed_label(monkeypatch):
 def test_missing_hcloud_dependency_error_is_clear(monkeypatch):
     monkeypatch.setenv("HCLOUD_TOKEN", "tok")
 
-    def _raise(**kwargs):
-        raise RuntimeError("Install with: uv sync --extra hetzner")
+    def _raise():
+        raise ImportError(
+            "hcloud is required for Hetzner provisioning. Install it with: uv sync --extra hetzner"
+        )
 
-    monkeypatch.setattr("tanren_core.adapters.hetzner_vm.Client", _raise)
+    monkeypatch.setattr("tanren_core.adapters.hetzner_vm._import_hcloud", _raise)
 
-    with pytest.raises(RuntimeError, match="uv sync --extra hetzner"):
+    with pytest.raises(ImportError, match="uv sync --extra hetzner"):
         HetznerVMProvisioner(_settings())

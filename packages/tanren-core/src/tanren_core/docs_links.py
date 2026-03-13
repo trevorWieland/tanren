@@ -15,6 +15,24 @@ _CODE_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _TITLE_SUFFIX_RE = re.compile(r'\s+"[^"]*"\s*$')
 _WHITESPACE_RE = re.compile(r"[\s-]+")
 
+
+def _find_repo_root() -> Path:
+    """Walk up from this file to find the repository root.
+
+    Returns:
+        Path to the repository root directory.
+
+    Raises:
+        FileNotFoundError: If no .git directory is found in any parent.
+    """
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / ".git").is_dir():
+            return current
+        current = current.parent
+    raise FileNotFoundError("Could not find repository root (.git directory)")
+
+
 _EXCLUDED_DIR_NAMES = {
     ".git",
     ".venv",
@@ -212,7 +230,7 @@ def main() -> int:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path(__file__).resolve().parents[3],
+        default=_find_repo_root(),
         help="Tanren repository root path",
     )
     args = parser.parse_args()

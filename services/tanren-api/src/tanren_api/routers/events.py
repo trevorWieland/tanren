@@ -1,10 +1,11 @@
 """Events endpoint — query structured events."""
+# ruff: noqa: DOC501 — all endpoints are stubs that raise NotImplementedAPIError
 
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from tanren_api.errors import NotImplementedError
+from tanren_api.errors import NotImplementedAPIError
 from tanren_api.models import PaginatedEvents
 
 router = APIRouter(tags=["events"])
@@ -18,4 +19,4 @@ async def list_events(
     offset: Annotated[int, Query(ge=0, description="Pagination offset")] = 0,
 ) -> PaginatedEvents:
     """Query structured events with optional filters."""
-    raise NotImplementedError(detail="Event querying not yet implemented")
+    raise NotImplementedAPIError(detail="Event querying not yet implemented")

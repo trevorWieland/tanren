@@ -52,6 +52,7 @@ def app(tmp_path):
 @pytest.fixture
 async def client(app):
     async with AsyncClient(
+        # ASGITransport does not trigger lifespan events; state is manually seeded above.
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as c:

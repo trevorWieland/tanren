@@ -35,7 +35,7 @@ class AuthenticationError(TanrenAPIError):
         super().__init__(401, "authentication_error", detail)
 
 
-class NotImplementedError(TanrenAPIError):
+class NotImplementedAPIError(TanrenAPIError):
     """Endpoint not yet implemented (501)."""
 
     def __init__(self, detail: str = "Not implemented") -> None:

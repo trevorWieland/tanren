@@ -1,5 +1,6 @@
 """API authentication via API key header."""
 
+import secrets
 from typing import Annotated, Protocol
 
 from fastapi import Header, HTTPException, Request
@@ -28,7 +29,7 @@ class APIKeyVerifier:
         Raises:
             HTTPException: If the credentials are invalid or missing.
         """
-        if not self._expected_key or credentials != self._expected_key:
+        if not self._expected_key or not secrets.compare_digest(credentials, self._expected_key):
             raise HTTPException(status_code=401, detail="Invalid API key")
 
 

@@ -1,4 +1,4 @@
-.PHONY: install format lint lint-check type unit integration check ci openapi clean
+.PHONY: install format lint lint-check type unit integration docs-check check ci openapi clean
 
 install:
 	uv sync --upgrade
@@ -25,12 +25,16 @@ integration:
 		-m "not ssh and not local_env" \
 		--cov=packages --cov=services --cov-fail-under=75
 
+docs-check:
+	uv run python -m tanren_core.docs_links
+
 check:
 	$(MAKE) format
 	$(MAKE) lint-check
 	$(MAKE) type
 	$(MAKE) unit
 	$(MAKE) integration
+	$(MAKE) docs-check
 
 ci:
 	$(MAKE) check
