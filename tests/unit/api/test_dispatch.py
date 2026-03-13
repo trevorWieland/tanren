@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -257,3 +258,80 @@ class TestDispatch:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "pending"
+
+    async def test_daemon_result_error_outcome_maps_to_failed(self, client, auth_headers, app):
+        """Daemon result with outcome=error maps dispatch status to failed."""
+        app.state.execution_env = None
+
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # Write a result with outcome=error
+        results_dir = Path(app.state.config.ipc_dir) / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        result_data = {
+            "workflow_id": dispatch_id,
+            "phase": "do-task",
+            "outcome": "error",
+            "signal": "error",
+            "exit_code": 1,
+            "duration_secs": 5,
+            "spec_modified": False,
+        }
+        result_file = results_dir / f"{dispatch_id}.json"
+        result_file.write_text(json.dumps(result_data))
+
+        resp = await client.get(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "failed"
+        assert data["outcome"] == "error"
+
+    async def test_create_dispatch_no_event_when_daemon_delegated(self, client, auth_headers, app):
+        """No DispatchReceived event emitted when delegating to daemon."""
+        app.state.execution_env = None
+        mock_emitter = AsyncMock()
+        app.state.emitter = mock_emitter
+
+        await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        mock_emitter.emit.assert_not_called()
+
+    async def test_create_dispatch_emits_event_when_execution_env_present(
+        self, client, auth_headers, app
+    ):
+        """DispatchReceived event emitted when execution_env is available."""
+        mock_emitter = AsyncMock()
+        app.state.emitter = mock_emitter
+
+        await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        mock_emitter.emit.assert_called_once()

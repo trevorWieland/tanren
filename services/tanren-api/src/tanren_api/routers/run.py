@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -34,6 +35,9 @@ from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["run"])
+
+_COMPLETED_DISPATCH_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
+_COMPLETED_ENV_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
 
 
 def _now() -> str:
@@ -130,9 +134,14 @@ async def run_execute(
     async def _execute_background() -> None:
         try:
             result = await execution_env.execute(record.handle, dispatch, config)
+            env_status = (
+                RunEnvironmentStatus.COMPLETED
+                if result.outcome in _COMPLETED_ENV_OUTCOMES
+                else RunEnvironmentStatus.FAILED
+            )
             await store.update_environment(
                 env_id,
-                status=RunEnvironmentStatus.COMPLETED,
+                status=env_status,
                 outcome=result.outcome,
                 completed_at=_now(),
             )
@@ -172,9 +181,11 @@ async def run_teardown(
     if record is None:
         raise NotFoundError(f"Environment {env_id} not found")
 
-    # Cancel any running execute task
+    # Cancel any running execute task and wait for it to finish
     if record.task is not None and not record.task.done():
         record.task.cancel()
+        with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
+            await asyncio.wait_for(asyncio.shield(record.task), timeout=5.0)
 
     await store.update_environment(env_id, status=RunEnvironmentStatus.TEARING_DOWN)
 
@@ -240,15 +251,25 @@ async def run_full(
             await store.add_environment(env_record)
 
             result = await execution_env.execute(handle, dispatch, config)
+            dispatch_status = (
+                DispatchRunStatus.COMPLETED
+                if result.outcome in _COMPLETED_DISPATCH_OUTCOMES
+                else DispatchRunStatus.FAILED
+            )
+            env_status = (
+                RunEnvironmentStatus.COMPLETED
+                if result.outcome in _COMPLETED_ENV_OUTCOMES
+                else RunEnvironmentStatus.FAILED
+            )
             await store.update_dispatch(
                 workflow_id,
-                status=DispatchRunStatus.COMPLETED,
+                status=dispatch_status,
                 outcome=result.outcome,
                 completed_at=_now(),
             )
             await store.update_environment(
                 handle.env_id,
-                status=RunEnvironmentStatus.COMPLETED,
+                status=env_status,
                 outcome=result.outcome,
                 completed_at=_now(),
             )

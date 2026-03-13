@@ -148,6 +148,37 @@ class TestRun:
         )
         assert resp.status_code == 409
 
+    async def test_teardown_awaits_cancelled_execute_task(self, client, auth_headers):
+        """Teardown waits for cancelled execute task before proceeding."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Execute
+        await client.post(
+            f"/api/v1/run/{env_id}/execute",
+            json={
+                "project": "test",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+
+        # Teardown — should succeed even with a running execute task
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["env_id"] == env_id
+        assert data["status"] == "tearing_down"
+
     async def test_full_returns_accepted(self, client, auth_headers):
         resp = await client.post(
             "/api/v1/run/full",

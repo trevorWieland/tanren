@@ -35,7 +35,10 @@ def _derive_provider(config: Config) -> VMProvider:
     """Derive VM provider from remote config."""
     if not config.remote_config_path:
         return VMProvider.MANUAL
-    remote_cfg = load_remote_config(config.remote_config_path)
+    try:
+        remote_cfg = load_remote_config(config.remote_config_path)
+    except Exception as exc:
+        raise ServiceError(f"Failed to load remote config: {exc}") from exc
     if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
         return VMProvider.HETZNER
     return VMProvider.MANUAL

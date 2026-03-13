@@ -33,21 +33,48 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["dispatch"])
 
+_COMPLETED_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
+
+
+def _status_for_outcome(outcome: Outcome) -> DispatchRunStatus:
+    """Map execution outcome to terminal dispatch status."""
+    if outcome in _COMPLETED_OUTCOMES:
+        return DispatchRunStatus.COMPLETED
+    return DispatchRunStatus.FAILED
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-async def _check_daemon_result(config: Config, workflow_id: str, store: APIStateStore) -> None:
+async def _check_daemon_result(
+    config: Config, workflow_id: str, store: APIStateStore, created_at: str
+) -> None:
     """Scan IPC results directory for a daemon-produced result matching workflow_id."""
     results_dir = Path(config.ipc_dir) / "results"
     if not results_dir.exists():
         return
 
+    # Parse created_at to millisecond timestamp for filename filtering
+    try:
+        created_dt = datetime.fromisoformat(created_at)
+        created_ms = int(created_dt.timestamp() * 1000)
+    except ValueError, TypeError:
+        created_ms = 0
+
     def _scan() -> Result | None:
-        for entry in results_dir.iterdir():
+        entries = sorted(results_dir.iterdir(), reverse=True)
+        for entry in entries:
             if entry.suffix != ".json":
                 continue
+            # Skip files older than dispatch creation
+            stem = entry.stem.split("-")[0]
+            try:
+                file_ts = int(stem)
+                if file_ts < created_ms:
+                    break  # Sorted newest-first — all remaining are older
+            except ValueError, IndexError:
+                pass
             try:
                 content = entry.read_text()
                 result = Result.model_validate_json(content)
@@ -61,14 +88,9 @@ async def _check_daemon_result(config: Config, workflow_id: str, store: APIState
     if result is None:
         return
 
-    status = (
-        DispatchRunStatus.COMPLETED
-        if result.outcome in (Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED)
-        else DispatchRunStatus.FAILED
-    )
     await store.update_dispatch(
         workflow_id,
-        status=status,
+        status=_status_for_outcome(result.outcome),
         outcome=result.outcome,
         completed_at=_now(),
     )
@@ -89,7 +111,7 @@ async def _dispatch_background(
         result = await execution_env.execute(handle, dispatch, config)
         await store.update_dispatch(
             dispatch_id,
-            status=DispatchRunStatus.COMPLETED,
+            status=_status_for_outcome(result.outcome),
             outcome=result.outcome,
             completed_at=_now(),
         )
@@ -156,19 +178,18 @@ async def create_dispatch(
     record.dispatch_path = dispatch_path
     await store.add_dispatch(record)
 
-    # Emit event
-    await emitter.emit(
-        DispatchReceived(
-            timestamp=_now(),
-            workflow_id=workflow_id,
-            phase=body.phase.value,
-            project=body.project,
-            cli=body.cli.value,
-        )
-    )
-
     # Launch background task if execution env available
     if execution_env is not None:
+        # Emit event — daemon-delegated dispatches emit on pickup instead
+        await emitter.emit(
+            DispatchReceived(
+                timestamp=_now(),
+                workflow_id=workflow_id,
+                phase=body.phase.value,
+                project=body.project,
+                cli=body.cli.value,
+            )
+        )
         task = asyncio.create_task(
             _dispatch_background(dispatch, workflow_id, execution_env, config, store)
         )
@@ -194,7 +215,7 @@ async def get_dispatch(
         and record.dispatch_path is not None
         and record.task is None
     ):
-        await _check_daemon_result(config, dispatch_id, store)
+        await _check_daemon_result(config, dispatch_id, store, record.created_at)
         record = await store.get_dispatch(dispatch_id)
         if record is None:
             raise NotFoundError(f"Dispatch {dispatch_id} not found")

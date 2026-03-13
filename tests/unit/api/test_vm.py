@@ -134,12 +134,15 @@ class TestVM:
         app.state.vm_state_store.record_release.assert_not_called()
 
     async def test_derive_provider_raises_on_bad_config(self, client, auth_headers, app):
-        """_derive_provider propagates config load errors."""
+        """_derive_provider wraps config load errors in ServiceError (500)."""
         app.state.config.remote_config_path = "/nonexistent/bad-config.toml"
         app.state.vm_state_store.get_active_assignments.return_value = []
 
-        with pytest.raises(FileNotFoundError):
-            await client.get("/api/v1/vm", headers=auth_headers)
+        resp = await client.get("/api/v1/vm", headers=auth_headers)
+        assert resp.status_code == 500
+        data = resp.json()
+        assert data["error_code"] == "service_error"
+        assert "Failed to load remote config" in data["detail"]
 
     async def test_dry_run(self, client, auth_headers):
         resp = await client.post(

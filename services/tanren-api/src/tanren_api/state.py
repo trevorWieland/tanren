@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tanren_api.models import DispatchRunStatus, RunEnvironmentStatus
@@ -15,6 +16,12 @@ from tanren_core.schemas import Dispatch, Outcome, Phase
 logger = logging.getLogger(__name__)
 
 _SHUTDOWN_TIMEOUT_SECS = 10
+_MAX_TERMINAL_DISPATCH_AGE_SECS = 3600
+_TERMINAL_STATUSES = frozenset({
+    DispatchRunStatus.COMPLETED,
+    DispatchRunStatus.FAILED,
+    DispatchRunStatus.CANCELLED,
+})
 
 
 @dataclass
@@ -67,7 +74,26 @@ class APIStateStore:
     async def add_dispatch(self, record: DispatchRecord) -> None:
         """Register a new dispatch."""
         async with self._lock:
+            self._reap_terminal_dispatches()
             self._dispatches[record.dispatch_id] = record
+
+    def _reap_terminal_dispatches(self) -> None:
+        """Remove terminal dispatches older than retention window. Must hold _lock."""
+        cutoff = datetime.now(UTC) - timedelta(seconds=_MAX_TERMINAL_DISPATCH_AGE_SECS)
+        to_remove = []
+        for dispatch_id, record in self._dispatches.items():
+            if record.status not in _TERMINAL_STATUSES:
+                continue
+            if record.completed_at is None:
+                continue
+            try:
+                completed = datetime.fromisoformat(record.completed_at)
+                if completed < cutoff:
+                    to_remove.append(dispatch_id)
+            except ValueError, TypeError:
+                continue
+        for dispatch_id in to_remove:
+            del self._dispatches[dispatch_id]
 
     async def get_dispatch(self, dispatch_id: str) -> DispatchRecord | None:
         """Look up a dispatch by ID."""

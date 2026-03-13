@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -167,3 +168,51 @@ class TestAPIStateStore:
 
         await store.shutdown()
         assert record.task.cancelled() or record.task.done()
+
+    async def test_reap_removes_old_terminal_dispatches(self):
+        store = APIStateStore()
+        old_time = (datetime.now(UTC) - timedelta(seconds=3660)).isoformat()
+
+        # Old COMPLETED dispatch — should be reaped
+        old_completed = _make_dispatch_record("old-completed")
+        old_completed.status = DispatchRunStatus.COMPLETED
+        old_completed.completed_at = old_time
+        async with store._lock:
+            store._dispatches["old-completed"] = old_completed
+
+        # Old RUNNING dispatch — should NOT be reaped (not terminal)
+        old_running = _make_dispatch_record("old-running")
+        old_running.status = DispatchRunStatus.RUNNING
+        old_running.completed_at = old_time
+        async with store._lock:
+            store._dispatches["old-running"] = old_running
+
+        # Recent COMPLETED dispatch — should NOT be reaped (too recent)
+        recent_completed = _make_dispatch_record("recent-completed")
+        recent_completed.status = DispatchRunStatus.COMPLETED
+        recent_completed.completed_at = datetime.now(UTC).isoformat()
+        async with store._lock:
+            store._dispatches["recent-completed"] = recent_completed
+
+        # Trigger reap via add_dispatch
+        await store.add_dispatch(_make_dispatch_record("trigger"))
+
+        assert await store.get_dispatch("old-completed") is None
+        assert await store.get_dispatch("old-running") is not None
+        assert await store.get_dispatch("recent-completed") is not None
+        assert await store.get_dispatch("trigger") is not None
+
+    async def test_reap_preserves_recent_terminal_dispatches(self):
+        store = APIStateStore()
+        recent_time = datetime.now(UTC).isoformat()
+
+        record = _make_dispatch_record("recent-done")
+        record.status = DispatchRunStatus.COMPLETED
+        record.completed_at = recent_time
+        async with store._lock:
+            store._dispatches["recent-done"] = record
+
+        # Trigger reap
+        await store.add_dispatch(_make_dispatch_record("trigger2"))
+
+        assert await store.get_dispatch("recent-done") is not None
