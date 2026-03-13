@@ -163,6 +163,26 @@ class TestVM:
         assert "Failed to load remote config" in data["detail"]
         assert "/nonexistent/bad-config.toml" not in data["detail"]
 
+    async def test_release_vm_no_execution_env_returns_500(self, client, auth_headers, app):
+        """release_vm returns 500 when execution_env is None; record_release is NOT called."""
+        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+
+        app.state.execution_env = None
+        app.state.vm_state_store.get_assignment.return_value = VMAssignment(
+            vm_id="vm-1",
+            workflow_id="wf-1",
+            project="proj",
+            spec="specs/a",
+            host="10.0.0.1",
+            assigned_at="2026-01-01T00:00:00Z",
+        )
+
+        resp = await client.delete("/api/v1/vm/vm-1", headers=auth_headers)
+        assert resp.status_code == 500
+        data = resp.json()
+        assert data["error_code"] == "service_error"
+        app.state.vm_state_store.record_release.assert_not_called()
+
     async def test_dry_run(self, client, auth_headers):
         resp = await client.post(
             "/api/v1/vm/dry-run",

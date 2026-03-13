@@ -109,9 +109,10 @@ async def _dispatch_background(
     try:
         handle = await execution_env.provision(dispatch, config)
         result = await execution_env.execute(handle, dispatch, config)
-        await store.update_dispatch(
+        await store.try_transition_dispatch(
             dispatch_id,
-            status=_status_for_outcome(result.outcome),
+            from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+            to_status=_status_for_outcome(result.outcome),
             outcome=result.outcome,
             completed_at=_now(),
         )
@@ -120,9 +121,10 @@ async def _dispatch_background(
         raise
     except Exception:
         logger.exception("Dispatch %s failed", dispatch_id)
-        await store.update_dispatch(
+        await store.try_transition_dispatch(
             dispatch_id,
-            status=DispatchRunStatus.FAILED,
+            from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+            to_status=DispatchRunStatus.FAILED,
             outcome=Outcome.ERROR,
             completed_at=_now(),
         )

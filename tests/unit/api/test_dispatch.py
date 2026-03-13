@@ -403,3 +403,49 @@ class TestDispatch:
             headers=auth_headers,
         )
         mock_emitter.emit.assert_called_once()
+
+    async def test_background_task_does_not_overwrite_cancelled(self, client, auth_headers, app):
+        """Background task completing after cancellation does not overwrite CANCELLED status."""
+        from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701
+
+        store = app.state.api_store
+        mock_env = app.state.execution_env
+
+        # Create a dispatch in PENDING state
+        dispatch = Dispatch(
+            workflow_id="wf-race-test",
+            project="test-project",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+        )
+        record = DispatchRecord(
+            dispatch_id="wf-race-test",
+            dispatch=dispatch,
+            status=DispatchRunStatus.PENDING,
+            created_at="2026-01-01T00:00:00Z",
+        )
+        await store.add_dispatch(record)
+
+        # Simulate cancellation happening during execution: execute's side effect
+        # sets the dispatch to CANCELLED (mimicking a concurrent cancel request)
+        original_execute = mock_env.execute
+
+        async def _cancel_then_return(*args, **kwargs):
+            await store.update_dispatch(
+                "wf-race-test",
+                status=DispatchRunStatus.CANCELLED,
+                completed_at="2026-01-01T00:01:00Z",
+            )
+            return await original_execute(*args, **kwargs)
+
+        mock_env.execute = AsyncMock(side_effect=_cancel_then_return)
+
+        # Run the background task — it should NOT overwrite CANCELLED
+        await _dispatch_background(dispatch, "wf-race-test", mock_env, app.state.config, store)
+
+        final = await store.get_dispatch("wf-race-test")
+        assert final is not None
+        assert final.status == DispatchRunStatus.CANCELLED

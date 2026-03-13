@@ -207,8 +207,8 @@ class SSHExecutionEnvironment:
                 ),
             )
 
-        except Exception:
-            # Clean up on failure — no orphaned VMs
+        except BaseException:
+            # Clean up on failure — no orphaned VMs (including CancelledError)
             if conn is not None:
                 try:
                     await conn.close()

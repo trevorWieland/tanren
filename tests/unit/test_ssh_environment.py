@@ -254,6 +254,33 @@ class TestProvision:
         assert handle.runtime.vm_handle == _make_vm_handle()
         assert handle.runtime.connection is mock_conn
 
+    async def test_releases_vm_on_cancelled_error(self, env_kit):
+        """provision() releases VM when cancelled during provisioning (no orphaned VMs)."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        import asyncio  # noqa: PLC0415
+
+        # Make bootstrap raise CancelledError (simulates task cancellation)
+        env_kit["bootstrapper"].bootstrap.side_effect = asyncio.CancelledError()
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            MockSSH.return_value = mock_conn
+
+            with pytest.raises(asyncio.CancelledError):
+                await env.provision(dispatch, config)
+
+        # VM must be released even though cancellation occurred
+        env_kit["vm_provisioner"].release.assert_awaited_once_with(_make_vm_handle())
+        # SSH connection closed during cleanup
+        mock_conn.close.assert_awaited_once()
+
     async def test_releases_vm_on_failure(self, env_kit):
         """provision() releases VM when a step fails (no orphaned VMs)."""
         env = env_kit["env"]

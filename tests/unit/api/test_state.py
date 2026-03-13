@@ -289,6 +289,76 @@ class TestAPIStateStore:
         result = await store.cancel_environment_task("env-1")
         assert result is False
 
+    async def test_try_transition_dispatch_succeeds(self):
+        store = APIStateStore()
+        record = _make_dispatch_record()
+        record.status = DispatchRunStatus.RUNNING
+        await store.add_dispatch(record)
+
+        from tanren_core.schemas import Outcome  # noqa: PLC0415
+
+        result = await store.try_transition_dispatch(
+            "wf-1",
+            from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+            to_status=DispatchRunStatus.COMPLETED,
+            outcome=Outcome.SUCCESS,
+            completed_at="2026-01-01T01:00:00Z",
+        )
+        assert result is not None
+        assert result.status == DispatchRunStatus.COMPLETED
+        assert result.outcome == Outcome.SUCCESS
+
+        # Verify the internal record was updated too
+        fetched = await store.get_dispatch("wf-1")
+        assert fetched is not None
+        assert fetched.status == DispatchRunStatus.COMPLETED
+
+    async def test_try_transition_dispatch_rejects_wrong_status(self):
+        store = APIStateStore()
+        record = _make_dispatch_record()
+        record.status = DispatchRunStatus.CANCELLED
+        await store.add_dispatch(record)
+
+        from tanren_core.schemas import Outcome  # noqa: PLC0415
+
+        result = await store.try_transition_dispatch(
+            "wf-1",
+            from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+            to_status=DispatchRunStatus.COMPLETED,
+            outcome=Outcome.SUCCESS,
+        )
+        assert result is None
+
+        # Internal record unchanged
+        fetched = await store.get_dispatch("wf-1")
+        assert fetched is not None
+        assert fetched.status == DispatchRunStatus.CANCELLED
+
+    async def test_try_transition_dispatch_not_found(self):
+        store = APIStateStore()
+
+        from tanren_core.schemas import Outcome  # noqa: PLC0415
+
+        result = await store.try_transition_dispatch(
+            "nonexistent",
+            from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+            to_status=DispatchRunStatus.COMPLETED,
+            outcome=Outcome.SUCCESS,
+        )
+        assert result is None
+
+    async def test_get_dispatch_deep_copies_dispatch_model(self):
+        store = APIStateStore()
+        await store.add_dispatch(_make_dispatch_record())
+
+        copy = await store.get_dispatch("wf-1")
+        assert copy is not None
+
+        # The Dispatch model object should be a separate instance
+        original = await store.get_dispatch("wf-1")
+        assert original is not None
+        assert copy.dispatch is not original.dispatch
+
     async def test_reap_preserves_recent_terminal_dispatches(self):
         store = APIStateStore()
         recent_time = datetime.now(UTC).isoformat()

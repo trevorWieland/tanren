@@ -97,10 +97,16 @@ class APIStateStore:
             del self._dispatches[dispatch_id]
 
     async def get_dispatch(self, dispatch_id: str) -> DispatchRecord | None:
-        """Look up a dispatch by ID. Returns a defensive copy."""
+        """Look up a dispatch by ID. Returns a defensive copy.
+
+        The returned record is a shallow copy with a deep-copied ``dispatch``
+        model, so callers can inspect or mutate it without affecting store state.
+        """
         async with self._lock:
             record = self._dispatches.get(dispatch_id)
-            return replace(record) if record is not None else None
+            if record is None:
+                return None
+            return replace(record, dispatch=record.dispatch.model_copy(deep=True))
 
     async def update_dispatch(
         self,
@@ -128,8 +134,38 @@ class APIStateStore:
             if task is not None:
                 record.task = task
 
+    async def try_transition_dispatch(
+        self,
+        dispatch_id: str,
+        *,
+        from_statuses: frozenset[DispatchRunStatus],
+        to_status: DispatchRunStatus,
+        outcome: Outcome | None = None,
+        started_at: str | None = None,
+        completed_at: str | None = None,
+        task: asyncio.Task[None] | None = None,
+    ) -> DispatchRecord | None:
+        """Atomically transition if current status is in *from_statuses*.
+
+        Returns copy of updated record on success, None on mismatch/not-found.
+        """
+        async with self._lock:
+            record = self._dispatches.get(dispatch_id)
+            if record is None or record.status not in from_statuses:
+                return None
+            record.status = to_status
+            if outcome is not None:
+                record.outcome = outcome
+            if started_at is not None:
+                record.started_at = started_at
+            if completed_at is not None:
+                record.completed_at = completed_at
+            if task is not None:
+                record.task = task
+            return replace(record)
+
     async def remove_dispatch(self, dispatch_id: str) -> DispatchRecord | None:
-        """Remove and return a dispatch record (defensive copy)."""
+        """Remove and return a dispatch record (shallow copy, task is shared)."""
         async with self._lock:
             record = self._dispatches.pop(dispatch_id, None)
             return replace(record) if record is not None else None
@@ -142,7 +178,13 @@ class APIStateStore:
             self._environments[record.env_id] = record
 
     async def get_environment(self, env_id: str) -> EnvironmentRecord | None:
-        """Look up an environment by ID. Returns a defensive copy."""
+        """Look up an environment by ID. Returns a defensive copy.
+
+        Scalar fields (status, phase, outcome, etc.) are independent of the
+        stored record.  ``handle`` and ``task`` are shared references: handle
+        contains a live SSH connection that cannot be safely deep-copied, and
+        task is intentionally shared for cancellation.
+        """
         async with self._lock:
             record = self._environments.get(env_id)
             return replace(record) if record is not None else None
@@ -195,7 +237,7 @@ class APIStateStore:
         return False
 
     async def remove_environment(self, env_id: str) -> EnvironmentRecord | None:
-        """Remove and return an environment record (defensive copy)."""
+        """Remove and return an environment record (shallow copy; handle/task shared)."""
         async with self._lock:
             record = self._environments.pop(env_id, None)
             return replace(record) if record is not None else None

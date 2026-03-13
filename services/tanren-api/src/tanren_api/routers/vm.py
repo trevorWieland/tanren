@@ -128,20 +128,22 @@ async def release_vm(
     if assignment is None:
         raise NotFoundError(f"VM {vm_id} not found")
 
+    if execution_env is None:
+        raise ServiceError("Remote execution environment not configured")
+
     # Release via provider first — must succeed before updating state
-    if execution_env is not None:
-        provider = _derive_provider(config)
-        vm_handle = VMHandle(
-            vm_id=assignment.vm_id,
-            host=assignment.host,
-            provider=provider,
-            created_at=assignment.assigned_at,
-        )
-        try:
-            await execution_env.release_vm(vm_handle)
-        except Exception as exc:
-            logger.exception("VM release failed for %s", vm_id)
-            raise ServiceError("Failed to release VM") from exc
+    provider = _derive_provider(config)
+    vm_handle = VMHandle(
+        vm_id=assignment.vm_id,
+        host=assignment.host,
+        provider=provider,
+        created_at=assignment.assigned_at,
+    )
+    try:
+        await execution_env.release_vm(vm_handle)
+    except Exception as exc:
+        logger.exception("VM release failed for %s", vm_id)
+        raise ServiceError("Failed to release VM") from exc
 
     # Update state tracking only after successful provider release
     await vm_state_store.record_release(vm_id)

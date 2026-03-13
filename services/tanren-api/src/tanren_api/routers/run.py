@@ -275,9 +275,10 @@ async def run_full(
                 if result.outcome in _COMPLETED_ENV_OUTCOMES
                 else RunEnvironmentStatus.FAILED
             )
-            await store.update_dispatch(
+            await store.try_transition_dispatch(
                 workflow_id,
-                status=dispatch_status,
+                from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+                to_status=dispatch_status,
                 outcome=result.outcome,
                 completed_at=_now(),
             )
@@ -291,9 +292,10 @@ async def run_full(
             raise
         except Exception:
             logger.exception("Full lifecycle failed for %s", workflow_id)
-            await store.update_dispatch(
+            await store.try_transition_dispatch(
                 workflow_id,
-                status=DispatchRunStatus.FAILED,
+                from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+                to_status=DispatchRunStatus.FAILED,
                 outcome=Outcome.ERROR,
                 completed_at=_now(),
             )
