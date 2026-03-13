@@ -65,7 +65,7 @@ def mock_execution_env():
         project="test",
         runtime=RemoteEnvironmentRuntime(
             vm_handle=vm_handle,
-            connection=MagicMock(),
+            connection=MagicMock(close=AsyncMock()),
             workspace_path=WorkspacePath(
                 path="/home/user/workspace", project="test", branch="main"
             ),

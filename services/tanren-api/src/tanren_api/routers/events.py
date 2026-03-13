@@ -62,7 +62,7 @@ async def list_events(
 
     return PaginatedEvents(
         events=events,
-        total=result.total - skipped,
+        total=result.total,
         limit=limit,
         offset=offset,
         skipped=skipped,

@@ -13,6 +13,7 @@ from tanren_core.adapters.protocols import (
     PreflightRunner,
     ProcessSpawner,
 )
+from tanren_core.adapters.remote_types import VMHandle
 from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
@@ -261,6 +262,9 @@ class LocalExecutionEnvironment:
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
         """Return local worktree path. No SSH/VSCode for local."""
         return AccessInfo(working_dir=str(handle.worktree_path), status="local")
+
+    async def release_vm(self, vm_handle: VMHandle) -> None:
+        """No-op for local — no VM to release."""
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
         """No-op for local (heartbeat already stopped in execute).

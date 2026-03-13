@@ -46,12 +46,12 @@ def mock_execution_env():
         env_id="env-test-1",
         worktree_path=Path("/tmp/worktree"),
         branch="main",
-        project="test-project",
+        project="test",
         runtime=RemoteEnvironmentRuntime(
             vm_handle=vm_handle,
-            connection=MagicMock(),
+            connection=MagicMock(close=AsyncMock()),
             workspace_path=WorkspacePath(
-                path="/home/user/workspace", project="test-project", branch="main"
+                path="/home/user/workspace", project="test", branch="main"
             ),
             profile=EnvironmentProfile(name="default"),
             teardown_commands=(),

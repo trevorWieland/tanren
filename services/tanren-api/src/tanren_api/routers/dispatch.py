@@ -85,7 +85,7 @@ async def create_dispatch(
     execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
 ) -> DispatchAccepted:
     """Accept a new dispatch request."""
-    epoch = int(time.time())
+    epoch = time.time_ns()
     workflow_id = f"wf-{body.project}-{body.issue}-{epoch}"
 
     dispatch = Dispatch(
@@ -102,11 +102,13 @@ async def create_dispatch(
         gate_cmd=body.gate_cmd,
     )
 
-    # Write dispatch to IPC directory
-    dispatch_dir = Path(config.ipc_dir) / "dispatch"
-    dispatch_dir.mkdir(parents=True, exist_ok=True)
-    dispatch_path = dispatch_dir / generate_filename()
-    await atomic_write(dispatch_path, dispatch.model_dump_json(indent=2))
+    # Write dispatch to IPC only when delegating to daemon (no local execution env)
+    dispatch_path = None
+    if execution_env is None:
+        dispatch_dir = Path(config.ipc_dir) / "dispatch"
+        dispatch_dir.mkdir(parents=True, exist_ok=True)
+        dispatch_path = dispatch_dir / generate_filename()
+        await atomic_write(dispatch_path, dispatch.model_dump_json(indent=2))
 
     # Register in state store
     record = DispatchRecord(

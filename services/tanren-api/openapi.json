@@ -1584,7 +1584,7 @@
           "total": {
             "type": "integer",
             "title": "Total",
-            "description": "Total matching events"
+            "description": "Total matching events in database (includes unparseable)"
           },
           "limit": {
             "type": "integer",
@@ -1600,7 +1600,7 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Skipped",
-            "description": "Events skipped due to parse errors",
+            "description": "Events skipped due to parse errors in this page",
             "default": 0
           }
         },

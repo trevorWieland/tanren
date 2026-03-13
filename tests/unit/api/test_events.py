@@ -121,7 +121,7 @@ class TestEvents:
         data = resp.json()
         assert data["skipped"] == 1
         assert len(data["events"]) == 1
-        assert data["total"] == 1  # total adjusted by skipped
+        assert data["total"] == 2  # raw DB count, not adjusted by skipped
 
     async def test_events_filter_workflow_id(self, client, auth_headers, app, tmp_path):
         db = tmp_path / "events.db"

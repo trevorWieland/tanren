@@ -97,13 +97,23 @@ async def provision_vm(
     runtime = handle.runtime
     if not isinstance(runtime, RemoteEnvironmentRuntime):
         raise ServiceError("Provisioned environment is not a remote runtime")
-    return runtime.vm_handle
+    vm_handle = runtime.vm_handle
+    # Close the SSH connection to prevent leak (don't call full teardown — that releases the VM)
+    try:
+        close_fn = getattr(runtime.connection, "close", None)
+        if close_fn is not None:
+            await close_fn()
+    except Exception:
+        logger.debug("Failed to close provision-time SSH connection for %s", vm_handle.vm_id)
+    return vm_handle
 
 
 @router.delete("/vm/{vm_id}")
 async def release_vm(
     vm_id: Annotated[str, Path(description="VM identifier")],
     vm_state_store: Annotated[SqliteVMStateStore | None, Depends(get_vm_state_store)],
+    execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
+    config: Annotated[Config, Depends(get_config)],
 ) -> VMReleaseConfirmed:
     """Release a VM assignment."""
     if vm_state_store is None:
@@ -113,6 +123,21 @@ async def release_vm(
     if assignment is None:
         raise NotFoundError(f"VM {vm_id} not found")
 
+    # Release via provider first (best-effort)
+    if execution_env is not None:
+        provider = _derive_provider(config)
+        vm_handle = VMHandle(
+            vm_id=assignment.vm_id,
+            host=assignment.host,
+            provider=provider,
+            created_at=assignment.assigned_at,
+        )
+        try:
+            await execution_env.release_vm(vm_handle)
+        except Exception:
+            logger.warning("Provider release failed for VM %s", vm_id, exc_info=True)
+
+    # Always update state tracking
     await vm_state_store.record_release(vm_id)
     return VMReleaseConfirmed(vm_id=vm_id)
 

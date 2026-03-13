@@ -128,6 +128,26 @@ class TestRun:
         )
         assert resp.status_code == 500
 
+    async def test_execute_project_mismatch_returns_409(self, client, auth_headers):
+        """Execute with a different project than provisioned returns 409."""
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/execute",
+            json={
+                "project": "wrong-project",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
+
     async def test_full_returns_accepted(self, client, auth_headers):
         resp = await client.post(
             "/api/v1/run/full",

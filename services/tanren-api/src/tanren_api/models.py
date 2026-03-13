@@ -341,7 +341,9 @@ class PaginatedEvents(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     events: list[EventPayload] = Field(default_factory=list, description="Typed event records")
-    total: int = Field(..., description="Total matching events")
+    total: int = Field(..., description="Total matching events in database (includes unparseable)")
     limit: int = Field(..., description="Page size")
     offset: int = Field(..., description="Current offset")
-    skipped: int = Field(default=0, ge=0, description="Events skipped due to parse errors")
+    skipped: int = Field(
+        default=0, ge=0, description="Events skipped due to parse errors in this page"
+    )

@@ -334,8 +334,9 @@ services/tanren-cli/         # CLI tool
     cli.py, vm_cli.py, run_cli.py
 
 services/tanren-api/         # HTTP API (FastAPI)
+  openapi.json               # Generated OpenAPI spec
   src/tanren_api/
-    app.py, routes/, openapi.json
+    main.py, routers/
 
 tests/unit/                  # make test
 tests/integration/           # make ci

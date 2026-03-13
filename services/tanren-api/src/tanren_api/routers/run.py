@@ -106,6 +106,12 @@ async def run_execute(
     if execution_env is None:
         raise ServiceError("Remote execution environment not configured")
 
+    if body.project != record.handle.project:
+        raise ConflictError(
+            f"Project mismatch: environment provisioned for '{record.handle.project}', "
+            f"request specifies '{body.project}'"
+        )
+
     dispatch_id = f"exec-{uuid.uuid4().hex[:8]}"
     dispatch = Dispatch(
         workflow_id=dispatch_id,
@@ -181,7 +187,7 @@ async def run_teardown(
             await store.remove_environment(env_id)
 
     task = asyncio.create_task(_teardown_background())
-    record.task = task
+    await store.update_environment(env_id, task=task)
 
     return RunTeardownAccepted(env_id=env_id)
 

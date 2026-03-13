@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tanren_core.adapters.remote_types import VMAssignment
+from tanren_core.adapters.remote_types import VMAssignment, VMHandle
 
 
 @pytest.mark.api
@@ -80,6 +80,38 @@ class TestVM:
             headers=auth_headers,
         )
         assert resp.status_code == 500
+
+    async def test_release_vm_calls_provider(self, client, auth_headers, app, mock_execution_env):
+        """release_vm calls execution_env.release_vm with a VMHandle."""
+        app.state.vm_state_store.get_assignment.return_value = VMAssignment(
+            vm_id="vm-1",
+            workflow_id="wf-1",
+            project="proj",
+            spec="specs/a",
+            host="10.0.0.1",
+            assigned_at="2026-01-01T00:00:00Z",
+        )
+        mock_execution_env.release_vm = pytest.importorskip("unittest.mock").AsyncMock()
+
+        resp = await client.delete("/api/v1/vm/vm-1", headers=auth_headers)
+        assert resp.status_code == 200
+        mock_execution_env.release_vm.assert_called_once()
+        call_arg = mock_execution_env.release_vm.call_args[0][0]
+        assert isinstance(call_arg, VMHandle)
+        assert call_arg.vm_id == "vm-1"
+
+    async def test_provision_vm_closes_ssh_connection(
+        self, client, auth_headers, mock_execution_env
+    ):
+        """provision_vm closes the SSH connection to prevent leak."""
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        handle = mock_execution_env.provision.return_value
+        handle.runtime.connection.close.assert_called_once()
 
     async def test_dry_run(self, client, auth_headers):
         resp = await client.post(

@@ -211,6 +211,14 @@ class ExecutionEnvironment(Protocol):
         """Clean up the execution environment and release resources."""
         ...
 
+    async def release_vm(self, vm_handle: VMHandle) -> None:
+        """Release a VM through the underlying provider.
+
+        Does not update state tracking — the caller is responsible for
+        calling VMStateStore.record_release() separately.
+        """
+        ...
+
 
 @runtime_checkable
 class VMProvisioner(Protocol):

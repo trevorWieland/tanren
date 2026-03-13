@@ -28,6 +28,7 @@ from tanren_core.adapters.protocols import (
 )
 from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import (
+    VMHandle,
     VMRequirements,
     WorkspaceSpec,
 )
@@ -363,6 +364,10 @@ class SSHExecutionEnvironment:
             working_dir=str(handle.worktree_path),
             status="running",
         )
+
+    async def release_vm(self, vm_handle: VMHandle) -> None:
+        """Release a VM through the provisioner without full teardown."""
+        await self._vm_provisioner.release(vm_handle)
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
         """Guaranteed VM release with try/finally at every step.

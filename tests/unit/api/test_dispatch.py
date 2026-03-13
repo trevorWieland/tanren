@@ -127,6 +127,69 @@ class TestDispatch:
         # IPC file should be gone
         assert not record.dispatch_path.exists()
 
+    async def test_create_dispatch_skips_ipc_when_execution_env_present(
+        self, client, auth_headers, app
+    ):
+        """When execution_env is available, no IPC file is written."""
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        dispatch_id = resp.json()["dispatch_id"]
+        store = app.state.api_store
+        record = await store.get_dispatch(dispatch_id)
+        assert record is not None
+        assert record.dispatch_path is None
+
+    async def test_create_dispatch_writes_ipc_when_no_execution_env(
+        self, client, auth_headers, app
+    ):
+        """When execution_env is None, IPC file is written for daemon pickup."""
+        app.state.execution_env = None
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        dispatch_id = resp.json()["dispatch_id"]
+        store = app.state.api_store
+        record = await store.get_dispatch(dispatch_id)
+        assert record is not None
+        assert record.dispatch_path is not None
+        assert record.dispatch_path.exists()
+
+    async def test_workflow_ids_unique_within_same_second(self, client, auth_headers):
+        """Three rapid dispatches produce unique workflow IDs."""
+        ids = set()
+        for _ in range(3):
+            resp = await client.post(
+                "/api/v1/dispatch",
+                json={
+                    "project": "test-project",
+                    "phase": "do-task",
+                    "branch": "main",
+                    "spec_folder": "specs/test",
+                    "cli": "claude",
+                    "issue": 1,
+                },
+                headers=auth_headers,
+            )
+            ids.add(resp.json()["dispatch_id"])
+        assert len(ids) == 3
+
     async def test_cancel_dispatch_not_found(self, client, auth_headers):
         resp = await client.delete("/api/v1/dispatch/nonexistent-id", headers=auth_headers)
         assert resp.status_code == 404
