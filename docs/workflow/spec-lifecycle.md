@@ -53,4 +53,4 @@ flows (UI/API/data behavior) and report evidence back to the workflow.
 ## Related Specs
 
 - IPC state machine and transitions: `protocol/PROTOCOL.md`
-- Runtime implementation: `worker-manager/README.md`
+- Runtime implementation: `../worker-manager-README.md`

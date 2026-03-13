@@ -11,6 +11,7 @@ from tanren_api.models import (
     DispatchRequest,
     DispatchRunStatus,
     ErrorResponse,
+    ExecuteRequest,
     HealthResponse,
     PaginatedEvents,
     ProvisionRequest,
@@ -68,6 +69,33 @@ class TestModels:
     def test_provision_request_validates(self):
         req = ProvisionRequest(project="proj", branch="dev")
         assert req.environment_profile == "default"
+
+    def test_execute_request_validates(self):
+        req = ExecuteRequest(
+            project="proj",
+            spec_path="specs/x",
+            phase=Phase.DO_TASK,
+        )
+        assert req.timeout == 1800
+        assert req.cli == Cli.CLAUDE
+
+    def test_execute_request_rejects_extra_fields(self):
+        with pytest.raises(ValidationError):
+            ExecuteRequest.model_validate({
+                "project": "p",
+                "spec_path": "s",
+                "phase": Phase.DO_TASK,
+                "unknown_field": "x",
+            })
+
+    def test_execute_request_timeout_minimum(self):
+        with pytest.raises(ValidationError):
+            ExecuteRequest(
+                project="p",
+                spec_path="s",
+                phase=Phase.DO_TASK,
+                timeout=0,
+            )
 
     def test_run_full_request_validates(self):
         req = RunFullRequest(
@@ -248,6 +276,7 @@ class TestModels:
         for model_cls in [
             DispatchRequest,
             ProvisionRequest,
+            ExecuteRequest,
             RunFullRequest,
             DispatchAccepted,
             HealthResponse,

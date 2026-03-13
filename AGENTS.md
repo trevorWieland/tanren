@@ -42,7 +42,7 @@ Unless explicitly stated otherwise, run all build/test/dev commands from the rep
 - Use `docs/hld-migration-map.md` as the topic coverage index; avoid creating disconnected duplicate explanations.
 
 ## Commit & Pull Request Guidelines
-- Follow the observed commit style: Conventional Commit prefixes such as `feat(worker-manager): ...`, `fix: ...`, `chore: ...`.
+- Follow the observed commit style: Conventional Commit prefixes such as `feat(core): ...`, `feat(api): ...`, `fix: ...`, `chore: ...`.
 - Keep subjects imperative and scoped to one change set.
 - Acceptable PR gate: both `make check` and `make ci` must pass locally before requesting review.
 - PRs should include: concise problem statement, implementation summary, executed command results, and any config/secret implications.

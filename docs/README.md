@@ -16,6 +16,8 @@ workflow, operations, and roadmap material.
 - `design-principles.md` - core design rules used for architectural decisions.
 - `roadmap.md` - date-stamped delivery status and priorities.
 - `hld-migration-map.md` - source-to-destination mapping for the retired HLD.
+- `worker-manager-README.md` - runtime behavior, configuration, and operations reference.
+- `ADAPTERS.md` - adapter architecture, decomposition, and extension points.
 
 ## Source of Truth Policy
 

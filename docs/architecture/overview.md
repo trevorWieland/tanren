@@ -43,5 +43,6 @@ systems are adapter-backed and replaceable:
 ## Where To Read Next
 
 - Lifecycle details: `docs/workflow/spec-lifecycle.md`
-- Runtime implementation details: `worker-manager/README.md`
-- Adapter interfaces: `worker-manager/ADAPTERS.md`
+- Runtime implementation details: `worker-manager-README.md`
+- Adapter interfaces: `ADAPTERS.md`
+- HTTP API: `interfaces.md#http-api`

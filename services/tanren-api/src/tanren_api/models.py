@@ -91,6 +91,21 @@ class ProvisionRequest(BaseModel):
     environment_profile: str = Field(default="default", description="Environment profile")
 
 
+class ExecuteRequest(BaseModel):
+    """Request body for POST /run/{env_id}/execute."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(..., description="Project name")
+    spec_path: str = Field(..., description="Spec folder path")
+    phase: Phase = Field(..., description="Phase to execute")
+    cli: Cli = Field(default=Cli.CLAUDE, description="CLI tool")
+    model: str | None = Field(default=None, description="Model identifier")
+    timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
+    context: str | None = Field(default=None, description="Extra context")
+    gate_cmd: str | None = Field(default=None, description="Gate command")
+
+
 class RunFullRequest(BaseModel):
     """Full lifecycle request — combines provision + execute fields."""
 

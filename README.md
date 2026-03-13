@@ -10,7 +10,7 @@ role executes** (CLI/model/auth/tooling).
 
 Tanren has two coupled halves:
 
-1. **Execution framework** (`worker-manager/`): dispatch routing, environment
+1. **Execution framework** (`packages/tanren-core/`, `services/`): dispatch routing, environment
    provisioning, retries, lifecycle handling, and result emission.
 2. **Methodology system** (`commands/`, `profiles/`, `templates/`):
    reusable agent instructions, standards, and product context.
@@ -45,7 +45,6 @@ Installs commands, standards, product templates, and helper scripts.
 ### Run Worker Manager
 
 ```bash
-cd worker-manager
 export WM_IPC_DIR=~/data/ipc/main
 export WM_GITHUB_DIR=~/github
 uv run worker-manager
@@ -58,7 +57,12 @@ tanren/
 ├── commands/        # 15 workflow command files
 ├── profiles/        # standards profiles (default, python-uv)
 ├── templates/       # product/audit/bootstrap templates
-├── worker-manager/  # runtime orchestration service
+├── packages/
+│   └── tanren-core/ # core orchestration library
+├── services/
+│   ├── tanren-api/  # HTTP API (FastAPI)
+│   ├── tanren-cli/  # CLI tool
+│   └── tanren-daemon/ # worker manager daemon
 ├── protocol/        # file-based IPC protocol specification
 ├── docs/            # architecture, workflow, ops, roadmap
 └── scripts/         # install and utility scripts
@@ -87,7 +91,7 @@ tanren/
 The `ExecutionEnvironment` abstraction supports local and remote lifecycle:
 `provision() -> execute() -> get_access_info() -> teardown()`
 
-See `worker-manager/ADAPTERS.md` for protocol details.
+See `docs/ADAPTERS.md` for protocol details.
 
 ## Documentation
 
@@ -101,5 +105,5 @@ See `worker-manager/ADAPTERS.md` for protocol details.
 - `docs/design-principles.md` - architectural principles
 - `docs/roadmap.md` - date-stamped roadmap
 - `protocol/README.md` + `protocol/PROTOCOL.md` - protocol overview and full spec
-- `worker-manager/README.md` - runtime behavior and operations
-- `worker-manager/ADAPTERS.md` - adapter architecture and extension points
+- `docs/worker-manager-README.md` - runtime behavior and operations
+- `docs/ADAPTERS.md` - adapter architecture and extension points

@@ -43,6 +43,14 @@ class NotImplementedAPIError(TanrenAPIError):
         super().__init__(501, "not_implemented", detail)
 
 
+class ConflictError(TanrenAPIError):
+    """Conflict (409)."""
+
+    def __init__(self, detail: str = "Conflict") -> None:
+        """Initialize with optional detail message."""
+        super().__init__(409, "conflict", detail)
+
+
 class ServiceError(TanrenAPIError):
     """Internal server error (500)."""
 

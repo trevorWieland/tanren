@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiosqlite
 import pytest
 from fastapi import Request
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +18,7 @@ from tanren_api.auth import APIKeyVerifier
 from tanren_api.dependencies import get_config, get_emitter, get_settings
 from tanren_api.errors import (
     AuthenticationError,
+    ConflictError,
     NotFoundError,
     ServiceError,
     TanrenAPIError,
@@ -22,9 +26,18 @@ from tanren_api.errors import (
 from tanren_api.main import create_app
 from tanren_api.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 from tanren_api.settings import APISettings
+from tanren_api.state import APIStateStore
 from tanren_core.adapters.null_emitter import NullEventEmitter
-from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
+from tanren_core.adapters.remote_types import VMAssignment, VMHandle, VMProvider, WorkspacePath
+from tanren_core.adapters.sqlite_emitter import _SCHEMA, SqliteEventEmitter  # noqa: PLC2701
+from tanren_core.adapters.types import (
+    EnvironmentHandle,
+    PhaseResult,
+    RemoteEnvironmentRuntime,
+)
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
+from tanren_core.schemas import Outcome
 
 TEST_API_KEY = "test-integration-key"
 
@@ -35,7 +48,60 @@ TEST_API_KEY = "test-integration-key"
 
 
 @pytest.fixture
-def app(tmp_path):
+def mock_execution_env():
+    """Mock ExecutionEnvironment with plausible return values."""
+    env = AsyncMock()
+    vm_handle = VMHandle(
+        vm_id="vm-int-1",
+        host="10.0.0.1",
+        provider=VMProvider.MANUAL,
+        created_at="2026-01-01T00:00:00Z",
+    )
+    handle = EnvironmentHandle(
+        env_id="env-int-1",
+        worktree_path=Path("/tmp/worktree"),
+        branch="main",
+        project="test",
+        runtime=RemoteEnvironmentRuntime(
+            vm_handle=vm_handle,
+            connection=MagicMock(),
+            workspace_path=WorkspacePath(
+                path="/home/user/workspace", project="test", branch="main"
+            ),
+            profile=EnvironmentProfile(name="default"),
+            teardown_commands=(),
+            provision_start=0.0,
+            workflow_id="wf-int-1",
+        ),
+    )
+    env.provision = AsyncMock(return_value=handle)
+    env.execute = AsyncMock(
+        return_value=PhaseResult(
+            outcome=Outcome.SUCCESS,
+            signal="complete",
+            exit_code=0,
+            stdout="done",
+            duration_secs=10,
+            preflight_passed=True,
+        )
+    )
+    env.teardown = AsyncMock()
+    env.close = AsyncMock()
+    return env
+
+
+@pytest.fixture
+def mock_vm_state_store():
+    store = AsyncMock()
+    store.get_active_assignments = AsyncMock(return_value=[])
+    store.get_assignment = AsyncMock(return_value=None)
+    store.record_release = AsyncMock()
+    store.close = AsyncMock()
+    return store
+
+
+@pytest.fixture
+def app(tmp_path, mock_execution_env, mock_vm_state_store):
     settings = APISettings(api_key=TEST_API_KEY, cors_origins=["http://localhost:3000"])
     application = create_app(settings)
     application.state.settings = settings
@@ -46,6 +112,9 @@ def app(tmp_path):
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
     )
     application.state.emitter = NullEventEmitter()
+    application.state.api_store = APIStateStore()
+    application.state.execution_env = mock_execution_env
+    application.state.vm_state_store = mock_vm_state_store
     return application
 
 
@@ -142,13 +211,17 @@ async def test_request_ids_unique(client):
 
 
 # ---------------------------------------------------------------------------
-# Stub endpoints (expect 501 Not Implemented)
+# Dispatch lifecycle
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_dispatch_stub(client, auth_headers):
-    """POST /api/v1/dispatch returns 501 (not yet implemented)."""
+async def test_dispatch_lifecycle(client, auth_headers, app):
+    """Create -> query -> cancel lifecycle."""
+    # No execution env so dispatch stays pending
+    app.state.execution_env = None
+
+    # Create
     resp = await client.post(
         "/api/v1/dispatch",
         headers=auth_headers,
@@ -160,62 +233,195 @@ async def test_dispatch_stub(client, auth_headers):
             "cli": "claude",
         },
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    dispatch_id = resp.json()["dispatch_id"]
+
+    # Query
+    resp = await client.get(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["workflow_id"] == dispatch_id
+
+    # Cancel
+    resp = await client.delete(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cancelled"
 
 
 @pytest.mark.asyncio
-async def test_dispatch_get_stub(client, auth_headers):
-    """GET /api/v1/dispatch/{id} returns 501."""
-    resp = await client.get("/api/v1/dispatch/abc-123", headers=auth_headers)
-    assert resp.status_code == 501
+async def test_dispatch_not_found(client, auth_headers):
+    """GET /api/v1/dispatch/{id} returns 404 for unknown ID."""
+    resp = await client.get("/api/v1/dispatch/nonexistent", headers=auth_headers)
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_dispatch_cancel_stub(client, auth_headers):
-    """DELETE /api/v1/dispatch/{id} returns 501."""
-    resp = await client.delete("/api/v1/dispatch/abc-123", headers=auth_headers)
-    assert resp.status_code == 501
+async def test_dispatch_cancel_not_found(client, auth_headers):
+    """DELETE /api/v1/dispatch/{id} returns 404 for unknown ID."""
+    resp = await client.delete("/api/v1/dispatch/nonexistent", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# VM endpoints
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_provision_stub(client, auth_headers):
-    """POST /api/v1/vm/provision returns 501."""
-    resp = await client.post(
-        "/api/v1/vm/provision",
-        headers=auth_headers,
-        json={"project": "test", "branch": "main"},
-    )
-    assert resp.status_code == 501
-
-
-@pytest.mark.asyncio
-async def test_vm_list_stub(client, auth_headers):
-    """GET /api/v1/vm returns 501."""
+async def test_vm_list_empty(client, auth_headers):
+    """GET /api/v1/vm returns empty list."""
     resp = await client.get("/api/v1/vm", headers=auth_headers)
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
 @pytest.mark.asyncio
-async def test_vm_release_stub(client, auth_headers):
-    """DELETE /api/v1/vm/{id} returns 501."""
-    resp = await client.delete("/api/v1/vm/vm-123", headers=auth_headers)
-    assert resp.status_code == 501
+async def test_vm_list_with_assignments(client, auth_headers, app):
+    """GET /api/v1/vm returns active VMs."""
+    app.state.vm_state_store.get_active_assignments.return_value = [
+        VMAssignment(
+            vm_id="vm-1",
+            workflow_id="wf-1",
+            project="proj",
+            spec="specs/a",
+            host="10.0.0.1",
+            assigned_at="2026-01-01T00:00:00Z",
+        ),
+    ]
+    resp = await client.get("/api/v1/vm", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["vm_id"] == "vm-1"
 
 
 @pytest.mark.asyncio
-async def test_vm_dry_run_stub(client, auth_headers):
-    """POST /api/v1/vm/dry-run returns 501."""
+async def test_vm_release_not_found(client, auth_headers):
+    """DELETE /api/v1/vm/{id} returns 404 for unknown ID."""
+    resp = await client.delete("/api/v1/vm/nonexistent", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_vm_dry_run(client, auth_headers):
+    """POST /api/v1/vm/dry-run returns requirements."""
     resp = await client.post(
         "/api/v1/vm/dry-run",
         headers=auth_headers,
         json={"project": "test", "branch": "main"},
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["would_provision"] is True
+
+
+# ---------------------------------------------------------------------------
+# Events endpoint
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_run_full_stub(client, auth_headers):
-    """POST /api/v1/run/full returns 501."""
+async def test_events_no_db_returns_empty(client, auth_headers):
+    """GET /api/v1/events returns empty when no DB configured."""
+    resp = await client.get("/api/v1/events", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["events"] == []
+    assert data["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_events_with_db(client, auth_headers, app, tmp_path):
+    """GET /api/v1/events returns events from SQLite DB."""
+    db = tmp_path / "events.db"
+    async with aiosqlite.connect(str(db)) as conn:
+        await conn.executescript(_SCHEMA)
+        await conn.execute(
+            "INSERT INTO events (timestamp, workflow_id, event_type, payload) VALUES (?, ?, ?, ?)",
+            (
+                "2026-01-01T00:00:00Z",
+                "wf-1",
+                "DispatchReceived",
+                json.dumps({
+                    "type": "dispatch_received",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "workflow_id": "wf-1",
+                    "phase": "do-task",
+                    "project": "p",
+                    "cli": "claude",
+                }),
+            ),
+        )
+        await conn.commit()
+
+    app.state.settings.events_db = str(db)
+    resp = await client.get("/api/v1/events", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Run lifecycle
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_provision_and_status(client, auth_headers):
+    """POST /api/v1/run/provision creates env, GET /status returns it."""
+    resp = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert resp.status_code == 200
+    env_id = resp.json()["env_id"]
+
+    status_resp = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+    assert status_resp.status_code == 200
+    assert status_resp.json()["status"] == "provisioned"
+
+
+@pytest.mark.asyncio
+async def test_run_execute_after_provision(client, auth_headers):
+    """POST /api/v1/run/{env_id}/execute returns accepted."""
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id = prov.json()["env_id"]
+
+    exec_resp = await client.post(
+        f"/api/v1/run/{env_id}/execute",
+        headers=auth_headers,
+        json={
+            "project": "test",
+            "spec_path": "specs/test",
+            "phase": "do-task",
+        },
+    )
+    assert exec_resp.status_code == 200
+    assert exec_resp.json()["status"] == "executing"
+
+
+@pytest.mark.asyncio
+async def test_run_teardown(client, auth_headers):
+    """POST /api/v1/run/{env_id}/teardown returns accepted."""
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id = prov.json()["env_id"]
+
+    resp = await client.post(f"/api/v1/run/{env_id}/teardown", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "tearing_down"
+
+
+@pytest.mark.asyncio
+async def test_run_full(client, auth_headers):
+    """POST /api/v1/run/full returns accepted."""
     resp = await client.post(
         "/api/v1/run/full",
         headers=auth_headers,
@@ -226,46 +432,17 @@ async def test_run_full_stub(client, auth_headers):
             "phase": "do-task",
         },
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "dispatch_id" in data
+    assert data["status"] == "accepted"
 
 
 @pytest.mark.asyncio
-async def test_run_provision_stub(client, auth_headers):
-    """POST /api/v1/run/provision returns 501."""
-    resp = await client.post(
-        "/api/v1/run/provision",
-        headers=auth_headers,
-        json={"project": "test", "branch": "main"},
-    )
-    assert resp.status_code == 501
-
-
-@pytest.mark.asyncio
-async def test_run_execute_stub(client, auth_headers):
-    """POST /api/v1/run/{env_id}/execute returns 501."""
-    resp = await client.post("/api/v1/run/env-123/execute", headers=auth_headers)
-    assert resp.status_code == 501
-
-
-@pytest.mark.asyncio
-async def test_run_teardown_stub(client, auth_headers):
-    """POST /api/v1/run/{env_id}/teardown returns 501."""
-    resp = await client.post("/api/v1/run/env-123/teardown", headers=auth_headers)
-    assert resp.status_code == 501
-
-
-@pytest.mark.asyncio
-async def test_run_status_stub(client, auth_headers):
-    """GET /api/v1/run/{env_id}/status returns 501."""
-    resp = await client.get("/api/v1/run/env-123/status", headers=auth_headers)
-    assert resp.status_code == 501
-
-
-@pytest.mark.asyncio
-async def test_events_stub(client, auth_headers):
-    """GET /api/v1/events returns 501."""
-    resp = await client.get("/api/v1/events", headers=auth_headers)
-    assert resp.status_code == 501
+async def test_run_status_not_found(client, auth_headers):
+    """GET /api/v1/run/{env_id}/status returns 404 for unknown env."""
+    resp = await client.get("/api/v1/run/nonexistent/status", headers=auth_headers)
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -276,18 +453,8 @@ async def test_events_stub(client, auth_headers):
 @pytest.mark.asyncio
 async def test_error_response_format(client, auth_headers):
     """Error responses conform to the ErrorResponse schema."""
-    resp = await client.post(
-        "/api/v1/dispatch",
-        headers=auth_headers,
-        json={
-            "project": "test",
-            "phase": "do-task",
-            "branch": "main",
-            "spec_folder": "specs/test",
-            "cli": "claude",
-        },
-    )
-    assert resp.status_code == 501
+    resp = await client.get("/api/v1/dispatch/nonexistent", headers=auth_headers)
+    assert resp.status_code == 404
     body = resp.json()
     assert "detail" in body
     assert "error_code" in body
@@ -319,7 +486,7 @@ async def test_cors_preflight(client):
 
 
 @pytest.mark.asyncio
-async def test_app_creates_without_cors(tmp_path):
+async def test_app_creates_without_cors(tmp_path, mock_execution_env, mock_vm_state_store):
     """App can be created with empty cors_origins list."""
     settings = APISettings(api_key="key", cors_origins=[])
     application = create_app(settings)
@@ -331,6 +498,9 @@ async def test_app_creates_without_cors(tmp_path):
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
     )
     application.state.emitter = NullEventEmitter()
+    application.state.api_store = APIStateStore()
+    application.state.execution_env = mock_execution_env
+    application.state.vm_state_store = mock_vm_state_store
 
     async with AsyncClient(
         transport=ASGITransport(app=application),
@@ -372,6 +542,7 @@ async def test_lifespan_sets_state_with_config_from_env(tmp_path):
             assert application.state.config is not None
             assert application.state.config.ipc_dir == str(tmp_path / "ipc")
             assert isinstance(application.state.emitter, NullEventEmitter)
+            assert isinstance(application.state.api_store, APIStateStore)
 
 
 @pytest.mark.asyncio
@@ -454,8 +625,6 @@ async def test_lifespan_emitter_close_called(tmp_path):
 @pytest.mark.asyncio
 async def test_dependency_get_settings(app):
     """get_settings dependency returns the APISettings from app state."""
-    # Exercise via a real request to an endpoint that uses dependencies
-    # The /api/v1/config endpoint uses get_config which exercises line 12
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -523,6 +692,21 @@ def test_authentication_error_custom_detail():
     err = AuthenticationError("Token expired")
     assert err.status_code == 401
     assert err.detail == "Token expired"
+
+
+def test_conflict_error_defaults():
+    """ConflictError has correct status_code, error_code, and default detail."""
+    err = ConflictError()
+    assert err.status_code == 409
+    assert err.error_code == "conflict"
+    assert err.detail == "Conflict"
+
+
+def test_conflict_error_custom_detail():
+    """ConflictError accepts a custom detail message."""
+    err = ConflictError("Already running")
+    assert err.status_code == 409
+    assert err.detail == "Already running"
 
 
 def test_service_error_defaults():
@@ -729,18 +913,8 @@ async def test_request_logging_on_error_response(client, auth_headers, caplog):
 @pytest.mark.asyncio
 async def test_request_id_attached_to_error_response(client, auth_headers):
     """Error responses from the global handler include the request_id from middleware."""
-    resp = await client.post(
-        "/api/v1/dispatch",
-        headers=auth_headers,
-        json={
-            "project": "test",
-            "phase": "do-task",
-            "branch": "main",
-            "spec_folder": "specs/test",
-            "cli": "claude",
-        },
-    )
-    assert resp.status_code == 501
+    resp = await client.get("/api/v1/dispatch/nonexistent", headers=auth_headers)
+    assert resp.status_code == 404
     body = resp.json()
     header_id = resp.headers["x-request-id"]
     assert body["request_id"] == header_id

@@ -1,5 +1,8 @@
 """FastAPI application factory and entry point."""
 
+from __future__ import annotations
+
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,9 +21,13 @@ from tanren_api.routers import health as health_router_mod
 from tanren_api.routers import run as run_router_mod
 from tanren_api.routers import vm as vm_router_mod
 from tanren_api.settings import APISettings
+from tanren_api.state import APIStateStore
 from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
+from tanren_core.builder import build_ssh_execution_environment
 from tanren_core.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: APISettings | None = None) -> FastAPI:
@@ -46,7 +53,26 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             app.state.emitter = SqliteEventEmitter(db)
         else:
             app.state.emitter = NullEventEmitter()
+
+        # API state store and execution environment
+        app.state.api_store = APIStateStore()
+        app.state.execution_env = None
+        app.state.vm_state_store = None
+
+        if app.state.config and app.state.config.remote_config_path:
+            try:
+                env, vm_store = build_ssh_execution_environment(app.state.config, app.state.emitter)
+                app.state.execution_env = env
+                app.state.vm_state_store = vm_store
+            except Exception:
+                logger.warning("Failed to initialize remote execution environment")
+
         yield
+
+        # Shutdown
+        await app.state.api_store.shutdown()
+        if app.state.execution_env is not None:
+            await app.state.execution_env.close()
         await app.state.emitter.close()
 
     # Build middleware stack before creating app (order matters: outermost first)

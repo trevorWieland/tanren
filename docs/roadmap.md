@@ -12,6 +12,8 @@ Last updated: March 12, 2026
 - Role-based agent routing
 - `tanren` CLI surfaces (`env`, `secret`, `vm`, `run`)
 - Command/standards/template system for methodology workflows
+- HTTP API with dispatch, run, VM, and events endpoints
+- Workspace restructure: uv monorepo with packages/ and services/
 
 ## Near-Term (April 2026)
 
@@ -24,7 +26,6 @@ Last updated: March 12, 2026
 
 - Intelligent merge conflict resolution workflow
 - Issue intake/backlog management pipeline expansion
-- HTTP API for external coordinators
 - Extended compliance and audit trail reporting
 
 ## Long-Term (Q3-Q4 2026)

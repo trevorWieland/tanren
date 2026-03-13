@@ -1,0 +1,232 @@
+"""Tests for the event reader module."""
+
+from __future__ import annotations
+
+import json
+
+import aiosqlite
+
+from tanren_core.adapters.event_reader import query_events
+from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
+
+
+async def _setup_db(db_path, events: list[tuple[str, str, str, dict]]):
+    """Create DB with schema and insert events."""
+    async with aiosqlite.connect(str(db_path)) as conn:
+        await conn.executescript(_SCHEMA)
+        for ts, wid, etype, payload in events:
+            sql = (
+                "INSERT INTO events "
+                "(timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?)"
+            )
+            await conn.execute(sql, (ts, wid, etype, json.dumps(payload)))
+        await conn.commit()
+
+
+class TestQueryEvents:
+    async def test_query_empty_db(self, tmp_path):
+        db = tmp_path / "events.db"
+        async with aiosqlite.connect(str(db)) as conn:
+            await conn.executescript(_SCHEMA)
+
+        result = await query_events(db)
+        assert result.events == []
+        assert result.total == 0
+
+    async def test_query_nonexistent_db(self, tmp_path):
+        db = tmp_path / "nonexistent.db"
+        result = await query_events(db)
+        assert result.events == []
+        assert result.total == 0
+
+    async def test_query_with_events(self, tmp_path):
+        db = tmp_path / "events.db"
+        await _setup_db(
+            db,
+            [
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    },
+                ),
+                (
+                    "2026-01-01T00:00:01Z",
+                    "wf-1",
+                    "PhaseStarted",
+                    {
+                        "type": "phase_started",
+                        "timestamp": "2026-01-01T00:00:01Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "worktree_path": "/tmp/wt",
+                    },
+                ),
+            ],
+        )
+
+        result = await query_events(db)
+        assert result.total == 2
+        assert len(result.events) == 2
+
+    async def test_filter_by_workflow_id(self, tmp_path):
+        db = tmp_path / "events.db"
+        await _setup_db(
+            db,
+            [
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    },
+                ),
+                (
+                    "2026-01-01T00:00:01Z",
+                    "wf-2",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:01Z",
+                        "workflow_id": "wf-2",
+                        "phase": "do-task",
+                        "project": "q",
+                        "cli": "claude",
+                    },
+                ),
+            ],
+        )
+
+        result = await query_events(db, workflow_id="wf-1")
+        assert result.total == 1
+        assert result.events[0].workflow_id == "wf-1"
+
+    async def test_filter_by_event_type(self, tmp_path):
+        db = tmp_path / "events.db"
+        await _setup_db(
+            db,
+            [
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    },
+                ),
+                (
+                    "2026-01-01T00:00:01Z",
+                    "wf-1",
+                    "PhaseStarted",
+                    {
+                        "type": "phase_started",
+                        "timestamp": "2026-01-01T00:00:01Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "worktree_path": "/tmp/wt",
+                    },
+                ),
+            ],
+        )
+
+        result = await query_events(db, event_type="PhaseStarted")
+        assert result.total == 1
+        assert result.events[0].event_type == "PhaseStarted"
+
+    async def test_pagination(self, tmp_path):
+        db = tmp_path / "events.db"
+        events = [
+            (
+                f"2026-01-01T00:00:{i:02d}Z",
+                "wf-1",
+                "DispatchReceived",
+                {
+                    "type": "dispatch_received",
+                    "timestamp": f"2026-01-01T00:00:{i:02d}Z",
+                    "workflow_id": "wf-1",
+                    "phase": "do-task",
+                    "project": "p",
+                    "cli": "claude",
+                },
+            )
+            for i in range(10)
+        ]
+        await _setup_db(db, events)
+
+        result = await query_events(db, limit=3, offset=0)
+        assert result.total == 10
+        assert len(result.events) == 3
+
+        result2 = await query_events(db, limit=3, offset=3)
+        assert result2.total == 10
+        assert len(result2.events) == 3
+
+    async def test_combined_filters(self, tmp_path):
+        db = tmp_path / "events.db"
+        await _setup_db(
+            db,
+            [
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    },
+                ),
+                (
+                    "2026-01-01T00:00:01Z",
+                    "wf-1",
+                    "PhaseStarted",
+                    {
+                        "type": "phase_started",
+                        "timestamp": "2026-01-01T00:00:01Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "worktree_path": "/tmp/wt",
+                    },
+                ),
+                (
+                    "2026-01-01T00:00:02Z",
+                    "wf-2",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:02Z",
+                        "workflow_id": "wf-2",
+                        "phase": "do-task",
+                        "project": "q",
+                        "cli": "claude",
+                    },
+                ),
+            ],
+        )
+
+        result = await query_events(db, workflow_id="wf-1", event_type="DispatchReceived")
+        assert result.total == 1
+        assert result.events[0].workflow_id == "wf-1"
+        assert result.events[0].event_type == "DispatchReceived"
