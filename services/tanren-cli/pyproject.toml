@@ -1,0 +1,19 @@
+[project]
+name = "tanren-cli"
+version = "0.1.0"
+description = "CLI for tanren"
+requires-python = ">=3.14"
+dependencies = [
+    "tanren-core",
+    "typer>=0.12, <1",
+]
+
+[project.scripts]
+tanren = "tanren_cli.main:main"
+
+[build-system]
+requires = ["uv-build>=0.1.0"]
+build-backend = "uv_build"
+
+[tool.uv.build]
+packages = ["src/tanren_cli"]

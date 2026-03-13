@@ -6,21 +6,26 @@ Integration and quality tests must use BDD-style (Given/When/Then). Unit tests c
 # ✓ Good: BDD-style for integration/quality tests
 from pytest_bdd import given, when, then, scenarios
 
+
 @given("a configured pipeline with sample script")
 def configured_pipeline(tmp_path):
     return setup_pipeline(tmp_path, sample_script)
 
+
 @when("the pipeline runs to completion")
 async def run_pipeline(configured_pipeline):
     configured_pipeline.result = await configured_pipeline.run()
+
 
 @then("the pipeline produces a valid output")
 def check_output(configured_pipeline):
     assert configured_pipeline.result.success is True
     assert (configured_pipeline.output_dir / "output.json").exists()
 
+
 # Integration tests: Use mock model adapter (no real LLMs)
 # Quality tests: Use real model adapter (actual LLMs)
+
 
 # ✗ Bad: Direct assertions in integration/quality tests
 def test_pipeline_completion():

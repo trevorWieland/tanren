@@ -5,25 +5,33 @@ All CLI JSON responses use `{data, error, meta}` envelope structure. Each field 
 ```python
 from pydantic import BaseModel, Field
 
+
 # ✓ Good: Clear Pydantic models for envelope fields
 class MetaInfo(BaseModel):
     """Metadata for API responses."""
+
     timestamp: str = Field(..., description="ISO-8601 timestamp")
+
 
 class ErrorDetails(BaseModel):
     """Detailed error context."""
+
     field: str | None = Field(None, description="Field name if validation error")
     provided: str | None = Field(None, description="Value that was provided")
     valid_options: list[str] | None = Field(None, description="Valid values if applicable")
 
+
 class ErrorResponse(BaseModel):
     """Error information in response."""
+
     code: str = Field(..., description="Error code (e.g., VAL_001)")
     message: str = Field(..., description="Human-readable error message")
     details: ErrorDetails | None = Field(None, description="Additional error context")
 
+
 class APIResponse[T](BaseModel, Generic[T]):
     """Generic API response envelope."""
+
     data: T | None = Field(None, description="Success payload, null on error")
     error: ErrorResponse | None = Field(None, description="Error information, null on success")
     meta: MetaInfo = Field(..., description="Response metadata")

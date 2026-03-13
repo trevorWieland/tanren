@@ -7,27 +7,34 @@ Use consistent naming conventions across all code. Never mix styles.
 from task_engine import process_item
 from config_loader import load_config
 
+
 def handle_item(item: Item) -> TaskResult:
     """Process single item."""
     result = process_item(item)
     return result
 
+
 # ✓ Good: PascalCase for classes/types
 class TaskRequest(BaseModel):
     """Task request model."""
 
+
 class VectorStoreProtocol(Protocol):
     """Vector store interface protocol."""
 
+
 class SQLiteIndex:
     """SQLite run metadata index."""
+
 
 # ✗ Bad: Inconsistent naming
 from TaskEngine import process_Item  # PascalCase for module
 from config_loader import LoadConfig  # PascalCase for function
 
+
 def ProcessItem(item: Item) -> TaskResult:  # PascalCase for function
     ...
+
 
 class taskRequest:  # snake_case for class
     pass

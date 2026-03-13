@@ -1,17 +1,20 @@
 # Repository Guidelines
 
+This is a uv python monorepo, and thus you should ONLY ever use uv for python execution.
+Never rely on running individual tests, targeted files for linting, etc. for validating your changes, use FULL suites.
+
 ## Project Structure & Module Organization
-- Root folders: `commands/`, `profiles/`, `templates/`, `protocol/`, and `scripts/`.
-- Runtime code lives in `worker-manager/src/worker_manager/`.
-- Tests are under `worker-manager/tests/unit/` and `worker-manager/tests/integration/`.
-- Keep new Python modules in `src/worker_manager/` and mirror test placement (for example, `src/worker_manager/ipc.py` -> `tests/unit/test_ipc.py`).
+- Root folders: `commands/`, `profiles/`, `templates/`, `protocol/`, `scripts/`, `packages/`, and `services/`.
+- Core library lives in `packages/tanren-core/src/tanren_core/`.
+- Services live in `services/tanren-{api,daemon,cli}/`.
+- Tests are under `tests/unit/` and `tests/integration/`.
+- Keep new core modules in `packages/tanren-core/src/tanren_core/` and mirror test placement (for example, `tanren_core/ipc.py` -> `tests/unit/test_ipc.py`).
 
 ## Build, Test, and Development Commands
-Unless explicitly stated otherwise, run all build/test/dev commands from `worker-manager/`.
+Unless explicitly stated otherwise, run all build/test/dev commands from the repo root.
 - Clean slate setup:
-  1. `cd worker-manager`
-  2. `uv sync`
-  3. `make check`
+  1. `uv sync`
+  2. `make check`
 - Change validation flow:
   1. `make format`
   2. `make check`
@@ -34,7 +37,7 @@ Unless explicitly stated otherwise, run all build/test/dev commands from `worker
 ## Documentation Source of Truth
 - Deep-dive docs live under `docs/`; root `README.md` should summarize and link.
 - IPC wire contract changes are canonical in `protocol/PROTOCOL.md` (not duplicated elsewhere).
-- Runtime implementation details are canonical in `worker-manager/README.md` and `worker-manager/ADAPTERS.md`.
+- Runtime implementation details are canonical in `docs/ADAPTERS.md`.
 - If behavior, interfaces, lifecycle, or security model changes, update the relevant canonical doc in the same PR.
 - Use `docs/hld-migration-map.md` as the topic coverage index; avoid creating disconnected duplicate explanations.
 

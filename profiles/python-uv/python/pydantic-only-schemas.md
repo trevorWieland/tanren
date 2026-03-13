@@ -6,17 +6,21 @@ Never use dataclasses or plain classes for schemas. All schemas must use Pydanti
 # ✓ Good: Pydantic schema
 from pydantic import BaseModel, Field
 
+
 class TaskRequest(BaseModel):
     input_text: str = Field(..., min_length=1, description="Input text to process")
-    output_format: str = Field(..., pattern=r'^[a-z_]+$', description="Output format identifier")
+    output_format: str = Field(..., pattern=r"^[a-z_]+$", description="Output format identifier")
+
 
 # ✗ Bad: dataclass
 from dataclasses import dataclass
+
 
 @dataclass
 class TaskRequest:
     input_text: str  # No validation, no serialization
     output_format: str
+
 
 # ✗ Bad: Plain class
 class TaskRequest:

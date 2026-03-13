@@ -13,8 +13,10 @@ async def test_processing_with_context(given_item, given_context):
     else:
         raise AssertionError(f"Processing failed: {result.error}")  # Test fails
 
+
 # ✗ Bad: Skip test instead of fixing
 import pytest
+
 
 @pytest.mark.skip(reason="Flaky test, will fix later")  # NEVER DO THIS
 async def test_processing_with_context(given_item, given_context):

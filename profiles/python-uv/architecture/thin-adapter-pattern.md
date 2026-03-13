@@ -10,6 +10,7 @@ def run_pipeline(run_id: str):
     result = await pipeline_runner.start_run(run_id)
     return format_json_output(result)
 
+
 # ✗ Bad: Business logic in CLI
 def run_pipeline(run_id: str):
     """Start pipeline run - contains core logic."""

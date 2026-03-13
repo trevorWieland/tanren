@@ -22,10 +22,12 @@ config = base_config | custom_config
 # f-string debugging (Python 3.8+)
 print(f"{result=}")  # Prints: result='value'
 
+
 # Async generators (Python 3.6+)
 async def stream_results():
     for item in items:
         yield await process_item(item)
+
 
 # ✗ Bad: Legacy patterns
 result: Optional[str]  # Old-style Union
@@ -40,6 +42,7 @@ else:
 config = {**base_config, **custom_config}  # Old unpacking
 
 print(f"result={result}")  # No f-string debugging
+
 
 def stream_results():  # Blocking generator
     for item in items:

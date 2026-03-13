@@ -1,0 +1,22 @@
+[project]
+name = "tanren-api"
+version = "0.1.0"
+description = "FastAPI HTTP API for tanren"
+requires-python = ">=3.14"
+dependencies = [
+    "tanren-core",
+    "fastapi>=0.128.0, <1",
+    "uvicorn>=0.40.0, <1",
+    "pydantic-settings>=2.0, <3",
+]
+
+[project.scripts]
+tanren-api = "tanren_api.main:main"
+tanren-openapi = "tanren_api.export:main"
+
+[build-system]
+requires = ["uv-build>=0.1.0"]
+build-backend = "uv_build"
+
+[tool.uv.build]
+packages = ["src/tanren_api"]
