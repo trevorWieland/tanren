@@ -167,6 +167,7 @@ def env_kit(tmp_path: Path):
         emitter=emitter,
         ssh_config_defaults=ssh_defaults,
         repo_urls={"myproj": "git@github.com:org/myproj.git"},
+        provider=VMProvider.HETZNER,
     )
 
     return {
@@ -274,6 +275,28 @@ class TestRecoverStaleAssignments:
 
         assert result == 1
         env_kit["state_store"].record_release.assert_awaited_once_with("vm-1")
+
+    async def test_recover_stale_uses_configured_provider(self, env_kit):
+        """recover_stale_assignments uses the configured provider, not hardcoded MANUAL."""
+        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+
+        env = env_kit["env"]
+        assignments = [
+            VMAssignment(
+                vm_id="vm-1",
+                workflow_id="wf-1",
+                project="proj",
+                spec="spec",
+                host="10.0.0.1",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+        ]
+        env_kit["state_store"].get_active_assignments.return_value = assignments
+
+        await env.recover_stale_assignments()
+
+        released_handle = env_kit["vm_provisioner"].release.call_args[0][0]
+        assert released_handle.provider == VMProvider.HETZNER
 
 
 class TestProvision:
@@ -675,6 +698,25 @@ class TestTeardown:
         await env.teardown(handle)
 
         # VM still released despite cleanup failure
+        env_kit["vm_provisioner"].release.assert_awaited_once_with(vm_handle)
+        env_kit["state_store"].record_release.assert_awaited_once_with("vm-abc-123")
+
+    async def test_teardown_records_release_when_provider_release_raises(self, env_kit):
+        """record_release is still called when provider release raises during teardown."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
+        )
+        vm_handle = _make_vm_handle()
+        handle = _make_handle(conn=conn, vm_handle=vm_handle)
+        env_kit["vm_provisioner"].release.side_effect = RuntimeError("provider boom")
+
+        await env.teardown(handle)
+
         env_kit["vm_provisioner"].release.assert_awaited_once_with(vm_handle)
         env_kit["state_store"].record_release.assert_awaited_once_with("vm-abc-123")
 

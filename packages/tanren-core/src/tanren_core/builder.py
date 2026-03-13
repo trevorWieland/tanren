@@ -15,6 +15,7 @@ from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManage
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
 from tanren_core.adapters.protocols import EventEmitter
 from tanren_core.adapters.remote_runner import RemoteAgentRunner
+from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
@@ -82,6 +83,7 @@ def build_ssh_execution_environment(
     if remote_cfg.provisioner.type == ProvisionerType.MANUAL:
         manual_settings = ManualProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), state_store)
+        provider = VMProvider.MANUAL
     elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
         from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415
             HetznerProvisionerSettings,
@@ -90,6 +92,7 @@ def build_ssh_execution_environment(
 
         hetzner_settings = HetznerProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         vm_provisioner = HetznerVMProvisioner(hetzner_settings)
+        provider = VMProvider.HETZNER
     else:
         raise ValueError(f"Unsupported provisioner type: {remote_cfg.provisioner.type}")
 
@@ -103,6 +106,7 @@ def build_ssh_execution_environment(
         emitter=emitter,
         ssh_config_defaults=ssh_defaults,
         repo_urls={binding.project: binding.repo_url for binding in remote_cfg.repos},
+        provider=provider,
     )
 
     return env, state_store

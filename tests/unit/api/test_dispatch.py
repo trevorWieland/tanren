@@ -1,6 +1,7 @@
 """Tests for dispatch endpoints."""
 
 import asyncio
+import contextlib
 import json
 import re
 from pathlib import Path
@@ -197,6 +198,31 @@ class TestDispatch:
             )
             ids.add(resp.json()["dispatch_id"])
         assert len(ids) == 3
+
+    async def test_synthetic_issue_does_not_wrap(self, client, auth_headers):
+        """Synthetic issue ID (when issue=0) is a full nanosecond timestamp, not modulo-wrapped."""
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+                "issue": 0,
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        dispatch_id = resp.json()["dispatch_id"]
+        # Extract the issue segment: wf-{project}-{issue}-{epoch}
+        parts = dispatch_id.split("-")
+        # project may contain hyphens, so issue is second-to-last numeric segment
+        # Format: wf-test-project-{issue}-{epoch}
+        # The last segment is epoch (digits), second-to-last is issue (digits)
+        issue_str = parts[-2]
+        issue_val = int(issue_str)
+        assert issue_val > 10**8, f"Expected full nanosecond timestamp, got {issue_val}"
 
     async def test_cancel_dispatch_not_found(self, client, auth_headers):
         resp = await client.delete("/api/v1/dispatch/nonexistent-id", headers=auth_headers)
@@ -482,6 +508,54 @@ class TestDispatch:
         final = await store.get_dispatch(dispatch_id)
         assert final is not None
         assert final.status == DispatchRunStatus.PENDING
+
+    async def test_dispatch_teardown_shielded_from_cancellation(self, client, auth_headers, app):
+        """Teardown is shielded from cancellation in _dispatch_background."""
+        from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701
+
+        store = app.state.api_store
+        mock_env = app.state.execution_env
+
+        dispatch = Dispatch(
+            workflow_id="wf-shield-test",
+            project="test-project",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+        )
+        record = DispatchRecord(
+            dispatch_id="wf-shield-test",
+            dispatch=dispatch,
+            status=DispatchRunStatus.PENDING,
+            created_at="2026-01-01T00:00:00Z",
+        )
+        await store.add_dispatch(record)
+
+        # Make execute hang so we can cancel during execution
+        execute_started = asyncio.Event()
+
+        async def _hang(*args, **kwargs):
+            execute_started.set()
+            await asyncio.sleep(3600)
+
+        mock_env.execute = AsyncMock(side_effect=_hang)
+
+        task = asyncio.create_task(
+            _dispatch_background(dispatch, "wf-shield-test", mock_env, app.state.config, store)
+        )
+
+        # Wait for execute to start, then cancel
+        await execute_started.wait()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+        # Give shielded teardown a tick to complete
+        await asyncio.sleep(0)
+
+        mock_env.teardown.assert_awaited_once()
 
     async def test_background_task_does_not_overwrite_cancelled(self, client, auth_headers, app):
         """Background task completing after cancellation does not overwrite CANCELLED status."""

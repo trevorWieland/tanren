@@ -370,3 +370,47 @@ class TestRun:
         data = resp.json()
         assert "dispatch_id" in data
         assert data["status"] == "accepted"
+
+    async def test_full_lifecycle_teardown_shielded_from_cancellation(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """Teardown in _full_lifecycle is shielded from cancellation."""
+        store = app.state.api_store
+
+        # Make execute hang so we can cancel during execution
+        execute_started = asyncio.Event()
+
+        async def _hang(*args, **kwargs):
+            execute_started.set()
+            await asyncio.sleep(3600)
+
+        mock_execution_env.execute = AsyncMock(side_effect=_hang)
+
+        resp = await client.post(
+            "/api/v1/run/full",
+            json={
+                "project": "test",
+                "branch": "main",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # Wait for execute to start
+        await execute_started.wait()
+
+        # Cancel the background task
+        record = await store.get_dispatch(dispatch_id)
+        assert record is not None
+        assert record.task is not None
+        record.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await record.task
+
+        # Give shielded teardown a tick to complete
+        await asyncio.sleep(0)
+
+        mock_execution_env.teardown.assert_awaited_once()

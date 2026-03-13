@@ -138,8 +138,8 @@ async def _dispatch_background(
     finally:
         if handle is not None:
             try:
-                await execution_env.teardown(handle)
-            except Exception:
+                await asyncio.shield(execution_env.teardown(handle))
+            except asyncio.CancelledError, Exception:
                 logger.warning("Teardown failed for dispatch %s", dispatch_id)
 
 
@@ -153,7 +153,7 @@ async def create_dispatch(
 ) -> DispatchAccepted:
     """Accept a new dispatch request."""
     epoch = time.time_ns()
-    issue = body.issue if body.issue != 0 else epoch % 10**8
+    issue = body.issue if body.issue != 0 else epoch
     workflow_id = f"wf-{body.project}-{issue}-{epoch}"
 
     dispatch = Dispatch(

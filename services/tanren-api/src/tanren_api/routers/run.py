@@ -312,11 +312,14 @@ async def run_full(
         finally:
             if handle is not None:
                 try:
-                    await execution_env.teardown(handle)
-                except Exception:
+                    await asyncio.shield(execution_env.teardown(handle))
+                except asyncio.CancelledError, Exception:
                     logger.warning("Teardown failed for %s", workflow_id)
                 finally:
-                    await store.remove_environment(handle.env_id)
+                    try:
+                        await store.remove_environment(handle.env_id)
+                    except asyncio.CancelledError, Exception:
+                        logger.warning("Failed to remove environment %s", handle.env_id)
 
     dispatch_record = DispatchRecord(
         dispatch_id=workflow_id,

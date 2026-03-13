@@ -76,6 +76,7 @@ class SSHExecutionEnvironment:
         emitter: EventEmitter,
         ssh_config_defaults: SSHConfig,
         repo_urls: dict[str, str],
+        provider: VMProvider = VMProvider.MANUAL,
     ) -> None:
         """Initialize with remote execution adapters and configuration."""
         self._vm_provisioner = vm_provisioner
@@ -87,6 +88,7 @@ class SSHExecutionEnvironment:
         self._emitter = emitter
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
+        self._provider = provider
 
     @property
     def ssh_defaults(self) -> SSHConfig:
@@ -113,7 +115,7 @@ class SSHExecutionEnvironment:
             stale_handle = VMHandle(
                 vm_id=a.vm_id,
                 host=a.host,
-                provider=VMProvider.MANUAL,
+                provider=self._provider,
                 created_at=a.assigned_at,
             )
             try:
@@ -440,7 +442,14 @@ class SSHExecutionEnvironment:
                     logger.warning("SSH close failed")
                 finally:
                     # MUST happen — no orphaned VMs
-                    await self._vm_provisioner.release(vm_handle)
+                    try:
+                        await self._vm_provisioner.release(vm_handle)
+                    except Exception:
+                        logger.warning(
+                            "Provider release failed for VM %s during teardown",
+                            vm_handle.vm_id,
+                            exc_info=True,
+                        )
                     await self._state_store.record_release(vm_handle.vm_id)
 
                     duration = int(time.monotonic() - provision_start)

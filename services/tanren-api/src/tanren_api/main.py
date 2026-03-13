@@ -64,12 +64,6 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
                 env, vm_store = build_ssh_execution_environment(app.state.config, app.state.emitter)
                 app.state.execution_env = env
                 app.state.vm_state_store = vm_store
-                try:
-                    recovered = await env.recover_stale_assignments()
-                    if recovered:
-                        logger.info("Recovered %d stale VM assignment(s) at startup", recovered)
-                except Exception:
-                    logger.warning("Stale VM recovery failed at startup", exc_info=True)
             except Exception:
                 logger.warning("Failed to initialize remote execution environment", exc_info=True)
 
