@@ -192,8 +192,17 @@ async def run_teardown(
     if record is None:
         raise NotFoundError(f"Environment {env_id} not found")
 
+    if execution_env is None:
+        raise ServiceError("Remote execution environment not configured")
+
     # Cancel any running execute task and wait for it to finish
-    await store.cancel_environment_task(env_id)
+    stopped = await store.cancel_environment_task(env_id)
+    if not stopped:
+        current = await store.get_environment(env_id)
+        if current is not None and current.task is not None and not current.task.done():
+            raise ConflictError(
+                f"Environment {env_id} has a running task that could not be stopped. Please retry."
+            )
 
     updated = await store.try_transition_environment(
         env_id,
@@ -205,8 +214,7 @@ async def run_teardown(
 
     async def _teardown_background() -> None:
         try:
-            if execution_env is not None:
-                await execution_env.teardown(record.handle)
+            await execution_env.teardown(record.handle)
         except Exception:
             logger.warning("Teardown failed for env %s", env_id)
         finally:

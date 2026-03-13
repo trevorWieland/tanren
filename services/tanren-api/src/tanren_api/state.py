@@ -233,7 +233,7 @@ class APIStateStore:
         if task is not None:
             with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
                 await asyncio.wait_for(asyncio.shield(task), timeout=wait_secs)
-            return True
+            return task.done()
         return False
 
     async def remove_environment(self, env_id: str) -> EnvironmentRecord | None:

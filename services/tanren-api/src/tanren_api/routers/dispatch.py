@@ -104,7 +104,14 @@ async def _dispatch_background(
     store: APIStateStore,
 ) -> None:
     """Background task: provision -> execute -> teardown."""
-    await store.update_dispatch(dispatch_id, status=DispatchRunStatus.RUNNING, started_at=_now())
+    transitioned = await store.try_transition_dispatch(
+        dispatch_id,
+        from_statuses=frozenset({DispatchRunStatus.PENDING}),
+        to_status=DispatchRunStatus.RUNNING,
+        started_at=_now(),
+    )
+    if transitioned is None:
+        return  # Cancelled (or otherwise transitioned) before we started
     handle = None
     try:
         handle = await execution_env.provision(dispatch, config)
@@ -275,7 +282,10 @@ async def cancel_dispatch(
                     "and cannot be cancelled"
                 ) from None
             except OSError:
-                logger.debug("Could not remove dispatch file for %s", dispatch_id)
+                raise ConflictError(
+                    f"Dispatch {dispatch_id} could not be cancelled: "
+                    "failed to remove dispatch file. Please retry."
+                ) from None
         if record.task is not None and not record.task.done():
             record.task.cancel()
         await store.update_dispatch(

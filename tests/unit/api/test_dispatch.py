@@ -404,6 +404,85 @@ class TestDispatch:
         )
         mock_emitter.emit.assert_called_once()
 
+    async def test_background_task_exits_early_when_cancelled_before_start(
+        self, client, auth_headers, app
+    ):
+        """Background task exits without provisioning when dispatch is already CANCELLED."""
+        from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701
+
+        store = app.state.api_store
+        mock_env = app.state.execution_env
+
+        dispatch = Dispatch(
+            workflow_id="wf-early-cancel",
+            project="test-project",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+        )
+        record = DispatchRecord(
+            dispatch_id="wf-early-cancel",
+            dispatch=dispatch,
+            status=DispatchRunStatus.CANCELLED,
+            created_at="2026-01-01T00:00:00Z",
+            completed_at="2026-01-01T00:00:01Z",
+        )
+        await store.add_dispatch(record)
+
+        await _dispatch_background(dispatch, "wf-early-cancel", mock_env, app.state.config, store)
+
+        # provision/execute should never have been called
+        mock_env.provision.assert_not_called()
+        mock_env.execute.assert_not_called()
+
+        # Status should remain CANCELLED
+        final = await store.get_dispatch("wf-early-cancel")
+        assert final is not None
+        assert final.status == DispatchRunStatus.CANCELLED
+
+    async def test_cancel_dispatch_unlink_os_error_returns_409(
+        self, client, auth_headers, app, monkeypatch
+    ):
+        """Cancel returns 409 when IPC file unlink fails with OSError."""
+        app.state.execution_env = None
+
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # Verify dispatch exists with a dispatch_path
+        store = app.state.api_store
+        record = await store.get_dispatch(dispatch_id)
+        assert record is not None
+        assert record.dispatch_path is not None
+
+        # Patch Path.unlink to raise PermissionError (subclass of OSError)
+        monkeypatch.setattr(
+            Path,
+            "unlink",
+            lambda self, **kw: (_ for _ in ()).throw(PermissionError("denied")),
+        )
+
+        cancel_resp = await client.delete(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+        assert cancel_resp.status_code == 409
+        assert "could not be cancelled" in cancel_resp.json()["detail"]
+
+        # Status should remain PENDING (not marked CANCELLED)
+        final = await store.get_dispatch(dispatch_id)
+        assert final is not None
+        assert final.status == DispatchRunStatus.PENDING
+
     async def test_background_task_does_not_overwrite_cancelled(self, client, auth_headers, app):
         """Background task completing after cancellation does not overwrite CANCELLED status."""
         from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701

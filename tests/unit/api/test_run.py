@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from unittest.mock import AsyncMock
 
 import pytest
@@ -224,6 +226,75 @@ class TestRun:
         data = resp.json()
         assert data["error_code"] == "service_error"
         assert "boom" not in data["detail"]
+
+    async def test_teardown_no_execution_env_returns_500(self, client, auth_headers, app):
+        """Teardown without execution_env returns 500 and preserves environment record."""
+        # Provision first (with execution_env available)
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Remove execution_env
+        app.state.execution_env = None
+
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 500
+
+        # Environment record should still exist
+        store = app.state.api_store
+        record = await store.get_environment(env_id)
+        assert record is not None
+
+    async def test_teardown_returns_409_when_task_cannot_be_stopped(
+        self, client, auth_headers, app, monkeypatch
+    ):
+        """Teardown returns 409 when a running task cannot be stopped."""
+        # Provision first
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Attach a task that resists one cancellation attempt
+        async def _resist_one_cancel() -> None:
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                await asyncio.sleep(3600)
+
+        task = asyncio.create_task(_resist_one_cancel())
+        store = app.state.api_store
+        await store.update_environment(env_id, task=task)
+        await asyncio.sleep(0)  # Let task enter its try block
+
+        # Reduce wait_secs to avoid 5s delay in tests
+        original_cancel = store.cancel_environment_task
+
+        async def _fast_cancel(eid: str, *, wait_secs: float = 0.1) -> bool:
+            return await original_cancel(eid, wait_secs=wait_secs)
+
+        monkeypatch.setattr(store, "cancel_environment_task", _fast_cancel)
+
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
+        assert "could not be stopped" in resp.json()["detail"]
+
+        # Cleanup: cancel again (this time it propagates)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def test_full_returns_accepted(self, client, auth_headers):
         resp = await client.post(

@@ -282,6 +282,30 @@ class TestAPIStateStore:
         assert result is True
         assert record.task.cancelled() or record.task.done()
 
+    async def test_cancel_environment_task_returns_false_on_timeout(self):
+        store = APIStateStore()
+        record = _make_env_record()
+
+        async def _resist_one_cancel():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                await asyncio.sleep(3600)
+
+        record.task = asyncio.create_task(_resist_one_cancel())
+        await store.add_environment(record)
+        await asyncio.sleep(0)  # Let task enter its try block
+
+        result = await store.cancel_environment_task("env-1", wait_secs=0.1)
+        assert result is False
+        assert not record.task.done()
+
+        # Cleanup: cancel again (this time it propagates)
+        record.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await record.task
+
     async def test_cancel_environment_task_returns_false_when_no_task(self):
         store = APIStateStore()
         await store.add_environment(_make_env_record())

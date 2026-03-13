@@ -49,7 +49,7 @@ async def query_events(
         return EventQueryResult()
 
     where_clauses: list[str] = []
-    params: list[str] = []
+    params: list[str | int] = []
 
     if workflow_id is not None:
         where_clauses.append("workflow_id = ?")
