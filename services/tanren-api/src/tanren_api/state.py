@@ -14,6 +14,23 @@ from tanren_api.models import DispatchRunStatus, RunEnvironmentStatus
 from tanren_core.adapters.types import EnvironmentHandle
 from tanren_core.schemas import Dispatch, Outcome, Phase
 
+
+class _UnsetType:
+    """Sentinel for 'no change' in update/transition methods."""
+
+    _instance: _UnsetType | None = None
+
+    def __new__(cls) -> _UnsetType:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "_UNSET"
+
+
+_UNSET = _UnsetType()
+
 logger = logging.getLogger(__name__)
 
 _SHUTDOWN_TIMEOUT_SECS = 10
@@ -112,26 +129,26 @@ class APIStateStore:
         self,
         dispatch_id: str,
         *,
-        status: DispatchRunStatus | None = None,
-        outcome: Outcome | None = None,
-        started_at: str | None = None,
-        completed_at: str | None = None,
-        task: asyncio.Task[None] | None = None,
+        status: DispatchRunStatus | _UnsetType = _UNSET,
+        outcome: Outcome | _UnsetType | None = _UNSET,
+        started_at: str | _UnsetType | None = _UNSET,
+        completed_at: str | _UnsetType | None = _UNSET,
+        task: asyncio.Task[None] | _UnsetType | None = _UNSET,
     ) -> None:
         """Update fields on an existing dispatch record."""
         async with self._lock:
             record = self._dispatches.get(dispatch_id)
             if record is None:
                 return
-            if status is not None:
+            if not isinstance(status, _UnsetType):
                 record.status = status
-            if outcome is not None:
+            if not isinstance(outcome, _UnsetType):
                 record.outcome = outcome
-            if started_at is not None:
+            if not isinstance(started_at, _UnsetType):
                 record.started_at = started_at
-            if completed_at is not None:
+            if not isinstance(completed_at, _UnsetType):
                 record.completed_at = completed_at
-            if task is not None:
+            if not isinstance(task, _UnsetType):
                 record.task = task
 
     async def try_transition_dispatch(
@@ -140,10 +157,10 @@ class APIStateStore:
         *,
         from_statuses: frozenset[DispatchRunStatus],
         to_status: DispatchRunStatus,
-        outcome: Outcome | None = None,
-        started_at: str | None = None,
-        completed_at: str | None = None,
-        task: asyncio.Task[None] | None = None,
+        outcome: Outcome | _UnsetType | None = _UNSET,
+        started_at: str | _UnsetType | None = _UNSET,
+        completed_at: str | _UnsetType | None = _UNSET,
+        task: asyncio.Task[None] | _UnsetType | None = _UNSET,
     ) -> DispatchRecord | None:
         """Atomically transition if current status is in *from_statuses*.
 
@@ -154,13 +171,13 @@ class APIStateStore:
             if record is None or record.status not in from_statuses:
                 return None
             record.status = to_status
-            if outcome is not None:
+            if not isinstance(outcome, _UnsetType):
                 record.outcome = outcome
-            if started_at is not None:
+            if not isinstance(started_at, _UnsetType):
                 record.started_at = started_at
-            if completed_at is not None:
+            if not isinstance(completed_at, _UnsetType):
                 record.completed_at = completed_at
-            if task is not None:
+            if not isinstance(task, _UnsetType):
                 record.task = task
             return replace(record)
 
@@ -193,32 +210,32 @@ class APIStateStore:
         self,
         env_id: str,
         *,
-        status: RunEnvironmentStatus | None = None,
-        phase: Phase | None = None,
-        outcome: Outcome | None = None,
-        dispatch_id: str | None = None,
-        started_at: str | None = None,
-        completed_at: str | None = None,
-        task: asyncio.Task[None] | None = None,
+        status: RunEnvironmentStatus | _UnsetType = _UNSET,
+        phase: Phase | _UnsetType | None = _UNSET,
+        outcome: Outcome | _UnsetType | None = _UNSET,
+        dispatch_id: str | _UnsetType | None = _UNSET,
+        started_at: str | _UnsetType | None = _UNSET,
+        completed_at: str | _UnsetType | None = _UNSET,
+        task: asyncio.Task[None] | _UnsetType | None = _UNSET,
     ) -> None:
         """Update fields on an existing environment record."""
         async with self._lock:
             record = self._environments.get(env_id)
             if record is None:
                 return
-            if status is not None:
+            if not isinstance(status, _UnsetType):
                 record.status = status
-            if phase is not None:
+            if not isinstance(phase, _UnsetType):
                 record.phase = phase
-            if outcome is not None:
+            if not isinstance(outcome, _UnsetType):
                 record.outcome = outcome
-            if dispatch_id is not None:
+            if not isinstance(dispatch_id, _UnsetType):
                 record.dispatch_id = dispatch_id
-            if started_at is not None:
+            if not isinstance(started_at, _UnsetType):
                 record.started_at = started_at
-            if completed_at is not None:
+            if not isinstance(completed_at, _UnsetType):
                 record.completed_at = completed_at
-            if task is not None:
+            if not isinstance(task, _UnsetType):
                 record.task = task
 
     async def cancel_environment_task(self, env_id: str, *, wait_secs: float = 5.0) -> bool:
@@ -248,12 +265,12 @@ class APIStateStore:
         *,
         from_statuses: frozenset[RunEnvironmentStatus],
         to_status: RunEnvironmentStatus,
-        phase: Phase | None = None,
-        outcome: Outcome | None = None,
-        dispatch_id: str | None = None,
-        started_at: str | None = None,
-        completed_at: str | None = None,
-        task: asyncio.Task[None] | None = None,
+        phase: Phase | _UnsetType | None = _UNSET,
+        outcome: Outcome | _UnsetType | None = _UNSET,
+        dispatch_id: str | _UnsetType | None = _UNSET,
+        started_at: str | _UnsetType | None = _UNSET,
+        completed_at: str | _UnsetType | None = _UNSET,
+        task: asyncio.Task[None] | _UnsetType | None = _UNSET,
     ) -> EnvironmentRecord | None:
         """Atomically transition if current status is in *from_statuses*.
 
@@ -264,17 +281,17 @@ class APIStateStore:
             if record is None or record.status not in from_statuses:
                 return None
             record.status = to_status
-            if phase is not None:
+            if not isinstance(phase, _UnsetType):
                 record.phase = phase
-            if outcome is not None:
+            if not isinstance(outcome, _UnsetType):
                 record.outcome = outcome
-            if dispatch_id is not None:
+            if not isinstance(dispatch_id, _UnsetType):
                 record.dispatch_id = dispatch_id
-            if started_at is not None:
+            if not isinstance(started_at, _UnsetType):
                 record.started_at = started_at
-            if completed_at is not None:
+            if not isinstance(completed_at, _UnsetType):
                 record.completed_at = completed_at
-            if task is not None:
+            if not isinstance(task, _UnsetType):
                 record.task = task
             return replace(record)
 

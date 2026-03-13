@@ -29,6 +29,7 @@ from tanren_core.adapters.protocols import (
 from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import (
     VMHandle,
+    VMProvider,
     VMRequirements,
     WorkspaceSpec,
 )
@@ -95,6 +96,40 @@ class SSHExecutionEnvironment:
     async def close(self) -> None:
         """Release resources held by the environment (DB connections)."""
         await self._state_store.close()
+
+    async def recover_stale_assignments(self) -> int:
+        """Release any unreleased VM assignments left by a prior crash.
+
+        Returns:
+            Number of recovered assignments.
+        """
+        assignments = await self._state_store.get_active_assignments()
+        if not assignments:
+            return 0
+
+        logger.info("Recovering %d stale VM assignment(s)...", len(assignments))
+
+        for a in assignments:
+            stale_handle = VMHandle(
+                vm_id=a.vm_id,
+                host=a.host,
+                provider=VMProvider.MANUAL,
+                created_at=a.assigned_at,
+            )
+            try:
+                await self._vm_provisioner.release(stale_handle)
+            except Exception:
+                logger.warning(
+                    "Failed provider release for stale VM %s (%s)",
+                    a.vm_id,
+                    a.host,
+                    exc_info=True,
+                )
+            finally:
+                await self._state_store.record_release(a.vm_id)
+                logger.info("Recovered stale VM %s (%s)", a.vm_id, a.host)
+
+        return len(assignments)
 
     async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets.

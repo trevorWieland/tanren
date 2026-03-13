@@ -296,6 +296,65 @@ class TestRun:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
+    async def test_re_execute_clears_stale_outcome(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """Re-executing a COMPLETED env clears outcome and completed_at."""
+        from tanren_core.schemas import Outcome  # noqa: PLC0415
+
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Simulate a completed first execution
+        store = app.state.api_store
+        await store.update_environment(
+            env_id,
+            status=RunEnvironmentStatus.COMPLETED,
+            outcome=Outcome.SUCCESS,
+            completed_at="2026-01-01T01:00:00Z",
+        )
+
+        # Make execute block so we can observe the EXECUTING state
+        execute_event = asyncio.Event()
+        original_execute = mock_execution_env.execute
+
+        async def _blocking_execute(*args, **kwargs):
+            await execute_event.wait()
+            return await original_execute(*args, **kwargs)
+
+        mock_execution_env.execute = AsyncMock(side_effect=_blocking_execute)
+
+        # Re-execute
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/execute",
+            json={
+                "project": "test",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # Poll status — outcome and completed_at should be cleared
+        status_resp = await client.get(
+            f"/api/v1/run/{env_id}/status",
+            headers=auth_headers,
+        )
+        assert status_resp.status_code == 200
+        data = status_resp.json()
+        assert data["status"] == "executing"
+        assert data["outcome"] is None
+
+        # Unblock the background task so it doesn't leak
+        execute_event.set()
+        await asyncio.sleep(0)
+
     async def test_full_returns_accepted(self, client, auth_headers):
         resp = await client.post(
             "/api/v1/run/full",

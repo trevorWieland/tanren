@@ -207,6 +207,75 @@ def _make_handle(conn=None, vm_handle=None, workspace=None) -> EnvironmentHandle
 # ---------------------------------------------------------------------------
 
 
+class TestRecoverStaleAssignments:
+    async def test_recover_stale_no_assignments(self, env_kit):
+        """Returns 0 and does not call release when no stale assignments exist."""
+        env = env_kit["env"]
+        env_kit["state_store"].get_active_assignments.return_value = []
+
+        result = await env.recover_stale_assignments()
+
+        assert result == 0
+        env_kit["vm_provisioner"].release.assert_not_awaited()
+        env_kit["state_store"].record_release.assert_not_awaited()
+
+    async def test_recover_stale_releases_and_records(self, env_kit):
+        """Releases each stale assignment and records release for all."""
+        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+
+        env = env_kit["env"]
+        assignments = [
+            VMAssignment(
+                vm_id="vm-1",
+                workflow_id="wf-1",
+                project="proj",
+                spec="spec",
+                host="10.0.0.1",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+            VMAssignment(
+                vm_id="vm-2",
+                workflow_id="wf-2",
+                project="proj",
+                spec="spec",
+                host="10.0.0.2",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+        ]
+        env_kit["state_store"].get_active_assignments.return_value = assignments
+
+        result = await env.recover_stale_assignments()
+
+        assert result == 2
+        assert env_kit["vm_provisioner"].release.await_count == 2
+        assert env_kit["state_store"].record_release.await_count == 2
+        env_kit["state_store"].record_release.assert_any_await("vm-1")
+        env_kit["state_store"].record_release.assert_any_await("vm-2")
+
+    async def test_recover_stale_records_release_on_provider_failure(self, env_kit):
+        """record_release is still called when provider release raises."""
+        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+
+        env = env_kit["env"]
+        assignments = [
+            VMAssignment(
+                vm_id="vm-1",
+                workflow_id="wf-1",
+                project="proj",
+                spec="spec",
+                host="10.0.0.1",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+        ]
+        env_kit["state_store"].get_active_assignments.return_value = assignments
+        env_kit["vm_provisioner"].release.side_effect = RuntimeError("provider down")
+
+        result = await env.recover_stale_assignments()
+
+        assert result == 1
+        env_kit["state_store"].record_release.assert_awaited_once_with("vm-1")
+
+
 class TestProvision:
     async def test_acquires_vm_bootstraps_workspace_returns_handle(self, env_kit):
         """provision() acquires VM, creates SSH conn, bootstraps, sets up

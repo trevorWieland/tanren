@@ -383,6 +383,53 @@ class TestAPIStateStore:
         assert original is not None
         assert copy.dispatch is not original.dispatch
 
+    async def test_try_transition_environment_clears_fields_with_none(self):
+        """Passing outcome=None and completed_at=None explicitly clears them."""
+        from tanren_core.schemas import Outcome  # noqa: PLC0415
+
+        store = APIStateStore()
+        record = _make_env_record()
+        record.status = RunEnvironmentStatus.COMPLETED
+        record.outcome = Outcome.SUCCESS
+        record.completed_at = "2026-01-01T01:00:00Z"
+        await store.add_environment(record)
+
+        result = await store.try_transition_environment(
+            "env-1",
+            from_statuses=frozenset({RunEnvironmentStatus.COMPLETED}),
+            to_status=RunEnvironmentStatus.EXECUTING,
+            outcome=None,
+            completed_at=None,
+        )
+        assert result is not None
+        assert result.outcome is None
+        assert result.completed_at is None
+
+        fetched = await store.get_environment("env-1")
+        assert fetched is not None
+        assert fetched.outcome is None
+        assert fetched.completed_at is None
+
+    async def test_unset_default_preserves_existing_values(self):
+        """Not passing outcome preserves the existing value (_UNSET default)."""
+        from tanren_core.schemas import Outcome  # noqa: PLC0415
+
+        store = APIStateStore()
+        record = _make_env_record()
+        record.status = RunEnvironmentStatus.COMPLETED
+        record.outcome = Outcome.SUCCESS
+        record.completed_at = "2026-01-01T01:00:00Z"
+        await store.add_environment(record)
+
+        result = await store.try_transition_environment(
+            "env-1",
+            from_statuses=frozenset({RunEnvironmentStatus.COMPLETED}),
+            to_status=RunEnvironmentStatus.EXECUTING,
+        )
+        assert result is not None
+        assert result.outcome == Outcome.SUCCESS
+        assert result.completed_at == "2026-01-01T01:00:00Z"
+
     async def test_reap_preserves_recent_terminal_dispatches(self):
         store = APIStateStore()
         recent_time = datetime.now(UTC).isoformat()

@@ -133,6 +133,8 @@ async def run_execute(
         phase=body.phase,
         dispatch_id=dispatch_id,
         started_at=_now(),
+        outcome=None,  # Clear stale outcome from prior execution
+        completed_at=None,  # Clear stale completion timestamp
     )
     if updated is None:
         raise ConflictError(f"Environment {env_id} cannot transition to executing")
