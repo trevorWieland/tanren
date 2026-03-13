@@ -12,9 +12,11 @@ current_time = datetime.now(timezone.utc)  # Fixed
 
 # ✗ Bad: Ignore deprecation
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from datetime import datetime
+
 current_time = datetime.utcnow()  # Will break in Python 3.14
 ```
 

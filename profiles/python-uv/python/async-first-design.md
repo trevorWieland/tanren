@@ -6,17 +6,21 @@ Design all APIs and I/O around `async`/`await` and modern structured concurrency
 # ✓ Good: Async-first API
 from pydantic import BaseModel
 
+
 class TaskRequest(BaseModel):
     items: list[str]
+
 
 async def process_items(request: TaskRequest) -> list[str]:
     """Process items in parallel using structured concurrency."""
     tasks = [process_item(item) for item in request.items]
     return await asyncio.gather(*tasks)
 
+
 async def process_item(item: str) -> str:
     """Process single item - async for LLM network IO."""
     ...
+
 
 # ✗ Bad: Blocking I/O
 def process_items(request: TaskRequest) -> list[str]:
@@ -55,6 +59,7 @@ Don't just check the immediate async function body — trace through every sync 
 async def run_doctor(config_path: Path) -> Report:
     result = check_config_valid(config_path)  # Looks innocent
     # But check_config_valid() calls open(), toml.load() internally
+
 
 # ✓ Good: Traced the chain, wrapped at boundary
 async def run_doctor(config_path: Path) -> Report:

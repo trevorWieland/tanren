@@ -9,6 +9,7 @@ Never call `.value` on fields read from Pydantic models.
 class MyConfig(BaseSchema):
     phase: PhaseName = Field(...)  # Annotation says PhaseName...
 
+
 config = MyConfig(phase=PhaseName.TRANSLATE)
 # config.phase is "translate" (str), NOT PhaseName.TRANSLATE
 

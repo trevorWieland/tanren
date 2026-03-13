@@ -1,0 +1,18 @@
+[project]
+name = "tanren-daemon"
+version = "0.1.0"
+description = "Worker manager polling daemon for tanren"
+requires-python = ">=3.14"
+dependencies = [
+    "tanren-core",
+]
+
+[project.scripts]
+worker-manager = "tanren_daemon.main:main"
+
+[build-system]
+requires = ["uv-build>=0.1.0"]
+build-backend = "uv_build"
+
+[tool.uv.build]
+packages = ["src/tanren_daemon"]

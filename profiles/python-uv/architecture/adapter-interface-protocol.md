@@ -6,12 +6,15 @@ Never access infrastructure adapters directly. Always access storage, models, an
 # ✓ Good: Access through protocol interface
 from core.adapters.vector import VectorStoreProtocol
 
+
 async def search_context(query: str, vector_store: VectorStoreProtocol):
     """Search vector context via protocol - implementation agnostic."""
     return await vector_store.search(query)
 
+
 # ✗ Bad: Direct access to implementation
 import chromadb
+
 
 async def search_context(query: str):
     """Search vector context - hardcoded to Chroma."""

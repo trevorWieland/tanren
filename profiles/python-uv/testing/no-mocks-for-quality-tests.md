@@ -7,6 +7,7 @@ Quality tests use real LLMs (actual model calls). Integration tests must mock LL
 # tests/quality/core/processing.py
 from myproject.adapters.llm_client import LLMClient
 
+
 async def test_output_quality_with_real_llm(given_request):
     """Test output quality with actual model call."""
     client = LLMClient(base_url="https://api.openai.com/v1", api_key="test-key")
@@ -16,9 +17,11 @@ async def test_output_quality_with_real_llm(given_request):
     assert result.text is not None
     assert len(result.text) > 0
 
+
 # ✓ Good: Integration test with mocked LLM
 # tests/integration/core/processing.py
 from unittest.mock import AsyncMock
+
 
 async def test_processing_flow(given_task_request):
     """Test processing flow with mocked LLM (no real calls)."""
@@ -27,6 +30,7 @@ async def test_processing_flow(given_task_request):
 
     result = await mock_client.process(given_task_request)
     assert result.text == "mocked text"  # Verify mock, not real model
+
 
 # ✗ Bad: Quality test with mocked LLM
 async def test_output_quality(given_task_request):

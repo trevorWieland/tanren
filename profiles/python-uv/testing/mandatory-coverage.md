@@ -13,6 +13,7 @@ async def test_processes_item_with_context(given_item, given_context):
     assert "character_name" in result.text
     assert result.context_used == given_context.id
 
+
 # ✗ Bad: Tests don't exercise behavior
 async def test_processor_initialization():
     """Just tests constructor, not behavior - NO COVERAGE VALUE."""

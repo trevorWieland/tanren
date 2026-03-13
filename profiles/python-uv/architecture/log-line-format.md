@@ -7,18 +7,19 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Literal
 
+
 # ✓ Good: Stable Pydantic model for log lines
 class LogEntry(BaseModel):
     """Single log line in JSONL format."""
+
     timestamp: str = Field(..., description="ISO-8601 timestamp")
-    level: Literal["debug", "info", "warn", "error"] = Field(
-        ..., description="Log level"
-    )
+    level: Literal["debug", "info", "warn", "error"] = Field(..., description="Log level")
     event: str = Field(..., description="Event type (e.g., run_started, phase_completed)")
     run_id: str = Field(..., description="Run identifier")
     phase: str | None = Field(None, description="Execution phase (e.g., process, qa)")
     message: str = Field(..., description="Human-readable log message")
     data: dict | None = Field(None, description="Structured event data")
+
 
 # ✓ Good: Writing log lines
 def write_log(entry: LogEntry) -> None:
