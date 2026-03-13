@@ -8,7 +8,7 @@ import pytest
 
 from tanren_core.config import Config
 from tanren_core.manager import WorkerManager
-from tanren_core.schemas import Dispatch, Phase, Result
+from tanren_core.schemas import Cli, Dispatch, Phase, Result
 
 
 class TestManagerLifecycle:
@@ -80,7 +80,7 @@ class TestManagerLifecycle:
             project="test-project",
             spec_folder="tanren/specs/test",
             branch="feat-1",
-            cli="bash",
+            cli=Cli.BASH,
             model=None,
             gate_cmd=None,
             context=None,
@@ -133,7 +133,7 @@ class TestManagerLifecycle:
             project="test-project",
             spec_folder="tanren/specs/test",
             branch="feat-1",
-            cli="bash",
+            cli=Cli.BASH,
             model=None,
             gate_cmd="echo 'all tests passed'",
             context=None,

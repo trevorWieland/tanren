@@ -23,6 +23,7 @@ from tanren_core.adapters.remote_types import VMHandle, VMProvider, WorkspacePat
 from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.types import EnvironmentHandle, PhaseResult, RemoteEnvironmentRuntime
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile, EnvironmentProfileType
 from tanren_core.roles import AgentTool
 from tanren_core.schemas import Cli, Outcome
 
@@ -49,7 +50,7 @@ def _env_handle() -> EnvironmentHandle:
         vm_handle=vm,
         connection=AsyncMock(),
         workspace_path=WorkspacePath(path="/workspace/proj", project="proj", branch="main"),
-        profile={"name": "default", "type": "remote"},
+        profile=EnvironmentProfile(name="default", type=EnvironmentProfileType.REMOTE),
         teardown_commands=("make clean",),
         provision_start=time.monotonic(),
         workflow_id="run-proj-abc",
@@ -224,7 +225,9 @@ def test_run_full_executes_in_order(tmp_path: Path, monkeypatch):
     assert env.teardown.await_count == 1
 
     # Provision-time SSH connection must be closed
+    assert isinstance(env.provision.return_value.runtime, RemoteEnvironmentRuntime)
     runtime_conn = env.provision.return_value.runtime.connection
+    assert isinstance(runtime_conn, AsyncMock)
     runtime_conn.close.assert_awaited_once()
 
 
@@ -271,7 +274,9 @@ def test_run_full_teardown_runs_even_on_execute_failure(tmp_path: Path, monkeypa
     assert env.teardown.await_count == 1
 
     # Provision-time SSH connection must be closed
+    assert isinstance(env.provision.return_value.runtime, RemoteEnvironmentRuntime)
     runtime_conn = env.provision.return_value.runtime.connection
+    assert isinstance(runtime_conn, AsyncMock)
     runtime_conn.close.assert_awaited_once()
 
 
@@ -318,7 +323,9 @@ def test_run_full_exits_nonzero_for_blocked(tmp_path: Path, monkeypatch):
     assert env.teardown.await_count == 1
 
     # Provision-time SSH connection must be closed
+    assert isinstance(env.provision.return_value.runtime, RemoteEnvironmentRuntime)
     runtime_conn = env.provision.return_value.runtime.connection
+    assert isinstance(runtime_conn, AsyncMock)
     runtime_conn.close.assert_awaited_once()
 
 

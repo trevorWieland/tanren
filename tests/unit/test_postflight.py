@@ -296,6 +296,7 @@ class TestPush:
             result = await run_postflight(worktree, "my-branch", "do-task", {}, {})
 
         assert result.pushed is False
+        assert result.push_error is not None
         assert "remote rejected" in result.push_error
 
 

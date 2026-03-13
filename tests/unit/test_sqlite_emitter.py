@@ -23,6 +23,7 @@ class TestSqliteEventEmitter:
         async with aiosqlite.connect(str(db_path)) as conn:
             cursor = await conn.execute("SELECT COUNT(*) FROM events")
             row = await cursor.fetchone()
+            assert row is not None
             assert row[0] == 1
 
     @pytest.mark.asyncio
@@ -44,6 +45,7 @@ class TestSqliteEventEmitter:
                 "SELECT timestamp, workflow_id, event_type, payload FROM events"
             )
             row = await cursor.fetchone()
+            assert row is not None
             assert row[0] == "2026-03-10T12:00:00Z"
             assert row[1] == "wf-rentl-42-1710000000"
             assert row[2] == "DispatchReceived"
@@ -65,6 +67,7 @@ class TestSqliteEventEmitter:
         async with aiosqlite.connect(str(db_path)) as conn:
             cursor = await conn.execute("SELECT COUNT(*) FROM events")
             row = await cursor.fetchone()
+            assert row is not None
             assert row[0] == 5
 
     @pytest.mark.asyncio
@@ -112,6 +115,7 @@ class TestSqliteEventEmitter:
         async with aiosqlite.connect(str(db_path)) as conn:
             cursor = await conn.execute("SELECT event_type, payload FROM events")
             row = await cursor.fetchone()
+            assert row is not None
             assert row[0] == "PhaseCompleted"
             payload = json.loads(row[1])
             assert payload["duration_secs"] == 120

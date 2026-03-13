@@ -144,6 +144,7 @@ class TestBuildGateOutput:
     def test_success_truncates_to_100_lines(self):
         lines = [f"line {i}" for i in range(200)]
         result = _build_gate_output("\n".join(lines), Outcome.SUCCESS)
+        assert result is not None
         result_lines = result.split("\n")
         assert len(result_lines) == _GATE_OUTPUT_LINES_SUCCESS
         assert result_lines[0] == "line 100"
@@ -152,6 +153,7 @@ class TestBuildGateOutput:
     def test_fail_truncates_to_300_lines(self):
         lines = [f"line {i}" for i in range(500)]
         result = _build_gate_output("\n".join(lines), Outcome.FAIL)
+        assert result is not None
         result_lines = result.split("\n")
         assert len(result_lines) == _GATE_OUTPUT_LINES_FAIL
         assert result_lines[0] == "line 200"
@@ -164,6 +166,7 @@ class TestBuildGateOutput:
     def test_error_uses_fail_limit(self):
         lines = [f"line {i}" for i in range(500)]
         result = _build_gate_output("\n".join(lines), Outcome.ERROR)
+        assert result is not None
         result_lines = result.split("\n")
         assert len(result_lines) == _GATE_OUTPUT_LINES_FAIL
 
@@ -178,6 +181,7 @@ class TestBuildTailOutput:
     def test_truncates_to_200_lines(self):
         lines = [f"line {i}" for i in range(400)]
         result = build_tail_output("\n".join(lines))
+        assert result is not None
         result_lines = result.split("\n")
         assert len(result_lines) == _TAIL_OUTPUT_LINES
         assert result_lines[0] == "line 200"

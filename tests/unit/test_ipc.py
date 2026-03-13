@@ -18,6 +18,7 @@ from tanren_core.ipc import (
     write_result,
 )
 from tanren_core.schemas import (
+    Cli,
     Dispatch,
     Nudge,
     Outcome,
@@ -84,7 +85,7 @@ class TestScanDispatchDir:
             project="rentl",
             spec_folder="tanren/specs/test",
             branch="main",
-            cli="bash",
+            cli=Cli.BASH,
             model=None,
             gate_cmd="make check",
             context=None,
@@ -107,7 +108,7 @@ class TestScanDispatchDir:
                 project="rentl",
                 spec_folder="tanren/specs/test",
                 branch="main",
-                cli="bash",
+                cli=Cli.BASH,
                 model=None,
                 gate_cmd="make check",
                 context=None,

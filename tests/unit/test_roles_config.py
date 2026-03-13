@@ -26,6 +26,8 @@ agents:
         mapping = load_roles_config(config_file)
         assert mapping.default.cli == "claude"
         assert mapping.default.model == "claude-sonnet-4-20250514"
+        assert mapping.implementation is not None
+        assert mapping.audit is not None
         assert mapping.implementation.cli == "opencode"
         assert mapping.audit.cli == "codex"
 

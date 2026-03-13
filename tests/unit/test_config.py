@@ -221,6 +221,9 @@ class TestConfig:
         monkeypatch.setenv("WM_EVENTS_DB", "~/events.db")
         monkeypatch.setenv("WM_REMOTE_CONFIG", "~/remote.yml")
         config = Config.from_env()
+        assert config.roles_config_path is not None
+        assert config.events_db is not None
+        assert config.remote_config_path is not None
         assert "~" not in config.roles_config_path
         assert "~" not in config.events_db
         assert "~" not in config.remote_config_path

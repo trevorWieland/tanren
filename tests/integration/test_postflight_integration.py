@@ -96,6 +96,7 @@ class TestPostflightIntegration:
             capture_output=True,
             text=True,
         )
+        assert isinstance(proc.stdout, str)
         assert "postflight: revert" in proc.stdout
 
     @pytest.mark.asyncio
@@ -115,6 +116,7 @@ class TestPostflightIntegration:
             capture_output=True,
             text=True,
         )
+        assert isinstance(proc.stdout, str)
         assert "WIP" in proc.stdout
 
     @pytest.mark.asyncio

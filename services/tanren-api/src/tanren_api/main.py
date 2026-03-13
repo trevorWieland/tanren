@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware import Middleware
 
 from tanren_api.auth import verify_api_key
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
@@ -20,6 +21,19 @@ from tanren_api.settings import APISettings
 from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 from tanren_core.config import Config
+
+
+def _middleware(cls: object, **kwargs: object) -> Middleware:
+    """Construct a ``Middleware`` entry without triggering ParamSpec issues in ty.
+
+    Returns:
+        Configured Middleware instance.
+    """
+    mw = object.__new__(Middleware)
+    mw.cls = cls
+    mw.args = ()
+    mw.kwargs = kwargs
+    return mw
 
 
 def create_app(settings: APISettings | None = None) -> FastAPI:
@@ -48,24 +62,29 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         yield
         await app.state.emitter.close()
 
+    # Build middleware stack before creating app (order matters: outermost first)
+    middleware_stack: list[Middleware] = [
+        _middleware(RequestIDMiddleware),
+        _middleware(RequestLoggingMiddleware),
+    ]
+    if settings.cors_origins:
+        middleware_stack.append(
+            _middleware(
+                CORSMiddleware,
+                allow_origins=settings.cors_origins,
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+        )
+
     app = FastAPI(
         title="tanren",
         description="Tanren worker-manager HTTP API",
         version="0.1.0",
         lifespan=lifespan,
+        middleware=middleware_stack,
     )
-
-    # Middleware (order matters: outermost first)
-    app.add_middleware(RequestIDMiddleware)
-    app.add_middleware(RequestLoggingMiddleware)
-    if settings.cors_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=settings.cors_origins,
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
 
     # Routers
     app.include_router(health_router_mod.router)

@@ -31,14 +31,14 @@ class TestModels:
 
     def test_dispatch_request_rejects_extra_fields(self):
         with pytest.raises(ValidationError):
-            DispatchRequest(
-                project="p",
-                phase=Phase.DO_TASK,
-                branch="main",
-                spec_folder="s",
-                cli=Cli.CLAUDE,
-                unknown_field="x",
-            )
+            DispatchRequest.model_validate({
+                "project": "p",
+                "phase": Phase.DO_TASK,
+                "branch": "main",
+                "spec_folder": "s",
+                "cli": Cli.CLAUDE,
+                "unknown_field": "x",
+            })
 
     def test_dispatch_request_timeout_minimum(self):
         with pytest.raises(ValidationError):

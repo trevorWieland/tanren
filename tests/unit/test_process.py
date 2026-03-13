@@ -191,6 +191,7 @@ class TestSpawnOpencode:
             asyncio.run(_spawn_opencode(dispatch, tmp_path, config))
 
         # File should be cleaned up after return
+        assert captured_file_path is not None
         assert not Path(captured_file_path).exists()
 
     def test_temp_file_cleaned_up_on_error(self, tmp_path: Path):
@@ -217,6 +218,7 @@ class TestSpawnOpencode:
 
         # File should be cleaned up even after error
         assert captured_file_path is not None
+        # captured_file_path is confirmed not None by the assert above
         assert not Path(captured_file_path).exists()
 
 

@@ -16,7 +16,7 @@ def ssh_config(request):
     key = request.config.getoption("--ssh-key")
     user = request.config.getoption("--ssh-user")
     if not host or not key:
-        pytest.skip("--ssh-host and --ssh-key required")
+        raise ValueError("--ssh-host and --ssh-key are required for SSH tests")
     return SSHConfig(host=host, key_path=key, user=user)
 
 

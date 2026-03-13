@@ -824,7 +824,7 @@ dev = [
     { name = "ruff" },
     { name = "tanren-api" },
     { name = "tanren-cli" },
-    { name = "tanren-core" },
+    { name = "tanren-core", extra = ["hetzner"] },
     { name = "tanren-daemon" },
     { name = "ty" },
 ]
@@ -842,7 +842,7 @@ dev = [
     { name = "ruff", specifier = ">=0.14.14,<1" },
     { name = "tanren-api", editable = "services/tanren-api" },
     { name = "tanren-cli", editable = "services/tanren-cli" },
-    { name = "tanren-core", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["hetzner"], editable = "packages/tanren-core" },
     { name = "tanren-daemon", editable = "services/tanren-daemon" },
     { name = "ty", specifier = ">=0.0.1a13,<1" },
 ]

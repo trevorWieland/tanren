@@ -8,36 +8,14 @@ import os
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Protocol, cast
 
+from hcloud import Client
+from hcloud.servers.client import BoundServer
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 
 logger = logging.getLogger(__name__)
-
-
-class _HasId(Protocol):
-    id: object
-
-
-def _missing_dependency_error() -> RuntimeError:
-    return RuntimeError(
-        "Hetzner provisioner requires optional dependency 'hcloud'. "
-        "Install with: uv sync --extra hetzner"
-    )
-
-
-def _build_hcloud_client(token: str) -> object:
-    try:
-        from hcloud import (  # type: ignore[import-not-found]  # noqa: PLC0415
-            Client,  # optional dependency
-        )
-    except ModuleNotFoundError as exc:
-        if exc.name and exc.name.startswith("hcloud"):
-            raise _missing_dependency_error() from exc
-        raise
-    return Client(token=token)
 
 
 class HetznerProvisionerSettings(BaseModel):
@@ -82,7 +60,7 @@ class HetznerVMProvisioner:
             raise ValueError(
                 f"Missing Hetzner API token in environment variable: {settings.token_env}"
             )
-        self._client = _build_hcloud_client(token)
+        self._client = Client(token=token)
         self._validate_prerequisites()
 
     def _validate_prerequisites(self) -> None:
@@ -122,7 +100,9 @@ class HetznerVMProvisioner:
         if ssh_key is None:
             raise ValueError(f"Hetzner SSH key not found: {self._settings.ssh_key_name}")
 
-        image = self._client.images.get_by_name(self._settings.image) or self._settings.image
+        image = self._client.images.get_by_name(self._settings.image)
+        if image is None:
+            raise ValueError(f"Hetzner image not found: {self._settings.image}")
 
         labels = dict(self._settings.labels)
         labels[self._settings.managed_by_label_key] = self._settings.managed_by_label_value
@@ -189,15 +169,14 @@ class HetznerVMProvisioner:
         """
         selector = f"{self._settings.managed_by_label_key}={self._settings.managed_by_label_value}"
 
-        servers: list[object]
+        servers: list[BoundServer]
         try:
-            servers = list(self._client.servers.get_all(label_selector=selector))
+            servers = self._client.servers.get_all(label_selector=selector)
         except TypeError:
-            servers = list(self._client.servers.get_all())
+            servers = self._client.servers.get_all()
 
         handles: list[VMHandle] = []
         for server in servers:
-            server_with_id = cast(_HasId, server)
             labels = dict(getattr(server, "labels", {}) or {})
             if (
                 labels.get(self._settings.managed_by_label_key)
@@ -212,7 +191,7 @@ class HetznerVMProvisioner:
                 created_at = str(created_at_raw or datetime.now(UTC).isoformat())
             handles.append(
                 VMHandle(
-                    vm_id=str(server_with_id.id),
+                    vm_id=str(server.id),
                     host=host,
                     provider=VMProvider.HETZNER,
                     created_at=created_at,
@@ -224,31 +203,22 @@ class HetznerVMProvisioner:
             )
         return handles
 
-    def _get_server_for_handle(self, handle: VMHandle) -> object | None:
-        server = None
+    def _get_server_for_handle(self, handle: VMHandle) -> BoundServer | None:
+        server: BoundServer | None = None
         if handle.vm_id.isdigit():
-            get_by_id = getattr(self._client.servers, "get_by_id", None)
-            if callable(get_by_id):
-                server = get_by_id(int(handle.vm_id))
+            server = self._client.servers.get_by_id(int(handle.vm_id))
         if server is None:
-            get_by_name = getattr(self._client.servers, "get_by_name", None)
-            if callable(get_by_name):
-                server = get_by_name(handle.vm_id)
+            server = self._client.servers.get_by_name(handle.vm_id)
         return server
 
-    def _delete_server_best_effort(self, server: object, *, context: str) -> None:
-        delete = getattr(server, "delete", None)
-        if not callable(delete):
-            logger.warning("Hetzner %s: server has no delete() method", context)
-            return
+    def _delete_server_best_effort(self, server: BoundServer, *, context: str) -> None:
         try:
-            delete()
+            server.delete()
         except Exception:
-            server_id = getattr(server, "id", "<unknown>")
             logger.warning(
                 "Hetzner %s: failed deleting server %s",
                 context,
-                server_id,
+                server.id,
                 exc_info=True,
             )
 

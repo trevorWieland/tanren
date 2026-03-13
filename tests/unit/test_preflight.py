@@ -85,6 +85,7 @@ class TestRunPreflightBranchCheck:
             result = await run_preflight(worktree, "my-branch", spec, "do-task")
 
         assert result.passed is False
+        assert result.error is not None
         assert "Cannot checkout" in result.error
 
 
@@ -186,6 +187,7 @@ class TestRunPreflightCommandFile:
             result = await run_preflight(worktree, "my-branch", spec, "do-task")
 
         assert result.passed is False
+        assert result.error is not None
         assert "Command file missing" in result.error
 
 
@@ -207,6 +209,7 @@ class TestRunPreflightInvestigatePhase:
             result = await run_preflight(worktree, "my-branch", spec, "investigate")
 
         assert result.passed is False
+        assert result.error is not None
         assert "Command file missing" in result.error
 
     @pytest.mark.asyncio

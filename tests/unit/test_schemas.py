@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from tanren_core.postflight import IntegrityRepairs
 from tanren_core.schemas import (
     AuditResult,
     Cli,
@@ -101,34 +102,34 @@ class TestDispatch:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            Dispatch(
-                workflow_id="wf-rentl-144-1741359600",
-                phase=Phase.DO_TASK,
-                project="rentl",
-                spec_folder="tanren/specs/test",
-                branch="main",
-                cli=Cli.OPENCODE,
-                model="glm-5",
-                gate_cmd=None,
-                context=None,
-                timeout=1800,
-                extra_field="not allowed",
-            )
+            Dispatch.model_validate({
+                "workflow_id": "wf-rentl-144-1741359600",
+                "phase": Phase.DO_TASK,
+                "project": "rentl",
+                "spec_folder": "tanren/specs/test",
+                "branch": "main",
+                "cli": Cli.OPENCODE,
+                "model": "glm-5",
+                "gate_cmd": None,
+                "context": None,
+                "timeout": 1800,
+                "extra_field": "not allowed",
+            })
 
     def test_invalid_phase(self):
         with pytest.raises(ValidationError):
-            Dispatch(
-                workflow_id="wf-rentl-144-1741359600",
-                phase="invalid",
-                project="rentl",
-                spec_folder="tanren/specs/test",
-                branch="main",
-                cli=Cli.OPENCODE,
-                model="glm-5",
-                gate_cmd=None,
-                context=None,
-                timeout=1800,
-            )
+            Dispatch.model_validate({
+                "workflow_id": "wf-rentl-144-1741359600",
+                "phase": "invalid",
+                "project": "rentl",
+                "spec_folder": "tanren/specs/test",
+                "branch": "main",
+                "cli": Cli.OPENCODE,
+                "model": "glm-5",
+                "gate_cmd": None,
+                "context": None,
+                "timeout": 1800,
+            })
 
     def test_roundtrip_json(self):
         d = Dispatch(
@@ -297,7 +298,7 @@ class TestGateResult:
 
     def test_extra_forbid(self):
         with pytest.raises(ValidationError):
-            GateResult(attempt=1, passed=True, extra="bad")
+            GateResult.model_validate({"attempt": 1, "passed": True, "extra": "bad"})
 
 
 class TestAuditResult:
@@ -397,9 +398,10 @@ class TestResultExtended:
             unchecked_tasks=0,
             plan_hash="a3f2b8c1",
             spec_modified=False,
-            integrity_repairs={"spec_reverted": True},
+            integrity_repairs=IntegrityRepairs(spec_reverted=True),
             new_tasks=[{"id": 10, "title": "Fix bug"}],
         )
+        assert r.integrity_repairs is not None
         assert r.integrity_repairs.spec_reverted is True
         assert len(r.new_tasks) == 1
 
@@ -454,7 +456,7 @@ class TestFinding:
 
     def test_extra_forbid(self):
         with pytest.raises(ValidationError):
-            Finding(title="Bug", extra="bad")
+            Finding.model_validate({"title": "Bug", "extra": "bad"})
 
 
 class TestFindingsOutput:

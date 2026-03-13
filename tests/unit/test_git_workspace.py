@@ -11,6 +11,7 @@ from tanren_core.adapters.remote_types import (
     WorkspacePath,
     WorkspaceSpec,
 )
+from tanren_core.remote_config import GitAuthMethod
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,15 +33,15 @@ def _make_conn() -> AsyncMock:
     return conn
 
 
-def _spec(**overrides) -> WorkspaceSpec:
-    defaults = {
+def _spec(**overrides: object) -> WorkspaceSpec:
+    defaults: dict[str, object] = {
         "project": "myapp",
         "repo_url": "https://github.com/org/myapp.git",
         "branch": "main",
         "setup_commands": (),
     }
     defaults.update(overrides)
-    return WorkspaceSpec(**defaults)
+    return WorkspaceSpec.model_validate(defaults)
 
 
 def _workspace() -> WorkspacePath:
@@ -56,7 +57,7 @@ class TestGitAuth:
     @pytest.mark.asyncio
     async def test_setup_git_auth_uploads_askpass_script(self):
         conn = _make_conn()
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_abc"))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token="ghp_abc"))
         await mgr._setup_git_auth(conn)
 
         conn.upload_content.assert_called_once()
@@ -70,19 +71,19 @@ class TestGitAuth:
     @pytest.mark.asyncio
     async def test_setup_git_auth_skipped_without_token(self):
         conn = _make_conn()
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token=None))
         await mgr._setup_git_auth(conn)
 
         conn.upload_content.assert_not_called()
 
     def test_git_env_prefix_with_token(self):
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_abc"))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token="ghp_abc"))
         prefix = mgr._git_env_prefix()
         assert "GIT_ASKPASS=/workspace/.git-askpass" in prefix
         assert "GIT_TERMINAL_PROMPT=0" in prefix
 
     def test_git_env_prefix_without_token(self):
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token=None))
         assert not mgr._git_env_prefix()
 
 
@@ -100,7 +101,7 @@ class TestSetup:
             _ok(""),  # test -d .git -> no "exists"
             _ok(),  # git clone
         ]
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_tok"))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token="ghp_tok"))
         spec = _spec()
         wp = await mgr.setup(conn, spec)
 
@@ -122,7 +123,7 @@ class TestSetup:
             _ok(""),  # test -d .git -> no "exists"
             _ok(),  # git clone
         ]
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token=None))
         await mgr.setup(conn, _spec())
 
         clone_calls = [c for c in conn.run.call_args_list if "git clone" in str(c)]
@@ -256,7 +257,7 @@ class TestInjectSecrets:
 
 class TestPushCommand:
     def test_push_command_with_token_includes_auth_env(self):
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token="ghp_abc"))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token="ghp_abc"))
         cmd = mgr.push_command("/workspace/myapp", "feature-1")
         assert "GIT_ASKPASS=/workspace/.git-askpass" in cmd
         assert "GIT_TERMINAL_PROMPT=0" in cmd
@@ -265,7 +266,7 @@ class TestPushCommand:
         assert "cd /workspace/myapp" in cmd
 
     def test_push_command_without_token_no_auth_env(self):
-        mgr = GitWorkspaceManager(GitAuthConfig(auth_method="token", token=None))
+        mgr = GitWorkspaceManager(GitAuthConfig(auth_method=GitAuthMethod.TOKEN, token=None))
         cmd = mgr.push_command("/workspace/myapp", "main")
         assert "GIT_ASKPASS" not in cmd
         assert "git push origin main" in cmd

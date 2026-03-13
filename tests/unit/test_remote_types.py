@@ -21,17 +21,17 @@ class TestImmutability:
     def test_vm_requirements_frozen(self):
         req = VMRequirements(profile="small")
         with pytest.raises(ValidationError, match="Instance is frozen"):
-            req.cpu = 8  # type: ignore[misc]
+            req.cpu = 8
 
     def test_vm_handle_frozen(self):
         handle = VMHandle(vm_id="v1", host="h", provider=VMProvider.MANUAL, created_at="t")
         with pytest.raises(ValidationError, match="Instance is frozen"):
-            handle.host = "other"  # type: ignore[misc]
+            handle.host = "other"
 
     def test_workspace_spec_frozen(self):
         spec = WorkspaceSpec(project="proj", repo_url="url", branch="main")
         with pytest.raises(ValidationError, match="Instance is frozen"):
-            spec.branch = "dev"  # type: ignore[misc]
+            spec.branch = "dev"
 
 
 class TestEquality:

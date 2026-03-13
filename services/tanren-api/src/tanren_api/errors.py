@@ -51,12 +51,13 @@ class ServiceError(TanrenAPIError):
         super().__init__(500, "service_error", detail)
 
 
-async def tanren_error_handler(request: Request, exc: TanrenAPIError) -> JSONResponse:  # noqa: RUF029 — FastAPI requires async exception handlers
+async def tanren_error_handler(request: Request, exc: Exception) -> JSONResponse:  # noqa: RUF029 — FastAPI requires async exception handlers
     """Global exception handler returning consistent ErrorResponse bodies.
 
     Returns:
         JSONResponse with structured error body.
     """
+    assert isinstance(exc, TanrenAPIError)
     request_id = getattr(request.state, "request_id", None)
     body = ErrorResponse(
         detail=exc.detail,

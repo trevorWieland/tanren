@@ -26,7 +26,11 @@ from tanren_core.adapters.types import (
     RemoteEnvironmentRuntime,
 )
 from tanren_core.config import Config
-from tanren_core.env.environment_schema import EnvironmentProfile, ResourceRequirements
+from tanren_core.env.environment_schema import (
+    EnvironmentProfile,
+    EnvironmentProfileType,
+    ResourceRequirements,
+)
 from tanren_core.errors import ErrorClass
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 
@@ -93,7 +97,7 @@ def _make_bootstrap_result() -> BootstrapResult:
 def _make_profile() -> EnvironmentProfile:
     return EnvironmentProfile(
         name="default",
-        type="remote",
+        type=EnvironmentProfileType.REMOTE,
         resources=ResourceRequirements(cpu=2, memory_gb=4, gpu=False),
         setup=("make setup",),
         teardown=("make clean",),

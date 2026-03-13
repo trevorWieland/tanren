@@ -28,7 +28,7 @@ class TestSSHConfig:
     def test_frozen(self):
         cfg = SSHConfig(host="10.0.0.1")
         with pytest.raises(ValidationError, match="Instance is frozen"):
-            cfg.host = "other"  # type: ignore[misc]
+            cfg.host = "other"
 
 
 # ---------------------------------------------------------------------------

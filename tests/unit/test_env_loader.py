@@ -89,6 +89,7 @@ class TestParseTanrenYml:
             '      default: "INFO"\n'
         )
         config = parse_tanren_yml(tmp_path)
+        assert config is not None
         assert config.env is not None
         assert len(config.env.optional) == 1
         assert config.env.optional[0].default == "INFO"

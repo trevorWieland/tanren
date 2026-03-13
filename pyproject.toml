@@ -90,7 +90,7 @@ exclude_lines = [
 # ===== DEV DEPENDENCIES =====
 [dependency-groups]
 dev = [
-    "tanren-core",
+    "tanren-core[hetzner]",
     "tanren-cli",
     "tanren-api",
     "tanren-daemon",
