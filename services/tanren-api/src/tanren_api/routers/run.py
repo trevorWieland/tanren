@@ -7,7 +7,7 @@ import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, cast
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
 
@@ -63,8 +63,9 @@ async def run_provision(
     )
 
     handle = await execution_env.provision(dispatch, config)
-    runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-    vm_handle = runtime.vm_handle
+    if not isinstance(handle.runtime, RemoteEnvironmentRuntime):
+        raise ServiceError("Provisioned environment is not a remote runtime")
+    vm_handle = handle.runtime.vm_handle
 
     record = EnvironmentRecord(
         env_id=handle.env_id,
@@ -222,8 +223,9 @@ async def run_full(
         handle: EnvironmentHandle | None = None
         try:
             handle = await execution_env.provision(dispatch, config)
-            runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-            vm_handle = runtime.vm_handle
+            if not isinstance(handle.runtime, RemoteEnvironmentRuntime):
+                raise ServiceError("Provisioned environment is not a remote runtime")
+            vm_handle = handle.runtime.vm_handle
 
             env_record = EnvironmentRecord(
                 env_id=handle.env_id,

@@ -27,7 +27,7 @@ from tanren_core.adapters.events import DispatchReceived
 from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment
 from tanren_core.config import Config
 from tanren_core.ipc import atomic_write, generate_filename
-from tanren_core.schemas import Dispatch, Outcome
+from tanren_core.schemas import Dispatch, Outcome, Result
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,42 @@ router = APIRouter(tags=["dispatch"])
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+async def _check_daemon_result(config: Config, workflow_id: str, store: APIStateStore) -> None:
+    """Scan IPC results directory for a daemon-produced result matching workflow_id."""
+    results_dir = Path(config.ipc_dir) / "results"
+    if not results_dir.exists():
+        return
+
+    def _scan() -> Result | None:
+        for entry in results_dir.iterdir():
+            if entry.suffix != ".json":
+                continue
+            try:
+                content = entry.read_text()
+                result = Result.model_validate_json(content)
+                if result.workflow_id == workflow_id:
+                    return result
+            except Exception:
+                continue
+        return None
+
+    result = await asyncio.to_thread(_scan)
+    if result is None:
+        return
+
+    status = (
+        DispatchRunStatus.COMPLETED
+        if result.outcome in (Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED)
+        else DispatchRunStatus.FAILED
+    )
+    await store.update_dispatch(
+        workflow_id,
+        status=status,
+        outcome=result.outcome,
+        completed_at=_now(),
+    )
 
 
 async def _dispatch_background(
@@ -145,11 +181,23 @@ async def create_dispatch(
 async def get_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
     store: Annotated[APIStateStore, Depends(get_api_store)],
+    config: Annotated[Config, Depends(get_config)],
 ) -> DispatchDetail:
     """Query dispatch status by workflow ID."""
     record = await store.get_dispatch(dispatch_id)
     if record is None:
         raise NotFoundError(f"Dispatch {dispatch_id} not found")
+
+    # Lazy-check daemon results for IPC-delegated dispatches still pending
+    if (
+        record.status == DispatchRunStatus.PENDING
+        and record.dispatch_path is not None
+        and record.task is None
+    ):
+        await _check_daemon_result(config, dispatch_id, store)
+        record = await store.get_dispatch(dispatch_id)
+        if record is None:
+            raise NotFoundError(f"Dispatch {dispatch_id} not found")
 
     d = record.dispatch
     return DispatchDetail(

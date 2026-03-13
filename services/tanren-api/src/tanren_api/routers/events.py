@@ -58,7 +58,9 @@ async def list_events(
             events.append(event)
         except Exception:
             skipped += 1
-            logger.warning("Skipping unparseable event %d: %s", row.id, row.event_type)
+            logger.warning(
+                "Skipping unparseable event %d: %s", row.id, row.event_type, exc_info=True
+            )
 
     return PaginatedEvents(
         events=events,

@@ -1,6 +1,8 @@
 """Tests for dispatch endpoints."""
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -193,3 +195,65 @@ class TestDispatch:
     async def test_cancel_dispatch_not_found(self, client, auth_headers):
         resp = await client.delete("/api/v1/dispatch/nonexistent-id", headers=auth_headers)
         assert resp.status_code == 404
+
+    async def test_get_dispatch_resolves_daemon_result(self, client, auth_headers, app):
+        """Daemon-delegated dispatch resolves when result file appears in IPC results dir."""
+        app.state.execution_env = None
+
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # Write a matching result JSON to {ipc_dir}/results/
+        results_dir = Path(app.state.config.ipc_dir) / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        result_data = {
+            "workflow_id": dispatch_id,
+            "phase": "do-task",
+            "outcome": "success",
+            "signal": "complete",
+            "exit_code": 0,
+            "duration_secs": 42,
+            "spec_modified": False,
+        }
+        result_file = results_dir / f"{dispatch_id}.json"
+        result_file.write_text(json.dumps(result_data))
+
+        # GET dispatch — should resolve to completed
+        resp = await client.get(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+        assert data["outcome"] == "success"
+
+    async def test_get_dispatch_pending_no_result_stays_pending(self, client, auth_headers, app):
+        """Daemon-delegated dispatch with no result file stays pending."""
+        app.state.execution_env = None
+
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "test-project",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+            },
+            headers=auth_headers,
+        )
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # GET dispatch — no result file, should stay pending
+        resp = await client.get(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "pending"

@@ -33,15 +33,12 @@ router = APIRouter(tags=["vm"])
 
 def _derive_provider(config: Config) -> VMProvider:
     """Derive VM provider from remote config."""
-    provider = VMProvider.MANUAL
-    if config.remote_config_path:
-        try:
-            remote_cfg = load_remote_config(config.remote_config_path)
-            if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
-                provider = VMProvider.HETZNER
-        except Exception:
-            pass
-    return provider
+    if not config.remote_config_path:
+        return VMProvider.MANUAL
+    remote_cfg = load_remote_config(config.remote_config_path)
+    if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+        return VMProvider.HETZNER
+    return VMProvider.MANUAL
 
 
 @router.get("/vm")
@@ -123,7 +120,7 @@ async def release_vm(
     if assignment is None:
         raise NotFoundError(f"VM {vm_id} not found")
 
-    # Release via provider first (best-effort)
+    # Release via provider first — must succeed before updating state
     if execution_env is not None:
         provider = _derive_provider(config)
         vm_handle = VMHandle(
@@ -132,12 +129,9 @@ async def release_vm(
             provider=provider,
             created_at=assignment.assigned_at,
         )
-        try:
-            await execution_env.release_vm(vm_handle)
-        except Exception:
-            logger.warning("Provider release failed for VM %s", vm_id, exc_info=True)
+        await execution_env.release_vm(vm_handle)
 
-    # Always update state tracking
+    # Update state tracking only after successful provider release
     await vm_state_store.record_release(vm_id)
     return VMReleaseConfirmed(vm_id=vm_id)
 
