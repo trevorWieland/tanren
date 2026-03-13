@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -235,6 +236,7 @@ async def test_dispatch_lifecycle(client, auth_headers, app):
     )
     assert resp.status_code == 200
     dispatch_id = resp.json()["dispatch_id"]
+    assert re.match(r"^wf-.*-\d+-\d+$", dispatch_id)
 
     # Query
     resp = await client.get(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
@@ -245,6 +247,33 @@ async def test_dispatch_lifecycle(client, auth_headers, app):
     resp = await client.delete(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_cancel_terminal_returns_409(client, auth_headers, app):
+    """DELETE /api/v1/dispatch/{id} returns 409 for already-cancelled dispatch."""
+    app.state.execution_env = None
+
+    resp = await client.post(
+        "/api/v1/dispatch",
+        headers=auth_headers,
+        json={
+            "project": "test",
+            "phase": "do-task",
+            "branch": "main",
+            "spec_folder": "specs/test",
+            "cli": "claude",
+        },
+    )
+    dispatch_id = resp.json()["dispatch_id"]
+
+    # Cancel once
+    resp = await client.delete(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+    assert resp.status_code == 200
+
+    # Cancel again → 409
+    resp = await client.delete(f"/api/v1/dispatch/{dispatch_id}", headers=auth_headers)
+    assert resp.status_code == 409
 
 
 @pytest.mark.asyncio
@@ -299,6 +328,33 @@ async def test_vm_release_not_found(client, auth_headers):
     """DELETE /api/v1/vm/{id} returns 404 for unknown ID."""
     resp = await client.delete("/api/v1/vm/nonexistent", headers=auth_headers)
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_vm_provision(client, auth_headers):
+    """POST /api/v1/vm/provision returns VMHandle fields."""
+    resp = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "vm_id" in data
+    assert "host" in data
+    assert "provider" in data
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_no_exec_env(client, auth_headers, app):
+    """POST /api/v1/vm/provision returns 500 when no execution env."""
+    app.state.execution_env = None
+    resp = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert resp.status_code == 500
 
 
 @pytest.mark.asyncio

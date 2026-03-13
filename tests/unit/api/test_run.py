@@ -105,6 +105,29 @@ class TestRun:
         resp = await client.get("/api/v1/run/nonexistent/status", headers=auth_headers)
         assert resp.status_code == 404
 
+    async def test_execute_no_execution_env(self, client, auth_headers, app):
+        # Provision first (with execution_env available)
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Now remove execution_env
+        app.state.execution_env = None
+
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/execute",
+            json={
+                "project": "test",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 500
+
     async def test_full_returns_accepted(self, client, auth_headers):
         resp = await client.post(
             "/api/v1/run/full",

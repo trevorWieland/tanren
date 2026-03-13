@@ -262,7 +262,7 @@
           "vm"
         ],
         "summary": "Provision Vm",
-        "description": "Provision a new VM.\n\nReturns:\n    VMHandle-shaped dict with vm_id, host, provider, created_at.",
+        "description": "Provision a new VM.\n\nReturns:\n    VMHandle with vm_id, host, provider, created_at.",
         "operationId": "provision_vm_api_v1_vm_provision_post",
         "parameters": [
           {
@@ -291,9 +291,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Provision Vm Api V1 Vm Provision Post"
+                  "$ref": "#/components/schemas/VMHandle"
                 }
               }
             }
@@ -1274,6 +1272,13 @@
             ],
             "title": "Gate Cmd",
             "description": "Shell command for gate phases"
+          },
+          "issue": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Issue",
+            "description": "GitHub issue number (0 = API-originated)",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -1590,6 +1595,13 @@
             "type": "integer",
             "title": "Offset",
             "description": "Current offset"
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Skipped",
+            "description": "Events skipped due to parse errors",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -2179,6 +2191,54 @@
         ],
         "title": "VMDryRunResult",
         "description": "Result of a VM dry-run provisioning check."
+      },
+      "VMHandle": {
+        "properties": {
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/VMProvider",
+            "default": "manual"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Labels"
+          },
+          "hourly_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Cost"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "vm_id",
+          "host",
+          "created_at"
+        ],
+        "title": "VMHandle",
+        "description": "Handle to a provisioned VM."
       },
       "VMProvider": {
         "type": "string",

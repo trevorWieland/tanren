@@ -62,7 +62,7 @@ async def query_events(
     if where_clauses:
         where_sql = " WHERE " + " AND ".join(where_clauses)
 
-    async with aiosqlite.connect(str(db_path), uri=False) as conn:
+    async with aiosqlite.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
         # Total count
         count_sql = f"SELECT COUNT(*) FROM events{where_sql}"
         cursor = await conn.execute(count_sql, params)

@@ -51,11 +51,19 @@ async def list_events(
 
     # Parse payloads into typed events
     events = []
+    skipped = 0
     for row in result.events:
         try:
             event = _event_adapter.validate_python(row.payload)
             events.append(event)
         except Exception:
-            logger.debug("Skipping unparseable event %d: %s", row.id, row.event_type)
+            skipped += 1
+            logger.warning("Skipping unparseable event %d: %s", row.id, row.event_type)
 
-    return PaginatedEvents(events=events, total=result.total, limit=limit, offset=offset)
+    return PaginatedEvents(
+        events=events,
+        total=result.total - skipped,
+        limit=limit,
+        offset=offset,
+        skipped=skipped,
+    )

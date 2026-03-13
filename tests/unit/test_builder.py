@@ -13,7 +13,7 @@ from tanren_core.builder import build_ssh_execution_environment
 from tanren_core.config import Config
 
 
-def _make_config(tmp_path: Path, remote_config_path: str) -> Config:
+def _make_config(tmp_path: Path, remote_config_path: str | None) -> Config:
     return Config(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path / "github"),
@@ -57,4 +57,11 @@ repos: []
         emitter = NullEventEmitter()
 
         with pytest.raises((ValueError, ValidationError)):
+            build_ssh_execution_environment(config, emitter)
+
+    def test_build_no_remote_config_path_raises_value_error(self, tmp_path):
+        config = _make_config(tmp_path, remote_config_path=None)
+        emitter = NullEventEmitter()
+
+        with pytest.raises(ValueError, match="remote_config_path is required"):
             build_ssh_execution_environment(config, emitter)

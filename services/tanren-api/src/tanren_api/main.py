@@ -65,7 +65,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
                 app.state.execution_env = env
                 app.state.vm_state_store = vm_store
             except Exception:
-                logger.warning("Failed to initialize remote execution environment")
+                logger.warning("Failed to initialize remote execution environment", exc_info=True)
 
         yield
 

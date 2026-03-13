@@ -79,6 +79,7 @@ class DispatchRequest(BaseModel):
     environment_profile: str = Field(default="default", description="Environment profile name")
     context: str | None = Field(default=None, description="Extra context for the agent")
     gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
+    issue: int = Field(default=0, ge=0, description="GitHub issue number (0 = API-originated)")
 
 
 class ProvisionRequest(BaseModel):
@@ -343,3 +344,4 @@ class PaginatedEvents(BaseModel):
     total: int = Field(..., description="Total matching events")
     limit: int = Field(..., description="Page size")
     offset: int = Field(..., description="Current offset")
+    skipped: int = Field(default=0, ge=0, description="Events skipped due to parse errors")

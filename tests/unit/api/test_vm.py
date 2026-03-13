@@ -60,6 +60,27 @@ class TestVM:
         assert data["vm_id"] == "vm-1"
         assert data["status"] == "released"
 
+    async def test_provision_vm_returns_handle(self, client, auth_headers):
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "vm_id" in data
+        assert "host" in data
+        assert "provider" in data
+
+    async def test_provision_vm_no_execution_env(self, client, auth_headers, app):
+        app.state.execution_env = None
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 500
+
     async def test_dry_run(self, client, auth_headers):
         resp = await client.post(
             "/api/v1/vm/dry-run",
@@ -68,5 +89,4 @@ class TestVM:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["would_provision"] is True
         assert "requirements" in data

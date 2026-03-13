@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import aiosqlite
+import pytest
 
 from tanren_core.adapters.event_reader import query_events
 from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
@@ -22,6 +23,47 @@ async def _setup_db(db_path, events: list[tuple[str, str, str, dict]]):
             )
             await conn.execute(sql, (ts, wid, etype, json.dumps(payload)))
         await conn.commit()
+
+
+class TestReadOnlyConnection:
+    async def test_readonly_connection(self, tmp_path):
+        """Verify the event reader uses a read-only SQLite connection."""
+        import sqlite3  # noqa: PLC0415
+
+        db = tmp_path / "events.db"
+        # Create the DB first with read-write
+        async with aiosqlite.connect(str(db)) as conn:
+            await conn.executescript(_SCHEMA)
+            await conn.execute(
+                "INSERT INTO events (timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    json.dumps({
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    }),
+                ),
+            )
+            await conn.commit()
+
+        # query_events should succeed (reads work)
+        result = await query_events(db)
+        assert result.total == 1
+
+        # Verify read-only URI rejects writes
+        ro_conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            with pytest.raises(sqlite3.OperationalError):
+                ro_conn.execute("DELETE FROM events")
+        finally:
+            ro_conn.close()
 
 
 class TestQueryEvents:

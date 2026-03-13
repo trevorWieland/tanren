@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -136,6 +137,23 @@ class TestAPIStateStore:
 
         found = await store.get_environment("env-1")
         assert found is None
+
+    async def test_update_dispatch_with_task(self):
+        store = APIStateStore()
+        await store.add_dispatch(_make_dispatch_record())
+
+        async def noop():
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(noop())
+        await store.update_dispatch("wf-1", task=task)
+
+        found = await store.get_dispatch("wf-1")
+        assert found is not None
+        assert found.task is task
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def test_shutdown_cancels_tasks(self):
         store = APIStateStore()

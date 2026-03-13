@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
@@ -18,9 +19,11 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_core.adapters.protocols import ExecutionEnvironment
-from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
+from tanren_core.adapters.types import RemoteEnvironmentRuntime
 from tanren_core.config import Config
+from tanren_core.remote_config import ProvisionerType, load_remote_config
 from tanren_core.schemas import Cli, Dispatch, Phase
 
 logger = logging.getLogger(__name__)
@@ -28,20 +31,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["vm"])
 
 
+def _derive_provider(config: Config) -> VMProvider:
+    """Derive VM provider from remote config."""
+    provider = VMProvider.MANUAL
+    if config.remote_config_path:
+        try:
+            remote_cfg = load_remote_config(config.remote_config_path)
+            if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+                provider = VMProvider.HETZNER
+        except Exception:
+            pass
+    return provider
+
+
 @router.get("/vm")
 async def list_vms(
     vm_state_store: Annotated[SqliteVMStateStore | None, Depends(get_vm_state_store)],
+    config: Annotated[Config, Depends(get_config)],
 ) -> list[VMSummary]:
     """List active VM assignments."""
     if vm_state_store is None:
         return []
 
+    provider = _derive_provider(config)
     assignments = await vm_state_store.get_active_assignments()
     return [
         VMSummary(
             vm_id=a.vm_id,
             host=a.host,
-            provider=VMProvider.MANUAL,
+            provider=provider,
             workflow_id=a.workflow_id,
             project=a.project,
             status=VMStatus.ACTIVE,
@@ -56,17 +74,17 @@ async def provision_vm(
     body: ProvisionRequest,
     execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
     config: Annotated[Config, Depends(get_config)],
-) -> dict[str, object]:
+) -> VMHandle:
     """Provision a new VM.
 
     Returns:
-        VMHandle-shaped dict with vm_id, host, provider, created_at.
+        VMHandle with vm_id, host, provider, created_at.
     """
     if execution_env is None:
         raise ServiceError("Remote execution environment not configured")
 
     dispatch = Dispatch(
-        workflow_id=f"vm-provision-{body.project}",
+        workflow_id=f"vm-provision-{body.project}-{uuid.uuid4().hex[:8]}",
         project=body.project,
         phase=Phase.DO_TASK,
         branch=body.branch,
@@ -77,8 +95,9 @@ async def provision_vm(
     )
     handle = await execution_env.provision(dispatch, config)
     runtime = handle.runtime
-    vm_handle = runtime.vm_handle  # type: ignore[union-attr]
-    return vm_handle.model_dump()
+    if not isinstance(runtime, RemoteEnvironmentRuntime):
+        raise ServiceError("Provisioned environment is not a remote runtime")
+    return runtime.vm_handle
 
 
 @router.delete("/vm/{vm_id}")
@@ -99,11 +118,16 @@ async def release_vm(
 
 
 @router.post("/vm/dry-run")
-async def dry_run_provision(body: ProvisionRequest) -> VMDryRunResult:
+async def dry_run_provision(
+    body: ProvisionRequest,
+    execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
+    config: Annotated[Config, Depends(get_config)],
+) -> VMDryRunResult:
     """Dry-run provision — show what would happen without creating resources."""
+    provider = _derive_provider(config)
     requirements = VMRequirements(profile=body.environment_profile)
     return VMDryRunResult(
-        provider=VMProvider.MANUAL,
-        would_provision=True,
+        provider=provider,
+        would_provision=execution_env is not None,
         requirements=requirements,
     )

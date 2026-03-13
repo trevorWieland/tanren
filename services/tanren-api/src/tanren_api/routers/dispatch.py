@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends
 from fastapi import Path as PathParam
 
 from tanren_api.dependencies import get_api_store, get_config, get_emitter, get_execution_env
-from tanren_api.errors import NotFoundError
+from tanren_api.errors import ConflictError, NotFoundError
 from tanren_api.models import (
     DispatchAccepted,
     DispatchCancelled,
@@ -85,7 +85,8 @@ async def create_dispatch(
     execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
 ) -> DispatchAccepted:
     """Accept a new dispatch request."""
-    workflow_id = f"wf-{body.project}-{uuid.uuid4().hex[:8]}"
+    epoch = int(time.time())
+    workflow_id = f"wf-{body.project}-{body.issue}-{epoch}"
 
     dispatch = Dispatch(
         workflow_id=workflow_id,
@@ -114,6 +115,7 @@ async def create_dispatch(
         status=DispatchRunStatus.PENDING,
         created_at=_now(),
     )
+    record.dispatch_path = dispatch_path
     await store.add_dispatch(record)
 
     # Emit event
@@ -132,7 +134,7 @@ async def create_dispatch(
         task = asyncio.create_task(
             _dispatch_background(dispatch, workflow_id, execution_env, config, store)
         )
-        record.task = task
+        await store.update_dispatch(workflow_id, task=task)
 
     return DispatchAccepted(dispatch_id=workflow_id)
 
@@ -178,6 +180,13 @@ async def cancel_dispatch(
     if record is None:
         raise NotFoundError(f"Dispatch {dispatch_id} not found")
 
+    if record.status in (
+        DispatchRunStatus.COMPLETED,
+        DispatchRunStatus.FAILED,
+        DispatchRunStatus.CANCELLED,
+    ):
+        raise ConflictError(f"Dispatch {dispatch_id} is already {record.status}")
+
     if record.status == DispatchRunStatus.PENDING:
         await store.update_dispatch(
             dispatch_id,
@@ -193,5 +202,12 @@ async def cancel_dispatch(
             status=DispatchRunStatus.CANCELLED,
             completed_at=_now(),
         )
+
+    # Remove IPC dispatch file to prevent daemon pickup
+    if record.dispatch_path is not None:
+        try:
+            record.dispatch_path.unlink(missing_ok=True)
+        except OSError:
+            logger.debug("Could not remove dispatch file for %s", dispatch_id)
 
     return DispatchCancelled(dispatch_id=dispatch_id)

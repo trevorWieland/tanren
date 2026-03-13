@@ -88,6 +88,41 @@ class TestEvents:
         assert data["total"] == 5
         assert len(data["events"]) == 2
 
+    async def test_events_skipped_count(self, client, auth_headers, app, tmp_path):
+        db = tmp_path / "events.db"
+        await _setup_events_db(
+            db,
+            [
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    },
+                ),
+                (
+                    "2026-01-01T00:00:01Z",
+                    "wf-1",
+                    "BadEvent",
+                    {"type": "nonexistent_type", "garbage": True},
+                ),
+            ],
+        )
+        app.state.settings.events_db = str(db)
+
+        resp = await client.get("/api/v1/events", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped"] == 1
+        assert len(data["events"]) == 1
+        assert data["total"] == 1  # total adjusted by skipped
+
     async def test_events_filter_workflow_id(self, client, auth_headers, app, tmp_path):
         db = tmp_path / "events.db"
         await _setup_events_db(

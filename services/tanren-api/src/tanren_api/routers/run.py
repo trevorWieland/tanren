@@ -103,6 +103,9 @@ async def run_execute(
     if record.status not in (RunEnvironmentStatus.PROVISIONED, RunEnvironmentStatus.COMPLETED):
         raise ConflictError(f"Environment {env_id} is in state {record.status}")
 
+    if execution_env is None:
+        raise ServiceError("Remote execution environment not configured")
+
     dispatch_id = f"exec-{uuid.uuid4().hex[:8]}"
     dispatch = Dispatch(
         workflow_id=dispatch_id,
@@ -119,7 +122,6 @@ async def run_execute(
 
     async def _execute_background() -> None:
         try:
-            assert execution_env is not None
             result = await execution_env.execute(record.handle, dispatch, config)
             await store.update_environment(
                 env_id,
@@ -147,7 +149,7 @@ async def run_execute(
     )
 
     task = asyncio.create_task(_execute_background())
-    record.task = task
+    await store.update_environment(env_id, task=task)
 
     return RunExecuteAccepted(env_id=env_id, dispatch_id=dispatch_id)
 
@@ -213,7 +215,6 @@ async def run_full(
     async def _full_lifecycle() -> None:
         handle: EnvironmentHandle | None = None
         try:
-            assert execution_env is not None
             handle = await execution_env.provision(dispatch, config)
             runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
             vm_handle = runtime.vm_handle
@@ -272,7 +273,7 @@ async def run_full(
     await store.add_dispatch(dispatch_record)
 
     task = asyncio.create_task(_full_lifecycle())
-    dispatch_record.task = task
+    await store.update_dispatch(workflow_id, task=task)
 
     return DispatchAccepted(dispatch_id=workflow_id)
 

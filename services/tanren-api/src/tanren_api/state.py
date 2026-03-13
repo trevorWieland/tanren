@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from tanren_api.models import DispatchRunStatus, RunEnvironmentStatus
 from tanren_core.adapters.types import EnvironmentHandle
@@ -28,6 +29,7 @@ class DispatchRecord:
     started_at: str | None = None
     completed_at: str | None = None
     task: asyncio.Task[None] | None = None
+    dispatch_path: Path | None = None
 
 
 @dataclass
@@ -50,8 +52,8 @@ class EnvironmentRecord:
 class APIStateStore:
     """In-memory store for dispatches and environments.
 
-    Thread-safe via asyncio.Lock. Acceptable for v1 — API restart
-    loses tracking but VMs are recovered by daemon startup recovery.
+    Dict operations are synchronized via asyncio.Lock. Field updates
+    should use the update_* methods. Acceptable for single-worker mode.
     """
 
     def __init__(self) -> None:
@@ -80,6 +82,7 @@ class APIStateStore:
         outcome: Outcome | None = None,
         started_at: str | None = None,
         completed_at: str | None = None,
+        task: asyncio.Task[None] | None = None,
     ) -> None:
         """Update fields on an existing dispatch record."""
         async with self._lock:
@@ -94,6 +97,8 @@ class APIStateStore:
                 record.started_at = started_at
             if completed_at is not None:
                 record.completed_at = completed_at
+            if task is not None:
+                record.task = task
 
     async def remove_dispatch(self, dispatch_id: str) -> DispatchRecord | None:
         """Remove and return a dispatch record."""

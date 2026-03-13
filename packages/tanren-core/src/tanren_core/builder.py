@@ -38,7 +38,8 @@ def build_ssh_execution_environment(
     Raises:
         ValueError: If the provisioner type in remote.yml is unsupported.
     """
-    assert config.remote_config_path is not None
+    if config.remote_config_path is None:
+        raise ValueError("remote_config_path is required to build SSH execution environment")
     remote_cfg = load_remote_config(config.remote_config_path)
 
     ssh_defaults = SSHConfig(

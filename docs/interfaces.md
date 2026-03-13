@@ -38,22 +38,22 @@ Tanren exposes a FastAPI-based HTTP API for dashboard and multi-coordinator use 
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/health` | GET | No | Health check |
-| `/dispatch` | POST | Yes | Submit a new dispatch |
-| `/dispatch/{dispatch_id}` | GET | Yes | Get dispatch status |
-| `/dispatches` | GET | Yes | List dispatches |
-| `/run/provision` | POST | Yes | Provision an execution environment |
-| `/run/execute` | POST | Yes | Execute a phase in a provisioned environment |
-| `/run/teardown` | POST | Yes | Tear down an execution environment |
-| `/run/full` | POST | Yes | Full lifecycle (provision + execute + teardown) |
-| `/vm/list` | GET | Yes | List active VM assignments |
-| `/vm/{vm_id}/release` | POST | Yes | Release a VM |
-| `/vm/recover` | POST | Yes | Recover unreachable VMs |
-| `/vm/dry-run` | POST | Yes | Dry-run VM provisioning |
-| `/events` | GET | Yes | Query events |
-| `/events/stream` | GET | Yes | SSE event stream |
-| `/agents` | GET | Yes | List agent configurations |
-| `/agents/{agent_id}` | GET | Yes | Get agent detail |
+| `/api/v1/health` | GET | No | Health check |
+| `/api/v1/health/ready` | GET | No | Readiness probe |
+| `/api/v1/config` | GET | Yes | Non-secret config projection |
+| `/api/v1/dispatch` | POST | Yes | Submit a new dispatch |
+| `/api/v1/dispatch/{dispatch_id}` | GET | Yes | Get dispatch status |
+| `/api/v1/dispatch/{dispatch_id}` | DELETE | Yes | Cancel a dispatch |
+| `/api/v1/run/provision` | POST | Yes | Provision execution environment |
+| `/api/v1/run/{env_id}/execute` | POST | Yes | Execute phase in provisioned env |
+| `/api/v1/run/{env_id}/teardown` | POST | Yes | Tear down execution environment |
+| `/api/v1/run/full` | POST | Yes | Full lifecycle (provision+execute+teardown) |
+| `/api/v1/run/{env_id}/status` | GET | Yes | Poll environment run status |
+| `/api/v1/vm` | GET | Yes | List active VM assignments |
+| `/api/v1/vm/provision` | POST | Yes | Provision a new VM |
+| `/api/v1/vm/{vm_id}` | DELETE | Yes | Release a VM |
+| `/api/v1/vm/dry-run` | POST | Yes | Dry-run VM provisioning |
+| `/api/v1/events` | GET | Yes | Query structured events |
 
 Configuration via `TANREN_API_*` environment variables (host, port, API key, CORS origins).
 
