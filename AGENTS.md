@@ -1,5 +1,8 @@
 # Repository Guidelines
 
+This is a uv python monorepo, and thus you should ONLY ever use uv for python execution.
+Never rely on running individual tests, targetted files for linting, etc. for validating your changes, use FULL suites.
+
 ## Project Structure & Module Organization
 - Root folders: `commands/`, `profiles/`, `templates/`, `protocol/`, and `scripts/`.
 - Runtime code lives in `worker-manager/src/worker_manager/`.
