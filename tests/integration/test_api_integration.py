@@ -8,7 +8,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import Request
 from httpx import ASGITransport, AsyncClient
 
 from tanren_api.auth import APIKeyVerifier
@@ -101,13 +101,17 @@ async def test_auth_missing_key(client):
 
 @pytest.mark.asyncio
 async def test_auth_wrong_key(client):
-    """POST /api/v1/dispatch with wrong API key returns 401."""
+    """POST /api/v1/dispatch with wrong API key returns 401 with structured error."""
     resp = await client.post(
         "/api/v1/dispatch",
         headers={"X-API-Key": "wrong"},
         json={},
     )
     assert resp.status_code == 401
+    body = resp.json()
+    assert body["error_code"] == "authentication_error"
+    assert "timestamp" in body
+    assert "request_id" in body
 
 
 @pytest.mark.asyncio
@@ -612,7 +616,7 @@ async def test_error_handler_service_error(app, auth_headers):
 async def test_api_key_verifier_empty_key_rejects():
     """APIKeyVerifier with empty expected key rejects all credentials."""
     verifier = APIKeyVerifier("")
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AuthenticationError) as exc_info:
         await verifier.verify("anything")
     assert exc_info.value.status_code == 401
 
@@ -629,7 +633,7 @@ async def test_api_key_verifier_matching_key_accepts():
 async def test_api_key_verifier_mismatch_rejects():
     """APIKeyVerifier rejects credentials that don't match."""
     verifier = APIKeyVerifier("secret")
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AuthenticationError) as exc_info:
         await verifier.verify("wrong")
     assert exc_info.value.status_code == 401
 

@@ -12,6 +12,10 @@ class TestAuth:
     async def test_wrong_api_key_returns_401(self, client):
         resp = await client.get("/api/v1/config", headers={"X-API-Key": "wrong-key"})
         assert resp.status_code == 401
+        body = resp.json()
+        assert body["error_code"] == "authentication_error"
+        assert "timestamp" in body
+        assert "request_id" in body
 
     async def test_correct_api_key_succeeds(self, client, auth_headers):
         resp = await client.get("/api/v1/config", headers=auth_headers)

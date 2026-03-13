@@ -2,7 +2,11 @@
 
 from pathlib import Path
 
-from tanren_core.docs_links import discover_markdown_files, validate_markdown_files
+from tanren_core.docs_links import (
+    _find_repo_root,  # noqa: PLC2701
+    discover_markdown_files,
+    validate_markdown_files,
+)
 
 
 def _write(path: Path, content: str) -> Path:
@@ -109,6 +113,29 @@ class TestValidateMarkdownFiles:
 
         assert len(errors) == 1
         assert errors[0].message == "target path escapes repository root"
+
+
+class TestFindRepoRoot:
+    def test_finds_real_repo_root(self):
+        """_find_repo_root returns a path containing a .git entry."""
+        root = _find_repo_root()
+        assert (root / ".git").exists()
+
+    def test_accepts_git_directory(self, tmp_path: Path):
+        """A .git directory (normal repo) is recognized."""
+        repo = tmp_path / "repo"
+        (repo / ".git").mkdir(parents=True)
+        # .exists() matches directories
+        assert (repo / ".git").exists()
+
+    def test_accepts_git_file(self, tmp_path: Path):
+        """A .git file (git worktree) is recognized by .exists()."""
+        repo = tmp_path / "worktree"
+        repo.mkdir()
+        (repo / ".git").write_text("gitdir: /some/path/.git/worktrees/wt\n")
+        # .exists() matches files — this is the worktree case
+        assert (repo / ".git").exists()
+        assert not (repo / ".git").is_dir()
 
 
 class TestDiscoverMarkdownFiles:

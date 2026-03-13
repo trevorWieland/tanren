@@ -19,18 +19,21 @@ _WHITESPACE_RE = re.compile(r"[\s-]+")
 def _find_repo_root() -> Path:
     """Walk up from this file to find the repository root.
 
+    Checks for a ``.git`` entry that is either a directory (normal repo)
+    or a file (git worktree).
+
     Returns:
         Path to the repository root directory.
 
     Raises:
-        FileNotFoundError: If no .git directory is found in any parent.
+        FileNotFoundError: If no .git entry is found in any parent.
     """
     current = Path(__file__).resolve().parent
     while current != current.parent:
-        if (current / ".git").is_dir():
+        if (current / ".git").exists():
             return current
         current = current.parent
-    raise FileNotFoundError("Could not find repository root (.git directory)")
+    raise FileNotFoundError("Could not find repository root (.git entry)")
 
 
 _EXCLUDED_DIR_NAMES = {

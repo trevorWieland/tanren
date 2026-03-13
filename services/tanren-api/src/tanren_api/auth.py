@@ -3,8 +3,9 @@
 import secrets
 from typing import Annotated, Protocol
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Header, Request
 
+from tanren_api.errors import AuthenticationError
 from tanren_api.settings import APISettings
 
 
@@ -24,13 +25,13 @@ class APIKeyVerifier:
         self._expected_key = expected_key
 
     async def verify(self, credentials: str) -> None:
-        """Raise HTTPException if key doesn't match.
+        """Raise AuthenticationError if key doesn't match.
 
         Raises:
-            HTTPException: If the credentials are invalid or missing.
+            AuthenticationError: If the credentials are invalid or missing.
         """
         if not self._expected_key or not secrets.compare_digest(credentials, self._expected_key):
-            raise HTTPException(status_code=401, detail="Invalid API key")
+            raise AuthenticationError("Invalid API key")
 
 
 async def verify_api_key(

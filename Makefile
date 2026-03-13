@@ -1,4 +1,4 @@
-.PHONY: install format lint lint-check type unit integration docs-check check ci openapi clean
+.PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean
 
 install:
 	uv sync --upgrade
@@ -6,6 +6,9 @@ install:
 format:
 	uv run ruff format .
 	uv run ruff check --fix .
+
+format-check:
+	uv run ruff format --check .
 
 lint-check:
 	uv run ruff check .
@@ -29,7 +32,7 @@ docs-check:
 	uv run python -m tanren_core.docs_links
 
 check:
-	$(MAKE) format
+	$(MAKE) format-check
 	$(MAKE) lint-check
 	$(MAKE) type
 	$(MAKE) unit
