@@ -34,7 +34,7 @@
           "health"
         ],
         "summary": "Readiness",
-        "description": "Readiness probe.\n\nReturns:\n    Dict with status key indicating readiness.",
+        "description": "Readiness probe.\n\nReturns:\n    ReadinessResponse with status key indicating readiness.",
         "operationId": "readiness_api_v1_health_ready_get",
         "responses": {
           "200": {
@@ -42,11 +42,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Readiness Api V1 Health Ready Get"
+                  "$ref": "#/components/schemas/ReadinessResponse"
                 }
               }
             }
@@ -143,9 +139,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Dispatch Api V1 Dispatch  Dispatch Id  Get"
+                  "$ref": "#/components/schemas/DispatchDetail"
                 }
               }
             }
@@ -197,9 +191,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Cancel Dispatch Api V1 Dispatch  Dispatch Id  Delete"
+                  "$ref": "#/components/schemas/DispatchCancelled"
                 }
               }
             }
@@ -244,8 +236,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "additionalProperties": true
+                    "$ref": "#/components/schemas/VMSummary"
                   },
                   "title": "Response List Vms Api V1 Vm Get"
                 }
@@ -300,9 +291,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Provision Vm Api V1 Vm Provision Post"
+                  "$ref": "#/components/schemas/VMHandle"
                 }
               }
             }
@@ -356,9 +345,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Release Vm Api V1 Vm  Vm Id  Delete"
+                  "$ref": "#/components/schemas/VMReleaseConfirmed"
                 }
               }
             }
@@ -411,9 +398,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Dry Run Provision Api V1 Vm Dry Run Post"
+                  "$ref": "#/components/schemas/VMDryRunResult"
                 }
               }
             }
@@ -466,9 +451,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Run Provision Api V1 Run Provision Post"
+                  "$ref": "#/components/schemas/RunEnvironment"
                 }
               }
             }
@@ -522,9 +505,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Run Execute Api V1 Run  Env Id  Execute Post"
+                  "$ref": "#/components/schemas/RunExecuteAccepted"
                 }
               }
             }
@@ -578,9 +559,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Run Teardown Api V1 Run  Env Id  Teardown Post"
+                  "$ref": "#/components/schemas/RunTeardownAccepted"
                 }
               }
             }
@@ -687,9 +666,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Run Status Api V1 Run  Env Id  Status Get"
+                  "$ref": "#/components/schemas/RunStatus"
                 }
               }
             }
@@ -859,6 +836,59 @@
   },
   "components": {
     "schemas": {
+      "BootstrapCompleted": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "bootstrap_completed",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "bootstrap_completed"
+          },
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id"
+          },
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Installed"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped"
+          },
+          "duration_secs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Secs",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "vm_id"
+        ],
+        "title": "BootstrapCompleted",
+        "description": "VM bootstrap finished."
+      },
       "Cli": {
         "type": "string",
         "enum": [
@@ -956,6 +986,209 @@
         "title": "DispatchAccepted",
         "description": "Thin response confirming dispatch acceptance."
       },
+      "DispatchCancelled": {
+        "properties": {
+          "dispatch_id": {
+            "type": "string",
+            "title": "Dispatch Id",
+            "description": "Cancelled workflow identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DispatchRunStatus",
+            "description": "Cancellation status",
+            "default": "cancelled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dispatch_id"
+        ],
+        "title": "DispatchCancelled",
+        "description": "Confirmation that a dispatch was cancelled."
+      },
+      "DispatchDetail": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id",
+            "description": "Unique workflow identifier"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase",
+            "description": "Dispatch phase type"
+          },
+          "project": {
+            "type": "string",
+            "title": "Project",
+            "description": "Project name"
+          },
+          "spec_folder": {
+            "type": "string",
+            "title": "Spec Folder",
+            "description": "Relative path to spec folder"
+          },
+          "branch": {
+            "type": "string",
+            "title": "Branch",
+            "description": "Git branch name"
+          },
+          "cli": {
+            "$ref": "#/components/schemas/Cli",
+            "description": "CLI tool used"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Model identifier"
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Timeout",
+            "description": "Max execution time in seconds"
+          },
+          "environment_profile": {
+            "type": "string",
+            "title": "Environment Profile",
+            "description": "Environment profile name"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context",
+            "description": "Extra context for the agent"
+          },
+          "gate_cmd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gate Cmd",
+            "description": "Shell command for gate phases"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DispatchRunStatus",
+            "description": "Current dispatch status"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Outcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Final outcome if completed"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "description": "ISO 8601 creation timestamp"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "ISO 8601 start timestamp"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "ISO 8601 completion timestamp"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "phase",
+          "project",
+          "spec_folder",
+          "branch",
+          "cli",
+          "timeout",
+          "environment_profile",
+          "status",
+          "created_at"
+        ],
+        "title": "DispatchDetail",
+        "description": "Full dispatch detail including runtime tracking."
+      },
+      "DispatchReceived": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "dispatch_received",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "dispatch_received"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
+          "cli": {
+            "type": "string",
+            "title": "Cli"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "phase",
+          "project",
+          "cli"
+        ],
+        "title": "DispatchReceived",
+        "description": "A dispatch was received and processing begins."
+      },
       "DispatchRequest": {
         "properties": {
           "project": {
@@ -1043,6 +1276,67 @@
         "title": "DispatchRequest",
         "description": "Submit a dispatch \u2014 omits workflow_id (auto-generated server-side)."
       },
+      "DispatchRunStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "DispatchRunStatus",
+        "description": "Runtime status of a dispatch."
+      },
+      "ErrorOccurred": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "error_occurred",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "error_occurred"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error"
+          },
+          "error_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Class"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "phase",
+          "error"
+        ],
+        "title": "ErrorOccurred",
+        "description": "An unhandled error occurred during dispatch handling."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1084,16 +1378,116 @@
         "title": "HealthResponse",
         "description": "Service health and version info."
       },
+      "IntegrityRepairs": {
+        "properties": {
+          "branch_switched": {
+            "type": "boolean",
+            "title": "Branch Switched",
+            "default": false
+          },
+          "spec_reverted": {
+            "type": "boolean",
+            "title": "Spec Reverted",
+            "default": false
+          },
+          "plan_reverted": {
+            "type": "boolean",
+            "title": "Plan Reverted",
+            "default": false
+          },
+          "makefile_modified": {
+            "type": "boolean",
+            "title": "Makefile Modified",
+            "default": false
+          },
+          "deps_modified": {
+            "type": "boolean",
+            "title": "Deps Modified",
+            "default": false
+          },
+          "gitignore_modified": {
+            "type": "boolean",
+            "title": "Gitignore Modified",
+            "default": false
+          },
+          "wip_committed": {
+            "type": "boolean",
+            "title": "Wip Committed",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "IntegrityRepairs",
+        "description": "Typed post-flight integrity repair indicators."
+      },
+      "Outcome": {
+        "type": "string",
+        "enum": [
+          "success",
+          "fail",
+          "blocked",
+          "error",
+          "timeout"
+        ],
+        "title": "Outcome",
+        "description": "Result outcomes from PROTOCOL.md Section 3."
+      },
       "PaginatedEvents": {
         "properties": {
           "events": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/DispatchReceived"
+                },
+                {
+                  "$ref": "#/components/schemas/PhaseStarted"
+                },
+                {
+                  "$ref": "#/components/schemas/PhaseCompleted"
+                },
+                {
+                  "$ref": "#/components/schemas/PreflightCompleted"
+                },
+                {
+                  "$ref": "#/components/schemas/PostflightCompleted"
+                },
+                {
+                  "$ref": "#/components/schemas/ErrorOccurred"
+                },
+                {
+                  "$ref": "#/components/schemas/RetryScheduled"
+                },
+                {
+                  "$ref": "#/components/schemas/VMProvisioned"
+                },
+                {
+                  "$ref": "#/components/schemas/VMReleased"
+                },
+                {
+                  "$ref": "#/components/schemas/BootstrapCompleted"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "bootstrap_completed": "#/components/schemas/BootstrapCompleted",
+                  "dispatch_received": "#/components/schemas/DispatchReceived",
+                  "error_occurred": "#/components/schemas/ErrorOccurred",
+                  "phase_completed": "#/components/schemas/PhaseCompleted",
+                  "phase_started": "#/components/schemas/PhaseStarted",
+                  "postflight_completed": "#/components/schemas/PostflightCompleted",
+                  "preflight_completed": "#/components/schemas/PreflightCompleted",
+                  "retry_scheduled": "#/components/schemas/RetryScheduled",
+                  "vm_provisioned": "#/components/schemas/VMProvisioned",
+                  "vm_released": "#/components/schemas/VMReleased"
+                }
+              }
             },
             "type": "array",
             "title": "Events",
-            "description": "Event records (raw payloads)"
+            "description": "Typed event records"
           },
           "total": {
             "type": "integer",
@@ -1136,6 +1530,191 @@
         "title": "Phase",
         "description": "Dispatch phase types from PROTOCOL.md Section 2."
       },
+      "PhaseCompleted": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "phase_completed",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "phase_completed"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "outcome": {
+            "type": "string",
+            "title": "Outcome"
+          },
+          "signal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal"
+          },
+          "duration_secs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Secs"
+          },
+          "exit_code": {
+            "type": "integer",
+            "title": "Exit Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "phase",
+          "outcome",
+          "duration_secs",
+          "exit_code"
+        ],
+        "title": "PhaseCompleted",
+        "description": "A phase finished (successfully or not)."
+      },
+      "PhaseStarted": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "phase_started",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "phase_started"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "worktree_path": {
+            "type": "string",
+            "title": "Worktree Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "phase",
+          "worktree_path"
+        ],
+        "title": "PhaseStarted",
+        "description": "An agent/gate process is about to be spawned."
+      },
+      "PostflightCompleted": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "postflight_completed",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "postflight_completed"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "pushed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pushed"
+          },
+          "integrity_repairs": {
+            "$ref": "#/components/schemas/IntegrityRepairs"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "phase"
+        ],
+        "title": "PostflightCompleted",
+        "description": "Post-flight integrity checks finished."
+      },
+      "PreflightCompleted": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "preflight_completed",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "preflight_completed"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "repairs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Repairs"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "passed"
+        ],
+        "title": "PreflightCompleted",
+        "description": "Pre-flight checks finished."
+      },
       "ProvisionRequest": {
         "properties": {
           "project": {
@@ -1163,6 +1742,146 @@
         ],
         "title": "ProvisionRequest",
         "description": "Request to provision a VM \u2014 subset of Dispatch fields."
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Readiness indicator"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ReadinessResponse",
+        "description": "Readiness probe response."
+      },
+      "RetryScheduled": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "retry_scheduled",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "retry_scheduled"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Attempt"
+          },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Max Attempts"
+          },
+          "backoff_secs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Backoff Secs"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "phase",
+          "attempt",
+          "max_attempts",
+          "backoff_secs"
+        ],
+        "title": "RetryScheduled",
+        "description": "A transient error triggered a retry."
+      },
+      "RunEnvironment": {
+        "properties": {
+          "env_id": {
+            "type": "string",
+            "title": "Env Id",
+            "description": "Environment identifier"
+          },
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id",
+            "description": "Backing VM identifier"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host",
+            "description": "VM hostname or IP"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunEnvironmentStatus",
+            "description": "Environment status",
+            "default": "provisioned"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "env_id",
+          "vm_id",
+          "host"
+        ],
+        "title": "RunEnvironment",
+        "description": "Provisioned run environment handle."
+      },
+      "RunEnvironmentStatus": {
+        "type": "string",
+        "enum": [
+          "provisioning",
+          "provisioned",
+          "executing",
+          "tearing_down",
+          "completed",
+          "failed"
+        ],
+        "title": "RunEnvironmentStatus",
+        "description": "Lifecycle status of a run environment."
+      },
+      "RunExecuteAccepted": {
+        "properties": {
+          "env_id": {
+            "type": "string",
+            "title": "Env Id",
+            "description": "Environment identifier"
+          },
+          "dispatch_id": {
+            "type": "string",
+            "title": "Dispatch Id",
+            "description": "Dispatch workflow identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunEnvironmentStatus",
+            "description": "Execution status",
+            "default": "executing"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "env_id",
+          "dispatch_id"
+        ],
+        "title": "RunExecuteAccepted",
+        "description": "Confirmation that execution was accepted."
       },
       "RunFullRequest": {
         "properties": {
@@ -1233,6 +1952,462 @@
         ],
         "title": "RunFullRequest",
         "description": "Full lifecycle request \u2014 combines provision + execute fields."
+      },
+      "RunStatus": {
+        "properties": {
+          "env_id": {
+            "type": "string",
+            "title": "Env Id",
+            "description": "Environment identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunEnvironmentStatus",
+            "description": "Current environment status"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Phase"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current phase if executing"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Outcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Final outcome if completed"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "ISO 8601 start timestamp"
+          },
+          "duration_secs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Secs",
+            "description": "Elapsed seconds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "env_id",
+          "status"
+        ],
+        "title": "RunStatus",
+        "description": "Status of a running environment."
+      },
+      "RunTeardownAccepted": {
+        "properties": {
+          "env_id": {
+            "type": "string",
+            "title": "Env Id",
+            "description": "Environment identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunEnvironmentStatus",
+            "description": "Teardown status",
+            "default": "tearing_down"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "env_id"
+        ],
+        "title": "RunTeardownAccepted",
+        "description": "Confirmation that teardown was accepted."
+      },
+      "VMDryRunResult": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/VMProvider",
+            "description": "VM provider that would be used"
+          },
+          "server_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Type",
+            "description": "Server type that would be used"
+          },
+          "estimated_cost_hourly": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Hourly",
+            "description": "Estimated hourly cost"
+          },
+          "would_provision": {
+            "type": "boolean",
+            "title": "Would Provision",
+            "description": "Whether provisioning would proceed"
+          },
+          "requirements": {
+            "$ref": "#/components/schemas/VMRequirements",
+            "description": "Resolved VM requirements"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "would_provision",
+          "requirements"
+        ],
+        "title": "VMDryRunResult",
+        "description": "Result of a VM dry-run provisioning check."
+      },
+      "VMHandle": {
+        "properties": {
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/VMProvider",
+            "default": "manual"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Labels"
+          },
+          "hourly_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Cost"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "vm_id",
+          "host",
+          "created_at"
+        ],
+        "title": "VMHandle",
+        "description": "Handle to a provisioned VM."
+      },
+      "VMProvider": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "hetzner"
+        ],
+        "title": "VMProvider",
+        "description": "Supported VM providers."
+      },
+      "VMProvisioned": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "vm_provisioned",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "vm_provisioned"
+          },
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/VMProvider"
+          },
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
+          "profile": {
+            "type": "string",
+            "title": "Profile"
+          },
+          "hourly_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Cost"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "vm_id",
+          "host",
+          "provider",
+          "project",
+          "profile"
+        ],
+        "title": "VMProvisioned",
+        "description": "A VM was provisioned for a workflow."
+      },
+      "VMReleaseConfirmed": {
+        "properties": {
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id",
+            "description": "Released VM identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/VMStatus",
+            "description": "Release status",
+            "default": "released"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "vm_id"
+        ],
+        "title": "VMReleaseConfirmed",
+        "description": "Confirmation that a VM was released."
+      },
+      "VMReleased": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "vm_released",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "vm_released"
+          },
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id"
+          },
+          "duration_secs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Secs"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "vm_id",
+          "duration_secs"
+        ],
+        "title": "VMReleased",
+        "description": "A VM was released after workflow completion."
+      },
+      "VMRequirements": {
+        "properties": {
+          "profile": {
+            "type": "string",
+            "title": "Profile"
+          },
+          "cpu": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Cpu",
+            "default": 2
+          },
+          "memory_gb": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Memory Gb",
+            "default": 4
+          },
+          "gpu": {
+            "type": "boolean",
+            "title": "Gpu",
+            "default": false
+          },
+          "server_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Type"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Labels"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile"
+        ],
+        "title": "VMRequirements",
+        "description": "Resource requirements for VM provisioning."
+      },
+      "VMStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "provisioning",
+          "releasing",
+          "released"
+        ],
+        "title": "VMStatus",
+        "description": "Lifecycle status of a VM."
+      },
+      "VMSummary": {
+        "properties": {
+          "vm_id": {
+            "type": "string",
+            "title": "Vm Id",
+            "description": "VM identifier"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host",
+            "description": "VM hostname or IP"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/VMProvider",
+            "description": "VM provider"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id",
+            "description": "Associated workflow ID"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project",
+            "description": "Associated project name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/VMStatus",
+            "description": "Current VM status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "description": "ISO 8601 creation timestamp"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "vm_id",
+          "host",
+          "provider",
+          "status",
+          "created_at"
+        ],
+        "title": "VMSummary",
+        "description": "Summary of a VM assignment."
       },
       "ValidationError": {
         "properties": {
