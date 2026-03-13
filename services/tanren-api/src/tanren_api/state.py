@@ -239,19 +239,25 @@ class APIStateStore:
                 record.task = task
 
     async def cancel_environment_task(self, env_id: str, *, wait_secs: float = 5.0) -> bool:
-        """Cancel the running task on the live record. Returns True if cancelled."""
+        """Cancel a running task and wait for it to stop.
+
+        Returns True if no task is running (none attached, already finished,
+        or stopped within *wait_secs*). Returns False only if the task is
+        still running after the timeout.
+        """
         task: asyncio.Task[None] | None = None
         async with self._lock:
             record = self._environments.get(env_id)
-            if record is not None and record.task is not None and not record.task.done():
-                record.task.cancel()
-                task = record.task
+            if record is None or record.task is None or record.task.done():
+                return True  # Nothing running — safe to proceed
+            record.task.cancel()
+            task = record.task
         # Await outside lock so task can acquire lock for status updates
         if task is not None:
             with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
                 await asyncio.wait_for(asyncio.shield(task), timeout=wait_secs)
             return task.done()
-        return False
+        return True  # Defensive — shouldn't reach here
 
     async def remove_environment(self, env_id: str) -> EnvironmentRecord | None:
         """Remove and return an environment record (shallow copy; handle/task shared)."""

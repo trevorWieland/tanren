@@ -306,12 +306,27 @@ class TestAPIStateStore:
         with contextlib.suppress(asyncio.CancelledError):
             await record.task
 
-    async def test_cancel_environment_task_returns_false_when_no_task(self):
+    async def test_cancel_environment_task_returns_true_when_no_task(self):
         store = APIStateStore()
         await store.add_environment(_make_env_record())
 
         result = await store.cancel_environment_task("env-1")
-        assert result is False
+        assert result is True
+
+    async def test_cancel_environment_task_returns_true_when_task_already_done(self):
+        store = APIStateStore()
+        record = _make_env_record()
+
+        async def quick():
+            pass
+
+        task = asyncio.create_task(quick())
+        await task  # Let it finish
+        record.task = task
+        await store.add_environment(record)
+
+        result = await store.cancel_environment_task("env-1")
+        assert result is True
 
     async def test_try_transition_dispatch_succeeds(self):
         store = APIStateStore()

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -124,21 +125,6 @@ async def run_execute(
 
     dispatch_id = f"exec-{uuid.uuid4().hex[:8]}"
 
-    # Atomic state transition — prevents two concurrent requests from both seeing
-    # PROVISIONED and both starting execution.
-    updated = await store.try_transition_environment(
-        env_id,
-        from_statuses=_EXECUTE_FROM,
-        to_status=RunEnvironmentStatus.EXECUTING,
-        phase=body.phase,
-        dispatch_id=dispatch_id,
-        started_at=_now(),
-        outcome=None,  # Clear stale outcome from prior execution
-        completed_at=None,  # Clear stale completion timestamp
-    )
-    if updated is None:
-        raise ConflictError(f"Environment {env_id} cannot transition to executing")
-
     dispatch = Dispatch(
         workflow_id=dispatch_id,
         project=body.project,
@@ -152,7 +138,10 @@ async def run_execute(
         gate_cmd=body.gate_cmd,
     )
 
+    gate = asyncio.Event()
+
     async def _execute_background() -> None:
+        await gate.wait()
         try:
             result = await execution_env.execute(record.handle, dispatch, config)
             env_status = (
@@ -178,7 +167,23 @@ async def run_execute(
             )
 
     task = asyncio.create_task(_execute_background())
-    await store.update_environment(env_id, task=task)
+    updated = await store.try_transition_environment(
+        env_id,
+        from_statuses=_EXECUTE_FROM,
+        to_status=RunEnvironmentStatus.EXECUTING,
+        phase=body.phase,
+        dispatch_id=dispatch_id,
+        started_at=_now(),
+        outcome=None,
+        completed_at=None,
+        task=task,
+    )
+    if updated is None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        raise ConflictError(f"Environment {env_id} cannot transition to executing")
+    gate.set()
 
     return RunExecuteAccepted(env_id=env_id, dispatch_id=dispatch_id)
 
@@ -200,11 +205,9 @@ async def run_teardown(
     # Cancel any running execute task and wait for it to finish
     stopped = await store.cancel_environment_task(env_id)
     if not stopped:
-        current = await store.get_environment(env_id)
-        if current is not None and current.task is not None and not current.task.done():
-            raise ConflictError(
-                f"Environment {env_id} has a running task that could not be stopped. Please retry."
-            )
+        raise ConflictError(
+            f"Environment {env_id} has a running task that could not be stopped. Please retry."
+        )
 
     updated = await store.try_transition_environment(
         env_id,

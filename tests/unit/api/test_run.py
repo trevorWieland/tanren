@@ -414,3 +414,91 @@ class TestRun:
         await asyncio.sleep(0)
 
         mock_execution_env.teardown.assert_awaited_once()
+
+    async def test_execute_task_registered_atomically_with_transition(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """Task is present on the environment record as soon as status is EXECUTING."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Make execute block so we can inspect state while EXECUTING
+        execute_event = asyncio.Event()
+        original_execute = mock_execution_env.execute
+
+        async def _blocking_execute(*args, **kwargs):
+            await execute_event.wait()
+            return await original_execute(*args, **kwargs)
+
+        mock_execution_env.execute = AsyncMock(side_effect=_blocking_execute)
+
+        # Start execute
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/execute",
+            json={
+                "project": "test",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # The task should already be on the record — no gap
+        store = app.state.api_store
+        record = await store.get_environment(env_id)
+        assert record is not None
+        assert record.status == RunEnvironmentStatus.EXECUTING
+        assert record.task is not None
+        assert not record.task.done()
+
+        # Cleanup
+        execute_event.set()
+        await asyncio.sleep(0)
+
+    async def test_concurrent_teardown_during_execute_startup_sees_task(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """Teardown during execute startup finds and cancels the task."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Make execute block on an event
+        execute_event = asyncio.Event()
+        original_execute = mock_execution_env.execute
+
+        async def _blocking_execute(*args, **kwargs):
+            await execute_event.wait()
+            return await original_execute(*args, **kwargs)
+
+        mock_execution_env.execute = AsyncMock(side_effect=_blocking_execute)
+
+        # Start execute
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/execute",
+            json={
+                "project": "test",
+                "spec_path": "specs/test",
+                "phase": "do-task",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # Now teardown — should find the task and cancel it
+        teardown_resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert teardown_resp.status_code == 200
+        assert teardown_resp.json()["status"] == "tearing_down"
