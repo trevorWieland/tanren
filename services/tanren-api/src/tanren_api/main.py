@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,7 +26,7 @@ from tanren_api.state import APIStateStore
 from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 from tanren_core.builder import build_ssh_execution_environment
-from tanren_core.config import Config
+from tanren_core.config import Config, load_config_env
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = settings
+        load_config_env()
         try:
             app.state.config = Config.from_env()
         except Exception:
@@ -61,11 +63,21 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
         if app.state.config and app.state.config.remote_config_path:
             try:
-                env, vm_store = build_ssh_execution_environment(app.state.config, app.state.emitter)
+                env, vm_store = await asyncio.to_thread(
+                    build_ssh_execution_environment, app.state.config, app.state.emitter
+                )
                 app.state.execution_env = env
                 app.state.vm_state_store = vm_store
             except Exception:
                 logger.warning("Failed to initialize remote execution environment", exc_info=True)
+            else:
+                if hasattr(env, "recover_stale_assignments"):
+                    try:
+                        recovered = await env.recover_stale_assignments()
+                        if recovered:
+                            logger.info("Recovered %d stale VM assignment(s) on startup", recovered)
+                    except Exception:
+                        logger.warning("Failed to recover stale VM assignments", exc_info=True)
 
         yield
 

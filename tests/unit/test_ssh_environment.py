@@ -451,7 +451,7 @@ class TestProvision:
         config = env_kit["config"]
         call_order: list[str] = []
 
-        async def _track_ssh_ready(conn):  # noqa: RUF029
+        async def _track_ssh_ready(conn, **kwargs):  # noqa: RUF029
             call_order.append("ssh_ready")
 
         async def _track_bootstrap(conn):  # noqa: RUF029
@@ -894,6 +894,47 @@ class TestClose:
         env = env_kit["env"]
         await env.close()
         env_kit["state_store"].close.assert_awaited_once()
+
+
+class TestSSHReadyTimeoutConfigurable:
+    def test_default_timeout_is_300(self, env_kit):
+        env = env_kit["env"]
+        assert env._ssh_ready_timeout_secs == 300
+
+    def test_custom_timeout_stored(self):
+        env = SSHExecutionEnvironment(
+            vm_provisioner=AsyncMock(),
+            bootstrapper=AsyncMock(),
+            workspace_mgr=AsyncMock(),
+            runner=AsyncMock(),
+            state_store=AsyncMock(),
+            secret_loader=MagicMock(),
+            emitter=AsyncMock(),
+            ssh_config_defaults=SSHConfig(host="placeholder"),
+            repo_urls={},
+            ssh_ready_timeout_secs=600,
+        )
+        assert env._ssh_ready_timeout_secs == 600
+
+    async def test_provision_passes_configured_timeout(self, env_kit):
+        """provision() passes _ssh_ready_timeout_secs to _await_ssh_ready."""
+        env = env_kit["env"]
+        env._ssh_ready_timeout_secs = 450
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_load_project_env", return_value={}),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock) as mock_await,
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            MockSSH.return_value = AsyncMock()
+            await env.provision(dispatch, config)
+
+        mock_await.assert_awaited_once()
+        _, kwargs = mock_await.call_args
+        assert kwargs["timeout"] == 450
 
 
 class TestAwaitSshReady:

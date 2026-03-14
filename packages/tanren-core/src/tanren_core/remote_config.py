@@ -42,6 +42,7 @@ class RemoteSSHConfig(BaseModel):
     port: int = Field(default=22, ge=1, le=65535)
     connect_timeout: int = Field(default=10, ge=1)
     host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
+    ssh_ready_timeout_secs: int = Field(default=300, ge=30)
 
 
 class RemoteGitConfig(BaseModel):

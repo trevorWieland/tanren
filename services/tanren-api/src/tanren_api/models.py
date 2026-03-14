@@ -248,6 +248,28 @@ class VMReleaseConfirmed(BaseModel):
     status: VMStatus = Field(default=VMStatus.RELEASED, description="Release status")
 
 
+class VMProvisionAccepted(BaseModel):
+    """Accepted response for async VM provisioning."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_id: str = Field(..., description="Provisioning tracking identifier")
+    status: VMStatus = Field(default=VMStatus.PROVISIONING, description="Provisioning status")
+
+
+class VMProvisionStatus(BaseModel):
+    """Status of an in-progress or completed VM provisioning."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_id: str = Field(..., description="Provisioning tracking identifier")
+    status: VMStatus = Field(..., description="Current provisioning status")
+    vm_id: str | None = Field(default=None, description="VM identifier (set once provisioned)")
+    host: str | None = Field(default=None, description="VM hostname or IP (set once provisioned)")
+    provider: VMProvider | None = Field(default=None, description="VM provider")
+    created_at: str | None = Field(default=None, description="ISO 8601 creation timestamp")
+
+
 class VMDryRunResult(BaseModel):
     """Result of a VM dry-run provisioning check."""
 

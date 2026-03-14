@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -77,7 +78,7 @@ class TestEnsureConnected:
         result = conn._ensure_connected()
 
         assert result is mock_client
-        mock_client.load_system_host_keys.assert_called_once()
+        mock_client.load_system_host_keys.assert_not_called()
         mock_client.set_missing_host_key_policy.assert_called_once_with(
             mock_paramiko.AutoAddPolicy()
         )
@@ -158,6 +159,39 @@ class TestEnsureConnected:
             "AuthenticationException", (mock_paramiko.SSHException,), {}
         )
         mock_client.connect.side_effect = mock_paramiko.SSHException("network")
+
+        conn = _make_conn()
+        with pytest.raises(ConnectionError, match="SSH connection failed"):
+            conn._ensure_connected()
+
+    def test_os_error_wraps_to_connection_error(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        mock_paramiko.AuthenticationException = type("AuthenticationException", (Exception,), {})
+        mock_paramiko.SSHException = type("SSHException", (Exception,), {})
+        mock_client.connect.side_effect = ConnectionRefusedError("Connection refused")
+
+        conn = _make_conn()
+        with pytest.raises(ConnectionError, match="SSH connection failed"):
+            conn._ensure_connected()
+
+    def test_connection_reset_wraps_to_connection_error(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        mock_paramiko.AuthenticationException = type("AuthenticationException", (Exception,), {})
+        mock_paramiko.SSHException = type("SSHException", (Exception,), {})
+        mock_client.connect.side_effect = ConnectionResetError("Connection reset by peer")
+
+        conn = _make_conn()
+        with pytest.raises(ConnectionError, match="SSH connection failed"):
+            conn._ensure_connected()
+
+    def test_socket_timeout_wraps_to_connection_error(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        mock_paramiko.AuthenticationException = type("AuthenticationException", (Exception,), {})
+        mock_paramiko.SSHException = type("SSHException", (Exception,), {})
+        mock_client.connect.side_effect = TimeoutError("timed out")
 
         conn = _make_conn()
         with pytest.raises(ConnectionError, match="SSH connection failed"):
@@ -347,6 +381,63 @@ class TestSFTP:
 
 
 # ---------------------------------------------------------------------------
+# check_ssh_banner
+# ---------------------------------------------------------------------------
+
+
+class TestCheckSSHBanner:
+    @pytest.mark.asyncio
+    async def test_returns_true_when_banner_received(self):
+        conn = _make_conn()
+        mock_sock = MagicMock()
+        mock_sock.recv.return_value = b"SSH-2.0-OpenSSH_9.6p1 Ubuntu\r\n"
+        mock_sock.__enter__ = MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = MagicMock(return_value=False)
+
+        with patch("tanren_core.adapters.ssh.socket.create_connection", return_value=mock_sock):
+            assert await conn.check_ssh_banner() is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_connection_refused(self):
+        conn = _make_conn()
+        with patch(
+            "tanren_core.adapters.ssh.socket.create_connection",
+            side_effect=ConnectionRefusedError("refused"),
+        ):
+            assert await conn.check_ssh_banner() is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_timeout(self):
+        conn = _make_conn()
+        with patch(
+            "tanren_core.adapters.ssh.socket.create_connection",
+            side_effect=TimeoutError("timed out"),
+        ):
+            assert await conn.check_ssh_banner() is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_non_ssh_data(self):
+        conn = _make_conn()
+        mock_sock = MagicMock()
+        mock_sock.recv.return_value = b"HTTP/1.1 200 OK\r\n"
+        mock_sock.__enter__ = MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = MagicMock(return_value=False)
+
+        with patch("tanren_core.adapters.ssh.socket.create_connection", return_value=mock_sock):
+            assert await conn.check_ssh_banner() is False
+
+    @pytest.mark.asyncio
+    async def test_uses_configured_host_and_port(self):
+        conn = _make_conn(host="192.168.1.1", port=2222)
+        with patch(
+            "tanren_core.adapters.ssh.socket.create_connection",
+            side_effect=ConnectionRefusedError("refused"),
+        ) as mock_create:
+            await conn.check_ssh_banner()
+        mock_create.assert_called_once_with(("192.168.1.1", 2222), timeout=10)
+
+
+# ---------------------------------------------------------------------------
 # check_connection / get_host_identifier / close
 # ---------------------------------------------------------------------------
 
@@ -371,6 +462,19 @@ class TestMisc:
 
         conn = _make_conn()
         assert await conn.check_connection() is False
+
+    @pytest.mark.asyncio
+    async def test_check_connection_logs_failure_at_debug(self, mock_paramiko, caplog):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        mock_client.get_transport.side_effect = Exception("connection reset")
+
+        conn = _make_conn()
+        with caplog.at_level(logging.DEBUG, logger="tanren_core.adapters.ssh"):
+            result = await conn.check_connection()
+
+        assert result is False
+        assert "check_connection failed" in caplog.text
 
     def test_get_host_identifier(self, mock_paramiko):
         conn = _make_conn(user="deploy", port=2222)

@@ -25,7 +25,7 @@ unit:
 
 integration:
 	uv run pytest tests/integration -q --tb=short --timeout=30 \
-		-m "not ssh and not local_env" \
+		-m "not ssh and not local_env and not hetzner" \
 		--cov=packages --cov=services --cov-fail-under=75
 
 docs-check:

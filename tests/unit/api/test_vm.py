@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
 
 from tanren_core.adapters.remote_types import VMAssignment, VMHandle
+
+
+async def _wait_vm_provisioned(client, env_id, auth_headers, *, max_secs: float = 2.0):
+    """Poll until VM provision reaches 'active' status."""
+    deadline = asyncio.get_event_loop().time() + max_secs
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+        r = await client.get(f"/api/v1/vm/provision/{env_id}", headers=auth_headers)
+        if r.json()["status"] == "active":
+            return
+    raise AssertionError(f"VM provision {env_id} did not reach 'active' within {max_secs}s")
 
 
 @pytest.mark.api
@@ -62,7 +74,7 @@ class TestVM:
         assert data["vm_id"] == "vm-1"
         assert data["status"] == "released"
 
-    async def test_provision_vm_returns_handle(self, client, auth_headers):
+    async def test_provision_vm_returns_accepted(self, client, auth_headers):
         resp = await client.post(
             "/api/v1/vm/provision",
             json={"project": "test", "branch": "main"},
@@ -70,9 +82,15 @@ class TestVM:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "vm_id" in data
-        assert "host" in data
-        assert "provider" in data
+        assert "env_id" in data
+        assert data["status"] == "provisioning"
+
+        # Wait for background to complete and verify via status endpoint
+        await _wait_vm_provisioned(client, data["env_id"], auth_headers)
+        status = await client.get(f"/api/v1/vm/provision/{data['env_id']}", headers=auth_headers)
+        status_data = status.json()
+        assert status_data["vm_id"] is not None
+        assert status_data["host"] is not None
 
     async def test_provision_vm_no_execution_env(self, client, auth_headers, app):
         app.state.execution_env = None
@@ -105,13 +123,18 @@ class TestVM:
     async def test_provision_vm_closes_ssh_connection(
         self, client, auth_headers, mock_execution_env
     ):
-        """provision_vm closes the SSH connection to prevent leak."""
+        """provision_vm closes the SSH connection in background task."""
         resp = await client.post(
             "/api/v1/vm/provision",
             json={"project": "test", "branch": "main"},
             headers=auth_headers,
         )
         assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # Wait for background provision to complete
+        await _wait_vm_provisioned(client, env_id, auth_headers)
+
         handle = mock_execution_env.provision.return_value
         handle.runtime.connection.close.assert_called_once()
 
@@ -138,7 +161,7 @@ class TestVM:
     async def test_provision_vm_wraps_provider_exception(
         self, client, auth_headers, mock_execution_env
     ):
-        """provision_vm wraps provider exceptions in ServiceError (500)."""
+        """provision_vm surfaces provider failure via status polling."""
         mock_execution_env.provision = AsyncMock(side_effect=RuntimeError("boom"))
 
         resp = await client.post(
@@ -146,10 +169,15 @@ class TestVM:
             json={"project": "test", "branch": "main"},
             headers=auth_headers,
         )
-        assert resp.status_code == 500
-        data = resp.json()
-        assert data["error_code"] == "service_error"
-        assert "boom" not in data["detail"]
+        # Returns 200 immediately (non-blocking)
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # Wait for background task to fail
+        await asyncio.sleep(0.05)
+
+        status_resp = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+        assert status_resp.json()["status"] == "failed"
 
     async def test_derive_provider_raises_on_bad_config(self, client, auth_headers, app):
         """_derive_provider wraps config load errors in ServiceError (500)."""

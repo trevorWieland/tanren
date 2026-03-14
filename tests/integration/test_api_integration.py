@@ -36,7 +36,7 @@ from tanren_core.adapters.types import (
     PhaseResult,
     RemoteEnvironmentRuntime,
 )
-from tanren_core.config import Config
+from tanren_core.config import Config, DotenvConfigSource, load_config_env
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Outcome
 
@@ -332,7 +332,7 @@ async def test_vm_release_not_found(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_vm_provision(client, auth_headers):
-    """POST /api/v1/vm/provision returns VMHandle fields."""
+    """POST /api/v1/vm/provision returns accepted, then poll shows provisioned."""
     resp = await client.post(
         "/api/v1/vm/provision",
         headers=auth_headers,
@@ -340,9 +340,19 @@ async def test_vm_provision(client, auth_headers):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert "vm_id" in data
-    assert "host" in data
-    assert "provider" in data
+    assert "env_id" in data
+    assert data["status"] == "provisioning"
+
+    env_id = data["env_id"]
+    # Let the background provision task complete
+    await asyncio.sleep(0.05)
+
+    status_resp = await client.get(f"/api/v1/vm/provision/{env_id}", headers=auth_headers)
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()
+    assert status_data["status"] == "active"
+    assert status_data["vm_id"] is not None
+    assert status_data["host"] is not None
 
 
 @pytest.mark.asyncio
@@ -355,6 +365,13 @@ async def test_vm_provision_no_exec_env(client, auth_headers, app):
         json={"project": "test", "branch": "main"},
     )
     assert resp.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_status_not_found(client, auth_headers):
+    """GET /api/v1/vm/provision/{env_id} returns 404 for unknown id."""
+    resp = await client.get("/api/v1/vm/provision/nonexistent", headers=auth_headers)
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -421,17 +438,31 @@ async def test_events_with_db(client, auth_headers, app, tmp_path):
 # ---------------------------------------------------------------------------
 
 
+async def _wait_provisioned(client, env_id, auth_headers, *, max_secs: float = 2.0):
+    """Poll until env reaches 'provisioned' status (helper)."""
+    deadline = asyncio.get_event_loop().time() + max_secs
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+        r = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+        if r.json()["status"] == "provisioned":
+            return
+    raise AssertionError(f"Environment {env_id} did not reach 'provisioned' within {max_secs}s")
+
+
 @pytest.mark.asyncio
 async def test_run_provision_and_status(client, auth_headers):
-    """POST /api/v1/run/provision creates env, GET /status returns it."""
+    """POST /api/v1/run/provision returns provisioning, then transitions to provisioned."""
     resp = await client.post(
         "/api/v1/run/provision",
         headers=auth_headers,
         json={"project": "test", "branch": "main"},
     )
     assert resp.status_code == 200
-    env_id = resp.json()["env_id"]
+    data = resp.json()
+    env_id = data["env_id"]
+    assert data["status"] == "provisioning"
 
+    await _wait_provisioned(client, env_id, auth_headers)
     status_resp = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
     assert status_resp.status_code == 200
     assert status_resp.json()["status"] == "provisioned"
@@ -439,13 +470,14 @@ async def test_run_provision_and_status(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_run_execute_after_provision(client, auth_headers):
-    """POST /api/v1/run/{env_id}/execute returns accepted."""
+    """POST /api/v1/run/{env_id}/execute returns accepted after provision completes."""
     prov = await client.post(
         "/api/v1/run/provision",
         headers=auth_headers,
         json={"project": "test", "branch": "main"},
     )
     env_id = prov.json()["env_id"]
+    await _wait_provisioned(client, env_id, auth_headers)
 
     exec_resp = await client.post(
         f"/api/v1/run/{env_id}/execute",
@@ -461,6 +493,44 @@ async def test_run_execute_after_provision(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_run_execute_before_provision_complete(client, auth_headers, mock_execution_env):
+    """POST /run/{env_id}/execute returns 409 if env is still provisioning."""
+    # Make provision hang so we can try execute while still provisioning
+    provision_started = asyncio.Event()
+    provision_release = asyncio.Event()
+
+    async def _slow_provision(*args, **kwargs):
+        provision_started.set()
+        await provision_release.wait()
+        return mock_execution_env.provision.return_value
+
+    mock_execution_env.provision = AsyncMock(side_effect=_slow_provision)
+
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id = prov.json()["env_id"]
+    await provision_started.wait()
+
+    exec_resp = await client.post(
+        f"/api/v1/run/{env_id}/execute",
+        headers=auth_headers,
+        json={
+            "project": "test",
+            "spec_path": "specs/test",
+            "phase": "do-task",
+        },
+    )
+    assert exec_resp.status_code == 409
+
+    # Clean up: let the provision complete
+    provision_release.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_run_teardown(client, auth_headers):
     """POST /api/v1/run/{env_id}/teardown returns accepted."""
     prov = await client.post(
@@ -469,6 +539,7 @@ async def test_run_teardown(client, auth_headers):
         json={"project": "test", "branch": "main"},
     )
     env_id = prov.json()["env_id"]
+    await _wait_provisioned(client, env_id, auth_headers)
 
     resp = await client.post(f"/api/v1/run/{env_id}/teardown", headers=auth_headers)
     assert resp.status_code == 200
@@ -609,7 +680,7 @@ async def test_lifespan_config_from_env_failure_sets_none(tmp_path):
 
     # Clear all WM_* env vars so Config.from_env() raises ValueError
     cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
-    with patch.dict(os.environ, cleaned, clear=True):
+    with patch.dict(os.environ, cleaned, clear=True), patch("tanren_api.main.load_config_env"):
         async with application.router.lifespan_context(application):
             assert application.state.config is None
             assert isinstance(application.state.emitter, NullEventEmitter)
@@ -624,7 +695,7 @@ async def test_lifespan_with_events_db(tmp_path):
 
     # Config.from_env() will fail (no WM_ vars), but events_db from settings is used
     cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
-    with patch.dict(os.environ, cleaned, clear=True):
+    with patch.dict(os.environ, cleaned, clear=True), patch("tanren_api.main.load_config_env"):
         async with application.router.lifespan_context(application):
             assert application.state.config is None
             assert isinstance(application.state.emitter, SqliteEventEmitter)
@@ -671,6 +742,58 @@ async def test_lifespan_emitter_close_called(tmp_path):
             assert isinstance(emitter, NullEventEmitter)
         # After context exits, close() was called — NullEventEmitter.close() is a no-op
         # but we verify the lifespan completed without error
+
+
+@pytest.mark.asyncio
+async def test_lifespan_calls_load_config_env():
+    """Lifespan calls load_config_env() before Config.from_env()."""
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
+    with (
+        patch.dict(os.environ, cleaned, clear=True),
+        patch("tanren_api.main.load_config_env") as mock_load,
+    ):
+        async with application.router.lifespan_context(application):
+            mock_load.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_lifespan_config_loads_from_env_file(tmp_path):
+    """Lifespan loads config via load_config_env when WM_* vars are only in a file."""
+    env_file = tmp_path / "tanren.env"
+    env_file.write_text(
+        f"WM_IPC_DIR={tmp_path / 'ipc'}\n"
+        f"WM_GITHUB_DIR={tmp_path / 'github'}\n"
+        f"WM_DATA_DIR={tmp_path / 'data'}\n"
+        "WM_COMMANDS_DIR=.claude/commands/tanren\n"
+        "WM_POLL_INTERVAL=5.0\n"
+        "WM_HEARTBEAT_INTERVAL=30.0\n"
+        "WM_OPENCODE_PATH=opencode\n"
+        "WM_CODEX_PATH=codex\n"
+        "WM_CLAUDE_PATH=claude\n"
+        "WM_MAX_OPENCODE=1\n"
+        "WM_MAX_CODEX=1\n"
+        "WM_MAX_GATE=3\n"
+        f"WM_WORKTREE_REGISTRY_PATH={tmp_path / 'data' / 'worktrees.json'}\n"
+    )
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    # Clear all WM_* vars — config is only in the file
+    cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
+    with (
+        patch.dict(os.environ, cleaned, clear=True),
+        patch(
+            "tanren_api.main.load_config_env",
+            side_effect=lambda source=None: load_config_env(DotenvConfigSource(env_file)),
+        ),
+    ):
+        async with application.router.lifespan_context(application):
+            assert application.state.config is not None
+            assert application.state.config.ipc_dir == str(tmp_path / "ipc")
+            assert application.state.config.github_dir == str(tmp_path / "github")
 
 
 # ---------------------------------------------------------------------------
@@ -934,6 +1057,91 @@ async def test_config_endpoint_remote_disabled_by_default(client, auth_headers):
     resp = await client.get("/api/v1/config", headers=auth_headers)
     body = resp.json()
     assert body["remote_enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# Lifespan — stale VM recovery (main.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lifespan_calls_recover_stale_on_startup(tmp_path):
+    """Lifespan calls recover_stale_assignments() when execution env supports it."""
+    mock_env = AsyncMock()
+    mock_env.recover_stale_assignments = AsyncMock(return_value=2)
+    mock_env.close = AsyncMock()
+    mock_vm_store = AsyncMock()
+    mock_vm_store.close = AsyncMock()
+
+    env_vars = {
+        "WM_IPC_DIR": str(tmp_path / "ipc"),
+        "WM_GITHUB_DIR": str(tmp_path / "github"),
+        "WM_DATA_DIR": str(tmp_path / "data"),
+        "WM_COMMANDS_DIR": ".claude/commands/tanren",
+        "WM_POLL_INTERVAL": "5.0",
+        "WM_HEARTBEAT_INTERVAL": "30.0",
+        "WM_OPENCODE_PATH": "opencode",
+        "WM_CODEX_PATH": "codex",
+        "WM_CLAUDE_PATH": "claude",
+        "WM_MAX_OPENCODE": "1",
+        "WM_MAX_CODEX": "1",
+        "WM_MAX_GATE": "3",
+        "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_REMOTE_CONFIG": str(tmp_path / "remote.toml"),
+    }
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    with (
+        patch.dict(os.environ, env_vars, clear=False),
+        patch(
+            "tanren_api.main.build_ssh_execution_environment",
+            return_value=(mock_env, mock_vm_store),
+        ),
+    ):
+        async with application.router.lifespan_context(application):
+            assert application.state.execution_env is mock_env
+            mock_env.recover_stale_assignments.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_lifespan_recover_stale_failure_does_not_block_startup(tmp_path):
+    """Startup completes even if recover_stale_assignments raises."""
+    mock_env = AsyncMock()
+    mock_env.recover_stale_assignments = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_env.close = AsyncMock()
+    mock_vm_store = AsyncMock()
+    mock_vm_store.close = AsyncMock()
+
+    env_vars = {
+        "WM_IPC_DIR": str(tmp_path / "ipc"),
+        "WM_GITHUB_DIR": str(tmp_path / "github"),
+        "WM_DATA_DIR": str(tmp_path / "data"),
+        "WM_COMMANDS_DIR": ".claude/commands/tanren",
+        "WM_POLL_INTERVAL": "5.0",
+        "WM_HEARTBEAT_INTERVAL": "30.0",
+        "WM_OPENCODE_PATH": "opencode",
+        "WM_CODEX_PATH": "codex",
+        "WM_CLAUDE_PATH": "claude",
+        "WM_MAX_OPENCODE": "1",
+        "WM_MAX_CODEX": "1",
+        "WM_MAX_GATE": "3",
+        "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_REMOTE_CONFIG": str(tmp_path / "remote.toml"),
+    }
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    with (
+        patch.dict(os.environ, env_vars, clear=False),
+        patch(
+            "tanren_api.main.build_ssh_execution_environment",
+            return_value=(mock_env, mock_vm_store),
+        ),
+    ):
+        async with application.router.lifespan_context(application):
+            # App started despite recovery failure
+            assert application.state.execution_env is mock_env
 
 
 # ---------------------------------------------------------------------------

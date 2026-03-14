@@ -68,7 +68,9 @@ def _build_client(server: _FakeServer):
     return SimpleNamespace(
         locations=SimpleNamespace(get_by_name=Mock(return_value=location)),
         ssh_keys=SimpleNamespace(get_by_name=Mock(return_value=ssh_key)),
-        images=SimpleNamespace(get_by_name=Mock(return_value=SimpleNamespace(name="ubuntu-24.04"))),
+        images=SimpleNamespace(
+            get_by_name_and_architecture=Mock(return_value=SimpleNamespace(name="ubuntu-24.04"))
+        ),
         server_types=SimpleNamespace(get_by_name=Mock(return_value=server_type)),
         servers=servers,
     )

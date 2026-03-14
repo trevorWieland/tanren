@@ -11,6 +11,17 @@ import pytest
 from tanren_api.models import RunEnvironmentStatus
 
 
+async def _wait_provisioned(client, env_id, auth_headers, *, max_secs: float = 2.0):
+    """Poll until env reaches 'provisioned' status."""
+    deadline = asyncio.get_event_loop().time() + max_secs
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+        r = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+        if r.json()["status"] == "provisioned":
+            return
+    raise AssertionError(f"Environment {env_id} did not reach 'provisioned' within {max_secs}s")
+
+
 @pytest.mark.api
 class TestRun:
     async def test_provision_returns_environment(self, client, auth_headers):
@@ -22,9 +33,12 @@ class TestRun:
         assert resp.status_code == 200
         data = resp.json()
         assert "env_id" in data
-        assert "vm_id" in data
-        assert "host" in data
-        assert data["status"] == "provisioned"
+        assert data["status"] == "provisioning"
+
+        # Wait for background provision to complete
+        await _wait_provisioned(client, data["env_id"], auth_headers)
+        status = await client.get(f"/api/v1/run/{data['env_id']}/status", headers=auth_headers)
+        assert status.json()["status"] == "provisioned"
 
     async def test_provision_no_execution_env(self, client, auth_headers, app):
         app.state.execution_env = None
@@ -43,6 +57,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         resp = await client.post(
             f"/api/v1/run/{env_id}/execute",
@@ -79,6 +94,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         resp = await client.post(
             f"/api/v1/run/{env_id}/teardown",
@@ -97,6 +113,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         resp = await client.get(
             f"/api/v1/run/{env_id}/status",
@@ -119,6 +136,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Now remove execution_env
         app.state.execution_env = None
@@ -142,6 +160,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         resp = await client.post(
             f"/api/v1/run/{env_id}/execute",
@@ -163,6 +182,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Execute
         await client.post(
@@ -194,6 +214,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Set status to TEARING_DOWN directly to avoid background removal race
         store = app.state.api_store
@@ -214,7 +235,7 @@ class TestRun:
     async def test_provision_wraps_provider_exception(
         self, client, auth_headers, mock_execution_env
     ):
-        """run_provision wraps provider exceptions in ServiceError (500)."""
+        """run_provision surfaces provider failure via status=failed."""
         mock_execution_env.provision = AsyncMock(side_effect=RuntimeError("boom"))
 
         resp = await client.post(
@@ -222,10 +243,15 @@ class TestRun:
             json={"project": "test", "branch": "main"},
             headers=auth_headers,
         )
-        assert resp.status_code == 500
-        data = resp.json()
-        assert data["error_code"] == "service_error"
-        assert "boom" not in data["detail"]
+        # Returns 200 immediately (non-blocking)
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # Wait for background task to fail
+        await asyncio.sleep(0.05)
+
+        status_resp = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+        assert status_resp.json()["status"] == "failed"
 
     async def test_teardown_no_execution_env_returns_500(self, client, auth_headers, app):
         """Teardown without execution_env returns 500 and preserves environment record."""
@@ -236,6 +262,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Remove execution_env
         app.state.execution_env = None
@@ -263,6 +290,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Attach a task that resists one cancellation attempt
         async def _resist_one_cancel() -> None:
@@ -309,6 +337,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Make teardown block so first teardown task stays alive
         teardown_event = asyncio.Event()
@@ -361,6 +390,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Make teardown block on an event so we control when it finishes
         teardown_started = asyncio.Event()
@@ -419,6 +449,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Simulate a completed first execution
         store = app.state.api_store
@@ -554,6 +585,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Make execute block so we can inspect state while EXECUTING
         execute_event = asyncio.Event()
@@ -600,6 +632,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Simulate an in-progress teardown: set status to TEARING_DOWN and attach a task
         store = app.state.api_store
@@ -640,6 +673,7 @@ class TestRun:
             headers=auth_headers,
         )
         env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
 
         # Make execute block on an event
         execute_event = asyncio.Event()

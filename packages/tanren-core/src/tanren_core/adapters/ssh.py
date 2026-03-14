@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import socket
 import time
 from pathlib import Path
 from typing import Literal
@@ -62,13 +63,16 @@ class SSHConnection:
             self._close_sync()
 
         client = paramiko.SSHClient()
-        client.load_system_host_keys()
 
         if self._config.host_key_policy == "reject":
+            client.load_system_host_keys()
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
         elif self._config.host_key_policy == "warn":
+            client.load_system_host_keys()
             client.set_missing_host_key_policy(paramiko.WarningPolicy())
         else:
+            # auto_add: skip system host keys — ephemeral VMs reuse IPs
+            # and stale entries cause BadHostKeyException
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         key_path = str(Path(self._config.key_path).expanduser())
@@ -85,6 +89,8 @@ class SSHConnection:
                 f"SSH auth failed for {self._config.user}@{self._config.host}: {e}"
             ) from e
         except paramiko.SSHException as e:
+            raise ConnectionError(f"SSH connection failed to {self._config.host}: {e}") from e
+        except OSError as e:
             raise ConnectionError(f"SSH connection failed to {self._config.host}: {e}") from e
 
         self._client = client
@@ -108,6 +114,9 @@ class SSHConnection:
                 self._sftp.stat(".")
                 return self._sftp
             except Exception:
+                logger.debug(
+                    "SFTP channel stale, recreating for %s", self._config.host, exc_info=True
+                )
                 self._sftp = None
 
         client = self._ensure_connected()
@@ -240,6 +249,42 @@ class SSHConnection:
         """
         return await asyncio.to_thread(self._download_sync, remote_path)
 
+    def _check_ssh_banner_sync(self) -> bool:
+        """Check if the remote SSH service sends a valid protocol banner.
+
+        Uses a raw TCP socket to avoid paramiko transport thread side-effects.
+
+        Returns:
+            True if the SSH banner was received.
+        """
+        try:
+            with socket.create_connection(
+                (self._config.host, self._config.port),
+                timeout=self._config.connect_timeout,
+            ) as sock:
+                data = sock.recv(256)
+                return data.startswith(b"SSH-")
+        except OSError as e:
+            logger.debug(
+                "SSH banner check failed for %s:%d: %s",
+                self._config.host,
+                self._config.port,
+                e,
+            )
+            return False
+
+    async def check_ssh_banner(self) -> bool:
+        """Check if the remote SSH service is ready by reading the protocol banner.
+
+        This is faster and more reliable than a full paramiko connection for
+        readiness polling — it avoids spawning transport threads that can
+        interfere with subsequent connection attempts.
+
+        Returns:
+            True if the SSH banner was received.
+        """
+        return await asyncio.to_thread(self._check_ssh_banner_sync)
+
     async def check_connection(self) -> bool:
         """Test connectivity with a simple echo command.
 
@@ -250,6 +295,7 @@ class SSHConnection:
             result = await self.run("echo tanren-ok", timeout=10)
             return result.exit_code == 0 and "tanren-ok" in result.stdout
         except Exception:
+            logger.debug("check_connection failed for %s", self._config.host, exc_info=True)
             return False
 
     def get_host_identifier(self) -> str:

@@ -62,7 +62,7 @@ class EnvironmentRecord:
     """Tracks a provisioned execution environment."""
 
     env_id: str
-    handle: EnvironmentHandle
+    handle: EnvironmentHandle | None
     status: RunEnvironmentStatus
     phase: Phase | None = None
     outcome: Outcome | None = None
@@ -210,9 +210,12 @@ class APIStateStore:
         self,
         env_id: str,
         *,
+        handle: EnvironmentHandle | _UnsetType | None = _UNSET,
         status: RunEnvironmentStatus | _UnsetType = _UNSET,
         phase: Phase | _UnsetType | None = _UNSET,
         outcome: Outcome | _UnsetType | None = _UNSET,
+        vm_id: str | _UnsetType = _UNSET,
+        host: str | _UnsetType = _UNSET,
         dispatch_id: str | _UnsetType | None = _UNSET,
         started_at: str | _UnsetType | None = _UNSET,
         completed_at: str | _UnsetType | None = _UNSET,
@@ -223,12 +226,18 @@ class APIStateStore:
             record = self._environments.get(env_id)
             if record is None:
                 return
+            if not isinstance(handle, _UnsetType):
+                record.handle = handle
             if not isinstance(status, _UnsetType):
                 record.status = status
             if not isinstance(phase, _UnsetType):
                 record.phase = phase
             if not isinstance(outcome, _UnsetType):
                 record.outcome = outcome
+            if not isinstance(vm_id, _UnsetType):
+                record.vm_id = vm_id
+            if not isinstance(host, _UnsetType):
+                record.host = host
             if not isinstance(dispatch_id, _UnsetType):
                 record.dispatch_id = dispatch_id
             if not isinstance(started_at, _UnsetType):
