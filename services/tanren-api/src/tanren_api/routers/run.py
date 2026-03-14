@@ -90,6 +90,7 @@ async def run_provision(
     await store.add_environment(record)
 
     async def _provision_background() -> None:
+        handle: EnvironmentHandle | None = None
         try:
             handle = await execution_env.provision(dispatch, config)
             runtime = handle.runtime
@@ -102,9 +103,11 @@ async def run_provision(
                 host=runtime.vm_handle.host,
                 status=RunEnvironmentStatus.PROVISIONED,
             )
+            handle = None  # Persisted — suppress finally cleanup
         except asyncio.CancelledError:
             raise
         except Exception:
+            handle = None  # Error handler owns cleanup
             logger.exception("Provision failed for %s", env_id)
             await store.update_environment(
                 env_id,
@@ -112,6 +115,15 @@ async def run_provision(
                 outcome=Outcome.ERROR,
                 completed_at=_now(),
             )
+        finally:
+            if handle is not None:
+                logger.warning("Cleaning up orphaned provision for %s", env_id)
+                inner = asyncio.ensure_future(execution_env.teardown(handle))
+                try:
+                    await asyncio.shield(inner)
+                except asyncio.CancelledError, Exception:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await inner
 
     task = asyncio.create_task(_provision_background())
     await store.update_environment(env_id, task=task)
@@ -248,11 +260,27 @@ async def run_teardown(
     # Best-effort cancel of any stale execute task — we already own teardown.
     await store.cancel_environment_task(env_id)
 
+    # Capture the prior task before the teardown task overwrites it.
+    pre = await store.get_environment(env_id)
+    prior_task = pre.task if pre is not None else None
+
     async def _teardown_background() -> None:
-        if updated.handle is None:
+        # Wait for any in-flight provision to finish before inspecting
+        # the handle.  Without this, we can remove the record while
+        # provision is still running; provision then silently fails to
+        # persist its handle and skips its own finally cleanup,
+        # orphaning the VM.
+        if prior_task is not None and not prior_task.done():
+            logger.debug("Waiting for prior task to complete before teardown for %s", env_id)
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await prior_task
+
+        current = await store.get_environment(env_id)
+        handle = current.handle if current is not None else None
+        if handle is None:
             await store.remove_environment(env_id)
             return
-        inner = asyncio.ensure_future(execution_env.teardown(updated.handle))
+        inner = asyncio.ensure_future(execution_env.teardown(handle))
         try:
             await asyncio.shield(inner)
         except asyncio.CancelledError, Exception:

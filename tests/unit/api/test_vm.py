@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock
 
 import pytest
@@ -220,6 +221,52 @@ class TestVM:
         assert resp.status_code == 200
         data = resp.json()
         assert "requirements" in data
+
+    async def test_provision_cancelled_after_handle_triggers_cleanup(
+        self, client, auth_headers, app, mock_execution_env, monkeypatch
+    ):
+        """VM provision cancelled after handle obtained → finally block calls teardown."""
+        store = app.state.api_store
+        original_handle = mock_execution_env.provision.return_value
+
+        # Block update_environment when it tries to persist the handle
+        persist_reached = asyncio.Event()
+        persist_release = asyncio.Event()
+        original_update = store.update_environment
+
+        async def _intercept_update(env_id, **kwargs):
+            if kwargs.get("handle") is not None:
+                persist_reached.set()
+                await persist_release.wait()
+            return await original_update(env_id, **kwargs)
+
+        monkeypatch.setattr(store, "update_environment", _intercept_update)
+
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # Wait for provision to reach the persist step
+        await persist_reached.wait()
+
+        # Cancel the task while it's blocked before persisting handle
+        record = await store.get_environment(env_id)
+        assert record is not None
+        bg_task = record.task
+        assert bg_task is not None
+        bg_task.cancel()
+
+        # Let the intercepted update proceed — task sees CancelledError
+        persist_release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await bg_task
+
+        # Finally block should have called teardown with the handle
+        mock_execution_env.teardown.assert_awaited_once_with(original_handle)
 
     async def test_provision_status_shows_failed_on_failure(
         self, client, auth_headers, mock_execution_env

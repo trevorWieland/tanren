@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -27,7 +28,7 @@ from tanren_api.state import APIStateStore, EnvironmentRecord
 from tanren_core.adapters.protocols import ExecutionEnvironment
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
-from tanren_core.adapters.types import RemoteEnvironmentRuntime
+from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
 from tanren_core.remote_config import ProvisionerType, load_remote_config
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
@@ -116,6 +117,7 @@ async def provision_vm(
     await store.add_environment(record)
 
     async def _provision_background() -> None:
+        handle: EnvironmentHandle | None = None
         try:
             handle = await execution_env.provision(dispatch, config)
             runtime = handle.runtime
@@ -138,9 +140,11 @@ async def provision_vm(
                 host=vm_handle.host,
                 status=RunEnvironmentStatus.PROVISIONED,
             )
+            handle = None  # Persisted — suppress finally cleanup
         except asyncio.CancelledError:
             raise
         except Exception:
+            handle = None  # Error handler owns cleanup
             logger.exception("VM provision failed for %s", env_id)
             await store.update_environment(
                 env_id,
@@ -148,6 +152,15 @@ async def provision_vm(
                 outcome=Outcome.ERROR,
                 completed_at=_now(),
             )
+        finally:
+            if handle is not None:
+                logger.warning("Cleaning up orphaned VM provision for %s", env_id)
+                inner = asyncio.ensure_future(execution_env.teardown(handle))
+                try:
+                    await asyncio.shield(inner)
+                except asyncio.CancelledError, Exception:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await inner
 
     task = asyncio.create_task(_provision_background())
     await store.update_environment(env_id, task=task)
