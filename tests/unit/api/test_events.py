@@ -24,6 +24,20 @@ async def _setup_events_db(db_path, events: list[tuple[str, str, str, dict]]):
         await conn.commit()
 
 
+async def _setup_events_db_raw(db_path, events: list[tuple[str, str, str, str]]):
+    """Create DB with schema and insert events with raw payload strings (no json.dumps)."""
+    async with aiosqlite.connect(str(db_path)) as conn:
+        await conn.executescript(_SCHEMA)
+        for ts, wid, etype, raw_payload in events:
+            sql = (
+                "INSERT INTO events "
+                "(timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?)"
+            )
+            await conn.execute(sql, (ts, wid, etype, raw_payload))
+        await conn.commit()
+
+
 @pytest.mark.api
 class TestEvents:
     async def test_events_no_db_returns_empty(self, client, auth_headers):
@@ -162,3 +176,42 @@ class TestEvents:
         data = resp.json()
         assert data["total"] == 1
         assert data["events"][0]["workflow_id"] == "wf-1"
+
+    async def test_events_malformed_json_payload_returns_200(
+        self, client, auth_headers, app, tmp_path
+    ):
+        db = tmp_path / "events.db"
+        valid_payload = json.dumps({
+            "type": "dispatch_received",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "workflow_id": "wf-1",
+            "phase": "do-task",
+            "project": "p",
+            "cli": "claude",
+        })
+        await _setup_events_db_raw(
+            db,
+            [
+                ("2026-01-01T00:00:00Z", "wf-1", "DispatchReceived", valid_payload),
+                ("2026-01-01T00:00:01Z", "wf-1", "Bad", "not json {{"),
+                (
+                    "2026-01-01T00:00:02Z",
+                    "wf-1",
+                    "BadEvent",
+                    json.dumps({
+                        "type": "nonexistent_type",
+                        "garbage": True,
+                    }),
+                ),
+            ],
+        )
+        app.state.settings.events_db = str(db)
+
+        resp = await client.get("/api/v1/events", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        # 1 malformed JSON (skipped in event_reader) + 1 invalid schema (skipped in router)
+        assert data["skipped"] == 2
+        assert len(data["events"]) == 1
+        assert data["events"][0]["type"] == "dispatch_received"

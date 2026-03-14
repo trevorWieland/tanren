@@ -67,5 +67,5 @@ async def list_events(
         total=result.total,
         limit=limit,
         offset=offset,
-        skipped=skipped,
+        skipped=skipped + result.skipped,
     )

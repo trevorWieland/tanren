@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class EventQueryResult:
 
     events: list[EventRow] = field(default_factory=list)
     total: int = 0
+    skipped: int = 0
 
 
 async def query_events(
@@ -77,15 +81,23 @@ async def query_events(
         cursor = await conn.execute(select_sql, [*params, limit, offset])
         rows = await cursor.fetchall()
 
-    events = [
-        EventRow(
-            id=r[0],
-            timestamp=r[1],
-            workflow_id=r[2],
-            event_type=r[3],
-            payload=json.loads(r[4]),
+    events: list[EventRow] = []
+    skipped = 0
+    for r in rows:
+        try:
+            payload = json.loads(r[4])
+        except json.JSONDecodeError, TypeError:
+            skipped += 1
+            logger.warning("Skipping event %d: malformed JSON payload", r[0])
+            continue
+        events.append(
+            EventRow(
+                id=r[0],
+                timestamp=r[1],
+                workflow_id=r[2],
+                event_type=r[3],
+                payload=payload,
+            )
         )
-        for r in rows
-    ]
 
-    return EventQueryResult(events=events, total=total)
+    return EventQueryResult(events=events, total=total, skipped=skipped)

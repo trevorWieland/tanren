@@ -25,6 +25,20 @@ async def _setup_db(db_path, events: list[tuple[str, str, str, dict]]):
         await conn.commit()
 
 
+async def _setup_db_raw(db_path, events: list[tuple[str, str, str, str]]):
+    """Create DB with schema and insert events with raw payload strings (no json.dumps)."""
+    async with aiosqlite.connect(str(db_path)) as conn:
+        await conn.executescript(_SCHEMA)
+        for ts, wid, etype, raw_payload in events:
+            sql = (
+                "INSERT INTO events "
+                "(timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?)"
+            )
+            await conn.execute(sql, (ts, wid, etype, raw_payload))
+        await conn.commit()
+
+
 class TestReadOnlyConnection:
     async def test_readonly_connection(self, tmp_path):
         """Verify the event reader uses a read-only SQLite connection."""
@@ -272,3 +286,42 @@ class TestQueryEvents:
         assert result.total == 1
         assert result.events[0].workflow_id == "wf-1"
         assert result.events[0].event_type == "DispatchReceived"
+
+    async def test_query_skips_malformed_json_payload(self, tmp_path):
+        db = tmp_path / "events.db"
+        valid_payload = json.dumps({
+            "type": "dispatch_received",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "workflow_id": "wf-1",
+            "phase": "do-task",
+            "project": "p",
+            "cli": "claude",
+        })
+        await _setup_db_raw(
+            db,
+            [
+                ("2026-01-01T00:00:00Z", "wf-1", "DispatchReceived", valid_payload),
+                ("2026-01-01T00:00:01Z", "wf-1", "Bad", "not json {{"),
+                ("2026-01-01T00:00:02Z", "wf-1", "DispatchReceived", valid_payload),
+            ],
+        )
+
+        result = await query_events(db)
+        assert len(result.events) == 2
+        assert result.total == 3
+        assert result.skipped == 1
+
+    async def test_query_all_malformed_returns_empty_events(self, tmp_path):
+        db = tmp_path / "events.db"
+        await _setup_db_raw(
+            db,
+            [
+                ("2026-01-01T00:00:00Z", "wf-1", "Bad", "not json {{"),
+                ("2026-01-01T00:00:01Z", "wf-1", "Bad", "{truncated"),
+            ],
+        )
+
+        result = await query_events(db)
+        assert result.events == []
+        assert result.total == 2
+        assert result.skipped == 2
