@@ -18,6 +18,7 @@ from tanren_core.adapters.events import (
     PostflightCompleted,
     PreflightCompleted,
     RetryScheduled,
+    TokenUsageRecorded,
     VMProvisioned,
     VMReleased,
 )
@@ -355,7 +356,8 @@ EventPayload = Annotated[
     | RetryScheduled
     | VMProvisioned
     | VMReleased
-    | BootstrapCompleted,
+    | BootstrapCompleted
+    | TokenUsageRecorded,
     Field(discriminator="type"),
 ]
 

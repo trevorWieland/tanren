@@ -235,6 +235,9 @@ class Result(BaseModel):
         default_factory=list,
         description="Structured findings from audit/demo/investigate phases",
     )
+    token_usage: dict[str, JsonValue] | None = Field(
+        default=None, description="Token usage data from ccusage"
+    )
 
 
 class Nudge(BaseModel):

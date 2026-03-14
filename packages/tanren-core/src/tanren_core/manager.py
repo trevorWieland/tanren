@@ -12,7 +12,7 @@ import os
 import signal
 import subprocess
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -32,6 +32,7 @@ from tanren_core.adapters import (
     PreflightCompleted,
     SqliteEventEmitter,
     SubprocessSpawner,
+    TokenUsageRecorded,
 )
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
@@ -48,7 +49,17 @@ from tanren_core.adapters.protocols import (
 from tanren_core.adapters.protocols import VMProvisioner as VMProvisionerProtocol
 from tanren_core.adapters.remote_types import VMHandle, VMProvider
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
-from tanren_core.adapters.types import EnvironmentHandle, LocalEnvironmentRuntime, ProvisionError
+from tanren_core.adapters.types import (
+    EnvironmentHandle,
+    LocalEnvironmentRuntime,
+    ProvisionError,
+    RemoteEnvironmentRuntime,
+)
+from tanren_core.ccusage import (
+    LocalCommandRunner,
+    RemoteCommandRunner,
+    collect_token_usage,
+)
 from tanren_core.config import Config
 from tanren_core.heartbeat import HeartbeatWriter
 from tanren_core.ipc import (
@@ -61,6 +72,7 @@ from tanren_core.ipc import (
 from tanren_core.queues import DispatchRouter
 from tanren_core.remote_config import ProvisionerType, load_remote_config
 from tanren_core.schemas import (
+    Cli,
     Dispatch,
     FindingSeverity,
     Nudge,
@@ -630,6 +642,39 @@ class WorkerManager:
             # 6. Parse structured findings
             new_tasks, findings_data = self._parse_findings(dispatch, spec_folder_path)
 
+            # 6b. Collect token usage (best-effort, 30s timeout)
+            token_usage_data = None
+            if dispatch.cli != Cli.BASH:
+                dispatch_end_utc = datetime.now(UTC)
+                dispatch_start_utc = dispatch_end_utc - timedelta(seconds=duration)
+
+                if isinstance(handle.runtime, RemoteEnvironmentRuntime):
+                    runner = RemoteCommandRunner(handle.runtime.connection)
+                    usage_worktree = str(handle.runtime.workspace_path.path)
+                else:
+                    runner = LocalCommandRunner()
+                    usage_worktree = str(worktree_path)
+
+                usage = await collect_token_usage(
+                    dispatch.cli,
+                    usage_worktree,
+                    dispatch_start_utc,
+                    dispatch_end_utc,
+                    self._config,
+                    runner,
+                )
+                if usage is not None:
+                    token_usage_data = usage.model_dump(mode="json")
+                    await self._emitter.emit(
+                        TokenUsageRecorded(
+                            timestamp=datetime.now(UTC).isoformat(),
+                            workflow_id=dispatch.workflow_id,
+                            phase=dispatch.phase.value,
+                            cli=dispatch.cli.value,
+                            **{k: v for k, v in usage.model_dump().items() if k != "provider"},
+                        )
+                    )
+
             # 7. Construct Result
             result = Result(
                 workflow_id=dispatch.workflow_id,
@@ -647,6 +692,7 @@ class WorkerManager:
                 integrity_repairs=integrity_repairs,
                 new_tasks=new_tasks,
                 findings=findings_data,
+                token_usage=token_usage_data,
             )
 
             # 8. Emit PhaseCompleted

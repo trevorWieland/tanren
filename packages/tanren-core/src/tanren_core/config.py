@@ -83,7 +83,14 @@ _REQUIRED_KEYS = (
     "WM_WORKTREE_REGISTRY_PATH",
 )
 
-_OPTIONAL_KEYS = ("WM_ROLES_CONFIG_PATH", "WM_EVENTS_DB", "WM_REMOTE_CONFIG")
+_OPTIONAL_KEYS = (
+    "WM_ROLES_CONFIG_PATH",
+    "WM_EVENTS_DB",
+    "WM_REMOTE_CONFIG",
+    "WM_CCUSAGE_CLAUDE_CMD",
+    "WM_CCUSAGE_CODEX_CMD",
+    "WM_CCUSAGE_OPENCODE_CMD",
+)
 
 _WM_KEYS = frozenset((*_REQUIRED_KEYS, *_OPTIONAL_KEYS))
 
@@ -167,6 +174,18 @@ class Config(BaseModel):
         default=None,
         description="Path to remote.yml (enables remote execution)",
     )
+    ccusage_claude_cmd: str = Field(
+        default="npx ccusage",
+        description="Command for ccusage (Claude)",
+    )
+    ccusage_codex_cmd: str = Field(
+        default="npx @ccusage/codex",
+        description="Command for @ccusage/codex",
+    )
+    ccusage_opencode_cmd: str = Field(
+        default="npx @ccusage/opencode",
+        description="Command for @ccusage/opencode",
+    )
 
     @classmethod
     def from_env(cls, sources: Sequence[ConfigSource] = ()) -> Config:
@@ -217,4 +236,7 @@ class Config(BaseModel):
             max_gate=int(resolved["WM_MAX_GATE"]),
             events_db=_expand_optional(resolved.get("WM_EVENTS_DB")),
             remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
+            ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),
+            ccusage_codex_cmd=resolved.get("WM_CCUSAGE_CODEX_CMD", "npx @ccusage/codex"),
+            ccusage_opencode_cmd=resolved.get("WM_CCUSAGE_OPENCODE_CMD", "npx @ccusage/opencode"),
         )
