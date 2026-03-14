@@ -220,3 +220,27 @@ class TestVM:
         assert resp.status_code == 200
         data = resp.json()
         assert "requirements" in data
+
+    async def test_provision_status_shows_failed_on_failure(
+        self, client, auth_headers, mock_execution_env
+    ):
+        """GET /vm/provision/{env_id} returns 'failed' when provisioning fails."""
+        mock_execution_env.provision = AsyncMock(side_effect=RuntimeError("boom"))
+
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # Wait for background task to fail
+        await asyncio.sleep(0.05)
+
+        status_resp = await client.get(
+            f"/api/v1/vm/provision/{env_id}",
+            headers=auth_headers,
+        )
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "failed"

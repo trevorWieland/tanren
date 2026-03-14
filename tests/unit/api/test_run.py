@@ -704,3 +704,94 @@ class TestRun:
         )
         assert teardown_resp.status_code == 200
         assert teardown_resp.json()["status"] == "tearing_down"
+
+    async def test_teardown_uses_fresh_handle_from_transition(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """Teardown uses the transitioned record's handle, not the stale snapshot."""
+        from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+
+        store = app.state.api_store
+
+        # Manually add an environment with handle=None (simulating a stale snapshot)
+        env_id = "env-stale-handle"
+        stale_record = EnvironmentRecord(
+            env_id=env_id,
+            handle=None,
+            status=RunEnvironmentStatus.PROVISIONED,
+            started_at="2026-01-01T00:00:00Z",
+        )
+        await store.add_environment(stale_record)
+
+        # Now update the store with a real handle (simulating provision completing)
+        handle = mock_execution_env.provision.return_value
+        await store.update_environment(env_id, handle=handle, vm_id="vm-1", host="10.0.0.1")
+
+        # Teardown — should use the handle from the transitioned record
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # Wait for background teardown to complete
+        await asyncio.sleep(0.1)
+
+        # execution_env.teardown must have been called with the real handle
+        mock_execution_env.teardown.assert_awaited_once_with(handle)
+
+    async def test_status_includes_vm_id_and_host(self, client, auth_headers, app):
+        """GET /run/{env_id}/status includes vm_id and host after provisioning."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+        await _wait_provisioned(client, env_id, auth_headers)
+
+        resp = await client.get(
+            f"/api/v1/run/{env_id}/status",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["vm_id"] == "vm-test-1"
+        assert data["host"] == "10.0.0.1"
+
+    async def test_status_vm_id_null_before_provisioned(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """GET /run/{env_id}/status returns null vm_id/host while provisioning."""
+        # Make provision hang
+        provision_started = asyncio.Event()
+        provision_release = asyncio.Event()
+
+        async def _slow_provision(*args, **kwargs):
+            provision_started.set()
+            await provision_release.wait()
+            return mock_execution_env.provision.return_value
+
+        mock_execution_env.provision = AsyncMock(side_effect=_slow_provision)
+
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+        await provision_started.wait()
+
+        resp = await client.get(
+            f"/api/v1/run/{env_id}/status",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["vm_id"] is None
+        assert data["host"] is None
+
+        # Cleanup
+        provision_release.set()
+        await asyncio.sleep(0.05)

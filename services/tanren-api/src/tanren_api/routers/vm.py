@@ -167,11 +167,12 @@ async def get_provision_status(
         raise NotFoundError(f"Provision {env_id} not found")
 
     provider = _derive_provider(config)
-    vm_status = (
-        VMStatus.ACTIVE
-        if record.status == RunEnvironmentStatus.PROVISIONED
-        else VMStatus.PROVISIONING
-    )
+    if record.status == RunEnvironmentStatus.PROVISIONED:
+        vm_status = VMStatus.ACTIVE
+    elif record.status == RunEnvironmentStatus.FAILED:
+        vm_status = VMStatus.FAILED
+    else:
+        vm_status = VMStatus.PROVISIONING
 
     return VMProvisionStatus(
         env_id=env_id,

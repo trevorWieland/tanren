@@ -572,6 +572,71 @@ async def test_run_status_not_found(client, auth_headers):
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_run_teardown_uses_fresh_handle(client, auth_headers, app, mock_execution_env):
+    """Teardown uses the transitioned record (not stale snapshot) so VM is released."""
+    from tanren_api.models import RunEnvironmentStatus  # noqa: PLC0415
+    from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+
+    store = app.state.api_store
+    handle = mock_execution_env.provision.return_value
+
+    # Add env with handle=None, then update with real handle to simulate race
+    env_id = "env-race-test"
+    record = EnvironmentRecord(
+        env_id=env_id,
+        handle=None,
+        status=RunEnvironmentStatus.PROVISIONED,
+        started_at="2026-01-01T00:00:00Z",
+    )
+    await store.add_environment(record)
+    await store.update_environment(env_id, handle=handle, vm_id="vm-int-1", host="10.0.0.1")
+
+    resp = await client.post(f"/api/v1/run/{env_id}/teardown", headers=auth_headers)
+    assert resp.status_code == 200
+
+    await asyncio.sleep(0.1)
+    mock_execution_env.teardown.assert_awaited_once_with(handle)
+
+
+@pytest.mark.asyncio
+async def test_run_status_includes_vm_identity(client, auth_headers):
+    """GET /run/{env_id}/status includes vm_id and host after provisioning."""
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id = prov.json()["env_id"]
+    await _wait_provisioned(client, env_id, auth_headers)
+
+    status_resp = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+    assert status_resp.status_code == 200
+    data = status_resp.json()
+    assert data["vm_id"] == "vm-int-1"
+    assert data["host"] == "10.0.0.1"
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_status_shows_failed(client, auth_headers, mock_execution_env):
+    """GET /vm/provision/{env_id} returns 'failed' when provisioning fails."""
+    mock_execution_env.provision = AsyncMock(side_effect=RuntimeError("boom"))
+
+    resp = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert resp.status_code == 200
+    env_id = resp.json()["env_id"]
+
+    await asyncio.sleep(0.05)
+
+    status_resp = await client.get(f"/api/v1/vm/provision/{env_id}", headers=auth_headers)
+    assert status_resp.status_code == 200
+    assert status_resp.json()["status"] == "failed"
+
+
 # ---------------------------------------------------------------------------
 # Error response format
 # ---------------------------------------------------------------------------

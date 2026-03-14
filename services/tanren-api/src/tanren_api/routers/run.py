@@ -249,10 +249,10 @@ async def run_teardown(
     await store.cancel_environment_task(env_id)
 
     async def _teardown_background() -> None:
-        if record.handle is None:
+        if updated.handle is None:
             await store.remove_environment(env_id)
             return
-        inner = asyncio.ensure_future(execution_env.teardown(record.handle))
+        inner = asyncio.ensure_future(execution_env.teardown(updated.handle))
         try:
             await asyncio.shield(inner)
         except asyncio.CancelledError, Exception:
@@ -404,4 +404,6 @@ async def run_status(
         outcome=record.outcome,
         started_at=record.started_at,
         duration_secs=duration_secs,
+        vm_id=record.vm_id or None,
+        host=record.host or None,
     )

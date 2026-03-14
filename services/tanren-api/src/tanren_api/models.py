@@ -44,6 +44,7 @@ class VMStatus(StrEnum):
 
     ACTIVE = "active"
     PROVISIONING = "provisioning"
+    FAILED = "failed"
     RELEASING = "releasing"
     RELEASED = "released"
 
@@ -336,6 +337,8 @@ class RunStatus(BaseModel):
     outcome: Outcome | None = Field(default=None, description="Final outcome if completed")
     started_at: str | None = Field(default=None, description="ISO 8601 start timestamp")
     duration_secs: int | None = Field(default=None, ge=0, description="Elapsed seconds")
+    vm_id: str | None = Field(default=None, description="Backing VM identifier")
+    host: str | None = Field(default=None, description="VM hostname or IP")
 
 
 # ---------------------------------------------------------------------------
