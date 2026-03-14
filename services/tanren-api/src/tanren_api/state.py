@@ -280,6 +280,9 @@ class APIStateStore:
         *,
         from_statuses: frozenset[RunEnvironmentStatus],
         to_status: RunEnvironmentStatus,
+        handle: EnvironmentHandle | _UnsetType | None = _UNSET,
+        vm_id: str | _UnsetType = _UNSET,
+        host: str | _UnsetType = _UNSET,
         phase: Phase | _UnsetType | None = _UNSET,
         outcome: Outcome | _UnsetType | None = _UNSET,
         dispatch_id: str | _UnsetType | None = _UNSET,
@@ -296,6 +299,12 @@ class APIStateStore:
             if record is None or record.status not in from_statuses:
                 return None
             record.status = to_status
+            if not isinstance(handle, _UnsetType):
+                record.handle = handle
+            if not isinstance(vm_id, _UnsetType):
+                record.vm_id = vm_id
+            if not isinstance(host, _UnsetType):
+                record.host = host
             if not isinstance(phase, _UnsetType):
                 record.phase = phase
             if not isinstance(outcome, _UnsetType):

@@ -445,6 +445,67 @@ class TestAPIStateStore:
         assert result.outcome == Outcome.SUCCESS
         assert result.completed_at == "2026-01-01T01:00:00Z"
 
+    async def test_try_transition_environment_persists_handle_and_vm_identity(self):
+        """Transition with handle/vm_id/host persists all three fields atomically."""
+        store = APIStateStore()
+        record = EnvironmentRecord(
+            env_id="env-1",
+            handle=None,
+            status=RunEnvironmentStatus.PROVISIONING,
+        )
+        await store.add_environment(record)
+
+        handle = _make_env_handle("env-1")
+        result = await store.try_transition_environment(
+            "env-1",
+            from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+            to_status=RunEnvironmentStatus.PROVISIONED,
+            handle=handle,
+            vm_id="vm-99",
+            host="192.168.1.1",
+        )
+        assert result is not None
+        assert result.status == RunEnvironmentStatus.PROVISIONED
+        assert result.handle is handle
+        assert result.vm_id == "vm-99"
+        assert result.host == "192.168.1.1"
+
+        # Verify the internal record was updated too
+        fetched = await store.get_environment("env-1")
+        assert fetched is not None
+        assert fetched.handle is handle
+        assert fetched.vm_id == "vm-99"
+        assert fetched.host == "192.168.1.1"
+
+    async def test_try_transition_environment_rejects_handle_on_wrong_status(self):
+        """Transition rejected when status doesn't match — fields not persisted."""
+        store = APIStateStore()
+        record = EnvironmentRecord(
+            env_id="env-1",
+            handle=None,
+            status=RunEnvironmentStatus.TEARING_DOWN,
+        )
+        await store.add_environment(record)
+
+        handle = _make_env_handle("env-1")
+        result = await store.try_transition_environment(
+            "env-1",
+            from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+            to_status=RunEnvironmentStatus.PROVISIONED,
+            handle=handle,
+            vm_id="vm-99",
+            host="192.168.1.1",
+        )
+        assert result is None
+
+        # Stored record must be unchanged
+        fetched = await store.get_environment("env-1")
+        assert fetched is not None
+        assert fetched.handle is None
+        assert not fetched.vm_id
+        assert not fetched.host
+        assert fetched.status == RunEnvironmentStatus.TEARING_DOWN
+
     async def test_reap_preserves_recent_terminal_dispatches(self):
         store = APIStateStore()
         recent_time = datetime.now(UTC).isoformat()

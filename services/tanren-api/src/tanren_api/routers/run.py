@@ -45,6 +45,8 @@ _TEARDOWN_FROM = frozenset({
     RunEnvironmentStatus.FAILED,
 })
 
+_PRIOR_TASK_TIMEOUT: float = 30.0
+
 _COMPLETED_DISPATCH_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
 _COMPLETED_ENV_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
 
@@ -96,22 +98,25 @@ async def run_provision(
             runtime = handle.runtime
             if not isinstance(runtime, RemoteEnvironmentRuntime):
                 raise ServiceError("Provisioned environment is not a remote runtime")
-            await store.update_environment(
+            updated = await store.try_transition_environment(
                 env_id,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.PROVISIONED,
                 handle=handle,
                 vm_id=runtime.vm_handle.vm_id,
                 host=runtime.vm_handle.host,
-                status=RunEnvironmentStatus.PROVISIONED,
             )
-            handle = None  # Persisted — suppress finally cleanup
+            if updated is not None:
+                handle = None  # Persisted — suppress finally cleanup
         except asyncio.CancelledError:
             raise
         except Exception:
             handle = None  # Error handler owns cleanup
             logger.exception("Provision failed for %s", env_id)
-            await store.update_environment(
+            await store.try_transition_environment(
                 env_id,
-                status=RunEnvironmentStatus.FAILED,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.FAILED,
                 outcome=Outcome.ERROR,
                 completed_at=_now(),
             )
@@ -272,8 +277,8 @@ async def run_teardown(
         # orphaning the VM.
         if prior_task is not None and not prior_task.done():
             logger.debug("Waiting for prior task to complete before teardown for %s", env_id)
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await prior_task
+            with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
+                await asyncio.wait_for(asyncio.shield(prior_task), timeout=_PRIOR_TASK_TIMEOUT)
 
         current = await store.get_environment(env_id)
         handle = current.handle if current is not None else None

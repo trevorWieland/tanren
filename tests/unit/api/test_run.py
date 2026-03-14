@@ -764,22 +764,25 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """Provision cancelled after handle obtained → finally block calls teardown."""
+        from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701
+
         store = app.state.api_store
         original_handle = mock_execution_env.provision.return_value
 
-        # Block update_environment when it tries to persist the handle,
+        # Block try_transition_environment when it tries to persist the handle,
         # giving us a window to cancel the task.
         persist_reached = asyncio.Event()
         persist_release = asyncio.Event()
-        original_update = store.update_environment
+        original_try = store.try_transition_environment
 
-        async def _intercept_update(env_id, **kwargs):
-            if kwargs.get("handle") is not None:
+        async def _intercept_try(env_id, **kwargs):
+            h = kwargs.get("handle", _UNSET)
+            if not isinstance(h, type(_UNSET)) and h is not None:
                 persist_reached.set()
                 await persist_release.wait()
-            return await original_update(env_id, **kwargs)
+            return await original_try(env_id, **kwargs)
 
-        monkeypatch.setattr(store, "update_environment", _intercept_update)
+        monkeypatch.setattr(store, "try_transition_environment", _intercept_try)
 
         resp = await client.post(
             "/api/v1/run/provision",
@@ -1031,3 +1034,186 @@ class TestRun:
 
         # Environment record should be removed
         assert await store.get_environment(env_id) is None
+
+    async def test_provision_does_not_overwrite_tearing_down_status(
+        self, client, auth_headers, app, mock_execution_env, monkeypatch
+    ):
+        """Provision completing after teardown transitions to TEARING_DOWN must
+        not overwrite the status back to PROVISIONED.  Provision's finally block
+        cleans up the handle instead."""
+        store = app.state.api_store
+        original_handle = mock_execution_env.provision.return_value
+
+        # Make provision block so we can interleave teardown
+        provision_entered = asyncio.Event()
+        provision_release = asyncio.Event()
+
+        async def _blocking_provision(*args, **kwargs):
+            provision_entered.set()
+            try:
+                await provision_release.wait()
+            except asyncio.CancelledError:
+                # Resist cancellation — simulate non-cancellable provider
+                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                await provision_release.wait()
+            return original_handle
+
+        mock_execution_env.provision = AsyncMock(side_effect=_blocking_provision)
+
+        # Reduce cancel_environment_task timeout
+        original_cancel = store.cancel_environment_task
+
+        async def _fast_cancel(eid: str, *, wait_secs: float = 0.1) -> bool:
+            return await original_cancel(eid, wait_secs=wait_secs)
+
+        monkeypatch.setattr(store, "cancel_environment_task", _fast_cancel)
+
+        # Start provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert prov_resp.status_code == 200
+        env_id = prov_resp.json()["env_id"]
+        await provision_entered.wait()
+
+        # Teardown while provision is blocked — transitions to TEARING_DOWN
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # Verify status is TEARING_DOWN before releasing provision
+        record = await store.get_environment(env_id)
+        assert record is not None
+        assert record.status == RunEnvironmentStatus.TEARING_DOWN
+
+        # Release provision — it completes and tries to transition
+        provision_release.set()
+        await asyncio.sleep(0.3)
+
+        # teardown should have been called exactly once (by provision's finally block)
+        mock_execution_env.teardown.assert_awaited_once_with(original_handle)
+
+        # Environment record should be removed by teardown background task
+        assert await store.get_environment(env_id) is None
+
+    async def test_provision_error_does_not_overwrite_tearing_down_status(
+        self, client, auth_headers, app, mock_execution_env, monkeypatch
+    ):
+        """Provision raising after teardown transitions to TEARING_DOWN must
+        not overwrite the status to FAILED."""
+        store = app.state.api_store
+
+        # Make provision block then raise
+        provision_entered = asyncio.Event()
+        provision_release = asyncio.Event()
+
+        async def _failing_provision(*args, **kwargs):
+            provision_entered.set()
+            try:
+                await provision_release.wait()
+            except asyncio.CancelledError:
+                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                await provision_release.wait()
+            raise RuntimeError("provider error")
+
+        mock_execution_env.provision = AsyncMock(side_effect=_failing_provision)
+
+        # Reduce cancel_environment_task timeout
+        original_cancel = store.cancel_environment_task
+
+        async def _fast_cancel(eid: str, *, wait_secs: float = 0.1) -> bool:
+            return await original_cancel(eid, wait_secs=wait_secs)
+
+        monkeypatch.setattr(store, "cancel_environment_task", _fast_cancel)
+
+        # Start provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert prov_resp.status_code == 200
+        env_id = prov_resp.json()["env_id"]
+        await provision_entered.wait()
+
+        # Teardown while provision is blocked
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # Release provision — it raises RuntimeError
+        provision_release.set()
+        await asyncio.sleep(0.3)
+
+        # teardown should NOT have been called (no handle obtained)
+        mock_execution_env.teardown.assert_not_awaited()
+
+        # Environment record should be removed by teardown background task
+        assert await store.get_environment(env_id) is None
+
+    async def test_teardown_does_not_hang_on_stuck_prior_task(
+        self, client, auth_headers, app, mock_execution_env, monkeypatch
+    ):
+        """Prior task that hangs forever does not block teardown indefinitely."""
+        import tanren_api.routers.run as run_module  # noqa: PLC0415
+
+        store = app.state.api_store
+
+        # Make provision hang forever and resist cancellation
+        provision_entered = asyncio.Event()
+        stop_provision = asyncio.Event()
+
+        async def _stuck_provision(*args, **kwargs):
+            provision_entered.set()
+            while not stop_provision.is_set():
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    asyncio.current_task().uncancel()  # type: ignore[union-attr]
+
+        mock_execution_env.provision = AsyncMock(side_effect=_stuck_provision)
+
+        # Reduce timeouts for fast test
+        original_cancel = store.cancel_environment_task
+
+        async def _fast_cancel(eid: str, *, wait_secs: float = 0.1) -> bool:
+            return await original_cancel(eid, wait_secs=wait_secs)
+
+        monkeypatch.setattr(store, "cancel_environment_task", _fast_cancel)
+        monkeypatch.setattr(run_module, "_PRIOR_TASK_TIMEOUT", 0.1)
+
+        # Start provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert prov_resp.status_code == 200
+        env_id = prov_resp.json()["env_id"]
+        await provision_entered.wait()
+
+        # Teardown — should not hang despite stuck prior task
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # Teardown should complete within a few seconds (not hang)
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(0.05)
+            record = await store.get_environment(env_id)
+            if record is None:
+                break
+        assert await store.get_environment(env_id) is None
+
+        # Cleanup: unblock the stuck provision task so it doesn't leak
+        stop_provision.set()
+        await asyncio.sleep(0.05)
