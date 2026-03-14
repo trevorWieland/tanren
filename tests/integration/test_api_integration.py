@@ -36,7 +36,7 @@ from tanren_core.adapters.types import (
     PhaseResult,
     RemoteEnvironmentRuntime,
 )
-from tanren_core.config import Config
+from tanren_core.config import Config, DotenvConfigSource, load_config_env
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Outcome
 
@@ -332,7 +332,7 @@ async def test_vm_release_not_found(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_vm_provision(client, auth_headers):
-    """POST /api/v1/vm/provision returns VMHandle fields."""
+    """POST /api/v1/vm/provision returns accepted, then poll shows provisioned."""
     resp = await client.post(
         "/api/v1/vm/provision",
         headers=auth_headers,
@@ -340,9 +340,19 @@ async def test_vm_provision(client, auth_headers):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert "vm_id" in data
-    assert "host" in data
-    assert "provider" in data
+    assert "env_id" in data
+    assert data["status"] == "provisioning"
+
+    env_id = data["env_id"]
+    # Let the background provision task complete
+    await asyncio.sleep(0.05)
+
+    status_resp = await client.get(f"/api/v1/vm/provision/{env_id}", headers=auth_headers)
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()
+    assert status_data["status"] == "active"
+    assert status_data["vm_id"] is not None
+    assert status_data["host"] is not None
 
 
 @pytest.mark.asyncio
@@ -355,6 +365,13 @@ async def test_vm_provision_no_exec_env(client, auth_headers, app):
         json={"project": "test", "branch": "main"},
     )
     assert resp.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_status_not_found(client, auth_headers):
+    """GET /api/v1/vm/provision/{env_id} returns 404 for unknown id."""
+    resp = await client.get("/api/v1/vm/provision/nonexistent", headers=auth_headers)
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -421,17 +438,31 @@ async def test_events_with_db(client, auth_headers, app, tmp_path):
 # ---------------------------------------------------------------------------
 
 
+async def _wait_provisioned(client, env_id, auth_headers, *, max_secs: float = 2.0):
+    """Poll until env reaches 'provisioned' status (helper)."""
+    deadline = asyncio.get_event_loop().time() + max_secs
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+        r = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+        if r.json()["status"] == "provisioned":
+            return
+    raise AssertionError(f"Environment {env_id} did not reach 'provisioned' within {max_secs}s")
+
+
 @pytest.mark.asyncio
 async def test_run_provision_and_status(client, auth_headers):
-    """POST /api/v1/run/provision creates env, GET /status returns it."""
+    """POST /api/v1/run/provision returns provisioning, then transitions to provisioned."""
     resp = await client.post(
         "/api/v1/run/provision",
         headers=auth_headers,
         json={"project": "test", "branch": "main"},
     )
     assert resp.status_code == 200
-    env_id = resp.json()["env_id"]
+    data = resp.json()
+    env_id = data["env_id"]
+    assert data["status"] == "provisioning"
 
+    await _wait_provisioned(client, env_id, auth_headers)
     status_resp = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
     assert status_resp.status_code == 200
     assert status_resp.json()["status"] == "provisioned"
@@ -439,13 +470,14 @@ async def test_run_provision_and_status(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_run_execute_after_provision(client, auth_headers):
-    """POST /api/v1/run/{env_id}/execute returns accepted."""
+    """POST /api/v1/run/{env_id}/execute returns accepted after provision completes."""
     prov = await client.post(
         "/api/v1/run/provision",
         headers=auth_headers,
         json={"project": "test", "branch": "main"},
     )
     env_id = prov.json()["env_id"]
+    await _wait_provisioned(client, env_id, auth_headers)
 
     exec_resp = await client.post(
         f"/api/v1/run/{env_id}/execute",
@@ -461,6 +493,44 @@ async def test_run_execute_after_provision(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_run_execute_before_provision_complete(client, auth_headers, mock_execution_env):
+    """POST /run/{env_id}/execute returns 409 if env is still provisioning."""
+    # Make provision hang so we can try execute while still provisioning
+    provision_started = asyncio.Event()
+    provision_release = asyncio.Event()
+
+    async def _slow_provision(*args, **kwargs):
+        provision_started.set()
+        await provision_release.wait()
+        return mock_execution_env.provision.return_value
+
+    mock_execution_env.provision = AsyncMock(side_effect=_slow_provision)
+
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id = prov.json()["env_id"]
+    await provision_started.wait()
+
+    exec_resp = await client.post(
+        f"/api/v1/run/{env_id}/execute",
+        headers=auth_headers,
+        json={
+            "project": "test",
+            "spec_path": "specs/test",
+            "phase": "do-task",
+        },
+    )
+    assert exec_resp.status_code == 409
+
+    # Clean up: let the provision complete
+    provision_release.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_run_teardown(client, auth_headers):
     """POST /api/v1/run/{env_id}/teardown returns accepted."""
     prov = await client.post(
@@ -469,6 +539,7 @@ async def test_run_teardown(client, auth_headers):
         json={"project": "test", "branch": "main"},
     )
     env_id = prov.json()["env_id"]
+    await _wait_provisioned(client, env_id, auth_headers)
 
     resp = await client.post(f"/api/v1/run/{env_id}/teardown", headers=auth_headers)
     assert resp.status_code == 200
@@ -499,6 +570,256 @@ async def test_run_status_not_found(client, auth_headers):
     """GET /api/v1/run/{env_id}/status returns 404 for unknown env."""
     resp = await client.get("/api/v1/run/nonexistent/status", headers=auth_headers)
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_run_teardown_uses_fresh_handle(client, auth_headers, app, mock_execution_env):
+    """Teardown uses the transitioned record (not stale snapshot) so VM is released."""
+    from tanren_api.models import RunEnvironmentStatus  # noqa: PLC0415
+    from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+
+    store = app.state.api_store
+    handle = mock_execution_env.provision.return_value
+
+    # Add env with handle=None, then update with real handle to simulate race
+    env_id = "env-race-test"
+    record = EnvironmentRecord(
+        env_id=env_id,
+        handle=None,
+        status=RunEnvironmentStatus.PROVISIONED,
+        started_at="2026-01-01T00:00:00Z",
+    )
+    await store.add_environment(record)
+    await store.update_environment(env_id, handle=handle, vm_id="vm-int-1", host="10.0.0.1")
+
+    resp = await client.post(f"/api/v1/run/{env_id}/teardown", headers=auth_headers)
+    assert resp.status_code == 200
+
+    await asyncio.sleep(0.1)
+    mock_execution_env.teardown.assert_awaited_once_with(handle)
+
+
+@pytest.mark.asyncio
+async def test_provision_then_immediate_teardown_no_orphan(
+    client, auth_headers, app, mock_execution_env, monkeypatch
+):
+    """Concurrent provision + immediate teardown → VM is cleaned up, no orphan.
+
+    Provision returns a handle but gets cancelled before persisting it.
+    The finally block in _provision_background cleans up the orphaned handle.
+    """
+    import contextlib  # noqa: PLC0415
+
+    from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701
+
+    store = app.state.api_store
+    original_handle = mock_execution_env.provision.return_value
+
+    # Block try_transition_environment when it tries to persist the handle,
+    # simulating the window where provision completed but hasn't persisted yet.
+    persist_reached = asyncio.Event()
+    persist_release = asyncio.Event()
+    original_try = store.try_transition_environment
+
+    async def _intercept_try(env_id, **kwargs):
+        h = kwargs.get("handle", _UNSET)
+        if not isinstance(h, type(_UNSET)) and h is not None:
+            persist_reached.set()
+            await persist_release.wait()
+        return await original_try(env_id, **kwargs)
+
+    monkeypatch.setattr(store, "try_transition_environment", _intercept_try)
+
+    # Start provision
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert prov.status_code == 200
+    env_id = prov.json()["env_id"]
+
+    # Wait for provision to reach the persist step (handle obtained)
+    await persist_reached.wait()
+
+    # Cancel the provision task (simulating teardown cancelling it)
+    record = await store.get_environment(env_id)
+    assert record is not None
+    bg_task = record.task
+    assert bg_task is not None
+    bg_task.cancel()
+
+    # Unblock the intercepted update — cancellation propagates
+    persist_release.set()
+    with contextlib.suppress(asyncio.CancelledError):
+        await bg_task
+
+    # Finally block should have called teardown with the handle
+    mock_execution_env.teardown.assert_awaited_once_with(original_handle)
+
+
+@pytest.mark.asyncio
+async def test_teardown_during_noncancellable_provision_no_orphan(
+    client, auth_headers, app, mock_execution_env, monkeypatch
+):
+    """End-to-end: provision blocks in a non-cancellable section, teardown
+    arrives, and the VM is still cleaned up (no orphan)."""
+    store = app.state.api_store
+    original_handle = mock_execution_env.provision.return_value
+
+    # Make provision block in a non-cancellable section
+    provision_entered = asyncio.Event()
+    provision_release = asyncio.Event()
+
+    async def _noncancellable_provision(*args, **kwargs):
+        provision_entered.set()
+        try:
+            await provision_release.wait()
+        except asyncio.CancelledError:
+            asyncio.current_task().uncancel()  # type: ignore[union-attr]
+            await provision_release.wait()
+        return original_handle
+
+    mock_execution_env.provision = AsyncMock(side_effect=_noncancellable_provision)
+
+    # Reduce cancel_environment_task timeout
+    original_cancel = store.cancel_environment_task
+
+    async def _fast_cancel(eid: str, *, wait_secs: float = 0.1) -> bool:
+        return await original_cancel(eid, wait_secs=wait_secs)
+
+    monkeypatch.setattr(store, "cancel_environment_task", _fast_cancel)
+
+    # Start provision
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert prov.status_code == 200
+    env_id = prov.json()["env_id"]
+    await provision_entered.wait()
+
+    # Teardown while provision is still running (non-cancellable)
+    resp = await client.post(
+        f"/api/v1/run/{env_id}/teardown",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+    # Unblock provision — it finishes and persists the handle
+    provision_release.set()
+
+    # Wait for teardown background task to complete
+    await asyncio.sleep(0.3)
+
+    # execution_env.teardown must have been called — no orphan
+    mock_execution_env.teardown.assert_awaited_once_with(original_handle)
+
+    # Environment record should be removed
+    assert await store.get_environment(env_id) is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_teardown_during_provision_preserves_tearing_down(
+    client, auth_headers, app, mock_execution_env, monkeypatch
+):
+    """End-to-end: provision blocks, teardown arrives, provision completes.
+
+    Provision's try_transition_environment sees TEARING_DOWN and refuses to
+    overwrite → provision's finally block cleans up the handle.  Teardown
+    background removes the record.
+    """
+    store = app.state.api_store
+    original_handle = mock_execution_env.provision.return_value
+
+    # Make provision block so we can interleave teardown
+    provision_entered = asyncio.Event()
+    provision_release = asyncio.Event()
+
+    async def _blocking_provision(*args, **kwargs):
+        provision_entered.set()
+        try:
+            await provision_release.wait()
+        except asyncio.CancelledError:
+            asyncio.current_task().uncancel()  # type: ignore[union-attr]
+            await provision_release.wait()
+        return original_handle
+
+    mock_execution_env.provision = AsyncMock(side_effect=_blocking_provision)
+
+    # Reduce cancel_environment_task timeout
+    original_cancel = store.cancel_environment_task
+
+    async def _fast_cancel(eid: str, *, wait_secs: float = 0.1) -> bool:
+        return await original_cancel(eid, wait_secs=wait_secs)
+
+    monkeypatch.setattr(store, "cancel_environment_task", _fast_cancel)
+
+    # Start provision
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert prov.status_code == 200
+    env_id = prov.json()["env_id"]
+    await provision_entered.wait()
+
+    # Teardown while provision is blocked
+    resp = await client.post(
+        f"/api/v1/run/{env_id}/teardown",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+    # Release provision
+    provision_release.set()
+    await asyncio.sleep(0.3)
+
+    # teardown called exactly once (by provision's finally block)
+    mock_execution_env.teardown.assert_awaited_once_with(original_handle)
+
+    # Environment record removed
+    assert await store.get_environment(env_id) is None
+
+
+@pytest.mark.asyncio
+async def test_run_status_includes_vm_identity(client, auth_headers):
+    """GET /run/{env_id}/status includes vm_id and host after provisioning."""
+    prov = await client.post(
+        "/api/v1/run/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id = prov.json()["env_id"]
+    await _wait_provisioned(client, env_id, auth_headers)
+
+    status_resp = await client.get(f"/api/v1/run/{env_id}/status", headers=auth_headers)
+    assert status_resp.status_code == 200
+    data = status_resp.json()
+    assert data["vm_id"] == "vm-int-1"
+    assert data["host"] == "10.0.0.1"
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_status_shows_failed(client, auth_headers, mock_execution_env):
+    """GET /vm/provision/{env_id} returns 'failed' when provisioning fails."""
+    mock_execution_env.provision = AsyncMock(side_effect=RuntimeError("boom"))
+
+    resp = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert resp.status_code == 200
+    env_id = resp.json()["env_id"]
+
+    await asyncio.sleep(0.05)
+
+    status_resp = await client.get(f"/api/v1/vm/provision/{env_id}", headers=auth_headers)
+    assert status_resp.status_code == 200
+    assert status_resp.json()["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -609,7 +930,7 @@ async def test_lifespan_config_from_env_failure_sets_none(tmp_path):
 
     # Clear all WM_* env vars so Config.from_env() raises ValueError
     cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
-    with patch.dict(os.environ, cleaned, clear=True):
+    with patch.dict(os.environ, cleaned, clear=True), patch("tanren_api.main.load_config_env"):
         async with application.router.lifespan_context(application):
             assert application.state.config is None
             assert isinstance(application.state.emitter, NullEventEmitter)
@@ -624,7 +945,7 @@ async def test_lifespan_with_events_db(tmp_path):
 
     # Config.from_env() will fail (no WM_ vars), but events_db from settings is used
     cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
-    with patch.dict(os.environ, cleaned, clear=True):
+    with patch.dict(os.environ, cleaned, clear=True), patch("tanren_api.main.load_config_env"):
         async with application.router.lifespan_context(application):
             assert application.state.config is None
             assert isinstance(application.state.emitter, SqliteEventEmitter)
@@ -671,6 +992,58 @@ async def test_lifespan_emitter_close_called(tmp_path):
             assert isinstance(emitter, NullEventEmitter)
         # After context exits, close() was called — NullEventEmitter.close() is a no-op
         # but we verify the lifespan completed without error
+
+
+@pytest.mark.asyncio
+async def test_lifespan_calls_load_config_env():
+    """Lifespan calls load_config_env() before Config.from_env()."""
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
+    with (
+        patch.dict(os.environ, cleaned, clear=True),
+        patch("tanren_api.main.load_config_env") as mock_load,
+    ):
+        async with application.router.lifespan_context(application):
+            mock_load.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_lifespan_config_loads_from_env_file(tmp_path):
+    """Lifespan loads config via load_config_env when WM_* vars are only in a file."""
+    env_file = tmp_path / "tanren.env"
+    env_file.write_text(
+        f"WM_IPC_DIR={tmp_path / 'ipc'}\n"
+        f"WM_GITHUB_DIR={tmp_path / 'github'}\n"
+        f"WM_DATA_DIR={tmp_path / 'data'}\n"
+        "WM_COMMANDS_DIR=.claude/commands/tanren\n"
+        "WM_POLL_INTERVAL=5.0\n"
+        "WM_HEARTBEAT_INTERVAL=30.0\n"
+        "WM_OPENCODE_PATH=opencode\n"
+        "WM_CODEX_PATH=codex\n"
+        "WM_CLAUDE_PATH=claude\n"
+        "WM_MAX_OPENCODE=1\n"
+        "WM_MAX_CODEX=1\n"
+        "WM_MAX_GATE=3\n"
+        f"WM_WORKTREE_REGISTRY_PATH={tmp_path / 'data' / 'worktrees.json'}\n"
+    )
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    # Clear all WM_* vars — config is only in the file
+    cleaned = {k: v for k, v in os.environ.items() if not k.startswith("WM_")}
+    with (
+        patch.dict(os.environ, cleaned, clear=True),
+        patch(
+            "tanren_api.main.load_config_env",
+            side_effect=lambda source=None: load_config_env(DotenvConfigSource(env_file)),
+        ),
+    ):
+        async with application.router.lifespan_context(application):
+            assert application.state.config is not None
+            assert application.state.config.ipc_dir == str(tmp_path / "ipc")
+            assert application.state.config.github_dir == str(tmp_path / "github")
 
 
 # ---------------------------------------------------------------------------
@@ -937,6 +1310,91 @@ async def test_config_endpoint_remote_disabled_by_default(client, auth_headers):
 
 
 # ---------------------------------------------------------------------------
+# Lifespan — stale VM recovery (main.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lifespan_calls_recover_stale_on_startup(tmp_path):
+    """Lifespan calls recover_stale_assignments() when execution env supports it."""
+    mock_env = AsyncMock()
+    mock_env.recover_stale_assignments = AsyncMock(return_value=2)
+    mock_env.close = AsyncMock()
+    mock_vm_store = AsyncMock()
+    mock_vm_store.close = AsyncMock()
+
+    env_vars = {
+        "WM_IPC_DIR": str(tmp_path / "ipc"),
+        "WM_GITHUB_DIR": str(tmp_path / "github"),
+        "WM_DATA_DIR": str(tmp_path / "data"),
+        "WM_COMMANDS_DIR": ".claude/commands/tanren",
+        "WM_POLL_INTERVAL": "5.0",
+        "WM_HEARTBEAT_INTERVAL": "30.0",
+        "WM_OPENCODE_PATH": "opencode",
+        "WM_CODEX_PATH": "codex",
+        "WM_CLAUDE_PATH": "claude",
+        "WM_MAX_OPENCODE": "1",
+        "WM_MAX_CODEX": "1",
+        "WM_MAX_GATE": "3",
+        "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_REMOTE_CONFIG": str(tmp_path / "remote.toml"),
+    }
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    with (
+        patch.dict(os.environ, env_vars, clear=False),
+        patch(
+            "tanren_api.main.build_ssh_execution_environment",
+            return_value=(mock_env, mock_vm_store),
+        ),
+    ):
+        async with application.router.lifespan_context(application):
+            assert application.state.execution_env is mock_env
+            mock_env.recover_stale_assignments.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_lifespan_recover_stale_failure_does_not_block_startup(tmp_path):
+    """Startup completes even if recover_stale_assignments raises."""
+    mock_env = AsyncMock()
+    mock_env.recover_stale_assignments = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_env.close = AsyncMock()
+    mock_vm_store = AsyncMock()
+    mock_vm_store.close = AsyncMock()
+
+    env_vars = {
+        "WM_IPC_DIR": str(tmp_path / "ipc"),
+        "WM_GITHUB_DIR": str(tmp_path / "github"),
+        "WM_DATA_DIR": str(tmp_path / "data"),
+        "WM_COMMANDS_DIR": ".claude/commands/tanren",
+        "WM_POLL_INTERVAL": "5.0",
+        "WM_HEARTBEAT_INTERVAL": "30.0",
+        "WM_OPENCODE_PATH": "opencode",
+        "WM_CODEX_PATH": "codex",
+        "WM_CLAUDE_PATH": "claude",
+        "WM_MAX_OPENCODE": "1",
+        "WM_MAX_CODEX": "1",
+        "WM_MAX_GATE": "3",
+        "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_REMOTE_CONFIG": str(tmp_path / "remote.toml"),
+    }
+    settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
+    application = create_app(settings)
+
+    with (
+        patch.dict(os.environ, env_vars, clear=False),
+        patch(
+            "tanren_api.main.build_ssh_execution_environment",
+            return_value=(mock_env, mock_vm_store),
+        ),
+    ):
+        async with application.router.lifespan_context(application):
+            # App started despite recovery failure
+            assert application.state.execution_env is mock_env
+
+
+# ---------------------------------------------------------------------------
 # Middleware — request logging and non-HTTP scopes
 # ---------------------------------------------------------------------------
 
@@ -1083,3 +1541,91 @@ async def test_middleware_websocket_scope_passthrough(app):
 
     await wrapped(scope, noop_receive, noop_send)
     assert calls == ["websocket"]
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_orphan_cleanup_on_record_removal(
+    client, auth_headers, app, mock_execution_env, monkeypatch
+):
+    """End-to-end: VM provision blocks, teardown removes record, provision
+    completes → try_transition_environment returns None, finally block
+    cleans up the handle (no orphan)."""
+    store = app.state.api_store
+    original_handle = mock_execution_env.provision.return_value
+
+    # Make provision block so we can remove the record while it's in-flight
+    provision_entered = asyncio.Event()
+    provision_release = asyncio.Event()
+
+    async def _blocking_provision(*args, **kwargs):
+        provision_entered.set()
+        await provision_release.wait()
+        return original_handle
+
+    mock_execution_env.provision = AsyncMock(side_effect=_blocking_provision)
+
+    # Start provision
+    resp = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert resp.status_code == 200
+    env_id = resp.json()["env_id"]
+
+    # Wait for provision to start
+    await provision_entered.wait()
+
+    # Simulate concurrent teardown removing the environment record
+    removed = await store.remove_environment(env_id)
+    assert removed is not None
+
+    # Release provision — it finishes but record is gone
+    provision_release.set()
+    await asyncio.sleep(0.1)
+
+    # execution_env.teardown must have been called — no orphan
+    mock_execution_env.teardown.assert_awaited_once_with(original_handle)
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_records_reaped_after_retention(client, auth_headers, app):
+    """Terminal environment records are removed after the retention window."""
+    store = app.state.api_store
+
+    # Provision two VMs
+    resp1 = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id_1 = resp1.json()["env_id"]
+
+    resp2 = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id_2 = resp2.json()["env_id"]
+
+    # Wait for both to complete
+    await asyncio.sleep(0.1)
+
+    # Patch the first record's completed_at to be old (beyond retention)
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+    old_time = (datetime.now(UTC) - timedelta(seconds=3660)).isoformat()
+    await store.update_environment(env_id_1, completed_at=old_time)
+
+    # Provision a third — triggers reap
+    resp3 = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id_3 = resp3.json()["env_id"]
+
+    # First record should be reaped, second and third remain
+    assert await store.get_environment(env_id_1) is None
+    assert await store.get_environment(env_id_2) is not None
+    assert await store.get_environment(env_id_3) is not None

@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 _PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase.AUDIT_SPEC})
 
-_SSH_READY_TIMEOUT_SECS = 120
+_SSH_READY_TIMEOUT_SECS = 300
 _SSH_READY_POLL_SECS = 3
 
 
@@ -77,6 +77,7 @@ class SSHExecutionEnvironment:
         ssh_config_defaults: SSHConfig,
         repo_urls: dict[str, str],
         provider: VMProvider = VMProvider.MANUAL,
+        ssh_ready_timeout_secs: int = _SSH_READY_TIMEOUT_SECS,
     ) -> None:
         """Initialize with remote execution adapters and configuration."""
         self._vm_provisioner = vm_provisioner
@@ -89,6 +90,7 @@ class SSHExecutionEnvironment:
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
         self._provider = provider
+        self._ssh_ready_timeout_secs = ssh_ready_timeout_secs
 
     @property
     def ssh_defaults(self) -> SSHConfig:
@@ -171,7 +173,7 @@ class SSHExecutionEnvironment:
             conn = SSHConnection(ssh_config)
 
             # 4b. Wait for SSH to accept connections (sshd lags behind API status)
-            await self._await_ssh_ready(conn)
+            await self._await_ssh_ready(conn, timeout=self._ssh_ready_timeout_secs)
 
             # 5. Bootstrap VM (idempotent)
             bootstrap_result = await self._bootstrapper.bootstrap(conn)
@@ -250,7 +252,7 @@ class SSHExecutionEnvironment:
                 try:
                     await conn.close()
                 except Exception:
-                    logger.warning("SSH close failed during provision cleanup")
+                    logger.warning("SSH close failed during provision cleanup", exc_info=True)
             try:
                 await self._vm_provisioner.release(vm_handle)
             except Exception:
@@ -437,17 +439,17 @@ class SSHExecutionEnvironment:
                         timeout=120,
                     )
                 except Exception:
-                    logger.warning("Teardown command failed: %s", cmd)
+                    logger.warning("Teardown command failed: %s", cmd, exc_info=True)
         finally:
             try:
                 await self._workspace_mgr.cleanup(conn, workspace)
             except Exception:
-                logger.warning("Workspace cleanup failed")
+                logger.warning("Workspace cleanup failed", exc_info=True)
             finally:
                 try:
                     await conn.close()
                 except Exception:
-                    logger.warning("SSH close failed")
+                    logger.warning("SSH close failed", exc_info=True)
                 finally:
                     # MUST happen — no orphaned VMs
                     try:

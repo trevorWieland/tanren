@@ -49,6 +49,7 @@ class HetznerProvisionerSettings(BaseModel):
     default_server_type: str = Field(...)
     location: str = Field(...)
     image: str = Field(...)
+    architecture: str = Field(default="x86")
     ssh_key_name: str = Field(...)
     name_prefix: str = Field(default="tanren")
     labels: dict[str, str] = Field(default_factory=dict)
@@ -100,15 +101,16 @@ class HetznerVMProvisioner:
         if ssh_key is None:
             raise ValueError(f"Hetzner SSH key not found: {self._settings.ssh_key_name}")
 
-    async def acquire(self, requirements: VMRequirements) -> VMHandle:
-        """Create and wait for a Hetzner VM to become reachable.
+    def _create_server_sync(
+        self, requirements: VMRequirements
+    ) -> tuple[BoundServer, str, dict[str, str]]:
+        """Resolve resources and create server (sync — call via to_thread).
 
         Returns:
-            VMHandle for the provisioned VM.
+            Tuple of (server, server_type_name, labels).
 
         Raises:
-            ValueError: If the server type, location, or SSH key is not found.
-            TimeoutError: If the VM does not become ready within the timeout.
+            ValueError: If a required Hetzner resource is not found.
         """
         server_type_name = requirements.server_type or self._settings.default_server_type
         server_type = self._client.server_types.get_by_name(server_type_name)
@@ -123,7 +125,9 @@ class HetznerVMProvisioner:
         if ssh_key is None:
             raise ValueError(f"Hetzner SSH key not found: {self._settings.ssh_key_name}")
 
-        image = self._client.images.get_by_name(self._settings.image)
+        image = self._client.images.get_by_name_and_architecture(
+            self._settings.image, self._settings.architecture
+        )
         if image is None:
             raise ValueError(f"Hetzner image not found: {self._settings.image}")
 
@@ -143,17 +147,32 @@ class HetznerVMProvisioner:
             ssh_keys=[ssh_key],
             labels=labels,
         )
-        server = create.server
+        return create.server, server_type_name, labels
+
+    async def acquire(self, requirements: VMRequirements) -> VMHandle:
+        """Create and wait for a Hetzner VM to become reachable.
+
+        Returns:
+            VMHandle for the provisioned VM.
+
+        Raises:
+            TimeoutError: If the VM does not become ready within the timeout.
+        """
+        server, server_type_name, labels = await asyncio.to_thread(
+            self._create_server_sync, requirements
+        )
 
         try:
             deadline = time.monotonic() + self._settings.readiness_timeout_secs
             while time.monotonic() < deadline:
-                server.reload()
+                await asyncio.to_thread(server.reload)
                 if self._is_running(server):
                     host = self._extract_public_ipv4(server)
                     if host:
-                        hourly_cost = self._resolve_hourly_cost(
-                            server_type_name, self._settings.location
+                        hourly_cost = await asyncio.to_thread(
+                            self._resolve_hourly_cost,
+                            server_type_name,
+                            self._settings.location,
                         )
                         return VMHandle(
                             vm_id=str(server.id),
@@ -166,20 +185,22 @@ class HetznerVMProvisioner:
                 await asyncio.sleep(self._settings.poll_interval_secs)
 
             raise TimeoutError(
-                f"Hetzner server {server_name} did not become ready "
+                f"Hetzner server {server.id} did not become ready "
                 f"within {self._settings.readiness_timeout_secs}s"
             )
         except Exception:
-            self._delete_server_best_effort(server, context="acquire cleanup")
+            await asyncio.to_thread(
+                self._delete_server_best_effort, server, context="acquire cleanup"
+            )
             raise
 
     async def release(self, handle: VMHandle) -> None:
         """Delete the Hetzner server."""
-        server = self._get_server_for_handle(handle)
+        server = await asyncio.to_thread(self._get_server_for_handle, handle)
         if server is None:
             logger.warning("Hetzner release: server not found for %s", handle.vm_id)
             return
-        server.delete()
+        await asyncio.to_thread(server.delete)
 
     async def list_active(self) -> list[VMHandle]:
         """List active tanren-managed Hetzner VMs.
@@ -191,9 +212,9 @@ class HetznerVMProvisioner:
 
         servers: list[BoundServer]
         try:
-            servers = self._client.servers.get_all(label_selector=selector)
+            servers = await asyncio.to_thread(self._client.servers.get_all, label_selector=selector)
         except TypeError:
-            servers = self._client.servers.get_all()
+            servers = await asyncio.to_thread(self._client.servers.get_all)
 
         handles: list[VMHandle] = []
         for server in servers:
@@ -209,6 +230,11 @@ class HetznerVMProvisioner:
                 created_at = created_at_raw.isoformat()
             else:
                 created_at = str(created_at_raw or datetime.now(UTC).isoformat())
+            hourly_cost = await asyncio.to_thread(
+                self._resolve_hourly_cost,
+                self._server_type_name(server),
+                self._settings.location,
+            )
             handles.append(
                 VMHandle(
                     vm_id=str(server.id),
@@ -216,9 +242,7 @@ class HetznerVMProvisioner:
                     provider=VMProvider.HETZNER,
                     created_at=created_at,
                     labels=labels,
-                    hourly_cost=self._resolve_hourly_cost(
-                        self._server_type_name(server), self._settings.location
-                    ),
+                    hourly_cost=hourly_cost,
                 )
             )
         return handles

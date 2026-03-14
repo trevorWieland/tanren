@@ -107,6 +107,7 @@ def build_ssh_execution_environment(
         ssh_config_defaults=ssh_defaults,
         repo_urls={binding.project: binding.repo_url for binding in remote_cfg.repos},
         provider=provider,
+        ssh_ready_timeout_secs=remote_cfg.ssh.ssh_ready_timeout_secs,
     )
 
     return env, state_store

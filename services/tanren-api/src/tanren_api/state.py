@@ -40,6 +40,11 @@ _TERMINAL_STATUSES = frozenset({
     DispatchRunStatus.FAILED,
     DispatchRunStatus.CANCELLED,
 })
+_TERMINAL_ENV_STATUSES = frozenset({
+    RunEnvironmentStatus.PROVISIONED,
+    RunEnvironmentStatus.COMPLETED,
+    RunEnvironmentStatus.FAILED,
+})
 
 
 @dataclass
@@ -62,7 +67,7 @@ class EnvironmentRecord:
     """Tracks a provisioned execution environment."""
 
     env_id: str
-    handle: EnvironmentHandle
+    handle: EnvironmentHandle | None
     status: RunEnvironmentStatus
     phase: Phase | None = None
     outcome: Outcome | None = None
@@ -192,7 +197,26 @@ class APIStateStore:
     async def add_environment(self, record: EnvironmentRecord) -> None:
         """Register a new environment."""
         async with self._lock:
+            self._reap_terminal_environments()
             self._environments[record.env_id] = record
+
+    def _reap_terminal_environments(self) -> None:
+        """Remove terminal environments older than retention window. Must hold _lock."""
+        cutoff = datetime.now(UTC) - timedelta(seconds=_MAX_TERMINAL_DISPATCH_AGE_SECS)
+        to_remove = []
+        for env_id, record in self._environments.items():
+            if record.status not in _TERMINAL_ENV_STATUSES:
+                continue
+            if record.completed_at is None:
+                continue
+            try:
+                completed = datetime.fromisoformat(record.completed_at)
+                if completed < cutoff:
+                    to_remove.append(env_id)
+            except ValueError, TypeError:
+                continue
+        for env_id in to_remove:
+            del self._environments[env_id]
 
     async def get_environment(self, env_id: str) -> EnvironmentRecord | None:
         """Look up an environment by ID. Returns a defensive copy.
@@ -210,9 +234,12 @@ class APIStateStore:
         self,
         env_id: str,
         *,
+        handle: EnvironmentHandle | _UnsetType | None = _UNSET,
         status: RunEnvironmentStatus | _UnsetType = _UNSET,
         phase: Phase | _UnsetType | None = _UNSET,
         outcome: Outcome | _UnsetType | None = _UNSET,
+        vm_id: str | _UnsetType = _UNSET,
+        host: str | _UnsetType = _UNSET,
         dispatch_id: str | _UnsetType | None = _UNSET,
         started_at: str | _UnsetType | None = _UNSET,
         completed_at: str | _UnsetType | None = _UNSET,
@@ -223,12 +250,18 @@ class APIStateStore:
             record = self._environments.get(env_id)
             if record is None:
                 return
+            if not isinstance(handle, _UnsetType):
+                record.handle = handle
             if not isinstance(status, _UnsetType):
                 record.status = status
             if not isinstance(phase, _UnsetType):
                 record.phase = phase
             if not isinstance(outcome, _UnsetType):
                 record.outcome = outcome
+            if not isinstance(vm_id, _UnsetType):
+                record.vm_id = vm_id
+            if not isinstance(host, _UnsetType):
+                record.host = host
             if not isinstance(dispatch_id, _UnsetType):
                 record.dispatch_id = dispatch_id
             if not isinstance(started_at, _UnsetType):
@@ -271,6 +304,9 @@ class APIStateStore:
         *,
         from_statuses: frozenset[RunEnvironmentStatus],
         to_status: RunEnvironmentStatus,
+        handle: EnvironmentHandle | _UnsetType | None = _UNSET,
+        vm_id: str | _UnsetType = _UNSET,
+        host: str | _UnsetType = _UNSET,
         phase: Phase | _UnsetType | None = _UNSET,
         outcome: Outcome | _UnsetType | None = _UNSET,
         dispatch_id: str | _UnsetType | None = _UNSET,
@@ -287,6 +323,12 @@ class APIStateStore:
             if record is None or record.status not in from_statuses:
                 return None
             record.status = to_status
+            if not isinstance(handle, _UnsetType):
+                record.handle = handle
+            if not isinstance(vm_id, _UnsetType):
+                record.vm_id = vm_id
+            if not isinstance(host, _UnsetType):
+                record.host = host
             if not isinstance(phase, _UnsetType):
                 record.phase = phase
             if not isinstance(outcome, _UnsetType):

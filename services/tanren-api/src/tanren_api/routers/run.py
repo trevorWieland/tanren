@@ -38,11 +38,14 @@ router = APIRouter(tags=["run"])
 
 _EXECUTE_FROM = frozenset({RunEnvironmentStatus.PROVISIONED, RunEnvironmentStatus.COMPLETED})
 _TEARDOWN_FROM = frozenset({
+    RunEnvironmentStatus.PROVISIONING,
     RunEnvironmentStatus.PROVISIONED,
     RunEnvironmentStatus.EXECUTING,
     RunEnvironmentStatus.COMPLETED,
     RunEnvironmentStatus.FAILED,
 })
+
+_PRIOR_TASK_TIMEOUT: float = 30.0
 
 _COMPLETED_DISPATCH_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
 _COMPLETED_ENV_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
@@ -59,9 +62,15 @@ async def run_provision(
     execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
     config: Annotated[Config, Depends(get_config)],
 ) -> RunEnvironment:
-    """Provision a remote execution environment."""
+    """Provision a remote execution environment (non-blocking).
+
+    Returns immediately with status=provisioning. Poll GET /run/{env_id}/status
+    for progress.
+    """
     if execution_env is None:
         raise ServiceError("Remote execution environment not configured")
+
+    env_id = str(uuid.uuid4())
 
     dispatch = Dispatch(
         workflow_id=f"run-{uuid.uuid4().hex[:8]}",
@@ -74,30 +83,61 @@ async def run_provision(
         environment_profile=body.environment_profile,
     )
 
-    try:
-        handle = await execution_env.provision(dispatch, config)
-    except Exception as exc:
-        logger.exception("Provision failed for project %s", body.project)
-        raise ServiceError("Failed to provision environment") from exc
-    if not isinstance(handle.runtime, RemoteEnvironmentRuntime):
-        raise ServiceError("Provisioned environment is not a remote runtime")
-    vm_handle = handle.runtime.vm_handle
-
     record = EnvironmentRecord(
-        env_id=handle.env_id,
-        handle=handle,
-        status=RunEnvironmentStatus.PROVISIONED,
-        vm_id=vm_handle.vm_id,
-        host=vm_handle.host,
+        env_id=env_id,
+        handle=None,
+        status=RunEnvironmentStatus.PROVISIONING,
         started_at=_now(),
     )
     await store.add_environment(record)
 
+    async def _provision_background() -> None:
+        handle: EnvironmentHandle | None = None
+        try:
+            handle = await execution_env.provision(dispatch, config)
+            runtime = handle.runtime
+            if not isinstance(runtime, RemoteEnvironmentRuntime):
+                raise ServiceError("Provisioned environment is not a remote runtime")
+            updated = await store.try_transition_environment(
+                env_id,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.PROVISIONED,
+                handle=handle,
+                vm_id=runtime.vm_handle.vm_id,
+                host=runtime.vm_handle.host,
+            )
+            if updated is not None:
+                handle = None  # Persisted — suppress finally cleanup
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            handle = None  # Error handler owns cleanup
+            logger.exception("Provision failed for %s", env_id)
+            await store.try_transition_environment(
+                env_id,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.FAILED,
+                outcome=Outcome.ERROR,
+                completed_at=_now(),
+            )
+        finally:
+            if handle is not None:
+                logger.warning("Cleaning up orphaned provision for %s", env_id)
+                inner = asyncio.ensure_future(execution_env.teardown(handle))
+                try:
+                    await asyncio.shield(inner)
+                except asyncio.CancelledError, Exception:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await inner
+
+    task = asyncio.create_task(_provision_background())
+    await store.update_environment(env_id, task=task)
+
     return RunEnvironment(
-        env_id=handle.env_id,
-        vm_id=vm_handle.vm_id,
-        host=vm_handle.host,
-        status=RunEnvironmentStatus.PROVISIONED,
+        env_id=env_id,
+        vm_id="",
+        host="",
+        status=RunEnvironmentStatus.PROVISIONING,
     )
 
 
@@ -116,6 +156,9 @@ async def run_execute(
 
     if execution_env is None:
         raise ServiceError("Remote execution environment not configured")
+
+    if record.handle is None:
+        raise ConflictError(f"Environment {env_id} is still provisioning")
 
     if body.project != record.handle.project:
         raise ConflictError(
@@ -140,10 +183,12 @@ async def run_execute(
 
     gate = asyncio.Event()
 
+    handle = record.handle  # already guarded above; bind for type narrowing
+
     async def _execute_background() -> None:
         await gate.wait()
         try:
-            result = await execution_env.execute(record.handle, dispatch, config)
+            result = await execution_env.execute(handle, dispatch, config)
             env_status = (
                 RunEnvironmentStatus.COMPLETED
                 if result.outcome in _COMPLETED_ENV_OUTCOMES
@@ -220,8 +265,27 @@ async def run_teardown(
     # Best-effort cancel of any stale execute task — we already own teardown.
     await store.cancel_environment_task(env_id)
 
+    # Capture the prior task before the teardown task overwrites it.
+    pre = await store.get_environment(env_id)
+    prior_task = pre.task if pre is not None else None
+
     async def _teardown_background() -> None:
-        inner = asyncio.ensure_future(execution_env.teardown(record.handle))
+        # Wait for any in-flight provision to finish before inspecting
+        # the handle.  Without this, we can remove the record while
+        # provision is still running; provision then silently fails to
+        # persist its handle and skips its own finally cleanup,
+        # orphaning the VM.
+        if prior_task is not None and not prior_task.done():
+            logger.debug("Waiting for prior task to complete before teardown for %s", env_id)
+            with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
+                await asyncio.wait_for(asyncio.shield(prior_task), timeout=_PRIOR_TASK_TIMEOUT)
+
+        current = await store.get_environment(env_id)
+        handle = current.handle if current is not None else None
+        if handle is None:
+            await store.remove_environment(env_id)
+            return
+        inner = asyncio.ensure_future(execution_env.teardown(handle))
         try:
             await asyncio.shield(inner)
         except asyncio.CancelledError, Exception:
@@ -373,4 +437,6 @@ async def run_status(
         outcome=record.outcome,
         started_at=record.started_at,
         duration_secs=duration_secs,
+        vm_id=record.vm_id or None,
+        host=record.host or None,
     )

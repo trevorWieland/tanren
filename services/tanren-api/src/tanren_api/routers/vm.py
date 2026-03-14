@@ -3,28 +3,35 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
 
-from tanren_api.dependencies import get_config, get_execution_env, get_vm_state_store
+from tanren_api.dependencies import get_api_store, get_config, get_execution_env, get_vm_state_store
 from tanren_api.errors import NotFoundError, ServiceError
 from tanren_api.models import (
     ProvisionRequest,
+    RunEnvironmentStatus,
     VMDryRunResult,
+    VMProvisionAccepted,
+    VMProvisionStatus,
     VMReleaseConfirmed,
     VMStatus,
     VMSummary,
 )
+from tanren_api.state import APIStateStore, EnvironmentRecord
 from tanren_core.adapters.protocols import ExecutionEnvironment
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
-from tanren_core.adapters.types import RemoteEnvironmentRuntime
+from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
 from tanren_core.remote_config import ProvisionerType, load_remote_config
-from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 
 logger = logging.getLogger(__name__)
 
@@ -70,19 +77,25 @@ async def list_vms(
     ]
 
 
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 @router.post("/vm/provision")
 async def provision_vm(
     body: ProvisionRequest,
+    store: Annotated[APIStateStore, Depends(get_api_store)],
     execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
     config: Annotated[Config, Depends(get_config)],
-) -> VMHandle:
-    """Provision a new VM.
+) -> VMProvisionAccepted:
+    """Provision a new VM (non-blocking).
 
-    Returns:
-        VMHandle with vm_id, host, provider, created_at.
+    Returns immediately with env_id for polling via GET /vm/provision/{env_id}.
     """
     if execution_env is None:
         raise ServiceError("Remote execution environment not configured")
+
+    env_id = str(uuid.uuid4())
 
     dispatch = Dispatch(
         workflow_id=f"vm-provision-{body.project}-{uuid.uuid4().hex[:8]}",
@@ -94,23 +107,98 @@ async def provision_vm(
         timeout=1800,
         environment_profile=body.environment_profile,
     )
-    try:
-        handle = await execution_env.provision(dispatch, config)
-    except Exception as exc:
-        logger.exception("VM provision failed for %s", dispatch.workflow_id)
-        raise ServiceError("Failed to provision VM") from exc
-    runtime = handle.runtime
-    if not isinstance(runtime, RemoteEnvironmentRuntime):
-        raise ServiceError("Provisioned environment is not a remote runtime")
-    vm_handle = runtime.vm_handle
-    # Close the SSH connection to prevent leak (don't call full teardown — that releases the VM)
-    try:
-        close_fn = getattr(runtime.connection, "close", None)
-        if close_fn is not None:
-            await close_fn()
-    except Exception:
-        logger.debug("Failed to close provision-time SSH connection for %s", vm_handle.vm_id)
-    return vm_handle
+
+    record = EnvironmentRecord(
+        env_id=env_id,
+        handle=None,
+        status=RunEnvironmentStatus.PROVISIONING,
+        started_at=_now(),
+    )
+    await store.add_environment(record)
+
+    async def _provision_background() -> None:
+        handle: EnvironmentHandle | None = None
+        try:
+            handle = await execution_env.provision(dispatch, config)
+            runtime = handle.runtime
+            if not isinstance(runtime, RemoteEnvironmentRuntime):
+                raise ServiceError("Provisioned environment is not a remote runtime")
+            vm_handle = runtime.vm_handle
+            # Close SSH connection to prevent leak (not full teardown — that releases the VM)
+            try:
+                close_fn = getattr(runtime.connection, "close", None)
+                if close_fn is not None:
+                    await close_fn()
+            except Exception:
+                logger.debug(
+                    "Failed to close provision-time SSH connection for %s", vm_handle.vm_id
+                )
+            updated = await store.try_transition_environment(
+                env_id,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.PROVISIONED,
+                handle=handle,
+                vm_id=vm_handle.vm_id,
+                host=vm_handle.host,
+                completed_at=_now(),
+            )
+            if updated is not None:
+                handle = None  # Persisted — suppress finally cleanup
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            handle = None  # Error handler owns cleanup
+            logger.exception("VM provision failed for %s", env_id)
+            await store.try_transition_environment(
+                env_id,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.FAILED,
+                outcome=Outcome.ERROR,
+                completed_at=_now(),
+            )
+        finally:
+            if handle is not None:
+                logger.warning("Cleaning up orphaned VM provision for %s", env_id)
+                inner = asyncio.ensure_future(execution_env.teardown(handle))
+                try:
+                    await asyncio.shield(inner)
+                except asyncio.CancelledError, Exception:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await inner
+
+    task = asyncio.create_task(_provision_background())
+    await store.update_environment(env_id, task=task)
+
+    return VMProvisionAccepted(env_id=env_id)
+
+
+@router.get("/vm/provision/{env_id}")
+async def get_provision_status(
+    env_id: Annotated[str, Path(description="Provisioning tracking identifier")],
+    store: Annotated[APIStateStore, Depends(get_api_store)],
+    config: Annotated[Config, Depends(get_config)],
+) -> VMProvisionStatus:
+    """Poll status of an in-progress or completed VM provisioning."""
+    record = await store.get_environment(env_id)
+    if record is None:
+        raise NotFoundError(f"Provision {env_id} not found")
+
+    provider = _derive_provider(config)
+    if record.status == RunEnvironmentStatus.PROVISIONED:
+        vm_status = VMStatus.ACTIVE
+    elif record.status == RunEnvironmentStatus.FAILED:
+        vm_status = VMStatus.FAILED
+    else:
+        vm_status = VMStatus.PROVISIONING
+
+    return VMProvisionStatus(
+        env_id=env_id,
+        status=vm_status,
+        vm_id=record.vm_id or None,
+        host=record.host or None,
+        provider=provider if record.vm_id else None,
+        created_at=record.started_at,
+    )
 
 
 @router.delete("/vm/{vm_id}")

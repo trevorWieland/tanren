@@ -265,7 +265,8 @@ class TestModels:
     def test_vm_status_values(self):
         assert VMStatus.ACTIVE == "active"
         assert VMStatus.RELEASED == "released"
-        assert len(VMStatus) == 4
+        assert VMStatus.FAILED == "failed"
+        assert len(VMStatus) == 5
 
     def test_run_environment_status_values(self):
         assert RunEnvironmentStatus.PROVISIONING == "provisioning"

@@ -69,6 +69,7 @@ markers = [
     "ssh: requires real SSH connection",
     "local_env: requires real local environment",
     "api: API-specific tests",
+    "hetzner: requires Hetzner API token and provisions real VMs",
 ]
 
 # ===== COVERAGE =====

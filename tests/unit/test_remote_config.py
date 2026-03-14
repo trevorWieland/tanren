@@ -123,6 +123,45 @@ class TestRemoteConfigDefaults:
         assert cfg.repos == []
 
 
+class TestSSHReadyTimeoutSecs:
+    def test_default_value(self):
+        cfg = RemoteSSHConfig()
+        assert cfg.ssh_ready_timeout_secs == 300
+
+    def test_custom_value(self):
+        cfg = RemoteSSHConfig(ssh_ready_timeout_secs=600)
+        assert cfg.ssh_ready_timeout_secs == 600
+
+    def test_minimum_value_30(self):
+        cfg = RemoteSSHConfig(ssh_ready_timeout_secs=30)
+        assert cfg.ssh_ready_timeout_secs == 30
+
+    def test_below_minimum_rejected(self):
+        with pytest.raises(ValidationError, match="ssh_ready_timeout_secs"):
+            RemoteSSHConfig(ssh_ready_timeout_secs=29)
+
+    def test_loaded_from_yaml(self, tmp_path):
+        cfg_file = tmp_path / "remote.yml"
+        cfg_file.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - id: vm-1\n"
+            "        host: 10.0.0.1\n"
+            "ssh:\n"
+            "  ssh_ready_timeout_secs: 600\n"
+        )
+        cfg = load_remote_config(cfg_file)
+        assert cfg.ssh.ssh_ready_timeout_secs == 600
+
+    def test_default_when_omitted_from_yaml(self, tmp_path):
+        cfg_file = tmp_path / "remote.yml"
+        cfg_file.write_text(MINIMAL_YAML)
+        cfg = load_remote_config(cfg_file)
+        assert cfg.ssh.ssh_ready_timeout_secs == 300
+
+
 class TestRepoBindings:
     def test_repos_map_coerces_to_bindings(self, tmp_path: Path):
         cfg_file = tmp_path / "remote.yml"
