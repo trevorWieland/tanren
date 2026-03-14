@@ -520,3 +520,49 @@ class TestAPIStateStore:
         await store.add_dispatch(_make_dispatch_record("trigger2"))
 
         assert await store.get_dispatch("recent-done") is not None
+
+    async def test_reap_terminal_environments_on_add(self):
+        store = APIStateStore()
+        old_time = (datetime.now(UTC) - timedelta(seconds=3660)).isoformat()
+
+        old_env = _make_env_record("old-provisioned")
+        old_env.status = RunEnvironmentStatus.PROVISIONED
+        old_env.completed_at = old_time
+        async with store._lock:
+            store._environments["old-provisioned"] = old_env
+
+        # Trigger reap via add_environment
+        await store.add_environment(_make_env_record("trigger"))
+
+        assert await store.get_environment("old-provisioned") is None
+        assert await store.get_environment("trigger") is not None
+
+    async def test_reap_preserves_active_environments(self):
+        store = APIStateStore()
+        old_time = (datetime.now(UTC) - timedelta(seconds=3660)).isoformat()
+
+        active_env = _make_env_record("active-env")
+        active_env.status = RunEnvironmentStatus.PROVISIONING
+        active_env.started_at = old_time
+        async with store._lock:
+            store._environments["active-env"] = active_env
+
+        # Trigger reap
+        await store.add_environment(_make_env_record("trigger"))
+
+        assert await store.get_environment("active-env") is not None
+
+    async def test_reap_preserves_recent_terminal_environments(self):
+        store = APIStateStore()
+        recent_time = datetime.now(UTC).isoformat()
+
+        recent_env = _make_env_record("recent-env")
+        recent_env.status = RunEnvironmentStatus.PROVISIONED
+        recent_env.completed_at = recent_time
+        async with store._lock:
+            store._environments["recent-env"] = recent_env
+
+        # Trigger reap
+        await store.add_environment(_make_env_record("trigger"))
+
+        assert await store.get_environment("recent-env") is not None

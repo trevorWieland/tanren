@@ -140,6 +140,7 @@ async def provision_vm(
                 handle=handle,
                 vm_id=vm_handle.vm_id,
                 host=vm_handle.host,
+                completed_at=_now(),
             )
             if updated is not None:
                 handle = None  # Persisted — suppress finally cleanup

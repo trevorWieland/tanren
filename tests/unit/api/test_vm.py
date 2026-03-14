@@ -312,6 +312,22 @@ class TestVM:
         # Finally block should have called teardown with the handle (no orphan)
         mock_execution_env.teardown.assert_awaited_once_with(original_handle)
 
+    async def test_provision_sets_completed_at_on_success(self, client, auth_headers, app):
+        """Successful provision sets completed_at on the environment record."""
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        await _wait_vm_provisioned(client, env_id, auth_headers)
+
+        record = await app.state.api_store.get_environment(env_id)
+        assert record is not None
+        assert record.completed_at is not None
+
     async def test_provision_status_shows_failed_on_failure(
         self, client, auth_headers, mock_execution_env
     ):

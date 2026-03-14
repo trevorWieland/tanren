@@ -1586,3 +1586,46 @@ async def test_vm_provision_orphan_cleanup_on_record_removal(
 
     # execution_env.teardown must have been called — no orphan
     mock_execution_env.teardown.assert_awaited_once_with(original_handle)
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_records_reaped_after_retention(client, auth_headers, app):
+    """Terminal environment records are removed after the retention window."""
+    store = app.state.api_store
+
+    # Provision two VMs
+    resp1 = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id_1 = resp1.json()["env_id"]
+
+    resp2 = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id_2 = resp2.json()["env_id"]
+
+    # Wait for both to complete
+    await asyncio.sleep(0.1)
+
+    # Patch the first record's completed_at to be old (beyond retention)
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+    old_time = (datetime.now(UTC) - timedelta(seconds=3660)).isoformat()
+    await store.update_environment(env_id_1, completed_at=old_time)
+
+    # Provision a third — triggers reap
+    resp3 = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    env_id_3 = resp3.json()["env_id"]
+
+    # First record should be reaped, second and third remain
+    assert await store.get_environment(env_id_1) is None
+    assert await store.get_environment(env_id_2) is not None
+    assert await store.get_environment(env_id_3) is not None
