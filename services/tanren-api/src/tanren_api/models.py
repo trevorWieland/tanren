@@ -79,6 +79,7 @@ class DispatchRequest(BaseModel):
     environment_profile: str = Field(default="default", description="Environment profile name")
     context: str | None = Field(default=None, description="Extra context for the agent")
     gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
+    issue: int = Field(default=0, ge=0, description="GitHub issue number (0 = API-originated)")
 
 
 class ProvisionRequest(BaseModel):
@@ -89,6 +90,21 @@ class ProvisionRequest(BaseModel):
     project: str = Field(..., description="Project name")
     branch: str = Field(..., description="Git branch")
     environment_profile: str = Field(default="default", description="Environment profile")
+
+
+class ExecuteRequest(BaseModel):
+    """Request body for POST /run/{env_id}/execute."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(..., description="Project name")
+    spec_path: str = Field(..., description="Spec folder path")
+    phase: Phase = Field(..., description="Phase to execute")
+    cli: Cli = Field(default=Cli.CLAUDE, description="CLI tool")
+    model: str | None = Field(default=None, description="Model identifier")
+    timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
+    context: str | None = Field(default=None, description="Extra context")
+    gate_cmd: str | None = Field(default=None, description="Gate command")
 
 
 class RunFullRequest(BaseModel):
@@ -325,6 +341,9 @@ class PaginatedEvents(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     events: list[EventPayload] = Field(default_factory=list, description="Typed event records")
-    total: int = Field(..., description="Total matching events")
+    total: int = Field(..., description="Total matching events in database (includes unparseable)")
     limit: int = Field(..., description="Page size")
     offset: int = Field(..., description="Current offset")
+    skipped: int = Field(
+        default=0, ge=0, description="Events skipped due to parse errors in this page"
+    )

@@ -29,7 +29,7 @@ from tanren_core.env.environment_schema import (
     EnvironmentProfileType,
     parse_environment_profiles,
 )
-from tanren_core.manager import WorkerManager, build_tail_output
+from tanren_core.manager import build_tail_output
 from tanren_core.roles import AgentTool, RoleMapping, RoleName
 from tanren_core.roles_config import load_roles_config
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
@@ -83,14 +83,9 @@ def _require_remote_config(config: Config) -> None:
 
 
 def _build_remote_execution_env(config: Config) -> SSHExecutionEnvironment:
-    manager = WorkerManager(
-        config=config,
-        emitter=NullEventEmitter(),
-    )
-    env = manager.get_execution_environment()
-    if not isinstance(env, SSHExecutionEnvironment):
-        typer.echo("Remote execution environment is not enabled.", err=True)
-        raise typer.Exit(code=1)
+    from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
+
+    env, _store = build_ssh_execution_environment(config, NullEventEmitter())
     return env
 
 

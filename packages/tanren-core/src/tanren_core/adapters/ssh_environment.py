@@ -28,6 +28,8 @@ from tanren_core.adapters.protocols import (
 )
 from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import (
+    VMHandle,
+    VMProvider,
     VMRequirements,
     WorkspaceSpec,
 )
@@ -74,6 +76,7 @@ class SSHExecutionEnvironment:
         emitter: EventEmitter,
         ssh_config_defaults: SSHConfig,
         repo_urls: dict[str, str],
+        provider: VMProvider = VMProvider.MANUAL,
     ) -> None:
         """Initialize with remote execution adapters and configuration."""
         self._vm_provisioner = vm_provisioner
@@ -85,6 +88,7 @@ class SSHExecutionEnvironment:
         self._emitter = emitter
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
+        self._provider = provider
 
     @property
     def ssh_defaults(self) -> SSHConfig:
@@ -94,6 +98,40 @@ class SSHExecutionEnvironment:
     async def close(self) -> None:
         """Release resources held by the environment (DB connections)."""
         await self._state_store.close()
+
+    async def recover_stale_assignments(self) -> int:
+        """Release any unreleased VM assignments left by a prior crash.
+
+        Returns:
+            Number of recovered assignments.
+        """
+        assignments = await self._state_store.get_active_assignments()
+        if not assignments:
+            return 0
+
+        logger.info("Recovering %d stale VM assignment(s)...", len(assignments))
+
+        for a in assignments:
+            stale_handle = VMHandle(
+                vm_id=a.vm_id,
+                host=a.host,
+                provider=self._provider,
+                created_at=a.assigned_at,
+            )
+            try:
+                await self._vm_provisioner.release(stale_handle)
+            except Exception:
+                logger.warning(
+                    "Failed provider release for stale VM %s (%s)",
+                    a.vm_id,
+                    a.host,
+                    exc_info=True,
+                )
+            finally:
+                await self._state_store.record_release(a.vm_id)
+                logger.info("Recovered stale VM %s (%s)", a.vm_id, a.host)
+
+        return len(assignments)
 
     async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets.
@@ -206,15 +244,23 @@ class SSHExecutionEnvironment:
                 ),
             )
 
-        except Exception:
-            # Clean up on failure — no orphaned VMs
+        except BaseException:
+            # Clean up on failure — no orphaned VMs (including CancelledError)
             if conn is not None:
                 try:
                     await conn.close()
                 except Exception:
                     logger.warning("SSH close failed during provision cleanup")
-            await self._vm_provisioner.release(vm_handle)
-            await self._state_store.record_release(vm_handle.vm_id)
+            try:
+                await self._vm_provisioner.release(vm_handle)
+            except Exception:
+                logger.warning(
+                    "Provider release failed for VM %s during provision cleanup",
+                    vm_handle.vm_id,
+                    exc_info=True,
+                )
+            finally:
+                await self._state_store.record_release(vm_handle.vm_id)
             raise
 
     async def execute(
@@ -364,6 +410,10 @@ class SSHExecutionEnvironment:
             status="running",
         )
 
+    async def release_vm(self, vm_handle: VMHandle) -> None:
+        """Release a VM through the provisioner without full teardown."""
+        await self._vm_provisioner.release(vm_handle)
+
     async def teardown(self, handle: EnvironmentHandle) -> None:
         """Guaranteed VM release with try/finally at every step.
 
@@ -400,7 +450,14 @@ class SSHExecutionEnvironment:
                     logger.warning("SSH close failed")
                 finally:
                     # MUST happen — no orphaned VMs
-                    await self._vm_provisioner.release(vm_handle)
+                    try:
+                        await self._vm_provisioner.release(vm_handle)
+                    except Exception:
+                        logger.warning(
+                            "Provider release failed for VM %s during teardown",
+                            vm_handle.vm_id,
+                            exc_info=True,
+                        )
                     await self._state_store.record_release(vm_handle.vm_id)
 
                     duration = int(time.monotonic() - provision_start)

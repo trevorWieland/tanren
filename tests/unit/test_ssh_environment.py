@@ -167,6 +167,7 @@ def env_kit(tmp_path: Path):
         emitter=emitter,
         ssh_config_defaults=ssh_defaults,
         repo_urls={"myproj": "git@github.com:org/myproj.git"},
+        provider=VMProvider.HETZNER,
     )
 
     return {
@@ -205,6 +206,97 @@ def _make_handle(conn=None, vm_handle=None, workspace=None) -> EnvironmentHandle
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+class TestRecoverStaleAssignments:
+    async def test_recover_stale_no_assignments(self, env_kit):
+        """Returns 0 and does not call release when no stale assignments exist."""
+        env = env_kit["env"]
+        env_kit["state_store"].get_active_assignments.return_value = []
+
+        result = await env.recover_stale_assignments()
+
+        assert result == 0
+        env_kit["vm_provisioner"].release.assert_not_awaited()
+        env_kit["state_store"].record_release.assert_not_awaited()
+
+    async def test_recover_stale_releases_and_records(self, env_kit):
+        """Releases each stale assignment and records release for all."""
+        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+
+        env = env_kit["env"]
+        assignments = [
+            VMAssignment(
+                vm_id="vm-1",
+                workflow_id="wf-1",
+                project="proj",
+                spec="spec",
+                host="10.0.0.1",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+            VMAssignment(
+                vm_id="vm-2",
+                workflow_id="wf-2",
+                project="proj",
+                spec="spec",
+                host="10.0.0.2",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+        ]
+        env_kit["state_store"].get_active_assignments.return_value = assignments
+
+        result = await env.recover_stale_assignments()
+
+        assert result == 2
+        assert env_kit["vm_provisioner"].release.await_count == 2
+        assert env_kit["state_store"].record_release.await_count == 2
+        env_kit["state_store"].record_release.assert_any_await("vm-1")
+        env_kit["state_store"].record_release.assert_any_await("vm-2")
+
+    async def test_recover_stale_records_release_on_provider_failure(self, env_kit):
+        """record_release is still called when provider release raises."""
+        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+
+        env = env_kit["env"]
+        assignments = [
+            VMAssignment(
+                vm_id="vm-1",
+                workflow_id="wf-1",
+                project="proj",
+                spec="spec",
+                host="10.0.0.1",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+        ]
+        env_kit["state_store"].get_active_assignments.return_value = assignments
+        env_kit["vm_provisioner"].release.side_effect = RuntimeError("provider down")
+
+        result = await env.recover_stale_assignments()
+
+        assert result == 1
+        env_kit["state_store"].record_release.assert_awaited_once_with("vm-1")
+
+    async def test_recover_stale_uses_configured_provider(self, env_kit):
+        """recover_stale_assignments uses the configured provider, not hardcoded MANUAL."""
+        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+
+        env = env_kit["env"]
+        assignments = [
+            VMAssignment(
+                vm_id="vm-1",
+                workflow_id="wf-1",
+                project="proj",
+                spec="spec",
+                host="10.0.0.1",
+                assigned_at="2026-01-01T00:00:00Z",
+            ),
+        ]
+        env_kit["state_store"].get_active_assignments.return_value = assignments
+
+        await env.recover_stale_assignments()
+
+        released_handle = env_kit["vm_provisioner"].release.call_args[0][0]
+        assert released_handle.provider == VMProvider.HETZNER
 
 
 class TestProvision:
@@ -254,6 +346,33 @@ class TestProvision:
         assert handle.runtime.vm_handle == _make_vm_handle()
         assert handle.runtime.connection is mock_conn
 
+    async def test_releases_vm_on_cancelled_error(self, env_kit):
+        """provision() releases VM when cancelled during provisioning (no orphaned VMs)."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        import asyncio  # noqa: PLC0415
+
+        # Make bootstrap raise CancelledError (simulates task cancellation)
+        env_kit["bootstrapper"].bootstrap.side_effect = asyncio.CancelledError()
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            MockSSH.return_value = mock_conn
+
+            with pytest.raises(asyncio.CancelledError):
+                await env.provision(dispatch, config)
+
+        # VM must be released even though cancellation occurred
+        env_kit["vm_provisioner"].release.assert_awaited_once_with(_make_vm_handle())
+        # SSH connection closed during cleanup
+        mock_conn.close.assert_awaited_once()
+
     async def test_releases_vm_on_failure(self, env_kit):
         """provision() releases VM when a step fails (no orphaned VMs)."""
         env = env_kit["env"]
@@ -278,6 +397,33 @@ class TestProvision:
         env_kit["vm_provisioner"].release.assert_awaited_once_with(_make_vm_handle())
         # SSH connection closed during cleanup
         mock_conn.close.assert_awaited_once()
+
+    async def test_provision_cleanup_records_release_when_provider_release_fails(self, env_kit):
+        """record_release is still called when provider release raises during provision cleanup."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        # Make bootstrap fail (triggering cleanup)
+        env_kit["bootstrapper"].bootstrap.side_effect = RuntimeError("bootstrap boom")
+        # Make release also fail
+        env_kit["vm_provisioner"].release.side_effect = RuntimeError("provider down")
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            MockSSH.return_value = mock_conn
+
+            with pytest.raises(RuntimeError, match="bootstrap boom"):
+                await env.provision(dispatch, config)
+
+        # release was attempted
+        env_kit["vm_provisioner"].release.assert_awaited_once()
+        # record_release still called despite release failure
+        env_kit["state_store"].record_release.assert_awaited_once_with("vm-abc-123")
 
     async def test_raises_when_no_repo_url(self, env_kit):
         """provision() raises RuntimeError when no repo URL is configured."""
@@ -579,6 +725,25 @@ class TestTeardown:
         await env.teardown(handle)
 
         # VM still released despite cleanup failure
+        env_kit["vm_provisioner"].release.assert_awaited_once_with(vm_handle)
+        env_kit["state_store"].record_release.assert_awaited_once_with("vm-abc-123")
+
+    async def test_teardown_records_release_when_provider_release_raises(self, env_kit):
+        """record_release is still called when provider release raises during teardown."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
+        )
+        vm_handle = _make_vm_handle()
+        handle = _make_handle(conn=conn, vm_handle=vm_handle)
+        env_kit["vm_provisioner"].release.side_effect = RuntimeError("provider boom")
+
+        await env.teardown(handle)
+
         env_kit["vm_provisioner"].release.assert_awaited_once_with(vm_handle)
         env_kit["state_store"].record_release.assert_awaited_once_with("vm-abc-123")
 

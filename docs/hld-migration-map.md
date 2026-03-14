@@ -31,10 +31,10 @@ repo docs before deletion.
 | Agent-proof remote design | [`ADAPTERS.md`](ADAPTERS.md) |
 | Environment profiles and debug handoff | [`ADAPTERS.md#sshexecutionenvironment`](ADAPTERS.md#sshexecutionenvironment) |
 | Pluggable integrations overview | [`architecture/overview.md#opinionated-core-vs-pluggable-integrations`](architecture/overview.md#opinionated-core-vs-pluggable-integrations) |
-| Current/planned adapters | [`ADAPTERS.md`](ADAPTERS.md) + [`roadmap.md`](roadmap.md) |
+| Current adapters | [`ADAPTERS.md`](ADAPTERS.md) + [`roadmap.md`](roadmap.md) |
 | Secret scoping (developer/project/infrastructure) | [`../README.md#configuration-scopes`](../README.md#configuration-scopes) + [`operations/security-secrets.md#secret-scopes`](operations/security-secrets.md#secret-scopes) |
 | Configuration scopes | [`../README.md#configuration-scopes`](../README.md#configuration-scopes) + [`operations/security-secrets.md#configuration-scopes`](operations/security-secrets.md#configuration-scopes) |
-| Interaction methodologies (CLI/library/IPC/future HTTP) | [`interfaces.md`](interfaces.md) + [`../protocol/README.md`](../protocol/README.md) |
+| Interaction methodologies (CLI/library/IPC/HTTP API) | [`interfaces.md`](interfaces.md) + [`../protocol/README.md`](../protocol/README.md) |
 | Metering and observability | [`ADAPTERS.md#eventemitter`](ADAPTERS.md#eventemitter) + [`operations/observability.md`](operations/observability.md) |
 | Security model | [`operations/security-secrets.md#security-controls`](operations/security-secrets.md#security-controls) |
 | Roadmap (completed/near/medium/long) | [`roadmap.md`](roadmap.md) |

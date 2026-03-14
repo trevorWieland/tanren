@@ -174,15 +174,12 @@ class HetznerVMProvisioner:
             raise
 
     async def release(self, handle: VMHandle) -> None:
-        """Delete server best-effort; log failures without raising."""
-        try:
-            server = self._get_server_for_handle(handle)
-            if server is None:
-                logger.warning("Hetzner release: server not found for %s", handle.vm_id)
-                return
-            server.delete()
-        except Exception:
-            logger.warning("Hetzner release failed for %s", handle.vm_id, exc_info=True)
+        """Delete the Hetzner server."""
+        server = self._get_server_for_handle(handle)
+        if server is None:
+            logger.warning("Hetzner release: server not found for %s", handle.vm_id)
+            return
+        server.delete()
 
     async def list_active(self) -> list[VMHandle]:
         """List active tanren-managed Hetzner VMs.

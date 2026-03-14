@@ -4,10 +4,9 @@ Thanks for contributing to tanren.
 
 ## Development Setup
 
-Primary development for runtime code happens in `worker-manager/`.
+All commands run from the repository root.
 
 ```bash
-cd worker-manager
 uv sync
 make check
 ```
@@ -25,7 +24,9 @@ integration target (`make integration-ssh` or `make integration-local`).
 
 ## Repository Areas
 
-- `worker-manager/`: runtime implementation
+- `packages/tanren-core/`: core library
+- `services/`: API, CLI, daemon services
+- `services/tanren-api/`: HTTP API (FastAPI)
 - `commands/`: workflow instructions used by agents
 - `profiles/`: coding standards by stack
 - `protocol/`: IPC wire contract
@@ -35,7 +36,8 @@ integration target (`make integration-ssh` or `make integration-local`).
 
 Use imperative commit subjects with Conventional Commit prefixes when possible:
 
-- `feat(worker-manager): add ...`
+- `feat(core): add ...`
+- `feat(api): add ...`
 - `fix: correct ...`
 - `chore: update ...`
 
@@ -53,7 +55,7 @@ Each PR should include:
 If behavior or interfaces change, update docs in the same PR.
 
 1. Update the canonical page in `docs/` (or `protocol/PROTOCOL.md` for wire contracts).
-2. Update summaries/links in `README.md`, `worker-manager/README.md`, or `AGENTS.md` only if needed.
+2. Update summaries/links in `README.md`, `docs/worker-manager-README.md`, or `AGENTS.md` only if needed.
 3. Avoid diverging duplicate explanations across files.
 
 For migration and source-of-truth context, see `docs/hld-migration-map.md` and

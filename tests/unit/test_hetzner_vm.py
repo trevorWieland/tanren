@@ -181,6 +181,23 @@ async def test_release_missing_server_is_graceful(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_release_raises_when_delete_fails(monkeypatch):
+    monkeypatch.setenv("HCLOUD_TOKEN", "tok")
+    server = _FakeServer()
+    server.delete = Mock(side_effect=RuntimeError("API error"))
+    client = _build_client(server)
+    monkeypatch.setattr(
+        "tanren_core.adapters.hetzner_vm._import_hcloud",
+        lambda: lambda **kwargs: client,
+    )
+    provisioner = HetznerVMProvisioner(_settings())
+
+    handle = await provisioner.acquire(VMRequirements(profile="default"))
+    with pytest.raises(RuntimeError, match="API error"):
+        await provisioner.release(handle)
+
+
+@pytest.mark.asyncio
 async def test_list_active_filters_by_managed_label(monkeypatch):
     monkeypatch.setenv("HCLOUD_TOKEN", "tok")
     managed = _FakeServer(labels={"managed-by": "tanren"})

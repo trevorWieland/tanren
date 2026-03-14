@@ -33,7 +33,7 @@ semaphore, allowing concurrent gate checks across different specs.
 
 ### Adapter Pattern
 
-All external interactions are behind protocol interfaces (`adapters/protocols.py`).
+All external interactions are behind protocol interfaces (`packages/tanren-core/src/tanren_core/adapters/protocols.py`).
 The manager accepts injected adapters or falls back to concrete defaults:
 
 | Protocol | Default | Responsibility |
@@ -184,7 +184,6 @@ previous crashed sessions.
 ## Running
 
 ```bash
-cd worker-manager
 uv run worker-manager
 ```
 
@@ -304,10 +303,9 @@ For canonical secret scope, config scope, and security model guidance, see
 ## Development
 
 The worker manager uses [uv](https://docs.astral.sh/uv/) for dependency
-management and requires Python 3.14+.
+management and requires Python 3.14+. All commands run from the repo root.
 
 ```bash
-cd worker-manager
 uv sync                      # Install dependencies
 make check                   # Lint (ruff) + typecheck (ty) + unit tests
 make ci                      # check + integration tests (no real SSH)
@@ -318,34 +316,36 @@ make integration-ssh         # SSH integration tests (requires --ssh-host)
 make integration-local       # Local environment integration tests
 ```
 
-### Source Layout
+### Workspace Structure
 
 ```
-src/worker_manager/
-  __main__.py           # Entry point (asyncio.run)
-  cli.py                # tanren CLI (env, secret, vm, run subcommands)
-  vm_cli.py             # tanren vm list/release/recover/dry-run
-  run_cli.py            # tanren run provision/execute/teardown/full
-  config.py             # WM_ env var configuration
-  remote_config.py      # remote.yml loader
-  secrets.py            # SecretLoader for remote injection
-  manager.py            # Poll loop, dispatch handling, result writing
-  queues.py             # 3-lane dispatch router with semaphores
-  schemas.py            # Pydantic models (Dispatch, Result, Phase, Cli, ...)
-  signals.py            # Signal extraction and outcome mapping
-  errors.py             # Error classification (transient/fatal/ambiguous)
-  heartbeat.py          # Crash-detection heartbeat writer
-  ipc.py                # Atomic file I/O, dispatch scanning
-  adapters/             # Protocol interfaces + concrete implementations
-  env/                  # tanren.yml env validation, secrets, provisioning
-tests/unit/             # make test
-tests/integration/      # make ci
+packages/tanren-core/        # Core orchestration library
+  src/tanren_core/
+    adapters/                # Protocol interfaces + concrete implementations
+    env/                     # tanren.yml env validation, secrets, provisioning
+    config.py, manager.py, queues.py, schemas.py, signals.py, ...
+
+services/tanren-daemon/      # Worker manager daemon
+  src/tanren_daemon/
+    __main__.py              # Entry point (asyncio.run)
+
+services/tanren-cli/         # CLI tool
+  src/tanren_cli/
+    cli.py, vm_cli.py, run_cli.py
+
+services/tanren-api/         # HTTP API (FastAPI)
+  openapi.json               # Generated OpenAPI spec
+  src/tanren_api/
+    main.py, routers/
+
+tests/unit/                  # make test
+tests/integration/           # make ci
 ```
 
 ## Related Documentation
 
-- `../docs/architecture/overview.md` - architecture boundaries and layering
-- `../docs/workflow/spec-lifecycle.md` - lifecycle policy and orchestration intent
-- `../docs/operations/observability.md` - event model and metering queries
-- `../docs/interfaces.md` - CLI/library/IPC interaction surfaces
+- `architecture/overview.md` - architecture boundaries and layering
+- `workflow/spec-lifecycle.md` - lifecycle policy and orchestration intent
+- `operations/observability.md` - event model and metering queries
+- `interfaces.md` - CLI/library/IPC interaction surfaces
 - `ADAPTERS.md` - adapter decomposition and extension points

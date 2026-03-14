@@ -102,29 +102,29 @@ class TestWorkerManagerInit:
                 seen["secret_loader"] = kwargs["secret_loader"]
                 seen["repo_urls"] = kwargs["repo_urls"]
 
-        monkeypatch.setattr("tanren_core.manager.SecretLoader", _FakeSecretLoader)
+        monkeypatch.setattr("tanren_core.builder.SecretLoader", _FakeSecretLoader)
         monkeypatch.setattr(
-            "tanren_core.manager.GitWorkspaceManager",
+            "tanren_core.builder.GitWorkspaceManager",
             _FakeGitWorkspaceManager,
         )
         monkeypatch.setattr(
-            "tanren_core.manager.SSHExecutionEnvironment",
+            "tanren_core.builder.SSHExecutionEnvironment",
             _FakeSSHExecutionEnvironment,
         )
         monkeypatch.setattr(
-            "tanren_core.manager.SqliteVMStateStore",
+            "tanren_core.builder.SqliteVMStateStore",
             lambda _: object(),
         )
         monkeypatch.setattr(
-            "tanren_core.manager.ManualVMProvisioner",
+            "tanren_core.builder.ManualVMProvisioner",
             lambda _vms, _store: object(),
         )
         monkeypatch.setattr(
-            "tanren_core.manager.UbuntuBootstrapper",
+            "tanren_core.builder.UbuntuBootstrapper",
             lambda *args, **kwargs: object(),
         )
         monkeypatch.setattr(
-            "tanren_core.manager.RemoteAgentRunner",
+            "tanren_core.builder.RemoteAgentRunner",
             lambda: object(),
         )
 

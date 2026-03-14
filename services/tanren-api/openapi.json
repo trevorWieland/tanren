@@ -262,7 +262,7 @@
           "vm"
         ],
         "summary": "Provision Vm",
-        "description": "Provision a new VM.",
+        "description": "Provision a new VM.\n\nReturns:\n    VMHandle with vm_id, host, provider, created_at.",
         "operationId": "provision_vm_api_v1_vm_provision_post",
         "parameters": [
           {
@@ -499,6 +499,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1262,6 +1272,13 @@
             ],
             "title": "Gate Cmd",
             "description": "Shell command for gate phases"
+          },
+          "issue": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Issue",
+            "description": "GitHub issue number (0 = API-originated)",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -1336,6 +1353,81 @@
         ],
         "title": "ErrorOccurred",
         "description": "An unhandled error occurred during dispatch handling."
+      },
+      "ExecuteRequest": {
+        "properties": {
+          "project": {
+            "type": "string",
+            "title": "Project",
+            "description": "Project name"
+          },
+          "spec_path": {
+            "type": "string",
+            "title": "Spec Path",
+            "description": "Spec folder path"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase",
+            "description": "Phase to execute"
+          },
+          "cli": {
+            "$ref": "#/components/schemas/Cli",
+            "description": "CLI tool",
+            "default": "claude"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Model identifier"
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Timeout",
+            "description": "Max execution seconds",
+            "default": 1800
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context",
+            "description": "Extra context"
+          },
+          "gate_cmd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gate Cmd",
+            "description": "Gate command"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project",
+          "spec_path",
+          "phase"
+        ],
+        "title": "ExecuteRequest",
+        "description": "Request body for POST /run/{env_id}/execute."
       },
       "HTTPValidationError": {
         "properties": {
@@ -1492,7 +1584,7 @@
           "total": {
             "type": "integer",
             "title": "Total",
-            "description": "Total matching events"
+            "description": "Total matching events in database (includes unparseable)"
           },
           "limit": {
             "type": "integer",
@@ -1503,6 +1595,13 @@
             "type": "integer",
             "title": "Offset",
             "description": "Current offset"
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Skipped",
+            "description": "Events skipped due to parse errors in this page",
+            "default": 0
           }
         },
         "additionalProperties": false,

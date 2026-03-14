@@ -31,4 +31,4 @@ Common emitted events:
 - workflow completion throughput by project
 
 For implementation details and schema context, see
-`worker-manager/README.md` and `protocol/PROTOCOL.md`.
+`../worker-manager-README.md` and `protocol/PROTOCOL.md`.
