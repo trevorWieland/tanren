@@ -251,10 +251,11 @@ class TestRun:
         record = await store.get_environment(env_id)
         assert record is not None
 
-    async def test_teardown_returns_409_when_task_cannot_be_stopped(
+    async def test_teardown_proceeds_when_task_resists_cancel(
         self, client, auth_headers, app, monkeypatch
     ):
-        """Teardown returns 409 when a running task cannot be stopped."""
+        """Teardown succeeds even when a running task resists cancellation,
+        because ownership is claimed via transition before cancel."""
         # Provision first
         prov_resp = await client.post(
             "/api/v1/run/provision",
@@ -288,13 +289,110 @@ class TestRun:
             f"/api/v1/run/{env_id}/teardown",
             headers=auth_headers,
         )
-        assert resp.status_code == 409
-        assert "could not be stopped" in resp.json()["detail"]
+        # Teardown claims ownership first, so it succeeds regardless of cancel result
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "tearing_down"
 
         # Cleanup: cancel again (this time it propagates)
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+    async def test_teardown_transitions_before_cancelling_task(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """First teardown succeeds and second gets 409 without killing first's task."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Make teardown block so first teardown task stays alive
+        teardown_event = asyncio.Event()
+
+        async def _blocking_teardown(*args, **kwargs):
+            await teardown_event.wait()
+
+        mock_execution_env.teardown = AsyncMock(side_effect=_blocking_teardown)
+
+        # First teardown — should succeed
+        resp1 = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp1.status_code == 200
+
+        # Get the teardown task
+        store = app.state.api_store
+        record = await store.get_environment(env_id)
+        assert record is not None
+        teardown_task = record.task
+        assert teardown_task is not None
+        assert not teardown_task.done()
+
+        # Second teardown — should get 409
+        resp2 = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp2.status_code == 409
+        assert "already being torn down" in resp2.json()["detail"]
+
+        # First teardown task must NOT have been cancelled
+        assert not teardown_task.cancelled()
+        assert not teardown_task.done()
+
+        # Cleanup
+        teardown_event.set()
+        await asyncio.sleep(0)
+
+    async def test_teardown_background_shielded_from_cancellation(
+        self, client, auth_headers, app, mock_execution_env
+    ):
+        """Teardown background task shields execution_env.teardown from cancellation."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Make teardown block so we can cancel the background task
+        teardown_started = asyncio.Event()
+
+        async def _blocking_teardown(*args, **kwargs):
+            teardown_started.set()
+            await asyncio.sleep(3600)
+
+        mock_execution_env.teardown = AsyncMock(side_effect=_blocking_teardown)
+
+        # Start teardown
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+        # Wait for teardown to start
+        await teardown_started.wait()
+
+        # Get the background task and cancel it (simulating shutdown)
+        store = app.state.api_store
+        record = await store.get_environment(env_id)
+        assert record is not None
+        assert record.task is not None
+        record.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await record.task
+
+        # Give shielded teardown a tick to complete
+        await asyncio.sleep(0)
+
+        mock_execution_env.teardown.assert_awaited_once()
 
     async def test_re_execute_clears_stale_outcome(
         self, client, auth_headers, app, mock_execution_env
@@ -460,6 +558,46 @@ class TestRun:
         # Cleanup
         execute_event.set()
         await asyncio.sleep(0)
+
+    async def test_second_teardown_does_not_cancel_first_teardown_task(
+        self, client, auth_headers, app
+    ):
+        """A second teardown returns 409 without cancelling the in-flight teardown task."""
+        # Provision
+        prov_resp = await client.post(
+            "/api/v1/run/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        env_id = prov_resp.json()["env_id"]
+
+        # Simulate an in-progress teardown: set status to TEARING_DOWN and attach a task
+        store = app.state.api_store
+        await store.update_environment(env_id, status=RunEnvironmentStatus.TEARING_DOWN)
+
+        async def _long_teardown() -> None:
+            await asyncio.sleep(3600)
+
+        teardown_task = asyncio.create_task(_long_teardown())
+        await store.update_environment(env_id, task=teardown_task)
+        await asyncio.sleep(0)  # Let task start
+
+        # Second teardown should get 409 without killing the first teardown task
+        resp = await client.post(
+            f"/api/v1/run/{env_id}/teardown",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
+        assert "already being torn down" in resp.json()["detail"]
+
+        # The first teardown task must NOT have been cancelled
+        assert not teardown_task.cancelled()
+        assert not teardown_task.done()
+
+        # Cleanup
+        teardown_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await teardown_task
 
     async def test_concurrent_teardown_during_execute_startup_sees_task(
         self, client, auth_headers, app, mock_execution_env

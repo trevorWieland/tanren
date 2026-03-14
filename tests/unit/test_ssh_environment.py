@@ -398,6 +398,33 @@ class TestProvision:
         # SSH connection closed during cleanup
         mock_conn.close.assert_awaited_once()
 
+    async def test_provision_cleanup_records_release_when_provider_release_fails(self, env_kit):
+        """record_release is still called when provider release raises during provision cleanup."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        # Make bootstrap fail (triggering cleanup)
+        env_kit["bootstrapper"].bootstrap.side_effect = RuntimeError("bootstrap boom")
+        # Make release also fail
+        env_kit["vm_provisioner"].release.side_effect = RuntimeError("provider down")
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            MockSSH.return_value = mock_conn
+
+            with pytest.raises(RuntimeError, match="bootstrap boom"):
+                await env.provision(dispatch, config)
+
+        # release was attempted
+        env_kit["vm_provisioner"].release.assert_awaited_once()
+        # record_release still called despite release failure
+        env_kit["state_store"].record_release.assert_awaited_once_with("vm-abc-123")
+
     async def test_raises_when_no_repo_url(self, env_kit):
         """provision() raises RuntimeError when no repo URL is configured."""
         env = env_kit["env"]

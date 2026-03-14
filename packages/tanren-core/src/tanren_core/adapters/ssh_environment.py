@@ -251,8 +251,16 @@ class SSHExecutionEnvironment:
                     await conn.close()
                 except Exception:
                     logger.warning("SSH close failed during provision cleanup")
-            await self._vm_provisioner.release(vm_handle)
-            await self._state_store.record_release(vm_handle.vm_id)
+            try:
+                await self._vm_provisioner.release(vm_handle)
+            except Exception:
+                logger.warning(
+                    "Provider release failed for VM %s during provision cleanup",
+                    vm_handle.vm_id,
+                    exc_info=True,
+                )
+            finally:
+                await self._state_store.record_release(vm_handle.vm_id)
             raise
 
     async def execute(

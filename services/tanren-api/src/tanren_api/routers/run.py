@@ -202,13 +202,13 @@ async def run_teardown(
     if execution_env is None:
         raise ServiceError("Remote execution environment not configured")
 
-    # Cancel any running execute task and wait for it to finish
-    stopped = await store.cancel_environment_task(env_id)
-    if not stopped:
-        raise ConflictError(
-            f"Environment {env_id} has a running task that could not be stopped. Please retry."
-        )
+    # Bail early if already tearing down — do NOT cancel an in-flight teardown task.
+    if record.status not in _TEARDOWN_FROM:
+        raise ConflictError(f"Environment {env_id} is already being torn down")
 
+    # Claim ownership of teardown BEFORE cancelling any running task.
+    # This prevents a race where two concurrent teardown requests both
+    # pass the status check but one destroys the other's teardown task.
     updated = await store.try_transition_environment(
         env_id,
         from_statuses=_TEARDOWN_FROM,
@@ -217,10 +217,13 @@ async def run_teardown(
     if updated is None:
         raise ConflictError(f"Environment {env_id} is already being torn down")
 
+    # Best-effort cancel of any stale execute task — we already own teardown.
+    await store.cancel_environment_task(env_id)
+
     async def _teardown_background() -> None:
         try:
-            await execution_env.teardown(record.handle)
-        except Exception:
+            await asyncio.shield(execution_env.teardown(record.handle))
+        except asyncio.CancelledError, Exception:
             logger.warning("Teardown failed for env %s", env_id)
         finally:
             await store.remove_environment(env_id)

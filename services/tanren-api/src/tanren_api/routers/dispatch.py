@@ -286,21 +286,27 @@ async def cancel_dispatch(
                     f"Dispatch {dispatch_id} could not be cancelled: "
                     "failed to remove dispatch file. Please retry."
                 ) from None
-        if record.task is not None and not record.task.done():
-            record.task.cancel()
-        await store.update_dispatch(
+        transitioned = await store.try_transition_dispatch(
             dispatch_id,
-            status=DispatchRunStatus.CANCELLED,
+            from_statuses=frozenset({DispatchRunStatus.PENDING}),
+            to_status=DispatchRunStatus.CANCELLED,
             completed_at=_now(),
         )
+        if transitioned is None:
+            raise ConflictError(f"Dispatch {dispatch_id} status has changed; cannot cancel")
+        if record.task is not None and not record.task.done():
+            record.task.cancel()
     elif record.status == DispatchRunStatus.RUNNING:
         logger.warning("Cancelling running dispatch %s — best effort", dispatch_id)
-        if record.task is not None and not record.task.done():
-            record.task.cancel()
-        await store.update_dispatch(
+        transitioned = await store.try_transition_dispatch(
             dispatch_id,
-            status=DispatchRunStatus.CANCELLED,
+            from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+            to_status=DispatchRunStatus.CANCELLED,
             completed_at=_now(),
         )
+        if transitioned is None:
+            raise ConflictError(f"Dispatch {dispatch_id} status has changed; cannot cancel")
+        if record.task is not None and not record.task.done():
+            record.task.cancel()
 
     return DispatchCancelled(dispatch_id=dispatch_id)

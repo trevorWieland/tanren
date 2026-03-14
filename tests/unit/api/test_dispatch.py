@@ -376,6 +376,58 @@ class TestDispatch:
         assert cancel_resp.status_code == 409
         assert "picked up by the daemon" in cancel_resp.json()["detail"]
 
+    async def test_cancel_pending_transitions_before_cancelling_task(
+        self, client, auth_headers, app, monkeypatch
+    ):
+        """Cancel of a PENDING dispatch transitions before cancelling the task.
+        If transition fails (worker raced to RUNNING), task is untouched."""
+        store = app.state.api_store
+
+        async def _hang_forever() -> None:
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(_hang_forever())
+        dispatch = Dispatch(
+            workflow_id="wf-cancel-race",
+            project="test",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+        )
+        record = DispatchRecord(
+            dispatch_id="wf-cancel-race",
+            dispatch=dispatch,
+            status=DispatchRunStatus.PENDING,
+            created_at="2026-01-01T00:00:00Z",
+        )
+        record.task = task
+        await store.add_dispatch(record)
+
+        # Monkeypatch try_transition_dispatch to return None for PENDING→CANCELLED
+        # (simulates worker racing to RUNNING)
+        original_transition = store.try_transition_dispatch
+
+        async def _block_pending_cancel(dispatch_id, *, from_statuses, **kwargs):
+            if DispatchRunStatus.PENDING in from_statuses:
+                return None
+            return await original_transition(dispatch_id, from_statuses=from_statuses, **kwargs)
+
+        monkeypatch.setattr(store, "try_transition_dispatch", _block_pending_cancel)
+
+        cancel_resp = await client.delete("/api/v1/dispatch/wf-cancel-race", headers=auth_headers)
+        assert cancel_resp.status_code == 409
+
+        # Task must NOT have been cancelled — transition failed before cancel
+        assert not task.cancelled()
+        assert not task.done()
+
+        # Cleanup
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
     async def test_cancel_pending_local_dispatch_cancels_task(self, client, auth_headers, app):
         """Cancel of a PENDING local dispatch cancels the background task."""
         store = app.state.api_store
@@ -556,6 +608,48 @@ class TestDispatch:
         await asyncio.sleep(0)
 
         mock_env.teardown.assert_awaited_once()
+
+    async def test_cancel_running_dispatch_does_not_overwrite_concurrent_completion(
+        self, client, auth_headers, app
+    ):
+        """Cancel returns 409 when the background task already moved to a terminal status."""
+        store = app.state.api_store
+
+        # Create a dispatch in RUNNING state with a completed task
+        dispatch = Dispatch(
+            workflow_id="wf-race-cancel",
+            project="test-project",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+        )
+        record = DispatchRecord(
+            dispatch_id="wf-race-cancel",
+            dispatch=dispatch,
+            status=DispatchRunStatus.RUNNING,
+            created_at="2026-01-01T00:00:00Z",
+            started_at="2026-01-01T00:00:01Z",
+        )
+        await store.add_dispatch(record)
+
+        # Simulate the background task completing and transitioning to COMPLETED
+        await store.try_transition_dispatch(
+            "wf-race-cancel",
+            from_statuses=frozenset({DispatchRunStatus.RUNNING}),
+            to_status=DispatchRunStatus.COMPLETED,
+            completed_at="2026-01-01T00:01:00Z",
+        )
+
+        # Cancel request should get 409 (terminal status check)
+        cancel_resp = await client.delete("/api/v1/dispatch/wf-race-cancel", headers=auth_headers)
+        assert cancel_resp.status_code == 409
+
+        # Final status must be COMPLETED, not CANCELLED
+        final = await store.get_dispatch("wf-race-cancel")
+        assert final is not None
+        assert final.status == DispatchRunStatus.COMPLETED
 
     async def test_background_task_does_not_overwrite_cancelled(self, client, auth_headers, app):
         """Background task completing after cancellation does not overwrite CANCELLED status."""
