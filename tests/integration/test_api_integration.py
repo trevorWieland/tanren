@@ -1541,3 +1541,48 @@ async def test_middleware_websocket_scope_passthrough(app):
 
     await wrapped(scope, noop_receive, noop_send)
     assert calls == ["websocket"]
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_orphan_cleanup_on_record_removal(
+    client, auth_headers, app, mock_execution_env, monkeypatch
+):
+    """End-to-end: VM provision blocks, teardown removes record, provision
+    completes → try_transition_environment returns None, finally block
+    cleans up the handle (no orphan)."""
+    store = app.state.api_store
+    original_handle = mock_execution_env.provision.return_value
+
+    # Make provision block so we can remove the record while it's in-flight
+    provision_entered = asyncio.Event()
+    provision_release = asyncio.Event()
+
+    async def _blocking_provision(*args, **kwargs):
+        provision_entered.set()
+        await provision_release.wait()
+        return original_handle
+
+    mock_execution_env.provision = AsyncMock(side_effect=_blocking_provision)
+
+    # Start provision
+    resp = await client.post(
+        "/api/v1/vm/provision",
+        headers=auth_headers,
+        json={"project": "test", "branch": "main"},
+    )
+    assert resp.status_code == 200
+    env_id = resp.json()["env_id"]
+
+    # Wait for provision to start
+    await provision_entered.wait()
+
+    # Simulate concurrent teardown removing the environment record
+    removed = await store.remove_environment(env_id)
+    assert removed is not None
+
+    # Release provision — it finishes but record is gone
+    provision_release.set()
+    await asyncio.sleep(0.1)
+
+    # execution_env.teardown must have been called — no orphan
+    mock_execution_env.teardown.assert_awaited_once_with(original_handle)

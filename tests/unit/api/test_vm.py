@@ -226,21 +226,25 @@ class TestVM:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """VM provision cancelled after handle obtained → finally block calls teardown."""
+        from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701
+
         store = app.state.api_store
         original_handle = mock_execution_env.provision.return_value
 
-        # Block update_environment when it tries to persist the handle
+        # Block try_transition_environment when it tries to persist the handle,
+        # giving us a window to cancel the task.
         persist_reached = asyncio.Event()
         persist_release = asyncio.Event()
-        original_update = store.update_environment
+        original_try = store.try_transition_environment
 
-        async def _intercept_update(env_id, **kwargs):
-            if kwargs.get("handle") is not None:
+        async def _intercept_try(env_id, **kwargs):
+            h = kwargs.get("handle", _UNSET)
+            if not isinstance(h, type(_UNSET)) and h is not None:
                 persist_reached.set()
                 await persist_release.wait()
-            return await original_update(env_id, **kwargs)
+            return await original_try(env_id, **kwargs)
 
-        monkeypatch.setattr(store, "update_environment", _intercept_update)
+        monkeypatch.setattr(store, "try_transition_environment", _intercept_try)
 
         resp = await client.post(
             "/api/v1/vm/provision",
@@ -266,6 +270,46 @@ class TestVM:
             await bg_task
 
         # Finally block should have called teardown with the handle
+        mock_execution_env.teardown.assert_awaited_once_with(original_handle)
+
+    async def test_provision_does_not_orphan_handle_when_record_removed(
+        self, client, auth_headers, app, mock_execution_env, monkeypatch
+    ):
+        """VM provision cleans up handle when environment record is removed mid-provision."""
+        store = app.state.api_store
+        original_handle = mock_execution_env.provision.return_value
+
+        # Make provision block so we can remove the record while it's in-flight
+        provision_entered = asyncio.Event()
+        provision_release = asyncio.Event()
+
+        async def _blocking_provision(*args, **kwargs):
+            provision_entered.set()
+            await provision_release.wait()
+            return original_handle
+
+        mock_execution_env.provision = AsyncMock(side_effect=_blocking_provision)
+
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={"project": "test", "branch": "main"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # Wait for provision to start
+        await provision_entered.wait()
+
+        # Remove the environment record (simulating concurrent teardown)
+        removed = await store.remove_environment(env_id)
+        assert removed is not None
+
+        # Release provision — try_transition_environment returns None (record gone)
+        provision_release.set()
+        await asyncio.sleep(0.1)
+
+        # Finally block should have called teardown with the handle (no orphan)
         mock_execution_env.teardown.assert_awaited_once_with(original_handle)
 
     async def test_provision_status_shows_failed_on_failure(

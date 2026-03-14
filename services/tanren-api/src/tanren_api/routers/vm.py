@@ -133,22 +133,25 @@ async def provision_vm(
                 logger.debug(
                     "Failed to close provision-time SSH connection for %s", vm_handle.vm_id
                 )
-            await store.update_environment(
+            updated = await store.try_transition_environment(
                 env_id,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.PROVISIONED,
                 handle=handle,
                 vm_id=vm_handle.vm_id,
                 host=vm_handle.host,
-                status=RunEnvironmentStatus.PROVISIONED,
             )
-            handle = None  # Persisted — suppress finally cleanup
+            if updated is not None:
+                handle = None  # Persisted — suppress finally cleanup
         except asyncio.CancelledError:
             raise
         except Exception:
             handle = None  # Error handler owns cleanup
             logger.exception("VM provision failed for %s", env_id)
-            await store.update_environment(
+            await store.try_transition_environment(
                 env_id,
-                status=RunEnvironmentStatus.FAILED,
+                from_statuses=frozenset({RunEnvironmentStatus.PROVISIONING}),
+                to_status=RunEnvironmentStatus.FAILED,
                 outcome=Outcome.ERROR,
                 completed_at=_now(),
             )
