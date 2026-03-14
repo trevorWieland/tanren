@@ -352,7 +352,8 @@ class TestRun:
     async def test_teardown_background_shielded_from_cancellation(
         self, client, auth_headers, app, mock_execution_env
     ):
-        """Teardown background task shields execution_env.teardown from cancellation."""
+        """Teardown background task shields execution_env.teardown from cancellation
+        and waits for it to finish before proceeding to remove_environment."""
         # Provision
         prov_resp = await client.post(
             "/api/v1/run/provision",
@@ -361,12 +362,13 @@ class TestRun:
         )
         env_id = prov_resp.json()["env_id"]
 
-        # Make teardown block so we can cancel the background task
+        # Make teardown block on an event so we control when it finishes
         teardown_started = asyncio.Event()
+        teardown_finish = asyncio.Event()
 
         async def _blocking_teardown(*args, **kwargs):
             teardown_started.set()
-            await asyncio.sleep(3600)
+            await teardown_finish.wait()
 
         mock_execution_env.teardown = AsyncMock(side_effect=_blocking_teardown)
 
@@ -384,14 +386,24 @@ class TestRun:
         store = app.state.api_store
         record = await store.get_environment(env_id)
         assert record is not None
-        assert record.task is not None
-        record.task.cancel()
+        bg_task = record.task
+        assert bg_task is not None
+        bg_task.cancel()
+        await asyncio.sleep(0)  # Let cancellation propagate
+
+        # Background task must NOT be done yet — it's waiting for inner teardown
+        assert not bg_task.done(), "Task returned before teardown finished"
+
+        # Environment record should still exist (remove_environment not called yet)
+        assert await store.get_environment(env_id) is not None
+
+        # Now unblock teardown
+        teardown_finish.set()
         with contextlib.suppress(asyncio.CancelledError):
-            await record.task
+            await bg_task
 
-        # Give shielded teardown a tick to complete
-        await asyncio.sleep(0)
-
+        # After teardown completes, environment should be removed
+        assert await store.get_environment(env_id) is None
         mock_execution_env.teardown.assert_awaited_once()
 
     async def test_re_execute_clears_stale_outcome(
@@ -472,17 +484,28 @@ class TestRun:
     async def test_full_lifecycle_teardown_shielded_from_cancellation(
         self, client, auth_headers, app, mock_execution_env
     ):
-        """Teardown in _full_lifecycle is shielded from cancellation."""
+        """Teardown in _full_lifecycle is shielded from cancellation
+        and the task doesn't return until teardown actually finishes."""
         store = app.state.api_store
 
         # Make execute hang so we can cancel during execution
         execute_started = asyncio.Event()
 
-        async def _hang(*args, **kwargs):
+        async def _hang_execute(*args, **kwargs):
             execute_started.set()
             await asyncio.sleep(3600)
 
-        mock_execution_env.execute = AsyncMock(side_effect=_hang)
+        mock_execution_env.execute = AsyncMock(side_effect=_hang_execute)
+
+        # Make teardown block on an event so we control when it finishes
+        teardown_started = asyncio.Event()
+        teardown_finish = asyncio.Event()
+
+        async def _blocking_teardown(*args, **kwargs):
+            teardown_started.set()
+            await teardown_finish.wait()
+
+        mock_execution_env.teardown = AsyncMock(side_effect=_blocking_teardown)
 
         resp = await client.post(
             "/api/v1/run/full",
@@ -500,16 +523,23 @@ class TestRun:
         # Wait for execute to start
         await execute_started.wait()
 
-        # Cancel the background task
+        # Cancel the background task (simulating shutdown)
         record = await store.get_dispatch(dispatch_id)
         assert record is not None
-        assert record.task is not None
-        record.task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await record.task
+        bg_task = record.task
+        assert bg_task is not None
+        bg_task.cancel()
 
-        # Give shielded teardown a tick to complete
-        await asyncio.sleep(0)
+        # Wait for teardown to start (the finally block shields it)
+        await teardown_started.wait()
+
+        # Background task must NOT be done yet — it's waiting for inner teardown
+        assert not bg_task.done(), "Task returned before teardown finished"
+
+        # Now unblock teardown
+        teardown_finish.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await bg_task
 
         mock_execution_env.teardown.assert_awaited_once()
 

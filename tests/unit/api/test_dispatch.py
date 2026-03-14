@@ -562,7 +562,8 @@ class TestDispatch:
         assert final.status == DispatchRunStatus.PENDING
 
     async def test_dispatch_teardown_shielded_from_cancellation(self, client, auth_headers, app):
-        """Teardown is shielded from cancellation in _dispatch_background."""
+        """Teardown is shielded from cancellation in _dispatch_background
+        and the task doesn't return until teardown actually finishes."""
         from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701
 
         store = app.state.api_store
@@ -594,6 +595,16 @@ class TestDispatch:
 
         mock_env.execute = AsyncMock(side_effect=_hang)
 
+        # Make teardown block on an event so we control when it finishes
+        teardown_started = asyncio.Event()
+        teardown_finish = asyncio.Event()
+
+        async def _blocking_teardown(*args, **kwargs):
+            teardown_started.set()
+            await teardown_finish.wait()
+
+        mock_env.teardown = AsyncMock(side_effect=_blocking_teardown)
+
         task = asyncio.create_task(
             _dispatch_background(dispatch, "wf-shield-test", mock_env, app.state.config, store)
         )
@@ -601,11 +612,17 @@ class TestDispatch:
         # Wait for execute to start, then cancel
         await execute_started.wait()
         task.cancel()
+
+        # Wait for teardown to start (the finally block shields it)
+        await teardown_started.wait()
+
+        # Background task must NOT be done yet — it's waiting for inner teardown
+        assert not task.done(), "Task returned before teardown finished"
+
+        # Now unblock teardown
+        teardown_finish.set()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-
-        # Give shielded teardown a tick to complete
-        await asyncio.sleep(0)
 
         mock_env.teardown.assert_awaited_once()
 

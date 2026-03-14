@@ -221,9 +221,12 @@ async def run_teardown(
     await store.cancel_environment_task(env_id)
 
     async def _teardown_background() -> None:
+        inner = asyncio.ensure_future(execution_env.teardown(record.handle))
         try:
-            await asyncio.shield(execution_env.teardown(record.handle))
+            await asyncio.shield(inner)
         except asyncio.CancelledError, Exception:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await inner
             logger.warning("Teardown failed for env %s", env_id)
         finally:
             await store.remove_environment(env_id)
@@ -317,9 +320,12 @@ async def run_full(
             )
         finally:
             if handle is not None:
+                inner = asyncio.ensure_future(execution_env.teardown(handle))
                 try:
-                    await asyncio.shield(execution_env.teardown(handle))
+                    await asyncio.shield(inner)
                 except asyncio.CancelledError, Exception:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await inner
                     logger.warning("Teardown failed for %s", workflow_id)
                 finally:
                     try:

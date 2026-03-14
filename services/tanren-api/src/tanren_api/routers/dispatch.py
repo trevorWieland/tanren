@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from datetime import UTC, datetime
@@ -137,9 +138,12 @@ async def _dispatch_background(
         )
     finally:
         if handle is not None:
+            inner = asyncio.ensure_future(execution_env.teardown(handle))
             try:
-                await asyncio.shield(execution_env.teardown(handle))
+                await asyncio.shield(inner)
             except asyncio.CancelledError, Exception:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await inner
                 logger.warning("Teardown failed for dispatch %s", dispatch_id)
 
 
