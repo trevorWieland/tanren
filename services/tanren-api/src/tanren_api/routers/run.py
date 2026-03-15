@@ -30,7 +30,9 @@ from tanren_api.state import APIStateStore, DispatchRecord, EnvironmentRecord
 from tanren_core.adapters.protocols import ExecutionEnvironment
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
-from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.roles import RoleName
+from tanren_core.roles_config import load_roles_config
+from tanren_core.schemas import Dispatch, Outcome, Phase
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +74,17 @@ async def run_provision(
 
     env_id = str(uuid.uuid4())
 
+    roles = load_roles_config(config.roles_config_path)
+    resolved_tool = roles.resolve(RoleName.DEFAULT)
+
     dispatch = Dispatch(
         workflow_id=f"run-{uuid.uuid4().hex[:8]}",
         project=body.project,
         phase=Phase.DO_TASK,
         branch=body.branch,
         spec_folder="",
-        cli=Cli.CLAUDE,
+        cli=resolved_tool.cli,
+        auth=resolved_tool.auth,
         timeout=1800,
         environment_profile=body.environment_profile,
     )
@@ -175,6 +181,7 @@ async def run_execute(
         branch=record.handle.branch,
         spec_folder=body.spec_path,
         cli=body.cli,
+        auth=body.auth,
         model=body.model,
         timeout=body.timeout,
         context=body.context,
@@ -320,7 +327,8 @@ async def run_full(
         phase=body.phase,
         branch=body.branch,
         spec_folder=body.spec_path,
-        cli=Cli.CLAUDE,
+        cli=body.cli,
+        auth=body.auth,
         timeout=body.timeout,
         environment_profile=body.environment_profile,
         context=body.context,

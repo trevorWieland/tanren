@@ -28,6 +28,7 @@ _REQUIRED_ENV = {
     "WM_MAX_CODEX": "1",
     "WM_MAX_GATE": "3",
     "WM_WORKTREE_REGISTRY_PATH": "/tmp/worktrees.json",
+    "WM_ROLES_CONFIG_PATH": "/tmp/roles.yml",
 }
 
 
@@ -152,14 +153,13 @@ class TestConfigFromEnv:
         assert config.ipc_dir == "/tmp/ipc"
         assert config.github_dir == "/tmp/github"
 
-    def test_optional_fields(self, monkeypatch: pytest.MonkeyPatch):
+    def test_roles_config_path_tilde_expansion(self, monkeypatch: pytest.MonkeyPatch):
         for key, value in _REQUIRED_ENV.items():
             monkeypatch.setenv(key, value)
         monkeypatch.setenv("WM_ROLES_CONFIG_PATH", "~/roles.yml")
 
         config = Config.from_env()
 
-        assert config.roles_config_path is not None
         assert "~" not in config.roles_config_path
         assert config.roles_config_path.endswith("/roles.yml")
 

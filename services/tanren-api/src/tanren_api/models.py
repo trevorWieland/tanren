@@ -18,10 +18,12 @@ from tanren_core.adapters.events import (
     PostflightCompleted,
     PreflightCompleted,
     RetryScheduled,
+    TokenUsageRecorded,
     VMProvisioned,
     VMReleased,
 )
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,7 @@ class DispatchRequest(BaseModel):
     branch: str = Field(..., description="Git branch name")
     spec_folder: str = Field(..., description="Relative path to spec folder")
     cli: Cli = Field(..., description="CLI tool to use")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution time in seconds")
     environment_profile: str = Field(default="default", description="Environment profile name")
@@ -101,7 +104,8 @@ class ExecuteRequest(BaseModel):
     project: str = Field(..., description="Project name")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
-    cli: Cli = Field(default=Cli.CLAUDE, description="CLI tool")
+    cli: Cli = Field(..., description="CLI tool")
+    auth: AuthMode = Field(..., description="Authentication mode")
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
@@ -117,6 +121,8 @@ class RunFullRequest(BaseModel):
     branch: str = Field(..., description="Git branch")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
+    cli: Cli = Field(..., description="CLI tool")
+    auth: AuthMode = Field(..., description="Authentication mode")
     environment_profile: str = Field(default="default", description="Environment profile")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
@@ -198,6 +204,7 @@ class DispatchDetail(BaseModel):
     spec_folder: str = Field(..., description="Relative path to spec folder")
     branch: str = Field(..., description="Git branch name")
     cli: Cli = Field(..., description="CLI tool used")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(..., ge=1, description="Max execution time in seconds")
     environment_profile: str = Field(..., description="Environment profile name")
@@ -355,7 +362,8 @@ EventPayload = Annotated[
     | RetryScheduled
     | VMProvisioned
     | VMReleased
-    | BootstrapCompleted,
+    | BootstrapCompleted
+    | TokenUsageRecorded,
     Field(discriminator="type"),
 ]
 

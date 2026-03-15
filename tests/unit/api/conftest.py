@@ -92,11 +92,16 @@ def app(api_settings, tmp_path, mock_execution_env, mock_vm_state_store):
     # Manually set up state that lifespan would normally configure,
     # since ASGITransport doesn't trigger lifespan events.
     application.state.settings = api_settings
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     application.state.config = Config(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path / "github"),
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+        roles_config_path=str(roles_yml),
     )
     application.state.emitter = NullEventEmitter()
     application.state.api_store = APIStateStore()

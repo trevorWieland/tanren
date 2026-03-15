@@ -52,10 +52,14 @@ def _make_conn(
         if "apt-get" in command and "install" in command:
             return RemoteResult(exit_code=0, stdout="")
 
-        # Tool check commands (command -v <tool>)
+        # Tool check commands (command -v <tool> or npx ... --version)
         if command.startswith("command -v"):
             if all_tools_installed:
                 return RemoteResult(exit_code=0, stdout="/usr/bin/tool")
+            return RemoteResult(exit_code=1, stdout="")
+        if command.startswith("npx ") and "--version" in command:
+            if all_tools_installed:
+                return RemoteResult(exit_code=0, stdout="1.0.0")
             return RemoteResult(exit_code=1, stdout="")
 
         # Tool install commands — match against _BOOTSTRAP_STEPS

@@ -15,6 +15,7 @@ from tanren_core.adapters.events import (
     PostflightCompleted,
     PreflightCompleted,
     RetryScheduled,
+    TokenUsageRecorded,
     VMProvisioned,
     VMReleased,
 )
@@ -129,6 +130,7 @@ __all__ = [
     "SqliteEventEmitter",
     "SqliteVMStateStore",
     "SubprocessSpawner",
+    "TokenUsageRecorded",
     "UbuntuBootstrapper",
     "VMAssignment",
     "VMHandle",

@@ -30,7 +30,7 @@ from tanren_core.env.environment_schema import (
     parse_environment_profiles,
 )
 from tanren_core.manager import build_tail_output
-from tanren_core.roles import AgentTool, RoleMapping, RoleName
+from tanren_core.roles import AgentTool, AuthMode, RoleName
 from tanren_core.roles_config import load_roles_config
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 
@@ -174,7 +174,14 @@ def _resolve_profile(config: Config, project: str, environment_profile: str) -> 
         profiles = parse_environment_profiles(data)
     else:
         profiles = parse_environment_profiles({})
-    return profiles.get(environment_profile, profiles["default"])
+    profile = profiles.get(environment_profile)
+    if profile is None:
+        available = sorted(profiles.keys())
+        raise ValueError(
+            f"Environment profile '{environment_profile}' not found in tanren.yml. "
+            f"Available: {available}"
+        )
+    return profile
 
 
 def _resolve_gate_cmd(
@@ -273,14 +280,8 @@ def _role_for_phase(phase: Phase) -> RoleName:
 
 def _resolve_agent_tool(config: Config, phase: Phase) -> AgentTool:
     if phase == Phase.GATE:
-        return AgentTool(cli=Cli.BASH)
-    path = config.roles_config_path
-    mapping: RoleMapping
-    if path is None:
-        mapping = RoleMapping(default=AgentTool(cli=Cli.CLAUDE))
-    else:
-        mapping = load_roles_config(path)
-    return mapping.resolve(_role_for_phase(phase))
+        return AgentTool(cli=Cli.BASH, auth=AuthMode.API_KEY)
+    return load_roles_config(config.roles_config_path).resolve(_role_for_phase(phase))
 
 
 def _build_dispatch(
@@ -303,6 +304,7 @@ def _build_dispatch(
         spec_folder=spec_path,
         branch=branch,
         cli=tool.cli,
+        auth=tool.auth,
         model=tool.model,
         gate_cmd=gate_cmd,
         context=context,
@@ -325,13 +327,15 @@ def run_provision(
         env = _build_remote_execution_env(config)
         try:
             workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
+            tool = _resolve_agent_tool(config, Phase.DO_TASK)
             dispatch = Dispatch(
                 workflow_id=workflow_id,
                 phase=Phase.DO_TASK,
                 project=project,
                 spec_folder=".",
                 branch=branch,
-                cli=Cli.CLAUDE,
+                cli=tool.cli,
+                auth=tool.auth,
                 model=None,
                 gate_cmd=None,
                 context=None,
@@ -443,10 +447,18 @@ def run_execute(
             typer.echo(f"signal: {result.signal}")
             typer.echo(f"exit_code: {result.exit_code}")
             typer.echo(f"duration_secs: {result.duration_secs}")
+            if result.token_usage:
+                typer.echo(f"token_cost: ${result.token_usage.get('total_cost', 0):.4f}")
+                typer.echo(f"token_total: {result.token_usage.get('total_tokens', 0)}")
             tail = build_tail_output(result.stdout)
             if tail:
                 typer.echo("stdout_tail:")
                 typer.echo(tail)
+            if result.stderr:
+                stderr_tail = build_tail_output(result.stderr)
+                if stderr_tail:
+                    typer.echo("stderr_tail:")
+                    typer.echo(stderr_tail)
         finally:
             await env.close()
 
@@ -508,13 +520,15 @@ def run_full(
         env = _build_remote_execution_env(config)
         try:
             workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
+            provision_tool = _resolve_agent_tool(config, Phase.DO_TASK)
             provision_dispatch = Dispatch(
                 workflow_id=workflow_id,
                 phase=Phase.DO_TASK,
                 project=project,
                 spec_folder=spec_path,
                 branch=branch,
-                cli=Cli.CLAUDE,
+                cli=provision_tool.cli,
+                auth=provision_tool.auth,
                 model=None,
                 gate_cmd=None,
                 context=None,
@@ -585,6 +599,14 @@ def run_full(
                 typer.echo(f"signal: {result.signal}")
                 typer.echo(f"exit_code: {result.exit_code}")
                 typer.echo(f"duration_secs: {result.duration_secs}")
+                if result.token_usage:
+                    typer.echo(f"token_cost: ${result.token_usage.get('total_cost', 0):.4f}")
+                    typer.echo(f"token_total: {result.token_usage.get('total_tokens', 0)}")
+                if result.stderr:
+                    stderr_tail = build_tail_output(result.stderr)
+                    if stderr_tail:
+                        typer.echo("stderr_tail:")
+                        typer.echo(stderr_tail)
                 if result.outcome != Outcome.SUCCESS:
                     execute_failed = True
             finally:

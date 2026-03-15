@@ -33,11 +33,13 @@ def _make_conn(
         # Marker check
         if _MARKER_PATH in cmd and "test -f" in cmd:
             return _ok("exists") if marker_exists else _ok("")
-        # Tool presence checks
+        # Tool presence checks (command -v or npx ... --version)
         if cmd.startswith("command -v "):
             tool = cmd.rsplit(maxsplit=1)[-1]
             if tool in installed_tools:
                 return _ok(f"/usr/bin/{tool}")
+            return _fail("not found")
+        if cmd.startswith("npx ") and "--version" in cmd:
             return _fail("not found")
         # Everything else succeeds
         return _ok()

@@ -102,6 +102,7 @@ class TestSubprocessSpawner:
             github_dir="/tmp/github",
             data_dir="/tmp/data",
             worktree_registry_path="/tmp/worktrees.json",
+            roles_config_path="/tmp/roles.yml",
         )
         env = {"FOO": "bar"}
         result = await spawner.spawn(dispatch, Path("/tmp/wt"), config, task_env=env)

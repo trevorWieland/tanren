@@ -106,11 +106,16 @@ def app(tmp_path, mock_execution_env, mock_vm_state_store):
     settings = APISettings(api_key=TEST_API_KEY, cors_origins=["http://localhost:3000"])
     application = create_app(settings)
     application.state.settings = settings
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     application.state.config = Config(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path / "github"),
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+        roles_config_path=str(roles_yml),
     )
     application.state.emitter = NullEventEmitter()
     application.state.api_store = APIStateStore()
@@ -486,6 +491,8 @@ async def test_run_execute_after_provision(client, auth_headers):
             "project": "test",
             "spec_path": "specs/test",
             "phase": "do-task",
+            "cli": "claude",
+            "auth": "api_key",
         },
     )
     assert exec_resp.status_code == 200
@@ -521,6 +528,8 @@ async def test_run_execute_before_provision_complete(client, auth_headers, mock_
             "project": "test",
             "spec_path": "specs/test",
             "phase": "do-task",
+            "cli": "claude",
+            "auth": "api_key",
         },
     )
     assert exec_resp.status_code == 409
@@ -557,6 +566,8 @@ async def test_run_full(client, auth_headers):
             "branch": "main",
             "spec_path": "specs/test",
             "phase": "do-task",
+            "cli": "claude",
+            "auth": "api_key",
         },
     )
     assert resp.status_code == 200
@@ -868,11 +879,16 @@ async def test_app_creates_without_cors(tmp_path, mock_execution_env, mock_vm_st
     settings = APISettings(api_key="key", cors_origins=[])
     application = create_app(settings)
     application.state.settings = settings
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     application.state.config = Config(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path / "github"),
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+        roles_config_path=str(roles_yml),
     )
     application.state.emitter = NullEventEmitter()
     application.state.api_store = APIStateStore()
@@ -895,6 +911,10 @@ async def test_app_creates_without_cors(tmp_path, mock_execution_env, mock_vm_st
 @pytest.mark.asyncio
 async def test_lifespan_sets_state_with_config_from_env(tmp_path):
     """Lifespan populates app.state with settings, config, and emitter."""
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     env_vars = {
         "WM_IPC_DIR": str(tmp_path / "ipc"),
         "WM_GITHUB_DIR": str(tmp_path / "github"),
@@ -909,6 +929,7 @@ async def test_lifespan_sets_state_with_config_from_env(tmp_path):
         "WM_MAX_CODEX": "1",
         "WM_MAX_GATE": "3",
         "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_ROLES_CONFIG_PATH": str(roles_yml),
     }
     settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
     application = create_app(settings)
@@ -955,6 +976,10 @@ async def test_lifespan_with_events_db(tmp_path):
 async def test_lifespan_events_db_from_config(tmp_path):
     """Lifespan falls back to config.events_db when settings.events_db is None."""
     db_path = str(tmp_path / "events_from_config.db")
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     env_vars = {
         "WM_IPC_DIR": str(tmp_path / "ipc"),
         "WM_GITHUB_DIR": str(tmp_path / "github"),
@@ -969,6 +994,7 @@ async def test_lifespan_events_db_from_config(tmp_path):
         "WM_MAX_CODEX": "1",
         "WM_MAX_GATE": "3",
         "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_ROLES_CONFIG_PATH": str(roles_yml),
         "WM_EVENTS_DB": db_path,
     }
     settings = APISettings(api_key=TEST_API_KEY, cors_origins=[], events_db=None)
@@ -1012,6 +1038,10 @@ async def test_lifespan_calls_load_config_env():
 @pytest.mark.asyncio
 async def test_lifespan_config_loads_from_env_file(tmp_path):
     """Lifespan loads config via load_config_env when WM_* vars are only in a file."""
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     env_file = tmp_path / "tanren.env"
     env_file.write_text(
         f"WM_IPC_DIR={tmp_path / 'ipc'}\n"
@@ -1027,6 +1057,7 @@ async def test_lifespan_config_loads_from_env_file(tmp_path):
         "WM_MAX_CODEX=1\n"
         "WM_MAX_GATE=3\n"
         f"WM_WORKTREE_REGISTRY_PATH={tmp_path / 'data' / 'worktrees.json'}\n"
+        f"WM_ROLES_CONFIG_PATH={roles_yml}\n"
     )
     settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
     application = create_app(settings)
@@ -1323,6 +1354,10 @@ async def test_lifespan_calls_recover_stale_on_startup(tmp_path):
     mock_vm_store = AsyncMock()
     mock_vm_store.close = AsyncMock()
 
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     env_vars = {
         "WM_IPC_DIR": str(tmp_path / "ipc"),
         "WM_GITHUB_DIR": str(tmp_path / "github"),
@@ -1337,6 +1372,7 @@ async def test_lifespan_calls_recover_stale_on_startup(tmp_path):
         "WM_MAX_CODEX": "1",
         "WM_MAX_GATE": "3",
         "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_ROLES_CONFIG_PATH": str(roles_yml),
         "WM_REMOTE_CONFIG": str(tmp_path / "remote.toml"),
     }
     settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])
@@ -1363,6 +1399,10 @@ async def test_lifespan_recover_stale_failure_does_not_block_startup(tmp_path):
     mock_vm_store = AsyncMock()
     mock_vm_store.close = AsyncMock()
 
+    roles_yml = tmp_path / "roles.yml"
+    roles_yml.write_text(
+        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+    )
     env_vars = {
         "WM_IPC_DIR": str(tmp_path / "ipc"),
         "WM_GITHUB_DIR": str(tmp_path / "github"),
@@ -1377,6 +1417,7 @@ async def test_lifespan_recover_stale_failure_does_not_block_startup(tmp_path):
         "WM_MAX_CODEX": "1",
         "WM_MAX_GATE": "3",
         "WM_WORKTREE_REGISTRY_PATH": str(tmp_path / "data" / "worktrees.json"),
+        "WM_ROLES_CONFIG_PATH": str(roles_yml),
         "WM_REMOTE_CONFIG": str(tmp_path / "remote.toml"),
     }
     settings = APISettings(api_key=TEST_API_KEY, cors_origins=[])

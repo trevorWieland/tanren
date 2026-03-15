@@ -31,6 +31,7 @@ _ALL_REQUIRED_ENV = {
     "WM_MAX_CODEX": "1",
     "WM_MAX_GATE": "3",
     "WM_WORKTREE_REGISTRY_PATH": "/tmp/data/worktrees.json",
+    "WM_ROLES_CONFIG_PATH": "/tmp/roles.yml",
 }
 
 
@@ -148,7 +149,6 @@ class TestConfigFromEnvWithSources:
     def test_optional_keys_default_to_none(self):
         source = _DictSource(_ALL_REQUIRED_ENV)
         config = Config.from_env(sources=[source])
-        assert config.roles_config_path is None
         assert config.events_db is None
         assert config.remote_config_path is None
 
@@ -192,11 +192,6 @@ class TestConfig:
         _set_all_required(monkeypatch)
         config = Config.from_env()
         assert config.claude_path == "claude"
-
-    def test_roles_config_path_default(self, monkeypatch):
-        _set_all_required(monkeypatch)
-        config = Config.from_env()
-        assert config.roles_config_path is None
 
     def test_roles_config_path_from_env(self, monkeypatch):
         _set_all_required(monkeypatch)

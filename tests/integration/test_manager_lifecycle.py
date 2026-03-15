@@ -59,6 +59,7 @@ class TestManagerLifecycle:
             worktree_registry_path=str(data_dir / "worktrees.json"),
             poll_interval=0.5,
             heartbeat_interval=30.0,
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
 
         manager = WorkerManager(config)

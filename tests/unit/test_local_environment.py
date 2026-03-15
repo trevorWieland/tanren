@@ -27,6 +27,7 @@ def _make_config(tmp_path: Path) -> Config:
         github_dir=str(tmp_path),
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+        roles_config_path=str(tmp_path / "roles.yml"),
     )
 
 

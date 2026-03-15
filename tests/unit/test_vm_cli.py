@@ -19,6 +19,7 @@ def _mock_config(tmp_path=None) -> Config:
         github_dir=f"{base}/github",
         data_dir=f"{base}/data",
         worktree_registry_path=f"{base}/data/worktrees.json",
+        roles_config_path=f"{base}/roles.yml",
     )
 
 
@@ -183,6 +184,7 @@ class TestVmDryRun:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             remote_config_path=str(remote_cfg),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         with patch("tanren_cli.vm_cli._load_config", return_value=config):
             runner = CliRunner()
@@ -227,6 +229,7 @@ class TestVmDryRun:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             remote_config_path=str(remote_cfg),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         with patch("tanren_cli.vm_cli._load_config", return_value=config):
             runner = CliRunner()
@@ -264,6 +267,7 @@ class TestVmDryRun:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             remote_config_path=str(remote_cfg),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         with patch("tanren_cli.vm_cli._load_config", return_value=config):
             result = CliRunner().invoke(

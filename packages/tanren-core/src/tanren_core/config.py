@@ -81,9 +81,16 @@ _REQUIRED_KEYS = (
     "WM_MAX_CODEX",
     "WM_MAX_GATE",
     "WM_WORKTREE_REGISTRY_PATH",
+    "WM_ROLES_CONFIG_PATH",
 )
 
-_OPTIONAL_KEYS = ("WM_ROLES_CONFIG_PATH", "WM_EVENTS_DB", "WM_REMOTE_CONFIG")
+_OPTIONAL_KEYS = (
+    "WM_EVENTS_DB",
+    "WM_REMOTE_CONFIG",
+    "WM_CCUSAGE_CLAUDE_CMD",
+    "WM_CCUSAGE_CODEX_CMD",
+    "WM_CCUSAGE_OPENCODE_CMD",
+)
 
 _WM_KEYS = frozenset((*_REQUIRED_KEYS, *_OPTIONAL_KEYS))
 
@@ -137,8 +144,8 @@ class Config(BaseModel):
         default="claude",
         description="Path to Claude Code CLI binary",
     )
-    roles_config_path: str | None = Field(
-        default=None,
+    roles_config_path: str = Field(
+        ...,
         description="Path to roles YAML config",
     )
     data_dir: str = Field(
@@ -166,6 +173,18 @@ class Config(BaseModel):
     remote_config_path: str | None = Field(
         default=None,
         description="Path to remote.yml (enables remote execution)",
+    )
+    ccusage_claude_cmd: str = Field(
+        default="npx ccusage",
+        description="Command for ccusage (Claude)",
+    )
+    ccusage_codex_cmd: str = Field(
+        default="npx @ccusage/codex",
+        description="Command for @ccusage/codex",
+    )
+    ccusage_opencode_cmd: str = Field(
+        default="npx @ccusage/opencode",
+        description="Command for @ccusage/opencode",
     )
 
     @classmethod
@@ -210,11 +229,14 @@ class Config(BaseModel):
             opencode_path=resolved["WM_OPENCODE_PATH"],
             codex_path=resolved["WM_CODEX_PATH"],
             claude_path=resolved["WM_CLAUDE_PATH"],
-            roles_config_path=_expand_optional(resolved.get("WM_ROLES_CONFIG_PATH")),
+            roles_config_path=_expand(resolved["WM_ROLES_CONFIG_PATH"]),
             worktree_registry_path=_expand(resolved["WM_WORKTREE_REGISTRY_PATH"]),
             max_opencode=int(resolved["WM_MAX_OPENCODE"]),
             max_codex=int(resolved["WM_MAX_CODEX"]),
             max_gate=int(resolved["WM_MAX_GATE"]),
             events_db=_expand_optional(resolved.get("WM_EVENTS_DB")),
             remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
+            ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),
+            ccusage_codex_cmd=resolved.get("WM_CCUSAGE_CODEX_CMD", "npx @ccusage/codex"),
+            ccusage_opencode_cmd=resolved.get("WM_CCUSAGE_OPENCODE_CMD", "npx @ccusage/opencode"),
         )
