@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tanren_core.ccusage import (
+    LocalCommandRunner,
     _derive_session_id,  # noqa: PLC2701
     _match_session_by_time,  # noqa: PLC2701
     _normalize_claude,  # noqa: PLC2701
@@ -77,6 +78,7 @@ def _make_config() -> Config:
         data_dir="/tmp/data",
         commands_dir=".claude/commands/tanren",
         worktree_registry_path="/tmp/worktrees.json",
+        roles_config_path="/tmp/roles.yml",
     )
 
 
@@ -323,3 +325,26 @@ class TestCollectTokenUsage:
         assert result is not None
         assert result.provider == "opencode"
         assert result.session_id == "ses_41448dad"
+
+
+# ---------------------------------------------------------------------------
+# LocalCommandRunner — orphaned process kill on timeout
+# ---------------------------------------------------------------------------
+
+
+class TestLocalCommandRunnerTimeout:
+    @pytest.mark.asyncio
+    async def test_kills_process_on_timeout(self):
+        """LocalCommandRunner kills the subprocess when timeout fires."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(side_effect=TimeoutError)
+        mock_proc.kill = AsyncMock()
+        mock_proc.wait = AsyncMock()
+
+        with patch("tanren_core.ccusage.asyncio.create_subprocess_exec", return_value=mock_proc):
+            runner = LocalCommandRunner()
+            with pytest.raises(TimeoutError):
+                await runner.run_command(["sleep", "999"], timeout=0.01)
+
+        mock_proc.kill.assert_called_once()
+        mock_proc.wait.assert_awaited_once()

@@ -1,5 +1,6 @@
 """Tests for git workspace manager."""
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,6 +13,8 @@ from tanren_core.adapters.remote_types import (
     WorkspaceSpec,
 )
 from tanren_core.remote_config import GitAuthMethod
+from tanren_core.roles import AuthMode
+from tanren_core.schemas import Cli
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -295,3 +298,123 @@ class TestCleanup:
         conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout=10)
         assert conn.run.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_opencode_auth_when_injected(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+
+        conn.reset_mock()
+        conn.run = AsyncMock(return_value=_ok())
+        await mgr.cleanup(conn, _workspace())
+
+        conn.run.assert_any_call("rm -f /root/.local/share/opencode/auth.json", timeout=10)
+        assert conn.run.call_count == 4
+
+    @pytest.mark.asyncio
+    async def test_cleanup_skips_opencode_auth_when_not_injected(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        await mgr.cleanup(conn, _workspace())
+
+        rm_calls = [str(c) for c in conn.run.call_args_list]
+        assert not any("auth.json" in c for c in rm_calls)
+        assert conn.run.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# CLI auth injection
+# ---------------------------------------------------------------------------
+
+
+class TestCliAuthInjection:
+    @pytest.mark.asyncio
+    async def test_opencode_api_key_writes_auth_json(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.OPENCODE, AuthMode.API_KEY),
+        )
+
+        # Find the auth.json upload
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 1
+        content = auth_uploads[0].args[0]
+        data = json.loads(content)
+        assert data["zai-coding-plan"]["type"] == "api"
+        assert data["zai-coding-plan"]["key"] == "zai-key-123"
+
+        # Verify chmod 600 on auth.json
+        conn.run.assert_any_call("chmod 600 /root/.local/share/opencode/auth.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_opencode_api_key_from_project_secrets(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(project={"OPENCODE_ZAI_API_KEY": "proj-key-456"})
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.OPENCODE, AuthMode.API_KEY),
+        )
+
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 1
+        content = auth_uploads[0].args[0]
+        data = json.loads(content)
+        assert data["zai-coding-plan"]["key"] == "proj-key-456"
+
+    @pytest.mark.asyncio
+    async def test_opencode_api_key_missing_warns_no_file(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle()  # no OPENCODE_ZAI_API_KEY
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.OPENCODE, AuthMode.API_KEY),
+        )
+
+        # No auth.json should be uploaded
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 0
+
+    @pytest.mark.asyncio
+    async def test_claude_oauth_no_auth_file(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "key"})
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.CLAUDE, AuthMode.OAUTH),
+        )
+
+        # No auth.json should be uploaded for claude/oauth
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_cli_auth_no_auth_file(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "key"})
+        await mgr.inject_secrets(conn, _workspace(), secrets)
+
+        # No auth.json should be uploaded when cli_auth is None
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 0

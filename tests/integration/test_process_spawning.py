@@ -76,6 +76,7 @@ class TestSpawnBashGate:
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         dispatch = Dispatch(
             workflow_id="wf-test-1-1000",
@@ -100,6 +101,7 @@ class TestSpawnBashGate:
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         dispatch = Dispatch(
             workflow_id="wf-test-1-1000",
@@ -123,6 +125,7 @@ class TestSpawnBashGate:
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         dispatch = Dispatch(
             workflow_id="wf-test-1-1000",

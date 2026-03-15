@@ -85,6 +85,7 @@ def _make_config() -> Config:
         data_dir="/tmp/data",
         commands_dir=".claude/commands/tanren",
         worktree_registry_path="/tmp/worktrees.json",
+        roles_config_path="/tmp/roles.yml",
     )
 
 

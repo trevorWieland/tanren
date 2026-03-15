@@ -47,6 +47,7 @@ def _make_config(tmp_path: Path) -> Config:
         github_dir=str(tmp_path),
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+        roles_config_path=str(tmp_path / "roles.yml"),
     )
 
 
@@ -515,6 +516,7 @@ class TestExecute:
         with (
             patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
             mock_map.return_value = (Outcome.SUCCESS, "success")
 
@@ -558,6 +560,7 @@ class TestExecute:
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.classify_error") as mock_classify,
             patch("asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
             mock_map.side_effect = [
                 (Outcome.ERROR, None),
@@ -595,6 +598,7 @@ class TestExecute:
         with (
             patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
             mock_map.return_value = (Outcome.SUCCESS, "success")
 
@@ -633,6 +637,7 @@ class TestExecute:
             patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.classify_error") as mock_classify,
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
             mock_map.return_value = (Outcome.ERROR, "error")
             mock_classify.return_value = ErrorClass.FATAL
@@ -642,6 +647,107 @@ class TestExecute:
         # conn.run should NOT have been called for git push
         push_calls = [c for c in conn.run.call_args_list if "git push" in str(c)]
         assert len(push_calls) == 0
+
+    async def test_execute_collects_token_usage(self, env_kit):
+        """execute() collects token usage and populates result.token_usage."""
+        from tanren_core.ccusage import TokenUsage  # noqa: PLC0415
+
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0, stdout="pushed", stderr="", timed_out=False
+        )
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch(cli=Cli.CLAUDE)
+        config = env_kit["config"]
+
+        mock_usage = TokenUsage(
+            input_tokens=100,
+            output_tokens=200,
+            total_tokens=300,
+            total_cost=1.50,
+            provider="claude",
+        )
+
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
+            patch(
+                f"{_SSH_ENV}.collect_token_usage",
+                new_callable=AsyncMock,
+                return_value=mock_usage,
+            ),
+        ):
+            result = await env.execute(handle, dispatch, config)
+
+        assert result.token_usage is not None
+        assert result.token_usage["total_cost"] == pytest.approx(1.50)
+        assert result.token_usage["total_tokens"] == 300
+
+    async def test_execute_skips_token_usage_for_bash(self, env_kit):
+        """execute() does not collect token usage for Cli.BASH dispatches."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(exit_code=0, stdout="ok", stderr="", timed_out=False)
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch(cli=Cli.BASH)
+        config = env_kit["config"]
+
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock) as mock_collect,
+        ):
+            result = await env.execute(handle, dispatch, config)
+
+        mock_collect.assert_not_awaited()
+        assert result.token_usage is None
+
+    async def test_execute_token_usage_failure_graceful(self, env_kit):
+        """execute() returns None token_usage when collection returns None."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0, stdout="pushed", stderr="", timed_out=False
+        )
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch(cli=Cli.CLAUDE)
+        config = env_kit["config"]
+
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
+            patch(
+                f"{_SSH_ENV}.collect_token_usage",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await env.execute(handle, dispatch, config)
+
+        assert result.token_usage is None
+        assert result.outcome == Outcome.SUCCESS
+
+    async def test_execute_injects_cli_auth(self, env_kit):
+        """execute() calls inject_cli_auth with the dispatch's cli/auth."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch(cli=Cli.OPENCODE)
+        config = env_kit["config"]
+
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
+        ):
+            await env.execute(handle, dispatch, config)
+
+        env_kit["workspace_mgr"].inject_cli_auth.assert_awaited_once()
+        call_args = env_kit["workspace_mgr"].inject_cli_auth.call_args
+        assert call_args[0][0] is conn  # connection
+        assert call_args[0][2] == (Cli.OPENCODE, dispatch.auth)  # cli_auth tuple
 
 
 class TestGetAccessInfo:
@@ -859,6 +965,7 @@ class TestClassifyErrorReceivesStderr:
             patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.classify_error") as mock_classify,
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
             mock_map.return_value = (Outcome.ERROR, None)
             mock_classify.return_value = ErrorClass.FATAL

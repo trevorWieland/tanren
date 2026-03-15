@@ -81,10 +81,10 @@ _REQUIRED_KEYS = (
     "WM_MAX_CODEX",
     "WM_MAX_GATE",
     "WM_WORKTREE_REGISTRY_PATH",
+    "WM_ROLES_CONFIG_PATH",
 )
 
 _OPTIONAL_KEYS = (
-    "WM_ROLES_CONFIG_PATH",
     "WM_EVENTS_DB",
     "WM_REMOTE_CONFIG",
     "WM_CCUSAGE_CLAUDE_CMD",
@@ -144,8 +144,8 @@ class Config(BaseModel):
         default="claude",
         description="Path to Claude Code CLI binary",
     )
-    roles_config_path: str | None = Field(
-        default=None,
+    roles_config_path: str = Field(
+        ...,
         description="Path to roles YAML config",
     )
     data_dir: str = Field(
@@ -229,7 +229,7 @@ class Config(BaseModel):
             opencode_path=resolved["WM_OPENCODE_PATH"],
             codex_path=resolved["WM_CODEX_PATH"],
             claude_path=resolved["WM_CLAUDE_PATH"],
-            roles_config_path=_expand_optional(resolved.get("WM_ROLES_CONFIG_PATH")),
+            roles_config_path=_expand(resolved["WM_ROLES_CONFIG_PATH"]),
             worktree_registry_path=_expand(resolved["WM_WORKTREE_REGISTRY_PATH"]),
             max_opencode=int(resolved["WM_MAX_OPENCODE"]),
             max_codex=int(resolved["WM_MAX_CODEX"]),

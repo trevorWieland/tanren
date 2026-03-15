@@ -57,7 +57,6 @@ from tanren_core.adapters.types import (
 )
 from tanren_core.ccusage import (
     LocalCommandRunner,
-    RemoteCommandRunner,
     collect_token_usage,
 )
 from tanren_core.config import Config
@@ -639,39 +638,41 @@ class WorkerManager:
                     else:
                         tail_output = f"git push failed: {postflight_result.push_error}"
 
+            # Capture execution-end timestamp before any post-processing
+            exec_end_utc = datetime.now(UTC)
+
             # 6. Parse structured findings
             new_tasks, findings_data = self._parse_findings(dispatch, spec_folder_path)
 
             # 6b. Collect token usage (best-effort, 30s timeout)
             token_usage_data = None
             if dispatch.cli != Cli.BASH:
-                dispatch_end_utc = datetime.now(UTC)
-                dispatch_start_utc = dispatch_end_utc - timedelta(seconds=duration)
-
                 if isinstance(handle.runtime, RemoteEnvironmentRuntime):
-                    runner = RemoteCommandRunner(handle.runtime.connection)
-                    usage_worktree = str(handle.runtime.workspace_path.path)
+                    # Already collected inside SSHExecutionEnvironment.execute()
+                    token_usage_data = phase_result.token_usage
                 else:
+                    # Local execution: collect here
+                    dispatch_start_utc = exec_end_utc - timedelta(seconds=duration)
                     runner = LocalCommandRunner()
-                    usage_worktree = str(worktree_path)
+                    usage = await collect_token_usage(
+                        dispatch.cli,
+                        str(worktree_path),
+                        dispatch_start_utc,
+                        exec_end_utc,
+                        self._config,
+                        runner,
+                    )
+                    if usage is not None:
+                        token_usage_data = usage.model_dump(mode="json")
 
-                usage = await collect_token_usage(
-                    dispatch.cli,
-                    usage_worktree,
-                    dispatch_start_utc,
-                    dispatch_end_utc,
-                    self._config,
-                    runner,
-                )
-                if usage is not None:
-                    token_usage_data = usage.model_dump(mode="json")
+                if token_usage_data is not None:
                     await self._emitter.emit(
                         TokenUsageRecorded(
                             timestamp=datetime.now(UTC).isoformat(),
                             workflow_id=dispatch.workflow_id,
                             phase=dispatch.phase.value,
                             cli=dispatch.cli.value,
-                            **{k: v for k, v in usage.model_dump().items() if k != "provider"},
+                            **{k: v for k, v in token_usage_data.items() if k != "provider"},
                         )
                     )
 
@@ -685,6 +686,7 @@ class WorkerManager:
                 duration_secs=duration,
                 gate_output=gate_output,
                 tail_output=tail_output,
+                stderr_tail=build_tail_output(phase_result.stderr),
                 unchecked_tasks=phase_result.unchecked_tasks,
                 plan_hash=phase_result.plan_hash,
                 spec_modified=spec_modified,

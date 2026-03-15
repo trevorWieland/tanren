@@ -30,6 +30,14 @@ class Cli(StrEnum):
     BASH = "bash"
 
 
+class AuthMode(StrEnum):
+    """Authentication mode for agent CLI backends."""
+
+    API_KEY = "api_key"
+    OAUTH = "oauth"
+    SUBSCRIPTION = "subscription"
+
+
 class Outcome(StrEnum):
     """Result outcomes from PROTOCOL.md Section 3."""
 
@@ -187,6 +195,7 @@ class Dispatch(BaseModel):
     spec_folder: str = Field(..., description="Relative path from project root to spec folder")
     branch: str = Field(..., description="Git branch name for this workflow")
     cli: Cli = Field(..., description="CLI tool to use")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode for CLI")
     model: str | None = Field(default=None, description="Model identifier passed to CLI")
     gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
     context: str | None = Field(default=None, description="Extra context passed to the agent")
@@ -215,6 +224,10 @@ class Result(BaseModel):
     tail_output: str | None = Field(
         default=None,
         description="Last 200 lines of stdout (agent phases always, others on non-success)",
+    )
+    stderr_tail: str | None = Field(
+        default=None,
+        description="Last 200 lines of stderr (when available from remote execution)",
     )
     unchecked_tasks: int = Field(default=0, ge=0, description="Count of unchecked Task N lines")
     plan_hash: str = Field(default="00000000", description="MD5 of plan.md (first 8 hex chars)")

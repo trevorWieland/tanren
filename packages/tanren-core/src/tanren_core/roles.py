@@ -4,15 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tanren_core.schemas import Cli
-
-
-class AuthMode(StrEnum):
-    """Authentication mode for agent CLI backends."""
-
-    API_KEY = "api_key"
-    OAUTH = "oauth"
-
+from tanren_core.schemas import AuthMode, Cli
 
 # Backward-compatible alias.
 CliAuthMethod = AuthMode

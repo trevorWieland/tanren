@@ -26,7 +26,12 @@ _BOOTSTRAP_STEPS: tuple[tuple[str, str, str], ...] = (
     ("node", "command -v node", _NODE_INSTALL),
     ("uv", "command -v uv", "curl -LsSf https://astral.sh/uv/install.sh | sh"),
     ("claude", "command -v claude", "npm install -g @anthropic-ai/claude-code"),
-    ("ccusage", "npx ccusage --version", "npm install -g ccusage @ccusage/codex @ccusage/opencode"),
+    ("opencode", "command -v opencode", "curl -fsSL https://opencode.ai/install | bash"),
+    (
+        "ccusage",
+        "npx ccusage --version && npx @ccusage/codex --version && npx @ccusage/opencode --version",
+        "npm install -g ccusage @ccusage/codex @ccusage/opencode",
+    ),
 )
 
 _MARKER_PATH = "~/.tanren-bootstrapped"

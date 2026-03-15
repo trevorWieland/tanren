@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -74,6 +74,7 @@ class PhaseResult(BaseModel):
     signal: str | None = Field(default=None)
     exit_code: int = Field(...)
     stdout: str | None = Field(default=None)
+    stderr: str | None = Field(default=None)
     duration_secs: int = Field(..., ge=0)
     preflight_passed: bool = Field(...)
     postflight_result: PostflightResult | None = Field(default=None)
@@ -82,6 +83,7 @@ class PhaseResult(BaseModel):
     unchecked_tasks: int = Field(default=0, ge=0)
     plan_hash: str = Field(default="00000000")
     retries: int = Field(default=0, ge=0)
+    token_usage: dict[str, Any] | None = Field(default=None)
 
 
 class AccessInfo(BaseModel):

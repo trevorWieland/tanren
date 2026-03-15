@@ -27,6 +27,7 @@ class TestWorkerManagerInit:
             github_dir=str(tmp_path / "github"),
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         manager = WorkerManager(config)
         assert manager._config == config
@@ -38,6 +39,7 @@ class TestWorkerManagerInit:
             github_dir=str(tmp_path / "github"),
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         manager = WorkerManager(config)
         assert manager._dispatch_dir == ipc / "dispatch"
@@ -51,6 +53,7 @@ class TestWorkerManagerInit:
             github_dir=str(tmp_path / "github"),
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         manager = WorkerManager(config)
         assert manager.get_execution_environment() is manager._execution_env
@@ -79,6 +82,7 @@ class TestWorkerManagerInit:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             remote_config_path=str(remote_cfg),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
 
         monkeypatch.delenv("CUSTOM_GIT_TOKEN", raising=False)
@@ -210,6 +214,7 @@ class TestRecoverVmState:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             remote_config_path=str(remote_cfg),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         assignment = VMAssignment(
             vm_id="vm-1",
@@ -266,6 +271,7 @@ class TestRecoverVmState:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             remote_config_path=str(remote_cfg),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         assignment = VMAssignment(
             vm_id="vm-1",

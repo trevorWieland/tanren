@@ -63,13 +63,21 @@ class LocalCommandRunner:
 
         Returns:
             Tuple of (exit_code, stdout_text).
+
+        Raises:
+            TimeoutError: If the command exceeds the timeout.
         """
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        try:
+            stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise
         return proc.returncode or 0, stdout_bytes.decode()
 
 

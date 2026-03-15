@@ -65,6 +65,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -81,6 +83,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -147,6 +151,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -168,6 +174,8 @@ class TestRun:
                 "project": "wrong-project",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -191,6 +199,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -227,6 +237,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -477,6 +489,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -504,6 +518,8 @@ class TestRun:
                 "branch": "main",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -545,6 +561,8 @@ class TestRun:
                 "branch": "main",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -604,6 +622,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )
@@ -692,6 +712,8 @@ class TestRun:
                 "project": "test",
                 "spec_path": "specs/test",
                 "phase": "do-task",
+                "cli": "claude",
+                "auth": "api_key",
             },
             headers=auth_headers,
         )

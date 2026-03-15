@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shlex
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
 from tanren_core.remote_config import GitAuthMethod
+from tanren_core.roles import AuthMode
+from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import RemoteConnection
@@ -46,6 +50,7 @@ class GitWorkspaceManager:
     def __init__(self, auth: GitAuthConfig) -> None:
         """Initialize with git authentication configuration."""
         self._auth = auth
+        self._injected_opencode_auth = False
 
     _ASKPASS_PATH = "/workspace/.git-askpass"
 
@@ -117,11 +122,15 @@ class GitWorkspaceManager:
             branch=spec.branch,
         )
 
+    _OPENCODE_AUTH_PATH = "/root/.local/share/opencode/auth.json"
+
     async def inject_secrets(
         self,
         conn: RemoteConnection,
         workspace: WorkspacePath,
         secrets: SecretBundle,
+        *,
+        cli_auth: tuple[Cli, AuthMode] | None = None,
     ) -> None:
         """Write secret files to remote workspace. Files are chmod 600."""
         # Developer secrets -> /workspace/.developer-secrets
@@ -139,6 +148,44 @@ class GitWorkspaceManager:
             await conn.upload_content(content, env_path)
             await conn.run(f"chmod 600 {shlex.quote(env_path)}", timeout=10)
 
+        # CLI-specific auth files
+        if cli_auth is not None:
+            await self.inject_cli_auth(conn, secrets, cli_auth)
+
+    async def inject_cli_auth(
+        self,
+        conn: RemoteConnection,
+        secrets: SecretBundle,
+        cli_auth: tuple[Cli, AuthMode],
+    ) -> None:
+        """Set up CLI-specific auth files based on auth mode."""
+        cli, auth = cli_auth
+        if cli == Cli.OPENCODE and auth == AuthMode.API_KEY:
+            await self._inject_opencode_api_key(conn, secrets)
+
+    async def _inject_opencode_api_key(
+        self,
+        conn: RemoteConnection,
+        secrets: SecretBundle,
+    ) -> None:
+        """Write opencode auth.json for Z.ai API key auth."""
+        zai_key = secrets.developer.get("OPENCODE_ZAI_API_KEY") or secrets.project.get(
+            "OPENCODE_ZAI_API_KEY"
+        )
+        if not zai_key:
+            logger.warning("OPENCODE_ZAI_API_KEY not found in secrets — opencode auth will fail")
+            return
+
+        auth_data = {"zai-coding-plan": {"type": "api", "key": zai_key}}
+        content = json.dumps(auth_data, indent=2)
+
+        auth_dir = str(Path(self._OPENCODE_AUTH_PATH).parent)
+        await conn.run(f"mkdir -p {shlex.quote(auth_dir)}", timeout=10)
+        await conn.upload_content(content, self._OPENCODE_AUTH_PATH)
+        await conn.run(f"chmod 600 {self._OPENCODE_AUTH_PATH}", timeout=10)
+        logger.info("Injected opencode auth.json (zai-coding-plan)")
+        self._injected_opencode_auth = True
+
     def push_command(self, workspace_path: str, branch: str) -> str:
         """Return an auth-prefixed git push command string."""
         quoted_path = shlex.quote(workspace_path)
@@ -150,3 +197,5 @@ class GitWorkspaceManager:
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
         await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
         await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
+        if self._injected_opencode_auth:
+            await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)
