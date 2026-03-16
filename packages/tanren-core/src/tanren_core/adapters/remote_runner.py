@@ -64,7 +64,7 @@ class RemoteAgentRunner:
         )
 
         logger.info("Executing remote agent: %s", cli_command)
-        result = await conn.run(command, timeout=timeout)
+        result = await conn.run(command, timeout=timeout, request_pty=True)
 
         duration = int(time.monotonic() - start)
 

@@ -312,6 +312,7 @@ class RemoteConnection(Protocol):
         *,
         timeout: int | None = None,  # noqa: ASYNC109 — protocol signature, not an actual timeout
         stdin_data: str | None = None,
+        request_pty: bool = False,
     ) -> RemoteResult:
         """Execute a command on the remote host."""
         ...

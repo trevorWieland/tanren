@@ -271,6 +271,28 @@ class TestRunSync:
         chan.sendall.assert_called_once_with(b"payload")
         chan.shutdown_write.assert_called_once()
 
+    def test_request_pty_calls_get_pty(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        chan = _mock_channel(stdout=b"ok\n", exit_code=0)
+        mock_client.get_transport.return_value.open_session.return_value = chan
+
+        conn = _make_conn()
+        conn._run_sync("cmd", request_pty=True)
+
+        chan.get_pty.assert_called_once()
+
+    def test_default_no_pty(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        chan = _mock_channel(stdout=b"ok\n", exit_code=0)
+        mock_client.get_transport.return_value.open_session.return_value = chan
+
+        conn = _make_conn()
+        conn._run_sync("cmd")
+
+        chan.get_pty.assert_not_called()
+
     @patch("tanren_core.adapters.ssh.time")
     def test_sleeps_when_no_data_available(self, mock_time, mock_paramiko):
         """Verify sleep is called when neither stdout nor stderr has data."""
@@ -312,6 +334,18 @@ class TestAsyncRun:
 
         assert isinstance(result, RemoteResult)
         assert result.exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_run_forwards_request_pty(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        chan = _mock_channel(stdout=b"ok\n", exit_code=0)
+        mock_client.get_transport.return_value.open_session.return_value = chan
+
+        conn = _make_conn()
+        await conn.run("cmd", request_pty=True)
+
+        chan.get_pty.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_script_passes_stdin(self, mock_paramiko):

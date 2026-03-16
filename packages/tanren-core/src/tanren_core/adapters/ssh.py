@@ -129,6 +129,7 @@ class SSHConnection:
         *,
         timeout: int | None = None,
         stdin_data: str | None = None,
+        request_pty: bool = False,
     ) -> RemoteResult:
         """Execute a command synchronously (called via to_thread).
 
@@ -143,6 +144,9 @@ class SSHConnection:
 
         if timeout is not None:
             channel.settimeout(float(timeout))
+
+        if request_pty:
+            channel.get_pty()
 
         channel.exec_command(command)
 
@@ -198,6 +202,7 @@ class SSHConnection:
         *,
         timeout: int | None = None,  # noqa: ASYNC109 — passed to paramiko channel, not asyncio.sleep
         stdin_data: str | None = None,
+        request_pty: bool = False,
     ) -> RemoteResult:
         """Execute a command on the remote host.
 
@@ -205,7 +210,7 @@ class SSHConnection:
             RemoteResult with exit code, stdout, stderr, and timeout flag.
         """
         return await asyncio.to_thread(
-            self._run_sync, command, timeout=timeout, stdin_data=stdin_data
+            self._run_sync, command, timeout=timeout, stdin_data=stdin_data, request_pty=request_pty
         )
 
     async def run_script(self, script: str, *, timeout: int | None = None) -> RemoteResult:  # noqa: ASYNC109

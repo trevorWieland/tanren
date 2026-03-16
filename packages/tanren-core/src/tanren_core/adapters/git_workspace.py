@@ -109,10 +109,11 @@ class GitWorkspaceManager:
             if result.exit_code != 0:
                 raise RuntimeError(f"Git clone failed: {result.stderr}")
 
-        # Run setup commands
+        # Run setup commands (PATH includes bootstrap-installed tools)
+        path_prefix = 'export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH" && '
         for cmd in spec.setup_commands:
             logger.info("Running setup command: %s", cmd)
-            result = await conn.run(f"cd {quoted_dir} && {cmd}", timeout=300)
+            result = await conn.run(f"{path_prefix}cd {quoted_dir} && {cmd}", timeout=300)
             if result.exit_code != 0:
                 raise RuntimeError(f"Setup command failed ({cmd}): {result.stderr}")
 
