@@ -50,7 +50,6 @@ class GitWorkspaceManager:
     def __init__(self, auth: GitAuthConfig) -> None:
         """Initialize with git authentication configuration."""
         self._auth = auth
-        self._injected_opencode_auth = False
 
     _ASKPASS_PATH = "/workspace/.git-askpass"
 
@@ -159,16 +158,20 @@ class GitWorkspaceManager:
         secrets: SecretBundle,
         cli_auth: tuple[Cli, AuthMode],
     ) -> None:
-        """Set up CLI-specific auth files based on auth mode."""
-        cli, auth = cli_auth
+        """Set up CLI-specific auth files based on auth mode.
 
-        # Clear stale opencode auth if switching away from opencode/api_key
-        if self._injected_opencode_auth and not (cli == Cli.OPENCODE and auth == AuthMode.API_KEY):
-            await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)
-            self._injected_opencode_auth = False
+        Stateless per-connection: always clears stale opencode auth before
+        writing new credentials, so the manager is safe for concurrent use
+        across multiple VMs.
+        """
+        cli, auth = cli_auth
 
         if cli == Cli.OPENCODE and auth == AuthMode.API_KEY:
             await self._inject_opencode_api_key(conn, secrets)
+        else:
+            # Remove any opencode auth that a previous dispatch may have left
+            # on this VM. rm -f is a no-op if the file doesn't exist.
+            await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)
 
     async def _inject_opencode_api_key(
         self,
@@ -191,7 +194,6 @@ class GitWorkspaceManager:
         await conn.upload_content(content, self._OPENCODE_AUTH_PATH)
         await conn.run(f"chmod 600 {self._OPENCODE_AUTH_PATH}", timeout=10)
         logger.info("Injected opencode auth.json (zai-coding-plan)")
-        self._injected_opencode_auth = True
 
     def push_command(self, workspace_path: str, branch: str) -> str:
         """Return an auth-prefixed git push command string."""
@@ -204,5 +206,4 @@ class GitWorkspaceManager:
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
         await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
         await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
-        if self._injected_opencode_auth:
-            await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)
+        await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)

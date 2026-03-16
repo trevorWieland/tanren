@@ -289,7 +289,7 @@ class TestPushCommand:
 
 class TestCleanup:
     @pytest.mark.asyncio
-    async def test_removes_secret_files_and_askpass(self):
+    async def test_removes_secret_files_askpass_and_cli_auth(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         await mgr.cleanup(conn, _workspace())
@@ -297,31 +297,8 @@ class TestCleanup:
         conn.run.assert_any_call("rm -f /workspace/.developer-secrets", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout=10)
-        assert conn.run.call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_cleanup_removes_opencode_auth_when_injected(self):
-        conn = _make_conn()
-        mgr = GitWorkspaceManager(GitAuthConfig())
-        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
-        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
-
-        conn.reset_mock()
-        conn.run = AsyncMock(return_value=_ok())
-        await mgr.cleanup(conn, _workspace())
-
         conn.run.assert_any_call("rm -f /root/.local/share/opencode/auth.json", timeout=10)
         assert conn.run.call_count == 4
-
-    @pytest.mark.asyncio
-    async def test_cleanup_skips_opencode_auth_when_not_injected(self):
-        conn = _make_conn()
-        mgr = GitWorkspaceManager(GitAuthConfig())
-        await mgr.cleanup(conn, _workspace())
-
-        rm_calls = [str(c) for c in conn.run.call_args_list]
-        assert not any("auth.json" in c for c in rm_calls)
-        assert conn.run.call_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -391,53 +368,46 @@ class TestCliAuthInjection:
         assert len(auth_uploads) == 0
 
     @pytest.mark.asyncio
-    async def test_inject_cli_auth_clears_stale_opencode_auth(self):
-        conn = _make_conn()
-        mgr = GitWorkspaceManager(GitAuthConfig())
-        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
-
-        # First inject opencode/api_key
-        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
-        assert mgr._injected_opencode_auth is True
-
-        conn.reset_mock()
-        conn.run = AsyncMock(return_value=_ok())
-
-        # Switch to codex/subscription — stale auth.json should be removed
-        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
-
-        conn.run.assert_any_call("rm -f /root/.local/share/opencode/auth.json", timeout=10)
-        assert mgr._injected_opencode_auth is False
-
-    @pytest.mark.asyncio
-    async def test_inject_cli_auth_no_clear_when_never_injected(self):
+    async def test_non_opencode_cli_removes_stale_auth(self):
+        """Any non-opencode/api_key combo unconditionally removes auth.json."""
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         secrets = SecretBundle()
 
         await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
 
-        rm_calls = [str(c) for c in conn.run.call_args_list]
-        assert not any("auth.json" in c for c in rm_calls)
+        conn.run.assert_any_call("rm -f /root/.local/share/opencode/auth.json", timeout=10)
 
     @pytest.mark.asyncio
-    async def test_inject_cli_auth_no_clear_when_reinjecting_same(self):
+    async def test_opencode_api_key_does_not_remove_auth(self):
+        """opencode/api_key writes auth.json, never removes it."""
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
 
-        # First inject
-        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
-
-        conn.reset_mock()
-        conn.run = AsyncMock(return_value=_ok())
-
-        # Re-inject same combo — should NOT remove auth.json
         await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
 
         rm_calls = [str(c) for c in conn.run.call_args_list]
         assert not any("rm -f" in c and "auth.json" in c for c in rm_calls)
-        assert mgr._injected_opencode_auth is True
+
+    @pytest.mark.asyncio
+    async def test_stateless_across_connections(self):
+        """Manager holds no per-connection state between calls."""
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+
+        # VM A: inject opencode auth
+        conn_a = _make_conn()
+        await mgr.inject_cli_auth(conn_a, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+
+        # VM B: different cli — should still clean up on B, independent of A
+        conn_b = _make_conn()
+        await mgr.inject_cli_auth(conn_b, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        conn_b.run.assert_any_call("rm -f /root/.local/share/opencode/auth.json", timeout=10)
+        # VM A was not touched
+        conn_a_rm_calls = [str(c) for c in conn_a.run.call_args_list]
+        assert not any("rm -f" in c and "auth.json" in c for c in conn_a_rm_calls)
 
     @pytest.mark.asyncio
     async def test_claude_oauth_no_auth_file(self):
