@@ -391,6 +391,55 @@ class TestCliAuthInjection:
         assert len(auth_uploads) == 0
 
     @pytest.mark.asyncio
+    async def test_inject_cli_auth_clears_stale_opencode_auth(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+
+        # First inject opencode/api_key
+        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+        assert mgr._injected_opencode_auth is True
+
+        conn.reset_mock()
+        conn.run = AsyncMock(return_value=_ok())
+
+        # Switch to codex/subscription — stale auth.json should be removed
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        conn.run.assert_any_call("rm -f /root/.local/share/opencode/auth.json", timeout=10)
+        assert mgr._injected_opencode_auth is False
+
+    @pytest.mark.asyncio
+    async def test_inject_cli_auth_no_clear_when_never_injected(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle()
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        rm_calls = [str(c) for c in conn.run.call_args_list]
+        assert not any("auth.json" in c for c in rm_calls)
+
+    @pytest.mark.asyncio
+    async def test_inject_cli_auth_no_clear_when_reinjecting_same(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+
+        # First inject
+        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+
+        conn.reset_mock()
+        conn.run = AsyncMock(return_value=_ok())
+
+        # Re-inject same combo — should NOT remove auth.json
+        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+
+        rm_calls = [str(c) for c in conn.run.call_args_list]
+        assert not any("rm -f" in c and "auth.json" in c for c in rm_calls)
+        assert mgr._injected_opencode_auth is True
+
+    @pytest.mark.asyncio
     async def test_claude_oauth_no_auth_file(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())

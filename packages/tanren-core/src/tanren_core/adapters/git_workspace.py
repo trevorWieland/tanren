@@ -161,6 +161,12 @@ class GitWorkspaceManager:
     ) -> None:
         """Set up CLI-specific auth files based on auth mode."""
         cli, auth = cli_auth
+
+        # Clear stale opencode auth if switching away from opencode/api_key
+        if self._injected_opencode_auth and not (cli == Cli.OPENCODE and auth == AuthMode.API_KEY):
+            await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)
+            self._injected_opencode_auth = False
+
         if cli == Cli.OPENCODE and auth == AuthMode.API_KEY:
             await self._inject_opencode_api_key(conn, secrets)
 
