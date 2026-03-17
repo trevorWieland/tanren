@@ -38,6 +38,7 @@ from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
     PhaseResult,
+    ProvisionError,
     RemoteEnvironmentRuntime,
 )
 from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
@@ -45,7 +46,7 @@ from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from tanren_core.process import assemble_prompt
-from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.schemas import Cli, Dispatch, Outcome, Phase, Result
 from tanren_core.secrets import SecretLoader
 from tanren_core.signals import map_outcome, parse_signal_token
 
@@ -549,7 +550,7 @@ class SSHExecutionEnvironment:
             Resolved EnvironmentProfile.
 
         Raises:
-            ValueError: If the requested profile is not found.
+            ProvisionError: If the requested profile is not found.
         """
         tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
         if tanren_yml.exists():
@@ -563,9 +564,20 @@ class SSHExecutionEnvironment:
         profile = profiles.get(dispatch.environment_profile)
         if profile is None:
             available = sorted(profiles.keys())
-            raise ValueError(
+            msg = (
                 f"Environment profile '{dispatch.environment_profile}' not found in tanren.yml. "
                 f"Available: {available}"
+            )
+            raise ProvisionError(
+                Result(
+                    workflow_id=dispatch.workflow_id,
+                    phase=dispatch.phase,
+                    outcome=Outcome.ERROR,
+                    exit_code=-1,
+                    duration_secs=0,
+                    tail_output=msg,
+                    spec_modified=False,
+                )
             )
 
         return profile

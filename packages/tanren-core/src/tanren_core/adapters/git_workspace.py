@@ -122,7 +122,8 @@ class GitWorkspaceManager:
             branch=spec.branch,
         )
 
-    _OPENCODE_AUTH_PATH = "/root/.local/share/opencode/auth.json"
+    _OPENCODE_AUTH_SUFFIX = ".local/share/opencode/auth.json"
+    _OPENCODE_AUTH_SHELL_PATH = f"~/{_OPENCODE_AUTH_SUFFIX}"
 
     async def inject_secrets(
         self,
@@ -171,7 +172,22 @@ class GitWorkspaceManager:
         else:
             # Remove any opencode auth that a previous dispatch may have left
             # on this VM. rm -f is a no-op if the file doesn't exist.
-            await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)
+            await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
+
+    async def _resolve_remote_home(self, conn: RemoteConnection) -> str:
+        """Resolve the remote user's home directory.
+
+        Returns:
+            Absolute path to the remote home directory.
+
+        Raises:
+            RuntimeError: If the ``echo $HOME`` command fails.
+        """
+        result = await conn.run("echo $HOME", timeout=10)
+        home = result.stdout.strip()
+        if not home or result.exit_code != 0:
+            raise RuntimeError(f"Failed to resolve remote $HOME: {result.stderr}")
+        return home
 
     async def _inject_opencode_api_key(
         self,
@@ -184,15 +200,18 @@ class GitWorkspaceManager:
         )
         if not zai_key:
             logger.warning("OPENCODE_ZAI_API_KEY not found in secrets — opencode auth will fail")
+            await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
             return
 
         auth_data = {"zai-coding-plan": {"type": "api", "key": zai_key}}
         content = json.dumps(auth_data, indent=2)
 
-        auth_dir = str(Path(self._OPENCODE_AUTH_PATH).parent)
-        await conn.run(f"mkdir -p {shlex.quote(auth_dir)}", timeout=10)
-        await conn.upload_content(content, self._OPENCODE_AUTH_PATH)
-        await conn.run(f"chmod 600 {self._OPENCODE_AUTH_PATH}", timeout=10)
+        auth_dir_shell = f"~/{Path(self._OPENCODE_AUTH_SUFFIX).parent}"
+        await conn.run(f"mkdir -p {auth_dir_shell}", timeout=10)
+        remote_home = await self._resolve_remote_home(conn)
+        abs_auth_path = f"{remote_home}/{self._OPENCODE_AUTH_SUFFIX}"
+        await conn.upload_content(content, abs_auth_path)
+        await conn.run(f"chmod 600 {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
         logger.info("Injected opencode auth.json (zai-coding-plan)")
 
     def push_command(self, workspace_path: str, branch: str) -> str:
@@ -206,4 +225,4 @@ class GitWorkspaceManager:
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
         await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
         await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
-        await conn.run(f"rm -f {self._OPENCODE_AUTH_PATH}", timeout=10)
+        await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)

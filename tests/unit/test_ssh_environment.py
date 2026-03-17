@@ -23,6 +23,7 @@ from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
     PhaseResult,
+    ProvisionError,
     RemoteEnvironmentRuntime,
 )
 from tanren_core.config import Config
@@ -496,6 +497,31 @@ class TestProvision:
         # VM must be released on SSH timeout
         env_kit["vm_provisioner"].release.assert_awaited_once_with(_make_vm_handle())
         mock_conn.close.assert_awaited_once()
+
+    async def test_unknown_profile_raises_provision_error(self, env_kit, tmp_path):
+        """Missing environment profile raises ProvisionError (not ValueError),
+        so the manager emits a user-facing error instead of an internal failure."""
+        env = env_kit["env"]
+        config = _make_config(tmp_path)
+        dispatch = _make_dispatch()
+        dispatch = dispatch.model_copy(update={"environment_profile": "nonexistent"})
+
+        # Write a tanren.yml with only the default profile
+        project_dir = tmp_path / dispatch.project
+        project_dir.mkdir(exist_ok=True)
+        (project_dir / "tanren.yml").write_text("environments: {}")
+
+        with pytest.raises(ProvisionError) as exc_info:
+            await env.provision(dispatch, config)
+
+        result = exc_info.value.result
+        assert result.outcome == Outcome.ERROR
+        assert result.workflow_id == dispatch.workflow_id
+        assert result.phase == dispatch.phase
+        assert "nonexistent" in (result.tail_output or "")
+
+        # No VM should have been acquired
+        env_kit["vm_provisioner"].acquire.assert_not_awaited()
 
 
 class TestExecute:
