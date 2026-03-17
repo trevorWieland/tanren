@@ -38,10 +38,66 @@ class TestLoadInfrastructure:
         assert result == {"GIT_TOKEN": "ghp_abc123"}
 
 
+class TestLoadCredentialFiles:
+    def test_reads_claude_credentials(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
+        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        result = loader.load_credential_files()
+
+        assert result == {"CLAUDE_CREDENTIALS_JSON": '{"token": "abc"}'}
+
+    def test_reads_codex_auth(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
+        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        result = loader.load_credential_files()
+
+        assert result == {"CODEX_AUTH_JSON": '{"session": "xyz"}'}
+
+    def test_reads_both_files(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
+        (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
+        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        result = loader.load_credential_files()
+
+        assert result == {
+            "CLAUDE_CREDENTIALS_JSON": '{"token": "abc"}',
+            "CODEX_AUTH_JSON": '{"session": "xyz"}',
+        }
+
+    def test_returns_empty_when_no_files(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        result = loader.load_credential_files()
+
+        assert result == {}
+
+    def test_skips_empty_files(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        (tmp_path / "claude_credentials.json").write_text("   \n  ")
+        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        result = loader.load_credential_files()
+
+        assert result == {}
+
+
 class TestBuildBundle:
     def test_combines_all_sources(self, tmp_path: Path, monkeypatch):
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("DEV_SECRET=dev_val\n")
+        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
         monkeypatch.setenv("GIT_TOKEN", "ghp_xyz")
         config = SecretConfig(
             developer_secrets_path=str(secrets_file),
@@ -52,7 +108,8 @@ class TestBuildBundle:
         bundle = loader.build_bundle(project_secrets={"PROJ_KEY": "proj_val"})
 
         assert isinstance(bundle, SecretBundle)
-        assert bundle.developer == {"DEV_SECRET": "dev_val"}
+        assert bundle.developer["DEV_SECRET"] == "dev_val"
+        assert bundle.developer["CLAUDE_CREDENTIALS_JSON"] == '{"token": "abc"}'
         assert bundle.project == {"PROJ_KEY": "proj_val"}
         assert bundle.infrastructure == {"GIT_TOKEN": "ghp_xyz"}
 

@@ -149,7 +149,7 @@ async def _collect_claude(
     session_id = _derive_session_id(worktree_path)
     since = dispatch_start_utc.strftime("%Y%m%d")
 
-    base_cmd = config.ccusage_claude_cmd.split()
+    base_cmd = shlex.split(config.ccusage_claude_cmd)
     cmd = [
         *base_cmd,
         "session",
@@ -190,7 +190,7 @@ async def _collect_codex(
     """
     since = dispatch_start_utc.strftime("%Y%m%d")
 
-    base_cmd = config.ccusage_codex_cmd.split()
+    base_cmd = shlex.split(config.ccusage_codex_cmd)
     cmd = [*base_cmd, "session", "--json", "--since", since, "--offline", "--noColor"]
 
     exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
@@ -219,7 +219,7 @@ async def _collect_opencode(
     Returns:
         TokenUsage if a matching session is found, None otherwise.
     """
-    base_cmd = config.ccusage_opencode_cmd.split()
+    base_cmd = shlex.split(config.ccusage_opencode_cmd)
     cmd = [*base_cmd, "session", "--json"]
 
     exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)

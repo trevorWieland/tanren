@@ -66,14 +66,40 @@ class SecretLoader:
                 result[var] = val
         return result
 
+    def load_credential_files(self) -> dict[str, str]:
+        """Load CLI credential files from the secrets directory.
+
+        Reads ``claude_credentials.json`` and ``codex_auth.json`` from the
+        parent directory of ``developer_secrets_path`` (the tanren secrets dir).
+
+        Returns:
+            Dict mapping credential keys to file contents for files that exist
+            and are non-empty.
+        """
+        secrets_dir = Path(self._config.developer_secrets_path).expanduser().parent
+        mapping = {
+            "CLAUDE_CREDENTIALS_JSON": "claude_credentials.json",
+            "CODEX_AUTH_JSON": "codex_auth.json",
+        }
+        result: dict[str, str] = {}
+        for key, filename in mapping.items():
+            path = secrets_dir / filename
+            if path.exists():
+                content = path.read_text().strip()
+                if content:
+                    result[key] = content
+        return result
+
     def build_bundle(self, project_secrets: dict[str, str] | None = None) -> SecretBundle:
         """Build a SecretBundle from all secret sources.
 
         Returns:
             SecretBundle combining developer, project, and infrastructure secrets.
         """
+        developer = self.load_developer()
+        developer.update(self.load_credential_files())
         return SecretBundle(
-            developer=self.load_developer(),
+            developer=developer,
             project=project_secrets or {},
             infrastructure=self.load_infrastructure(),
         )

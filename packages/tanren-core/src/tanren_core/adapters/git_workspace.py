@@ -125,6 +125,11 @@ class GitWorkspaceManager:
     _OPENCODE_AUTH_SUFFIX = ".local/share/opencode/auth.json"
     _OPENCODE_AUTH_SHELL_PATH = f"~/{_OPENCODE_AUTH_SUFFIX}"
 
+    _CLAUDE_AUTH_SUFFIX = ".claude/.credentials.json"
+    _CLAUDE_AUTH_SHELL_PATH = f"~/{_CLAUDE_AUTH_SUFFIX}"
+    _CODEX_AUTH_SUFFIX = ".codex/auth.json"
+    _CODEX_AUTH_SHELL_PATH = f"~/{_CODEX_AUTH_SUFFIX}"
+
     async def inject_secrets(
         self,
         conn: RemoteConnection,
@@ -161,18 +166,39 @@ class GitWorkspaceManager:
     ) -> None:
         """Set up CLI-specific auth files based on auth mode.
 
-        Stateless per-connection: always clears stale opencode auth before
-        writing new credentials, so the manager is safe for concurrent use
-        across multiple VMs.
+        Stateless per-connection: always clears stale auth from other CLIs
+        before writing new credentials, so the manager is safe for concurrent
+        use across multiple VMs.
         """
         cli, auth = cli_auth
 
         if cli == Cli.OPENCODE and auth == AuthMode.API_KEY:
             await self._inject_opencode_api_key(conn, secrets)
+            await self._remove_stale_auth(conn, claude=True, codex=True)
+        elif cli == Cli.CLAUDE and auth == AuthMode.SUBSCRIPTION:
+            await self._inject_claude_subscription(conn, secrets)
+            await self._remove_stale_auth(conn, opencode=True, codex=True)
+        elif cli == Cli.CODEX and auth == AuthMode.SUBSCRIPTION:
+            await self._inject_codex_subscription(conn, secrets)
+            await self._remove_stale_auth(conn, opencode=True, claude=True)
         else:
-            # Remove any opencode auth that a previous dispatch may have left
-            # on this VM. rm -f is a no-op if the file doesn't exist.
+            await self._remove_stale_auth(conn, opencode=True, claude=True, codex=True)
+
+    async def _remove_stale_auth(
+        self,
+        conn: RemoteConnection,
+        *,
+        opencode: bool = False,
+        claude: bool = False,
+        codex: bool = False,
+    ) -> None:
+        """Remove auth files for the specified CLIs."""
+        if opencode:
             await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
+        if claude:
+            await conn.run(f"rm -f {self._CLAUDE_AUTH_SHELL_PATH}", timeout=10)
+        if codex:
+            await conn.run(f"rm -f {self._CODEX_AUTH_SHELL_PATH}", timeout=10)
 
     async def _resolve_remote_home(self, conn: RemoteConnection) -> str:
         """Resolve the remote user's home directory.
@@ -214,6 +240,46 @@ class GitWorkspaceManager:
         await conn.run(f"chmod 600 {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
         logger.info("Injected opencode auth.json (zai-coding-plan)")
 
+    async def _inject_claude_subscription(
+        self,
+        conn: RemoteConnection,
+        secrets: SecretBundle,
+    ) -> None:
+        """Write Claude credentials.json for subscription (Max/Pro) auth."""
+        content = secrets.developer.get("CLAUDE_CREDENTIALS_JSON")
+        if not content:
+            logger.warning("CLAUDE_CREDENTIALS_JSON not found in secrets — claude auth will fail")
+            await conn.run(f"rm -f {self._CLAUDE_AUTH_SHELL_PATH}", timeout=10)
+            return
+
+        auth_dir_shell = f"~/{Path(self._CLAUDE_AUTH_SUFFIX).parent}"
+        await conn.run(f"mkdir -p {auth_dir_shell}", timeout=10)
+        remote_home = await self._resolve_remote_home(conn)
+        abs_auth_path = f"{remote_home}/{self._CLAUDE_AUTH_SUFFIX}"
+        await conn.upload_content(content, abs_auth_path)
+        await conn.run(f"chmod 600 {self._CLAUDE_AUTH_SHELL_PATH}", timeout=10)
+        logger.info("Injected claude credentials.json (subscription)")
+
+    async def _inject_codex_subscription(
+        self,
+        conn: RemoteConnection,
+        secrets: SecretBundle,
+    ) -> None:
+        """Write Codex auth.json for subscription (ChatGPT Plus) auth."""
+        content = secrets.developer.get("CODEX_AUTH_JSON")
+        if not content:
+            logger.warning("CODEX_AUTH_JSON not found in secrets — codex auth will fail")
+            await conn.run(f"rm -f {self._CODEX_AUTH_SHELL_PATH}", timeout=10)
+            return
+
+        auth_dir_shell = f"~/{Path(self._CODEX_AUTH_SUFFIX).parent}"
+        await conn.run(f"mkdir -p {auth_dir_shell}", timeout=10)
+        remote_home = await self._resolve_remote_home(conn)
+        abs_auth_path = f"{remote_home}/{self._CODEX_AUTH_SUFFIX}"
+        await conn.upload_content(content, abs_auth_path)
+        await conn.run(f"chmod 600 {self._CODEX_AUTH_SHELL_PATH}", timeout=10)
+        logger.info("Injected codex auth.json (subscription)")
+
     def push_command(self, workspace_path: str, branch: str) -> str:
         """Return an auth-prefixed git push command string."""
         quoted_path = shlex.quote(workspace_path)
@@ -226,3 +292,5 @@ class GitWorkspaceManager:
         await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
         await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
         await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
+        await conn.run(f"rm -f {self._CLAUDE_AUTH_SHELL_PATH}", timeout=10)
+        await conn.run(f"rm -f {self._CODEX_AUTH_SHELL_PATH}", timeout=10)

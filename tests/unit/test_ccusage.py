@@ -326,6 +326,29 @@ class TestCollectTokenUsage:
         assert result.provider == "opencode"
         assert result.session_id == "ses_41448dad"
 
+    @pytest.mark.asyncio
+    async def test_quoted_cmd_path_split_correctly(self):
+        """shlex.split preserves quoted paths with spaces."""
+        payload = json.dumps({"sessions": [CLAUDE_SESSION]})
+        runner = _make_runner(exit_code=0, stdout=payload)
+        config = _make_config()
+        config = config.model_copy(
+            update={"ccusage_claude_cmd": '"/opt/my tools/ccusage" --offline'},
+        )
+        await collect_token_usage(
+            Cli.CLAUDE,
+            "/home/trevor/github/tanren",
+            datetime(2026, 3, 14, 0, 0, 0, tzinfo=UTC),
+            datetime(2026, 3, 14, 1, 0, 0, tzinfo=UTC),
+            config,
+            runner,
+        )
+        cmd = runner.run_command.call_args[0][0]
+        # The quoted path must survive as a single element, not split on space
+        assert cmd[0] == "/opt/my tools/ccusage"
+        assert cmd[1] == "--offline"
+        assert "session" in cmd
+
 
 # ---------------------------------------------------------------------------
 # LocalCommandRunner — orphaned process kill on timeout

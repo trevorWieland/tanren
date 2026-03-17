@@ -309,7 +309,9 @@ class TestCleanup:
         conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout=10)
         conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
-        assert conn.run.call_count == 4
+        conn.run.assert_any_call("rm -f ~/.claude/.credentials.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.codex/auth.json", timeout=10)
+        assert conn.run.call_count == 6
 
 
 # ---------------------------------------------------------------------------
@@ -386,19 +388,21 @@ class TestCliAuthInjection:
         conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
 
     @pytest.mark.asyncio
-    async def test_non_opencode_cli_removes_stale_auth(self):
-        """Any non-opencode/api_key combo unconditionally removes auth.json."""
+    async def test_fallback_cli_removes_all_stale_auth(self):
+        """Unhandled cli/auth combo removes all three auth paths."""
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         secrets = SecretBundle()
 
-        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+        await mgr.inject_cli_auth(conn, secrets, (Cli.BASH, AuthMode.API_KEY))
 
         conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.claude/.credentials.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.codex/auth.json", timeout=10)
 
     @pytest.mark.asyncio
-    async def test_opencode_api_key_does_not_remove_auth(self):
-        """opencode/api_key writes auth.json, never removes it."""
+    async def test_opencode_api_key_does_not_remove_own_auth(self):
+        """opencode/api_key writes auth.json, never removes its own."""
         conn = _make_conn()
         conn.run.side_effect = _run_with_home("/root")
         mgr = GitWorkspaceManager(GitAuthConfig())
@@ -407,27 +411,36 @@ class TestCliAuthInjection:
         await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
 
         rm_calls = [str(c) for c in conn.run.call_args_list]
-        assert not any("rm -f" in c and "auth.json" in c for c in rm_calls)
+        assert not any("rm -f" in c and "opencode" in c and "auth.json" in c for c in rm_calls)
 
     @pytest.mark.asyncio
     async def test_stateless_across_connections(self):
         """Manager holds no per-connection state between calls."""
         mgr = GitWorkspaceManager(GitAuthConfig())
-        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+        secrets = SecretBundle(
+            developer={
+                "OPENCODE_ZAI_API_KEY": "zai-key-123",
+                "CODEX_AUTH_JSON": '{"session": "xyz"}',
+            }
+        )
 
         # VM A: inject opencode auth
         conn_a = _make_conn()
         conn_a.run.side_effect = _run_with_home("/root")
         await mgr.inject_cli_auth(conn_a, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
 
-        # VM B: different cli — should still clean up on B, independent of A
+        # VM B: different cli — should still clean up opencode + claude on B
         conn_b = _make_conn()
+        conn_b.run.side_effect = _run_with_home("/root")
         await mgr.inject_cli_auth(conn_b, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
 
         conn_b.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
-        # VM A was not touched
+        conn_b.run.assert_any_call("rm -f ~/.claude/.credentials.json", timeout=10)
+        # VM A: opencode's own auth path was not rm'd
         conn_a_rm_calls = [str(c) for c in conn_a.run.call_args_list]
-        assert not any("rm -f" in c and "auth.json" in c for c in conn_a_rm_calls)
+        assert not any(
+            "rm -f" in c and "opencode" in c and "auth.json" in c for c in conn_a_rm_calls
+        )
 
     @pytest.mark.asyncio
     async def test_claude_oauth_no_auth_file(self):
@@ -441,9 +454,11 @@ class TestCliAuthInjection:
             cli_auth=(Cli.CLAUDE, AuthMode.OAUTH),
         )
 
-        # No auth.json should be uploaded for claude/oauth
+        # No CLI auth should be uploaded for claude/oauth (fallback branch)
         upload_calls = conn.upload_content.call_args_list
-        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        auth_uploads = [
+            c for c in upload_calls if "auth.json" in str(c) or ".credentials.json" in str(c)
+        ]
         assert len(auth_uploads) == 0
 
     @pytest.mark.asyncio
@@ -457,3 +472,107 @@ class TestCliAuthInjection:
         upload_calls = conn.upload_content.call_args_list
         auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
         assert len(auth_uploads) == 0
+
+    @pytest.mark.asyncio
+    async def test_claude_subscription_writes_credentials(self):
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/home/deploy")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        creds = '{"token": "claude-tok"}'
+        secrets = SecretBundle(developer={"CLAUDE_CREDENTIALS_JSON": creds})
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CLAUDE, AuthMode.SUBSCRIPTION))
+
+        upload_calls = conn.upload_content.call_args_list
+        cred_uploads = [c for c in upload_calls if ".credentials.json" in str(c)]
+        assert len(cred_uploads) == 1
+        assert cred_uploads[0].args[1] == "/home/deploy/.claude/.credentials.json"
+        assert cred_uploads[0].args[0] == creds
+        conn.run.assert_any_call("mkdir -p ~/.claude", timeout=10)
+        conn.run.assert_any_call("chmod 600 ~/.claude/.credentials.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_codex_subscription_writes_auth(self):
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/root")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        auth = '{"session": "codex-tok"}'
+        secrets = SecretBundle(developer={"CODEX_AUTH_JSON": auth})
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if ".codex/auth.json" in str(c)]
+        assert len(auth_uploads) == 1
+        assert auth_uploads[0].args[1] == "/root/.codex/auth.json"
+        assert auth_uploads[0].args[0] == auth
+        conn.run.assert_any_call("mkdir -p ~/.codex", timeout=10)
+        conn.run.assert_any_call("chmod 600 ~/.codex/auth.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_claude_subscription_missing_key_warns_and_cleans(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle()
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CLAUDE, AuthMode.SUBSCRIPTION))
+
+        conn.upload_content.assert_not_called()
+        conn.run.assert_any_call("rm -f ~/.claude/.credentials.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.codex/auth.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_codex_subscription_missing_key_warns_and_cleans(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle()
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        conn.upload_content.assert_not_called()
+        conn.run.assert_any_call("rm -f ~/.codex/auth.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.claude/.credentials.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_opencode_removes_claude_and_codex_auth(self):
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/root")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key"})
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+
+        conn.run.assert_any_call("rm -f ~/.claude/.credentials.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.codex/auth.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_claude_removes_opencode_and_codex_auth(self):
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/root")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"CLAUDE_CREDENTIALS_JSON": '{"t": "x"}'})
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CLAUDE, AuthMode.SUBSCRIPTION))
+
+        conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.codex/auth.json", timeout=10)
+        # Own path NOT removed
+        rm_calls = [str(c) for c in conn.run.call_args_list]
+        assert not any("rm -f" in c and ".claude/.credentials.json" in c for c in rm_calls)
+
+    @pytest.mark.asyncio
+    async def test_codex_removes_opencode_and_claude_auth(self):
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/root")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"CODEX_AUTH_JSON": '{"s": "y"}'})
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+        conn.run.assert_any_call("rm -f ~/.claude/.credentials.json", timeout=10)
+        # Own path NOT removed
+        rm_calls = [str(c) for c in conn.run.call_args_list]
+        assert not any("rm -f" in c and ".codex/auth.json" in c for c in rm_calls)
