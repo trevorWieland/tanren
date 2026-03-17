@@ -38,6 +38,7 @@ def _make_config(tmp_path: Path) -> Config:
         github_dir=str(tmp_path / "github"),
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+        roles_config_path=str(tmp_path / "roles.yml"),
     )
 
 
@@ -799,6 +800,7 @@ class TestWorkerManagerInitIntegration:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             events_db=str(tmp_path / "events.db"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         manager = WorkerManager(config, execution_env=AsyncMock())
         # Should use SqliteEventEmitter, not NullEventEmitter
@@ -810,6 +812,7 @@ class TestWorkerManagerInitIntegration:
             github_dir=str(tmp_path / "github"),
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         manager = WorkerManager(config, execution_env=AsyncMock())
         assert isinstance(manager._emitter, NullEventEmitter)
@@ -821,6 +824,7 @@ class TestWorkerManagerInitIntegration:
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             events_db=str(tmp_path / "events.db"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
         custom_emitter = NullEventEmitter()
         manager = WorkerManager(config, execution_env=AsyncMock(), emitter=custom_emitter)

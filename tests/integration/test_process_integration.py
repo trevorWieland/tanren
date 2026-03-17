@@ -34,6 +34,7 @@ def _make_config(tmp_path: Path) -> Config:
         opencode_path="/usr/local/bin/opencode",
         codex_path="/usr/local/bin/codex",
         claude_path="/usr/local/bin/claude",
+        roles_config_path=str(tmp_path / "roles.yml"),
     )
 
 

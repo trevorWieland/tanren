@@ -51,9 +51,10 @@ class RemoteAgentRunner:
         prompt_path = f"{workspace.path}/.tanren-prompt.md"
         await conn.upload_content(prompt_content, prompt_path)
 
-        # Build command with secret sourcing
+        # Build command with PATH augmentation and secret sourcing
         ws = shlex.quote(workspace.path)
         command = (
+            f'export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH" && '
             f"set -a && "
             f"source /workspace/.developer-secrets 2>/dev/null; "
             f"source {ws}/.env 2>/dev/null; "
@@ -63,7 +64,7 @@ class RemoteAgentRunner:
         )
 
         logger.info("Executing remote agent: %s", cli_command)
-        result = await conn.run(command, timeout=timeout)
+        result = await conn.run(command, timeout=timeout, request_pty=True)
 
         duration = int(time.monotonic() - start)
 

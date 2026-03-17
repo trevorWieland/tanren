@@ -13,6 +13,7 @@ from tanren_core.adapters.events import (
     PostflightCompleted,
     PreflightCompleted,
     RetryScheduled,
+    TokenUsageRecorded,
     VMProvisioned,
     VMReleased,
 )
@@ -49,6 +50,16 @@ EVENT_INSTANCES = [
     ),
     VMReleased(timestamp=_TS, workflow_id=_WF, vm_id="vm-1", duration_secs=600),
     BootstrapCompleted(timestamp=_TS, workflow_id=_WF, vm_id="vm-1"),
+    TokenUsageRecorded(
+        timestamp=_TS,
+        workflow_id=_WF,
+        phase="do-task",
+        cli="claude",
+        input_tokens=1000,
+        output_tokens=500,
+        total_tokens=1500,
+        total_cost=0.05,
+    ),
 ]
 
 EXPECTED_TYPES = [
@@ -62,6 +73,7 @@ EXPECTED_TYPES = [
     "vm_provisioned",
     "vm_released",
     "bootstrap_completed",
+    "token_usage_recorded",
 ]
 
 

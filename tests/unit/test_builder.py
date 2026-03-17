@@ -21,6 +21,7 @@ def _make_config(tmp_path: Path, remote_config_path: str | None) -> Config:
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
         remote_config_path=remote_config_path,
+        roles_config_path=str(tmp_path / "roles.yml"),
     )
 
 

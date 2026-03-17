@@ -28,6 +28,7 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
 
 
@@ -75,6 +76,8 @@ class TestModels:
             project="proj",
             spec_path="specs/x",
             phase=Phase.DO_TASK,
+            cli=Cli.CLAUDE,
+            auth=AuthMode.API_KEY,
         )
         assert req.timeout == 1800
         assert req.cli == Cli.CLAUDE
@@ -85,6 +88,8 @@ class TestModels:
                 "project": "p",
                 "spec_path": "s",
                 "phase": Phase.DO_TASK,
+                "cli": "claude",
+                "auth": "api_key",
                 "unknown_field": "x",
             })
 
@@ -94,6 +99,8 @@ class TestModels:
                 project="p",
                 spec_path="s",
                 phase=Phase.DO_TASK,
+                cli=Cli.CLAUDE,
+                auth=AuthMode.API_KEY,
                 timeout=0,
             )
 
@@ -103,6 +110,8 @@ class TestModels:
             branch="main",
             spec_path="specs/x",
             phase=Phase.GATE,
+            cli=Cli.CLAUDE,
+            auth=AuthMode.API_KEY,
         )
         assert req.timeout == 1800
 

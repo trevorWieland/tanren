@@ -163,6 +163,27 @@ class TestRemoteAgentRunnerRun:
         agent_call = conn.run.call_args_list[0]
         assert agent_call.kwargs["timeout"] == 600
 
+    async def test_agent_command_requests_pty(self):
+        conn = _make_conn()
+        ws = _make_workspace()
+        runner = RemoteAgentRunner()
+
+        await runner.run(
+            conn,
+            ws,
+            prompt_content="prompt",
+            cli_command="claude --prompt .tanren-prompt.md",
+            signal_path="/workspace/myproj/.signal",
+        )
+
+        # First call is the agent command — should request PTY
+        agent_call = conn.run.call_args_list[0]
+        assert agent_call.kwargs.get("request_pty") is True
+
+        # Second call is cleanup rm — should NOT request PTY
+        cleanup_call = conn.run.call_args_list[1]
+        assert cleanup_call.kwargs.get("request_pty", False) is False
+
     async def test_timed_out_command_sets_timed_out_true(self):
         conn = _make_conn(exit_code=124, timed_out=True)
         ws = _make_workspace()

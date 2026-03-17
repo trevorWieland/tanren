@@ -31,7 +31,9 @@ from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
 from tanren_core.remote_config import ProvisionerType, load_remote_config
-from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.roles import RoleName
+from tanren_core.roles_config import load_roles_config
+from tanren_core.schemas import Dispatch, Outcome, Phase
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +99,17 @@ async def provision_vm(
 
     env_id = str(uuid.uuid4())
 
+    roles = load_roles_config(config.roles_config_path)
+    resolved_tool = roles.resolve(RoleName.DEFAULT)
+
     dispatch = Dispatch(
         workflow_id=f"vm-provision-{body.project}-{uuid.uuid4().hex[:8]}",
         project=body.project,
         phase=Phase.DO_TASK,
         branch=body.branch,
         spec_folder="",
-        cli=Cli.CLAUDE,
+        cli=resolved_tool.cli,
+        auth=resolved_tool.auth,
         timeout=1800,
         environment_profile=body.environment_profile,
     )

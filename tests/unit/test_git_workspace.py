@@ -1,5 +1,6 @@
 """Tests for git workspace manager."""
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,6 +13,8 @@ from tanren_core.adapters.remote_types import (
     WorkspaceSpec,
 )
 from tanren_core.remote_config import GitAuthMethod
+from tanren_core.roles import AuthMode
+from tanren_core.schemas import Cli
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -31,6 +34,17 @@ def _make_conn() -> AsyncMock:
     conn.run = AsyncMock(return_value=_ok())
     conn.upload_content = AsyncMock()
     return conn
+
+
+def _run_with_home(home: str = "/root"):
+    """Return a side_effect callable that resolves ``echo $HOME`` and returns _ok() otherwise."""
+
+    def _side_effect(cmd: str, **_kwargs: object) -> RemoteResult:
+        if cmd == "echo $HOME":
+            return _ok(f"{home}\n")
+        return _ok()
+
+    return _side_effect
 
 
 def _spec(**overrides: object) -> WorkspaceSpec:
@@ -286,7 +300,7 @@ class TestPushCommand:
 
 class TestCleanup:
     @pytest.mark.asyncio
-    async def test_removes_secret_files_and_askpass(self):
+    async def test_removes_secret_files_askpass_and_cli_auth(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         await mgr.cleanup(conn, _workspace())
@@ -294,4 +308,152 @@ class TestCleanup:
         conn.run.assert_any_call("rm -f /workspace/.developer-secrets", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout=10)
-        assert conn.run.call_count == 3
+        conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+        assert conn.run.call_count == 4
+
+
+# ---------------------------------------------------------------------------
+# CLI auth injection
+# ---------------------------------------------------------------------------
+
+
+class TestCliAuthInjection:
+    @pytest.mark.asyncio
+    async def test_opencode_api_key_writes_auth_json(self):
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/home/deploy")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.OPENCODE, AuthMode.API_KEY),
+        )
+
+        # Find the auth.json upload — SFTP uses resolved absolute path
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 1
+        assert auth_uploads[0].args[1] == "/home/deploy/.local/share/opencode/auth.json"
+        content = auth_uploads[0].args[0]
+        data = json.loads(content)
+        assert data["zai-coding-plan"]["type"] == "api"
+        assert data["zai-coding-plan"]["key"] == "zai-key-123"
+
+        # Shell commands use tilde path
+        conn.run.assert_any_call("chmod 600 ~/.local/share/opencode/auth.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_opencode_api_key_from_project_secrets(self):
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/root")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(project={"OPENCODE_ZAI_API_KEY": "proj-key-456"})
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.OPENCODE, AuthMode.API_KEY),
+        )
+
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 1
+        assert auth_uploads[0].args[1] == "/root/.local/share/opencode/auth.json"
+        content = auth_uploads[0].args[0]
+        data = json.loads(content)
+        assert data["zai-coding-plan"]["key"] == "proj-key-456"
+
+    @pytest.mark.asyncio
+    async def test_opencode_api_key_missing_clears_stale_auth(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle()  # no OPENCODE_ZAI_API_KEY
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.OPENCODE, AuthMode.API_KEY),
+        )
+
+        # No auth.json should be uploaded
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 0
+
+        # Stale auth.json must be removed
+        conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_non_opencode_cli_removes_stale_auth(self):
+        """Any non-opencode/api_key combo unconditionally removes auth.json."""
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle()
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        conn.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_opencode_api_key_does_not_remove_auth(self):
+        """opencode/api_key writes auth.json, never removes it."""
+        conn = _make_conn()
+        conn.run.side_effect = _run_with_home("/root")
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+
+        await mgr.inject_cli_auth(conn, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+
+        rm_calls = [str(c) for c in conn.run.call_args_list]
+        assert not any("rm -f" in c and "auth.json" in c for c in rm_calls)
+
+    @pytest.mark.asyncio
+    async def test_stateless_across_connections(self):
+        """Manager holds no per-connection state between calls."""
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "zai-key-123"})
+
+        # VM A: inject opencode auth
+        conn_a = _make_conn()
+        conn_a.run.side_effect = _run_with_home("/root")
+        await mgr.inject_cli_auth(conn_a, secrets, (Cli.OPENCODE, AuthMode.API_KEY))
+
+        # VM B: different cli — should still clean up on B, independent of A
+        conn_b = _make_conn()
+        await mgr.inject_cli_auth(conn_b, secrets, (Cli.CODEX, AuthMode.SUBSCRIPTION))
+
+        conn_b.run.assert_any_call("rm -f ~/.local/share/opencode/auth.json", timeout=10)
+        # VM A was not touched
+        conn_a_rm_calls = [str(c) for c in conn_a.run.call_args_list]
+        assert not any("rm -f" in c and "auth.json" in c for c in conn_a_rm_calls)
+
+    @pytest.mark.asyncio
+    async def test_claude_oauth_no_auth_file(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "key"})
+        await mgr.inject_secrets(
+            conn,
+            _workspace(),
+            secrets,
+            cli_auth=(Cli.CLAUDE, AuthMode.OAUTH),
+        )
+
+        # No auth.json should be uploaded for claude/oauth
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_cli_auth_no_auth_file(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        secrets = SecretBundle(developer={"OPENCODE_ZAI_API_KEY": "key"})
+        await mgr.inject_secrets(conn, _workspace(), secrets)
+
+        # No auth.json should be uploaded when cli_auth is None
+        upload_calls = conn.upload_content.call_args_list
+        auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
+        assert len(auth_uploads) == 0

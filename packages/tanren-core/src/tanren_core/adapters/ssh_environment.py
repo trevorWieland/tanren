@@ -7,7 +7,7 @@ import logging
 import shlex
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -38,13 +38,15 @@ from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
     PhaseResult,
+    ProvisionError,
     RemoteEnvironmentRuntime,
 )
+from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
 from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from tanren_core.process import assemble_prompt
-from tanren_core.schemas import Dispatch, Outcome, Phase
+from tanren_core.schemas import Cli, Dispatch, Outcome, Phase, Result
 from tanren_core.secrets import SecretLoader
 from tanren_core.signals import map_outcome, parse_signal_token
 
@@ -205,7 +207,12 @@ class SSHExecutionEnvironment:
             # 7. Inject secrets
             project_env = self._load_project_env(dispatch, config)
             bundle = self._secret_loader.build_bundle(project_env)
-            await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
+            await self._workspace_mgr.inject_secrets(
+                conn,
+                workspace_path,
+                bundle,
+                cli_auth=(dispatch.cli, dispatch.auth),
+            )
 
             # 8. Record assignment
             await self._state_store.record_assignment(
@@ -297,6 +304,10 @@ class SSHExecutionEnvironment:
             command_file, dispatch.spec_folder, command_name, dispatch.context
         )
 
+        # Inject CLI-specific auth for this dispatch's tool (may differ from provision)
+        bundle = self._secret_loader.build_bundle(self._load_project_env(dispatch, config))
+        await self._workspace_mgr.inject_cli_auth(conn, bundle, (dispatch.cli, dispatch.auth))
+
         while True:
             # Build CLI command
             cli_command = self._build_cli_command(dispatch, config)
@@ -338,15 +349,25 @@ class SSHExecutionEnvironment:
                     transient_retries += 1
                     backoff = TRANSIENT_BACKOFF[transient_retries - 1]
                     logger.warning(
-                        "Transient error (attempt %d/3), retrying in %ds",
+                        "Transient error (attempt %d/3), retrying in %ds. "
+                        "exit_code=%d stderr=%.500s stdout=%.500s",
                         transient_retries,
                         backoff,
+                        agent_result.exit_code,
+                        (agent_result.stderr or "")[-500:],
+                        (agent_result.stdout or "")[-500:],
                     )
                     await asyncio.sleep(backoff)
                     continue
                 if error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
                     transient_retries += 1
-                    logger.warning("Ambiguous error, retrying once in 10s")
+                    logger.warning(
+                        "Ambiguous error, retrying once in 10s. "
+                        "exit_code=%d stderr=%.500s stdout=%.500s",
+                        agent_result.exit_code,
+                        (agent_result.stderr or "")[-500:],
+                        (agent_result.stdout or "")[-500:],
+                    )
                     await asyncio.sleep(10)
                     continue
 
@@ -374,11 +395,29 @@ class SSHExecutionEnvironment:
                 )
                 final_stdout = (final_stdout or "") + push_diag
 
+        # Collect token usage (best-effort, 30s timeout)
+        token_usage_data = None
+        if dispatch.cli != Cli.BASH:
+            dispatch_end_utc = datetime.now(UTC)
+            dispatch_start_utc = dispatch_end_utc - timedelta(seconds=duration)
+            usage_runner = RemoteCommandRunner(conn)
+            usage = await collect_token_usage(
+                dispatch.cli,
+                workspace.path,
+                dispatch_start_utc,
+                dispatch_end_utc,
+                config,
+                usage_runner,
+            )
+            if usage is not None:
+                token_usage_data = usage.model_dump(mode="json")
+
         return PhaseResult(
             outcome=outcome,
             signal=signal_val,
             exit_code=agent_result.exit_code,
             stdout=final_stdout,
+            stderr=agent_result.stderr,
             duration_secs=duration,
             preflight_passed=True,
             postflight_result=None,
@@ -387,6 +426,7 @@ class SSHExecutionEnvironment:
             unchecked_tasks=0,
             plan_hash="00000000",
             retries=transient_retries,
+            token_usage=token_usage_data,
         )
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
@@ -507,7 +547,10 @@ class SSHExecutionEnvironment:
         """Read tanren.yml locally and resolve environment profile.
 
         Returns:
-            Resolved EnvironmentProfile, falling back to default.
+            Resolved EnvironmentProfile.
+
+        Raises:
+            ProvisionError: If the requested profile is not found.
         """
         tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
         if tanren_yml.exists():
@@ -520,11 +563,22 @@ class SSHExecutionEnvironment:
 
         profile = profiles.get(dispatch.environment_profile)
         if profile is None:
-            logger.warning(
-                "Profile %s not found, using default",
-                dispatch.environment_profile,
+            available = sorted(profiles.keys())
+            msg = (
+                f"Environment profile '{dispatch.environment_profile}' not found in tanren.yml. "
+                f"Available: {available}"
             )
-            profile = profiles.get("default", EnvironmentProfile(name="default"))
+            raise ProvisionError(
+                Result(
+                    workflow_id=dispatch.workflow_id,
+                    phase=dispatch.phase,
+                    outcome=Outcome.ERROR,
+                    exit_code=-1,
+                    duration_secs=0,
+                    tail_output=msg,
+                    spec_modified=False,
+                )
+            )
 
         return profile
 

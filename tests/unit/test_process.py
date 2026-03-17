@@ -101,6 +101,7 @@ class TestSpawnOpencode:
             commands_dir=".claude/commands/tanren",
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
 
         return dispatch, config
@@ -247,6 +248,7 @@ class TestSpawnClaude:
             commands_dir=".claude/commands/tanren",
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
+            roles_config_path=str(tmp_path / "roles.yml"),
         )
 
         return dispatch, config

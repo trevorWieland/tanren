@@ -29,12 +29,18 @@ from tanren_core.schemas import Cli, Outcome
 
 
 def _config(tmp_path: Path) -> Config:
+    roles_yml = tmp_path / "roles.yml"
+    if not roles_yml.exists():
+        roles_yml.write_text(
+            "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
+        )
     return Config(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path / "github"),
         data_dir=str(tmp_path / "data"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
         remote_config_path=str(tmp_path / "remote.yml"),
+        roles_config_path=str(roles_yml),
     )
 
 

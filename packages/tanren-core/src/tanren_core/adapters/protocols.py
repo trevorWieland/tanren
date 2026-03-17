@@ -27,7 +27,7 @@ from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
-from tanren_core.schemas import Dispatch
+from tanren_core.schemas import AuthMode, Cli, Dispatch
 
 
 @runtime_checkable
@@ -270,9 +270,23 @@ class WorkspaceManager(Protocol):
         ...
 
     async def inject_secrets(
-        self, conn: RemoteConnection, workspace: WorkspacePath, secrets: SecretBundle
+        self,
+        conn: RemoteConnection,
+        workspace: WorkspacePath,
+        secrets: SecretBundle,
+        *,
+        cli_auth: tuple[Cli, AuthMode] | None = None,
     ) -> None:
         """Write secret files into the remote workspace."""
+        ...
+
+    async def inject_cli_auth(
+        self,
+        conn: RemoteConnection,
+        secrets: SecretBundle,
+        cli_auth: tuple[Cli, AuthMode],
+    ) -> None:
+        """Inject CLI-specific auth files (e.g. opencode auth.json)."""
         ...
 
     def push_command(self, workspace_path: str, branch: str) -> str:
@@ -298,6 +312,7 @@ class RemoteConnection(Protocol):
         *,
         timeout: int | None = None,  # noqa: ASYNC109 — protocol signature, not an actual timeout
         stdin_data: str | None = None,
+        request_pty: bool = False,
     ) -> RemoteResult:
         """Execute a command on the remote host."""
         ...

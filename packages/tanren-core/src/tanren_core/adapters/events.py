@@ -132,3 +132,23 @@ class BootstrapCompleted(Event):
     installed: list[str] = Field(default_factory=list)
     skipped: list[str] = Field(default_factory=list)
     duration_secs: int = Field(default=0, ge=0)
+
+
+class TokenUsageRecorded(Event):
+    """Token usage data collected after a dispatch."""
+
+    type: Literal["token_usage_recorded"] = Field(
+        default="token_usage_recorded", description="Event type discriminator"
+    )
+    phase: str = Field(...)
+    cli: str = Field(...)
+    input_tokens: int = Field(..., ge=0)
+    output_tokens: int = Field(..., ge=0)
+    cache_creation_tokens: int = Field(default=0, ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cached_input_tokens: int = Field(default=0, ge=0)
+    reasoning_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(..., ge=0)
+    total_cost: float = Field(..., ge=0.0)
+    models_used: list[str] = Field(default_factory=list)
+    session_id: str | None = Field(default=None)

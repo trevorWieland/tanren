@@ -6,7 +6,7 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from tanren_core.adapters.events import DispatchReceived, Event, PhaseCompleted
+from tanren_core.adapters.events import DispatchReceived, Event, PhaseCompleted, TokenUsageRecorded
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 
 
@@ -120,3 +120,34 @@ class TestSqliteEventEmitter:
             payload = json.loads(row[1])
             assert payload["duration_secs"] == 120
             assert payload["outcome"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_token_usage_recorded_event(self, tmp_path: Path):
+        db_path = tmp_path / "events.db"
+        emitter = SqliteEventEmitter(db_path)
+        event = TokenUsageRecorded(
+            timestamp="2026-03-14T10:00:00Z",
+            workflow_id="wf-proj-1-1234",
+            phase="do-task",
+            cli="claude",
+            input_tokens=33653,
+            output_tokens=193856,
+            cache_creation_tokens=5336560,
+            cache_read_tokens=177649313,
+            total_tokens=183213382,
+            total_cost=127.19,
+            models_used=["claude-opus-4-6"],
+            session_id="-home-trevor-github-tanren",
+        )
+        await emitter.emit(event)
+        await emitter.close()
+
+        async with aiosqlite.connect(str(db_path)) as conn:
+            cursor = await conn.execute("SELECT event_type, payload FROM events")
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == "TokenUsageRecorded"
+            payload = json.loads(row[1])
+            assert payload["total_cost"] == pytest.approx(127.19)
+            assert payload["cli"] == "claude"
+            assert payload["models_used"] == ["claude-opus-4-6"]
