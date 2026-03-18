@@ -1,5 +1,6 @@
 """Tests for git workspace manager."""
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,7 +12,9 @@ from tanren_core.adapters.remote_types import (
     WorkspacePath,
     WorkspaceSpec,
 )
+from tanren_core.env.environment_schema import McpServerConfig
 from tanren_core.remote_config import GitAuthMethod
+from tanren_core.schemas import Cli
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -294,4 +297,135 @@ class TestCleanup:
         conn.run.assert_any_call("rm -f /workspace/.developer-secrets", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout=10)
         conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout=10)
-        assert conn.run.call_count == 3
+        conn.run.assert_any_call("rm -f /workspace/myapp/.mcp.json", timeout=10)
+        conn.run.assert_any_call("rm -f /workspace/myapp/.codex/config.toml", timeout=10)
+        conn.run.assert_any_call("rm -f /workspace/myapp/opencode.json", timeout=10)
+        assert conn.run.call_count == 6
+
+
+# ---------------------------------------------------------------------------
+# inject_mcp_config
+# ---------------------------------------------------------------------------
+
+
+def _mcp_servers(**overrides: McpServerConfig) -> dict[str, McpServerConfig]:
+    defaults = {
+        "context7": McpServerConfig(
+            url="https://mcp.context7.com/sse",
+            headers={"Authorization": "MCP_CONTEXT7_KEY"},
+        ),
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+class TestInjectMcpConfig:
+    @pytest.mark.asyncio
+    async def test_noop_for_bash_cli(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        await mgr.inject_mcp_config(conn, _workspace(), Cli.BASH, _mcp_servers())
+
+        conn.upload_content.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_noop_for_empty_mcp(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, {})
+
+        conn.upload_content.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_claude_mcp_json(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, _mcp_servers())
+
+        conn.upload_content.assert_called_once()
+        content = conn.upload_content.call_args.args[0]
+        path = conn.upload_content.call_args.args[1]
+        assert path == "/workspace/myapp/.mcp.json"
+
+        parsed = json.loads(content)
+        assert "mcpServers" in parsed
+        server = parsed["mcpServers"]["context7"]
+        assert server["type"] == "http"
+        assert server["url"] == "https://mcp.context7.com/sse"
+        assert server["headers"]["Authorization"] == "${MCP_CONTEXT7_KEY}"
+
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/.mcp.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_codex_config_toml(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        await mgr.inject_mcp_config(conn, _workspace(), Cli.CODEX, _mcp_servers())
+
+        conn.upload_content.assert_called_once()
+        content = conn.upload_content.call_args.args[0]
+        path = conn.upload_content.call_args.args[1]
+        assert path == "/workspace/myapp/.codex/config.toml"
+
+        assert "[mcp_servers.context7]" in content
+        assert 'url = "https://mcp.context7.com/sse"' in content
+        assert "[mcp_servers.context7.env_http_headers]" in content
+        assert 'Authorization = "MCP_CONTEXT7_KEY"' in content
+
+        conn.run.assert_any_call("mkdir -p /workspace/myapp/.codex", timeout=10)
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/.codex/config.toml", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_opencode_json(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        await mgr.inject_mcp_config(conn, _workspace(), Cli.OPENCODE, _mcp_servers())
+
+        conn.upload_content.assert_called_once()
+        content = conn.upload_content.call_args.args[0]
+        path = conn.upload_content.call_args.args[1]
+        assert path == "/workspace/myapp/opencode.json"
+
+        parsed = json.loads(content)
+        assert "mcp" in parsed
+        server = parsed["mcp"]["context7"]
+        assert server["type"] == "remote"
+        assert server["url"] == "https://mcp.context7.com/sse"
+        assert server["oauth"] is False
+        assert server["headers"]["Authorization"] == "{env:MCP_CONTEXT7_KEY}"
+
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/opencode.json", timeout=10)
+
+    @pytest.mark.asyncio
+    async def test_no_headers_skips_chmod(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        servers = {"ctx7": McpServerConfig(url="https://ctx7.example.com/sse")}
+        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, servers)
+
+        conn.upload_content.assert_called_once()
+        # No chmod call — only upload_content
+        conn.run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_multiple_servers(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        servers = {
+            "ctx7": McpServerConfig(url="https://ctx7.example.com/sse"),
+            "other": McpServerConfig(
+                url="https://other.example.com/sse",
+                headers={"X-Api-Key": "OTHER_KEY"},
+            ),
+        }
+        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, servers)
+
+        content = conn.upload_content.call_args.args[0]
+        parsed = json.loads(content)
+        assert "ctx7" in parsed["mcpServers"]
+        assert "other" in parsed["mcpServers"]
+        # Only "other" has headers
+        assert "headers" not in parsed["mcpServers"]["ctx7"]
+        assert parsed["mcpServers"]["other"]["headers"]["X-Api-Key"] == "${OTHER_KEY}"
+        # chmod still called because at least one server has headers
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/.mcp.json", timeout=10)

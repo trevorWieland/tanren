@@ -1257,3 +1257,49 @@ class TestAwaitSshReady:
             pytest.raises(TimeoutError, match="SSH not reachable"),
         ):
             await env._await_ssh_ready(conn, timeout=120)
+
+
+class TestMcpInjection:
+    async def test_provision_calls_inject_mcp_config(self, env_kit, tmp_path):
+        """Provision with mcp servers calls inject_mcp_config with cli and servers."""
+        env = env_kit["env"]
+        config = env_kit["config"]
+        workspace_mgr = env_kit["workspace_mgr"]
+        workspace_mgr.inject_mcp_config = AsyncMock()
+
+        dispatch = _make_dispatch(cli=Cli.CLAUDE)
+
+        # Write tanren.yml with mcp config
+        proj_dir = tmp_path / dispatch.project
+        proj_dir.mkdir(parents=True, exist_ok=True)
+        tanren_yml = proj_dir / "tanren.yml"
+        import yaml  # noqa: PLC0415
+
+        tanren_yml.write_text(
+            yaml.dump({
+                "environment": {
+                    "default": {
+                        "type": "remote",
+                        "mcp": {
+                            "context7": {
+                                "url": "https://mcp.context7.com/sse",
+                                "headers": {"Authorization": "MCP_CONTEXT7_KEY"},
+                            }
+                        },
+                    }
+                }
+            })
+        )
+
+        with patch(f"{_SSH_ENV}.SSHConnection") as MockSSH:
+            mock_conn = AsyncMock()
+            mock_conn.check_connection.return_value = True
+            MockSSH.return_value = mock_conn
+
+            await env.provision(dispatch, config)
+
+        workspace_mgr.inject_mcp_config.assert_awaited_once()
+        call_args = workspace_mgr.inject_mcp_config.call_args
+        assert call_args.args[2] == Cli.CLAUDE
+        assert "context7" in call_args.args[3]
+        assert call_args.args[3]["context7"].url == "https://mcp.context7.com/sse"

@@ -5,6 +5,7 @@ import pytest
 from tanren_core.env.environment_schema import (
     EnvironmentProfile,
     EnvironmentProfileType,
+    McpServerConfig,
     ResourceRequirements,
     parse_environment_profiles,
 )
@@ -98,3 +99,69 @@ class TestMultipleProfiles:
         assert result["staging"].resources.cpu == 8
         assert result["staging"].resources.memory_gb == 16
         assert result["staging"].setup == ("docker compose up -d",)
+
+
+class TestMcpServerConfig:
+    def test_url_required(self):
+        with pytest.raises(ValueError):
+            McpServerConfig()
+
+    def test_headers_default_empty(self):
+        cfg = McpServerConfig(url="https://example.com/sse")
+        assert cfg.headers == {}
+
+    def test_extra_fields_forbidden(self):
+        with pytest.raises(ValueError):
+            McpServerConfig(url="https://example.com/sse", bogus="x")  # type: ignore[unknown-argument]
+
+    def test_frozen(self):
+        cfg = McpServerConfig(url="https://example.com/sse")
+        with pytest.raises(ValueError):
+            cfg.url = "changed"
+
+
+class TestEnvironmentProfileMcp:
+    def test_mcp_default_empty(self):
+        p = EnvironmentProfile(name="test")
+        assert p.mcp == {}
+
+    def test_mcp_parsed_from_dict(self):
+        data = {
+            "environment": {
+                "default": {
+                    "type": "remote",
+                    "mcp": {
+                        "context7": {
+                            "url": "https://mcp.context7.com/sse",
+                            "headers": {"Authorization": "MCP_CONTEXT7_KEY"},
+                        }
+                    },
+                }
+            }
+        }
+        result = parse_environment_profiles(data)
+        profile = result["default"]
+        assert "context7" in profile.mcp
+        assert profile.mcp["context7"].url == "https://mcp.context7.com/sse"
+        assert profile.mcp["context7"].headers == {"Authorization": "MCP_CONTEXT7_KEY"}
+
+    def test_mcp_multiple_servers(self):
+        data = {
+            "environment": {
+                "default": {
+                    "type": "remote",
+                    "mcp": {
+                        "ctx7": {"url": "https://ctx7.example.com/sse"},
+                        "other": {
+                            "url": "https://other.example.com/sse",
+                            "headers": {"X-Api-Key": "OTHER_KEY"},
+                        },
+                    },
+                }
+            }
+        }
+        result = parse_environment_profiles(data)
+        profile = result["default"]
+        assert len(profile.mcp) == 2
+        assert profile.mcp["ctx7"].headers == {}
+        assert profile.mcp["other"].headers == {"X-Api-Key": "OTHER_KEY"}

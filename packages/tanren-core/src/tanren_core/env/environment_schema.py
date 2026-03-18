@@ -26,6 +26,15 @@ class ResourceRequirements(BaseModel):
     gpu: bool = Field(default=False)
 
 
+class McpServerConfig(BaseModel):
+    """MCP server configuration for remote CLI environments."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    url: str = Field(...)
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
 class EnvironmentProfile(BaseModel):
     """Parsed environment profile from tanren.yml."""
 
@@ -38,6 +47,7 @@ class EnvironmentProfile(BaseModel):
     teardown: tuple[str, ...] = Field(default_factory=tuple)
     gate_cmd: str = Field(default="make check")
     server_type: str | None = Field(default=None)
+    mcp: dict[str, McpServerConfig] = Field(default_factory=dict)
 
 
 def parse_environment_profiles(data: Mapping[str, object]) -> dict[str, EnvironmentProfile]:

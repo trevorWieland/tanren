@@ -219,6 +219,12 @@ class SSHExecutionEnvironment:
             bundle = self._secret_loader.build_bundle(project_env)
             await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
+            # 7c. Inject MCP config
+            if profile.mcp:
+                await self._workspace_mgr.inject_mcp_config(
+                    conn, workspace_path, dispatch.cli, profile.mcp
+                )
+
             # 7b. Make workspace secrets readable by agent user
             if self._agent_user:
                 quoted_user = shlex.quote(self._agent_user)
