@@ -84,9 +84,10 @@ class LocalCommandRunner:
 class RemoteCommandRunner:
     """Run commands via an SSH connection."""
 
-    def __init__(self, connection: object) -> None:
+    def __init__(self, connection: object, *, run_as_user: str | None = None) -> None:
         """Initialize with an SSH connection object."""
         self._connection = connection
+        self._run_as_user = run_as_user
 
     async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
         """Run a command on a remote host via SSH.
@@ -95,6 +96,8 @@ class RemoteCommandRunner:
             Tuple of (exit_code, stdout_text).
         """
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
+        if self._run_as_user:
+            cmd_str = f"su - {shlex.quote(self._run_as_user)} -c {shlex.quote(cmd_str)}"
         result = await self._connection.run(cmd_str, timeout=timeout)  # type: ignore[union-attr]
         return result.exit_code, result.stdout
 

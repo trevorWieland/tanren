@@ -1045,6 +1045,100 @@ class TestAgentUser:
         _, kwargs = mock_inject.call_args
         assert kwargs["target_home"] == "/home/tanren"
 
+    async def test_execute_wraps_push_with_su(self, env_kit):
+        """execute() wraps git push with su when agent_user is set."""
+        env = env_kit["env"]
+        env._agent_user = "tanren"
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch(phase=Phase.DO_TASK)
+        config = env_kit["config"]
+
+        env_kit["workspace_mgr"].push_command.return_value = "git push origin feature-1"
+
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
+        ):
+            await env.execute(handle, dispatch, config)
+
+        push_calls = [c for c in conn.run.call_args_list if "git push" in str(c)]
+        assert len(push_calls) == 1
+        assert push_calls[0].args[0].startswith("su - tanren -c ")
+
+    async def test_execute_no_push_wrap_without_agent_user(self, env_kit):
+        """execute() does NOT wrap git push when agent_user is None."""
+        env = env_kit["env"]
+        assert env._agent_user is None
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch(phase=Phase.DO_TASK)
+        config = env_kit["config"]
+
+        env_kit["workspace_mgr"].push_command.return_value = "git push origin feature-1"
+
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
+        ):
+            await env.execute(handle, dispatch, config)
+
+        push_calls = [c for c in conn.run.call_args_list if "git push" in str(c)]
+        assert len(push_calls) == 1
+        assert push_calls[0].args[0] == "git push origin feature-1"
+
+    async def test_teardown_wraps_commands_with_su(self, env_kit):
+        """teardown() wraps user teardown commands with su when agent_user is set."""
+        env = env_kit["env"]
+        env._agent_user = "tanren"
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
+        handle = _make_handle(conn=conn)
+
+        await env.teardown(handle)
+
+        teardown_calls = [c for c in conn.run.call_args_list if "make clean" in str(c)]
+        assert len(teardown_calls) == 1
+        assert teardown_calls[0].args[0].startswith("su - tanren -c ")
+
+    async def test_teardown_no_wrap_without_agent_user(self, env_kit):
+        """teardown() does NOT wrap teardown commands when agent_user is None."""
+        env = env_kit["env"]
+        assert env._agent_user is None
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
+        handle = _make_handle(conn=conn)
+
+        await env.teardown(handle)
+
+        teardown_calls = [c for c in conn.run.call_args_list if "make clean" in str(c)]
+        assert len(teardown_calls) == 1
+        assert teardown_calls[0].args[0] == "cd /workspace/myproj && make clean"
+
+    async def test_execute_passes_agent_user_to_ccusage_runner(self, env_kit):
+        """execute() passes agent_user as run_as_user to RemoteCommandRunner."""
+        env = env_kit["env"]
+        env._agent_user = "tanren"
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch(cli=Cli.CLAUDE)
+        config = env_kit["config"]
+
+        with (
+            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
+            patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
+            patch(f"{_SSH_ENV}.RemoteCommandRunner") as MockRunner,
+            patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
+        ):
+            await env.execute(handle, dispatch, config)
+
+        MockRunner.assert_called_once_with(conn, run_as_user="tanren")
+
     async def test_teardown_uses_absolute_paths_for_credential_cleanup(self, env_kit):
         """teardown() uses /home/tanren paths (not tilde) when agent_user is set."""
         env = env_kit["env"]

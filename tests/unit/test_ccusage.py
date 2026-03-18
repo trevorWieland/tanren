@@ -10,6 +10,7 @@ import pytest
 
 from tanren_core.ccusage import (
     LocalCommandRunner,
+    RemoteCommandRunner,
     _derive_session_id,  # noqa: PLC2701
     _match_session_by_time,  # noqa: PLC2701
     _normalize_claude,  # noqa: PLC2701
@@ -371,3 +372,37 @@ class TestLocalCommandRunnerTimeout:
 
         mock_proc.kill.assert_called_once()
         mock_proc.wait.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# RemoteCommandRunner — su wrapping
+# ---------------------------------------------------------------------------
+
+
+class TestRemoteCommandRunner:
+    @pytest.mark.asyncio
+    async def test_wraps_with_su_when_run_as_user_set(self):
+        """RemoteCommandRunner wraps command with su when run_as_user is set."""
+        conn = AsyncMock()
+        conn.run.return_value = AsyncMock(exit_code=0, stdout="ok")
+        runner = RemoteCommandRunner(conn, run_as_user="tanren")
+
+        await runner.run_command(["ccusage", "session", "--json"], timeout=30)
+
+        cmd_str = conn.run.call_args[0][0]
+        assert cmd_str.startswith("su - tanren -c ")
+        # The inner command should be quoted
+        assert "ccusage" in cmd_str
+
+    @pytest.mark.asyncio
+    async def test_no_wrap_without_run_as_user(self):
+        """RemoteCommandRunner passes command through when run_as_user is None."""
+        conn = AsyncMock()
+        conn.run.return_value = AsyncMock(exit_code=0, stdout="ok")
+        runner = RemoteCommandRunner(conn)
+
+        await runner.run_command(["ccusage", "session", "--json"], timeout=30)
+
+        cmd_str = conn.run.call_args[0][0]
+        assert cmd_str == "ccusage session --json"
+        assert "su -" not in cmd_str

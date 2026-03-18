@@ -404,7 +404,7 @@ class SSHExecutionEnvironment:
         final_stdout = agent_result.stdout
         if dispatch.phase in _PUSH_PHASES and outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
             push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
-            push_result = await conn.run(push_cmd, timeout=120)
+            push_result = await conn.run(self._wrap_for_agent_user(push_cmd), timeout=120)
             if push_result.exit_code != 0:
                 logger.error(
                     "Remote git push failed (exit %d) for %s branch %s: %s",
@@ -425,7 +425,7 @@ class SSHExecutionEnvironment:
         if dispatch.cli != Cli.BASH:
             dispatch_end_utc = datetime.now(UTC)
             dispatch_start_utc = dispatch_end_utc - timedelta(seconds=duration)
-            usage_runner = RemoteCommandRunner(conn)
+            usage_runner = RemoteCommandRunner(conn, run_as_user=self._agent_user)
             usage = await collect_token_usage(
                 dispatch.cli,
                 workspace.path,
@@ -499,8 +499,9 @@ class SSHExecutionEnvironment:
         try:
             for cmd in teardown_cmds:
                 try:
+                    teardown_cmd = f"cd {shlex.quote(workspace.path)} && {cmd}"
                     await conn.run(
-                        f"cd {shlex.quote(workspace.path)} && {cmd}",
+                        self._wrap_for_agent_user(teardown_cmd),
                         timeout=120,
                     )
                 except Exception:
@@ -629,6 +630,16 @@ class SSHExecutionEnvironment:
             return {}
         values = dotenv_values(env_file)
         return {k: v for k, v in values.items() if v is not None}
+
+    def _wrap_for_agent_user(self, command: str) -> str:
+        """Wrap a shell command to run as the agent user via ``su -``.
+
+        Returns:
+            The command wrapped with ``su -``, or unchanged when no agent_user is configured.
+        """
+        if self._agent_user:
+            return f"su - {shlex.quote(self._agent_user)} -c {shlex.quote(command)}"
+        return command
 
     def _build_cli_command(self, dispatch: Dispatch, config: Config) -> str:
         """Build the CLI command string for remote execution.
