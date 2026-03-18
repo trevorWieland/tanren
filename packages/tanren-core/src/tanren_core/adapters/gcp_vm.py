@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 import types
 from collections.abc import Mapping
@@ -106,15 +107,14 @@ class GCPVMProvisioner:
                 f"Missing SSH public key in environment variable: {self._settings.ssh_key_env}"
             )
 
+        safe_profile = re.sub(r"[^a-z0-9-]", "-", requirements.profile.lower())[:20].strip("-")
+
         labels = dict(self._settings.labels)
         labels[self._settings.managed_by_label_key] = self._settings.managed_by_label_value
-        labels["tanren-profile"] = requirements.profile
+        labels["tanren-profile"] = safe_profile
 
         suffix = os.urandom(4).hex()
-        safe_profile = requirements.profile.lower()[:20]
-        instance_name = (
-            f"{self._settings.name_prefix}-{safe_profile}-{int(time.time())}-{suffix}"
-        ).replace("_", "-")
+        instance_name = f"{self._settings.name_prefix}-{safe_profile}-{int(time.time())}-{suffix}"
 
         instance_resource = self._build_instance_resource(
             name=instance_name,
