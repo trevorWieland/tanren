@@ -111,8 +111,9 @@ class GCPVMProvisioner:
         labels["tanren-profile"] = requirements.profile
 
         suffix = os.urandom(4).hex()
+        safe_profile = requirements.profile.lower()[:20]
         instance_name = (
-            f"{self._settings.name_prefix}-{requirements.profile}-{int(time.time())}-{suffix}"
+            f"{self._settings.name_prefix}-{safe_profile}-{int(time.time())}-{suffix}"
         ).replace("_", "-")
 
         instance_resource = self._build_instance_resource(

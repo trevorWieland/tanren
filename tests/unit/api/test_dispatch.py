@@ -486,7 +486,7 @@ class TestDispatch:
         self, client, auth_headers, app
     ):
         """Background task exits without provisioning when dispatch is already CANCELLED."""
-        from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701
+        from tanren_api.services import DispatchService  # noqa: PLC0415
 
         store = app.state.api_store
         mock_env = app.state.execution_env
@@ -509,7 +509,8 @@ class TestDispatch:
         )
         await store.add_dispatch(record)
 
-        await _dispatch_background(dispatch, "wf-early-cancel", mock_env, app.state.config, store)
+        svc = DispatchService(store, app.state.config, execution_env=mock_env)
+        await svc._dispatch_background(dispatch, "wf-early-cancel")
 
         # provision/execute should never have been called
         mock_env.provision.assert_not_called()
@@ -564,7 +565,7 @@ class TestDispatch:
     async def test_dispatch_teardown_shielded_from_cancellation(self, client, auth_headers, app):
         """Teardown is shielded from cancellation in _dispatch_background
         and the task doesn't return until teardown actually finishes."""
-        from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701
+        from tanren_api.services import DispatchService  # noqa: PLC0415
 
         store = app.state.api_store
         mock_env = app.state.execution_env
@@ -605,9 +606,8 @@ class TestDispatch:
 
         mock_env.teardown = AsyncMock(side_effect=_blocking_teardown)
 
-        task = asyncio.create_task(
-            _dispatch_background(dispatch, "wf-shield-test", mock_env, app.state.config, store)
-        )
+        svc = DispatchService(store, app.state.config, execution_env=mock_env)
+        task = asyncio.create_task(svc._dispatch_background(dispatch, "wf-shield-test"))
 
         # Wait for execute to start, then cancel
         await execute_started.wait()
@@ -670,7 +670,7 @@ class TestDispatch:
 
     async def test_background_task_does_not_overwrite_cancelled(self, client, auth_headers, app):
         """Background task completing after cancellation does not overwrite CANCELLED status."""
-        from tanren_api.routers.dispatch import _dispatch_background  # noqa: PLC0415,PLC2701
+        from tanren_api.services import DispatchService  # noqa: PLC0415
 
         store = app.state.api_store
         mock_env = app.state.execution_env
@@ -708,7 +708,8 @@ class TestDispatch:
         mock_env.execute = AsyncMock(side_effect=_cancel_then_return)
 
         # Run the background task — it should NOT overwrite CANCELLED
-        await _dispatch_background(dispatch, "wf-race-test", mock_env, app.state.config, store)
+        svc = DispatchService(store, app.state.config, execution_env=mock_env)
+        await svc._dispatch_background(dispatch, "wf-race-test")
 
         final = await store.get_dispatch("wf-race-test")
         assert final is not None

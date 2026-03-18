@@ -1,6 +1,6 @@
 [project]
 name = "tanren-api"
-version = "0.1.0"
+version = "0.1.1"
 description = "FastAPI HTTP API for tanren"
 requires-python = ">=3.14"
 dependencies = [
@@ -8,7 +8,12 @@ dependencies = [
     "fastapi>=0.128.0, <1",
     "uvicorn>=0.40.0, <1",
     "pydantic-settings>=2.0, <3",
+    "fastmcp>=2.14.5",
 ]
+
+[project.optional-dependencies]
+hetzner = ["tanren-core[hetzner]"]
+gcp = ["tanren-core[gcp]"]
 
 [project.scripts]
 tanren-api = "tanren_api.main:main"
