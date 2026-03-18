@@ -6,6 +6,8 @@ on:
     paths:
       - "services/tanren-api/**"
       - "packages/tanren-core/**"
+      - "services/tanren-cli/pyproject.toml"
+      - "services/tanren-daemon/pyproject.toml"
       - "pyproject.toml"
       - "uv.lock"
       - ".dockerignore"
@@ -15,6 +17,8 @@ on:
     paths:
       - "services/tanren-api/**"
       - "packages/tanren-core/**"
+      - "services/tanren-cli/pyproject.toml"
+      - "services/tanren-daemon/pyproject.toml"
       - "pyproject.toml"
       - "uv.lock"
       - ".dockerignore"

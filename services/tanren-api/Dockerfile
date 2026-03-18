@@ -45,5 +45,4 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
 
 USER app
 
-ENTRYPOINT ["uvicorn", "tanren_api.main:app"]
-CMD ["--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+ENTRYPOINT ["tanren-api"]
