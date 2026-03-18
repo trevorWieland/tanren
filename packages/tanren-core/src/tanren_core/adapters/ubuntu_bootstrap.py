@@ -26,7 +26,12 @@ _NODE_INSTALL = (
 _INFRA_STEPS: tuple[tuple[str, str, str], ...] = (
     ("docker", "command -v docker", "curl -fsSL https://get.docker.com | sh"),
     ("node", "command -v node", _NODE_INSTALL),
-    ("uv", "command -v uv", "curl -LsSf https://astral.sh/uv/install.sh | sh"),
+    (
+        "uv",
+        "command -v uv",
+        "curl -LsSf https://astral.sh/uv/install.sh | sh"
+        " && cp $HOME/.local/bin/uv /usr/local/bin/uv",
+    ),
 )
 
 # Per-CLI install steps — only installed when the CLI is in required_clis.

@@ -513,10 +513,8 @@ class SSHExecutionEnvironment:
                 await self._workspace_mgr.cleanup(conn, workspace)
                 # Remove credential files (best-effort, after workspace cleanup)
                 raw_paths = all_credential_cleanup_paths(self._credential_providers)
-                if self._agent_user:
-                    cred_paths = [p.replace("~", f"/home/{self._agent_user}") for p in raw_paths]
-                else:
-                    cred_paths = raw_paths
+                home = f"/home/{self._agent_user}" if self._agent_user else "/root"
+                cred_paths = [p.replace("~", home) for p in raw_paths]
                 for cred_path in cred_paths:
                     try:
                         await conn.run(f"rm -f {shlex.quote(cred_path)}", timeout=10)
