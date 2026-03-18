@@ -235,6 +235,14 @@ class SSHExecutionEnvironment:
             )
             logger.info("Injected credentials: %s", injected)
 
+            # 8b. Ensure agent user owns their entire home directory
+            # (bootstrap and credential injection run as root, leaving root-owned dirs)
+            if self._agent_user:
+                await conn.run(
+                    f"chown -R {self._agent_user}:{self._agent_user} /home/{self._agent_user}",
+                    timeout=10,
+                )
+
             # 9. Record assignment
             await self._state_store.record_assignment(
                 vm_id=vm_handle.vm_id,
