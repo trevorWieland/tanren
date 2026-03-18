@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from google.api_core.exceptions import NotFound
 
 from tanren_core.adapters.gcp_vm import GCPProvisionerSettings, GCPVMProvisioner
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
@@ -112,11 +111,7 @@ async def test_acquire_extracts_external_ip(monkeypatch):
 async def test_acquire_times_out_when_instance_not_ready(monkeypatch):
     monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
 
-    call_count = 0
-
     def fake_get(**_kw):
-        nonlocal call_count
-        call_count += 1
         return _FakeInstance(statuses=["PROVISIONING"])
 
     insert_op = Mock()
@@ -162,9 +157,10 @@ async def test_release_deletes_instance(monkeypatch):
 @pytest.mark.asyncio
 async def test_release_missing_instance_is_graceful(monkeypatch):
     monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
+    gae = pytest.importorskip("google.api_core.exceptions")
 
     client = Mock()
-    client.delete = Mock(side_effect=NotFound("not found"))
+    client.delete = Mock(side_effect=gae.NotFound("not found"))
 
     provisioner = _make_provisioner(monkeypatch, client)
 

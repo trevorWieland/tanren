@@ -30,6 +30,8 @@ def provisioner():
     """Create a GCPVMProvisioner using real GCP credentials."""
     if not _PROJECT:
         raise pytest.skip.Exception(_skip_reason)
+    if not os.environ.get("GCP_SSH_PUBLIC_KEY"):
+        raise pytest.skip.Exception("GCP_SSH_PUBLIC_KEY not set")
 
     settings = GCPProvisionerSettings(
         project_id=_PROJECT,
