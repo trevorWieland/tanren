@@ -14,7 +14,6 @@ from tanren_core.adapters.remote_types import (
 )
 from tanren_core.env.environment_schema import McpServerConfig
 from tanren_core.remote_config import GitAuthMethod
-from tanren_core.schemas import Cli
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -321,32 +320,34 @@ def _mcp_servers(**overrides: McpServerConfig) -> dict[str, McpServerConfig]:
 
 class TestInjectMcpConfig:
     @pytest.mark.asyncio
-    async def test_noop_for_bash_cli(self):
-        conn = _make_conn()
-        mgr = GitWorkspaceManager(GitAuthConfig())
-        await mgr.inject_mcp_config(conn, _workspace(), Cli.BASH, _mcp_servers())
-
-        conn.upload_content.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_noop_for_empty_mcp(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
-        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, {})
+        await mgr.inject_mcp_config(conn, _workspace(), {})
 
         conn.upload_content.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_claude_mcp_json(self):
+    async def test_writes_all_three_configs(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
-        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, _mcp_servers())
+        await mgr.inject_mcp_config(conn, _workspace(), _mcp_servers())
 
-        conn.upload_content.assert_called_once()
-        content = conn.upload_content.call_args.args[0]
-        path = conn.upload_content.call_args.args[1]
-        assert path == "/workspace/myapp/.mcp.json"
+        # All three CLI configs uploaded
+        assert conn.upload_content.call_count == 3
+        uploaded_paths = [c.args[1] for c in conn.upload_content.call_args_list]
+        assert "/workspace/myapp/.mcp.json" in uploaded_paths
+        assert "/workspace/myapp/.codex/config.toml" in uploaded_paths
+        assert "/workspace/myapp/opencode.json" in uploaded_paths
 
+    @pytest.mark.asyncio
+    async def test_claude_mcp_json_format(self):
+        conn = _make_conn()
+        mgr = GitWorkspaceManager(GitAuthConfig())
+        await mgr.inject_mcp_config(conn, _workspace(), _mcp_servers())
+
+        claude_call = [c for c in conn.upload_content.call_args_list if ".mcp.json" in c.args[1]]
+        content = claude_call[0].args[0]
         parsed = json.loads(content)
         assert "mcpServers" in parsed
         server = parsed["mcpServers"]["context7"]
@@ -357,16 +358,13 @@ class TestInjectMcpConfig:
         conn.run.assert_any_call("chmod 600 /workspace/myapp/.mcp.json", timeout=10)
 
     @pytest.mark.asyncio
-    async def test_codex_config_toml(self):
+    async def test_codex_config_toml_format(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
-        await mgr.inject_mcp_config(conn, _workspace(), Cli.CODEX, _mcp_servers())
+        await mgr.inject_mcp_config(conn, _workspace(), _mcp_servers())
 
-        conn.upload_content.assert_called_once()
-        content = conn.upload_content.call_args.args[0]
-        path = conn.upload_content.call_args.args[1]
-        assert path == "/workspace/myapp/.codex/config.toml"
-
+        codex_call = [c for c in conn.upload_content.call_args_list if "config.toml" in c.args[1]]
+        content = codex_call[0].args[0]
         assert "[mcp_servers.context7]" in content
         assert 'url = "https://mcp.context7.com/sse"' in content
         assert "[mcp_servers.context7.env_http_headers]" in content
@@ -376,16 +374,13 @@ class TestInjectMcpConfig:
         conn.run.assert_any_call("chmod 600 /workspace/myapp/.codex/config.toml", timeout=10)
 
     @pytest.mark.asyncio
-    async def test_opencode_json(self):
+    async def test_opencode_json_format(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
-        await mgr.inject_mcp_config(conn, _workspace(), Cli.OPENCODE, _mcp_servers())
+        await mgr.inject_mcp_config(conn, _workspace(), _mcp_servers())
 
-        conn.upload_content.assert_called_once()
-        content = conn.upload_content.call_args.args[0]
-        path = conn.upload_content.call_args.args[1]
-        assert path == "/workspace/myapp/opencode.json"
-
+        oc_call = [c for c in conn.upload_content.call_args_list if "opencode.json" in c.args[1]]
+        content = oc_call[0].args[0]
         parsed = json.loads(content)
         assert "mcp" in parsed
         server = parsed["mcp"]["context7"]
@@ -401,14 +396,15 @@ class TestInjectMcpConfig:
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         servers = {"ctx7": McpServerConfig(url="https://ctx7.example.com/sse")}
-        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, servers)
+        await mgr.inject_mcp_config(conn, _workspace(), servers)
 
-        conn.upload_content.assert_called_once()
-        # No chmod call — only upload_content
-        conn.run.assert_not_called()
+        assert conn.upload_content.call_count == 3
+        # mkdir for .codex/ but no chmod calls
+        chmod_calls = [c for c in conn.run.call_args_list if "chmod" in str(c)]
+        assert len(chmod_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_multiple_servers(self):
+    async def test_multiple_servers_in_claude_output(self):
         conn = _make_conn()
         mgr = GitWorkspaceManager(GitAuthConfig())
         servers = {
@@ -418,10 +414,10 @@ class TestInjectMcpConfig:
                 headers={"X-Api-Key": "OTHER_KEY"},
             ),
         }
-        await mgr.inject_mcp_config(conn, _workspace(), Cli.CLAUDE, servers)
+        await mgr.inject_mcp_config(conn, _workspace(), servers)
 
-        content = conn.upload_content.call_args.args[0]
-        parsed = json.loads(content)
+        claude_call = [c for c in conn.upload_content.call_args_list if ".mcp.json" in c.args[1]]
+        parsed = json.loads(claude_call[0].args[0])
         assert "ctx7" in parsed["mcpServers"]
         assert "other" in parsed["mcpServers"]
         # Only "other" has headers

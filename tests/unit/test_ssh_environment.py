@@ -1261,7 +1261,7 @@ class TestAwaitSshReady:
 
 class TestMcpInjection:
     async def test_provision_calls_inject_mcp_config(self, env_kit, tmp_path):
-        """Provision with mcp servers calls inject_mcp_config with cli and servers."""
+        """Provision with mcp servers calls inject_mcp_config with servers."""
         env = env_kit["env"]
         config = env_kit["config"]
         workspace_mgr = env_kit["workspace_mgr"]
@@ -1300,6 +1300,5 @@ class TestMcpInjection:
 
         workspace_mgr.inject_mcp_config.assert_awaited_once()
         call_args = workspace_mgr.inject_mcp_config.call_args
-        assert call_args.args[2] == Cli.CLAUDE
-        assert "context7" in call_args.args[3]
-        assert call_args.args[3]["context7"].url == "https://mcp.context7.com/sse"
+        assert "context7" in call_args.args[2]
+        assert call_args.args[2]["context7"].url == "https://mcp.context7.com/sse"

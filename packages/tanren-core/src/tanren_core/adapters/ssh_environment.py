@@ -221,9 +221,7 @@ class SSHExecutionEnvironment:
 
             # 7c. Inject MCP config
             if profile.mcp:
-                await self._workspace_mgr.inject_mcp_config(
-                    conn, workspace_path, dispatch.cli, profile.mcp
-                )
+                await self._workspace_mgr.inject_mcp_config(conn, workspace_path, profile.mcp)
 
             # 7b. Make workspace secrets readable by agent user
             if self._agent_user:

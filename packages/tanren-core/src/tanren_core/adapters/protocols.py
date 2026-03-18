@@ -28,7 +28,7 @@ from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
-from tanren_core.schemas import Cli, Dispatch
+from tanren_core.schemas import Dispatch
 
 
 @runtime_checkable
@@ -283,10 +283,9 @@ class WorkspaceManager(Protocol):
         self,
         conn: RemoteConnection,
         workspace: WorkspacePath,
-        cli: Cli,
         mcp_servers: dict[str, McpServerConfig],
     ) -> None:
-        """Write CLI-native MCP config files into the remote workspace."""
+        """Write MCP config files for all CLIs into the remote workspace."""
         ...
 
     def push_command(self, workspace_path: str, branch: str) -> str:

@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from tanren_core.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
 from tanren_core.env.environment_schema import McpServerConfig
 from tanren_core.remote_config import GitAuthMethod
-from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import RemoteConnection
@@ -153,35 +152,29 @@ class GitWorkspaceManager:
         self,
         conn: RemoteConnection,
         workspace: WorkspacePath,
-        cli: Cli,
         mcp_servers: dict[str, McpServerConfig],
     ) -> None:
-        """Write CLI-native MCP config files into the remote workspace."""
-        if not mcp_servers or cli == Cli.BASH:
+        """Write MCP config files for all CLIs into the remote workspace."""
+        if not mcp_servers:
             return
 
         has_headers = any(s.headers for s in mcp_servers.values())
 
-        if cli == Cli.CLAUDE:
-            content = self._render_claude_mcp(mcp_servers)
-            rel_path = self._MCP_FILES["claude"]
-        elif cli == Cli.CODEX:
-            content = self._render_codex_mcp(mcp_servers)
-            rel_path = self._MCP_FILES["codex"]
-            # mkdir -p for .codex/ subdirectory
-            codex_dir = f"{workspace.path}/.codex"
-            await conn.run(f"mkdir -p {shlex.quote(codex_dir)}", timeout=10)
-        elif cli == Cli.OPENCODE:
-            content = self._render_opencode_mcp(mcp_servers)
-            rel_path = self._MCP_FILES["opencode"]
-        else:
-            return
+        configs: list[tuple[str, str]] = [
+            (self._MCP_FILES["claude"], self._render_claude_mcp(mcp_servers)),
+            (self._MCP_FILES["codex"], self._render_codex_mcp(mcp_servers)),
+            (self._MCP_FILES["opencode"], self._render_opencode_mcp(mcp_servers)),
+        ]
 
-        full_path = f"{workspace.path}/{rel_path}"
-        await conn.upload_content(content, full_path)
+        # mkdir -p for .codex/ subdirectory
+        codex_dir = f"{workspace.path}/.codex"
+        await conn.run(f"mkdir -p {shlex.quote(codex_dir)}", timeout=10)
 
-        if has_headers:
-            await conn.run(f"chmod 600 {shlex.quote(full_path)}", timeout=10)
+        for rel_path, content in configs:
+            full_path = f"{workspace.path}/{rel_path}"
+            await conn.upload_content(content, full_path)
+            if has_headers:
+                await conn.run(f"chmod 600 {shlex.quote(full_path)}", timeout=10)
 
     @staticmethod
     def _render_claude_mcp(mcp_servers: dict[str, McpServerConfig]) -> str:
