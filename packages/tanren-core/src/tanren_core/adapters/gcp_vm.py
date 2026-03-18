@@ -110,8 +110,9 @@ class GCPVMProvisioner:
         labels[self._settings.managed_by_label_key] = self._settings.managed_by_label_value
         labels["tanren-profile"] = requirements.profile
 
+        suffix = os.urandom(4).hex()
         instance_name = (
-            f"{self._settings.name_prefix}-{requirements.profile}-{int(time.time())}"
+            f"{self._settings.name_prefix}-{requirements.profile}-{int(time.time())}-{suffix}"
         ).replace("_", "-")
 
         instance_resource = self._build_instance_resource(
@@ -156,7 +157,7 @@ class GCPVMProvisioner:
                 f"GCP instance {instance_name} did not become ready "
                 f"within {self._settings.readiness_timeout_secs}s"
             )
-        except Exception:
+        except BaseException:
             await asyncio.to_thread(self._delete_instance_best_effort, instance_name)
             raise
 
