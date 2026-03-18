@@ -35,6 +35,9 @@ COPY --from=build /app/.venv /app/.venv
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+WORKDIR /app
+RUN chown app:app /app
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
