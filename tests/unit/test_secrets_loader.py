@@ -7,13 +7,15 @@ from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretConfig, SecretLoader
 
+_ALL_CLIS = frozenset({Cli.CLAUDE, Cli.CODEX, Cli.OPENCODE})
+
 
 class TestLoadDeveloper:
     def test_reads_from_secrets_file(self, tmp_path: Path):
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("API_KEY=sk-abc123\nDB_URL=postgres://localhost\n")
         config = SecretConfig(developer_secrets_path=str(secrets_file))
-        loader = SecretLoader(config)
+        loader = SecretLoader(config, required_clis=_ALL_CLIS)
 
         result = loader.load_developer()
 
@@ -21,7 +23,7 @@ class TestLoadDeveloper:
 
     def test_returns_empty_dict_when_file_missing(self, tmp_path: Path):
         config = SecretConfig(developer_secrets_path=str(tmp_path / "nonexistent.env"))
-        loader = SecretLoader(config)
+        loader = SecretLoader(config, required_clis=_ALL_CLIS)
 
         result = loader.load_developer()
 
@@ -32,7 +34,7 @@ class TestLoadInfrastructure:
     def test_reads_from_env_vars(self, monkeypatch):
         monkeypatch.setenv("GIT_TOKEN", "ghp_abc123")
         config = SecretConfig(infrastructure_env_vars=("GIT_TOKEN",))
-        loader = SecretLoader(config)
+        loader = SecretLoader(config, required_clis=_ALL_CLIS)
 
         result = loader.load_infrastructure()
 
@@ -44,7 +46,10 @@ class TestLoadCredentialFiles:
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("")
         (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=frozenset({Cli.CLAUDE}),
+        )
 
         result = loader.load_credential_files()
 
@@ -54,7 +59,10 @@ class TestLoadCredentialFiles:
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("")
         (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=frozenset({Cli.CODEX}),
+        )
 
         result = loader.load_credential_files()
 
@@ -65,7 +73,10 @@ class TestLoadCredentialFiles:
         secrets_file.write_text("")
         (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
         (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=frozenset({Cli.CLAUDE, Cli.CODEX}),
+        )
 
         result = loader.load_credential_files()
 
@@ -77,7 +88,10 @@ class TestLoadCredentialFiles:
     def test_returns_empty_when_no_files(self, tmp_path: Path):
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("")
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=_ALL_CLIS,
+        )
 
         result = loader.load_credential_files()
 
@@ -87,7 +101,10 @@ class TestLoadCredentialFiles:
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("")
         (tmp_path / "claude_credentials.json").write_text("   \n  ")
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=frozenset({Cli.CLAUDE}),
+        )
 
         result = loader.load_credential_files()
 
@@ -135,18 +152,6 @@ class TestRequiredClisFiltering:
 
         assert result == {}
 
-    def test_none_required_clis_loads_all(self, tmp_path: Path):
-        secrets_file = tmp_path / "secrets.env"
-        secrets_file.write_text("")
-        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
-        (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
-
-        result = loader.load_credential_files()
-
-        assert "CLAUDE_CREDENTIALS_JSON" in result
-        assert "CODEX_AUTH_JSON" in result
-
 
 class TestBuildBundle:
     def test_combines_all_sources(self, tmp_path: Path, monkeypatch):
@@ -158,7 +163,7 @@ class TestBuildBundle:
             developer_secrets_path=str(secrets_file),
             infrastructure_env_vars=("GIT_TOKEN",),
         )
-        loader = SecretLoader(config)
+        loader = SecretLoader(config, required_clis=frozenset({Cli.CLAUDE}))
 
         bundle = loader.build_bundle(project_secrets={"PROJ_KEY": "proj_val"})
 
@@ -184,7 +189,9 @@ class TestAutoload:
         secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
         monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
 
-        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)), required_clis=_ALL_CLIS
+        )
 
         assert os.environ.get("HCLOUD_TOKEN") is None
 
@@ -193,7 +200,9 @@ class TestAutoload:
         secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
         monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
 
-        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file))).autoload_into_env()
+        SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)), required_clis=_ALL_CLIS
+        ).autoload_into_env()
 
         assert os.environ.get("HCLOUD_TOKEN") == "from-file"
 
@@ -202,6 +211,8 @@ class TestAutoload:
         secrets_file.write_text("HCLOUD_TOKEN=from-file\n")
         monkeypatch.setenv("HCLOUD_TOKEN", "explicit")
 
-        SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file))).autoload_into_env()
+        SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)), required_clis=_ALL_CLIS
+        ).autoload_into_env()
 
         assert os.environ.get("HCLOUD_TOKEN") == "explicit"

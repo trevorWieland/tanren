@@ -106,11 +106,11 @@ class UbuntuBootstrapper:
     def __init__(
         self,
         *,
-        required_clis: frozenset[Cli] | None = None,
+        required_clis: frozenset[Cli],
         extra_script: str | None = None,
     ) -> None:
         """Initialize with required CLIs and an optional extra bootstrap script."""
-        self._required_clis = required_clis or frozenset({Cli.CLAUDE, Cli.OPENCODE})
+        self._required_clis = required_clis
         self._extra_script = extra_script
 
     def _build_steps(self) -> tuple[tuple[str, str, str], ...]:

@@ -95,7 +95,7 @@ class TestWorkerManagerInit:
         seen: dict[str, object] = {}
 
         class _FakeSecretLoader:
-            def __init__(self, config, *, required_clis=None):
+            def __init__(self, config, *, required_clis):
                 seen["secret_config"] = config
 
             def autoload_into_env(self, *, override: bool = False) -> None:

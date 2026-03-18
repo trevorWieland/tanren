@@ -19,6 +19,7 @@ import pytest
 from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
+from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretLoader
 
 pytestmark = pytest.mark.hetzner
@@ -26,7 +27,7 @@ pytestmark = pytest.mark.hetzner
 
 def _load_token() -> str | None:
     """Load HETZNER_API_TOKEN from the developer secrets file."""
-    loader = SecretLoader()
+    loader = SecretLoader(required_clis=frozenset({Cli.CLAUDE}))
     loader.autoload_into_env(override=False)
     secrets = loader.load_developer()
     return secrets.get("HETZNER_API_TOKEN")

@@ -201,12 +201,8 @@ def vm_dry_run(
         raise typer.Exit(code=1)
 
     # Load roles to determine required CLIs
-    try:
-        roles = load_roles_config(config.roles_config_path)
-        required_clis = roles.required_clis()
-    except (FileNotFoundError, ValueError) as exc:
-        typer.echo(f"Warning: could not load roles config: {exc}", err=True)
-        required_clis = None
+    roles = load_roles_config(config.roles_config_path)
+    required_clis = roles.required_clis()
 
     typer.echo("bootstrap_steps:")
     bootstrapper = UbuntuBootstrapper(required_clis=required_clis)
@@ -240,7 +236,7 @@ def vm_dry_run(
             remote_cfg.secrets.developer_secrets_path or SecretConfig().developer_secrets_path
         ),
     )
-    loader = SecretLoader(secret_config)
+    loader = SecretLoader(secret_config, required_clis=required_clis)
     developer_secret_keys = sorted(loader.load_developer().keys())
     infrastructure_secret_keys = sorted(secret_config.infrastructure_env_vars)
 

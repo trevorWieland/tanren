@@ -40,9 +40,9 @@ class SecretLoader:
         self,
         config: SecretConfig | None = None,
         *,
-        required_clis: frozenset[Cli] | None = None,
+        required_clis: frozenset[Cli],
     ) -> None:
-        """Initialize with optional secret configuration and CLI filter."""
+        """Initialize with secret configuration and required CLIs."""
         self._config = config or SecretConfig()
         self._required_clis = required_clis
 
@@ -81,8 +81,7 @@ class SecretLoader:
     def load_credential_files(self) -> dict[str, str]:
         """Load CLI credential files from the secrets directory.
 
-        When ``required_clis`` is set, only loads files for those CLIs.
-        When ``None``, loads all known credential files (backward compat).
+        Only loads files for CLIs in ``required_clis``.
 
         Returns:
             Dict mapping credential keys to file contents for files that exist
@@ -90,19 +89,16 @@ class SecretLoader:
         """
         secrets_dir = Path(self._config.developer_secrets_path).expanduser().parent
 
-        if self._required_clis is not None:
-            mapping = {
-                key: filename
-                for cli, (key, filename) in _CLI_CREDENTIAL_FILES.items()
-                if cli in self._required_clis
-            }
-        else:
-            mapping = dict(_CLI_CREDENTIAL_FILES.values())
+        mapping = {
+            key: filename
+            for cli, (key, filename) in _CLI_CREDENTIAL_FILES.items()
+            if cli in self._required_clis
+        }
 
         result: dict[str, str] = {}
         for key, filename in mapping.items():
             path = secrets_dir / filename
-            if path.exists():
+            if path.is_file():
                 content = path.read_text().strip()
                 if content:
                     result[key] = content

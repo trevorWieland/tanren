@@ -11,6 +11,8 @@ from tanren_cli.vm_cli import vm
 from tanren_core.adapters.remote_types import VMAssignment
 from tanren_core.config import Config
 
+_ROLES_YML = "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: subscription\n"
+
 
 def _mock_config(tmp_path=None) -> Config:
     base = str(tmp_path) if tmp_path else "/tmp"
@@ -177,6 +179,7 @@ class TestVmDryRun:
             "repos:\n"
             "  myproject: https://github.com/org/myproject.git\n"
         )
+        (tmp_path / "roles.yml").write_text(_ROLES_YML)
 
         config = Config(
             ipc_dir=str(tmp_path / "ipc"),
@@ -222,6 +225,7 @@ class TestVmDryRun:
             "    image: ubuntu-24.04\n"
             "    ssh_key_name: tanren\n"
         )
+        (tmp_path / "roles.yml").write_text(_ROLES_YML)
 
         config = Config(
             ipc_dir=str(tmp_path / "ipc"),
@@ -259,6 +263,7 @@ class TestVmDryRun:
             "secrets:\n"
             f"  developer_secrets_path: {secrets_file}\n"
         )
+        (tmp_path / "roles.yml").write_text(_ROLES_YML)
         monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
 
         config = Config(
