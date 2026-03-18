@@ -23,6 +23,7 @@ class ProvisionerType(StrEnum):
 
     MANUAL = "manual"
     HETZNER = "hetzner"
+    GCP = "gcp"
 
 
 class GitAuthMethod(StrEnum):

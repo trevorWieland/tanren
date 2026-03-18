@@ -70,12 +70,13 @@ markers = [
     "local_env: requires real local environment",
     "api: API-specific tests",
     "hetzner: requires Hetzner API token and provisions real VMs",
+    "gcp: requires GCP credentials and provisions real VMs",
 ]
 
 # ===== COVERAGE =====
 [tool.coverage.run]
 source = ["packages", "services"]
-omit = ["*/tests/*", "*/__pycache__/*"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/adapters/hetzner_vm.py", "*/adapters/gcp_vm.py"]
 
 [tool.coverage.report]
 fail_under = 80
@@ -91,6 +92,7 @@ exclude_lines = [
 # ===== DEV DEPENDENCIES =====
 [dependency-groups]
 dev = [
+    "tanren-core[gcp]",
     "tanren-core[hetzner]",
     "tanren-cli",
     "tanren-api",
