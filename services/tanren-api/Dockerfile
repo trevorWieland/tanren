@@ -41,7 +41,7 @@ RUN chown app:app /app
 EXPOSE 8000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "from urllib.request import urlopen; urlopen('http://localhost:8000/api/v1/health/ready')"
+  CMD python -c "import os; from urllib.request import urlopen; urlopen(f'http://localhost:{os.environ.get(\"TANREN_API_PORT\", \"8000\")}/api/v1/health/ready')"
 
 USER app
 
