@@ -12,7 +12,7 @@ import os
 import signal
 import subprocess
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -583,6 +583,7 @@ class WorkerManager:
             return
 
         # 2. Execute
+        dispatch_start_utc = datetime.now(UTC)
         try:
             phase_result = await self._execution_env.execute(
                 handle, dispatch, self._config, dispatch_stem=dispatch_stem
@@ -652,7 +653,6 @@ class WorkerManager:
                     token_usage_data = phase_result.token_usage
                 else:
                     # Local execution: collect here
-                    dispatch_start_utc = exec_end_utc - timedelta(seconds=duration)
                     runner = LocalCommandRunner()
                     usage = await collect_token_usage(
                         dispatch.cli,

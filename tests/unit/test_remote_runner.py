@@ -215,7 +215,11 @@ class TestRunAsUser:
             signal_path="/workspace/myproj/.signal",
         )
 
-        agent_call = conn.run.call_args_list[0]
+        # First call is chown of prompt file for agent user
+        chown_call = conn.run.call_args_list[0]
+        assert "chown tanren" in chown_call.args[0]
+        # Second call is the agent command wrapped with su
+        agent_call = conn.run.call_args_list[1]
         cmd = agent_call.args[0]
         assert cmd.startswith("su - tanren -c ")
 

@@ -51,9 +51,14 @@ class RemoteAgentRunner:
         """
         start = time.monotonic()
 
-        # Upload prompt file
+        # Upload prompt file (chown to agent user so su-based execution can read it)
         prompt_path = f"{workspace.path}/.tanren-prompt.md"
         await conn.upload_content(prompt_content, prompt_path)
+        if self._run_as_user:
+            await conn.run(
+                f"chown {shlex.quote(self._run_as_user)} {shlex.quote(prompt_path)}",
+                timeout=10,
+            )
 
         # Build command with PATH augmentation and secret sourcing
         ws = shlex.quote(workspace.path)

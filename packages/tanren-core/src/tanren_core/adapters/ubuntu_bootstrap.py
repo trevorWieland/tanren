@@ -195,11 +195,15 @@ class UbuntuBootstrapper:
             f"id -u {_AGENT_USER} >/dev/null 2>&1"
             f" || useradd --create-home --shell /bin/bash {_AGENT_USER}"
         )
-        await conn.run(useradd_cmd, timeout=30)
-        await conn.run(
+        useradd_result = await conn.run(useradd_cmd, timeout=30)
+        if useradd_result.exit_code != 0:
+            raise RuntimeError(f"Agent user setup failed: {useradd_result.stderr}")
+        workspace_result = await conn.run(
             f"mkdir -p /workspace && chown {_AGENT_USER}:{_AGENT_USER} /workspace",
             timeout=10,
         )
+        if workspace_result.exit_code != 0:
+            raise RuntimeError(f"Workspace directory setup failed: {workspace_result.stderr}")
 
         # Extra script (if configured)
         if self._extra_script is not None:

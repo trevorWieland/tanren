@@ -7,7 +7,7 @@ import logging
 import shlex
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -326,6 +326,7 @@ class SSHExecutionEnvironment:
         workspace = remote_runtime.workspace_path
 
         start = time.monotonic()
+        dispatch_start_utc = datetime.now(UTC)
         transient_retries = 0
 
         # Build full prompt (same as local path)
@@ -426,7 +427,6 @@ class SSHExecutionEnvironment:
         token_usage_data = None
         if dispatch.cli != Cli.BASH:
             dispatch_end_utc = datetime.now(UTC)
-            dispatch_start_utc = dispatch_end_utc - timedelta(seconds=duration)
             usage_runner = RemoteCommandRunner(conn, run_as_user=self._agent_user)
             usage = await collect_token_usage(
                 dispatch.cli,
