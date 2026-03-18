@@ -1,4 +1,5 @@
-.PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean
+.PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean \
+	docker-base docker-hetzner docker-gcp
 
 install:
 	uv sync --upgrade
@@ -44,6 +45,15 @@ ci:
 
 openapi:
 	uv run tanren-openapi
+
+docker-base:
+	docker build -t tanren:latest .
+
+docker-hetzner:
+	docker build --build-arg EXTRAS=hetzner -t tanren:hetzner .
+
+docker-gcp:
+	docker build --build-arg EXTRAS=gcp -t tanren:gcp .
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

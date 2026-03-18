@@ -193,6 +193,21 @@ def vm_dry_run(
         typer.echo(f"location: {settings.location}")
         typer.echo(f"image: {settings.image}")
         typer.echo(f"ssh_key_name: {settings.ssh_key_name}")
+    elif remote_cfg.provisioner.type == ProvisionerType.GCP:
+        from tanren_core.adapters.gcp_vm import GCPProvisionerSettings  # noqa: PLC0415
+
+        gcp_settings = GCPProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
+        resolved_machine_type = profile.server_type or gcp_settings.default_machine_type
+        source = (
+            "profile.server_type"
+            if profile.server_type
+            else "provisioner.settings.default_machine_type"
+        )
+        typer.echo(f"machine_type: {resolved_machine_type} ({source})")
+        typer.echo(f"project_id: {gcp_settings.project_id}")
+        typer.echo(f"zone: {gcp_settings.zone}")
+        typer.echo(f"image_family: {gcp_settings.image_family}")
+        typer.echo(f"image_project: {gcp_settings.image_project}")
     elif remote_cfg.provisioner.type == ProvisionerType.MANUAL:
         settings = ManualProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         typer.echo(f"manual_vm_pool_size: {len(settings.vms)}")

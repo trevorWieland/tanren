@@ -93,6 +93,37 @@ The `ExecutionEnvironment` abstraction supports local and remote lifecycle:
 
 See `docs/ADAPTERS.md` for protocol details.
 
+## Docker
+
+Pre-built image variants include cloud-provider SDKs for remote VM provisioning.
+
+| Image Tag | Extras Included |
+|-----------|----------------|
+| `tanren:latest` | None (local/manual provisioning only) |
+| `tanren:hetzner` | `hcloud` (Hetzner Cloud) |
+| `tanren:gcp` | `google-cloud-compute` (GCP Compute Engine) |
+
+```bash
+# Build with Makefile targets
+make docker-base      # tanren:latest
+make docker-hetzner   # tanren:hetzner
+make docker-gcp       # tanren:gcp
+```
+
+For a custom combination of extras, build the image directly:
+
+```bash
+docker build --build-arg EXTRAS="hetzner gcp" -t tanren:custom .
+```
+
+The image runs `worker-manager` by default. Override the command to run other
+entrypoints:
+
+```bash
+docker run tanren:latest tanren-api    # HTTP API server
+docker run tanren:latest tanren        # CLI
+```
+
 ## Documentation
 
 - `docs/README.md` - documentation index
