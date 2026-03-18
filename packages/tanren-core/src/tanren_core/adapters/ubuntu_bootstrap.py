@@ -192,7 +192,7 @@ class UbuntuBootstrapper:
 
         # Create workspace directory and agent user
         useradd_cmd = (
-            f"id -u {_AGENT_USER} &>/dev/null"
+            f"id -u {_AGENT_USER} >/dev/null 2>&1"
             f" || useradd --create-home --shell /bin/bash {_AGENT_USER}"
         )
         await conn.run(useradd_cmd, timeout=30)

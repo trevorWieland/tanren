@@ -221,10 +221,12 @@ class SSHExecutionEnvironment:
 
             # 7b. Make workspace secrets readable by agent user
             if self._agent_user:
+                quoted_user = shlex.quote(self._agent_user)
+                quoted_ws = shlex.quote(workspace_path.path)
                 await conn.run(
-                    f"chown {self._agent_user}:{self._agent_user}"
+                    f"chown {quoted_user}:{quoted_user}"
                     f" /workspace/.developer-secrets /workspace/.git-askpass 2>/dev/null;"
-                    f" chown -R {self._agent_user}:{self._agent_user} {workspace_path.path}",
+                    f" chown -R {quoted_user}:{quoted_user} {quoted_ws}",
                     timeout=10,
                 )
 
@@ -517,7 +519,7 @@ class SSHExecutionEnvironment:
                     cred_paths = raw_paths
                 for cred_path in cred_paths:
                     try:
-                        await conn.run(f"rm -f {cred_path}", timeout=10)
+                        await conn.run(f"rm -f {shlex.quote(cred_path)}", timeout=10)
                     except Exception:
                         logger.warning("Credential cleanup failed: %s", cred_path, exc_info=True)
             except Exception:
