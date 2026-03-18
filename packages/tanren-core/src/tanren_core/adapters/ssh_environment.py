@@ -7,13 +7,19 @@ import logging
 import shlex
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
 import yaml
 from dotenv import dotenv_values
 
+from tanren_core.adapters.credentials import (
+    DEFAULT_CREDENTIAL_PROVIDERS,
+    CredentialProvider,
+    all_credential_cleanup_paths,
+    inject_all_cli_credentials,
+)
 from tanren_core.adapters.events import BootstrapCompleted, VMProvisioned, VMReleased
 from tanren_core.adapters.protocols import (
     EnvironmentBootstrapper,
@@ -80,6 +86,8 @@ class SSHExecutionEnvironment:
         repo_urls: dict[str, str],
         provider: VMProvider = VMProvider.MANUAL,
         ssh_ready_timeout_secs: int = _SSH_READY_TIMEOUT_SECS,
+        credential_providers: tuple[CredentialProvider, ...] = DEFAULT_CREDENTIAL_PROVIDERS,
+        agent_user: str | None = None,
     ) -> None:
         """Initialize with remote execution adapters and configuration."""
         self._vm_provisioner = vm_provisioner
@@ -93,6 +101,8 @@ class SSHExecutionEnvironment:
         self._repo_urls = repo_urls
         self._provider = provider
         self._ssh_ready_timeout_secs = ssh_ready_timeout_secs
+        self._credential_providers = credential_providers
+        self._agent_user = agent_user
 
     @property
     def ssh_defaults(self) -> SSHConfig:
@@ -207,14 +217,35 @@ class SSHExecutionEnvironment:
             # 7. Inject secrets
             project_env = self._load_project_env(dispatch, config)
             bundle = self._secret_loader.build_bundle(project_env)
-            await self._workspace_mgr.inject_secrets(
-                conn,
-                workspace_path,
-                bundle,
-                cli_auth=(dispatch.cli, dispatch.auth),
-            )
+            await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
-            # 8. Record assignment
+            # 7b. Make workspace secrets readable by agent user
+            if self._agent_user:
+                quoted_user = shlex.quote(self._agent_user)
+                quoted_ws = shlex.quote(workspace_path.path)
+                await conn.run(
+                    f"chown {quoted_user}:{quoted_user}"
+                    f" /workspace/.developer-secrets /workspace/.git-askpass 2>/dev/null;"
+                    f" chown -R {quoted_user}:{quoted_user} {quoted_ws}",
+                    timeout=10,
+                )
+
+            # 8. Inject all CLI credentials
+            target_home = f"/home/{self._agent_user}" if self._agent_user else None
+            injected = await inject_all_cli_credentials(
+                conn, bundle, self._credential_providers, target_home=target_home
+            )
+            logger.info("Injected credentials: %s", injected)
+
+            # 8b. Ensure agent user owns their entire home directory
+            # (bootstrap and credential injection run as root, leaving root-owned dirs)
+            if self._agent_user:
+                await conn.run(
+                    f"chown -R {self._agent_user}:{self._agent_user} /home/{self._agent_user}",
+                    timeout=10,
+                )
+
+            # 9. Record assignment
             await self._state_store.record_assignment(
                 vm_id=vm_handle.vm_id,
                 workflow_id=dispatch.workflow_id,
@@ -236,7 +267,7 @@ class SSHExecutionEnvironment:
                 )
             )
 
-            # 9. Return handle
+            # 10. Return handle
             return EnvironmentHandle(
                 env_id=str(uuid.uuid4()),
                 worktree_path=Path(workspace_path.path),
@@ -295,6 +326,7 @@ class SSHExecutionEnvironment:
         workspace = remote_runtime.workspace_path
 
         start = time.monotonic()
+        dispatch_start_utc = datetime.now(UTC)
         transient_retries = 0
 
         # Build full prompt (same as local path)
@@ -303,10 +335,6 @@ class SSHExecutionEnvironment:
         prompt_content = assemble_prompt(
             command_file, dispatch.spec_folder, command_name, dispatch.context
         )
-
-        # Inject CLI-specific auth for this dispatch's tool (may differ from provision)
-        bundle = self._secret_loader.build_bundle(self._load_project_env(dispatch, config))
-        await self._workspace_mgr.inject_cli_auth(conn, bundle, (dispatch.cli, dispatch.auth))
 
         while True:
             # Build CLI command
@@ -379,7 +407,7 @@ class SSHExecutionEnvironment:
         final_stdout = agent_result.stdout
         if dispatch.phase in _PUSH_PHASES and outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
             push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
-            push_result = await conn.run(push_cmd, timeout=120)
+            push_result = await conn.run(self._wrap_for_agent_user(push_cmd), timeout=120)
             if push_result.exit_code != 0:
                 logger.error(
                     "Remote git push failed (exit %d) for %s branch %s: %s",
@@ -399,8 +427,7 @@ class SSHExecutionEnvironment:
         token_usage_data = None
         if dispatch.cli != Cli.BASH:
             dispatch_end_utc = datetime.now(UTC)
-            dispatch_start_utc = dispatch_end_utc - timedelta(seconds=duration)
-            usage_runner = RemoteCommandRunner(conn)
+            usage_runner = RemoteCommandRunner(conn, run_as_user=self._agent_user)
             usage = await collect_token_usage(
                 dispatch.cli,
                 workspace.path,
@@ -474,8 +501,9 @@ class SSHExecutionEnvironment:
         try:
             for cmd in teardown_cmds:
                 try:
+                    teardown_cmd = f"cd {shlex.quote(workspace.path)} && {cmd}"
                     await conn.run(
-                        f"cd {shlex.quote(workspace.path)} && {cmd}",
+                        self._wrap_for_agent_user(teardown_cmd),
                         timeout=120,
                     )
                 except Exception:
@@ -483,6 +511,15 @@ class SSHExecutionEnvironment:
         finally:
             try:
                 await self._workspace_mgr.cleanup(conn, workspace)
+                # Remove credential files (best-effort, after workspace cleanup)
+                raw_paths = all_credential_cleanup_paths(self._credential_providers)
+                home = f"/home/{self._agent_user}" if self._agent_user else "/root"
+                cred_paths = [p.replace("~", home) for p in raw_paths]
+                for cred_path in cred_paths:
+                    try:
+                        await conn.run(f"rm -f {shlex.quote(cred_path)}", timeout=10)
+                    except Exception:
+                        logger.warning("Credential cleanup failed: %s", cred_path, exc_info=True)
             except Exception:
                 logger.warning("Workspace cleanup failed", exc_info=True)
             finally:
@@ -593,6 +630,16 @@ class SSHExecutionEnvironment:
             return {}
         values = dotenv_values(env_file)
         return {k: v for k, v in values.items() if v is not None}
+
+    def _wrap_for_agent_user(self, command: str) -> str:
+        """Wrap a shell command to run as the agent user via ``su -``.
+
+        Returns:
+            The command wrapped with ``su -``, or unchanged when no agent_user is configured.
+        """
+        if self._agent_user:
+            return f"su - {shlex.quote(self._agent_user)} -c {shlex.quote(command)}"
+        return command
 
     def _build_cli_command(self, dispatch: Dispatch, config: Config) -> str:
         """Build the CLI command string for remote execution.

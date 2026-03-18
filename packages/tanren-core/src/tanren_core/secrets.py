@@ -10,6 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.env.secrets import DEFAULT_SECRETS_DIR
+from tanren_core.schemas import Cli
+
+_CLI_CREDENTIAL_FILES: dict[Cli, tuple[str, str]] = {
+    Cli.CLAUDE: ("CLAUDE_CREDENTIALS_JSON", "claude_credentials.json"),
+    Cli.CODEX: ("CODEX_AUTH_JSON", "codex_auth.json"),
+}
 
 
 class SecretConfig(BaseModel):
@@ -30,9 +36,15 @@ class SecretLoader:
     - infrastructure: from environment variables (e.g., GIT_TOKEN)
     """
 
-    def __init__(self, config: SecretConfig | None = None) -> None:
-        """Initialize with optional secret configuration."""
+    def __init__(
+        self,
+        config: SecretConfig | None = None,
+        *,
+        required_clis: frozenset[Cli],
+    ) -> None:
+        """Initialize with secret configuration and required CLIs."""
         self._config = config or SecretConfig()
+        self._required_clis = required_clis
 
     def autoload_into_env(self, *, override: bool = False) -> None:
         """Load developer secrets into process env."""
@@ -66,14 +78,42 @@ class SecretLoader:
                 result[var] = val
         return result
 
+    def load_credential_files(self) -> dict[str, str]:
+        """Load CLI credential files from the secrets directory.
+
+        Only loads files for CLIs in ``required_clis``.
+
+        Returns:
+            Dict mapping credential keys to file contents for files that exist
+            and are non-empty.
+        """
+        secrets_dir = Path(self._config.developer_secrets_path).expanduser().parent
+
+        mapping = {
+            key: filename
+            for cli, (key, filename) in _CLI_CREDENTIAL_FILES.items()
+            if cli in self._required_clis
+        }
+
+        result: dict[str, str] = {}
+        for key, filename in mapping.items():
+            path = secrets_dir / filename
+            if path.is_file():
+                content = path.read_text().strip()
+                if content:
+                    result[key] = content
+        return result
+
     def build_bundle(self, project_secrets: dict[str, str] | None = None) -> SecretBundle:
         """Build a SecretBundle from all secret sources.
 
         Returns:
             SecretBundle combining developer, project, and infrastructure secrets.
         """
+        developer = self.load_developer()
+        developer.update(self.load_credential_files())
         return SecretBundle(
-            developer=self.load_developer(),
+            developer=developer,
             project=project_secrets or {},
             infrastructure=self.load_infrastructure(),
         )

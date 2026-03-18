@@ -84,9 +84,10 @@ class LocalCommandRunner:
 class RemoteCommandRunner:
     """Run commands via an SSH connection."""
 
-    def __init__(self, connection: object) -> None:
+    def __init__(self, connection: object, *, run_as_user: str | None = None) -> None:
         """Initialize with an SSH connection object."""
         self._connection = connection
+        self._run_as_user = run_as_user
 
     async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
         """Run a command on a remote host via SSH.
@@ -95,6 +96,8 @@ class RemoteCommandRunner:
             Tuple of (exit_code, stdout_text).
         """
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
+        if self._run_as_user:
+            cmd_str = f"su - {shlex.quote(self._run_as_user)} -c {shlex.quote(cmd_str)}"
         result = await self._connection.run(cmd_str, timeout=timeout)  # type: ignore[union-attr]
         return result.exit_code, result.stdout
 
@@ -149,7 +152,7 @@ async def _collect_claude(
     session_id = _derive_session_id(worktree_path)
     since = dispatch_start_utc.strftime("%Y%m%d")
 
-    base_cmd = config.ccusage_claude_cmd.split()
+    base_cmd = shlex.split(config.ccusage_claude_cmd)
     cmd = [
         *base_cmd,
         "session",
@@ -190,7 +193,7 @@ async def _collect_codex(
     """
     since = dispatch_start_utc.strftime("%Y%m%d")
 
-    base_cmd = config.ccusage_codex_cmd.split()
+    base_cmd = shlex.split(config.ccusage_codex_cmd)
     cmd = [*base_cmd, "session", "--json", "--since", since, "--offline", "--noColor"]
 
     exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
@@ -219,7 +222,7 @@ async def _collect_opencode(
     Returns:
         TokenUsage if a matching session is found, None otherwise.
     """
-    base_cmd = config.ccusage_opencode_cmd.split()
+    base_cmd = shlex.split(config.ccusage_opencode_cmd)
     cmd = [*base_cmd, "session", "--json"]
 
     exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)

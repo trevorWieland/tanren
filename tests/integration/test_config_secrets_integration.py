@@ -7,7 +7,10 @@ import pytest
 
 from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.config import Config, DotenvConfigSource, load_config_env
+from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretConfig, SecretLoader
+
+_ALL_CLIS = frozenset({Cli.CLAUDE, Cli.CODEX, Cli.OPENCODE})
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -174,14 +177,17 @@ class TestSecretLoaderDeveloper:
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("API_KEY=sk-123\n")
 
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)), required_clis=_ALL_CLIS
+        )
         result = loader.load_developer()
 
         assert result == {"API_KEY": "sk-123"}
 
     def test_load_developer_missing(self, tmp_path: Path):
         loader = SecretLoader(
-            SecretConfig(developer_secrets_path=str(tmp_path / "nonexistent.env"))
+            SecretConfig(developer_secrets_path=str(tmp_path / "nonexistent.env")),
+            required_clis=_ALL_CLIS,
         )
         result = loader.load_developer()
 
@@ -192,7 +198,7 @@ class TestSecretLoaderInfrastructure:
     def test_load_infrastructure(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("GIT_TOKEN", "tok")
 
-        loader = SecretLoader()
+        loader = SecretLoader(required_clis=_ALL_CLIS)
         result = loader.load_infrastructure()
 
         assert result == {"GIT_TOKEN": "tok"}
@@ -200,7 +206,7 @@ class TestSecretLoaderInfrastructure:
     def test_load_infrastructure_missing(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("GIT_TOKEN", raising=False)
 
-        loader = SecretLoader()
+        loader = SecretLoader(required_clis=_ALL_CLIS)
         result = loader.load_infrastructure()
 
         assert result == {}
@@ -212,7 +218,9 @@ class TestSecretLoaderBundle:
         secrets_file.write_text("DEV_KEY=dev_val\n")
         monkeypatch.setenv("GIT_TOKEN", "infra_tok")
 
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)), required_clis=_ALL_CLIS
+        )
         bundle = loader.build_bundle(project_secrets={"PK": "v"})
 
         assert isinstance(bundle, SecretBundle)
@@ -228,7 +236,9 @@ class TestSecretLoaderAutoload:
         # Ensure the key is not already in the environment.
         monkeypatch.delenv("AUTOLOAD_TEST_KEY", raising=False)
 
-        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)), required_clis=_ALL_CLIS
+        )
         loader.autoload_into_env()
 
         assert os.environ["AUTOLOAD_TEST_KEY"] == "autoloaded"

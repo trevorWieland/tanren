@@ -3,6 +3,17 @@
 Protocols define the contract; concrete classes wrap existing module functions.
 """
 
+from tanren_core.adapters.credentials import (
+    CLI_CREDENTIAL_PROVIDERS,
+    DEFAULT_CREDENTIAL_PROVIDERS,
+    ClaudeCredentialProvider,
+    CodexCredentialProvider,
+    CredentialProvider,
+    OpencodeCredentialProvider,
+    all_credential_cleanup_paths,
+    inject_all_cli_credentials,
+    providers_for_clis,
+)
 from tanren_core.adapters.dotenv_provisioner import DotenvEnvProvisioner
 from tanren_core.adapters.dotenv_validator import DotenvEnvValidator
 from tanren_core.adapters.events import (
@@ -82,9 +93,14 @@ from tanren_core.adapters.types import (
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
 
 __all__ = [
+    "CLI_CREDENTIAL_PROVIDERS",
+    "DEFAULT_CREDENTIAL_PROVIDERS",
     "AccessInfo",
     "BootstrapCompleted",
     "BootstrapResult",
+    "ClaudeCredentialProvider",
+    "CodexCredentialProvider",
+    "CredentialProvider",
     "DispatchReceived",
     "DotenvEnvProvisioner",
     "DotenvEnvValidator",
@@ -109,6 +125,7 @@ __all__ = [
     "ManualVMProvisioner",
     "NoVMAvailableError",
     "NullEventEmitter",
+    "OpencodeCredentialProvider",
     "PhaseCompleted",
     "PhaseResult",
     "PhaseStarted",
@@ -144,4 +161,7 @@ __all__ = [
     "WorkspacePath",
     "WorkspaceSpec",
     "WorktreeManager",
+    "all_credential_cleanup_paths",
+    "inject_all_cli_credentials",
+    "providers_for_clis",
 ]

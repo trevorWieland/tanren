@@ -22,6 +22,10 @@ class RemoteAgentRunner:
     and extracts signal content from the remote filesystem.
     """
 
+    def __init__(self, *, run_as_user: str | None = None) -> None:
+        """Initialize with an optional user to run commands as."""
+        self._run_as_user = run_as_user
+
     async def run(
         self,
         conn: RemoteConnection,
@@ -47,9 +51,14 @@ class RemoteAgentRunner:
         """
         start = time.monotonic()
 
-        # Upload prompt file
+        # Upload prompt file (chown to agent user so su-based execution can read it)
         prompt_path = f"{workspace.path}/.tanren-prompt.md"
         await conn.upload_content(prompt_content, prompt_path)
+        if self._run_as_user:
+            await conn.run(
+                f"chown {shlex.quote(self._run_as_user)} {shlex.quote(prompt_path)}",
+                timeout=10,
+            )
 
         # Build command with PATH augmentation and secret sourcing
         ws = shlex.quote(workspace.path)
@@ -62,6 +71,9 @@ class RemoteAgentRunner:
             f"cd {ws} && "
             f"{cli_command}"
         )
+
+        if self._run_as_user:
+            command = f"su - {shlex.quote(self._run_as_user)} -c {shlex.quote(command)}"
 
         logger.info("Executing remote agent: %s", cli_command)
         result = await conn.run(command, timeout=timeout, request_pty=True)

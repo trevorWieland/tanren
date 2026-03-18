@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shlex
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
 from tanren_core.remote_config import GitAuthMethod
-from tanren_core.roles import AuthMode
-from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import RemoteConnection
@@ -122,16 +118,11 @@ class GitWorkspaceManager:
             branch=spec.branch,
         )
 
-    _OPENCODE_AUTH_SUFFIX = ".local/share/opencode/auth.json"
-    _OPENCODE_AUTH_SHELL_PATH = f"~/{_OPENCODE_AUTH_SUFFIX}"
-
     async def inject_secrets(
         self,
         conn: RemoteConnection,
         workspace: WorkspacePath,
         secrets: SecretBundle,
-        *,
-        cli_auth: tuple[Cli, AuthMode] | None = None,
     ) -> None:
         """Write secret files to remote workspace. Files are chmod 600."""
         # Developer secrets -> /workspace/.developer-secrets
@@ -149,71 +140,6 @@ class GitWorkspaceManager:
             await conn.upload_content(content, env_path)
             await conn.run(f"chmod 600 {shlex.quote(env_path)}", timeout=10)
 
-        # CLI-specific auth files
-        if cli_auth is not None:
-            await self.inject_cli_auth(conn, secrets, cli_auth)
-
-    async def inject_cli_auth(
-        self,
-        conn: RemoteConnection,
-        secrets: SecretBundle,
-        cli_auth: tuple[Cli, AuthMode],
-    ) -> None:
-        """Set up CLI-specific auth files based on auth mode.
-
-        Stateless per-connection: always clears stale opencode auth before
-        writing new credentials, so the manager is safe for concurrent use
-        across multiple VMs.
-        """
-        cli, auth = cli_auth
-
-        if cli == Cli.OPENCODE and auth == AuthMode.API_KEY:
-            await self._inject_opencode_api_key(conn, secrets)
-        else:
-            # Remove any opencode auth that a previous dispatch may have left
-            # on this VM. rm -f is a no-op if the file doesn't exist.
-            await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
-
-    async def _resolve_remote_home(self, conn: RemoteConnection) -> str:
-        """Resolve the remote user's home directory.
-
-        Returns:
-            Absolute path to the remote home directory.
-
-        Raises:
-            RuntimeError: If the ``echo $HOME`` command fails.
-        """
-        result = await conn.run("echo $HOME", timeout=10)
-        home = result.stdout.strip()
-        if not home or result.exit_code != 0:
-            raise RuntimeError(f"Failed to resolve remote $HOME: {result.stderr}")
-        return home
-
-    async def _inject_opencode_api_key(
-        self,
-        conn: RemoteConnection,
-        secrets: SecretBundle,
-    ) -> None:
-        """Write opencode auth.json for Z.ai API key auth."""
-        zai_key = secrets.developer.get("OPENCODE_ZAI_API_KEY") or secrets.project.get(
-            "OPENCODE_ZAI_API_KEY"
-        )
-        if not zai_key:
-            logger.warning("OPENCODE_ZAI_API_KEY not found in secrets — opencode auth will fail")
-            await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
-            return
-
-        auth_data = {"zai-coding-plan": {"type": "api", "key": zai_key}}
-        content = json.dumps(auth_data, indent=2)
-
-        auth_dir_shell = f"~/{Path(self._OPENCODE_AUTH_SUFFIX).parent}"
-        await conn.run(f"mkdir -p {auth_dir_shell}", timeout=10)
-        remote_home = await self._resolve_remote_home(conn)
-        abs_auth_path = f"{remote_home}/{self._OPENCODE_AUTH_SUFFIX}"
-        await conn.upload_content(content, abs_auth_path)
-        await conn.run(f"chmod 600 {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
-        logger.info("Injected opencode auth.json (zai-coding-plan)")
-
     def push_command(self, workspace_path: str, branch: str) -> str:
         """Return an auth-prefixed git push command string."""
         quoted_path = shlex.quote(workspace_path)
@@ -225,4 +151,3 @@ class GitWorkspaceManager:
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
         await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
         await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
-        await conn.run(f"rm -f {self._OPENCODE_AUTH_SHELL_PATH}", timeout=10)
