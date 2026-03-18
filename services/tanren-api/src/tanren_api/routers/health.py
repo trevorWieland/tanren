@@ -1,31 +1,23 @@
 """Health check endpoints — no auth required."""
+# ruff: noqa: DOC201
 
-import time
-
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from tanren_api.models import HealthResponse, ReadinessResponse
+from tanren_api.services import HealthService
 
 router = APIRouter(tags=["health"])
 
-_start_time = time.monotonic()
+_svc = HealthService()
 
 
 @router.get("/api/v1/health")
-async def health(request: Request) -> HealthResponse:
+async def health() -> HealthResponse:
     """Return service health and version info."""
-    return HealthResponse(
-        status="ok",
-        version="0.1.0",
-        uptime_seconds=round(time.monotonic() - _start_time, 2),
-    )
+    return await _svc.health()
 
 
 @router.get("/api/v1/health/ready")
-async def readiness(request: Request) -> ReadinessResponse:
-    """Readiness probe.
-
-    Returns:
-        ReadinessResponse with status key indicating readiness.
-    """
-    return ReadinessResponse(status="ready")
+async def readiness() -> ReadinessResponse:
+    """Readiness probe."""
+    return await _svc.readiness()

@@ -1183,7 +1183,7 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """Prior task that hangs forever does not block teardown indefinitely."""
-        import tanren_api.routers.run as run_module  # noqa: PLC0415
+        import tanren_api.services.run as run_module  # noqa: PLC0415
 
         store = app.state.api_store
 

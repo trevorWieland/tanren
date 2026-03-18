@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from typing import Any
 
 import uvicorn
 from fastapi import Depends, FastAPI
@@ -14,6 +15,8 @@ from starlette.middleware import Middleware
 
 from tanren_api.auth import verify_api_key
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
+from tanren_api.mcp_auth import MCPApiKeyAuth
+from tanren_api.mcp_server import mcp, set_services
 from tanren_api.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 from tanren_api.routers import config as config_router_mod
 from tanren_api.routers import dispatch as dispatch_router_mod
@@ -21,6 +24,14 @@ from tanren_api.routers import events as events_router_mod
 from tanren_api.routers import health as health_router_mod
 from tanren_api.routers import run as run_router_mod
 from tanren_api.routers import vm as vm_router_mod
+from tanren_api.services import (
+    ConfigService,
+    DispatchService,
+    EventsService,
+    HealthService,
+    RunService,
+    VMService,
+)
 from tanren_api.settings import APISettings
 from tanren_api.state import APIStateStore
 from tanren_core.adapters.null_emitter import NullEventEmitter
@@ -40,8 +51,11 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     settings = settings or APISettings()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncIterator[Mapping[str, Any] | None]:
         app.state.settings = settings
+
+        # Register MCP auth middleware
+        mcp.add_middleware(MCPApiKeyAuth(settings.api_key))
         load_config_env()
         try:
             app.state.config = Config.from_env()
@@ -79,6 +93,31 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
                     except Exception:
                         logger.warning("Failed to recover stale VM assignments", exc_info=True)
 
+        # Wire MCP service layer
+        config_svc = ConfigService(app.state.config) if app.state.config else None
+        set_services(
+            health=HealthService(),
+            dispatch=DispatchService(
+                store=app.state.api_store,
+                config=app.state.config,
+                emitter=app.state.emitter,
+                execution_env=app.state.execution_env,
+            ),
+            vm=VMService(
+                store=app.state.api_store,
+                config=app.state.config,
+                execution_env=app.state.execution_env,
+                vm_state_store=app.state.vm_state_store,
+            ),
+            run=RunService(
+                store=app.state.api_store,
+                config=app.state.config,
+                execution_env=app.state.execution_env,
+            ),
+            config=config_svc,
+            events=EventsService(settings, app.state.config),
+        )
+
         yield
 
         # Shutdown
@@ -103,13 +142,23 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             )
         )
 
+    # Create MCP sub-application and combine lifespans
+    mcp_app = mcp.http_app(path="/")
+
+    from fastmcp.utilities.lifespan import combine_lifespans  # noqa: PLC0415
+
+    combined_lifespan = combine_lifespans(lifespan, mcp_app.lifespan)  # type: ignore[arg-type]
+
     app = FastAPI(
         title="tanren",
         description="Tanren worker-manager HTTP API",
         version="0.1.0",
-        lifespan=lifespan,
+        lifespan=combined_lifespan,
         middleware=middleware_stack,
     )
+
+    # Mount MCP sub-application
+    app.mount("/mcp", mcp_app)
 
     # Routers
     app.include_router(health_router_mod.router)
