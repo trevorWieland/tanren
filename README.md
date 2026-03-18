@@ -95,33 +95,27 @@ See `docs/ADAPTERS.md` for protocol details.
 
 ## Docker
 
-Pre-built image variants include cloud-provider SDKs for remote VM provisioning.
+The `tanren-api` image is published to GHCR with cloud-provider variants for
+remote VM provisioning.
 
 | Image Tag | Extras Included |
 |-----------|----------------|
-| `tanren:latest` | None (local/manual provisioning only) |
-| `tanren:hetzner` | `hcloud` (Hetzner Cloud) |
-| `tanren:gcp` | `google-cloud-compute` (GCP Compute Engine) |
+| `tanren-api:latest` | None (local/manual provisioning only) |
+| `tanren-api:hetzner` | `hcloud` (Hetzner Cloud) |
+| `tanren-api:gcp` | `google-cloud-compute` (GCP Compute Engine) |
 
 ```bash
 # Build with Makefile targets
-make docker-base      # tanren:latest
-make docker-hetzner   # tanren:hetzner
-make docker-gcp       # tanren:gcp
+make docker-base      # tanren-api:latest
+make docker-hetzner   # tanren-api:hetzner
+make docker-gcp       # tanren-api:gcp
 ```
 
 For a custom combination of extras, build the image directly:
 
 ```bash
-docker build --build-arg EXTRAS="hetzner gcp" -t tanren:custom .
-```
-
-The image runs `worker-manager` by default. Override the command to run other
-entrypoints:
-
-```bash
-docker run tanren:latest tanren-api    # HTTP API server
-docker run tanren:latest tanren        # CLI
+docker build -f services/tanren-api/Dockerfile \
+  --build-arg EXTRAS="hetzner gcp" -t tanren-api:custom .
 ```
 
 ## Documentation

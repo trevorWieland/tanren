@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Development lifecycle framework"
 requires-python = ">=3.14"
 
+[project.optional-dependencies]
+hetzner = ["tanren-core[hetzner]"]
+gcp = ["tanren-core[gcp]"]
+
 [tool.uv]
 managed = true
 

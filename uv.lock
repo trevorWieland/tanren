@@ -963,6 +963,14 @@ name = "tanren-workspace"
 version = "0.1.0"
 source = { virtual = "." }
 
+[package.optional-dependencies]
+gcp = [
+    { name = "tanren-core", extra = ["gcp"] },
+]
+hetzner = [
+    { name = "tanren-core", extra = ["hetzner"] },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "httpx" },
@@ -980,6 +988,11 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "tanren-core", extras = ["gcp"], marker = "extra == 'gcp'", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["hetzner"], marker = "extra == 'hetzner'", editable = "packages/tanren-core" },
+]
+provides-extras = ["hetzner", "gcp"]
 
 [package.metadata.requires-dev]
 dev = [

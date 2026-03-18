@@ -47,13 +47,13 @@ openapi:
 	uv run tanren-openapi
 
 docker-base:
-	docker build -t tanren:latest .
+	docker build -f services/tanren-api/Dockerfile -t tanren-api:latest .
 
 docker-hetzner:
-	docker build --build-arg EXTRAS=hetzner -t tanren:hetzner .
+	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS=hetzner -t tanren-api:hetzner .
 
 docker-gcp:
-	docker build --build-arg EXTRAS=gcp -t tanren:gcp .
+	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS=gcp -t tanren-api:gcp .
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

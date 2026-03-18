@@ -1,0 +1,88 @@
+name: Docker Publish
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "services/tanren-api/**"
+      - "packages/tanren-core/**"
+      - "services/tanren-cli/pyproject.toml"
+      - "services/tanren-daemon/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
+      - ".github/workflows/docker-publish.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "services/tanren-api/**"
+      - "packages/tanren-core/**"
+      - "services/tanren-cli/pyproject.toml"
+      - "services/tanren-daemon/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
+      - ".github/workflows/docker-publish.yml"
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build & Push (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        include:
+          - variant: base
+            extras: ""
+            suffix: ""
+          - variant: hetzner
+            extras: hetzner
+            suffix: -hetzner
+          - variant: gcp
+            extras: gcp
+            suffix: -gcp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from pyproject.toml
+        id: version
+        run: |
+          version=$(grep -m1 '^version' services/tanren-api/pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/tanren-api
+          tags: |
+            type=raw,value=latest${{ matrix.suffix }},enable=${{ github.event_name == 'push' }}
+            type=sha,prefix=sha-,suffix=${{ matrix.suffix }},format=short
+            type=raw,value=${{ steps.version.outputs.value }}${{ matrix.suffix }},enable=${{ github.event_name == 'push' }}
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/tanren-api/Dockerfile
+          build-args: EXTRAS=${{ matrix.extras }}
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
