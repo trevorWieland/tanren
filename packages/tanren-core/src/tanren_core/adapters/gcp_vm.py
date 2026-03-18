@@ -197,14 +197,13 @@ class GCPVMProvisioner:
             f"labels.{self._settings.managed_by_label_key}={self._settings.managed_by_label_value}"
         )
 
+        request = self._compute.ListInstancesRequest(
+            project=self._settings.project_id,
+            zone=self._settings.zone,
+            filter=filter_str,
+        )
         instances: list[Instance] = await asyncio.to_thread(
-            lambda: list(
-                self._instances_client.list(
-                    project=self._settings.project_id,
-                    zone=self._settings.zone,
-                    filter=filter_str,
-                )
-            )
+            lambda: list(self._instances_client.list(request=request))
         )
 
         handles: list[VMHandle] = []

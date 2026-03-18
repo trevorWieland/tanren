@@ -46,6 +46,7 @@ def _build_compute_module(instances_client):
         Metadata=lambda **kw: SimpleNamespace(**kw),
         Items=lambda **kw: SimpleNamespace(**kw),
         ServiceAccount=lambda **kw: SimpleNamespace(**kw),
+        ListInstancesRequest=lambda **kw: SimpleNamespace(**kw),
     )
     return mod
 
@@ -197,8 +198,8 @@ async def test_list_active_filters_by_managed_label(monkeypatch):
     assert len(handles) == 1
     assert handles[0].vm_id == "managed-1"
     assert handles[0].provider == VMProvider.GCP
-    list_kwargs = client.list.call_args.kwargs
-    assert "managed-by=tanren" in list_kwargs["filter"]
+    request = client.list.call_args.kwargs["request"]
+    assert "managed-by=tanren" in request.filter
 
 
 def test_missing_gcp_dependency_error_is_clear(monkeypatch):
