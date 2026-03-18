@@ -124,15 +124,15 @@ class GCPVMProvisioner:
             ssh_pub_key=ssh_pub_key,
         )
 
-        operation = await asyncio.to_thread(
-            self._instances_client.insert,
-            project=self._settings.project_id,
-            zone=self._settings.zone,
-            instance_resource=instance_resource,
-        )
-        await asyncio.to_thread(operation.result)
-
         try:
+            operation = await asyncio.to_thread(
+                self._instances_client.insert,
+                project=self._settings.project_id,
+                zone=self._settings.zone,
+                instance_resource=instance_resource,
+            )
+            await asyncio.to_thread(operation.result)
+
             deadline = time.monotonic() + self._settings.readiness_timeout_secs
             while time.monotonic() < deadline:
                 instance = await asyncio.to_thread(
