@@ -285,7 +285,7 @@ async def run_execute(
     spec_path: str,
     phase: str,
     cli: str,
-    auth: str = "api-key",
+    auth: str = "api_key",
     model: str | None = None,
     timeout: int = 1800,
     context: str | None = None,
@@ -337,7 +337,7 @@ async def run_full(
     spec_path: str,
     phase: str,
     cli: str,
-    auth: str = "api-key",
+    auth: str = "api_key",
     environment_profile: str = "default",
     timeout: int = 1800,
     context: str | None = None,
@@ -414,6 +414,8 @@ async def events_query(
 ) -> dict[str, Any]:
     """Query events."""
     assert _events_svc is not None
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     result = await _events_svc.query(
         workflow_id=workflow_id,
         event_type=event_type,

@@ -54,7 +54,8 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[Mapping[str, Any] | None]:
         app.state.settings = settings
 
-        # Register MCP auth middleware
+        # Register MCP auth middleware (clear any stale instances first)
+        mcp.middleware[:] = [m for m in mcp.middleware if not isinstance(m, MCPApiKeyAuth)]
         mcp.add_middleware(MCPApiKeyAuth(settings.api_key))
         load_config_env()
         try:

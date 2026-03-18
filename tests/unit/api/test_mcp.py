@@ -302,3 +302,45 @@ class TestMCPEventsTools:
         data = json.loads(_text(result))
         assert "events" in data
         assert data["total"] == 0
+
+    async def test_events_query_clamps_limit(self, _seed_mcp_services):
+        """Negative or oversized limits are clamped to [1, 100]."""
+        async with Client(mcp) as client:
+            # Negative limit clamped to 1
+            r1 = await client.call_tool("events_query", {"limit": -1})
+            d1 = json.loads(_text(r1))
+            assert d1["limit"] == 1
+
+            # Oversized limit clamped to 100
+            r2 = await client.call_tool("events_query", {"limit": 999})
+            d2 = json.loads(_text(r2))
+            assert d2["limit"] == 100
+
+    async def test_events_query_clamps_offset(self, _seed_mcp_services):
+        """Negative offset is clamped to 0."""
+        async with Client(mcp) as client:
+            result = await client.call_tool("events_query", {"offset": -5})
+        data = json.loads(_text(result))
+        assert data["offset"] == 0
+
+
+@pytest.mark.api
+class TestMCPMiddlewareStacking:
+    """Test that auth middleware doesn't accumulate on repeated lifespan entries."""
+
+    async def test_no_duplicate_auth_middleware(self):
+        """Adding auth middleware twice should replace, not stack."""
+        saved = list(mcp.middleware)
+        try:
+            mcp.middleware.clear()
+
+            # Simulate two lifespan entries (same pattern as main.py)
+            for _ in range(3):
+                mcp.middleware[:] = [m for m in mcp.middleware if not isinstance(m, MCPApiKeyAuth)]
+                mcp.add_middleware(MCPApiKeyAuth("test-key"))
+
+            auth_count = sum(1 for m in mcp.middleware if isinstance(m, MCPApiKeyAuth))
+            assert auth_count == 1, f"Expected 1 auth middleware, got {auth_count}"
+        finally:
+            mcp.middleware.clear()
+            mcp.middleware.extend(saved)
