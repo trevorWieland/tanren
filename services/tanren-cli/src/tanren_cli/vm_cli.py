@@ -16,6 +16,7 @@ from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
 from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.remote_config import ProvisionerType, RemoteSSHConfig, load_remote_config
+from tanren_core.roles_config import load_roles_config
 from tanren_core.secrets import SecretConfig, SecretLoader
 
 vm_app = typer.Typer(help="Manage remote VM assignments.")
@@ -199,8 +200,17 @@ def vm_dry_run(
         typer.echo(f"unsupported provisioner type: {remote_cfg.provisioner.type}", err=True)
         raise typer.Exit(code=1)
 
+    # Load roles to determine required CLIs
+    try:
+        roles = load_roles_config(config.roles_config_path)
+        required_clis = roles.required_clis()
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(f"Warning: could not load roles config: {exc}", err=True)
+        required_clis = None
+
     typer.echo("bootstrap_steps:")
-    bootstrap_plan = UbuntuBootstrapper.plan()
+    bootstrapper = UbuntuBootstrapper(required_clis=required_clis)
+    bootstrap_plan = bootstrapper.plan()
     typer.echo(f"  apt: {' '.join(bootstrap_plan.apt_packages)}")
     for step in bootstrap_plan.install_steps:
         typer.echo(f"  install: {step.name}")

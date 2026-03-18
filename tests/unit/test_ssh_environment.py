@@ -754,8 +754,8 @@ class TestExecute:
         assert result.token_usage is None
         assert result.outcome == Outcome.SUCCESS
 
-    async def test_execute_injects_cli_auth(self, env_kit):
-        """execute() calls inject_cli_auth with the dispatch's cli/auth."""
+    async def test_execute_does_not_inject_cli_auth(self, env_kit):
+        """execute() does NOT inject CLI auth — all auth happens at provision."""
         env = env_kit["env"]
         conn = AsyncMock()
         conn.run.return_value = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
@@ -767,13 +767,11 @@ class TestExecute:
             patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
+            patch(f"{_SSH_ENV}.inject_all_cli_credentials", new_callable=AsyncMock) as mock_inject,
         ):
             await env.execute(handle, dispatch, config)
 
-        env_kit["workspace_mgr"].inject_cli_auth.assert_awaited_once()
-        call_args = env_kit["workspace_mgr"].inject_cli_auth.call_args
-        assert call_args[0][0] is conn  # connection
-        assert call_args[0][2] == (Cli.OPENCODE, dispatch.auth)  # cli_auth tuple
+        mock_inject.assert_not_awaited()
 
 
 class TestGetAccessInfo:
@@ -1019,6 +1017,59 @@ class TestProvisionWorkflowId:
 
         assert handle.runtime.kind == "remote"
         assert handle.runtime.workflow_id == "wf-myproj-42-1000"
+
+
+class TestAgentUser:
+    async def test_provision_passes_target_home(self, env_kit):
+        """provision() passes agent_user home as target_home to credential injection."""
+        env = env_kit["env"]
+        env._agent_user = "tanren"
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        with (
+            patch.object(env, "_resolve_profile", return_value=_make_profile()),
+            patch.object(env, "_load_project_env", return_value={}),
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+            patch(
+                "tanren_core.adapters.ssh_environment.inject_all_cli_credentials",
+                new_callable=AsyncMock,
+                return_value=["claude"],
+            ) as mock_inject,
+        ):
+            MockSSH.return_value = AsyncMock()
+            await env.provision(dispatch, config)
+
+        mock_inject.assert_awaited_once()
+        _, kwargs = mock_inject.call_args
+        assert kwargs["target_home"] == "/home/tanren"
+
+    async def test_teardown_uses_absolute_paths_for_credential_cleanup(self, env_kit):
+        """teardown() uses /home/tanren paths (not tilde) when agent_user is set."""
+        env = env_kit["env"]
+        env._agent_user = "tanren"
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0,
+            stdout="",
+            stderr="",
+            timed_out=False,
+        )
+        vm_handle = _make_vm_handle()
+        workspace = _make_workspace()
+        handle = _make_handle(conn=conn, vm_handle=vm_handle, workspace=workspace)
+
+        await env.teardown(handle)
+
+        # Check that credential cleanup uses absolute paths
+        rm_calls = [
+            call.args[0] for call in conn.run.call_args_list if call.args[0].startswith("rm -f ")
+        ]
+        for rm_cmd in rm_calls:
+            path = rm_cmd.replace("rm -f ", "")
+            assert path.startswith("/home/tanren"), f"Expected absolute path, got: {path}"
+            assert "~" not in path
 
 
 class TestClose:

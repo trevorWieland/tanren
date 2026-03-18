@@ -76,13 +76,18 @@ class TestWorkerManagerInit:
             "  demo: https://github.com/org/demo.git\n"
         )
 
+        roles_yml = tmp_path / "roles.yml"
+        roles_yml.write_text(
+            "agents:\n  default:\n    cli: claude\n    auth: subscription\n    model: opus\n"
+        )
+
         config = Config(
             ipc_dir=str(tmp_path / "ipc"),
             github_dir=str(tmp_path / "github"),
             data_dir=str(tmp_path / "data"),
             worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
             remote_config_path=str(remote_cfg),
-            roles_config_path=str(tmp_path / "roles.yml"),
+            roles_config_path=str(roles_yml),
         )
 
         monkeypatch.delenv("CUSTOM_GIT_TOKEN", raising=False)
@@ -90,7 +95,7 @@ class TestWorkerManagerInit:
         seen: dict[str, object] = {}
 
         class _FakeSecretLoader:
-            def __init__(self, config):
+            def __init__(self, config, *, required_clis=None):
                 seen["secret_config"] = config
 
             def autoload_into_env(self, *, override: bool = False) -> None:
@@ -129,7 +134,7 @@ class TestWorkerManagerInit:
         )
         monkeypatch.setattr(
             "tanren_core.builder.RemoteAgentRunner",
-            lambda: object(),
+            lambda **kwargs: object(),
         )
 
         manager = WorkerManager(config=config, emitter=NullEventEmitter())

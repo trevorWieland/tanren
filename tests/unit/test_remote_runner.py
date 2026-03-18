@@ -199,3 +199,39 @@ class TestRemoteAgentRunnerRun:
 
         assert result.timed_out is True
         assert result.exit_code == 124
+
+
+class TestRunAsUser:
+    async def test_command_wrapped_with_su(self):
+        conn = _make_conn()
+        ws = _make_workspace()
+        runner = RemoteAgentRunner(run_as_user="tanren")
+
+        await runner.run(
+            conn,
+            ws,
+            prompt_content="prompt",
+            cli_command="claude -p --dangerously-skip-permissions < .tanren-prompt.md",
+            signal_path="/workspace/myproj/.signal",
+        )
+
+        agent_call = conn.run.call_args_list[0]
+        cmd = agent_call.args[0]
+        assert cmd.startswith("su - tanren -c ")
+
+    async def test_no_wrapping_without_run_as_user(self):
+        conn = _make_conn()
+        ws = _make_workspace()
+        runner = RemoteAgentRunner()
+
+        await runner.run(
+            conn,
+            ws,
+            prompt_content="prompt",
+            cli_command="claude -p --dangerously-skip-permissions",
+            signal_path="/workspace/myproj/.signal",
+        )
+
+        agent_call = conn.run.call_args_list[0]
+        cmd = agent_call.args[0]
+        assert not cmd.startswith("su -")

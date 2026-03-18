@@ -14,6 +14,12 @@ from typing import cast
 import yaml
 from dotenv import dotenv_values
 
+from tanren_core.adapters.credentials import (
+    DEFAULT_CREDENTIAL_PROVIDERS,
+    CredentialProvider,
+    all_credential_cleanup_paths,
+    inject_all_cli_credentials,
+)
 from tanren_core.adapters.events import BootstrapCompleted, VMProvisioned, VMReleased
 from tanren_core.adapters.protocols import (
     EnvironmentBootstrapper,
@@ -80,6 +86,8 @@ class SSHExecutionEnvironment:
         repo_urls: dict[str, str],
         provider: VMProvider = VMProvider.MANUAL,
         ssh_ready_timeout_secs: int = _SSH_READY_TIMEOUT_SECS,
+        credential_providers: tuple[CredentialProvider, ...] = DEFAULT_CREDENTIAL_PROVIDERS,
+        agent_user: str | None = None,
     ) -> None:
         """Initialize with remote execution adapters and configuration."""
         self._vm_provisioner = vm_provisioner
@@ -93,6 +101,8 @@ class SSHExecutionEnvironment:
         self._repo_urls = repo_urls
         self._provider = provider
         self._ssh_ready_timeout_secs = ssh_ready_timeout_secs
+        self._credential_providers = credential_providers
+        self._agent_user = agent_user
 
     @property
     def ssh_defaults(self) -> SSHConfig:
@@ -207,14 +217,25 @@ class SSHExecutionEnvironment:
             # 7. Inject secrets
             project_env = self._load_project_env(dispatch, config)
             bundle = self._secret_loader.build_bundle(project_env)
-            await self._workspace_mgr.inject_secrets(
-                conn,
-                workspace_path,
-                bundle,
-                cli_auth=(dispatch.cli, dispatch.auth),
-            )
+            await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
-            # 8. Record assignment
+            # 7b. Make workspace secrets readable by agent user
+            if self._agent_user:
+                await conn.run(
+                    f"chown {self._agent_user}:{self._agent_user}"
+                    f" /workspace/.developer-secrets /workspace/.git-askpass 2>/dev/null;"
+                    f" chown -R {self._agent_user}:{self._agent_user} {workspace_path.path}",
+                    timeout=10,
+                )
+
+            # 8. Inject all CLI credentials
+            target_home = f"/home/{self._agent_user}" if self._agent_user else None
+            injected = await inject_all_cli_credentials(
+                conn, bundle, self._credential_providers, target_home=target_home
+            )
+            logger.info("Injected credentials: %s", injected)
+
+            # 9. Record assignment
             await self._state_store.record_assignment(
                 vm_id=vm_handle.vm_id,
                 workflow_id=dispatch.workflow_id,
@@ -236,7 +257,7 @@ class SSHExecutionEnvironment:
                 )
             )
 
-            # 9. Return handle
+            # 10. Return handle
             return EnvironmentHandle(
                 env_id=str(uuid.uuid4()),
                 worktree_path=Path(workspace_path.path),
@@ -303,10 +324,6 @@ class SSHExecutionEnvironment:
         prompt_content = assemble_prompt(
             command_file, dispatch.spec_folder, command_name, dispatch.context
         )
-
-        # Inject CLI-specific auth for this dispatch's tool (may differ from provision)
-        bundle = self._secret_loader.build_bundle(self._load_project_env(dispatch, config))
-        await self._workspace_mgr.inject_cli_auth(conn, bundle, (dispatch.cli, dispatch.auth))
 
         while True:
             # Build CLI command
@@ -483,6 +500,17 @@ class SSHExecutionEnvironment:
         finally:
             try:
                 await self._workspace_mgr.cleanup(conn, workspace)
+                # Remove credential files (best-effort, after workspace cleanup)
+                raw_paths = all_credential_cleanup_paths(self._credential_providers)
+                if self._agent_user:
+                    cred_paths = [p.replace("~", f"/home/{self._agent_user}") for p in raw_paths]
+                else:
+                    cred_paths = raw_paths
+                for cred_path in cred_paths:
+                    try:
+                        await conn.run(f"rm -f {cred_path}", timeout=10)
+                    except Exception:
+                        logger.warning("Credential cleanup failed: %s", cred_path, exc_info=True)
             except Exception:
                 logger.warning("Workspace cleanup failed", exc_info=True)
             finally:

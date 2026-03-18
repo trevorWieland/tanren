@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from tanren_core.adapters.remote_types import SecretBundle
+from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretConfig, SecretLoader
 
 
@@ -91,6 +92,60 @@ class TestLoadCredentialFiles:
         result = loader.load_credential_files()
 
         assert result == {}
+
+
+class TestRequiredClisFiltering:
+    def test_only_claude_file_loaded(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
+        (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=frozenset({Cli.CLAUDE}),
+        )
+
+        result = loader.load_credential_files()
+
+        assert result == {"CLAUDE_CREDENTIALS_JSON": '{"token": "abc"}'}
+
+    def test_only_codex_file_loaded(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
+        (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=frozenset({Cli.CODEX}),
+        )
+
+        result = loader.load_credential_files()
+
+        assert result == {"CODEX_AUTH_JSON": '{"session": "xyz"}'}
+
+    def test_opencode_has_no_credential_file(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        loader = SecretLoader(
+            SecretConfig(developer_secrets_path=str(secrets_file)),
+            required_clis=frozenset({Cli.OPENCODE}),
+        )
+
+        result = loader.load_credential_files()
+
+        assert result == {}
+
+    def test_none_required_clis_loads_all(self, tmp_path: Path):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
+        (tmp_path / "codex_auth.json").write_text('{"session": "xyz"}')
+        loader = SecretLoader(SecretConfig(developer_secrets_path=str(secrets_file)))
+
+        result = loader.load_credential_files()
+
+        assert "CLAUDE_CREDENTIALS_JSON" in result
+        assert "CODEX_AUTH_JSON" in result
 
 
 class TestBuildBundle:

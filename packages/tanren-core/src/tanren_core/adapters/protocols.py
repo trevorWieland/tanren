@@ -27,7 +27,7 @@ from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
-from tanren_core.schemas import AuthMode, Cli, Dispatch
+from tanren_core.schemas import Dispatch
 
 
 @runtime_checkable
@@ -274,19 +274,8 @@ class WorkspaceManager(Protocol):
         conn: RemoteConnection,
         workspace: WorkspacePath,
         secrets: SecretBundle,
-        *,
-        cli_auth: tuple[Cli, AuthMode] | None = None,
     ) -> None:
         """Write secret files into the remote workspace."""
-        ...
-
-    async def inject_cli_auth(
-        self,
-        conn: RemoteConnection,
-        secrets: SecretBundle,
-        cli_auth: tuple[Cli, AuthMode],
-    ) -> None:
-        """Inject CLI-specific auth files (e.g. opencode auth.json)."""
         ...
 
     def push_command(self, workspace_path: str, branch: str) -> str:

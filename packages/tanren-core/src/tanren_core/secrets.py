@@ -10,6 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.env.secrets import DEFAULT_SECRETS_DIR
+from tanren_core.schemas import Cli
+
+_CLI_CREDENTIAL_FILES: dict[Cli, tuple[str, str]] = {
+    Cli.CLAUDE: ("CLAUDE_CREDENTIALS_JSON", "claude_credentials.json"),
+    Cli.CODEX: ("CODEX_AUTH_JSON", "codex_auth.json"),
+}
 
 
 class SecretConfig(BaseModel):
@@ -30,9 +36,15 @@ class SecretLoader:
     - infrastructure: from environment variables (e.g., GIT_TOKEN)
     """
 
-    def __init__(self, config: SecretConfig | None = None) -> None:
-        """Initialize with optional secret configuration."""
+    def __init__(
+        self,
+        config: SecretConfig | None = None,
+        *,
+        required_clis: frozenset[Cli] | None = None,
+    ) -> None:
+        """Initialize with optional secret configuration and CLI filter."""
         self._config = config or SecretConfig()
+        self._required_clis = required_clis
 
     def autoload_into_env(self, *, override: bool = False) -> None:
         """Load developer secrets into process env."""
@@ -69,18 +81,24 @@ class SecretLoader:
     def load_credential_files(self) -> dict[str, str]:
         """Load CLI credential files from the secrets directory.
 
-        Reads ``claude_credentials.json`` and ``codex_auth.json`` from the
-        parent directory of ``developer_secrets_path`` (the tanren secrets dir).
+        When ``required_clis`` is set, only loads files for those CLIs.
+        When ``None``, loads all known credential files (backward compat).
 
         Returns:
             Dict mapping credential keys to file contents for files that exist
             and are non-empty.
         """
         secrets_dir = Path(self._config.developer_secrets_path).expanduser().parent
-        mapping = {
-            "CLAUDE_CREDENTIALS_JSON": "claude_credentials.json",
-            "CODEX_AUTH_JSON": "codex_auth.json",
-        }
+
+        if self._required_clis is not None:
+            mapping = {
+                key: filename
+                for cli, (key, filename) in _CLI_CREDENTIAL_FILES.items()
+                if cli in self._required_clis
+            }
+        else:
+            mapping = dict(_CLI_CREDENTIAL_FILES.values())
+
         result: dict[str, str] = {}
         for key, filename in mapping.items():
             path = secrets_dir / filename

@@ -58,3 +58,17 @@ class RoleMapping(BaseModel):
         role_name = role.value if isinstance(role, RoleName) else role
         resolved = getattr(self, role_name, None)
         return resolved or self.default
+
+    def required_clis(self) -> frozenset[Cli]:
+        """Return the set of CLIs needed by all configured roles.
+
+        Bash is excluded because it does not require installation or
+        credential injection.
+        """
+        clis: set[Cli] = {self.default.cli}
+        for field in ("conversation", "implementation", "audit", "feedback", "conflict_resolution"):
+            tool = getattr(self, field)
+            if tool is not None:
+                clis.add(tool.cli)
+        clis.discard(Cli.BASH)
+        return frozenset(clis)

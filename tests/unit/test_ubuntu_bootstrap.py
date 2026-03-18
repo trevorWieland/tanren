@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tanren_core.adapters.remote_types import RemoteResult
-from tanren_core.adapters.ubuntu_bootstrap import _MARKER_PATH, UbuntuBootstrapper  # noqa: PLC2701
+from tanren_core.adapters.ubuntu_bootstrap import (
+    _AGENT_USER,  # noqa: PLC2701
+    _MARKER_PATH,  # noqa: PLC2701
+    UbuntuBootstrapper,
+)
+from tanren_core.schemas import Cli
 
 
 def _ok(stdout: str = "") -> RemoteResult:
@@ -53,7 +58,7 @@ class TestFreshBootstrap:
     @pytest.mark.asyncio
     async def test_installs_all_tools_and_writes_marker(self):
         conn = _make_conn()
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE, Cli.OPENCODE}))
 
         result = await bs.bootstrap(conn)
 
@@ -72,7 +77,7 @@ class TestIdempotent:
     @pytest.mark.asyncio
     async def test_marker_exists_skips_all(self):
         conn = _make_conn(marker_exists=True)
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
 
         result = await bs.bootstrap(conn)
 
@@ -87,7 +92,7 @@ class TestSkipInstalledTools:
     @pytest.mark.asyncio
     async def test_already_installed_tools_are_skipped(self):
         conn = _make_conn(installed_tools=frozenset({"docker", "uv"}))
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE, Cli.OPENCODE}))
 
         result = await bs.bootstrap(conn)
 
@@ -104,7 +109,7 @@ class TestForceFlag:
     @pytest.mark.asyncio
     async def test_force_reruns_when_marker_exists(self):
         conn = _make_conn(marker_exists=True, installed_tools=frozenset({"docker"}))
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE, Cli.OPENCODE}))
 
         result = await bs.bootstrap(conn, force=True)
 
@@ -128,7 +133,7 @@ class TestStepFailure:
             return _ok()
 
         conn.run = AsyncMock(side_effect=_run)
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
 
         with pytest.raises(RuntimeError, match="apt install failed"):
             await bs.bootstrap(conn)
@@ -147,7 +152,7 @@ class TestStepFailure:
             return _ok()
 
         conn.run = AsyncMock(side_effect=_run)
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
 
         with pytest.raises(RuntimeError, match="Failed to install docker"):
             await bs.bootstrap(conn)
@@ -158,7 +163,7 @@ class TestExtraScript:
     async def test_extra_script_uploaded_and_executed(self):
         conn = _make_conn()
         script = "#!/bin/bash\necho hello"
-        bs = UbuntuBootstrapper(extra_script=script)
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}), extra_script=script)
 
         result = await bs.bootstrap(conn)
 
@@ -181,7 +186,10 @@ class TestExtraScript:
             return _ok()
 
         conn.run = AsyncMock(side_effect=_run)
-        bs = UbuntuBootstrapper(extra_script="#!/bin/bash\nexit 1")
+        bs = UbuntuBootstrapper(
+            required_clis=frozenset({Cli.CLAUDE}),
+            extra_script="#!/bin/bash\nexit 1",
+        )
 
         with pytest.raises(RuntimeError, match="Extra bootstrap script failed"):
             await bs.bootstrap(conn)
@@ -191,13 +199,105 @@ class TestIsBootstrapped:
     @pytest.mark.asyncio
     async def test_returns_true_when_marker_exists(self):
         conn = _make_conn(marker_exists=True)
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
 
         assert await bs.is_bootstrapped(conn) is True
 
     @pytest.mark.asyncio
     async def test_returns_false_when_no_marker(self):
         conn = _make_conn(marker_exists=False)
-        bs = UbuntuBootstrapper()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
 
         assert await bs.is_bootstrapped(conn) is False
+
+
+class TestCodexInstalled:
+    @pytest.mark.asyncio
+    async def test_codex_installed_when_configured(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CODEX}))
+
+        result = await bs.bootstrap(conn)
+
+        assert "codex" in result.installed
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert any("npm install -g @openai/codex" in c for c in run_cmds)
+
+    @pytest.mark.asyncio
+    async def test_codex_not_installed_when_not_configured(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+
+        result = await bs.bootstrap(conn)
+
+        assert "codex" not in result.installed
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert not any("@openai/codex" in c for c in run_cmds)
+
+
+class TestCcusageAdaptsToConfiguredClis:
+    @pytest.mark.asyncio
+    async def test_ccusage_only_claude_packages(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+
+        result = await bs.bootstrap(conn)
+
+        assert "ccusage" in result.installed
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        install_cmds = [c for c in run_cmds if "npm install -g" in c and "ccusage" in c]
+        assert len(install_cmds) == 1
+        assert "ccusage" in install_cmds[0]
+        assert "@ccusage/codex" not in install_cmds[0]
+
+    @pytest.mark.asyncio
+    async def test_ccusage_all_cli_packages(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE, Cli.CODEX, Cli.OPENCODE}))
+
+        result = await bs.bootstrap(conn)
+
+        assert "ccusage" in result.installed
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        install_cmds = [c for c in run_cmds if "npm install -g" in c and "ccusage" in c]
+        assert len(install_cmds) == 1
+        assert "ccusage" in install_cmds[0]
+        assert "@ccusage/codex" in install_cmds[0]
+        assert "@ccusage/opencode" in install_cmds[0]
+
+
+class TestAgentUserCreation:
+    @pytest.mark.asyncio
+    async def test_creates_tanren_user_and_chowns_workspace(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert any("useradd" in c and _AGENT_USER in c for c in run_cmds)
+        assert any(f"chown {_AGENT_USER}:{_AGENT_USER} /workspace" in c for c in run_cmds)
+
+
+class TestPlan:
+    def test_plan_returns_only_configured_clis(self):
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+        plan = bs.plan()
+
+        step_names = [s.name for s in plan.install_steps]
+        assert "claude" in step_names
+        assert "opencode" not in step_names
+        assert "codex" not in step_names
+        assert "ccusage" in step_names
+        # Infra always present
+        assert "docker" in step_names
+        assert "node" in step_names
+        assert "uv" in step_names
+
+    def test_plan_includes_codex_when_configured(self):
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE, Cli.CODEX}))
+        plan = bs.plan()
+
+        step_names = [s.name for s in plan.install_steps]
+        assert "claude" in step_names
+        assert "codex" in step_names
