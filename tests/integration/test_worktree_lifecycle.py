@@ -156,6 +156,36 @@ class TestWorktreeLifecycle:
         assert not wt_path.exists()
 
 
+class TestWorktreeHyphenatedIssue:
+    @pytest.mark.asyncio
+    async def test_create_register_cleanup_with_hyphenated_issue(self, tmp_path: Path):
+        """Full lifecycle with a Linear-style hyphenated issue ID (PROJ-123)."""
+        github_dir = tmp_path
+        _repo, branch = await _setup_git_repo(tmp_path)
+
+        issue = "PROJ-123"
+        wt_path = await create_worktree("test-project", issue, branch, str(github_dir))
+        assert wt_path.exists()
+        assert wt_path.name == "test-project-wt-PROJ-123"
+
+        registry_path = tmp_path / "worktrees.json"
+        workflow_id = "wf-test-project-PROJ-123-1000"
+
+        await register_worktree(
+            registry_path, workflow_id, "test-project", issue, branch, wt_path, str(github_dir)
+        )
+
+        reg = await load_registry(registry_path)
+        assert workflow_id in reg.worktrees
+        assert reg.worktrees[workflow_id].issue == issue
+
+        await cleanup_worktree(workflow_id, registry_path, str(github_dir))
+
+        reg = await load_registry(registry_path)
+        assert workflow_id not in reg.worktrees
+        assert not wt_path.exists()
+
+
 class TestWorktreeResilience:
     @pytest.mark.asyncio
     async def test_create_with_stale_directory(self, tmp_path: Path):
