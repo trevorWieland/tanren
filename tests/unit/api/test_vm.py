@@ -112,7 +112,7 @@ class TestVM:
             host="10.0.0.1",
             assigned_at="2026-01-01T00:00:00Z",
         )
-        mock_execution_env.release_vm = pytest.importorskip("unittest.mock").AsyncMock()
+        mock_execution_env.release_vm = AsyncMock()
 
         resp = await client.delete("/api/v1/vm/vm-1", headers=auth_headers)
         assert resp.status_code == 200

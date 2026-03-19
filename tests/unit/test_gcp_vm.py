@@ -158,10 +158,10 @@ async def test_release_deletes_instance(monkeypatch):
 @pytest.mark.asyncio
 async def test_release_missing_instance_is_graceful(monkeypatch):
     monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
-    gae = pytest.importorskip("google.api_core.exceptions")
+    from google.api_core.exceptions import NotFound  # noqa: PLC0415
 
     client = Mock()
-    client.delete = Mock(side_effect=gae.NotFound("not found"))
+    client.delete = Mock(side_effect=NotFound("not found"))
 
     provisioner = _make_provisioner(monkeypatch, client)
 
