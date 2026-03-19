@@ -68,7 +68,7 @@ class LocalExecutionEnvironment:
         Raises:
             ProvisionError: If environment validation or preflight checks fail.
         """
-        issue = _parse_issue(dispatch.workflow_id)
+        issue = _parse_issue(dispatch.workflow_id, project=dispatch.project)
         worktree_path = Path(config.github_dir) / f"{dispatch.project}-wt-{issue}"
         spec_folder_path = worktree_path / dispatch.spec_folder
 
@@ -274,10 +274,10 @@ class LocalExecutionEnvironment:
         pass
 
 
-def _parse_issue(workflow_id: str) -> int:
-    """Extract issue number from workflow_id.
+def _parse_issue(workflow_id: str, *, project: str | None = None) -> str:
+    """Extract issue identifier from workflow_id.
 
     Returns:
-        Issue number parsed from the workflow_id.
+        Issue identifier parsed from the workflow_id.
     """
-    return parse_issue_from_workflow_id(workflow_id)
+    return parse_issue_from_workflow_id(workflow_id, project=project)

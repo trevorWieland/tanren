@@ -83,7 +83,12 @@ class DispatchRequest(BaseModel):
     environment_profile: str = Field(default="default", description="Environment profile name")
     context: str | None = Field(default=None, description="Extra context for the agent")
     gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
-    issue: int = Field(default=0, ge=0, description="GitHub issue number (0 = API-originated)")
+    issue: str = Field(
+        default="0",
+        min_length=1,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        description="Issue identifier ('0' = API-originated)",
+    )
 
 
 class ProvisionRequest(BaseModel):

@@ -34,6 +34,7 @@ from tanren_core.adapters.git_postflight import GitPostflightRunner
 from tanren_core.adapters.git_preflight import GitPreflightRunner
 from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
 from tanren_core.adapters.git_worktree import GitWorktreeManager
+from tanren_core.adapters.issue_types import Issue, IssueSummary
 
 try:  # noqa: SIM105, RUF067
     from tanren_core.adapters.gcp_vm import GCPProvisionerSettings, GCPVMProvisioner
@@ -62,6 +63,7 @@ from tanren_core.adapters.protocols import (
     EnvValidator,
     EventEmitter,
     ExecutionEnvironment,
+    IssueSource,
     PostflightRunner,
     PreflightRunner,
     ProcessSpawner,
@@ -131,6 +133,9 @@ __all__ = [
     "GitWorktreeManager",
     "HetznerProvisionerSettings",
     "HetznerVMProvisioner",
+    "Issue",
+    "IssueSource",
+    "IssueSummary",
     "LocalExecutionEnvironment",
     "ManualProvisionerSettings",
     "ManualVMConfig",

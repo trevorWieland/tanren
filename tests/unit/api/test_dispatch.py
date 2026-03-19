@@ -192,7 +192,7 @@ class TestDispatch:
                     "branch": "main",
                     "spec_folder": "specs/test",
                     "cli": "claude",
-                    "issue": 1,
+                    "issue": "1",
                 },
                 headers=auth_headers,
             )
@@ -200,7 +200,7 @@ class TestDispatch:
         assert len(ids) == 3
 
     async def test_synthetic_issue_does_not_wrap(self, client, auth_headers):
-        """Synthetic issue ID (when issue=0) is a full nanosecond timestamp, not modulo-wrapped."""
+        """Synthetic issue ID (issue='0') uses a full nanosecond timestamp."""
         resp = await client.post(
             "/api/v1/dispatch",
             json={
@@ -209,7 +209,7 @@ class TestDispatch:
                 "branch": "main",
                 "spec_folder": "specs/test",
                 "cli": "claude",
-                "issue": 0,
+                "issue": "0",
             },
             headers=auth_headers,
         )

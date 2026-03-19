@@ -95,7 +95,7 @@ class TestWorktreeBranchSwitch:
         assert stdout.decode().strip() == branch
 
         # create_worktree should succeed by switching main repo to default branch
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
         assert wt_path.exists()
 
         # Verify main repo switched to default branch
@@ -121,7 +121,7 @@ class TestWorktreeLifecycle:
         repo, branch = await _setup_git_repo(tmp_path)
 
         # Create worktree
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
         assert wt_path.exists()
         assert wt_path.name == "test-project-wt-123"
 
@@ -134,13 +134,13 @@ class TestWorktreeLifecycle:
         """Register a worktree, then clean it up via cleanup_worktree."""
         github_dir = tmp_path
         _repo, branch = await _setup_git_repo(tmp_path)
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
 
         registry_path = tmp_path / "worktrees.json"
         workflow_id = "wf-test-project-123-1000"
 
         await register_worktree(
-            registry_path, workflow_id, "test-project", 123, branch, wt_path, str(github_dir)
+            registry_path, workflow_id, "test-project", "123", branch, wt_path, str(github_dir)
         )
 
         # Verify registered
@@ -151,6 +151,36 @@ class TestWorktreeLifecycle:
         await cleanup_worktree(workflow_id, registry_path, str(github_dir))
 
         # Verify cleaned up
+        reg = await load_registry(registry_path)
+        assert workflow_id not in reg.worktrees
+        assert not wt_path.exists()
+
+
+class TestWorktreeHyphenatedIssue:
+    @pytest.mark.asyncio
+    async def test_create_register_cleanup_with_hyphenated_issue(self, tmp_path: Path):
+        """Full lifecycle with a Linear-style hyphenated issue ID (PROJ-123)."""
+        github_dir = tmp_path
+        _repo, branch = await _setup_git_repo(tmp_path)
+
+        issue = "PROJ-123"
+        wt_path = await create_worktree("test-project", issue, branch, str(github_dir))
+        assert wt_path.exists()
+        assert wt_path.name == "test-project-wt-PROJ-123"
+
+        registry_path = tmp_path / "worktrees.json"
+        workflow_id = "wf-test-project-PROJ-123-1000"
+
+        await register_worktree(
+            registry_path, workflow_id, "test-project", issue, branch, wt_path, str(github_dir)
+        )
+
+        reg = await load_registry(registry_path)
+        assert workflow_id in reg.worktrees
+        assert reg.worktrees[workflow_id].issue == issue
+
+        await cleanup_worktree(workflow_id, registry_path, str(github_dir))
+
         reg = await load_registry(registry_path)
         assert workflow_id not in reg.worktrees
         assert not wt_path.exists()
@@ -169,7 +199,7 @@ class TestWorktreeResilience:
         (stale_path / "leftover.txt").write_text("stale")
 
         # create_worktree should remove stale dir and succeed
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
         assert wt_path.exists()
         assert not (wt_path / "leftover.txt").exists()
 
@@ -181,11 +211,11 @@ class TestWorktreeResilience:
         github_dir = tmp_path
         _repo, branch = await _setup_git_repo(tmp_path)
 
-        wt_path1 = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path1 = await create_worktree("test-project", "123", branch, str(github_dir))
         assert wt_path1.exists()
 
         # Second call with same params should return same path
-        wt_path2 = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path2 = await create_worktree("test-project", "123", branch, str(github_dir))
         assert wt_path2 == wt_path1
 
         await remove_worktree(wt_path1, github_dir / "test-project")
@@ -195,18 +225,18 @@ class TestWorktreeResilience:
         """Re-registering same workflow_id should succeed (overwrite)."""
         github_dir = tmp_path
         _repo, branch = await _setup_git_repo(tmp_path)
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
 
         registry_path = tmp_path / "worktrees.json"
         workflow_id = "wf-test-project-123-1000"
 
         await register_worktree(
-            registry_path, workflow_id, "test-project", 123, branch, wt_path, str(github_dir)
+            registry_path, workflow_id, "test-project", "123", branch, wt_path, str(github_dir)
         )
 
         # Register again — should succeed
         await register_worktree(
-            registry_path, workflow_id, "test-project", 123, branch, wt_path, str(github_dir)
+            registry_path, workflow_id, "test-project", "123", branch, wt_path, str(github_dir)
         )
 
         reg = await load_registry(registry_path)
@@ -219,13 +249,13 @@ class TestWorktreeResilience:
         """Cleanup should succeed even if worktree directory was already deleted."""
         github_dir = tmp_path
         _repo, branch = await _setup_git_repo(tmp_path)
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
 
         registry_path = tmp_path / "worktrees.json"
         workflow_id = "wf-test-project-123-1000"
 
         await register_worktree(
-            registry_path, workflow_id, "test-project", 123, branch, wt_path, str(github_dir)
+            registry_path, workflow_id, "test-project", "123", branch, wt_path, str(github_dir)
         )
 
         # Manually delete the directory
@@ -255,9 +285,9 @@ class TestWorktreeResilience:
         workflow_id = "wf-test-project-123-1000"
 
         # Initial setup
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
         await register_worktree(
-            registry_path, workflow_id, "test-project", 123, branch, wt_path, str(github_dir)
+            registry_path, workflow_id, "test-project", "123", branch, wt_path, str(github_dir)
         )
 
         # Cleanup (simulates halt)
@@ -265,9 +295,9 @@ class TestWorktreeResilience:
         assert not wt_path.exists()
 
         # Re-setup (simulates resume)
-        wt_path2 = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path2 = await create_worktree("test-project", "123", branch, str(github_dir))
         await register_worktree(
-            registry_path, workflow_id, "test-project", 123, branch, wt_path2, str(github_dir)
+            registry_path, workflow_id, "test-project", "123", branch, wt_path2, str(github_dir)
         )
 
         # Verify

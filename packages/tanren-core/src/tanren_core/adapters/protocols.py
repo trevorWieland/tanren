@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from tanren_core.adapters.events import Event
+from tanren_core.adapters.issue_types import Issue, IssueSummary
 from tanren_core.adapters.remote_types import (
     BootstrapResult,
     RemoteResult,
@@ -43,7 +44,7 @@ class WorktreeManager(Protocol):
     Default implementation: GitWorktreeManager (git worktree add/remove).
     """
 
-    async def create(self, project: str, issue: int, branch: str, github_dir: str) -> Path:
+    async def create(self, project: str, issue: str, branch: str, github_dir: str) -> Path:
         """Create a new git worktree for the given project and issue."""
         ...
 
@@ -52,7 +53,7 @@ class WorktreeManager(Protocol):
         registry_path: Path,
         workflow_id: str,
         project: str,
-        issue: int,
+        issue: str,
         branch: str,
         worktree_path: Path,
         github_dir: str,
@@ -361,4 +362,32 @@ class VMStateStore(Protocol):
 
     async def close(self) -> None:
         """Close any resources held by the state store."""
+        ...
+
+
+@runtime_checkable
+class IssueSource(Protocol):
+    """Read and update issues from an external tracker.
+
+    Abstracts over GitHub Issues, Linear, Jira, etc. Implementations
+    translate between the tracker's native format and the Issue/IssueSummary
+    models.
+    """
+
+    async def get_issue(self, issue_id: str) -> Issue:
+        """Fetch full issue detail by ID."""
+        ...
+
+    async def list_issues(
+        self, *, project: str | None = None, status: str | None = None
+    ) -> list[IssueSummary]:
+        """List issues, optionally filtered by project and/or status."""
+        ...
+
+    async def update_status(self, issue_id: str, status: str) -> None:
+        """Transition an issue to a new status."""
+        ...
+
+    async def add_comment(self, issue_id: str, body: str) -> None:
+        """Append a comment to an issue."""
         ...

@@ -1727,11 +1727,12 @@
             "description": "Shell command for gate phases"
           },
           "issue": {
-            "type": "integer",
-            "minimum": 0.0,
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
             "title": "Issue",
-            "description": "GitHub issue number (0 = API-originated)",
-            "default": 0
+            "description": "Issue identifier ('0' = API-originated)",
+            "default": "0"
           }
         },
         "additionalProperties": false,

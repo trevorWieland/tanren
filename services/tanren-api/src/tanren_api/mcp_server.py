@@ -120,7 +120,7 @@ async def dispatch_create(
     timeout: int = 1800,
     context: str | None = None,
     gate_cmd: str | None = None,
-    issue: int = 0,
+    issue: str = "0",
 ) -> dict[str, Any]:
     """Create a new dispatch."""
     from tanren_api.models import DispatchRequest  # noqa: PLC0415

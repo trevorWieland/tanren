@@ -452,7 +452,7 @@ class WorkerManager:
     async def _handle_dispatch(self, path: Path, dispatch: Dispatch) -> None:
         """Handle a single dispatch through its full lifecycle."""
         dispatch_stem = path.stem
-        issue = parse_issue_from_workflow_id(dispatch.workflow_id)
+        issue = parse_issue_from_workflow_id(dispatch.workflow_id, project=dispatch.project)
         worktree_path = Path(self._config.github_dir) / f"{dispatch.project}-wt-{issue}"
 
         now = datetime.now(UTC).isoformat()
@@ -511,7 +511,7 @@ class WorkerManager:
             )
             await self._write_result_and_nudge(result, dispatch.workflow_id)
 
-    async def _handle_setup(self, dispatch: Dispatch, issue: int, worktree_path: Path) -> None:
+    async def _handle_setup(self, dispatch: Dispatch, issue: str, worktree_path: Path) -> None:
         """Handle setup phase: create worktree + register."""
         start = time.monotonic()
         try:

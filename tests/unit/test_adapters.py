@@ -25,8 +25,8 @@ class TestGitWorktreeManager:
     async def test_create_delegates(self, mock_create):
         mock_create.return_value = Path("/tmp/project-wt-1")
         mgr = GitWorktreeManager()
-        result = await mgr.create("project", 1, "feat-1", "/home/github")
-        mock_create.assert_awaited_once_with("project", 1, "feat-1", "/home/github")
+        result = await mgr.create("project", "1", "feat-1", "/home/github")
+        mock_create.assert_awaited_once_with("project", "1", "feat-1", "/home/github")
         assert result == Path("/tmp/project-wt-1")
 
     @pytest.mark.asyncio
@@ -35,9 +35,9 @@ class TestGitWorktreeManager:
         mgr = GitWorktreeManager()
         reg_path = Path("/tmp/worktrees.json")
         wt_path = Path("/tmp/project-wt-1")
-        await mgr.register(reg_path, "wf-1", "project", 1, "feat-1", wt_path, "/home/github")
+        await mgr.register(reg_path, "wf-1", "project", "1", "feat-1", wt_path, "/home/github")
         mock_register.assert_awaited_once_with(
-            reg_path, "wf-1", "project", 1, "feat-1", wt_path, "/home/github"
+            reg_path, "wf-1", "project", "1", "feat-1", wt_path, "/home/github"
         )
 
     @pytest.mark.asyncio
