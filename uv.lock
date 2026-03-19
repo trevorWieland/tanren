@@ -1480,7 +1480,7 @@ wheels = [
 
 [[package]]
 name = "tanren-api"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "services/tanren-api" }
 dependencies = [
     { name = "fastapi" },
@@ -1512,7 +1512,7 @@ provides-extras = ["hetzner", "gcp"]
 
 [[package]]
 name = "tanren-cli"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "services/tanren-cli" }
 dependencies = [
     { name = "tanren-core" },
@@ -1527,7 +1527,7 @@ requires-dist = [
 
 [[package]]
 name = "tanren-core"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "packages/tanren-core" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1563,7 +1563,7 @@ provides-extras = ["gcp", "hetzner"]
 
 [[package]]
 name = "tanren-daemon"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "services/tanren-daemon" }
 dependencies = [
     { name = "tanren-core" },
@@ -1574,7 +1574,7 @@ requires-dist = [{ name = "tanren-core", editable = "packages/tanren-core" }]
 
 [[package]]
 name = "tanren-workspace"
-version = "0.1.1"
+version = "0.2.0"
 source = { virtual = "." }
 
 [package.optional-dependencies]
