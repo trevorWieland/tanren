@@ -214,12 +214,16 @@ class SSHExecutionEnvironment:
             )
             workspace_path = await self._workspace_mgr.setup(conn, workspace_spec)
 
-            # 7. Inject secrets
+            # 7a. Inject secrets
             project_env = self._load_project_env(dispatch, config)
             bundle = self._secret_loader.build_bundle(project_env)
             await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
-            # 7b. Make workspace secrets readable by agent user
+            # 7b. Inject MCP config
+            if profile.mcp:
+                await self._workspace_mgr.inject_mcp_config(conn, workspace_path, profile.mcp)
+
+            # 7c. Make workspace secrets readable by agent user
             if self._agent_user:
                 quoted_user = shlex.quote(self._agent_user)
                 quoted_ws = shlex.quote(workspace_path.path)

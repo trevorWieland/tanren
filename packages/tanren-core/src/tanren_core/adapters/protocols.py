@@ -23,6 +23,7 @@ from tanren_core.adapters.remote_types import (
 )
 from tanren_core.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import McpServerConfig
 from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
@@ -276,6 +277,15 @@ class WorkspaceManager(Protocol):
         secrets: SecretBundle,
     ) -> None:
         """Write secret files into the remote workspace."""
+        ...
+
+    async def inject_mcp_config(
+        self,
+        conn: RemoteConnection,
+        workspace: WorkspacePath,
+        mcp_servers: dict[str, McpServerConfig],
+    ) -> None:
+        """Write MCP config files for all CLIs into the remote workspace."""
         ...
 
     def push_command(self, workspace_path: str, branch: str) -> str:

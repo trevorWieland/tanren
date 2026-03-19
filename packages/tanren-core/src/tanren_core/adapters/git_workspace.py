@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shlex
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
+from tanren_core.env.environment_schema import McpServerConfig
 from tanren_core.remote_config import GitAuthMethod
 
 if TYPE_CHECKING:
@@ -140,6 +142,76 @@ class GitWorkspaceManager:
             await conn.upload_content(content, env_path)
             await conn.run(f"chmod 600 {shlex.quote(env_path)}", timeout=10)
 
+    _MCP_FILES: ClassVar[dict[str, str]] = {
+        "claude": ".mcp.json",
+        "codex": ".codex/config.toml",
+        "opencode": "opencode.json",
+    }
+
+    async def inject_mcp_config(
+        self,
+        conn: RemoteConnection,
+        workspace: WorkspacePath,
+        mcp_servers: dict[str, McpServerConfig],
+    ) -> None:
+        """Write MCP config files for all CLIs into the remote workspace."""
+        if not mcp_servers:
+            return
+
+        has_headers = any(s.headers for s in mcp_servers.values())
+
+        configs: list[tuple[str, str]] = [
+            (self._MCP_FILES["claude"], self._render_claude_mcp(mcp_servers)),
+            (self._MCP_FILES["codex"], self._render_codex_mcp(mcp_servers)),
+            (self._MCP_FILES["opencode"], self._render_opencode_mcp(mcp_servers)),
+        ]
+
+        # mkdir -p for .codex/ subdirectory
+        codex_dir = f"{workspace.path}/.codex"
+        await conn.run(f"mkdir -p {shlex.quote(codex_dir)}", timeout=10)
+
+        for rel_path, content in configs:
+            full_path = f"{workspace.path}/{rel_path}"
+            await conn.upload_content(content, full_path)
+            if has_headers:
+                await conn.run(f"chmod 600 {shlex.quote(full_path)}", timeout=10)
+
+    @staticmethod
+    def _render_claude_mcp(mcp_servers: dict[str, McpServerConfig]) -> str:
+        servers: dict[str, object] = {}
+        for name, cfg in mcp_servers.items():
+            entry: dict[str, object] = {"type": "http", "url": cfg.url}
+            if cfg.headers:
+                entry["headers"] = {h: f"${{{var}}}" for h, var in cfg.headers.items()}
+            servers[name] = entry
+        return json.dumps({"mcpServers": servers}, indent=2) + "\n"
+
+    @staticmethod
+    def _render_codex_mcp(mcp_servers: dict[str, McpServerConfig]) -> str:
+        lines: list[str] = []
+        for name, cfg in mcp_servers.items():
+            lines.extend([f"[mcp_servers.{name}]", f'url = "{cfg.url}"'])
+            if cfg.headers:
+                lines.append(f"[mcp_servers.{name}.env_http_headers]")
+                for header, var in cfg.headers.items():
+                    lines.append(f'{header} = "{var}"')
+            lines.append("")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_opencode_mcp(mcp_servers: dict[str, McpServerConfig]) -> str:
+        servers: dict[str, object] = {}
+        for name, cfg in mcp_servers.items():
+            entry: dict[str, object] = {
+                "type": "remote",
+                "url": cfg.url,
+                "oauth": False,
+            }
+            if cfg.headers:
+                entry["headers"] = {h: f"{{env:{var}}}" for h, var in cfg.headers.items()}
+            servers[name] = entry
+        return json.dumps({"mcp": servers}, indent=2) + "\n"
+
     def push_command(self, workspace_path: str, branch: str) -> str:
         """Return an auth-prefixed git push command string."""
         quoted_path = shlex.quote(workspace_path)
@@ -147,7 +219,9 @@ class GitWorkspaceManager:
         return f"cd {quoted_path} && {self._git_env_prefix()}git push origin {quoted_branch}"
 
     async def cleanup(self, conn: RemoteConnection, workspace: WorkspacePath) -> None:
-        """Remove secret files and auth helpers from remote workspace."""
+        """Remove secret files, MCP configs, and auth helpers from remote workspace."""
         await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
         await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
         await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
+        for rel_path in self._MCP_FILES.values():
+            await conn.run(f"rm -f {shlex.quote(workspace.path + '/' + rel_path)}", timeout=10)
