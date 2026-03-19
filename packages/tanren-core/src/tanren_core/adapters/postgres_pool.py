@@ -40,7 +40,7 @@ def is_postgres_url(url: str | None) -> bool:
     """Return True if *url* looks like a Postgres DSN."""
     if not url:
         return False
-    return url.startswith(("postgresql://", "postgres://"))
+    return url.lower().startswith(("postgresql://", "postgres://"))
 
 
 async def ensure_schema(pool: asyncpg.Pool) -> None:

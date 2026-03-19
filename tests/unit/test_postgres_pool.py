@@ -26,6 +26,12 @@ class TestIsPostgresUrl:
     def test_relative_path(self):
         assert is_postgres_url("events.db") is False
 
+    def test_uppercase_postgresql_scheme(self):
+        assert is_postgres_url("POSTGRESQL://localhost/db") is True
+
+    def test_mixed_case_postgres_scheme(self):
+        assert is_postgres_url("Postgres://localhost/db") is True
+
 
 class TestCreatePool:
     @patch("tanren_core.adapters.postgres_pool.ensure_schema", new_callable=AsyncMock)

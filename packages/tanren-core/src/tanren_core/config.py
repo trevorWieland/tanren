@@ -26,7 +26,7 @@ def _pg_or_expand(value: str | None) -> str | None:
     """Return Postgres URLs as-is; expand filesystem paths."""
     if not value or not value.strip():
         return None
-    if value.startswith(("postgresql://", "postgres://")):
+    if value.lower().startswith(("postgresql://", "postgres://")):
         return value
     return _expand(value)
 
