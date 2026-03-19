@@ -663,12 +663,13 @@ class SSHExecutionEnvironment:
         has_sources = tc.env is not None and any(
             v.source for v in (*tc.env.required, *tc.env.optional)
         )
-        if tc.secrets is None and not has_sources:
+        if not has_sources:
             return None
 
         from tanren_core.env.secret_provider_factory import create_secret_provider  # noqa: PLC0415
 
-        provider = create_secret_provider(tc.secrets)
+        secrets_dir = self._secrets_dir()
+        provider = create_secret_provider(tc.secrets, secrets_dir=secrets_dir)
 
         result: dict[str, str] = {}
         if tc.env:
@@ -680,6 +681,17 @@ class SSHExecutionEnvironment:
                         result[var.key] = value
 
         return result or None
+
+    def _secrets_dir(self) -> Path:
+        """Derive the secrets directory from the SecretLoader config.
+
+        Respects the ``developer_secrets_path`` set via remote.yml so the
+        DotenvSecretProvider looks in the same location as SecretLoader.
+
+        Returns:
+            Path to the directory containing secrets files.
+        """
+        return Path(self._secret_loader._config.developer_secrets_path).expanduser().parent
 
     @staticmethod
     def _read_yaml(path: Path) -> object:

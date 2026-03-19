@@ -50,9 +50,12 @@ async def load_and_validate_env(
     if daemon_mode and env_block.on_missing == OnMissing.PROMPT:
         env_block = env_block.model_copy(update={"on_missing": OnMissing.ERROR})
 
-    # Build secret provider from tanren.yml secrets config
-    secrets_config = config.secrets if config else None
-    secret_provider = create_secret_provider(secrets_config, secrets_dir=secrets_dir)
+    # Only build a secret provider if at least one var declares a source
+    secret_provider = None
+    has_sources = any(v.source for v in (*env_block.required, *env_block.optional))
+    if has_sources:
+        secrets_config = config.secrets if config else None
+        secret_provider = create_secret_provider(secrets_config, secrets_dir=secrets_dir)
 
     merged_env, source_map = await asyncio.to_thread(load_env_layers, project_root, secrets_dir)
 

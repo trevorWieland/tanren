@@ -118,3 +118,32 @@ class TestLayeredPriority:
         report, env = await load_and_validate_env(tmp_path, secrets_dir=tmp_path / "secrets")
         assert report.passed
         assert env["MY_VAR"] == "from_real_env"
+
+    async def test_source_secret_resolved_from_dotenv_provider(self, tmp_path: Path, monkeypatch):
+        """source: secret:X resolves via DotenvSecretProvider."""
+        monkeypatch.delenv("MY_SECRET", raising=False)
+        sd = tmp_path / "secrets"
+        sd.mkdir()
+        (sd / "secrets.env").write_text("MY_SECRET=resolved-from-secrets\n")
+        (tmp_path / "tanren.yml").write_text(
+            "version: 0.1.0\nprofile: default\ninstalled: 2026-01-01\n"
+            "env:\n  required:\n    - key: MY_SECRET\n      source: 'secret:MY_SECRET'\n"
+        )
+
+        report, env = await load_and_validate_env(tmp_path, secrets_dir=sd)
+        assert report.passed
+        assert env["MY_SECRET"] == "resolved-from-secrets"
+
+    async def test_no_source_vars_skips_provider_init(self, tmp_path: Path):
+        """No vars with source -> provider not created (no crash even with gcp config)."""
+        (tmp_path / ".env").write_text("K=v\n")
+        (tmp_path / "tanren.yml").write_text(
+            "version: 0.1.0\nprofile: default\ninstalled: 2026-01-01\n"
+            "secrets:\n  provider: gcp\n  settings:\n    project_id: fake\n"
+            "env:\n  required:\n    - key: K\n"
+        )
+
+        # Should pass without importing google-cloud-secret-manager
+        report, env = await load_and_validate_env(tmp_path, secrets_dir=tmp_path / "secrets")
+        assert report.passed
+        assert env["K"] == "v"
