@@ -14,7 +14,7 @@ from tanren_core.worktree import (
 class GitWorktreeManager:
     """Delegates to worktree module functions."""
 
-    async def create(self, project: str, issue: int, branch: str, github_dir: str) -> Path:
+    async def create(self, project: str, issue: str, branch: str, github_dir: str) -> Path:
         """Create a new git worktree for the given project and issue.
 
         Returns:
@@ -27,7 +27,7 @@ class GitWorktreeManager:
         registry_path: Path,
         workflow_id: str,
         project: str,
-        issue: int,
+        issue: str,
         branch: str,
         worktree_path: Path,
         github_dir: str,

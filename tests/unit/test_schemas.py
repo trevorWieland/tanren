@@ -249,22 +249,22 @@ class TestWorktreeRegistry:
     def test_registry_with_entry(self):
         entry = WorktreeEntry(
             project="rentl",
-            issue=144,
+            issue="144",
             branch="s0146-slug",
             path="/home/trevor/github/rentl-wt-144",
             created_at="2026-03-07T15:01:00Z",
         )
         r = WorktreeRegistry(worktrees={"wf-rentl-144-1741359600": entry})
         assert "wf-rentl-144-1741359600" in r.worktrees
-        assert r.worktrees["wf-rentl-144-1741359600"].issue == 144
+        assert r.worktrees["wf-rentl-144-1741359600"].issue == "144"
 
 
 class TestParseIssueFromWorkflowId:
     def test_simple(self):
-        assert parse_issue_from_workflow_id("wf-rentl-144-1741359600") == 144
+        assert parse_issue_from_workflow_id("wf-rentl-144-1741359600") == "144"
 
     def test_hyphenated_project(self):
-        assert parse_issue_from_workflow_id("wf-unicorn-armada-3-1741359600") == 3
+        assert parse_issue_from_workflow_id("wf-unicorn-armada-3-1741359600") == "3"
 
     def test_invalid_format(self):
         with pytest.raises(ValueError, match="Invalid workflow_id format"):
@@ -273,6 +273,23 @@ class TestParseIssueFromWorkflowId:
     def test_missing_prefix(self):
         with pytest.raises(ValueError):
             parse_issue_from_workflow_id("rentl-144-1741359600")
+
+    def test_project_context_numeric(self):
+        assert parse_issue_from_workflow_id("wf-rentl-144-1741359600", project="rentl") == "144"
+
+    def test_project_context_hyphenated_issue(self):
+        assert (
+            parse_issue_from_workflow_id("wf-myapp-PROJ-123-1741359600", project="myapp")
+            == "PROJ-123"
+        )
+
+    def test_project_context_wrong_project(self):
+        with pytest.raises(ValueError, match="Invalid workflow_id format"):
+            parse_issue_from_workflow_id("wf-rentl-144-1741359600", project="other")
+
+    def test_project_context_no_epoch(self):
+        with pytest.raises(ValueError, match="Invalid workflow_id format"):
+            parse_issue_from_workflow_id("wf-rentl-144", project="rentl")
 
 
 class TestTaskStatus:

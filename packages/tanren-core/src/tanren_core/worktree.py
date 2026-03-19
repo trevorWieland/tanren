@@ -105,7 +105,7 @@ async def _get_worktree_branch(worktree_path: Path) -> str:
 
 async def create_worktree(
     project: str,
-    issue: int,
+    issue: str,
     branch: str,
     github_dir: str,
 ) -> Path:
@@ -287,7 +287,7 @@ async def register_worktree(
     registry_path: Path,
     workflow_id: str,
     project: str,
-    issue: int,
+    issue: str,
     branch: str,
     worktree_path: Path,
     github_dir: str,

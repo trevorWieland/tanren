@@ -84,7 +84,7 @@ class TestLoadRegistry:
             worktrees={
                 "wf-rentl-144-1741359600": WorktreeEntry(
                     project="rentl",
-                    issue=144,
+                    issue="144",
                     branch="s0146-slug",
                     path="/home/trevor/github/rentl-wt-144",
                     created_at="2026-03-07T15:01:00Z",
@@ -118,7 +118,7 @@ class TestSaveRegistry:
             worktrees={
                 "wf-test-1-1000": WorktreeEntry(
                     project="test",
-                    issue=1,
+                    issue="1",
                     branch="feat-1",
                     path="/tmp/test-wt-1",
                     created_at="2026-01-01T00:00:00Z",
@@ -143,7 +143,7 @@ class TestCheckIsolation:
             worktrees={
                 "wf-existing-1-1000": WorktreeEntry(
                     project="test",
-                    issue=1,
+                    issue="1",
                     branch="shared-branch",
                     path="/tmp/test-wt-1",
                     created_at="2026-01-01T00:00:00Z",
@@ -160,7 +160,7 @@ class TestCheckIsolation:
             worktrees={
                 "wf-existing-1-1000": WorktreeEntry(
                     project="test",
-                    issue=1,
+                    issue="1",
                     branch="branch-a",
                     path="/tmp/test-wt-1",
                     created_at="2026-01-01T00:00:00Z",
@@ -185,7 +185,7 @@ class TestCheckIsolation:
             worktrees={
                 "wf-test-1-1000": WorktreeEntry(
                     project="test",
-                    issue=1,
+                    issue="1",
                     branch="feat-1",
                     path="/tmp/test-wt-1",
                     created_at="2026-01-01T00:00:00Z",
@@ -203,7 +203,7 @@ class TestCheckIsolation:
             worktrees={
                 "wf-test-1-1000": WorktreeEntry(
                     project="test",
-                    issue=1,
+                    issue="1",
                     branch="feat-1",
                     path="/tmp/test-wt-1",
                     created_at="2026-01-01T00:00:00Z",

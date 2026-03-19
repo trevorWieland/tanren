@@ -281,7 +281,7 @@ class WorktreeEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project: str = Field(..., description="Project name")
-    issue: int = Field(..., description="GitHub issue number")
+    issue: str = Field(..., description="Issue identifier (e.g. '144' or 'PROJ-123')")
     branch: str = Field(..., description="Git branch name")
     path: str = Field(..., description="Absolute path to the worktree")
     created_at: str = Field(..., description="ISO 8601 creation timestamp")
@@ -298,19 +298,41 @@ class WorktreeRegistry(BaseModel):
     )
 
 
-def parse_issue_from_workflow_id(workflow_id: str) -> int:
-    """Extract issue number from workflow_id format: wf-{project}-{issue}-{epoch}.
+def parse_issue_from_workflow_id(workflow_id: str, *, project: str | None = None) -> str:
+    """Extract issue identifier from workflow_id format: wf-{project}-{issue}-{epoch}.
 
-    The project name may contain hyphens, so we match from the end:
-    the last segment is epoch (digits), second-to-last is issue (digits).
+    When *project* is provided the prefix ``wf-{project}-`` is stripped and
+    the last ``-``-separated segment (the epoch, which must be numeric) is
+    removed, leaving the issue id — which may itself contain hyphens (e.g.
+    ``PROJ-123``).
+
+    Without *project* the legacy regex heuristic is used: it assumes both the
+    issue and epoch segments are purely numeric and grabs the second-to-last
+    numeric group.
 
     Returns:
-        The issue number extracted from the workflow_id.
+        The issue identifier extracted from the workflow_id.
 
     Raises:
         ValueError: If the workflow_id does not match the expected format.
     """
+    if project is not None:
+        prefix = f"wf-{project}-"
+        if not workflow_id.startswith(prefix):
+            raise ValueError(f"Invalid workflow_id format: {workflow_id}")
+        remainder = workflow_id[len(prefix) :]
+        # remainder = "{issue}-{epoch}" — split on *last* hyphen
+        last_dash = remainder.rfind("-")
+        if last_dash < 1:
+            raise ValueError(f"Invalid workflow_id format: {workflow_id}")
+        issue_part = remainder[:last_dash]
+        epoch_part = remainder[last_dash + 1 :]
+        if not epoch_part.isdigit():
+            raise ValueError(f"Invalid workflow_id format: {workflow_id}")
+        return issue_part
+
+    # Legacy fallback: assume numeric issue
     match = re.match(r"^wf-(.+)-(\d+)-(\d+)$", workflow_id)
     if not match:
         raise ValueError(f"Invalid workflow_id format: {workflow_id}")
-    return int(match.group(2))
+    return match.group(2)

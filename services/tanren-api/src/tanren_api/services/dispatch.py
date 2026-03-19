@@ -66,7 +66,7 @@ class DispatchService:
         """Accept a new dispatch request."""
         config = self._require_config()
         epoch = time.time_ns()
-        issue = body.issue if body.issue != 0 else epoch
+        issue = body.issue if body.issue != "0" else str(epoch)
         workflow_id = f"wf-{body.project}-{issue}-{epoch}"
 
         dispatch = Dispatch(
