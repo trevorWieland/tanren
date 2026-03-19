@@ -658,6 +658,11 @@ class SSHExecutionEnvironment:
         try:
             tc = TanrenConfig.model_validate(data)
         except Exception:
+            logger.warning(
+                "Failed to parse tanren.yml for secret resolution in %s",
+                dispatch.project,
+                exc_info=True,
+            )
             return None
 
         has_sources = tc.env is not None and any(
