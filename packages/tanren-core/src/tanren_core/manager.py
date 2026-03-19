@@ -192,6 +192,7 @@ class WorkerManager:
             self._emitter = NullEventEmitter()
 
         # Build execution environment — use injected or construct from config
+        self._execution_env_injected = execution_env is not None
         if execution_env is not None:
             self._execution_env = execution_env
         elif self._config.remote_config_path:
@@ -350,8 +351,9 @@ class WorkerManager:
         self._pg_pool = pool
         self._emitter = PostgresEventEmitter(pool)
 
-        # Rebuild remote execution environment with Postgres-backed state store
-        if self._config.remote_config_path:
+        # Rebuild remote execution environment with Postgres-backed state store,
+        # but only if the execution environment was not explicitly injected.
+        if self._config.remote_config_path and not self._execution_env_injected:
             if hasattr(self, "_remote_state_store"):
                 await self._remote_state_store.close()
             self._execution_env = self._build_remote_env(pool=pool)

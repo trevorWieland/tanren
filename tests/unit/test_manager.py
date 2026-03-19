@@ -308,3 +308,55 @@ class TestRecoverVmState:
         await manager._recover_vm_state()
 
         store.record_release.assert_awaited_once_with("vm-1")
+
+
+class TestInitPostgres:
+    @pytest.mark.asyncio
+    async def test_injected_execution_env_survives_postgres_init(self, tmp_path: Path, monkeypatch):
+        """Regression: _init_postgres must not overwrite an injected execution_env.
+
+        When execution_env is explicitly provided (e.g. in tests), _init_postgres
+        should still create the pool and emitter but must not rebuild the
+        execution environment.
+        """
+        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+
+        remote_cfg = tmp_path / "remote.yml"
+        remote_cfg.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings:\n"
+            "    vms:\n"
+            "      - vm_id: vm-1\n"
+            "        host: 10.0.0.1\n"
+        )
+        config = Config(
+            ipc_dir=str(tmp_path / "ipc"),
+            github_dir=str(tmp_path / "github"),
+            data_dir=str(tmp_path / "data"),
+            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
+            remote_config_path=str(remote_cfg),
+            events_db="postgresql://localhost/tanren",
+            roles_config_path=str(tmp_path / "roles.yml"),
+        )
+
+        mock_env = AsyncMock()
+        manager = WorkerManager(config=config, execution_env=mock_env)
+
+        # _pg_dsn should be set because events_db is a Postgres URL
+        assert manager._pg_dsn == "postgresql://localhost/tanren"
+
+        mock_pool = MagicMock()
+        mock_pool.close = AsyncMock()
+        mock_create_pool = AsyncMock(return_value=mock_pool)
+
+        with patch(
+            "tanren_core.adapters.postgres_pool.create_postgres_pool",
+            mock_create_pool,
+        ):
+            await manager._init_postgres()
+
+        # Pool and emitter should be set
+        assert manager._pg_pool is mock_pool
+        # Execution env must NOT have been replaced
+        assert manager.get_execution_environment() is mock_env

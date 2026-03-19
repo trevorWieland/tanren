@@ -29,7 +29,7 @@ class TestPostgresEventEmitter:
         call_args = pool.execute.call_args
         sql = call_args[0][0]
         assert "INSERT INTO events" in sql
-        assert "$1" in sql
+        assert "$4::jsonb" in sql
         # Verify positional params
         assert call_args[0][1] == "2026-01-01T00:00:00Z"
         assert call_args[0][2] == "wf-1"

@@ -67,6 +67,48 @@ class TestPostgresEventReader:
         assert 10 in fetch_args  # limit
         assert 20 in fetch_args  # offset
 
+    async def test_query_decodes_string_payload(self):
+        """Regression: string payloads must be decoded, not skipped.
+
+        asyncpg may return JSONB values as strings depending on codec config.
+        The reader must json.loads() them instead of treating them as invalid.
+        """
+        pool = _mock_pool()
+        row = {
+            "id": 1,
+            "timestamp": "2026-01-01T00:00:00Z",
+            "workflow_id": "wf-1",
+            "event_type": "DispatchReceived",
+            "payload": '{"type": "dispatch_received", "workflow_id": "wf-1"}',
+        }
+        pool.fetchval = AsyncMock(return_value=1)
+        pool.fetch = AsyncMock(return_value=[row])
+        reader = PostgresEventReader(pool)
+
+        result = await reader.query_events()
+
+        assert len(result.events) == 1
+        assert result.skipped == 0
+        assert result.events[0].payload["type"] == "dispatch_received"
+
+    async def test_query_skips_malformed_string_payload(self):
+        pool = _mock_pool()
+        row = {
+            "id": 1,
+            "timestamp": "2026-01-01T00:00:00Z",
+            "workflow_id": "wf-1",
+            "event_type": "Bad",
+            "payload": "not valid json {{",
+        }
+        pool.fetchval = AsyncMock(return_value=1)
+        pool.fetch = AsyncMock(return_value=[row])
+        reader = PostgresEventReader(pool)
+
+        result = await reader.query_events()
+
+        assert len(result.events) == 0
+        assert result.skipped == 1
+
     async def test_query_skips_non_dict_payload(self):
         pool = _mock_pool()
         row_good = {
@@ -81,7 +123,7 @@ class TestPostgresEventReader:
             "timestamp": "2026-01-01T00:00:01Z",
             "workflow_id": "wf-1",
             "event_type": "Bad",
-            "payload": "not a dict",
+            "payload": 42,
         }
         pool.fetchval = AsyncMock(return_value=2)
         pool.fetch = AsyncMock(return_value=[row_good, row_bad])

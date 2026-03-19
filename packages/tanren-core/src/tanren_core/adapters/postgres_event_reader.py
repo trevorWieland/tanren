@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 import asyncpg
@@ -67,7 +68,16 @@ class PostgresEventReader:
         skipped = 0
         for r in rows:
             payload = r["payload"]
-            # asyncpg returns JSONB as dicts/lists directly
+            # asyncpg normally returns JSONB as dicts via its built-in codec,
+            # but a string can arrive if the codec is overridden or the value
+            # was stored as a JSON string scalar.
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except json.JSONDecodeError, TypeError:
+                    skipped += 1
+                    logger.warning("Skipping event %d: malformed JSON payload", r["id"])
+                    continue
             if not isinstance(payload, dict):
                 skipped += 1
                 logger.warning("Skipping event %d: unexpected payload type", r["id"])
