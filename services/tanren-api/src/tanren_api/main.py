@@ -22,6 +22,7 @@ from tanren_api.routers import config as config_router_mod
 from tanren_api.routers import dispatch as dispatch_router_mod
 from tanren_api.routers import events as events_router_mod
 from tanren_api.routers import health as health_router_mod
+from tanren_api.routers import metrics as metrics_router_mod
 from tanren_api.routers import run as run_router_mod
 from tanren_api.routers import vm as vm_router_mod
 from tanren_api.services import (
@@ -29,6 +30,7 @@ from tanren_api.services import (
     DispatchService,
     EventsService,
     HealthService,
+    MetricsService,
     RunService,
     VMService,
 )
@@ -38,6 +40,7 @@ from tanren_core.adapters.event_reader import SqliteEventReader
 from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
+from tanren_core.adapters.sqlite_metrics_reader import SqliteMetricsReader
 from tanren_core.builder import build_ssh_execution_environment
 from tanren_core.config import Config, load_config_env
 
@@ -71,10 +74,14 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
         app.state.pg_pool = None
         app.state.event_reader = None
+        app.state.metrics_reader = None
         if db and is_postgres_url(db):
             from tanren_core.adapters.postgres_emitter import PostgresEventEmitter  # noqa: PLC0415
             from tanren_core.adapters.postgres_event_reader import (  # noqa: PLC0415
                 PostgresEventReader,
+            )
+            from tanren_core.adapters.postgres_metrics_reader import (  # noqa: PLC0415
+                PostgresMetricsReader,
             )
             from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
 
@@ -82,9 +89,11 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             app.state.pg_pool = pg_pool
             app.state.emitter = PostgresEventEmitter(pg_pool)
             app.state.event_reader = PostgresEventReader(pg_pool)
+            app.state.metrics_reader = PostgresMetricsReader(pg_pool)
         elif db:
             app.state.emitter = SqliteEventEmitter(db)
             app.state.event_reader = SqliteEventReader(db)
+            app.state.metrics_reader = SqliteMetricsReader(db)
         else:
             app.state.emitter = NullEventEmitter()
 
@@ -137,6 +146,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             ),
             config=config_svc,
             events=EventsService(settings, app.state.config, event_reader=app.state.event_reader),
+            metrics=MetricsService(metrics_reader=app.state.metrics_reader),
         )
 
         yield
@@ -207,6 +217,11 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     )
     app.include_router(
         events_router_mod.router,
+        prefix="/api/v1",
+        dependencies=[Depends(verify_api_key)],
+    )
+    app.include_router(
+        metrics_router_mod.router,
         prefix="/api/v1",
         dependencies=[Depends(verify_api_key)],
     )

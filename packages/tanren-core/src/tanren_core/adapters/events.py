@@ -47,6 +47,7 @@ class PhaseCompleted(Event):
         default="phase_completed", description="Event type discriminator"
     )
     phase: str = Field(...)
+    project: str = Field(...)
     outcome: str = Field(...)
     signal: str | None = Field(default=None)
     duration_secs: int = Field(..., ge=0)
@@ -118,6 +119,7 @@ class VMReleased(Event):
         default="vm_released", description="Event type discriminator"
     )
     vm_id: str = Field(...)
+    project: str = Field(...)
     duration_secs: int = Field(..., ge=0)
     estimated_cost: float | None = Field(default=None, ge=0.0)
 
@@ -141,6 +143,7 @@ class TokenUsageRecorded(Event):
         default="token_usage_recorded", description="Event type discriminator"
     )
     phase: str = Field(...)
+    project: str = Field(...)
     cli: str = Field(...)
     input_tokens: int = Field(..., ge=0)
     output_tokens: int = Field(..., ge=0)

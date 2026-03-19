@@ -896,6 +896,308 @@
           }
         }
       }
+    },
+    "/api/v1/metrics/summary": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "summary": "Metrics Summary",
+        "description": "Workflow success/failure rate and duration stats.",
+        "operationId": "metrics_summary_api_v1_metrics_summary_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 start (inclusive)",
+              "title": "Since"
+            },
+            "description": "ISO 8601 start (inclusive)"
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 end (inclusive)",
+              "title": "Until"
+            },
+            "description": "ISO 8601 end (inclusive)"
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by project",
+              "title": "Project"
+            },
+            "description": "Filter by project"
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsSummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/costs": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "summary": "Metrics Costs",
+        "description": "Token cost metrics grouped by model, day, or workflow.",
+        "operationId": "metrics_costs_api_v1_metrics_costs_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 start (inclusive)",
+              "title": "Since"
+            },
+            "description": "ISO 8601 start (inclusive)"
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 end (inclusive)",
+              "title": "Until"
+            },
+            "description": "ISO 8601 end (inclusive)"
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by project",
+              "title": "Project"
+            },
+            "description": "Filter by project"
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CostGroupBy",
+              "description": "Aggregation grouping",
+              "default": "model"
+            },
+            "description": "Aggregation grouping"
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsCostsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/vms": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "summary": "Metrics Vms",
+        "description": "VM utilization metrics.",
+        "operationId": "metrics_vms_api_v1_metrics_vms_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 start (inclusive)",
+              "title": "Since"
+            },
+            "description": "ISO 8601 start (inclusive)"
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 end (inclusive)",
+              "title": "Until"
+            },
+            "description": "ISO 8601 end (inclusive)"
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by project",
+              "title": "Project"
+            },
+            "description": "Filter by project"
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsVMsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1037,6 +1339,83 @@
         ],
         "title": "ConfigResponse",
         "description": "Non-secret config projection."
+      },
+      "CostBucketResponse": {
+        "properties": {
+          "group_key": {
+            "type": "string",
+            "title": "Group Key",
+            "description": "Grouping key (model list, date, or workflow_id)"
+          },
+          "total_cost": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Total Cost",
+            "description": "Total spend in USD"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "description": "Total tokens consumed"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Output Tokens"
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Read Tokens",
+            "default": 0
+          },
+          "cache_creation_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Creation Tokens",
+            "default": 0
+          },
+          "reasoning_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Reasoning Tokens",
+            "default": 0
+          },
+          "event_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Event Count",
+            "description": "Number of token usage events"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "group_key",
+          "total_cost",
+          "total_tokens",
+          "input_tokens",
+          "output_tokens",
+          "event_count"
+        ],
+        "title": "CostBucketResponse",
+        "description": "Single aggregation bucket for cost metrics."
+      },
+      "CostGroupBy": {
+        "type": "string",
+        "enum": [
+          "model",
+          "day",
+          "workflow"
+        ],
+        "title": "CostGroupBy",
+        "description": "Grouping options for cost metrics."
       },
       "DispatchAccepted": {
         "properties": {
@@ -1592,6 +1971,169 @@
         "title": "IntegrityRepairs",
         "description": "Typed post-flight integrity repair indicators."
       },
+      "MetricsCostsResponse": {
+        "properties": {
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/CostBucketResponse"
+            },
+            "type": "array",
+            "title": "Buckets"
+          },
+          "total_cost": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Total Cost",
+            "description": "Grand total cost across all buckets"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "description": "Grand total tokens across all buckets"
+          },
+          "group_by": {
+            "type": "string",
+            "title": "Group By",
+            "description": "Grouping used (model/day/workflow)"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_cost",
+          "total_tokens",
+          "group_by"
+        ],
+        "title": "MetricsCostsResponse",
+        "description": "Aggregated token cost metrics."
+      },
+      "MetricsSummaryResponse": {
+        "properties": {
+          "total_phases": {
+            "type": "integer",
+            "title": "Total Phases",
+            "description": "Total phase completions"
+          },
+          "succeeded": {
+            "type": "integer",
+            "title": "Succeeded",
+            "description": "Phases with success outcome"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "description": "Phases with fail outcome"
+          },
+          "errored": {
+            "type": "integer",
+            "title": "Errored",
+            "description": "Phases with error outcome"
+          },
+          "timed_out": {
+            "type": "integer",
+            "title": "Timed Out",
+            "description": "Phases with timeout outcome"
+          },
+          "blocked": {
+            "type": "integer",
+            "title": "Blocked",
+            "description": "Phases with blocked outcome"
+          },
+          "success_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Success Rate",
+            "description": "Fraction succeeded / total"
+          },
+          "avg_duration_secs": {
+            "type": "number",
+            "title": "Avg Duration Secs",
+            "description": "Mean phase duration in seconds"
+          },
+          "p50_duration_secs": {
+            "type": "number",
+            "title": "P50 Duration Secs",
+            "description": "Median phase duration in seconds"
+          },
+          "p95_duration_secs": {
+            "type": "number",
+            "title": "P95 Duration Secs",
+            "description": "95th percentile duration in seconds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_phases",
+          "succeeded",
+          "failed",
+          "errored",
+          "timed_out",
+          "blocked",
+          "success_rate",
+          "avg_duration_secs",
+          "p50_duration_secs",
+          "p95_duration_secs"
+        ],
+        "title": "MetricsSummaryResponse",
+        "description": "Workflow execution summary metrics."
+      },
+      "MetricsVMsResponse": {
+        "properties": {
+          "total_provisioned": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Provisioned"
+          },
+          "total_released": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Released"
+          },
+          "currently_active": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Currently Active"
+          },
+          "total_vm_duration_secs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Vm Duration Secs"
+          },
+          "total_estimated_cost": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Total Estimated Cost"
+          },
+          "avg_duration_secs": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Avg Duration Secs"
+          },
+          "by_provider": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Provider",
+            "description": "Provisioned count per provider"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_provisioned",
+          "total_released",
+          "currently_active",
+          "total_vm_duration_secs",
+          "total_estimated_cost",
+          "avg_duration_secs"
+        ],
+        "title": "MetricsVMsResponse",
+        "description": "Aggregated VM utilization metrics."
+      },
       "Outcome": {
         "type": "string",
         "enum": [
@@ -1734,6 +2276,10 @@
             "type": "string",
             "title": "Phase"
           },
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
           "outcome": {
             "type": "string",
             "title": "Outcome"
@@ -1765,6 +2311,7 @@
           "timestamp",
           "workflow_id",
           "phase",
+          "project",
           "outcome",
           "duration_secs",
           "exit_code"
@@ -2280,6 +2827,10 @@
             "type": "string",
             "title": "Phase"
           },
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
           "cli": {
             "type": "string",
             "title": "Cli"
@@ -2353,6 +2904,7 @@
           "timestamp",
           "workflow_id",
           "phase",
+          "project",
           "cli",
           "input_tokens",
           "output_tokens",
@@ -2619,6 +3171,10 @@
             "type": "string",
             "title": "Vm Id"
           },
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
           "duration_secs": {
             "type": "integer",
             "minimum": 0.0,
@@ -2643,6 +3199,7 @@
           "timestamp",
           "workflow_id",
           "vm_id",
+          "project",
           "duration_secs"
         ],
         "title": "VMReleased",

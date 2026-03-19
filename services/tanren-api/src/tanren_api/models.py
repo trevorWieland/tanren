@@ -349,6 +349,79 @@ class RunStatus(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Response models — metrics
+# ---------------------------------------------------------------------------
+
+
+class CostGroupBy(StrEnum):
+    """Grouping options for cost metrics."""
+
+    MODEL = "model"
+    DAY = "day"
+    WORKFLOW = "workflow"
+
+
+class MetricsSummaryResponse(BaseModel):
+    """Workflow execution summary metrics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_phases: int = Field(..., description="Total phase completions")
+    succeeded: int = Field(..., description="Phases with success outcome")
+    failed: int = Field(..., description="Phases with fail outcome")
+    errored: int = Field(..., description="Phases with error outcome")
+    timed_out: int = Field(..., description="Phases with timeout outcome")
+    blocked: int = Field(..., description="Phases with blocked outcome")
+    success_rate: float = Field(..., ge=0.0, le=1.0, description="Fraction succeeded / total")
+    avg_duration_secs: float = Field(..., description="Mean phase duration in seconds")
+    p50_duration_secs: float = Field(..., description="Median phase duration in seconds")
+    p95_duration_secs: float = Field(..., description="95th percentile duration in seconds")
+
+
+class CostBucketResponse(BaseModel):
+    """Single aggregation bucket for cost metrics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    group_key: str = Field(..., description="Grouping key (model list, date, or workflow_id)")
+    total_cost: float = Field(..., ge=0.0, description="Total spend in USD")
+    total_tokens: int = Field(..., ge=0, description="Total tokens consumed")
+    input_tokens: int = Field(..., ge=0)
+    output_tokens: int = Field(..., ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_creation_tokens: int = Field(default=0, ge=0)
+    reasoning_tokens: int = Field(default=0, ge=0)
+    event_count: int = Field(..., ge=0, description="Number of token usage events")
+
+
+class MetricsCostsResponse(BaseModel):
+    """Aggregated token cost metrics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    buckets: list[CostBucketResponse] = Field(default_factory=list)
+    total_cost: float = Field(..., ge=0.0, description="Grand total cost across all buckets")
+    total_tokens: int = Field(..., ge=0, description="Grand total tokens across all buckets")
+    group_by: str = Field(..., description="Grouping used (model/day/workflow)")
+
+
+class MetricsVMsResponse(BaseModel):
+    """Aggregated VM utilization metrics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_provisioned: int = Field(..., ge=0)
+    total_released: int = Field(..., ge=0)
+    currently_active: int = Field(..., ge=0)
+    total_vm_duration_secs: int = Field(..., ge=0)
+    total_estimated_cost: float = Field(..., ge=0.0)
+    avg_duration_secs: float = Field(..., ge=0.0)
+    by_provider: dict[str, int] = Field(
+        default_factory=dict, description="Provisioned count per provider"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Events — discriminated union
 # ---------------------------------------------------------------------------
 

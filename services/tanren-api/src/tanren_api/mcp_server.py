@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         DispatchService,
         EventsService,
         HealthService,
+        MetricsService,
         RunService,
         VMService,
     )
@@ -36,6 +37,7 @@ _vm_svc: VMService | None = None
 _run_svc: RunService | None = None
 _config_svc: ConfigService | None = None
 _events_svc: EventsService | None = None
+_metrics_svc: MetricsService | None = None
 
 
 def set_services(
@@ -46,15 +48,17 @@ def set_services(
     run: RunService,
     config: ConfigService | None = None,
     events: EventsService,
+    metrics: MetricsService | None = None,
 ) -> None:
     """Wire service instances into the MCP tool layer (called during app lifespan)."""
-    global _health_svc, _dispatch_svc, _vm_svc, _run_svc, _config_svc, _events_svc
+    global _health_svc, _dispatch_svc, _vm_svc, _run_svc, _config_svc, _events_svc, _metrics_svc
     _health_svc = health
     _dispatch_svc = dispatch
     _vm_svc = vm
     _run_svc = run
     _config_svc = config
     _events_svc = events
+    _metrics_svc = metrics
 
 
 def _model_dump(obj: Any) -> dict[str, Any]:
@@ -423,3 +427,59 @@ async def events_query(
         offset=offset,
     )
     return _model_dump(result)
+
+
+# ---------------------------------------------------------------------------
+# Metrics tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    description=(
+        "Get workflow summary metrics: success/failure rate, duration stats. "
+        "Optionally filter by time range (since/until as ISO 8601) and project."
+    ),
+)
+async def metrics_summary(
+    since: str | None = None,
+    until: str | None = None,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Get summary metrics."""
+    assert _metrics_svc is not None
+    return _model_dump(await _metrics_svc.summary(since=since, until=until, project=project))
+
+
+@mcp.tool(
+    description=(
+        "Get token cost metrics grouped by model, day, or workflow. "
+        "group_by: 'model' (default), 'day', or 'workflow'."
+    ),
+)
+async def metrics_costs(
+    since: str | None = None,
+    until: str | None = None,
+    project: str | None = None,
+    group_by: str = "model",
+) -> dict[str, Any]:
+    """Get cost metrics."""
+    assert _metrics_svc is not None
+    return _model_dump(
+        await _metrics_svc.costs(since=since, until=until, project=project, group_by=group_by)
+    )
+
+
+@mcp.tool(
+    description=(
+        "Get VM utilization metrics: provisioned, released, active counts, "
+        "duration, and estimated cost."
+    ),
+)
+async def metrics_vms(
+    since: str | None = None,
+    until: str | None = None,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Get VM metrics."""
+    assert _metrics_svc is not None
+    return _model_dump(await _metrics_svc.vms(since=since, until=until, project=project))

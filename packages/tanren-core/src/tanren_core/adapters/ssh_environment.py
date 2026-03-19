@@ -553,6 +553,7 @@ class SSHExecutionEnvironment:
                             timestamp=_now(),
                             workflow_id=remote_runtime.workflow_id,
                             vm_id=vm_handle.vm_id,
+                            project=handle.project,
                             duration_secs=duration,
                             estimated_cost=cost,
                         )
