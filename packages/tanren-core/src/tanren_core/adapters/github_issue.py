@@ -161,10 +161,10 @@ class GitHubIssueSource:
             raise ValueError(f"Missing GitHub token in environment variable: {settings.token_env}")
         httpx_mod = _import_httpx()
         self._client: httpx.Client = httpx_mod.Client(
-            base_url=settings.api_url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=30.0,
         )
+        self._api_url = settings.api_url
         self._owner = settings.owner
         self._repo = settings.repo
 
@@ -182,7 +182,7 @@ class GitHubIssueSource:
             RuntimeError: If the response contains GraphQL errors.
         """
         payload: dict[str, object] = {"query": query, "variables": variables}
-        response = self._client.post("", json=payload)
+        response = self._client.post(self._api_url, json=payload)
         response.raise_for_status()
         body = response.json()
         if not isinstance(body, dict):
@@ -335,7 +335,10 @@ class GitHubIssueSource:
             if normalized in ("OPEN", "CLOSED"):
                 variables["states"] = [normalized]
             else:
-                variables["states"] = [status.strip().upper()]
+                logger.warning(
+                    "Unsupported GitHub issue status %r; returning all issues without state filter",
+                    status,
+                )
 
         data = await asyncio.to_thread(self._execute, _LIST_ISSUES_QUERY, variables)
         repo = data.get("repository")

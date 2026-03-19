@@ -234,6 +234,20 @@ class TestListIssues:
         json_body = call_kwargs["json"]
         assert "states" not in json_body["variables"]
 
+    async def test_unsupported_status_warns_and_omits_filter(self, monkeypatch, caplog):
+        response_data = _list_issues_graphql_response()
+        client = Mock()
+        client.post = Mock(return_value=_FakeResponse(response_data))
+        source = _make_source(monkeypatch, client)
+
+        with caplog.at_level(logging.WARNING):
+            await source.list_issues(status="in_progress")
+
+        assert "unsupported" in caplog.text.lower() or "in_progress" in caplog.text
+        call_kwargs = client.post.call_args.kwargs
+        json_body = call_kwargs["json"]
+        assert "states" not in json_body["variables"]
+
 
 class TestUpdateStatus:
     async def test_closes_issue(self, monkeypatch):
