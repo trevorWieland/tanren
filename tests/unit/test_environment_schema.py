@@ -165,3 +165,24 @@ class TestEnvironmentProfileMcp:
         assert len(profile.mcp) == 2
         assert profile.mcp["ctx7"].headers == {}
         assert profile.mcp["other"].headers == {"X-Api-Key": "OTHER_KEY"}
+
+    def test_mcp_server_name_with_dot_rejected(self):
+        with pytest.raises(ValueError, match="must match"):
+            EnvironmentProfile(
+                name="test",
+                mcp={"my.server": McpServerConfig(url="https://example.com/sse")},
+            )
+
+    def test_mcp_server_name_with_space_rejected(self):
+        with pytest.raises(ValueError, match="must match"):
+            EnvironmentProfile(
+                name="test",
+                mcp={"my server": McpServerConfig(url="https://example.com/sse")},
+            )
+
+    def test_mcp_server_name_with_hyphen_allowed(self):
+        p = EnvironmentProfile(
+            name="test",
+            mcp={"my-server": McpServerConfig(url="https://example.com/sse")},
+        )
+        assert "my-server" in p.mcp

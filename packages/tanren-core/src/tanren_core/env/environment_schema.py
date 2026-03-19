@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EnvironmentProfileType(StrEnum):
@@ -35,6 +36,9 @@ class McpServerConfig(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
+_MCP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
 class EnvironmentProfile(BaseModel):
     """Parsed environment profile from tanren.yml."""
 
@@ -48,6 +52,17 @@ class EnvironmentProfile(BaseModel):
     gate_cmd: str = Field(default="make check")
     server_type: str | None = Field(default=None)
     mcp: dict[str, McpServerConfig] = Field(default_factory=dict)
+
+    @field_validator("mcp")
+    @classmethod
+    def _validate_mcp_names(cls, v: dict[str, McpServerConfig]) -> dict[str, McpServerConfig]:
+        for key in v:
+            if not _MCP_NAME_RE.match(key):
+                raise ValueError(
+                    f"MCP server name {key!r} must match [A-Za-z0-9_-]+ "
+                    f"(required for TOML bare keys)"
+                )
+        return v
 
 
 def parse_environment_profiles(data: Mapping[str, object]) -> dict[str, EnvironmentProfile]:
