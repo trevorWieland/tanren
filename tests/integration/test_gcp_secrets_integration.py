@@ -2,7 +2,7 @@
 
 Requires GOOGLE_CLOUD_PROJECT env var and Application Default Credentials.
 Run with:
-    uv run pytest tests/integration/test_gcp_secrets_integration.py -v --timeout=60
+    uv run pytest tests/integration/test_gcp_secrets_integration.py -v -m gcp --timeout=60
 """
 
 import os
@@ -11,15 +11,13 @@ import pytest
 
 pytestmark = pytest.mark.gcp
 
-_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
+_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 _TEST_SECRET_NAME = os.environ.get("GCP_TEST_SECRET_NAME", "tanren-test-secret")
 
 
 @pytest.fixture()
 def provider():
     """Create a live GCP Secret Manager provider."""
-    if not _PROJECT:
-        pytest.skip("GOOGLE_CLOUD_PROJECT not set")  # type: ignore[invalid-argument-type,too-many-positional-arguments]
     from tanren_core.adapters.gcp_secret_manager import GCPSecretManagerProvider  # noqa: PLC0415
 
     return GCPSecretManagerProvider(project_id=_PROJECT)

@@ -63,8 +63,11 @@ def check(
                 continue
 
         merged_env, source_map = load_env_layers(project_root)
-        secrets_config = config.secrets if config else None
-        secret_provider = create_secret_provider(secrets_config)
+        secret_provider = None
+        has_sources = any(v.source for v in (*env_block.required, *env_block.optional))
+        if has_sources:
+            secrets_config = config.secrets if config else None
+            secret_provider = create_secret_provider(secrets_config)
         report = asyncio.run(
             validate_env(env_block, merged_env, source_map, secret_provider=secret_provider)
         )

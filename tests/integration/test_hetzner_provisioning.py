@@ -35,14 +35,11 @@ def _load_token() -> str | None:
 
 _TOKEN = _load_token()
 
-_skip_reason = "HETZNER_API_TOKEN not found in secrets.env"
-
 
 @pytest.fixture()
 def provisioner():
     """Create a HetznerVMProvisioner using developer secrets and real config values."""
-    if not _TOKEN:
-        raise pytest.skip.Exception(_skip_reason)
+    assert _TOKEN, "HETZNER_API_TOKEN not found in secrets.env (run with -m hetzner)"
 
     os.environ.setdefault("HETZNER_API_TOKEN", _TOKEN)
 
