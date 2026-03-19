@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
 
 import aiosqlite
 import pytest
 
+from tanren_core.adapters.event_reader import EventQueryResult, EventRow
 from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
 
 
@@ -215,3 +217,44 @@ class TestEvents:
         assert data["skipped"] == 2
         assert len(data["events"]) == 1
         assert data["events"][0]["type"] == "dispatch_received"
+
+
+@pytest.mark.api
+class TestEventsWithInjectedReader:
+    async def test_events_uses_injected_event_reader(self, client, auth_headers, app):
+        """Regression: /events endpoint must use event_reader from app state.
+
+        Without this, Postgres DSNs would be treated as SQLite paths and silently
+        return empty results.
+        """
+        mock_reader = AsyncMock()
+        mock_reader.query_events = AsyncMock(
+            return_value=EventQueryResult(
+                events=[
+                    EventRow(
+                        id=1,
+                        timestamp="2026-01-01T00:00:00Z",
+                        workflow_id="wf-pg",
+                        event_type="DispatchReceived",
+                        payload={
+                            "type": "dispatch_received",
+                            "timestamp": "2026-01-01T00:00:00Z",
+                            "workflow_id": "wf-pg",
+                            "phase": "do-task",
+                            "project": "p",
+                            "cli": "claude",
+                        },
+                    )
+                ],
+                total=1,
+                skipped=0,
+            )
+        )
+        app.state.event_reader = mock_reader
+
+        resp = await client.get("/api/v1/events", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["events"][0]["workflow_id"] == "wf-pg"
+        mock_reader.query_events.assert_awaited_once()

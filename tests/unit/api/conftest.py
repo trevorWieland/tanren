@@ -107,6 +107,7 @@ def app(api_settings, tmp_path, mock_execution_env, mock_vm_state_store):
     application.state.api_store = APIStateStore()
     application.state.execution_env = mock_execution_env
     application.state.vm_state_store = mock_vm_state_store
+    application.state.event_reader = None
     return application
 
 

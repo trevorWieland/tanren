@@ -7,6 +7,7 @@ from fastapi import Request
 from tanren_api.errors import ServiceError
 from tanren_api.settings import APISettings
 from tanren_api.state import APIStateStore
+from tanren_core.adapters.event_reader import EventReader
 from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment, VMStateStore
 from tanren_core.config import Config
 
@@ -41,6 +42,11 @@ def get_api_store(request: Request) -> APIStateStore:
 def get_execution_env(request: Request) -> ExecutionEnvironment | None:
     """Return the execution environment, or None if not configured."""
     return request.app.state.execution_env
+
+
+def get_event_reader(request: Request) -> EventReader | None:
+    """Return the event reader, or None if not configured."""
+    return getattr(request.app.state, "event_reader", None)
 
 
 def get_vm_state_store(request: Request) -> VMStateStore | None:
