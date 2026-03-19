@@ -57,7 +57,11 @@ class TestVmList:
 
         with (
             patch("tanren_cli.vm_cli._load_config", return_value=_mock_config()),
-            patch("tanren_cli.vm_cli._get_state_store", return_value=store),
+            patch(
+                "tanren_cli.vm_cli._get_state_store",
+                new_callable=AsyncMock,
+                return_value=(store, None),
+            ),
         ):
             runner = CliRunner()
             result = runner.invoke(vm, ["list"])
@@ -74,7 +78,11 @@ class TestVmList:
 
         with (
             patch("tanren_cli.vm_cli._load_config", return_value=_mock_config()),
-            patch("tanren_cli.vm_cli._get_state_store", return_value=store),
+            patch(
+                "tanren_cli.vm_cli._get_state_store",
+                new_callable=AsyncMock,
+                return_value=(store, None),
+            ),
         ):
             runner = CliRunner()
             result = runner.invoke(vm, ["list"])
@@ -88,7 +96,11 @@ class TestVmList:
 
         with (
             patch("tanren_cli.vm_cli._load_config", return_value=_mock_config()),
-            patch("tanren_cli.vm_cli._get_state_store", return_value=store),
+            patch(
+                "tanren_cli.vm_cli._get_state_store",
+                new_callable=AsyncMock,
+                return_value=(store, None),
+            ),
         ):
             runner = CliRunner()
             result = runner.invoke(vm, ["list"])
@@ -110,7 +122,11 @@ class TestVmRelease:
 
         with (
             patch("tanren_cli.vm_cli._load_config", return_value=_mock_config()),
-            patch("tanren_cli.vm_cli._get_state_store", return_value=store),
+            patch(
+                "tanren_cli.vm_cli._get_state_store",
+                new_callable=AsyncMock,
+                return_value=(store, None),
+            ),
         ):
             runner = CliRunner()
             result = runner.invoke(vm, ["release", "vm-001"])
@@ -126,7 +142,11 @@ class TestVmRelease:
 
         with (
             patch("tanren_cli.vm_cli._load_config", return_value=_mock_config()),
-            patch("tanren_cli.vm_cli._get_state_store", return_value=store),
+            patch(
+                "tanren_cli.vm_cli._get_state_store",
+                new_callable=AsyncMock,
+                return_value=(store, None),
+            ),
         ):
             runner = CliRunner()
             result = runner.invoke(vm, ["release", "vm-unknown"])
@@ -142,7 +162,11 @@ class TestVmRecover:
 
         with (
             patch("tanren_cli.vm_cli._load_config", return_value=_mock_config()),
-            patch("tanren_cli.vm_cli._get_state_store", return_value=store),
+            patch(
+                "tanren_cli.vm_cli._get_state_store",
+                new_callable=AsyncMock,
+                return_value=(store, None),
+            ),
         ):
             runner = CliRunner()
             result = runner.invoke(vm, ["recover"])

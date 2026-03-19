@@ -22,6 +22,15 @@ def _expand_optional(path: str | None) -> str | None:
     return _expand(path)
 
 
+def _pg_or_expand(value: str | None) -> str | None:
+    """Return Postgres URLs as-is; expand filesystem paths."""
+    if not value or not value.strip():
+        return None
+    if value.lower().startswith(("postgresql://", "postgres://")):
+        return value
+    return _expand(value)
+
+
 @runtime_checkable
 class ConfigSource(Protocol):
     """Provide WM_* configuration values from an external source.
@@ -168,7 +177,7 @@ class Config(BaseModel):
     )
     events_db: str | None = Field(
         default=None,
-        description="Path to SQLite events DB (enables event emission)",
+        description="SQLite path or postgresql:// URL for events and VM state",
     )
     remote_config_path: str | None = Field(
         default=None,
@@ -234,7 +243,7 @@ class Config(BaseModel):
             max_opencode=int(resolved["WM_MAX_OPENCODE"]),
             max_codex=int(resolved["WM_MAX_CODEX"]),
             max_gate=int(resolved["WM_MAX_GATE"]),
-            events_db=_expand_optional(resolved.get("WM_EVENTS_DB")),
+            events_db=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
             remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
             ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),
             ccusage_codex_cmd=resolved.get("WM_CCUSAGE_CODEX_CMD", "npx @ccusage/codex"),

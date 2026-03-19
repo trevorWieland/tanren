@@ -6,7 +6,7 @@ import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import typer
@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 from tanren_cli.run_cli import (
     PersistedRunHandle,
     PersistedSSHDefaults,
+    _build_remote_execution_env,  # noqa: PLC2701
     _load_handle,  # noqa: PLC2701
     _save_handle,  # noqa: PLC2701
     run,
@@ -116,7 +117,9 @@ def test_run_provision_prints_and_saves_handle(tmp_path: Path, monkeypatch):
     env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
 
     result = CliRunner().invoke(
         run,
@@ -145,7 +148,9 @@ def test_run_execute_loads_handle_and_prints_result(tmp_path: Path, monkeypatch)
     )
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
     monkeypatch.setattr(
         "tanren_cli.run_cli._resolve_agent_tool",
         lambda config, phase: AgentTool(cli=Cli.CLAUDE),
@@ -177,7 +182,9 @@ def test_run_teardown_removes_handle_and_calls_teardown(tmp_path: Path, monkeypa
     env = AsyncMock()
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
 
     result = CliRunner().invoke(run, ["teardown", "--handle", "env-123"])
 
@@ -202,7 +209,9 @@ def test_run_full_executes_in_order(tmp_path: Path, monkeypatch):
     env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
     monkeypatch.setattr(
         "tanren_cli.run_cli._resolve_agent_tool",
         lambda config, phase: AgentTool(cli=Cli.CLAUDE),
@@ -253,7 +262,9 @@ def test_run_full_teardown_runs_even_on_execute_failure(tmp_path: Path, monkeypa
     env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
     monkeypatch.setattr(
         "tanren_cli.run_cli._resolve_agent_tool",
         lambda config, phase: AgentTool(cli=Cli.CLAUDE),
@@ -302,7 +313,9 @@ def test_run_full_exits_nonzero_for_blocked(tmp_path: Path, monkeypatch):
     env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
     monkeypatch.setattr(
         "tanren_cli.run_cli._resolve_agent_tool",
         lambda config, phase: AgentTool(cli=Cli.CLAUDE),
@@ -369,7 +382,9 @@ def test_run_execute_rejects_legacy_handle_schema(tmp_path: Path, monkeypatch):
 
     env = AsyncMock()
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
     monkeypatch.setattr(
         "tanren_cli.run_cli._resolve_agent_tool",
         lambda config, phase: AgentTool(cli=Cli.CLAUDE),
@@ -413,7 +428,9 @@ def test_run_execute_gate_uses_profile_gate_cmd_when_missing_flag(tmp_path: Path
     )
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
 
     result = CliRunner().invoke(
         run,
@@ -442,7 +459,9 @@ def test_run_execute_gate_rejects_blank_gate_cmd(tmp_path: Path, monkeypatch):
     env = AsyncMock()
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
 
     result = CliRunner().invoke(
         run,
@@ -510,7 +529,9 @@ def test_run_full_teardown_runs_even_when_handle_save_fails(tmp_path: Path, monk
     env.ssh_defaults = SSHConfig(host="", user="root", key_path="~/.ssh/id_rsa", port=22)
 
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
     monkeypatch.setattr(
         "tanren_cli.run_cli._save_handle",
         lambda _config, _persisted: (_ for _ in ()).throw(OSError("disk full")),
@@ -571,7 +592,9 @@ def test_teardown_retains_external_handle_file(tmp_path: Path, monkeypatch):
 
     env = AsyncMock()
     monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
-    monkeypatch.setattr("tanren_cli.run_cli._build_remote_execution_env", lambda cfg: env)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
 
     result = CliRunner().invoke(run, ["teardown", "--handle", str(external_file)])
 
@@ -672,3 +695,52 @@ def test_persisted_handle_rejects_invalid_host_key_policy(tmp_path: Path, capsys
     assert exc_info.value.exit_code == 1
     captured = capsys.readouterr()
     assert "Run handle schema has changed" in captured.err
+
+
+class TestBuildRemoteEnvPostgres:
+    async def test_passes_pool_when_postgres_configured(self, tmp_path, monkeypatch):
+        """Regression: _build_remote_execution_env must create a pool for Postgres DSNs.
+
+        Without this, VM assignments would be written to SQLite while other callers
+        (vm_cli, manager, API) read from Postgres, splitting state.
+        """
+        config = _config(tmp_path)
+        monkeypatch.setattr(config, "events_db", "postgresql://localhost/tanren")
+
+        mock_pool = MagicMock()
+        mock_create_pool = AsyncMock(return_value=mock_pool)
+        mock_build = MagicMock(return_value=(MagicMock(), MagicMock()))
+
+        with (
+            patch(
+                "tanren_core.adapters.postgres_pool.create_postgres_pool",
+                mock_create_pool,
+            ),
+            patch(
+                "tanren_core.builder.build_ssh_execution_environment",
+                mock_build,
+            ),
+        ):
+            _env, pool = await _build_remote_execution_env(config)
+
+        mock_create_pool.assert_awaited_once_with("postgresql://localhost/tanren")
+        _, kwargs = mock_build.call_args
+        assert kwargs["pool"] is mock_pool
+        assert pool is mock_pool
+
+    async def test_no_pool_when_sqlite_configured(self, tmp_path, monkeypatch):
+        """When events_db is a SQLite path, no pool should be created."""
+        config = _config(tmp_path)
+        monkeypatch.setattr(config, "events_db", str(tmp_path / "events.db"))
+
+        mock_build = MagicMock(return_value=(MagicMock(), MagicMock()))
+
+        with patch(
+            "tanren_core.builder.build_ssh_execution_environment",
+            mock_build,
+        ):
+            _env, pool = await _build_remote_execution_env(config)
+
+        _, kwargs = mock_build.call_args
+        assert kwargs["pool"] is None
+        assert pool is None

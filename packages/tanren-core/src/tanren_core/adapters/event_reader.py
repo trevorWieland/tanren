@@ -1,4 +1,4 @@
-"""Read-only event query function for the SQLite events database."""
+"""Event reader protocol and SQLite implementation."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import aiosqlite
 
@@ -32,6 +33,102 @@ class EventQueryResult:
     skipped: int = 0
 
 
+@runtime_checkable
+class EventReader(Protocol):
+    """Protocol for querying structured events."""
+
+    async def query_events(
+        self,
+        *,
+        workflow_id: str | None = None,
+        event_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> EventQueryResult:
+        """Query events with optional filters and pagination."""
+        ...
+
+
+class SqliteEventReader:
+    """Reads events from a SQLite database.
+
+    Satisfies the EventReader protocol via structural typing.
+    """
+
+    def __init__(self, db_path: str | Path) -> None:
+        """Initialize with the path to the SQLite events database."""
+        self._db_path = Path(db_path)
+
+    async def query_events(
+        self,
+        *,
+        workflow_id: str | None = None,
+        event_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> EventQueryResult:
+        """Query events from the SQLite events database.
+
+        Opens a read-only connection. Builds WHERE clause from filters.
+        Returns events ordered by timestamp DESC with pagination.
+
+        Returns:
+            EventQueryResult with matching events and total count.
+        """
+        if not self._db_path.exists():
+            return EventQueryResult()
+
+        where_clauses: list[str] = []
+        params: list[str | int] = []
+
+        if workflow_id is not None:
+            where_clauses.append("workflow_id = ?")
+            params.append(workflow_id)
+        if event_type is not None:
+            where_clauses.append("event_type = ?")
+            params.append(event_type)
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = " WHERE " + " AND ".join(where_clauses)
+
+        async with aiosqlite.connect(f"file:{self._db_path}?mode=ro", uri=True) as conn:
+            # Total count
+            count_sql = f"SELECT COUNT(*) FROM events{where_sql}"
+            cursor = await conn.execute(count_sql, params)
+            row = await cursor.fetchone()
+            total = row[0] if row else 0
+
+            # Fetch page
+            select_sql = (
+                f"SELECT id, timestamp, workflow_id, event_type, payload "
+                f"FROM events{where_sql} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+            )
+            cursor = await conn.execute(select_sql, [*params, limit, offset])
+            rows = await cursor.fetchall()
+
+        events: list[EventRow] = []
+        skipped = 0
+        for r in rows:
+            try:
+                payload = json.loads(r[4])
+            except json.JSONDecodeError, TypeError:
+                skipped += 1
+                logger.warning("Skipping event %d: malformed JSON payload", r[0])
+                continue
+            events.append(
+                EventRow(
+                    id=r[0],
+                    timestamp=r[1],
+                    workflow_id=r[2],
+                    event_type=r[3],
+                    payload=payload,
+                )
+            )
+
+        return EventQueryResult(events=events, total=total, skipped=skipped)
+
+
 async def query_events(
     db_path: str | Path,
     *,
@@ -42,62 +139,15 @@ async def query_events(
 ) -> EventQueryResult:
     """Query events from the SQLite events database.
 
-    Opens a read-only connection. Builds WHERE clause from filters.
-    Returns events ordered by timestamp DESC with pagination.
+    Backward-compatible wrapper that delegates to SqliteEventReader.
 
     Returns:
         EventQueryResult with matching events and total count.
     """
-    db_path = Path(db_path)
-    if not db_path.exists():
-        return EventQueryResult()
-
-    where_clauses: list[str] = []
-    params: list[str | int] = []
-
-    if workflow_id is not None:
-        where_clauses.append("workflow_id = ?")
-        params.append(workflow_id)
-    if event_type is not None:
-        where_clauses.append("event_type = ?")
-        params.append(event_type)
-
-    where_sql = ""
-    if where_clauses:
-        where_sql = " WHERE " + " AND ".join(where_clauses)
-
-    async with aiosqlite.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
-        # Total count
-        count_sql = f"SELECT COUNT(*) FROM events{where_sql}"
-        cursor = await conn.execute(count_sql, params)
-        row = await cursor.fetchone()
-        total = row[0] if row else 0
-
-        # Fetch page
-        select_sql = (
-            f"SELECT id, timestamp, workflow_id, event_type, payload "
-            f"FROM events{where_sql} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-        )
-        cursor = await conn.execute(select_sql, [*params, limit, offset])
-        rows = await cursor.fetchall()
-
-    events: list[EventRow] = []
-    skipped = 0
-    for r in rows:
-        try:
-            payload = json.loads(r[4])
-        except json.JSONDecodeError, TypeError:
-            skipped += 1
-            logger.warning("Skipping event %d: malformed JSON payload", r[0])
-            continue
-        events.append(
-            EventRow(
-                id=r[0],
-                timestamp=r[1],
-                workflow_id=r[2],
-                event_type=r[3],
-                payload=payload,
-            )
-        )
-
-    return EventQueryResult(events=events, total=total, skipped=skipped)
+    reader = SqliteEventReader(db_path)
+    return await reader.query_events(
+        workflow_id=workflow_id,
+        event_type=event_type,
+        limit=limit,
+        offset=offset,
+    )

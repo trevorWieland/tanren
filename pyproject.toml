@@ -75,6 +75,7 @@ markers = [
     "api: API-specific tests",
     "hetzner: requires Hetzner API token and provisions real VMs",
     "gcp: requires GCP credentials and provisions real VMs",
+    "postgres: requires a real Postgres database",
 ]
 
 # ===== COVERAGE =====

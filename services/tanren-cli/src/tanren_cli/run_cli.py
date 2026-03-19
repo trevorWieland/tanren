@@ -12,13 +12,17 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Literal, cast
+
+if TYPE_CHECKING:
+    import asyncpg
 
 import typer
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tanren_core.adapters.null_emitter import NullEventEmitter
+from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.remote_types import VMHandle, WorkspacePath
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
@@ -82,11 +86,24 @@ def _require_remote_config(config: Config) -> None:
         raise typer.Exit(code=1)
 
 
-def _build_remote_execution_env(config: Config) -> SSHExecutionEnvironment:
+async def _build_remote_execution_env(
+    config: Config,
+) -> tuple[SSHExecutionEnvironment, asyncpg.Pool | None]:
+    """Build SSH execution environment, returning (env, pg_pool_or_none).
+
+    Returns:
+        Tuple of (SSHExecutionEnvironment, asyncpg.Pool | None).
+    """
     from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
 
-    env, _store = build_ssh_execution_environment(config, NullEventEmitter())
-    return env
+    pool = None
+    if config.events_db and is_postgres_url(config.events_db):
+        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+
+        pool = await create_postgres_pool(config.events_db)
+
+    env, _store = build_ssh_execution_environment(config, NullEventEmitter(), pool=pool)
+    return env, pool
 
 
 def _handle_dir(config: Config) -> Path:
@@ -324,7 +341,7 @@ def run_provision(
     async def _run() -> None:
         config = _load_config()
         _require_remote_config(config)
-        env = _build_remote_execution_env(config)
+        env, pg_pool = await _build_remote_execution_env(config)
         try:
             workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
             tool = _resolve_agent_tool(config, Phase.DO_TASK)
@@ -385,6 +402,8 @@ def run_provision(
             typer.echo(f"handle_file: {path}")
         finally:
             await env.close()
+            if pg_pool is not None:
+                await pg_pool.close()
 
     asyncio.run(_run())
 
@@ -404,7 +423,7 @@ def run_execute(
     async def _run() -> None:
         config = _load_config()
         _require_remote_config(config)
-        env = _build_remote_execution_env(config)
+        env, pg_pool = await _build_remote_execution_env(config)
         try:
             persisted, _ = _load_handle(config, handle)
             if persisted.project != project:
@@ -461,6 +480,8 @@ def run_execute(
                     typer.echo(stderr_tail)
         finally:
             await env.close()
+            if pg_pool is not None:
+                await pg_pool.close()
 
     asyncio.run(_run())
 
@@ -474,7 +495,7 @@ def run_teardown(
     async def _run() -> None:
         config = _load_config()
         _require_remote_config(config)
-        env = _build_remote_execution_env(config)
+        env, pg_pool = await _build_remote_execution_env(config)
         try:
             persisted, handle_path = _load_handle(config, handle)
 
@@ -497,6 +518,8 @@ def run_teardown(
                 typer.echo(f"estimated_cost: {estimated_cost:.4f}")
         finally:
             await env.close()
+            if pg_pool is not None:
+                await pg_pool.close()
 
     asyncio.run(_run())
 
@@ -517,7 +540,7 @@ def run_full(
     async def _run() -> None:
         config = _load_config()
         _require_remote_config(config)
-        env = _build_remote_execution_env(config)
+        env, pg_pool = await _build_remote_execution_env(config)
         try:
             workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
             provision_tool = _resolve_agent_tool(config, Phase.DO_TASK)
@@ -621,6 +644,8 @@ def run_full(
                 raise typer.Exit(code=1)
         finally:
             await env.close()
+            if pg_pool is not None:
+                await pg_pool.close()
 
     asyncio.run(_run())
 

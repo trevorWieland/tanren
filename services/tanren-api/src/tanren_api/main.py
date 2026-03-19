@@ -34,7 +34,9 @@ from tanren_api.services import (
 )
 from tanren_api.settings import APISettings
 from tanren_api.state import APIStateStore
+from tanren_core.adapters.event_reader import SqliteEventReader
 from tanren_core.adapters.null_emitter import NullEventEmitter
+from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 from tanren_core.builder import build_ssh_execution_environment
 from tanren_core.config import Config, load_config_env
@@ -66,8 +68,23 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         db = settings.events_db
         if db is None and app.state.config is not None:
             db = app.state.config.events_db
-        if db:
+
+        app.state.pg_pool = None
+        app.state.event_reader = None
+        if db and is_postgres_url(db):
+            from tanren_core.adapters.postgres_emitter import PostgresEventEmitter  # noqa: PLC0415
+            from tanren_core.adapters.postgres_event_reader import (  # noqa: PLC0415
+                PostgresEventReader,
+            )
+            from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+
+            pg_pool = await create_postgres_pool(db)
+            app.state.pg_pool = pg_pool
+            app.state.emitter = PostgresEventEmitter(pg_pool)
+            app.state.event_reader = PostgresEventReader(pg_pool)
+        elif db:
             app.state.emitter = SqliteEventEmitter(db)
+            app.state.event_reader = SqliteEventReader(db)
         else:
             app.state.emitter = NullEventEmitter()
 
@@ -79,7 +96,10 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         if app.state.config and app.state.config.remote_config_path:
             try:
                 env, vm_store = await asyncio.to_thread(
-                    build_ssh_execution_environment, app.state.config, app.state.emitter
+                    build_ssh_execution_environment,
+                    app.state.config,
+                    app.state.emitter,
+                    pool=app.state.pg_pool,
                 )
                 app.state.execution_env = env
                 app.state.vm_state_store = vm_store
@@ -116,7 +136,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
                 execution_env=app.state.execution_env,
             ),
             config=config_svc,
-            events=EventsService(settings, app.state.config),
+            events=EventsService(settings, app.state.config, event_reader=app.state.event_reader),
         )
 
         yield
@@ -126,6 +146,8 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         if app.state.execution_env is not None:
             await app.state.execution_env.close()
         await app.state.emitter.close()
+        if app.state.pg_pool is not None:
+            await app.state.pg_pool.close()
 
     # Build middleware stack before creating app (order matters: outermost first)
     middleware_stack: list[Middleware] = [

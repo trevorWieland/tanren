@@ -7,8 +7,8 @@ from fastapi import Request
 from tanren_api.errors import ServiceError
 from tanren_api.settings import APISettings
 from tanren_api.state import APIStateStore
-from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment
-from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
+from tanren_core.adapters.event_reader import EventReader
+from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment, VMStateStore
 from tanren_core.config import Config
 
 
@@ -44,6 +44,11 @@ def get_execution_env(request: Request) -> ExecutionEnvironment | None:
     return request.app.state.execution_env
 
 
-def get_vm_state_store(request: Request) -> SqliteVMStateStore | None:
+def get_event_reader(request: Request) -> EventReader | None:
+    """Return the event reader, or None if not configured."""
+    return getattr(request.app.state, "event_reader", None)
+
+
+def get_vm_state_store(request: Request) -> VMStateStore | None:
     """Return the VM state store, or None if not configured."""
     return request.app.state.vm_state_store

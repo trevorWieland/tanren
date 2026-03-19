@@ -247,6 +247,18 @@ class TestConfig:
         config = Config.from_env()
         assert config.events_db is None
 
+    def test_postgres_url_not_path_expanded(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_EVENTS_DB", "postgresql://host/db")
+        config = Config.from_env()
+        assert config.events_db == "postgresql://host/db"
+
+    def test_uppercase_postgres_url_not_path_expanded(self, monkeypatch):
+        _set_all_required(monkeypatch)
+        monkeypatch.setenv("WM_EVENTS_DB", "POSTGRESQL://host/db")
+        config = Config.from_env()
+        assert config.events_db == "POSTGRESQL://host/db"
+
 
 # ---------------------------------------------------------------------------
 # ConfigSource protocol check

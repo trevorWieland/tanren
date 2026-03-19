@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from tanren_api.models import EventPayload
     from tanren_api.settings import APISettings
+    from tanren_core.adapters.event_reader import EventReader
     from tanren_core.config import Config
 
 logger = logging.getLogger(__name__)
@@ -63,10 +64,16 @@ class ConfigService:
 class EventsService:
     """Service for querying structured events."""
 
-    def __init__(self, settings: APISettings, config: Config | None = None) -> None:
-        """Initialize with settings and optional config for DB path fallback."""
+    def __init__(
+        self,
+        settings: APISettings,
+        config: Config | None = None,
+        event_reader: EventReader | None = None,
+    ) -> None:
+        """Initialize with settings, optional config, and optional event reader."""
         self._settings = settings
         self._config = config
+        self._event_reader = event_reader
 
     async def query(
         self,
@@ -77,22 +84,30 @@ class EventsService:
         offset: int = 0,
     ) -> PaginatedEvents:
         """Query structured events with optional filters."""
-        from tanren_core.adapters.event_reader import query_events  # noqa: PLC0415
+        if self._event_reader is not None:
+            result = await self._event_reader.query_events(
+                workflow_id=workflow_id,
+                event_type=event_type,
+                limit=limit,
+                offset=offset,
+            )
+        else:
+            from tanren_core.adapters.event_reader import query_events  # noqa: PLC0415
 
-        db_path = self._settings.events_db
-        if db_path is None and self._config is not None:
-            db_path = self._config.events_db
+            db_path = self._settings.events_db
+            if db_path is None and self._config is not None:
+                db_path = self._config.events_db
 
-        if not db_path:
-            return PaginatedEvents(events=[], total=0, limit=limit, offset=offset)
+            if not db_path:
+                return PaginatedEvents(events=[], total=0, limit=limit, offset=offset)
 
-        result = await query_events(
-            db_path,
-            workflow_id=workflow_id,
-            event_type=event_type,
-            limit=limit,
-            offset=offset,
-        )
+            result = await query_events(
+                db_path,
+                workflow_id=workflow_id,
+                event_type=event_type,
+                limit=limit,
+                offset=offset,
+            )
 
         events: list[EventPayload] = []
         skipped = 0

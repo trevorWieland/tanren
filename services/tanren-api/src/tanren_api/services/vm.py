@@ -21,9 +21,8 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_api.state import APIStateStore, EnvironmentRecord
-from tanren_core.adapters.protocols import ExecutionEnvironment
+from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
-from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
 from tanren_core.remote_config import ProvisionerType, load_remote_config
@@ -62,7 +61,7 @@ class VMService:
         store: APIStateStore,
         config: Config | None = None,
         execution_env: ExecutionEnvironment | None = None,
-        vm_state_store: SqliteVMStateStore | None = None,
+        vm_state_store: VMStateStore | None = None,
     ) -> None:
         """Initialize with dependencies."""
         self._store = store
