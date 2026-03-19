@@ -1,8 +1,11 @@
 """Verify each adapter class satisfies its protocol via isinstance checks."""
 
+from pathlib import Path
+
 from tanren_core.adapters import (
     DotenvEnvProvisioner,
     DotenvEnvValidator,
+    DotenvSecretProvider,
     GitPostflightRunner,
     GitPreflightRunner,
     GitWorktreeManager,
@@ -17,6 +20,7 @@ from tanren_core.adapters.protocols import (
     PostflightRunner,
     PreflightRunner,
     ProcessSpawner,
+    SecretProvider,
     WorktreeManager,
 )
 
@@ -45,3 +49,6 @@ class TestProtocolConformance:
 
     def test_sqlite_event_emitter(self):
         assert isinstance(SqliteEventEmitter("/tmp/test.db"), EventEmitter)
+
+    def test_dotenv_secret_provider(self, tmp_path: Path):
+        assert isinstance(DotenvSecretProvider(secrets_dir=tmp_path), SecretProvider)

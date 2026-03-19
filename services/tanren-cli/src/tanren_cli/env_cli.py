@@ -1,5 +1,6 @@
 """Typer subcommands for env and secret management."""
 
+import asyncio
 from pathlib import Path
 
 import typer
@@ -12,6 +13,7 @@ from tanren_core.env.loader import (
 )
 from tanren_core.env.reporter import format_report, format_report_json
 from tanren_core.env.schema import EnvBlock
+from tanren_core.env.secret_provider_factory import create_secret_provider
 from tanren_core.env.secrets import DEFAULT_SECRETS_DIR, list_secrets, set_secret
 from tanren_core.env.validator import validate_env
 
@@ -61,7 +63,11 @@ def check(
                 continue
 
         merged_env, source_map = load_env_layers(project_root)
-        report = validate_env(env_block, merged_env, source_map)
+        secrets_config = config.secrets if config else None
+        secret_provider = create_secret_provider(secrets_config)
+        report = asyncio.run(
+            validate_env(env_block, merged_env, source_map, secret_provider=secret_provider)
+        )
 
         if json_output:
             typer.echo(format_report_json(report))

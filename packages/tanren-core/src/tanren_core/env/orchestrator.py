@@ -10,6 +10,7 @@ from tanren_core.env.loader import (
     parse_tanren_yml,
 )
 from tanren_core.env.schema import EnvBlock, OnMissing
+from tanren_core.env.secret_provider_factory import create_secret_provider
 from tanren_core.env.validator import EnvReport, validate_env
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,12 @@ async def load_and_validate_env(
     if daemon_mode and env_block.on_missing == OnMissing.PROMPT:
         env_block = env_block.model_copy(update={"on_missing": OnMissing.ERROR})
 
+    # Build secret provider from tanren.yml secrets config
+    secrets_config = config.secrets if config else None
+    secret_provider = create_secret_provider(secrets_config, secrets_dir=secrets_dir)
+
     merged_env, source_map = await asyncio.to_thread(load_env_layers, project_root, secrets_dir)
 
-    report = validate_env(env_block, merged_env, source_map)
+    report = await validate_env(env_block, merged_env, source_map, secret_provider=secret_provider)
 
     return report, merged_env

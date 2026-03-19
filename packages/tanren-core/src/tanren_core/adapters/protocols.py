@@ -33,6 +33,33 @@ from tanren_core.schemas import Dispatch
 
 
 @runtime_checkable
+class SecretProvider(Protocol):
+    """Fetch secrets from a backend (dotenv files, cloud secret managers, etc).
+
+    Implementations must be async. The provider is scoped to a single
+    dispatch lifetime and may cache fetched secrets internally.
+
+    Default implementation: DotenvSecretProvider.
+    """
+
+    async def get_secret(self, secret_id: str, *, version: str = "latest") -> str | None:
+        """Fetch a single secret value by ID.
+
+        Returns:
+            The secret value, or None if not found.
+        """
+        ...
+
+    async def list_secrets(self) -> list[str]:
+        """List available secret IDs.
+
+        Returns:
+            List of secret ID strings.
+        """
+        ...
+
+
+@runtime_checkable
 class WorktreeManager(Protocol):
     """Create, register, and clean up git worktrees.
 

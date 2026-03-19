@@ -214,9 +214,10 @@ class SSHExecutionEnvironment:
             )
             workspace_path = await self._workspace_mgr.setup(conn, workspace_spec)
 
-            # 7a. Inject secrets
+            # 7a. Inject secrets (including cloud-fetched secrets)
             project_env = self._load_project_env(dispatch, config)
-            bundle = self._secret_loader.build_bundle(project_env)
+            cloud_secrets = await self._fetch_cloud_secrets(dispatch, config)
+            bundle = self._secret_loader.build_bundle(project_env, cloud_secrets=cloud_secrets)
             await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
             # 7b. Inject MCP config
@@ -635,6 +636,60 @@ class SSHExecutionEnvironment:
             return {}
         values = dotenv_values(env_file)
         return {k: v for k, v in values.items() if v is not None}
+
+    async def _fetch_cloud_secrets(
+        self, dispatch: Dispatch, config: Config
+    ) -> dict[str, str] | None:
+        """Fetch cloud secrets for vars with ``source: "secret:X"`` in tanren.yml.
+
+        Returns:
+            Dict of fetched secrets, or None if no provider is configured.
+        """
+        tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
+        if not tanren_yml.exists():
+            return None
+
+        data = await asyncio.to_thread(self._read_yaml, tanren_yml)
+        if not isinstance(data, dict):
+            return None
+
+        from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415
+
+        try:
+            tc = TanrenConfig.model_validate(data)
+        except Exception:
+            return None
+
+        has_sources = tc.env is not None and any(
+            v.source for v in (*tc.env.required, *tc.env.optional)
+        )
+        if tc.secrets is None and not has_sources:
+            return None
+
+        from tanren_core.env.secret_provider_factory import create_secret_provider  # noqa: PLC0415
+
+        provider = create_secret_provider(tc.secrets)
+
+        result: dict[str, str] = {}
+        if tc.env:
+            for var in (*tc.env.required, *tc.env.optional):
+                if var.source and var.source.startswith("secret:"):
+                    secret_name = var.source[len("secret:") :]
+                    value = await provider.get_secret(secret_name)
+                    if value is not None:
+                        result[var.key] = value
+
+        return result or None
+
+    @staticmethod
+    def _read_yaml(path: Path) -> object:
+        """Read and parse a YAML file.
+
+        Returns:
+            Parsed YAML data.
+        """
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
 
     def _wrap_for_agent_user(self, command: str) -> str:
         """Wrap a shell command to run as the agent user via ``su -``.
