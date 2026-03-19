@@ -41,6 +41,10 @@ try:  # noqa: SIM105, RUF067
 except ImportError:  # google-cloud-compute not installed
     pass
 try:  # noqa: SIM105, RUF067
+    from tanren_core.adapters.github_issue import GitHubIssueSettings, GitHubIssueSource
+except ImportError:  # httpx not installed
+    pass
+try:  # noqa: SIM105, RUF067
     from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 except ImportError:  # hcloud not installed
     pass
@@ -127,6 +131,8 @@ __all__ = [
     "GCPProvisionerSettings",
     "GCPVMProvisioner",
     "GitAuthConfig",
+    "GitHubIssueSettings",
+    "GitHubIssueSource",
     "GitPostflightRunner",
     "GitPreflightRunner",
     "GitWorkspaceManager",

@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 
 class EnvironmentProfileType(StrEnum):
@@ -86,3 +86,31 @@ def parse_environment_profiles(data: Mapping[str, object]) -> dict[str, Environm
         profiles["default"] = EnvironmentProfile(name="default")
 
     return profiles
+
+
+class IssueSourceType(StrEnum):
+    """Supported issue source backends."""
+
+    GITHUB = "github"
+    LINEAR = "linear"
+
+
+class IssueSourceConfig(BaseModel):
+    """Issue source configuration from tanren.yml."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: IssueSourceType = Field(default=IssueSourceType.GITHUB)
+    settings: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+def parse_issue_source(data: Mapping[str, object]) -> IssueSourceConfig | None:
+    """Parse 'issue_source' section of tanren.yml.
+
+    Returns:
+        IssueSourceConfig if present, None otherwise.
+    """
+    raw = data.get("issue_source")
+    if isinstance(raw, dict):
+        return IssueSourceConfig.model_validate(raw)
+    return None

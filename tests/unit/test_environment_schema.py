@@ -5,9 +5,12 @@ import pytest
 from tanren_core.env.environment_schema import (
     EnvironmentProfile,
     EnvironmentProfileType,
+    IssueSourceConfig,
+    IssueSourceType,
     McpServerConfig,
     ResourceRequirements,
     parse_environment_profiles,
+    parse_issue_source,
 )
 
 
@@ -186,3 +189,52 @@ class TestEnvironmentProfileMcp:
             mcp={"my-server": McpServerConfig(url="https://example.com/sse")},
         )
         assert "my-server" in p.mcp
+
+
+class TestIssueSourceType:
+    def test_github_value(self):
+        assert IssueSourceType.GITHUB == "github"
+
+    def test_linear_value(self):
+        assert IssueSourceType.LINEAR == "linear"
+
+
+class TestIssueSourceConfig:
+    def test_default_type_is_github(self):
+        cfg = IssueSourceConfig()
+        assert cfg.type == IssueSourceType.GITHUB
+        assert cfg.settings == {}
+
+    def test_explicit_linear_type(self):
+        cfg = IssueSourceConfig(type=IssueSourceType.LINEAR, settings={"team": "ENG"})
+        assert cfg.type == IssueSourceType.LINEAR
+        assert cfg.settings == {"team": "ENG"}
+
+    def test_frozen(self):
+        cfg = IssueSourceConfig()
+        with pytest.raises(ValueError):
+            cfg.type = IssueSourceType.LINEAR
+
+    def test_extra_forbidden(self):
+        with pytest.raises(ValueError):
+            IssueSourceConfig(type=IssueSourceType.GITHUB, bogus="x")  # type: ignore[unknown-argument]
+
+
+class TestParseIssueSource:
+    def test_returns_none_when_absent(self):
+        assert parse_issue_source({}) is None
+
+    def test_parses_github_config(self):
+        data = {
+            "issue_source": {
+                "type": "github",
+                "settings": {"owner": "myorg", "repo": "myrepo"},
+            }
+        }
+        cfg = parse_issue_source(data)
+        assert cfg is not None
+        assert cfg.type == IssueSourceType.GITHUB
+        assert cfg.settings == {"owner": "myorg", "repo": "myrepo"}
+
+    def test_returns_none_for_non_dict(self):
+        assert parse_issue_source({"issue_source": "invalid"}) is None

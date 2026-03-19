@@ -57,6 +57,7 @@ class TanrenConfig(BaseModel):
     env: EnvBlock | None = Field(default=None)
     # Consumed by runtime environment selection logic outside env tooling.
     environment: dict[str, object] | None = Field(default=None)
+    issue_source: dict[str, object] | None = Field(default=None)
 
     @model_validator(mode="before")
     @classmethod

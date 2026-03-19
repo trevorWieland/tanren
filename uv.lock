@@ -1506,6 +1506,9 @@ dependencies = [
 gcp = [
     { name = "google-cloud-compute" },
 ]
+github = [
+    { name = "httpx" },
+]
 hetzner = [
     { name = "hcloud" },
 ]
@@ -1516,12 +1519,13 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30,<1" },
     { name = "google-cloud-compute", marker = "extra == 'gcp'", specifier = ">=1.20.0,<2" },
     { name = "hcloud", marker = "extra == 'hetzner'", specifier = ">=2.4.0,<3" },
+    { name = "httpx", marker = "extra == 'github'", specifier = ">=0.27,<1" },
     { name = "paramiko", specifier = ">=3.0,<4" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "python-dotenv", specifier = ">=1.0,<2" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["gcp", "hetzner"]
+provides-extras = ["gcp", "github", "hetzner"]
 
 [[package]]
 name = "tanren-daemon"
@@ -1543,6 +1547,9 @@ source = { virtual = "." }
 gcp = [
     { name = "tanren-core", extra = ["gcp"] },
 ]
+github = [
+    { name = "tanren-core", extra = ["github"] },
+]
 hetzner = [
     { name = "tanren-core", extra = ["hetzner"] },
 ]
@@ -1558,7 +1565,7 @@ dev = [
     { name = "ruff" },
     { name = "tanren-api" },
     { name = "tanren-cli" },
-    { name = "tanren-core", extra = ["gcp", "hetzner"] },
+    { name = "tanren-core", extra = ["gcp", "github", "hetzner"] },
     { name = "tanren-daemon" },
     { name = "ty" },
 ]
@@ -1566,9 +1573,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "tanren-core", extras = ["gcp"], marker = "extra == 'gcp'", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["github"], marker = "extra == 'github'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["hetzner"], marker = "extra == 'hetzner'", editable = "packages/tanren-core" },
 ]
-provides-extras = ["hetzner", "gcp"]
+provides-extras = ["hetzner", "gcp", "github"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1582,6 +1590,7 @@ dev = [
     { name = "tanren-api", editable = "services/tanren-api" },
     { name = "tanren-cli", editable = "services/tanren-cli" },
     { name = "tanren-core", extras = ["gcp"], editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["github"], editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["hetzner"], editable = "packages/tanren-core" },
     { name = "tanren-daemon", editable = "services/tanren-daemon" },
     { name = "ty", specifier = ">=0.0.1a13,<1" },
