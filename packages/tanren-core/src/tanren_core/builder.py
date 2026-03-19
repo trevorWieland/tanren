@@ -10,14 +10,17 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import asyncpg
 
 from tanren_core.adapters.credentials import providers_for_clis
 from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
-from tanren_core.adapters.protocols import EventEmitter
+from tanren_core.adapters.protocols import EventEmitter, VMStateStore
 from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import VMProvider
-from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
@@ -34,7 +37,8 @@ _AGENT_USER = "tanren"
 def build_ssh_execution_environment(
     config: Config,
     emitter: EventEmitter,
-) -> tuple[SSHExecutionEnvironment, SqliteVMStateStore]:
+    pool: asyncpg.Pool | None = None,
+) -> tuple[SSHExecutionEnvironment, VMStateStore]:
     """Construct an SSHExecutionEnvironment from config and emitter.
 
     Returns:
@@ -60,7 +64,14 @@ def build_ssh_execution_environment(
         host_key_policy=remote_cfg.ssh.host_key_policy,
     )
 
-    state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
+    if pool is not None:
+        from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+
+        state_store: VMStateStore = PostgresVMStateStore(pool)
+    else:
+        from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore  # noqa: PLC0415
+
+        state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
 
     # Read extra bootstrap script if configured
     extra_script = None

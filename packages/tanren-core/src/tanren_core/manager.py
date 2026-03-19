@@ -14,7 +14,10 @@ import subprocess
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    import asyncpg
 
 from pydantic import JsonValue
 
@@ -36,6 +39,7 @@ from tanren_core.adapters import (
 )
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
+from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.protocols import (
     EnvProvisioner,
     EnvValidator,
@@ -170,10 +174,18 @@ class WorkerManager:
         self._env_validator = env_validator or DotenvEnvValidator()
         self._env_provisioner = env_provisioner or DotenvEnvProvisioner()
 
+        # Postgres state (populated in run() if events_db is a Postgres URL)
+        self._pg_dsn: str | None = None
+        self._pg_pool: asyncpg.Pool | None = None
+
         # Event emitter — auto-configure from config if not injected
         # Must be initialized before execution environment (remote env references it)
         if emitter is not None:
             self._emitter: EventEmitter = emitter
+        elif self._config.events_db and is_postgres_url(self._config.events_db):
+            # Defer Postgres pool creation to run() (needs async context)
+            self._pg_dsn = self._config.events_db
+            self._emitter = NullEventEmitter()
         elif self._config.events_db:
             self._emitter = SqliteEventEmitter(self._config.events_db)
         else:
@@ -208,6 +220,9 @@ class WorkerManager:
         logger.info("Worker manager starting")
         logger.info("IPC dir: %s", self._config.ipc_dir)
         logger.info("Data dir: %s", self._config.data_dir)
+
+        # Initialize Postgres pool if configured
+        await self._init_postgres()
 
         # Register signal handlers
         loop = asyncio.get_running_loop()
@@ -257,6 +272,10 @@ class WorkerManager:
         if hasattr(self, "_remote_state_store"):
             await self._remote_state_store.close()
 
+        # Close Postgres pool if present
+        if self._pg_pool is not None:
+            await self._pg_pool.close()
+
         logger.info("Worker manager stopped")
 
     def _signal_shutdown(self) -> None:
@@ -304,17 +323,38 @@ class WorkerManager:
         health_path = Path(self._config.ipc_dir) / "worker-health.json"
         await atomic_write(health_path, health.model_dump_json(indent=2))
 
-    def _build_remote_env(self) -> ExecutionEnvironment:
+    def _build_remote_env(self, pool: asyncpg.Pool | None = None) -> ExecutionEnvironment:
         """Construct SSHExecutionEnvironment from remote.yml.
+
+        Args:
+            pool: Optional asyncpg.Pool for Postgres-backed state store.
 
         Returns:
             Configured SSHExecutionEnvironment.
         """
         from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
 
-        env, state_store = build_ssh_execution_environment(self._config, self._emitter)
+        env, state_store = build_ssh_execution_environment(self._config, self._emitter, pool=pool)
         self._remote_state_store = state_store
         return env
+
+    async def _init_postgres(self) -> None:
+        """Create Postgres pool and rebuild adapters if configured."""
+        if self._pg_dsn is None:
+            return
+
+        from tanren_core.adapters.postgres_emitter import PostgresEventEmitter  # noqa: PLC0415
+        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+
+        pool = await create_postgres_pool(self._pg_dsn)
+        self._pg_pool = pool
+        self._emitter = PostgresEventEmitter(pool)
+
+        # Rebuild remote execution environment with Postgres-backed state store
+        if self._config.remote_config_path:
+            if hasattr(self, "_remote_state_store"):
+                await self._remote_state_store.close()
+            self._execution_env = self._build_remote_env(pool=pool)
 
     async def _recover_vm_state(self) -> None:
         """Startup recovery: release stale assignments via provider cleanup.
@@ -327,7 +367,12 @@ class WorkerManager:
 
         remote_cfg = load_remote_config(self._config.remote_config_path)
 
-        store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
+        if self._pg_pool is not None:
+            from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+
+            store = PostgresVMStateStore(self._pg_pool)
+        else:
+            store = SqliteVMStateStore(f"{self._config.data_dir}/vm-state.db")
         try:
             assignments = await store.get_active_assignments()
             if not assignments:

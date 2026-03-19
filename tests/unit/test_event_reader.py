@@ -7,7 +7,7 @@ import json
 import aiosqlite
 import pytest
 
-from tanren_core.adapters.event_reader import query_events
+from tanren_core.adapters.event_reader import EventReader, SqliteEventReader, query_events
 from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
 
 
@@ -325,3 +325,63 @@ class TestQueryEvents:
         assert result.events == []
         assert result.total == 2
         assert result.skipped == 2
+
+
+class TestSqliteEventReader:
+    async def test_sqlite_event_reader_class(self, tmp_path):
+        """Verify SqliteEventReader works the same as standalone function."""
+        db = tmp_path / "events.db"
+        await _setup_db(
+            db,
+            [
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    },
+                ),
+            ],
+        )
+
+        reader = SqliteEventReader(db)
+        result = await reader.query_events()
+        assert result.total == 1
+        assert len(result.events) == 1
+        assert result.events[0].workflow_id == "wf-1"
+
+    async def test_backward_compat_query_events(self, tmp_path):
+        """Verify standalone function still works."""
+        db = tmp_path / "events.db"
+        await _setup_db(
+            db,
+            [
+                (
+                    "2026-01-01T00:00:00Z",
+                    "wf-1",
+                    "DispatchReceived",
+                    {
+                        "type": "dispatch_received",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "workflow_id": "wf-1",
+                        "phase": "do-task",
+                        "project": "p",
+                        "cli": "claude",
+                    },
+                ),
+            ],
+        )
+
+        result = await query_events(db)
+        assert result.total == 1
+
+    def test_event_reader_protocol_conformance(self, tmp_path):
+        db = tmp_path / "events.db"
+        reader = SqliteEventReader(db)
+        assert isinstance(reader, EventReader)

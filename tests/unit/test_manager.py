@@ -121,7 +121,7 @@ class TestWorkerManagerInit:
             _FakeSSHExecutionEnvironment,
         )
         monkeypatch.setattr(
-            "tanren_core.builder.SqliteVMStateStore",
+            "tanren_core.adapters.sqlite_vm_state.SqliteVMStateStore",
             lambda _: object(),
         )
         monkeypatch.setattr(

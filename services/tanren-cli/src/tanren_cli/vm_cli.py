@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import asyncpg
 
 import typer
 import yaml
 from dotenv import dotenv_values
 
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings
+from tanren_core.adapters.postgres_pool import is_postgres_url
+from tanren_core.adapters.protocols import VMStateStore
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
@@ -38,14 +44,21 @@ def _load_config() -> Config:
         raise typer.Exit(code=1) from exc
 
 
-def _get_state_store(config: Config) -> SqliteVMStateStore:
-    """Create a VMStateStore from Config.data_dir.
+async def _get_state_store(config: Config) -> tuple[VMStateStore, asyncpg.Pool | None]:
+    """Create a VMStateStore from Config, returning (store, pool_or_none).
 
     Returns:
-        SqliteVMStateStore backed by the config data directory.
+        Tuple of (VMStateStore, asyncpg.Pool | None).
     """
+    if config.events_db and is_postgres_url(config.events_db):
+        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+        from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+
+        pool = await create_postgres_pool(config.events_db)
+        return PostgresVMStateStore(pool), pool
+
     db_path = f"{config.data_dir}/vm-state.db"
-    return SqliteVMStateStore(db_path)
+    return SqliteVMStateStore(db_path), None
 
 
 @vm_app.command("list")
@@ -54,7 +67,7 @@ def vm_list() -> None:
 
     async def _run() -> None:
         config = _load_config()
-        store = _get_state_store(config)
+        store, pool = await _get_state_store(config)
         try:
             assignments = await store.get_active_assignments()
             if not assignments:
@@ -72,6 +85,8 @@ def vm_list() -> None:
                 )
         finally:
             await store.close()
+            if pool is not None:
+                await pool.close()
 
     asyncio.run(_run())
 
@@ -82,7 +97,7 @@ def vm_release(vm_id: str = typer.Argument(...)) -> None:
 
     async def _run() -> None:
         config = _load_config()
-        store = _get_state_store(config)
+        store, pool = await _get_state_store(config)
         try:
             assignment = await store.get_assignment(vm_id)
             if assignment is None:
@@ -92,6 +107,8 @@ def vm_release(vm_id: str = typer.Argument(...)) -> None:
             typer.echo(f"Released VM {vm_id} (was assigned to {assignment.workflow_id})")
         finally:
             await store.close()
+            if pool is not None:
+                await pool.close()
 
     asyncio.run(_run())
 
@@ -102,7 +119,7 @@ def vm_recover() -> None:
 
     async def _run() -> None:
         config = _load_config()
-        store = _get_state_store(config)
+        store, pool = await _get_state_store(config)
         try:
             assignments = await store.get_active_assignments()
             if not assignments:
@@ -144,6 +161,8 @@ def vm_recover() -> None:
                     await conn.close()
         finally:
             await store.close()
+            if pool is not None:
+                await pool.close()
 
     asyncio.run(_run())
 
