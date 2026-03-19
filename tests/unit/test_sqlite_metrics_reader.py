@@ -385,6 +385,31 @@ class TestQueryVMs:
         assert result.by_provider == {"hetzner": 1, "gcp": 1}
 
     @pytest.mark.asyncio
+    async def test_until_cutoff_on_active(self, tmp_path: Path):
+        """A VM released after `until` should still appear active as-of that time."""
+        db = tmp_path / "events.db"
+        await _setup_db(db, ALL_EVENTS)
+        reader = SqliteMetricsReader(db)
+        # vm-1 was released at 2026-03-01T10:05:00Z.
+        # Query with until *before* the release — vm-1 should be active.
+        result = await reader.query_vms(until="2026-03-01T10:00:00Z")
+        # Only vm-1 provisioned at 09:55 falls in the window; it has no
+        # release <= 10:00:00Z (release is at 10:05), so it's active.
+        assert result.total_provisioned == 1
+        assert result.currently_active == 1
+
+    @pytest.mark.asyncio
+    async def test_project_filter_on_active(self, tmp_path: Path):
+        """Active count respects project filter on the release side too."""
+        db = tmp_path / "events.db"
+        await _setup_db(db, ALL_EVENTS)
+        reader = SqliteMetricsReader(db)
+        # All VM events are project="alpha", querying beta gives 0
+        result = await reader.query_vms(project="beta")
+        assert result.total_provisioned == 0
+        assert result.currently_active == 0
+
+    @pytest.mark.asyncio
     async def test_empty(self, tmp_path: Path):
         db = tmp_path / "events.db"
         await _setup_db(db, [])

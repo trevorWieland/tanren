@@ -322,17 +322,27 @@ class SqliteMetricsReader:
             total_duration = rel_row[1] if rel_row else 0
             total_cost = rel_row[2] if rel_row else 0.0
 
-            # Active VMs: provisioned in window without ANY matching release (globally)
+            # Active VMs: provisioned in window without a matching release
+            # The release subquery respects until (as-of semantics) and project
+            # filters so historical queries return correct active counts.
+            release_clauses = [
+                "r.event_type = 'VMReleased'",
+                "json_extract(r.payload, '$.vm_id') = json_extract(events.payload, '$.vm_id')",
+            ]
+            release_params: list[str] = []
+            if until is not None:
+                release_clauses.append("r.timestamp <= ?")
+                release_params.append(until)
+            if project is not None:
+                release_clauses.append("json_extract(r.payload, '$.project') = ?")
+                release_params.append(project)
+            release_where = " AND ".join(release_clauses)
             active_sql = (
                 "SELECT COUNT(DISTINCT json_extract(payload, '$.vm_id'))"
                 f" FROM events{prov_where}"
-                " AND NOT EXISTS ("
-                "  SELECT 1 FROM events r"
-                "  WHERE r.event_type = 'VMReleased'"
-                "  AND json_extract(r.payload, '$.vm_id') = json_extract(events.payload, '$.vm_id')"
-                ")"
+                f" AND NOT EXISTS (SELECT 1 FROM events r WHERE {release_where})"
             )
-            cursor = await conn.execute(active_sql, prov_params)
+            cursor = await conn.execute(active_sql, [*prov_params, *release_params])
             active_row = await cursor.fetchone()
             currently_active = active_row[0] if active_row else 0
 

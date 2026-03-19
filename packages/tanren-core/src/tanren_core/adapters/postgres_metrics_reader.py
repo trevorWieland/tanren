@@ -259,7 +259,7 @@ class PostgresMetricsReader:
         project: str | None = None,
     ) -> VMMetrics:
         """Return VM provisioning and utilization metrics."""
-        prov_where, prov_params, _ = self._build_where(
+        prov_where, prov_params, prov_next_idx = self._build_where(
             "VMProvisioned", since=since, until=until, project=project
         )
         rel_where, rel_params, _ = self._build_where(
@@ -292,17 +292,30 @@ class PostgresMetricsReader:
         total_duration = int(rel_row[1]) if rel_row else 0
         total_cost = float(rel_row[2]) if rel_row else 0.0
 
-        # Active VMs: provisioned without ANY matching release (globally)
+        # Active VMs: provisioned in window without a matching release.
+        # The release subquery respects until (as-of semantics) and project
+        # filters so historical queries return correct active counts.
+        release_clauses = [
+            "r.event_type = 'VMReleased'",
+            "r.payload->>'vm_id' = events.payload->>'vm_id'",
+        ]
+        release_params: list[str | int] = []
+        idx = prov_next_idx
+        if until is not None:
+            release_clauses.append(f"r.timestamp <= ${idx}")
+            release_params.append(until)
+            idx += 1
+        if project is not None:
+            release_clauses.append(f"r.payload->>'project' = ${idx}")
+            release_params.append(project)
+            idx += 1
+        release_where = " AND ".join(release_clauses)
         active_sql = (
             "SELECT COUNT(DISTINCT payload->>'vm_id')"
             f" FROM events{prov_where}"
-            " AND NOT EXISTS ("
-            "  SELECT 1 FROM events r"
-            "  WHERE r.event_type = 'VMReleased'"
-            "  AND r.payload->>'vm_id' = events.payload->>'vm_id'"
-            ")"
+            f" AND NOT EXISTS (SELECT 1 FROM events r WHERE {release_where})"
         )
-        active_row = await self._pool.fetchval(active_sql, *prov_params)
+        active_row = await self._pool.fetchval(active_sql, *prov_params, *release_params)
         currently_active = active_row or 0
 
         avg_dur = total_duration / max(total_released, 1) if total_released else 0.0

@@ -464,6 +464,9 @@ async def metrics_costs(
 ) -> dict[str, Any]:
     """Get cost metrics."""
     assert _metrics_svc is not None
+    valid = {"model", "day", "workflow"}
+    if group_by not in valid:
+        return {"error": f"Invalid group_by '{group_by}'. Must be: model, day, workflow"}
     return _model_dump(
         await _metrics_svc.costs(since=since, until=until, project=project, group_by=group_by)
     )
