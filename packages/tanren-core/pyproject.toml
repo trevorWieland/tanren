@@ -1,6 +1,6 @@
 [project]
 name = "tanren-core"
-version = "0.1.0"
+version = "0.1.1"
 description = "Core business logic for tanren"
 requires-python = ">=3.14"
 dependencies = [
@@ -12,6 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gcp = ["google-cloud-compute>=1.20.0, <2"]
 hetzner = ["hcloud>=2.4.0, <3"]
 
 [build-system]

@@ -49,6 +49,8 @@ def _derive_provider(config: Config) -> VMProvider:
         raise ServiceError("Failed to load remote config") from exc
     if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
         return VMProvider.HETZNER
+    if remote_cfg.provisioner.type == ProvisionerType.GCP:
+        return VMProvider.GCP
     return VMProvider.MANUAL
 
 

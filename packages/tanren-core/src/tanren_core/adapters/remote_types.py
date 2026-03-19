@@ -12,6 +12,7 @@ class VMProvider(StrEnum):
 
     MANUAL = "manual"
     HETZNER = "hetzner"
+    GCP = "gcp"
 
 
 class VMRequirements(BaseModel):

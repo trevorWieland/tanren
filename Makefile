@@ -1,4 +1,5 @@
-.PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean
+.PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean \
+	docker-base docker-hetzner docker-gcp
 
 install:
 	uv sync --upgrade
@@ -25,7 +26,7 @@ unit:
 
 integration:
 	uv run pytest tests/integration -q --tb=short --timeout=30 \
-		-m "not ssh and not local_env and not hetzner" \
+		-m "not ssh and not local_env and not hetzner and not gcp" \
 		--cov=packages --cov=services --cov-fail-under=75
 
 docs-check:
@@ -44,6 +45,15 @@ ci:
 
 openapi:
 	uv run tanren-openapi
+
+docker-base:
+	docker build -f services/tanren-api/Dockerfile -t tanren-api:latest .
+
+docker-hetzner:
+	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS=hetzner -t tanren-api:hetzner .
+
+docker-gcp:
+	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS=gcp -t tanren-api:gcp .
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

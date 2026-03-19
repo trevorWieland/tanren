@@ -93,6 +93,31 @@ The `ExecutionEnvironment` abstraction supports local and remote lifecycle:
 
 See `docs/ADAPTERS.md` for protocol details.
 
+## Docker
+
+The `tanren-api` image is published to GHCR with cloud-provider variants for
+remote VM provisioning.
+
+| Image Tag | Extras Included |
+|-----------|----------------|
+| `tanren-api:latest` | None (local/manual provisioning only) |
+| `tanren-api:hetzner` | `hcloud` (Hetzner Cloud) |
+| `tanren-api:gcp` | `google-cloud-compute` (GCP Compute Engine) |
+
+```bash
+# Build with Makefile targets
+make docker-base      # tanren-api:latest
+make docker-hetzner   # tanren-api:hetzner
+make docker-gcp       # tanren-api:gcp
+```
+
+For a custom combination of extras, build the image directly:
+
+```bash
+docker build -f services/tanren-api/Dockerfile \
+  --build-arg EXTRAS="hetzner gcp" -t tanren-api:custom .
+```
+
 ## Documentation
 
 - `docs/README.md` - documentation index

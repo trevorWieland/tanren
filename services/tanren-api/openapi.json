@@ -34,7 +34,7 @@
           "health"
         ],
         "summary": "Readiness",
-        "description": "Readiness probe.\n\nReturns:\n    ReadinessResponse with status key indicating readiness.",
+        "description": "Readiness probe.",
         "operationId": "readiness_api_v1_health_ready_get",
         "responses": {
           "200": {
@@ -262,7 +262,7 @@
           "vm"
         ],
         "summary": "Provision Vm",
-        "description": "Provision a new VM.\n\nReturns:\n    VMHandle with vm_id, host, provider, created_at.",
+        "description": "Provision a new VM (non-blocking).",
         "operationId": "provision_vm_api_v1_vm_provision_post",
         "parameters": [
           {
@@ -291,7 +291,61 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VMHandle"
+                  "$ref": "#/components/schemas/VMProvisionAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vm/provision/{env_id}": {
+      "get": {
+        "tags": [
+          "vm"
+        ],
+        "summary": "Get Provision Status",
+        "description": "Poll status of an in-progress or completed VM provisioning.",
+        "operationId": "get_provision_status_api_v1_vm_provision__env_id__get",
+        "parameters": [
+          {
+            "name": "env_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Provisioning tracking identifier",
+              "title": "Env Id"
+            },
+            "description": "Provisioning tracking identifier"
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VMProvisionStatus"
                 }
               }
             }
@@ -422,7 +476,7 @@
           "run"
         ],
         "summary": "Run Provision",
-        "description": "Provision a remote execution environment.",
+        "description": "Provision a remote execution environment (non-blocking).",
         "operationId": "run_provision_api_v1_run_provision_post",
         "parameters": [
           {
@@ -846,6 +900,16 @@
   },
   "components": {
     "schemas": {
+      "AuthMode": {
+        "type": "string",
+        "enum": [
+          "api_key",
+          "oauth",
+          "subscription"
+        ],
+        "title": "AuthMode",
+        "description": "Authentication mode for agent CLI backends."
+      },
       "BootstrapCompleted": {
         "properties": {
           "timestamp": {
@@ -1047,6 +1111,11 @@
             "$ref": "#/components/schemas/Cli",
             "description": "CLI tool used"
           },
+          "auth": {
+            "$ref": "#/components/schemas/AuthMode",
+            "description": "Authentication mode",
+            "default": "api_key"
+          },
           "model": {
             "anyOf": [
               {
@@ -1224,6 +1293,11 @@
             "$ref": "#/components/schemas/Cli",
             "description": "CLI tool to use"
           },
+          "auth": {
+            "$ref": "#/components/schemas/AuthMode",
+            "description": "Authentication mode",
+            "default": "api_key"
+          },
           "model": {
             "anyOf": [
               {
@@ -1372,8 +1446,11 @@
           },
           "cli": {
             "$ref": "#/components/schemas/Cli",
-            "description": "CLI tool",
-            "default": "claude"
+            "description": "CLI tool"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/AuthMode",
+            "description": "Authentication mode"
           },
           "model": {
             "anyOf": [
@@ -1424,7 +1501,9 @@
         "required": [
           "project",
           "spec_path",
-          "phase"
+          "phase",
+          "cli",
+          "auth"
         ],
         "title": "ExecuteRequest",
         "description": "Request body for POST /run/{env_id}/execute."
@@ -1559,6 +1638,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/BootstrapCompleted"
+                },
+                {
+                  "$ref": "#/components/schemas/TokenUsageRecorded"
                 }
               ],
               "discriminator": {
@@ -1572,6 +1654,7 @@
                   "postflight_completed": "#/components/schemas/PostflightCompleted",
                   "preflight_completed": "#/components/schemas/PreflightCompleted",
                   "retry_scheduled": "#/components/schemas/RetryScheduled",
+                  "token_usage_recorded": "#/components/schemas/TokenUsageRecorded",
                   "vm_provisioned": "#/components/schemas/VMProvisioned",
                   "vm_released": "#/components/schemas/VMReleased"
                 }
@@ -2003,6 +2086,14 @@
             "$ref": "#/components/schemas/Phase",
             "description": "Phase to execute"
           },
+          "cli": {
+            "$ref": "#/components/schemas/Cli",
+            "description": "CLI tool"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/AuthMode",
+            "description": "Authentication mode"
+          },
           "environment_profile": {
             "type": "string",
             "title": "Environment Profile",
@@ -2047,7 +2138,9 @@
           "project",
           "branch",
           "spec_path",
-          "phase"
+          "phase",
+          "cli",
+          "auth"
         ],
         "title": "RunFullRequest",
         "description": "Full lifecycle request \u2014 combines provision + execute fields."
@@ -2109,6 +2202,30 @@
             ],
             "title": "Duration Secs",
             "description": "Elapsed seconds"
+          },
+          "vm_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vm Id",
+            "description": "Backing VM identifier"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host",
+            "description": "VM hostname or IP"
           }
         },
         "additionalProperties": false,
@@ -2140,6 +2257,110 @@
         ],
         "title": "RunTeardownAccepted",
         "description": "Confirmation that teardown was accepted."
+      },
+      "TokenUsageRecorded": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO 8601 timestamp"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "token_usage_recorded",
+            "title": "Type",
+            "description": "Event type discriminator",
+            "default": "token_usage_recorded"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "cli": {
+            "type": "string",
+            "title": "Cli"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Output Tokens"
+          },
+          "cache_creation_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Creation Tokens",
+            "default": 0
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Read Tokens",
+            "default": 0
+          },
+          "cached_input_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cached Input Tokens",
+            "default": 0
+          },
+          "reasoning_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Reasoning Tokens",
+            "default": 0
+          },
+          "total_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Tokens"
+          },
+          "total_cost": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Total Cost"
+          },
+          "models_used": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models Used"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "workflow_id",
+          "phase",
+          "cli",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens",
+          "total_cost"
+        ],
+        "title": "TokenUsageRecorded",
+        "description": "Token usage data collected after a dispatch."
       },
       "VMDryRunResult": {
         "properties": {
@@ -2192,62 +2413,104 @@
         "title": "VMDryRunResult",
         "description": "Result of a VM dry-run provisioning check."
       },
-      "VMHandle": {
+      "VMProvider": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "hetzner",
+          "gcp"
+        ],
+        "title": "VMProvider",
+        "description": "Supported VM providers."
+      },
+      "VMProvisionAccepted": {
         "properties": {
-          "vm_id": {
+          "env_id": {
             "type": "string",
-            "title": "Vm Id"
+            "title": "Env Id",
+            "description": "Provisioning tracking identifier"
           },
-          "host": {
-            "type": "string",
-            "title": "Host"
-          },
-          "provider": {
-            "$ref": "#/components/schemas/VMProvider",
-            "default": "manual"
-          },
-          "created_at": {
-            "type": "string",
-            "title": "Created At"
-          },
-          "labels": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Labels"
-          },
-          "hourly_cost": {
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hourly Cost"
+          "status": {
+            "$ref": "#/components/schemas/VMStatus",
+            "description": "Provisioning status",
+            "default": "provisioning"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "vm_id",
-          "host",
-          "created_at"
+          "env_id"
         ],
-        "title": "VMHandle",
-        "description": "Handle to a provisioned VM."
+        "title": "VMProvisionAccepted",
+        "description": "Accepted response for async VM provisioning."
       },
-      "VMProvider": {
-        "type": "string",
-        "enum": [
-          "manual",
-          "hetzner"
+      "VMProvisionStatus": {
+        "properties": {
+          "env_id": {
+            "type": "string",
+            "title": "Env Id",
+            "description": "Provisioning tracking identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/VMStatus",
+            "description": "Current provisioning status"
+          },
+          "vm_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vm Id",
+            "description": "VM identifier (set once provisioned)"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host",
+            "description": "VM hostname or IP (set once provisioned)"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VMProvider"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "VM provider"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "ISO 8601 creation timestamp"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "env_id",
+          "status"
         ],
-        "title": "VMProvider",
-        "description": "Supported VM providers."
+        "title": "VMProvisionStatus",
+        "description": "Status of an in-progress or completed VM provisioning."
       },
       "VMProvisioned": {
         "properties": {
@@ -2440,6 +2703,7 @@
         "enum": [
           "active",
           "provisioning",
+          "failed",
           "releasing",
           "released"
         ],

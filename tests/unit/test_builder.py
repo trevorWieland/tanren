@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
@@ -159,3 +161,32 @@ repos:
         env, _ = build_ssh_execution_environment(config, emitter)
 
         assert env._agent_user == "tanren"
+
+    def test_build_gcp_provisioner(self, tmp_path, monkeypatch):
+        remote_yml = tmp_path / "remote.yml"
+        remote_yml.write_text("""\
+provisioner:
+  type: gcp
+  settings:
+    project_id: my-project
+    zone: us-central1-a
+    default_machine_type: e2-standard-4
+    image_family: ubuntu-2404-lts-amd64
+repos:
+  - project: test
+    repo_url: https://github.com/test/test.git
+""")
+        config = _make_config(tmp_path, str(remote_yml))
+        emitter = NullEventEmitter()
+
+        fake_mod = SimpleNamespace(
+            InstancesClient=Mock(return_value=Mock()),
+            ZoneOperationsClient=Mock(return_value=Mock()),
+            MachineTypesClient=Mock(return_value=Mock()),
+        )
+        monkeypatch.setattr("tanren_core.adapters.gcp_vm._import_compute", lambda: fake_mod)
+
+        env, _ = build_ssh_execution_environment(config, emitter)
+
+        assert isinstance(env, SSHExecutionEnvironment)
+        assert env._provider == VMProvider.GCP

@@ -36,6 +36,10 @@ from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManage
 from tanren_core.adapters.git_worktree import GitWorktreeManager
 
 try:  # noqa: SIM105, RUF067
+    from tanren_core.adapters.gcp_vm import GCPProvisionerSettings, GCPVMProvisioner
+except ImportError:  # google-cloud-compute not installed
+    pass
+try:  # noqa: SIM105, RUF067
     from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 except ImportError:  # hcloud not installed
     pass
@@ -112,6 +116,8 @@ __all__ = [
     "Event",
     "EventEmitter",
     "ExecutionEnvironment",
+    "GCPProvisionerSettings",
+    "GCPVMProvisioner",
     "GitAuthConfig",
     "GitPostflightRunner",
     "GitPreflightRunner",

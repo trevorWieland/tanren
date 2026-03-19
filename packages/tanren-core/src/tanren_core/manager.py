@@ -358,6 +358,17 @@ class WorkerManager:
                     )
                     vm_provisioner = HetznerVMProvisioner(hetzner_settings)
                     provider = VMProvider.HETZNER
+                elif remote_cfg.provisioner.type == ProvisionerType.GCP:
+                    from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415
+                        GCPProvisionerSettings,
+                        GCPVMProvisioner,
+                    )
+
+                    gcp_settings = GCPProvisionerSettings.from_settings(
+                        remote_cfg.provisioner.settings
+                    )
+                    vm_provisioner = GCPVMProvisioner(gcp_settings)
+                    provider = VMProvider.GCP
                 else:
                     raise ValueError(
                         f"Unsupported provisioner type for recovery: {remote_cfg.provisioner.type}"

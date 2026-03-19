@@ -1,8 +1,13 @@
 # syntax=docker/dockerfile:1
 # Build context: repo root (docker build -f services/tanren-api/Dockerfile .)
+#
+# Cloud provider extras (space-separated, e.g. "hetzner gcp" or "" for none):
+#   docker build --build-arg EXTRAS=hetzner -f services/tanren-api/Dockerfile .
 
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM python:3.14-slim-bookworm AS build
+
+ARG EXTRAS=""
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -16,14 +21,16 @@ COPY services/tanren-cli/pyproject.toml  services/tanren-cli/pyproject.toml
 COPY services/tanren-daemon/pyproject.toml services/tanren-daemon/pyproject.toml
 
 # Layer 2: install third-party deps only (expensive, cached until lockfile changes)
-RUN uv sync --frozen --no-cache --no-dev --no-editable --package tanren-api --no-install-workspace
+RUN uv sync --frozen --no-cache --no-dev --no-editable --package tanren-api --no-install-workspace \
+    $(for extra in $EXTRAS; do echo "--extra $extra"; done)
 
 # Layer 3: copy workspace source
 COPY packages/tanren-core/src packages/tanren-core/src
 COPY services/tanren-api/src  services/tanren-api/src
 
 # Layer 4: install workspace packages from source (fast)
-RUN uv sync --frozen --no-cache --no-dev --no-editable --package tanren-api
+RUN uv sync --frozen --no-cache --no-dev --no-editable --package tanren-api \
+    $(for extra in $EXTRAS; do echo "--extra $extra"; done)
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
 FROM python:3.14-slim-bookworm
