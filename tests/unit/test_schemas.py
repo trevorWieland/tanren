@@ -291,6 +291,14 @@ class TestParseIssueFromWorkflowId:
         with pytest.raises(ValueError, match="Invalid workflow_id format"):
             parse_issue_from_workflow_id("wf-rentl-144", project="rentl")
 
+    def test_project_context_rejects_path_traversal(self):
+        with pytest.raises(ValueError, match="Invalid issue segment"):
+            parse_issue_from_workflow_id("wf-myproj-../../tmp-123", project="myproj")
+
+    def test_project_context_rejects_slash(self):
+        with pytest.raises(ValueError, match="Invalid issue segment"):
+            parse_issue_from_workflow_id("wf-myproj-foo/bar-123", project="myproj")
+
 
 class TestTaskStatus:
     def test_all_values(self):

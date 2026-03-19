@@ -329,6 +329,8 @@ def parse_issue_from_workflow_id(workflow_id: str, *, project: str | None = None
         epoch_part = remainder[last_dash + 1 :]
         if not epoch_part.isdigit():
             raise ValueError(f"Invalid workflow_id format: {workflow_id}")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", issue_part):
+            raise ValueError(f"Invalid issue segment in workflow_id: {workflow_id}")
         return issue_part
 
     # Legacy fallback: assume numeric issue
