@@ -154,7 +154,7 @@ class TestWorkerManagerSetup:
         input_dir = Path(config.ipc_dir) / "input"
         input_dir.mkdir(parents=True, exist_ok=True)
 
-        await mgr._handle_setup(dispatch, 1, tmp_path / "test-wt-1")
+        await mgr._handle_setup(dispatch, "1", tmp_path / "test-wt-1")
 
         mock_wt_mgr.create.assert_awaited_once()
         mock_wt_mgr.register.assert_awaited_once()
@@ -182,7 +182,7 @@ class TestWorkerManagerSetup:
         input_dir.mkdir(parents=True, exist_ok=True)
 
         # Should not raise
-        await mgr._handle_setup(dispatch, 1, tmp_path / "test-wt-1")
+        await mgr._handle_setup(dispatch, "1", tmp_path / "test-wt-1")
 
         # Result file should be written
         results = list(result_dir.glob("*.json"))

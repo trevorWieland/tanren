@@ -334,7 +334,7 @@ class TestWorktreeRegistryEdgeCases:
         reg = WorktreeRegistry()
         reg.worktrees["wf-test-1-100"] = WorktreeEntry(
             project="test",
-            issue=1,
+            issue="1",
             branch="feature-1",
             path="/tmp/test-wt-1",
             created_at="2026-01-01T00:00:00",
@@ -354,7 +354,7 @@ class TestWorktreeIsolation:
         reg = WorktreeRegistry()
         reg.worktrees["wf-existing-1-100"] = WorktreeEntry(
             project="test",
-            issue=1,
+            issue="1",
             branch="shared-branch",
             path="/tmp/test-wt-1",
             created_at="2026-01-01T00:00:00",
@@ -376,7 +376,7 @@ class TestWorktreeIsolation:
         reg = WorktreeRegistry()
         reg.worktrees["wf-existing-1-100"] = WorktreeEntry(
             project="test",
-            issue=1,
+            issue="1",
             branch="branch-a",
             path="/tmp/test-wt-1",
             created_at="2026-01-01T00:00:00",
@@ -411,7 +411,7 @@ class TestWorktreeIsolation:
         reg = WorktreeRegistry()
         reg.worktrees["wf-test-1-100"] = WorktreeEntry(
             project="test",
-            issue=1,
+            issue="1",
             branch="feature-1",
             path="/tmp/test-wt-1",
             created_at="2026-01-01T00:00:00",
@@ -445,7 +445,7 @@ class TestWorktreeIsolation:
         repo, branch = await _setup_git_repo(tmp_path)
 
         # Create worktree on feature-123
-        wt_path = await create_worktree("test-project", 123, branch, str(github_dir))
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
 
         # Create another branch
         proc = await asyncio.create_subprocess_exec(
@@ -460,6 +460,6 @@ class TestWorktreeIsolation:
 
         # Try to create worktree at same path but different branch
         with pytest.raises(RuntimeError, match="exists on branch"):
-            await create_worktree("test-project", 123, "different-branch", str(github_dir))
+            await create_worktree("test-project", "123", "different-branch", str(github_dir))
 
         await remove_worktree(wt_path, repo)
