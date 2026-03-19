@@ -2,6 +2,7 @@
 
 from tanren_api.services.core import ConfigService, EventsService, HealthService
 from tanren_api.services.dispatch import DispatchService
+from tanren_api.services.metrics import MetricsService
 from tanren_api.services.run import RunService
 from tanren_api.services.vm import VMService
 
@@ -10,6 +11,7 @@ __all__ = [
     "DispatchService",
     "EventsService",
     "HealthService",
+    "MetricsService",
     "RunService",
     "VMService",
 ]

@@ -729,8 +729,13 @@ class WorkerManager:
                             timestamp=datetime.now(UTC).isoformat(),
                             workflow_id=dispatch.workflow_id,
                             phase=dispatch.phase.value,
+                            project=dispatch.project,
                             cli=dispatch.cli.value,
-                            **{k: v for k, v in token_usage_data.items() if k != "provider"},
+                            **{
+                                k: v
+                                for k, v in token_usage_data.items()
+                                if k not in ("provider", "project")
+                            },
                         )
                     )
 
@@ -761,6 +766,7 @@ class WorkerManager:
                     timestamp=datetime.now(UTC).isoformat(),
                     workflow_id=dispatch.workflow_id,
                     phase=dispatch.phase.value,
+                    project=dispatch.project,
                     outcome=phase_result.outcome.value,
                     signal=phase_result.signal,
                     duration_secs=duration,
