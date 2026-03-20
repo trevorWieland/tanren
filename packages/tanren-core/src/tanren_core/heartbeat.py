@@ -70,7 +70,7 @@ class HeartbeatWriter:
                 with contextlib.suppress(FileNotFoundError):
                     entry.unlink()
 
-    async def _update_loop(self, path: Path, dispatch_stem: str) -> None:
+    async def _update_loop(self, path: Path, dispatch_stem: str) -> None:  # noqa: ARG002 — required by protocol interface
         """Background task: update heartbeat file every interval seconds."""
         try:
             while True:

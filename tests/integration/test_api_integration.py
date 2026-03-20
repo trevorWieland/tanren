@@ -626,9 +626,9 @@ async def test_provision_then_immediate_teardown_no_orphan(
     Provision returns a handle but gets cancelled before persisting it.
     The finally block in _provision_background cleans up the orphaned handle.
     """
-    import contextlib  # noqa: PLC0415 — deferred import for test clarity
+    import contextlib
 
-    from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701 — testing private implementation
+    from tanren_api.state import _UNSET
 
     store = app.state.api_store
     original_handle = mock_execution_env.provision.return_value
@@ -694,7 +694,9 @@ async def test_teardown_during_noncancellable_provision_no_orphan(
         try:
             await provision_release.wait()
         except asyncio.CancelledError:
-            asyncio.current_task().uncancel()  # type: ignore[union-attr]
+            task = asyncio.current_task()
+            assert task is not None
+            task.uncancel()
             await provision_release.wait()
         return original_handle
 
@@ -760,7 +762,9 @@ async def test_concurrent_teardown_during_provision_preserves_tearing_down(
         try:
             await provision_release.wait()
         except asyncio.CancelledError:
-            asyncio.current_task().uncancel()  # type: ignore[union-attr]
+            task = asyncio.current_task()
+            assert task is not None
+            task.uncancel()
             await provision_release.wait()
         return original_handle
 
@@ -1660,7 +1664,7 @@ async def test_vm_provision_records_reaped_after_retention(client, auth_headers,
     await asyncio.sleep(0.1)
 
     # Patch the first record's completed_at to be old (beyond retention)
-    from datetime import (  # noqa: PLC0415 — deferred import for test clarity
+    from datetime import (
         UTC,
         datetime,
         timedelta,

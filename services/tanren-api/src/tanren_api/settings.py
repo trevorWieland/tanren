@@ -9,7 +9,7 @@ class APISettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="TANREN_API_", env_file=".env")
 
-    host: str = "0.0.0.0"
+    host: str = "0.0.0.0"  # noqa: S104 — binding to all interfaces is intentional for container deployment
     port: int = 8000
     api_key: str = ""
     workers: int = 1

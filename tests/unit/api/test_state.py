@@ -36,7 +36,7 @@ def _make_dispatch_record(dispatch_id: str = "wf-1") -> DispatchRecord:
 
 
 def _make_env_handle(env_id: str = "env-1") -> EnvironmentHandle:
-    from pathlib import Path  # noqa: PLC0415 — deferred import for test clarity
+    from pathlib import Path
 
     return EnvironmentHandle(
         env_id=env_id,
@@ -290,7 +290,9 @@ class TestAPIStateStore:
             try:
                 await asyncio.sleep(3600)
             except asyncio.CancelledError:
-                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                task = asyncio.current_task()
+                assert task is not None
+                task.uncancel()
                 await asyncio.sleep(3600)
 
         record.task = asyncio.create_task(_resist_one_cancel())
@@ -334,7 +336,7 @@ class TestAPIStateStore:
         record.status = DispatchRunStatus.RUNNING
         await store.add_dispatch(record)
 
-        from tanren_core.schemas import Outcome  # noqa: PLC0415 — deferred import for test clarity
+        from tanren_core.schemas import Outcome
 
         result = await store.try_transition_dispatch(
             "wf-1",
@@ -358,7 +360,7 @@ class TestAPIStateStore:
         record.status = DispatchRunStatus.CANCELLED
         await store.add_dispatch(record)
 
-        from tanren_core.schemas import Outcome  # noqa: PLC0415 — deferred import for test clarity
+        from tanren_core.schemas import Outcome
 
         result = await store.try_transition_dispatch(
             "wf-1",
@@ -376,7 +378,7 @@ class TestAPIStateStore:
     async def test_try_transition_dispatch_not_found(self):
         store = APIStateStore()
 
-        from tanren_core.schemas import Outcome  # noqa: PLC0415 — deferred import for test clarity
+        from tanren_core.schemas import Outcome
 
         result = await store.try_transition_dispatch(
             "nonexistent",
@@ -400,7 +402,7 @@ class TestAPIStateStore:
 
     async def test_try_transition_environment_clears_fields_with_none(self):
         """Passing outcome=None and completed_at=None explicitly clears them."""
-        from tanren_core.schemas import Outcome  # noqa: PLC0415 — deferred import for test clarity
+        from tanren_core.schemas import Outcome
 
         store = APIStateStore()
         record = _make_env_record()
@@ -427,7 +429,7 @@ class TestAPIStateStore:
 
     async def test_unset_default_preserves_existing_values(self):
         """Not passing outcome preserves the existing value (_UNSET default)."""
-        from tanren_core.schemas import Outcome  # noqa: PLC0415 — deferred import for test clarity
+        from tanren_core.schemas import Outcome
 
         store = APIStateStore()
         record = _make_env_record()

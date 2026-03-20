@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class VarStatus(StrEnum):
     """Status of a validated environment variable."""
 
-    PASS = "pass"
+    PASS = "pass"  # noqa: S105 — enum value name, not a real password
     MISSING = "missing"
     EMPTY = "empty"
     PATTERN_MISMATCH = "pattern_mismatch"

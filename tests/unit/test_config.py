@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tanren_core.config import (
-    _REQUIRED_KEYS,  # noqa: PLC2701 — testing private implementation
+    _REQUIRED_KEYS,
     Config,
     ConfigSource,
     DotenvConfigSource,

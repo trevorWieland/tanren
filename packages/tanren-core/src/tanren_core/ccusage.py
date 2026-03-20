@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_COLLECTION_TIMEOUT = 30.0
+_COLLECTION_TIMEOUT = 30
 
 
 class TokenUsage(BaseModel):
@@ -55,7 +55,7 @@ class TokenUsage(BaseModel):
 class CommandRunner(Protocol):
     """Abstracts local subprocess vs SSH command execution."""
 
-    async def run_command(self, cmd: list[str], timeout_secs: float) -> tuple[int, str]:
+    async def run_command(self, cmd: list[str], timeout_secs: int) -> tuple[int, str]:
         """Run a command and return (exit_code, stdout).
 
         Returns:
@@ -67,7 +67,7 @@ class CommandRunner(Protocol):
 class LocalCommandRunner:
     """Run commands as local subprocesses."""
 
-    async def run_command(self, cmd: list[str], timeout_secs: float) -> tuple[int, str]:
+    async def run_command(self, cmd: list[str], timeout_secs: int) -> tuple[int, str]:
         """Run a command locally via asyncio subprocess.
 
         Returns:
@@ -98,7 +98,7 @@ class RemoteCommandRunner:
         self._connection = connection
         self._run_as_user = run_as_user
 
-    async def run_command(self, cmd: list[str], timeout_secs: float) -> tuple[int, str]:
+    async def run_command(self, cmd: list[str], timeout_secs: int) -> tuple[int, str]:
         """Run a command on a remote host via SSH.
 
         Returns:
@@ -132,19 +132,22 @@ async def collect_token_usage(
 
     try:
         if cli == Cli.CLAUDE:
-            return await _collect_claude(worktree_path, dispatch_start_utc, config, runner)
-        if cli == Cli.CODEX:
-            return await _collect_codex(dispatch_start_utc, dispatch_end_utc, config, runner)
-        if cli == Cli.OPENCODE:
-            return await _collect_opencode(dispatch_start_utc, dispatch_end_utc, config, runner)
-        logger.warning("Unknown CLI for token usage collection: %s", cli)
-        return None
+            result = await _collect_claude(worktree_path, dispatch_start_utc, config, runner)
+        elif cli == Cli.CODEX:
+            result = await _collect_codex(dispatch_start_utc, dispatch_end_utc, config, runner)
+        elif cli == Cli.OPENCODE:
+            result = await _collect_opencode(dispatch_start_utc, dispatch_end_utc, config, runner)
+        else:
+            logger.warning("Unknown CLI for token usage collection: %s", cli)
+            result = None
     except TimeoutError:
         logger.warning("Token usage collection timed out for cli=%s", cli)
         return None
     except Exception:
         logger.warning("Token usage collection failed for cli=%s", cli, exc_info=True)
         return None
+    else:
+        return result
 
 
 async def _collect_claude(

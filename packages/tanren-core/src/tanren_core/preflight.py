@@ -111,7 +111,7 @@ async def run_preflight(
         fpath = worktree_path / fname
         if fpath.exists():
             content = fpath.read_text()
-            md5 = hashlib.md5(content.encode()).hexdigest()
+            md5 = hashlib.md5(content.encode()).hexdigest()  # noqa: S324 — md5 for file-change detection, not cryptographic security
             result.file_hashes[fname] = md5
             result.file_backups[fname] = content
 

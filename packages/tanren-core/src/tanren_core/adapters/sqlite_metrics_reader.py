@@ -1,4 +1,3 @@
-# ruff: noqa: DOC201 — return docs enforced by protocol, not per-method
 """SQLite-backed metrics reader for dashboard aggregation."""
 
 from __future__ import annotations
@@ -21,7 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 def _percentile(sorted_values: list[float], p: float) -> float:
-    """Compute percentile from a pre-sorted list using linear interpolation."""
+    """Compute percentile from a pre-sorted list using linear interpolation.
+
+    Returns:
+        float: The interpolated percentile value.
+    """
     if not sorted_values:
         return 0.0
     k = (len(sorted_values) - 1) * p
@@ -33,7 +36,11 @@ def _percentile(sorted_values: list[float], p: float) -> float:
 
 
 def _canonical_model_key(models_used: list[str]) -> str:
-    """Return a canonical JSON string key for a sorted model list."""
+    """Return a canonical JSON string key for a sorted model list.
+
+    Returns:
+        str: JSON-encoded sorted model list.
+    """
     return json.dumps(sorted(models_used))
 
 
@@ -56,7 +63,11 @@ class SqliteMetricsReader:
         project: str | None,
         project_field: str = "$.project",
     ) -> tuple[str, list[str]]:
-        """Build WHERE clause with filters. Returns (sql, params)."""
+        """Build WHERE clause with filters.
+
+        Returns:
+            tuple[str, list[str]]: SQL WHERE clause and bind parameters.
+        """
         clauses = ["event_type = ?"]
         params: list[str] = [event_type]
         if since is not None:
@@ -77,7 +88,11 @@ class SqliteMetricsReader:
         until: str | None = None,
         project: str | None = None,
     ) -> SummaryMetrics:
-        """Return aggregated phase execution summary metrics."""
+        """Return aggregated phase execution summary metrics.
+
+        Returns:
+            SummaryMetrics: Aggregated success/failure rates and duration statistics.
+        """
         if not self._db_path.exists():
             return SummaryMetrics()
 
@@ -88,7 +103,7 @@ class SqliteMetricsReader:
         async with aiosqlite.connect(f"file:{self._db_path}?mode=ro", uri=True) as conn:
             # Aggregate counts and average
             sql = (
-                "SELECT"
+                "SELECT"  # noqa: S608 — SQL built from internal constants, not user input
                 " COUNT(*) AS total,"
                 " SUM(CASE WHEN json_extract(payload, '$.outcome') = 'success' THEN 1 ELSE 0 END),"
                 " SUM(CASE WHEN json_extract(payload, '$.outcome') = 'fail' THEN 1 ELSE 0 END),"
@@ -107,7 +122,7 @@ class SqliteMetricsReader:
 
             # Fetch sorted durations for percentile computation
             dur_sql = (
-                "SELECT CAST(json_extract(payload, '$.duration_secs') AS REAL) AS dur"
+                "SELECT CAST(json_extract(payload, '$.duration_secs') AS REAL) AS dur"  # noqa: S608 — SQL built from internal constants, not user input
                 f" FROM events{where} ORDER BY dur"
             )
             cursor = await conn.execute(dur_sql, params)
@@ -133,7 +148,11 @@ class SqliteMetricsReader:
         project: str | None = None,
         group_by: str = "model",
     ) -> CostMetrics:
-        """Return token cost metrics grouped by model, day, or workflow."""
+        """Return token cost metrics grouped by model, day, or workflow.
+
+        Returns:
+            CostMetrics: Token cost metrics with grouping buckets.
+        """
         if not self._db_path.exists():
             return CostMetrics()
 
@@ -149,9 +168,13 @@ class SqliteMetricsReader:
             return await self._costs_grouped("workflow_id", where, params)
 
     async def _costs_by_model(self, where: str, params: list[str]) -> CostMetrics:
-        """Fetch raw rows and aggregate by sorted models_used in Python."""
+        """Fetch raw rows and aggregate by sorted models_used in Python.
+
+        Returns:
+            CostMetrics: Token cost metrics grouped by canonical model key.
+        """
         sql = (
-            "SELECT"
+            "SELECT"  # noqa: S608 — SQL built from internal constants, not user input
             " json_extract(payload, '$.models_used'),"
             " CAST(json_extract(payload, '$.total_cost') AS REAL),"
             " CAST(json_extract(payload, '$.total_tokens') AS INTEGER),"
@@ -225,9 +248,13 @@ class SqliteMetricsReader:
         )
 
     async def _costs_grouped(self, group_expr: str, where: str, params: list[str]) -> CostMetrics:
-        """SQL GROUP BY aggregation for day or workflow grouping."""
+        """SQL GROUP BY aggregation for day or workflow grouping.
+
+        Returns:
+            CostMetrics: Token cost metrics grouped by the specified expression.
+        """
         sql = (
-            f"SELECT"
+            f"SELECT"  # noqa: S608 — SQL built from internal constants, not user input
             f" {group_expr} AS group_key,"
             " SUM(CAST(json_extract(payload, '$.total_cost') AS REAL)),"
             " SUM(CAST(json_extract(payload, '$.total_tokens') AS INTEGER)),"
@@ -281,7 +308,11 @@ class SqliteMetricsReader:
         until: str | None = None,
         project: str | None = None,
     ) -> VMMetrics:
-        """Return VM provisioning and utilization metrics."""
+        """Return VM provisioning and utilization metrics.
+
+        Returns:
+            VMMetrics: VM provisioning counts, durations, and cost totals.
+        """
         if not self._db_path.exists():
             return VMMetrics()
 
@@ -295,7 +326,7 @@ class SqliteMetricsReader:
         async with aiosqlite.connect(f"file:{self._db_path}?mode=ro", uri=True) as conn:
             # Provisioned count and provider breakdown
             prov_sql = (
-                "SELECT json_extract(payload, '$.provider') AS provider, COUNT(*)"
+                "SELECT json_extract(payload, '$.provider') AS provider, COUNT(*)"  # noqa: S608 — SQL built from internal constants, not user input
                 f" FROM events{prov_where}"
                 " GROUP BY provider"
             )
@@ -309,7 +340,7 @@ class SqliteMetricsReader:
 
             # Released stats
             rel_sql = (
-                "SELECT"
+                "SELECT"  # noqa: S608 — SQL built from internal constants, not user input
                 " COUNT(*),"
                 " COALESCE(SUM(CAST(json_extract(payload, '$.duration_secs') AS INTEGER)), 0),"
                 " COALESCE(SUM(CAST(COALESCE("
@@ -338,7 +369,7 @@ class SqliteMetricsReader:
                 release_params.append(project)
             release_where = " AND ".join(release_clauses)
             active_sql = (
-                "SELECT COUNT(DISTINCT json_extract(payload, '$.vm_id'))"
+                "SELECT COUNT(DISTINCT json_extract(payload, '$.vm_id'))"  # noqa: S608 — SQL built from internal constants, not user input
                 f" FROM events{prov_where}"
                 f" AND NOT EXISTS (SELECT 1 FROM events r WHERE {release_where})"
             )

@@ -229,7 +229,7 @@ class TestVM:
     ):
         """VM provision cancelled after handle obtained → finally block calls teardown."""
         from tanren_api.state import (
-            _UNSET,  # noqa: PLC2701 — testing private implementation
+            _UNSET,
         )
 
         store = app.state.api_store

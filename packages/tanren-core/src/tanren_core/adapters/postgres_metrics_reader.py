@@ -1,4 +1,3 @@
-# ruff: noqa: DOC201 — return docs enforced by protocol, not per-method
 """Postgres-backed metrics reader for dashboard aggregation."""
 
 from __future__ import annotations
@@ -22,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 def _canonical_model_key(models_used: list[str]) -> str:
-    """Return a canonical JSON string key for a sorted model list."""
+    """Return a canonical JSON string key for a sorted model list.
+
+    Returns:
+        str: JSON-encoded sorted model list.
+    """
     return json.dumps(sorted(models_used))
 
 
@@ -44,7 +47,11 @@ class PostgresMetricsReader:
         until: str | None,
         project: str | None,
     ) -> tuple[str, list[str | int], int]:
-        """Build WHERE clause. Returns (sql, params, next_idx)."""
+        """Build WHERE clause with filters.
+
+        Returns:
+            tuple[str, list[str | int], int]: SQL WHERE clause, bind parameters, and next index.
+        """
         idx = 1
         clauses = [f"event_type = ${idx}"]
         params: list[str | int] = [event_type]
@@ -70,12 +77,16 @@ class PostgresMetricsReader:
         until: str | None = None,
         project: str | None = None,
     ) -> SummaryMetrics:
-        """Return aggregated phase execution summary metrics."""
+        """Return aggregated phase execution summary metrics.
+
+        Returns:
+            SummaryMetrics: Aggregated success/failure rates and duration statistics.
+        """
         where, params, _ = self._build_where(
             "PhaseCompleted", since=since, until=until, project=project
         )
         sql = (
-            "SELECT"
+            "SELECT"  # noqa: S608 — SQL built from internal constants, not user input
             " COUNT(*) AS total,"
             " COUNT(*) FILTER (WHERE payload->>'outcome' = 'success'),"
             " COUNT(*) FILTER (WHERE payload->>'outcome' = 'fail'),"
@@ -113,7 +124,11 @@ class PostgresMetricsReader:
         project: str | None = None,
         group_by: str = "model",
     ) -> CostMetrics:
-        """Return token cost metrics grouped by model, day, or workflow."""
+        """Return token cost metrics grouped by model, day, or workflow.
+
+        Returns:
+            CostMetrics: Token cost metrics with grouping buckets.
+        """
         where, params, _ = self._build_where(
             "TokenUsageRecorded", since=since, until=until, project=project
         )
@@ -126,9 +141,13 @@ class PostgresMetricsReader:
             return await self._costs_grouped("workflow_id", where, params)
 
     async def _costs_by_model(self, where: str, params: list[str | int]) -> CostMetrics:
-        """Fetch raw rows and aggregate by sorted models_used in Python."""
+        """Fetch raw rows and aggregate by sorted models_used in Python.
+
+        Returns:
+            CostMetrics: Token cost metrics grouped by canonical model key.
+        """
         sql = (
-            "SELECT"
+            "SELECT"  # noqa: S608 — SQL built from internal constants, not user input
             " payload->'models_used',"
             " (payload->>'total_cost')::numeric,"
             " (payload->>'total_tokens')::bigint,"
@@ -208,9 +227,13 @@ class PostgresMetricsReader:
     async def _costs_grouped(
         self, group_expr: str, where: str, params: list[str | int]
     ) -> CostMetrics:
-        """SQL GROUP BY aggregation for day or workflow grouping."""
+        """SQL GROUP BY aggregation for day or workflow grouping.
+
+        Returns:
+            CostMetrics: Token cost metrics grouped by the specified expression.
+        """
         sql = (
-            f"SELECT"
+            f"SELECT"  # noqa: S608 — SQL built from internal constants, not user input
             f" {group_expr} AS group_key,"
             " SUM((payload->>'total_cost')::numeric),"
             " SUM((payload->>'total_tokens')::bigint),"
@@ -260,7 +283,11 @@ class PostgresMetricsReader:
         until: str | None = None,
         project: str | None = None,
     ) -> VMMetrics:
-        """Return VM provisioning and utilization metrics."""
+        """Return VM provisioning and utilization metrics.
+
+        Returns:
+            VMMetrics: VM provisioning counts, durations, and cost totals.
+        """
         prov_where, prov_params, prov_next_idx = self._build_where(
             "VMProvisioned", since=since, until=until, project=project
         )
@@ -270,7 +297,7 @@ class PostgresMetricsReader:
 
         # Provisioned count and provider breakdown
         prov_sql = (
-            "SELECT payload->>'provider' AS provider, COUNT(*)"
+            "SELECT payload->>'provider' AS provider, COUNT(*)"  # noqa: S608 — SQL built from internal constants, not user input
             f" FROM events{prov_where}"
             " GROUP BY provider"
         )
@@ -283,7 +310,7 @@ class PostgresMetricsReader:
 
         # Released stats
         rel_sql = (
-            "SELECT"
+            "SELECT"  # noqa: S608 — SQL built from internal constants, not user input
             " COUNT(*),"
             " COALESCE(SUM((payload->>'duration_secs')::bigint), 0),"
             " COALESCE(SUM(COALESCE((payload->>'estimated_cost')::numeric, 0)), 0)"
@@ -313,7 +340,7 @@ class PostgresMetricsReader:
             idx += 1
         release_where = " AND ".join(release_clauses)
         active_sql = (
-            "SELECT COUNT(DISTINCT payload->>'vm_id')"
+            "SELECT COUNT(DISTINCT payload->>'vm_id')"  # noqa: S608 — SQL built from internal constants, not user input
             f" FROM events{prov_where}"
             f" AND NOT EXISTS (SELECT 1 FROM events r WHERE {release_where})"
         )

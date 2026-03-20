@@ -1,5 +1,4 @@
 """Run lifecycle service — provision, execute, teardown, full lifecycle, status."""
-# ruff: noqa: DOC201,DOC501 — service methods document via protocol, not per-method
 
 from __future__ import annotations
 
@@ -66,17 +65,37 @@ class RunService:
         self._execution_env = execution_env
 
     def _require_config(self) -> Config:
+        """Return config or raise if unavailable.
+
+        Returns:
+            Config: The application configuration.
+
+        Raises:
+            ServiceError: If configuration is not set.
+        """
         if self._config is None:
             raise ServiceError("Configuration unavailable — WM_* environment variables not set")
         return self._config
 
     def _require_execution_env(self) -> ExecutionEnvironment:
+        """Return execution environment or raise if unavailable.
+
+        Returns:
+            ExecutionEnvironment: The configured execution environment.
+
+        Raises:
+            ServiceError: If execution environment is not configured.
+        """
         if self._execution_env is None:
             raise ServiceError("Remote execution environment not configured")
         return self._execution_env
 
     async def provision(self, body: ProvisionRequest) -> RunEnvironment:
-        """Provision a remote execution environment (non-blocking)."""
+        """Provision a remote execution environment (non-blocking).
+
+        Returns:
+            RunEnvironment: Provisioning environment with tracking env_id.
+        """
         config = self._require_config()
         execution_env = self._require_execution_env()
 
@@ -155,7 +174,16 @@ class RunService:
         )
 
     async def execute(self, env_id: str, body: ExecuteRequest) -> RunExecuteAccepted:
-        """Execute a phase against a provisioned environment."""
+        """Execute a phase against a provisioned environment.
+
+        Returns:
+            RunExecuteAccepted: Accepted response with env_id and dispatch_id.
+
+        Raises:
+            NotFoundError: If the environment is not found.
+            ConflictError: If the environment is still provisioning, has a project mismatch,
+                or cannot transition to executing.
+        """
         config = self._require_config()
         execution_env = self._require_execution_env()
 
@@ -237,7 +265,15 @@ class RunService:
         return RunExecuteAccepted(env_id=env_id, dispatch_id=dispatch_id)
 
     async def teardown(self, env_id: str) -> RunTeardownAccepted:
-        """Teardown a provisioned environment."""
+        """Teardown a provisioned environment.
+
+        Returns:
+            RunTeardownAccepted: Confirmation that teardown has been initiated.
+
+        Raises:
+            NotFoundError: If the environment is not found.
+            ConflictError: If the environment is already being torn down.
+        """
         execution_env = self._require_execution_env()
 
         record = await self._store.get_environment(env_id)
@@ -288,7 +324,11 @@ class RunService:
         return RunTeardownAccepted(env_id=env_id)
 
     async def full(self, body: RunFullRequest) -> DispatchAccepted:
-        """Full lifecycle: provision, execute, teardown. Returns ID for polling."""
+        """Full lifecycle: provision, execute, teardown. Returns ID for polling.
+
+        Returns:
+            DispatchAccepted: Accepted response with dispatch_id for polling.
+        """
         config = self._require_config()
         execution_env = self._require_execution_env()
 
@@ -393,7 +433,14 @@ class RunService:
         return DispatchAccepted(dispatch_id=workflow_id)
 
     async def status(self, env_id: str) -> RunStatus:
-        """Poll status of a running environment."""
+        """Poll status of a running environment.
+
+        Returns:
+            RunStatus: Current status of the environment.
+
+        Raises:
+            NotFoundError: If the environment is not found.
+        """
         record = await self._store.get_environment(env_id)
         if record is None:
             raise NotFoundError(f"Environment {env_id} not found")

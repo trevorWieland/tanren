@@ -165,8 +165,8 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
     # Build middleware stack before creating app (order matters: outermost first)
     middleware_stack: list[Middleware] = [
-        Middleware(RequestIDMiddleware),
-        Middleware(RequestLoggingMiddleware),
+        Middleware(RequestIDMiddleware),  # ty: ignore[invalid-argument-type]  # ASGI middleware class; ty can't resolve Starlette's overloaded Middleware constructor
+        Middleware(RequestLoggingMiddleware),  # ty: ignore[invalid-argument-type]  # same as above
     ]
 
     # Create MCP sub-application and combine lifespans
@@ -179,21 +179,21 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     # cast needed: @asynccontextmanager return type doesn't satisfy Lifespan generic
     combined_lifespan = cast(
         "Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, Any] | None]]",
-        combine_lifespans(lifespan, mcp_app.lifespan),
+        combine_lifespans(lifespan, mcp_app.lifespan),  # ty: ignore[invalid-argument-type]  # @asynccontextmanager return type doesn't satisfy Starlette Lifespan generic
     )
 
     app = FastAPI(
         title="tanren",
         description="Tanren worker-manager HTTP API",
         version="0.1.0",
-        lifespan=combined_lifespan,
+        lifespan=combined_lifespan,  # ty: ignore[invalid-argument-type]  # cast-wrapped lifespan; ty can't verify the cast target
         middleware=middleware_stack,
     )
 
     # CORS — added after app creation to avoid Starlette Middleware type mismatch
     if settings.cors_origins:
         app.add_middleware(
-            CORSMiddleware,
+            CORSMiddleware,  # ty: ignore[invalid-argument-type]  # Starlette CORSMiddleware is a valid middleware class; ty can't resolve the overloaded factory type
             allow_origins=settings.cors_origins,
             allow_credentials=True,
             allow_methods=["*"],

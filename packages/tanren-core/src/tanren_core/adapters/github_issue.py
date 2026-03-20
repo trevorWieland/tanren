@@ -33,13 +33,13 @@ def _import_httpx() -> types.ModuleType:
     """
     try:
         import httpx as _httpx  # noqa: PLC0415 — deferred import for optional dependency
-
-        return _httpx
     except ImportError:
         raise ImportError(
             "httpx is required for the GitHub issue adapter. "
             "Install it with: uv sync --extra github"
         ) from None
+    else:
+        return _httpx
 
 
 class GitHubIssueSettings(BaseModel):
@@ -182,6 +182,7 @@ class GitHubIssueSource:
             The ``data`` dict from the GraphQL response.
 
         Raises:
+            TypeError: If the response format is invalid.
             RuntimeError: If the response contains GraphQL errors.
         """
         payload: dict[str, object] = {"query": query, "variables": variables}
@@ -189,13 +190,13 @@ class GitHubIssueSource:
         response.raise_for_status()
         body = response.json()
         if not isinstance(body, dict):
-            raise RuntimeError("Unexpected GraphQL response format")
+            raise TypeError("Unexpected GraphQL response format")
         if "errors" in body:
             errors = body["errors"]
             raise RuntimeError(f"GraphQL errors: {errors}")
         data = body.get("data")
         if not isinstance(data, dict):
-            raise RuntimeError("Missing 'data' in GraphQL response")
+            raise TypeError("Missing 'data' in GraphQL response")
         return data
 
     @staticmethod
@@ -299,7 +300,8 @@ class GitHubIssueSource:
             The Issue model for the requested issue.
 
         Raises:
-            ValueError: If issue_id is not numeric or the issue is not found.
+            ValueError: If issue_id is not numeric.
+            TypeError: If the issue is not found in the response.
         """
         if not issue_id.isdigit():
             raise ValueError(f"GitHub issue IDs must be numeric, got: {issue_id!r}")
@@ -311,14 +313,17 @@ class GitHubIssueSource:
         data = await asyncio.to_thread(self._execute, _GET_ISSUE_QUERY, variables)
         repo = data.get("repository")
         if not isinstance(repo, dict):
-            raise ValueError(f"Issue {issue_id} not found")
+            raise TypeError(f"Issue {issue_id} not found")
         issue_data = _as_dict(repo).get("issue")
         if not isinstance(issue_data, dict):
-            raise ValueError(f"Issue {issue_id} not found")
+            raise TypeError(f"Issue {issue_id} not found")
         return self._build_issue(_as_dict(issue_data))
 
     async def list_issues(
-        self, *, project: str | None = None, status: str | None = None
+        self,
+        *,
+        project: str | None = None,  # noqa: ARG002 — required by protocol interface
+        status: str | None = None,
     ) -> list[IssueSummary]:
         """List issues, optionally filtered by status.
 

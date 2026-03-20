@@ -33,13 +33,13 @@ def _import_httpx() -> types.ModuleType:
     """
     try:
         import httpx as _httpx  # noqa: PLC0415 — deferred import for optional dependency
-
-        return _httpx
     except ImportError:
         raise ImportError(
             "httpx is required for the Linear issue adapter. "
             "Install it with: uv sync --extra linear"
         ) from None
+    else:
+        return _httpx
 
 
 class LinearIssueSettings(BaseModel):
@@ -212,6 +212,7 @@ class LinearIssueSource:
             The ``data`` dict from the GraphQL response.
 
         Raises:
+            TypeError: If the response format is invalid.
             RuntimeError: If the response contains GraphQL errors.
         """
         payload: dict[str, object] = {"query": query, "variables": variables}
@@ -219,13 +220,13 @@ class LinearIssueSource:
         response.raise_for_status()
         body = response.json()
         if not isinstance(body, dict):
-            raise RuntimeError("Unexpected GraphQL response format")
+            raise TypeError("Unexpected GraphQL response format")
         if "errors" in body:
             errors = body["errors"]
             raise RuntimeError(f"GraphQL errors: {errors}")
         data = body.get("data")
         if not isinstance(data, dict):
-            raise RuntimeError("Missing 'data' in GraphQL response")
+            raise TypeError("Missing 'data' in GraphQL response")
         return data
 
     @staticmethod
@@ -317,13 +318,13 @@ class LinearIssueSource:
             The Issue model for the requested issue.
 
         Raises:
-            ValueError: If the issue is not found.
+            TypeError: If the issue is not found in the response.
         """
         variables: dict[str, object] = {"id": issue_id}
         data = await asyncio.to_thread(self._execute, _GET_ISSUE_QUERY, variables)
         issue_data = data.get("issue")
         if not isinstance(issue_data, dict):
-            raise ValueError(f"Issue {issue_id} not found")
+            raise TypeError(f"Issue {issue_id} not found")
         issue = self._build_issue(_as_dict(issue_data))
         # Cache or update team ID based on the fetched issue.
         team_id = issue.metadata.get("team_id", "")

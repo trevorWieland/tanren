@@ -72,7 +72,7 @@ class TestEnvironmentProfileDefaults:
 class TestInvalidTypeRaised:
     def test_arbitrary_type_raises(self):
         data = {"environment": {"bad": {"type": 12345}}}
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Input should be"):
             parse_environment_profiles(data)
 
 
@@ -106,7 +106,7 @@ class TestMultipleProfiles:
 
 class TestMcpServerConfig:
     def test_url_required(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="url"):
             McpServerConfig()
 
     def test_headers_default_empty(self):
@@ -114,12 +114,12 @@ class TestMcpServerConfig:
         assert cfg.headers == {}
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(ValueError):
-            McpServerConfig(url="https://example.com/sse", bogus="x")  # type: ignore[unknown-argument]
+        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+            McpServerConfig(url="https://example.com/sse", bogus="x")  # type: ignore[unknown-argument] — intentionally passing invalid kwarg to test extra-fields rejection
 
     def test_frozen(self):
         cfg = McpServerConfig(url="https://example.com/sse")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Instance is frozen"):
             cfg.url = "changed"
 
 
@@ -212,12 +212,12 @@ class TestIssueSourceConfig:
 
     def test_frozen(self):
         cfg = IssueSourceConfig()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Instance is frozen"):
             cfg.type = IssueSourceType.LINEAR
 
     def test_extra_forbidden(self):
-        with pytest.raises(ValueError):
-            IssueSourceConfig(type=IssueSourceType.GITHUB, bogus="x")  # type: ignore[unknown-argument]
+        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+            IssueSourceConfig(type=IssueSourceType.GITHUB, bogus="x")  # type: ignore[unknown-argument] — intentionally passing invalid kwarg to test extra-fields rejection
 
 
 class TestParseIssueSource:

@@ -29,7 +29,7 @@ class ProvisionerType(StrEnum):
 class GitAuthMethod(StrEnum):
     """Supported git authentication methods for remote clone/push."""
 
-    TOKEN = "token"
+    TOKEN = "token"  # noqa: S105 — enum value name, not a real password
     SSH = "ssh"
 
 

@@ -85,7 +85,8 @@ def _mcp_auth():
 class TestMCPToolRegistration:
     """Verify all expected tools are registered on the MCP server."""
 
-    async def test_all_tools_registered(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_all_tools_registered(self):
         async with Client(mcp) as client:
             tools = await client.list_tools()
         tool_names = {t.name for t in tools}
@@ -117,7 +118,8 @@ class TestMCPToolRegistration:
         }
         assert expected_tools.issubset(tool_names), f"Missing tools: {expected_tools - tool_names}"
 
-    async def test_tool_descriptions_present(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_tool_descriptions_present(self):
         async with Client(mcp) as client:
             tools = await client.list_tools()
         for tool in tools:
@@ -128,19 +130,22 @@ class TestMCPToolRegistration:
 class TestMCPAuth:
     """Test MCP API key authentication middleware."""
 
-    async def test_health_no_auth_required(self, _seed_mcp_services, _mcp_auth):
+    @pytest.mark.usefixtures("_seed_mcp_services", "_mcp_auth")
+    async def test_health_no_auth_required(self):
         """Health tools should work even with auth middleware active."""
         async with Client(mcp) as client:
             result = await client.call_tool("health_check", {})
         assert "ok" in _text(result)
 
-    async def test_readiness_no_auth_required(self, _seed_mcp_services, _mcp_auth):
+    @pytest.mark.usefixtures("_seed_mcp_services", "_mcp_auth")
+    async def test_readiness_no_auth_required(self):
         """Readiness tools should work even with auth middleware active."""
         async with Client(mcp) as client:
             result = await client.call_tool("readiness_check", {})
         assert "ready" in _text(result)
 
-    async def test_non_health_tool_rejected_without_auth(self, _seed_mcp_services, _mcp_auth):
+    @pytest.mark.usefixtures("_seed_mcp_services", "_mcp_auth")
+    async def test_non_health_tool_rejected_without_auth(self):
         """Non-health tools should fail without API key (stdio has no headers)."""
         async with Client(mcp) as client:
             with pytest.raises(ToolError, match="Invalid or missing API key"):
@@ -151,7 +156,8 @@ class TestMCPAuth:
 class TestMCPHealthTools:
     """Test health tool execution (no auth middleware)."""
 
-    async def test_health_check_returns_status(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_health_check_returns_status(self):
         async with Client(mcp) as client:
             result = await client.call_tool("health_check", {})
         data = json.loads(_text(result))
@@ -159,7 +165,8 @@ class TestMCPHealthTools:
         assert data["version"] == "0.1.0"
         assert "uptime_seconds" in data
 
-    async def test_readiness_check_returns_ready(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_readiness_check_returns_ready(self):
         async with Client(mcp) as client:
             result = await client.call_tool("readiness_check", {})
         data = json.loads(_text(result))
@@ -170,7 +177,8 @@ class TestMCPHealthTools:
 class TestMCPDispatchTools:
     """Test dispatch tool execution (no auth middleware)."""
 
-    async def test_dispatch_create(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_dispatch_create(self):
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "dispatch_create",
@@ -186,7 +194,8 @@ class TestMCPDispatchTools:
         assert "dispatch_id" in data
         assert data["status"] == "accepted"
 
-    async def test_dispatch_get_status(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_dispatch_get_status(self):
         async with Client(mcp) as client:
             # Create first
             create_result = await client.call_tool(
@@ -211,7 +220,8 @@ class TestMCPDispatchTools:
         assert data["workflow_id"] == dispatch_id
         assert data["project"] == "test-project"
 
-    async def test_dispatch_cancel(self, _seed_mcp_services, tmp_path):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_dispatch_cancel(self, tmp_path):
         # Use a separate store with no execution env so dispatch stays PENDING
         roles_yml = tmp_path / "cancel_roles.yml"
         roles_yml.write_text(
@@ -264,13 +274,15 @@ class TestMCPDispatchTools:
 class TestMCPVMTools:
     """Test VM tool execution."""
 
-    async def test_vm_list_empty(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_vm_list_empty(self):
         async with Client(mcp) as client:
             result = await client.call_tool("vm_list", {})
         # Empty list → FastMCP returns empty content
         assert result.content == [] or _text(result) == "[]"
 
-    async def test_vm_dry_run(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_vm_dry_run(self):
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "vm_dry_run",
@@ -284,7 +296,8 @@ class TestMCPVMTools:
 class TestMCPConfigTools:
     """Test config tool execution."""
 
-    async def test_config_get(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_config_get(self):
         async with Client(mcp) as client:
             result = await client.call_tool("config_get", {})
         data = json.loads(_text(result))
@@ -296,14 +309,16 @@ class TestMCPConfigTools:
 class TestMCPEventsTools:
     """Test events tool execution."""
 
-    async def test_events_query_empty(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_events_query_empty(self):
         async with Client(mcp) as client:
             result = await client.call_tool("events_query", {})
         data = json.loads(_text(result))
         assert "events" in data
         assert data["total"] == 0
 
-    async def test_events_query_clamps_limit(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_events_query_clamps_limit(self):
         """Negative or oversized limits are clamped to [1, 100]."""
         async with Client(mcp) as client:
             # Negative limit clamped to 1
@@ -316,7 +331,8 @@ class TestMCPEventsTools:
             d2 = json.loads(_text(r2))
             assert d2["limit"] == 100
 
-    async def test_events_query_clamps_offset(self, _seed_mcp_services):
+    @pytest.mark.usefixtures("_seed_mcp_services")
+    async def test_events_query_clamps_offset(self):
         """Negative offset is clamped to 0."""
         async with Client(mcp) as client:
             result = await client.call_tool("events_query", {"offset": -5})

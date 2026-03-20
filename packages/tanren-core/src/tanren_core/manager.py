@@ -10,7 +10,7 @@ import contextlib
 import logging
 import os
 import signal
-import subprocess
+import subprocess  # noqa: S404 — subprocess used for local process management
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -520,7 +520,7 @@ class WorkerManager:
             )
             await self._write_result_and_nudge(result, dispatch.workflow_id)
 
-    async def _handle_setup(self, dispatch: Dispatch, issue: str, worktree_path: Path) -> None:
+    async def _handle_setup(self, dispatch: Dispatch, issue: str, worktree_path: Path) -> None:  # noqa: ARG002 — required by interface
         """Handle setup phase: create worktree + register."""
         start = time.monotonic()
         try:
@@ -615,7 +615,7 @@ class WorkerManager:
 
     async def _handle_work_phase(
         self,
-        path: Path,
+        path: Path,  # noqa: ARG002 — required by interface
         dispatch: Dispatch,
         dispatch_stem: str,
         worktree_path: Path,
@@ -717,7 +717,8 @@ class WorkerManager:
             if dispatch.cli != Cli.BASH:
                 if isinstance(handle.runtime, RemoteEnvironmentRuntime):
                     # Already collected inside SSHExecutionEnvironment.execute()
-                    token_usage_data = phase_result.token_usage
+                    if phase_result.token_usage is not None:
+                        token_usage_data = phase_result.token_usage.model_dump(mode="json")
                 else:
                     # Local execution: collect here
                     runner = LocalCommandRunner()
@@ -742,7 +743,7 @@ class WorkerManager:
                             cli=dispatch.cli.value,
                             **{
                                 k: v
-                                for k, v in token_usage_data.items()
+                                for k, v in token_usage_data.model_dump().items()
                                 if k not in ("provider", "project")
                             },
                         )

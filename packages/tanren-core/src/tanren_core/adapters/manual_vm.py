@@ -106,7 +106,7 @@ class ManualVMProvisioner:
         self._vms = list(vms)
         self._state_store = state_store
 
-    async def acquire(self, requirements: VMRequirements) -> VMHandle:
+    async def acquire(self, requirements: VMRequirements) -> VMHandle:  # noqa: ARG002 — required by protocol interface
         """Find first unassigned VM.
 
         Returns:

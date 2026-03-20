@@ -1,5 +1,4 @@
 """In-memory API state store for tracking in-flight dispatches and environments."""
-# ruff: noqa: DOC201 — return docs on internal store methods are redundant
 
 from __future__ import annotations
 
@@ -123,6 +122,9 @@ class APIStateStore:
 
         The returned record is a shallow copy with a deep-copied ``dispatch``
         model, so callers can inspect or mutate it without affecting store state.
+
+        Returns:
+            DispatchRecord | None: Copy of the dispatch record, or None if not found.
         """
         async with self._lock:
             record = self._dispatches.get(dispatch_id)
@@ -169,7 +171,8 @@ class APIStateStore:
     ) -> DispatchRecord | None:
         """Atomically transition if current status is in *from_statuses*.
 
-        Returns copy of updated record on success, None on mismatch/not-found.
+        Returns:
+            DispatchRecord | None: Copy of the updated record, or None on mismatch/not-found.
         """
         async with self._lock:
             record = self._dispatches.get(dispatch_id)
@@ -187,7 +190,11 @@ class APIStateStore:
             return replace(record)
 
     async def remove_dispatch(self, dispatch_id: str) -> DispatchRecord | None:
-        """Remove and return a dispatch record (shallow copy, task is shared)."""
+        """Remove and return a dispatch record (shallow copy, task is shared).
+
+        Returns:
+            DispatchRecord | None: The removed record, or None if not found.
+        """
         async with self._lock:
             record = self._dispatches.pop(dispatch_id, None)
             return replace(record) if record is not None else None
@@ -225,6 +232,9 @@ class APIStateStore:
         stored record.  ``handle`` and ``task`` are shared references: handle
         contains a live SSH connection that cannot be safely deep-copied, and
         task is intentionally shared for cancellation.
+
+        Returns:
+            EnvironmentRecord | None: Copy of the environment record, or None if not found.
         """
         async with self._lock:
             record = self._environments.get(env_id)
@@ -274,9 +284,8 @@ class APIStateStore:
     async def cancel_environment_task(self, env_id: str, *, wait_secs: float = 5.0) -> bool:
         """Cancel a running task and wait for it to stop.
 
-        Returns True if no task is running (none attached, already finished,
-        or stopped within *wait_secs*). Returns False only if the task is
-        still running after the timeout.
+        Returns:
+            bool: True if no task is running or it stopped in time, False if still running.
         """
         task: asyncio.Task[None] | None = None
         async with self._lock:
@@ -293,7 +302,11 @@ class APIStateStore:
         return True  # Defensive — shouldn't reach here
 
     async def remove_environment(self, env_id: str) -> EnvironmentRecord | None:
-        """Remove and return an environment record (shallow copy; handle/task shared)."""
+        """Remove and return an environment record (shallow copy; handle/task shared).
+
+        Returns:
+            EnvironmentRecord | None: The removed record, or None if not found.
+        """
         async with self._lock:
             record = self._environments.pop(env_id, None)
             return replace(record) if record is not None else None
@@ -316,7 +329,8 @@ class APIStateStore:
     ) -> EnvironmentRecord | None:
         """Atomically transition if current status is in *from_statuses*.
 
-        Returns copy of updated record on success, None on mismatch/not-found.
+        Returns:
+            EnvironmentRecord | None: Copy of the updated record, or None on mismatch/not-found.
         """
         async with self._lock:
             record = self._environments.get(env_id)

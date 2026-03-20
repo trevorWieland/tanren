@@ -63,13 +63,13 @@ agents:
     def test_invalid_yaml_raises(self, tmp_path):
         config_file = tmp_path / "roles.yml"
         config_file.write_text("just a string")
-        with pytest.raises(ValueError, match="expected a mapping"):
+        with pytest.raises(TypeError, match="expected a mapping"):
             load_roles_config(config_file)
 
     def test_missing_agents_section_raises(self, tmp_path):
         config_file = tmp_path / "roles.yml"
         config_file.write_text("something_else:\n  key: value\n")
-        with pytest.raises(ValueError, match="missing required 'agents' section"):
+        with pytest.raises(TypeError, match="missing required 'agents' section"):
             load_roles_config(config_file)
 
     def test_missing_default_raises(self, tmp_path):
@@ -77,7 +77,7 @@ agents:
         config_file.write_text(
             "agents:\n  implementation:\n    cli: opencode\n    model: m1\n    auth: api_key\n"
         )
-        with pytest.raises(ValueError, match=r"agents\.default must be a mapping"):
+        with pytest.raises(TypeError, match=r"agents\.default must be a mapping"):
             load_roles_config(config_file)
 
     def test_missing_cli_raises(self, tmp_path):

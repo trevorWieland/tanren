@@ -1,5 +1,4 @@
 """VM service — list, provision, poll, release, and dry-run VMs."""
-# ruff: noqa: DOC201,DOC501 — service methods document via protocol, not per-method
 
 from __future__ import annotations
 
@@ -38,7 +37,14 @@ def _now() -> str:
 
 
 def _derive_provider(config: Config) -> VMProvider:
-    """Derive VM provider from remote config."""
+    """Derive VM provider from remote config.
+
+    Returns:
+        VMProvider: The provider type derived from configuration.
+
+    Raises:
+        ServiceError: If the remote config file cannot be loaded.
+    """
     if not config.remote_config_path:
         return VMProvider.MANUAL
     try:
@@ -70,12 +76,24 @@ class VMService:
         self._vm_state_store = vm_state_store
 
     def _require_config(self) -> Config:
+        """Return config or raise if unavailable.
+
+        Returns:
+            Config: The application configuration.
+
+        Raises:
+            ServiceError: If configuration is not set.
+        """
         if self._config is None:
             raise ServiceError("Configuration unavailable — WM_* environment variables not set")
         return self._config
 
     async def list_vms(self) -> list[VMSummary]:
-        """List active VM assignments."""
+        """List active VM assignments.
+
+        Returns:
+            list[VMSummary]: Active VM assignments.
+        """
         config = self._require_config()
         if self._vm_state_store is None:
             return []
@@ -96,7 +114,14 @@ class VMService:
         ]
 
     async def provision(self, body: ProvisionRequest) -> VMProvisionAccepted:
-        """Provision a new VM (non-blocking)."""
+        """Provision a new VM (non-blocking).
+
+        Returns:
+            VMProvisionAccepted: Accepted response with tracking env_id.
+
+        Raises:
+            ServiceError: If remote execution environment is not configured.
+        """
         config = self._require_config()
         if self._execution_env is None:
             raise ServiceError("Remote execution environment not configured")
@@ -183,7 +208,14 @@ class VMService:
         return VMProvisionAccepted(env_id=env_id)
 
     async def get_provision_status(self, env_id: str) -> VMProvisionStatus:
-        """Poll status of an in-progress or completed VM provisioning."""
+        """Poll status of an in-progress or completed VM provisioning.
+
+        Returns:
+            VMProvisionStatus: Current provisioning status.
+
+        Raises:
+            NotFoundError: If the provision env_id is not found.
+        """
         config = self._require_config()
         record = await self._store.get_environment(env_id)
         if record is None:
@@ -207,7 +239,15 @@ class VMService:
         )
 
     async def release(self, vm_id: str) -> VMReleaseConfirmed:
-        """Release a VM assignment."""
+        """Release a VM assignment.
+
+        Returns:
+            VMReleaseConfirmed: Confirmation of the released VM.
+
+        Raises:
+            NotFoundError: If the VM is not found.
+            ServiceError: If the execution environment is not configured or release fails.
+        """
         config = self._require_config()
         if self._vm_state_store is None:
             raise NotFoundError(f"VM {vm_id} not found")
@@ -236,7 +276,11 @@ class VMService:
         return VMReleaseConfirmed(vm_id=vm_id)
 
     async def dry_run(self, body: ProvisionRequest) -> VMDryRunResult:
-        """Dry-run provision — show what would happen without creating resources."""
+        """Dry-run provision — show what would happen without creating resources.
+
+        Returns:
+            VMDryRunResult: Simulated provisioning result.
+        """
         config = self._require_config()
         provider = _derive_provider(config)
         requirements = VMRequirements(profile=body.environment_profile)

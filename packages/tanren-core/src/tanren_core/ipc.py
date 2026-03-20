@@ -61,7 +61,7 @@ async def scan_dispatch_dir(dispatch_dir: Path) -> list[tuple[Path, Dispatch]]:
                 content = entry.read_text()
                 dispatch = Dispatch.model_validate_json(content)
                 results.append((entry, dispatch))
-            except Exception:
+            except Exception:  # noqa: S112 — intentional continue on transient error
                 # Skip unparseable files — don't crash the poll loop
                 continue
         return results

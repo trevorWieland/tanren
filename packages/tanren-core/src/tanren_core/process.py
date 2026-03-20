@@ -200,7 +200,7 @@ async def _spawn_codex(
         if last_msg_path.exists():  # noqa: ASYNC240 — trivial file check after process exit
             result.stdout = last_msg_path.read_text()  # noqa: ASYNC240 — trivial sync fs op after async work
             last_msg_path.unlink(missing_ok=True)  # noqa: ASYNC240 — trivial sync fs op after async work
-    except Exception:
+    except Exception:  # noqa: S110 — intentional silent exception during cleanup
         pass
 
     return result

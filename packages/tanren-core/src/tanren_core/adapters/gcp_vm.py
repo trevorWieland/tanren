@@ -33,13 +33,13 @@ def _import_compute() -> types.ModuleType:
     """
     try:
         import google.cloud.compute_v1 as _compute  # noqa: PLC0415 — deferred import for optional dependency
-
-        return _compute
     except ImportError:
         raise ImportError(
             "google-cloud-compute is required for GCP provisioning. "
             "Install it with: uv sync --extra gcp"
         ) from None
+    else:
+        return _compute
 
 
 logger = logging.getLogger(__name__)

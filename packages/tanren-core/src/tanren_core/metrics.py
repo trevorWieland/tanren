@@ -36,6 +36,6 @@ async def compute_plan_hash(plan_path: Path) -> str:
         if not plan_path.exists():
             return "00000000"
         content = plan_path.read_bytes()
-        return hashlib.md5(content).hexdigest()[:8]
+        return hashlib.md5(content).hexdigest()[:8]  # noqa: S324 — md5 for file-change detection, not cryptographic security
 
     return await asyncio.to_thread(_hash)

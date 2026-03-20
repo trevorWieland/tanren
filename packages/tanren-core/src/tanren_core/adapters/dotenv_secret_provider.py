@@ -50,7 +50,7 @@ class DotenvSecretProvider:
         self._cache = merged
         return merged
 
-    async def get_secret(self, secret_id: str, *, version: str = "latest") -> str | None:
+    async def get_secret(self, secret_id: str, *, version: str = "latest") -> str | None:  # noqa: ARG002 — required by protocol interface
         """Look up a secret by key name in the dotenv files.
 
         Returns:

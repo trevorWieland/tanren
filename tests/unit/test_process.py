@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, patch
 from tanren_core.config import Config
 from tanren_core.process import (
     ProcessResult,
-    _spawn_claude,  # noqa: PLC2701 — testing private implementation
-    _spawn_opencode,  # noqa: PLC2701 — testing private implementation
+    _spawn_claude,
+    _spawn_opencode,
     assemble_prompt,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase

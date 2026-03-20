@@ -17,7 +17,7 @@ from tanren_core.adapters.types import (
 from tanren_core.config import Config
 from tanren_core.manager import (
     WorkerManager,
-    _build_gate_output,  # noqa: PLC2701 — testing private implementation
+    _build_gate_output,
     build_tail_output,
 )
 from tanren_core.postflight import IntegrityRepairs, PostflightResult

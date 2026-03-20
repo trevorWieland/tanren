@@ -316,7 +316,7 @@ class SSHExecutionEnvironment:
         dispatch: Dispatch,
         config: Config,
         *,
-        dispatch_stem: str = "",
+        dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:
         """Run agent on remote VM with retry logic.
 

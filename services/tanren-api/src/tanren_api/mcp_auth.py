@@ -9,6 +9,8 @@ from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.middleware.middleware import CallNext
 from fastmcp.tools.tool import ToolResult
+from mcp import McpError
+from mcp.types import ErrorData
 
 from tanren_api.auth import APIKeyVerifier
 from tanren_api.errors import AuthenticationError
@@ -51,11 +53,6 @@ class MCPApiKeyAuth(Middleware):
         try:
             await self._verifier.verify(api_key)
         except AuthenticationError:
-            from mcp import McpError  # noqa: PLC0415 — deferred import for exception handling
-            from mcp.types import (
-                ErrorData,
-            )
-
             raise McpError(
                 error=ErrorData(code=-32001, message="Invalid or missing API key")
             ) from None

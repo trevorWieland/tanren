@@ -219,7 +219,7 @@ class UbuntuBootstrapper:
         # Extra script (if configured)
         if self._extra_script is not None:
             logger.info("Running extra bootstrap script...")
-            await conn.upload_content(self._extra_script, "/tmp/tanren-extra-bootstrap.sh")
+            await conn.upload_content(self._extra_script, "/tmp/tanren-extra-bootstrap.sh")  # noqa: S108 — fixed temp path for bootstrap script
             extra_result = await conn.run("bash /tmp/tanren-extra-bootstrap.sh", timeout_secs=600)
             if extra_result.exit_code != 0:
                 raise RuntimeError(f"Extra bootstrap script failed: {extra_result.stderr}")

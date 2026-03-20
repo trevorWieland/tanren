@@ -55,12 +55,12 @@ class PostgresEventReader:
             where_sql = " WHERE " + " AND ".join(where_clauses)
 
         # Total count
-        count_sql = f"SELECT COUNT(*) FROM events{where_sql}"
+        count_sql = f"SELECT COUNT(*) FROM events{where_sql}"  # noqa: S608 — SQL built from internal constants, not user input
         total = await self._pool.fetchval(count_sql, *params)
 
         # Fetch page
         select_sql = (
-            f"SELECT id, timestamp, workflow_id, event_type, payload "
+            f"SELECT id, timestamp, workflow_id, event_type, payload "  # noqa: S608 — SQL built from internal constants, not user input
             f"FROM events{where_sql} ORDER BY timestamp DESC "
             f"LIMIT ${idx} OFFSET ${idx + 1}"
         )

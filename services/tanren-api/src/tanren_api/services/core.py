@@ -1,5 +1,4 @@
 """Simple services — health, config, events."""
-# ruff: noqa: DOC201
 
 from __future__ import annotations
 
@@ -26,7 +25,11 @@ class HealthService:
     """Service for health and readiness checks."""
 
     async def health(self) -> HealthResponse:
-        """Return service health and version info."""
+        """Return service health and version info.
+
+        Returns:
+            HealthResponse: Service health status and version.
+        """
         return HealthResponse(
             status="ok",
             version="0.1.0",
@@ -34,7 +37,11 @@ class HealthService:
         )
 
     async def readiness(self) -> ReadinessResponse:
-        """Return readiness probe response."""
+        """Return readiness probe response.
+
+        Returns:
+            ReadinessResponse: Service readiness status.
+        """
         return ReadinessResponse(status="ready")
 
 
@@ -46,7 +53,11 @@ class ConfigService:
         self._config = config
 
     async def get(self) -> ConfigResponse:
-        """Return non-secret config fields."""
+        """Return non-secret config fields.
+
+        Returns:
+            ConfigResponse: Non-secret configuration fields.
+        """
         c = self._config
         return ConfigResponse(
             ipc_dir=c.ipc_dir,
@@ -83,7 +94,11 @@ class EventsService:
         limit: int = 50,
         offset: int = 0,
     ) -> PaginatedEvents:
-        """Query structured events with optional filters."""
+        """Query structured events with optional filters.
+
+        Returns:
+            PaginatedEvents: Paginated list of matching events.
+        """
         if self._event_reader is not None:
             result = await self._event_reader.query_events(
                 workflow_id=workflow_id,
@@ -134,7 +149,11 @@ class EventsService:
 
 
 def _get_event_adapter() -> TypeAdapter[EventPayload]:
-    """Lazy-initialize the event TypeAdapter (avoids import-time cost)."""
+    """Lazy-initialize the event TypeAdapter (avoids import-time cost).
+
+    Returns:
+        TypeAdapter[EventPayload]: Cached Pydantic type adapter for event payloads.
+    """
     from pydantic import TypeAdapter as TA  # noqa: PLC0415 — lazy init
 
     from tanren_api.models import EventPayload as EP  # noqa: PLC0415 — lazy init

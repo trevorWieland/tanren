@@ -84,7 +84,7 @@ class RemoteAgentRunner:
         signal_content = await conn.download_content(signal_path) or ""
 
         # Clean up prompt file
-        await conn.run(f"rm -f {shlex.quote(prompt_path)}", timeout=10)
+        await conn.run(f"rm -f {shlex.quote(prompt_path)}", timeout_secs=10)
 
         return RemoteAgentResult(
             exit_code=result.exit_code,

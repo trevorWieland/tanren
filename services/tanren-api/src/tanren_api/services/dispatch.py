@@ -1,5 +1,4 @@
 """Dispatch service — create, query, and cancel dispatch requests."""
-# ruff: noqa: DOC201,DOC501 — service methods document via protocol, not per-method
 
 from __future__ import annotations
 
@@ -31,7 +30,11 @@ _COMPLETED_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED}
 
 
 def _status_for_outcome(outcome: Outcome) -> DispatchRunStatus:
-    """Map execution outcome to terminal dispatch status."""
+    """Map execution outcome to terminal dispatch status.
+
+    Returns:
+        DispatchRunStatus: The terminal dispatch status for the given outcome.
+    """
     if outcome in _COMPLETED_OUTCOMES:
         return DispatchRunStatus.COMPLETED
     return DispatchRunStatus.FAILED
@@ -58,12 +61,24 @@ class DispatchService:
         self._execution_env = execution_env
 
     def _require_config(self) -> Config:
+        """Return config or raise if unavailable.
+
+        Returns:
+            Config: The application configuration.
+
+        Raises:
+            ServiceError: If configuration is not set.
+        """
         if self._config is None:
             raise ServiceError("Configuration unavailable — WM_* environment variables not set")
         return self._config
 
     async def create(self, body: DispatchRequest) -> DispatchAccepted:
-        """Accept a new dispatch request."""
+        """Accept a new dispatch request.
+
+        Returns:
+            DispatchAccepted: Accepted response with workflow ID.
+        """
         config = self._require_config()
         epoch = time.time_ns()
         issue = body.issue if body.issue != "0" else str(epoch)
@@ -119,7 +134,14 @@ class DispatchService:
         return DispatchAccepted(dispatch_id=workflow_id)
 
     async def get(self, dispatch_id: str) -> DispatchDetail:
-        """Query dispatch status by workflow ID."""
+        """Query dispatch status by workflow ID.
+
+        Returns:
+            DispatchDetail: Dispatch details including current status.
+
+        Raises:
+            NotFoundError: If the dispatch ID is not found.
+        """
         config = self._require_config()
         record = await self._store.get_dispatch(dispatch_id)
         if record is None:
@@ -158,7 +180,15 @@ class DispatchService:
         )
 
     async def cancel(self, dispatch_id: str) -> DispatchCancelled:
-        """Cancel a pending or running dispatch."""
+        """Cancel a pending or running dispatch.
+
+        Returns:
+            DispatchCancelled: Confirmation of the cancelled dispatch.
+
+        Raises:
+            NotFoundError: If the dispatch ID is not found.
+            ConflictError: If the dispatch is already terminal or cannot be cancelled.
+        """
         record = await self._store.get_dispatch(dispatch_id)
         if record is None:
             raise NotFoundError(f"Dispatch {dispatch_id} not found")
@@ -213,7 +243,11 @@ class DispatchService:
     # -- Background tasks --
 
     async def _dispatch_background(self, dispatch: Dispatch, dispatch_id: str) -> None:
-        """Background task: provision -> execute -> teardown."""
+        """Background task: provision -> execute -> teardown.
+
+        Raises:
+            CancelledError: If the task is cancelled externally.
+        """
         assert self._execution_env is not None
         assert self._config is not None
         execution_env = self._execution_env
@@ -289,7 +323,7 @@ class DispatchService:
                     result = Result.model_validate_json(content)
                     if result.workflow_id == workflow_id:
                         return result
-                except Exception:
+                except Exception:  # noqa: S112 — intentional continue on transient error
                     continue
             return None
 

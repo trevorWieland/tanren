@@ -131,9 +131,10 @@ def _is_managed_handle(config: Config, handle_path: Path) -> bool:
     """Return True if handle_path lives inside the managed run-handles directory."""
     try:
         handle_path.resolve().relative_to(_handle_dir(config).resolve())
-        return True
     except ValueError:
         return False
+    else:
+        return True
 
 
 def _is_explicit_path(identifier: str) -> bool:
@@ -472,8 +473,8 @@ def run_execute(
             typer.echo(f"exit_code: {result.exit_code}")
             typer.echo(f"duration_secs: {result.duration_secs}")
             if result.token_usage:
-                typer.echo(f"token_cost: ${result.token_usage.get('total_cost', 0):.4f}")
-                typer.echo(f"token_total: {result.token_usage.get('total_tokens', 0)}")
+                typer.echo(f"token_cost: ${getattr(result.token_usage, 'total_cost', 0):.4f}")
+                typer.echo(f"token_total: {getattr(result.token_usage, 'total_tokens', 0)}")
             tail = build_tail_output(result.stdout)
             if tail:
                 typer.echo("stdout_tail:")
@@ -628,8 +629,8 @@ def run_full(
                 typer.echo(f"exit_code: {result.exit_code}")
                 typer.echo(f"duration_secs: {result.duration_secs}")
                 if result.token_usage:
-                    typer.echo(f"token_cost: ${result.token_usage.get('total_cost', 0):.4f}")
-                    typer.echo(f"token_total: {result.token_usage.get('total_tokens', 0)}")
+                    typer.echo(f"token_cost: ${getattr(result.token_usage, 'total_cost', 0):.4f}")
+                    typer.echo(f"token_total: {getattr(result.token_usage, 'total_tokens', 0)}")
                 if result.stderr:
                     stderr_tail = build_tail_output(result.stderr)
                     if stderr_tail:

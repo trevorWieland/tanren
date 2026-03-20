@@ -8,7 +8,7 @@ import aiosqlite
 import pytest
 
 from tanren_core.adapters.sqlite_emitter import (
-    _SCHEMA,  # noqa: PLC2701 — testing private implementation
+    _SCHEMA,
 )
 from tanren_core.adapters.sqlite_metrics_reader import SqliteMetricsReader
 

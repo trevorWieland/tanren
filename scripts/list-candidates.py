@@ -13,7 +13,7 @@ Usage:
 import json
 import operator
 import re
-import subprocess
+import subprocess  # noqa: S404 — subprocess used for local process management
 import sys
 
 
@@ -36,7 +36,7 @@ def gh_issues(labels: list[str], state: str = "open", limit: int = 200) -> list[
     ]
     for label in labels:
         cmd.extend(["--label", label])
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603 — arguments are constructed internally
     if result.returncode != 0:
         print(f"Error fetching issues: {result.stderr}", file=sys.stderr)
         sys.exit(1)

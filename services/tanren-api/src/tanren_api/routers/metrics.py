@@ -1,5 +1,4 @@
 """Metrics endpoints — aggregated dashboard data."""
-# ruff: noqa: DOC201 — FastAPI endpoints return Response objects implicitly
 
 from __future__ import annotations
 
@@ -27,7 +26,11 @@ async def metrics_summary(
     until: Annotated[str | None, Query(description="ISO 8601 end (inclusive)")] = None,
     project: Annotated[str | None, Query(description="Filter by project")] = None,
 ) -> MetricsSummaryResponse:
-    """Workflow success/failure rate and duration stats."""
+    """Workflow success/failure rate and duration stats.
+
+    Returns:
+        MetricsSummaryResponse: Aggregated success/failure rates and duration statistics.
+    """
     return await MetricsService(metrics_reader).summary(since=since, until=until, project=project)
 
 
@@ -39,7 +42,11 @@ async def metrics_costs(
     project: Annotated[str | None, Query(description="Filter by project")] = None,
     group_by: Annotated[CostGroupBy, Query(description="Aggregation grouping")] = CostGroupBy.MODEL,
 ) -> MetricsCostsResponse:
-    """Token cost metrics grouped by model, day, or workflow."""
+    """Token cost metrics grouped by model, day, or workflow.
+
+    Returns:
+        MetricsCostsResponse: Token cost metrics with grouping buckets.
+    """
     return await MetricsService(metrics_reader).costs(
         since=since, until=until, project=project, group_by=group_by.value
     )
@@ -52,5 +59,9 @@ async def metrics_vms(
     until: Annotated[str | None, Query(description="ISO 8601 end (inclusive)")] = None,
     project: Annotated[str | None, Query(description="Filter by project")] = None,
 ) -> MetricsVMsResponse:
-    """VM utilization metrics."""
+    """VM utilization metrics.
+
+    Returns:
+        MetricsVMsResponse: VM provisioning and utilization metrics.
+    """
     return await MetricsService(metrics_reader).vms(since=since, until=until, project=project)

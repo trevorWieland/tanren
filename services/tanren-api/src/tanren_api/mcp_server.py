@@ -142,7 +142,7 @@ async def dispatch_create(
     spec_folder: str,
     cli: Cli,
     model: str | None = None,
-    timeout: int = 1800,
+    timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
     gate_cmd: str | None = None,
     issue: str = "0",
@@ -352,7 +352,7 @@ async def run_execute(
     cli: Cli,
     auth: AuthMode = AuthMode.API_KEY,
     model: str | None = None,
-    timeout: int = 1800,
+    timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
     gate_cmd: str | None = None,
 ) -> RunExecuteAccepted:
@@ -412,7 +412,7 @@ async def run_full(
     cli: Cli,
     auth: AuthMode = AuthMode.API_KEY,
     environment_profile: str = "default",
-    timeout: int = 1800,
+    timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
     gate_cmd: str | None = None,
 ) -> DispatchAccepted:

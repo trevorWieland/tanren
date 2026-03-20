@@ -360,7 +360,7 @@ class TestProvision:
         dispatch = _make_dispatch()
         config = env_kit["config"]
 
-        import asyncio  # noqa: PLC0415 — deferred import for test clarity
+        import asyncio
 
         # Make bootstrap raise CancelledError (simulates task cancellation)
         env_kit["bootstrapper"].bootstrap.side_effect = asyncio.CancelledError()
@@ -1281,7 +1281,7 @@ class TestMcpInjection:
         proj_dir = tmp_path / dispatch.project
         proj_dir.mkdir(parents=True, exist_ok=True)
         tanren_yml = proj_dir / "tanren.yml"
-        import yaml  # noqa: PLC0415 — deferred import for test clarity
+        import yaml
 
         tanren_yml.write_text(
             yaml.dump({

@@ -11,11 +11,11 @@ import pytest
 from tanren_core.ccusage import (
     LocalCommandRunner,
     RemoteCommandRunner,
-    _derive_session_id,  # noqa: PLC2701 — testing private implementation
-    _match_session_by_time,  # noqa: PLC2701 — testing private implementation
-    _normalize_claude,  # noqa: PLC2701 — testing private implementation
-    _normalize_codex,  # noqa: PLC2701 — testing private implementation
-    _normalize_opencode,  # noqa: PLC2701 — testing private implementation
+    _derive_session_id,
+    _match_session_by_time,
+    _normalize_claude,
+    _normalize_codex,
+    _normalize_opencode,
     collect_token_usage,
 )
 from tanren_core.config import Config
@@ -368,7 +368,7 @@ class TestLocalCommandRunnerTimeout:
         with patch("tanren_core.ccusage.asyncio.create_subprocess_exec", return_value=mock_proc):
             runner = LocalCommandRunner()
             with pytest.raises(TimeoutError):
-                await runner.run_command(["sleep", "999"], timeout_secs=0.01)
+                await runner.run_command(["sleep", "999"], timeout_secs=1)
 
         mock_proc.kill.assert_called_once()
         mock_proc.wait.assert_awaited_once()

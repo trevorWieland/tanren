@@ -29,12 +29,12 @@ def _import_hcloud() -> type:
     """
     try:
         from hcloud import Client as _Client  # noqa: PLC0415 — optional dep
-
-        return _Client
     except ImportError:
         raise ImportError(
             "hcloud is required for Hetzner provisioning. Install it with: uv sync --extra hetzner"
         ) from None
+    else:
+        return _Client
 
 
 logger = logging.getLogger(__name__)

@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 from tanren_core.gate_eval import (
     GateTestResult,
-    _matches_any,  # noqa: PLC2701 — testing private implementation
-    _normalize_test_name,  # noqa: PLC2701 — testing private implementation
+    _matches_any,
+    _normalize_test_name,
     evaluate_gate,
     load_gate_expectations,
     parse_pytest_output,

@@ -73,11 +73,11 @@ class SSHConnection:
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
         elif self._config.host_key_policy == "warn":
             client.load_system_host_keys()
-            client.set_missing_host_key_policy(paramiko.WarningPolicy())
+            client.set_missing_host_key_policy(paramiko.WarningPolicy())  # noqa: S507 — intentional AutoAddPolicy for ephemeral VMs
         else:
             # auto_add: skip system host keys — ephemeral VMs reuse IPs
             # and stale entries cause BadHostKeyException
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # noqa: S507 — intentional AutoAddPolicy for ephemeral VMs
 
         key_path = str(Path(self._config.key_path).expanduser())
         try:
@@ -116,12 +116,13 @@ class SSHConnection:
         if self._sftp is not None:
             try:
                 self._sftp.stat(".")
-                return self._sftp
             except Exception:
                 logger.debug(
                     "SFTP channel stale, recreating for %s", self._config.host, exc_info=True
                 )
                 self._sftp = None
+            else:
+                return self._sftp
 
         client = self._ensure_connected()
         self._sftp = client.open_sftp()
@@ -306,10 +307,11 @@ class SSHConnection:
         """
         try:
             result = await self.run("echo tanren-ok", timeout_secs=10)
-            return result.exit_code == 0 and "tanren-ok" in result.stdout
         except Exception:
             logger.debug("check_connection failed for %s", self._config.host, exc_info=True)
             return False
+        else:
+            return result.exit_code == 0 and "tanren-ok" in result.stdout
 
     def get_host_identifier(self) -> str:
         """Return the host identifier for this connection.

@@ -23,13 +23,13 @@ def _import_secret_manager() -> types.ModuleType:
     """
     try:
         import google.cloud.secretmanager as _sm  # noqa: PLC0415 — deferred import for optional dependency
-
-        return _sm
     except ImportError:
         raise ImportError(
             "google-cloud-secret-manager is required for GCP secrets. "
             "Install it with: uv sync --extra gcp"
         ) from None
+    else:
+        return _sm
 
 
 class GCPSecretManagerProvider:
@@ -64,7 +64,6 @@ class GCPSecretManagerProvider:
             )
             value = response.payload.data.decode("UTF-8")
             self._cache[cache_key] = value
-            return value
         except Exception:
             logger.warning(
                 "Failed to fetch secret %s from GCP Secret Manager",
@@ -72,6 +71,8 @@ class GCPSecretManagerProvider:
                 exc_info=True,
             )
             return None
+        else:
+            return value
 
     async def list_secrets(self) -> list[str]:
         """List secret IDs in the GCP project.

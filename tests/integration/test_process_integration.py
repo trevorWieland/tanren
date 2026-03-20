@@ -10,11 +10,11 @@ import pytest
 from tanren_core.config import Config
 from tanren_core.process import (
     ProcessResult,
-    _run_with_timeout,  # noqa: PLC2701 — testing private implementation
-    _spawn_bash,  # noqa: PLC2701 — testing private implementation
-    _spawn_claude,  # noqa: PLC2701 — testing private implementation
-    _spawn_codex,  # noqa: PLC2701 — testing private implementation
-    _spawn_opencode,  # noqa: PLC2701 — testing private implementation
+    _run_with_timeout,
+    _spawn_bash,
+    _spawn_claude,
+    _spawn_codex,
+    _spawn_opencode,
     assemble_prompt,
     spawn_process,
 )
@@ -325,7 +325,7 @@ class TestRunWithTimeoutIntegration:
             cmd=["echo", "hello world"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
         )
         assert result.exit_code == 0
         assert "hello world" in result.stdout
@@ -337,7 +337,7 @@ class TestRunWithTimeoutIntegration:
             cmd=["sleep", "60"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=1,
+            timeout_secs=1,
         )
         assert result.timed_out is True
         # Process should have been killed
@@ -348,7 +348,7 @@ class TestRunWithTimeoutIntegration:
             cmd=["bash", "-c", "echo $MY_TEST_VAR"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
             env={"MY_TEST_VAR": "injected_value"},
         )
         assert result.exit_code == 0
@@ -359,7 +359,7 @@ class TestRunWithTimeoutIntegration:
             cmd=["echo", "should be discarded"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
             discard_stdout=True,
         )
         assert result.exit_code == 0
@@ -370,7 +370,7 @@ class TestRunWithTimeoutIntegration:
             cmd=["cat"],
             cwd=tmp_path,
             stdin_data="piped input",
-            timeout=10,
+            timeout_secs=10,
         )
         assert result.exit_code == 0
         assert "piped input" in result.stdout

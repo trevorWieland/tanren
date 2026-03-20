@@ -123,7 +123,7 @@ async def run_postflight(
         if not fpath.exists():
             continue
         current_content = fpath.read_text()
-        current_md5 = hashlib.md5(current_content.encode()).hexdigest()
+        current_md5 = hashlib.md5(current_content.encode()).hexdigest()  # noqa: S324 — md5 for file-change detection, not cryptographic security
         if current_md5 == md5_original:
             continue
 

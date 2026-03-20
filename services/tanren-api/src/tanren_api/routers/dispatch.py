@@ -1,5 +1,4 @@
 """Dispatch endpoints — accept, query, and cancel dispatch requests."""
-# ruff: noqa: DOC201 — FastAPI endpoints return Response objects implicitly
 
 from __future__ import annotations
 
@@ -31,7 +30,11 @@ async def create_dispatch(
     emitter: Annotated[EventEmitter, Depends(get_emitter)],
     execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
 ) -> DispatchAccepted:
-    """Accept a new dispatch request."""
+    """Accept a new dispatch request.
+
+    Returns:
+        DispatchAccepted: Accepted response with workflow ID.
+    """
     return await DispatchService(store, config, emitter, execution_env).create(body)
 
 
@@ -41,7 +44,11 @@ async def get_dispatch(
     store: Annotated[APIStateStore, Depends(get_api_store)],
     config: Annotated[Config, Depends(get_config)],
 ) -> DispatchDetail:
-    """Query dispatch status by workflow ID."""
+    """Query dispatch status by workflow ID.
+
+    Returns:
+        DispatchDetail: Dispatch details including current status.
+    """
     return await DispatchService(store, config).get(dispatch_id)
 
 
@@ -50,5 +57,9 @@ async def cancel_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
     store: Annotated[APIStateStore, Depends(get_api_store)],
 ) -> DispatchCancelled:
-    """Cancel a pending dispatch."""
+    """Cancel a pending dispatch.
+
+    Returns:
+        DispatchCancelled: Confirmation of the cancelled dispatch.
+    """
     return await DispatchService(store).cancel(dispatch_id)

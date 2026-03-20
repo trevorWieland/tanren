@@ -94,14 +94,14 @@ class SqliteEventReader:
 
         async with aiosqlite.connect(f"file:{self._db_path}?mode=ro", uri=True) as conn:
             # Total count
-            count_sql = f"SELECT COUNT(*) FROM events{where_sql}"
+            count_sql = f"SELECT COUNT(*) FROM events{where_sql}"  # noqa: S608 — SQL built from internal constants, not user input
             cursor = await conn.execute(count_sql, params)
             row = await cursor.fetchone()
             total = row[0] if row else 0
 
             # Fetch page
             select_sql = (
-                f"SELECT id, timestamp, workflow_id, event_type, payload "
+                f"SELECT id, timestamp, workflow_id, event_type, payload "  # noqa: S608 — SQL built from internal constants, not user input
                 f"FROM events{where_sql} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
             )
             cursor = await conn.execute(select_sql, [*params, limit, offset])

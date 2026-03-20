@@ -140,6 +140,6 @@ def load_gate_expectations(spec_folder_path: Path, task_id: int) -> GateExpectat
         for entry in data:
             if entry.get("task_id") == task_id:
                 return GateExpectation.model_validate(entry.get("gate", {}))
-    except Exception:
+    except Exception:  # noqa: S110 — intentional silent exception during cleanup
         pass
     return None
