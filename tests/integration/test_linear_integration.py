@@ -30,10 +30,6 @@ def source():
 
 
 class TestLinearIssueSourceIntegration:
-    async def test_get_issue(self, source):
-        """Fetch a real Linear issue."""
-        ...
-
     async def test_list_issues(self, source):
         """List issues from a real Linear team."""
         summaries = await source.list_issues()

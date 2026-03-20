@@ -280,8 +280,6 @@ class TestUpdateStatus:
         client.post = Mock(side_effect=_side_effect)
         source = _make_source(monkeypatch, client)
 
-        # Populate _team_id first.
-        await source.get_issue("PROJ-42")
         await source.update_status("PROJ-42", "executing")
 
         # Verify the update mutation was called with the correct state UUID.
@@ -289,6 +287,36 @@ class TestUpdateStatus:
         json_body = last_call.kwargs["json"]
         assert json_body["variables"]["stateId"] == "state-inprog"
         assert json_body["variables"]["id"] == "PROJ-42"
+
+    async def test_works_without_prior_get_issue(self, monkeypatch):
+        """update_status resolves team context automatically."""
+        get_response = _issue_graphql_response(team_id="team-uuid")
+        states_response = _team_states_response()
+        update_response = {
+            "data": {"issueUpdate": {"success": True, "issue": {"state": {"name": "Done"}}}}
+        }
+
+        def _side_effect(*_args, **kwargs):
+            json_body = kwargs.get("json", {})
+            query = json_body.get("query", "")
+            if "issueUpdate" in query:
+                return _FakeResponse(update_response)
+            if "states" in query:
+                return _FakeResponse(states_response)
+            return _FakeResponse(get_response)
+
+        client = Mock()
+        client.post = Mock(side_effect=_side_effect)
+        source = _make_source(monkeypatch, client)
+
+        assert source._team_id is None
+        await source.update_status("PROJ-42", "merged")
+
+        # team_id should now be populated from the internal get_issue call.
+        assert source._team_id == "team-uuid"
+        last_call = client.post.call_args_list[-1]
+        json_body = last_call.kwargs["json"]
+        assert json_body["variables"]["stateId"] == "state-done"
 
     async def test_caches_workflow_states(self, monkeypatch):
         get_response = _issue_graphql_response(team_id="team-uuid")
@@ -314,7 +342,6 @@ class TestUpdateStatus:
         client.post = Mock(side_effect=_side_effect)
         source = _make_source(monkeypatch, client)
 
-        await source.get_issue("PROJ-42")
         await source.update_status("PROJ-42", "executing")
         await source.update_status("PROJ-42", "merged")
 
@@ -354,8 +381,6 @@ class TestUpdateStatus:
             client,
             status_mapping={"executing": "Nonexistent State"},
         )
-
-        await source.get_issue("PROJ-42")
 
         with caplog.at_level(logging.WARNING):
             await source.update_status("PROJ-42", "executing")

@@ -322,9 +322,11 @@ class LinearIssueSource:
         if not isinstance(issue_data, dict):
             raise ValueError(f"Issue {issue_id} not found")
         issue = self._build_issue(_as_dict(issue_data))
-        # Cache team ID from the first successful fetch.
-        if self._team_id is None:
-            self._team_id = issue.metadata.get("team_id", "")
+        # Cache or update team ID based on the fetched issue.
+        team_id = issue.metadata.get("team_id", "")
+        if team_id and team_id != self._team_id:
+            self._team_id = team_id
+            self._state_cache.clear()
         return issue
 
     async def list_issues(
@@ -379,6 +381,8 @@ class LinearIssueSource:
             )
             return
 
+        # Ensure team context is available for state resolution.
+        await self.get_issue(issue_id)
         state_id = await asyncio.to_thread(self._resolve_state_id, target_name)
         if state_id is None:
             logger.warning(
