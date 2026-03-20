@@ -69,14 +69,19 @@ All three fields are optional. `gate_cmd` defaults to `make check`.
 
 ### Resolution Rules
 
-The triggering phase (the phase that preceded the gate dispatch) determines
-which command is resolved:
+The triggering phase (the logical phase whose work is being gated, not
+necessarily the dispatch's own phase) determines which command is resolved:
 
 | Triggering Phase | Resolution |
 |---|---|
-| do-task, gate | `task_gate_cmd` if set, else `gate_cmd` |
-| run-demo, audit-spec, audit-task | `spec_gate_cmd` if set, else `gate_cmd` |
+| do-task, gate, audit-task | `task_gate_cmd` if set, else `gate_cmd` |
+| run-demo, audit-spec | `spec_gate_cmd` if set, else `gate_cmd` |
 | setup, cleanup, investigate | `gate_cmd` |
+
+Note: both `task_gate` and `spec_gate` are dispatched as `phase=gate`. The
+coordinator knows the gate scope from its state machine sub-state and passes
+the appropriate triggering phase (e.g. `Phase.DO_TASK` for task gates,
+`Phase.RUN_DEMO` for spec gates).
 
 ### Priority Chain
 
@@ -87,7 +92,8 @@ Highest priority wins:
 3. Phase-specific field (`task_gate_cmd` or `spec_gate_cmd`)
 4. `gate_cmd` (profile default)
 
-Implementation: `tanren_core.env.gates.resolve_gate_cmd(profile, phase)`
+Implementation:
+`tanren_core.env.gates.resolve_gate_cmd(profile, triggering_phase)`
 handles steps 3-4. Steps 1-2 are caller responsibilities.
 
 ## Open Questions

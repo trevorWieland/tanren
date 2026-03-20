@@ -29,6 +29,10 @@ class TestResolveGateCmd:
         p = _profile(task_gate_cmd="make unit")
         assert resolve_gate_cmd(p, Phase.GATE) == "make unit"
 
+    def test_task_gate_cmd_used_for_audit_task(self):
+        p = _profile(task_gate_cmd="make unit")
+        assert resolve_gate_cmd(p, Phase.AUDIT_TASK) == "make unit"
+
     # -- spec-scoped phases use spec_gate_cmd --
 
     def test_spec_gate_cmd_used_for_run_demo(self):
@@ -38,10 +42,6 @@ class TestResolveGateCmd:
     def test_spec_gate_cmd_used_for_audit_spec(self):
         p = _profile(spec_gate_cmd="make e2e")
         assert resolve_gate_cmd(p, Phase.AUDIT_SPEC) == "make e2e"
-
-    def test_spec_gate_cmd_used_for_audit_task(self):
-        p = _profile(spec_gate_cmd="make e2e")
-        assert resolve_gate_cmd(p, Phase.AUDIT_TASK) == "make e2e"
 
     # -- fallback to gate_cmd when phase-specific not set --
 
@@ -78,9 +78,9 @@ class TestResolveGateCmd:
         p = _profile(gate_cmd="make all", task_gate_cmd="make unit", spec_gate_cmd="make e2e")
         assert resolve_gate_cmd(p, Phase.DO_TASK) == "make unit"
         assert resolve_gate_cmd(p, Phase.GATE) == "make unit"
+        assert resolve_gate_cmd(p, Phase.AUDIT_TASK) == "make unit"
         assert resolve_gate_cmd(p, Phase.RUN_DEMO) == "make e2e"
         assert resolve_gate_cmd(p, Phase.AUDIT_SPEC) == "make e2e"
-        assert resolve_gate_cmd(p, Phase.AUDIT_TASK) == "make e2e"
         assert resolve_gate_cmd(p, Phase.SETUP) == "make all"
         assert resolve_gate_cmd(p, Phase.CLEANUP) == "make all"
         assert resolve_gate_cmd(p, Phase.INVESTIGATE) == "make all"
