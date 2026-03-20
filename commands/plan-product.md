@@ -4,7 +4,7 @@ Establish foundational product documentation through an interactive conversation
 
 ## Important Guidelines
 
-- When asking the user a question, present numbered options and wait for their response before proceeding.
+- When asking the user to choose between alternatives, present numbered options and wait for their response before proceeding.
 - **Keep it lightweight** — gather enough to create useful docs without over-documenting
 - **One question at a time** — don't overwhelm with multiple questions
 
