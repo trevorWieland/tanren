@@ -2,7 +2,7 @@
 
 Audit the most recently completed task. Lightweight, focused, fast. Fully autonomous — no user interaction.
 
-**Suggested model:** Different model from do-task for independence (e.g., Codex medium reasoning via headless CLI).
+**Suggested model:** Different model from do-task for independence. Autonomous — no user interaction.
 
 ## Important Guidelines
 
@@ -99,7 +99,7 @@ Write your findings to `audit-findings.json` in the spec folder:
 Severity levels:
 - `fix`: Must be fixed — becomes a new task for do-task
 - `note`: Informational only — logged but not actionable
-- `question`: Needs human input — will be escalated to the messaging platform
+- `question`: Needs human input — will be escalated to the user
 
 If the task passes, write `{"signal": "pass", "findings": []}`.
 

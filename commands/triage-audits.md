@@ -2,12 +2,12 @@
 
 Load standards audit reports, analyze violations across all standards, group findings by root cause, and create GitHub issues for the most impactful fixes. Interactive — the user approves the triage before any issues are created.
 
-**Suggested model:** Strong reasoner with good judgment (e.g., Opus via TUI). Grouping violations by root cause requires cross-standard analysis and the user must approve the triage.
+**Suggested model:** Strong reasoner with good judgment. Interactive — requires user dialogue. Grouping violations by root cause requires cross-standard analysis and the user must approve the triage.
 
 ## Important Guidelines
 
 - Human-in-the-loop — the user approves the triage before any issues are created
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
+- When asking the user a question, present numbered options and wait for their response before proceeding.
 - Group by root cause / natural fix scope, not per-standard
 - Priority is a function of score, importance, and violation count
 - Every created issue must be actionable with clear scope
@@ -131,7 +131,7 @@ For each proposed issue group:
 **Proposed labels:** type:spec, status:planned, {category labels}
 ```
 
-Use AskUserQuestion to let the user:
+Ask the user to:
 - Approve or skip each issue group
 - Adjust titles, labels, or scope
 - Split or merge groups

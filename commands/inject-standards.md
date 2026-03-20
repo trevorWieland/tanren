@@ -42,7 +42,7 @@ Before injecting standards, determine which scenario we're in. Read the current 
 - If conversation clearly mentions creating a skill, editing `.claude/skills/`, or building a reusable procedure → **Creating a Skill**
 - Otherwise → **Ask to confirm** (do not assume)
 
-**If neither skill nor plan is clearly detected**, use AskUserQuestion to confirm:
+**If neither skill nor plan is clearly detected**, ask the user to confirm:
 
 ```
 I'll inject the relevant standards. How should I format them?
@@ -75,7 +75,7 @@ Look at the current conversation to understand what the user is working on:
 
 ### Step 4: Match and Suggest
 
-Match index descriptions against the context. Use AskUserQuestion to present suggestions:
+Match index descriptions against the context. Present suggestions to the user:
 
 ```
 Based on your task, these standards may be relevant:
@@ -123,7 +123,7 @@ I've read the following standards as they are relevant to what we're working on:
 
 #### Scenario: Creating a Skill
 
-First, use AskUserQuestion to determine how to include the standards:
+First, ask the user how to include the standards:
 
 ```
 How should these standards be included in your skill?
@@ -176,7 +176,7 @@ These standards cover:
 
 #### Scenario: Shaping/Planning
 
-First, use AskUserQuestion to determine how to include the standards:
+First, ask the user how to include the standards:
 
 ```
 How should these standards be included in your plan?

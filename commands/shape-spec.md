@@ -2,11 +2,11 @@
 
 Plan the work with the user. Produce all spec artifacts and push. This is the only command where the user and agent collaborate interactively on what to build.
 
-**Suggested model:** Strong planner with good communication skills (e.g., Opus via TUI).
+**Suggested model:** Strong planner with good communication skills. Interactive — requires user dialogue.
 
 ## Important Guidelines
 
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
+- When asking the user a question, present numbered options and wait for their response before proceeding.
 - Offer suggestions — present options the user can confirm or adjust
 - Keep it lightweight — this is shaping, not exhaustive documentation
 - Prefer GitHub issues as the source of truth for spec id, title, status, and dependencies
@@ -25,7 +25,7 @@ If the user provided an issue number, URL, or spec id:
 1. Fetch the issue via `gh issue view` to get title, body, labels, milestone, and relationships.
 2. Extract `spec_id`, `version` (from `version:*` label), and dependencies (blocked-by relationships).
 
-If no issue was provided, use AskUserQuestion:
+If no issue was provided, ask the user:
 
 ```
 Do you want me to create a new spec issue on GitHub before shaping?
@@ -43,7 +43,7 @@ If picking the next best issue:
 python3 tanren/scripts/list-candidates.py
 ```
 
-2. Present the candidates to the user with AskUserQuestion. Do NOT do any additional research, exploration, or codebase analysis at this point — just show the script output and let the user pick.
+2. Present the candidates to the user and wait for their choice. Do NOT do any additional research, exploration, or codebase analysis at this point — just show the script output and let the user pick.
 3. Once chosen, fetch the full issue with `gh issue view <number>`.
 
 If using an existing issue:
@@ -113,7 +113,7 @@ Any product goals or constraints this spec should align with?
 
 ### Step 6: Standards
 
-Read `tanren/standards/index.yml` and propose relevant standards. Confirm with AskUserQuestion.
+Read `tanren/standards/index.yml` and propose relevant standards. Confirm with the user.
 
 ### Step 7: Non-Negotiables
 
@@ -171,9 +171,9 @@ Before finalizing the demo steps, assess and **verify** the execution environmen
 
 **Why this matters:** The `run-demo` agent runs autonomously and cannot ask questions. If the environment section is vague (e.g., "local model server running" without a URL), the agent will guess — and guess wrong. Every detail the agent would need to connect to a service must be captured here, during shaping, while the user is present.
 
-Also probe for available agent CLIs: claude, codex, opencode, and other agent CLIs that the orchestrator will need.
+Also probe for available agent CLIs installed on the system that the orchestrator will need.
 
-Ask using AskUserQuestion:
+Ask the user:
 
 ```
 For the autonomous demo runner, what's available in the execution environment?
@@ -223,7 +223,7 @@ The classification is written into demo.md and becomes binding for `run-demo`. T
 
 #### 9b: Finalize Demo Plan
 
-Propose the demo and confirm with AskUserQuestion:
+Propose the demo and confirm with the user:
 
 ```
 Here's my proposed demo for this feature:

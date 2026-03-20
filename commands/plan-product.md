@@ -4,7 +4,7 @@ Establish foundational product documentation through an interactive conversation
 
 ## Important Guidelines
 
-- **Always use AskUserQuestion tool** when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
+- When asking the user a question, present numbered options and wait for their response before proceeding.
 - **Keep it lightweight** — gather enough to create useful docs without over-documenting
 - **One question at a time** — don't overwhelm with multiple questions
 
@@ -17,7 +17,7 @@ Check if `tanren/product/` exists and contains any of these files:
 - `roadmap.md`
 - `tech-stack.md`
 
-**If any files exist**, use AskUserQuestion:
+**If any files exist**, ask the user:
 
 ```
 I found existing product documentation:
@@ -40,7 +40,7 @@ If option 3, stop here.
 
 ### Step 2: Gather Product Vision (for mission.md)
 
-Use AskUserQuestion:
+Ask the user:
 
 ```
 Let's define your product's mission.
@@ -50,7 +50,7 @@ Let's define your product's mission.
 (Describe the core problem or pain point you're addressing)
 ```
 
-After they respond, use AskUserQuestion:
+After they respond, ask the user:
 
 ```
 **Who is this product for?**
@@ -58,7 +58,7 @@ After they respond, use AskUserQuestion:
 (Describe your target users or audience)
 ```
 
-After they respond, use AskUserQuestion:
+After they respond, ask the user:
 
 ```
 **What makes your solution unique?**
@@ -68,7 +68,7 @@ After they respond, use AskUserQuestion:
 
 ### Step 3: Gather Roadmap (for roadmap.md)
 
-Use AskUserQuestion:
+Ask the user:
 
 ```
 Now let's outline your development roadmap.
@@ -78,7 +78,7 @@ Now let's outline your development roadmap.
 (List the core features needed for the first usable version)
 ```
 
-After they respond, use AskUserQuestion:
+After they respond, ask the user:
 
 ```
 **What features are planned for after launch?**
@@ -90,7 +90,7 @@ After they respond, use AskUserQuestion:
 
 First, check if `tanren/standards/global/tech-stack.md` exists.
 
-**If the tech-stack standard exists**, read it and use AskUserQuestion:
+**If the tech-stack standard exists**, read it and ask the user:
 
 ```
 I found a tech stack standard in your standards:
@@ -108,7 +108,7 @@ Does this project use the same tech stack, or does it differ?
 If they choose option 1, use the standard's content for tech-stack.md.
 If they choose option 2, proceed to ask them to specify (see below).
 
-**If no tech-stack standard exists** (or they chose option 2 above), use AskUserQuestion:
+**If no tech-stack standard exists** (or they chose option 2 above), ask the user:
 
 ```
 **What technologies does this project use?**

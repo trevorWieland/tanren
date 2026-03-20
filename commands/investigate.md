@@ -2,7 +2,7 @@
 
 Read-only root cause analysis for persistent failures. Diagnose the problem — do NOT fix it. Fully autonomous — no user interaction.
 
-**Suggested model:** Capable reasoner for diagnosis (e.g., Codex medium reasoning via headless CLI).
+**Suggested model:** Capable reasoner for diagnosis. Autonomous — no user interaction.
 
 ## Important Guidelines
 

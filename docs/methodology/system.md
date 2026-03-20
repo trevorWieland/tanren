@@ -51,3 +51,18 @@ conventions templates used to seed persistent product context.
 
 Role independence is deliberate: implementation and audit should use different
 model families when possible to reduce self-agreement bias.
+
+## Agent Agnosticism
+
+Commands describe **capabilities needed**, not tools or models by name.
+
+- `**Suggested model:**` lines describe the reasoning profile (strong planner,
+  fast implementer, independent auditor) and execution mode (interactive vs
+  autonomous) — never a specific model name or provider.
+- User interaction is described as behavior ("ask the user", "present options",
+  "wait for response") — never as a specific tool invocation.
+- CLI references use generic terms ("agent CLI", "installed CLIs") — never
+  specific product names.
+
+This ensures commands work identically across Claude Code, Codex CLI, OpenCode,
+Aider, and any future agent runtime.

@@ -2,13 +2,13 @@
 
 The human validation checkpoint. The agent does the inspection work — reads the spec, reads the audit, reads the code — then walks the user through an interactive demo of the feature before submitting a PR.
 
-**Suggested model:** Strong communicator (e.g., Opus via TUI). Needs excellent interactive skills for the demo walkthrough.
+**Suggested model:** Strong communicator. Interactive — requires user dialogue. Needs excellent interactive skills for the demo walkthrough.
 
 ## Important Guidelines
 
 - Human-in-the-loop — the user validates; the agent investigates and presents
 - Do NOT ask the user generic yes/no checklist questions. Instead, read the code yourself, summarize what you found, and ask the user to confirm specific behaviors.
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
+- When asking the user a question, present numbered options and wait for their response before proceeding.
 - If the demo fails during the walkthrough, stop and discuss with the user — do not silently fix
 
 ## Prerequisites

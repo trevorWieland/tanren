@@ -2,12 +2,12 @@
 
 Pull PR review comments and automated analysis feedback, evaluate their correctness, and route valid feedback into the spec workflow as tasks. Interactive — the user validates the triage before any actions are taken.
 
-**Suggested model:** Strong reasoner with good judgment (e.g., Opus via TUI). Evaluating whether a reviewer is correct requires deep technical reasoning and the user must approve the triage.
+**Suggested model:** Strong reasoner with good judgment. Interactive — requires user dialogue. Evaluating whether a reviewer is correct requires deep technical reasoning and the user must approve the triage.
 
 ## Important Guidelines
 
 - Human-in-the-loop — the user approves the triage before any changes or replies are posted
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
+- When asking the user a question, present numbered options and wait for their response before proceeding.
 - Never blindly accept feedback — verify every claim against the actual code
 - Never blindly reject feedback — incorrect dismissals erode reviewer trust
 - Never modify spec.md
@@ -171,7 +171,7 @@ N. **[CI: {make_target}] {test_name or rule}** at `{file:line}`
 - [list of duplicates referencing which item they duplicate]
 ```
 
-Use AskUserQuestion to let the user:
+Ask the user to:
 - Override any classification (e.g., promote "invalid" to "valid-actionable" if they disagree)
 - Edit draft replies before posting
 - Choose which actions to take

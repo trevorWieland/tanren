@@ -2,12 +2,12 @@
 
 Sync `tanren/product/roadmap.md` with GitHub issues labeled `type:spec`. Use GitHub as the source of truth for spec ids. Interactive — the user approves all conflict resolutions and new issue/entry creation before any changes are made.
 
-**Suggested model:** Strong reasoner with good judgment (e.g., Opus via TUI). Conflict resolution and dependency alignment require cross-referencing multiple sources and the user must approve actions.
+**Suggested model:** Strong reasoner with good judgment. Interactive — requires user dialogue. Conflict resolution and dependency alignment require cross-referencing multiple sources and the user must approve actions.
 
 ## Important Guidelines
 
 - Human-in-the-loop — the user approves all sync actions before execution
-- Always use AskUserQuestion tool when asking the user anything. In TUI: use AskUserQuestion. Via the messaging platform: use send_message with numbered options and wait for reply.
+- When asking the user a question, present numbered options and wait for their response before proceeding.
 - Prefer GitHub issues for spec id allocation and dependency relationships
 - Ask on conflicts — never overwrite silently
 - Never modify spec.md files
@@ -64,7 +64,7 @@ For each `spec_id`, determine:
 
 ### Step 3: Resolve Conflicts (Ask)
 
-For each conflict, use AskUserQuestion with a recommended default:
+For each conflict, present options to the user with a recommended default:
 
 ```
 Conflict for sX.Y.ZZ — {field}:

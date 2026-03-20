@@ -2,7 +2,7 @@
 
 Pick up the next unchecked task from the plan, implement it, verify it, and commit it. One task per invocation. Fully autonomous — no user interaction.
 
-**Suggested model:** Fast, capable implementer (e.g., Sonnet via headless CLI). Cost-efficiency matters — this runs many times.
+**Suggested model:** Fast, capable implementer. Autonomous — no user interaction. Cost-efficiency matters — this runs many times.
 
 ## Important Guidelines
 
