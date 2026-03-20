@@ -35,7 +35,7 @@ permissions:
 jobs:
   version:
     name: Bump Version
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version to ')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -67,7 +67,7 @@ jobs:
       - name: Bump version
         id: bump
         run: |
-          version=$(python3 scripts/bump_version.py --part patch)
+          version=$(uv run --no-project python scripts/bump_version.py --part patch)
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Update lockfile
