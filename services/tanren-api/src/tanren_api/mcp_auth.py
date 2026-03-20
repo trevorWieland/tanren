@@ -1,13 +1,14 @@
 """MCP authentication middleware — reuses APIKeyVerifier for API key validation."""
-# ruff: noqa: DOC201,DOC501,ANN401
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+import mcp.types as mt
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.middleware.middleware import CallNext
+from fastmcp.tools.tool import ToolResult
 
 from tanren_api.auth import APIKeyVerifier
 from tanren_api.errors import AuthenticationError
@@ -28,8 +29,19 @@ class MCPApiKeyAuth(Middleware):
         """Initialize with the expected API key."""
         self._verifier = APIKeyVerifier(api_key)
 
-    async def on_call_tool(self, context: MiddlewareContext, call_next: Any) -> Any:
-        """Verify API key before executing a tool call."""
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+    ) -> ToolResult:
+        """Verify API key before executing a tool call.
+
+        Returns:
+            ToolResult from the downstream tool handler.
+
+        Raises:
+            McpError: If the API key is invalid or missing.
+        """
         tool_name: str = context.message.name
         if tool_name in _PUBLIC_TOOLS:
             return await call_next(context)
@@ -39,8 +51,8 @@ class MCPApiKeyAuth(Middleware):
         try:
             await self._verifier.verify(api_key)
         except AuthenticationError:
-            from mcp import McpError  # noqa: PLC0415
-            from mcp.types import ErrorData  # noqa: PLC0415
+            from mcp import McpError  # noqa: PLC0415 — deferred import for exception handling
+            from mcp.types import ErrorData  # noqa: PLC0415 — deferred import for exception handling
 
             raise McpError(
                 error=ErrorData(code=-32001, message="Invalid or missing API key")
