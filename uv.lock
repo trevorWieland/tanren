@@ -1549,6 +1549,9 @@ github = [
 hetzner = [
     { name = "hcloud" },
 ]
+linear = [
+    { name = "httpx" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1558,12 +1561,13 @@ requires-dist = [
     { name = "google-cloud-secret-manager", marker = "extra == 'gcp'", specifier = ">=2.20.0,<3" },
     { name = "hcloud", marker = "extra == 'hetzner'", specifier = ">=2.4.0,<3" },
     { name = "httpx", marker = "extra == 'github'", specifier = ">=0.27,<1" },
+    { name = "httpx", marker = "extra == 'linear'", specifier = ">=0.27,<1" },
     { name = "paramiko", specifier = ">=3.0,<4" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "python-dotenv", specifier = ">=1.0,<2" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["gcp", "github", "hetzner"]
+provides-extras = ["gcp", "github", "hetzner", "linear"]
 
 [[package]]
 name = "tanren-daemon"
@@ -1591,6 +1595,9 @@ github = [
 hetzner = [
     { name = "tanren-core", extra = ["hetzner"] },
 ]
+linear = [
+    { name = "tanren-core", extra = ["linear"] },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1603,7 +1610,7 @@ dev = [
     { name = "ruff" },
     { name = "tanren-api" },
     { name = "tanren-cli" },
-    { name = "tanren-core", extra = ["gcp", "github", "hetzner"] },
+    { name = "tanren-core", extra = ["gcp", "github", "hetzner", "linear"] },
     { name = "tanren-daemon" },
     { name = "ty" },
 ]
@@ -1613,8 +1620,9 @@ requires-dist = [
     { name = "tanren-core", extras = ["gcp"], marker = "extra == 'gcp'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["github"], marker = "extra == 'github'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["hetzner"], marker = "extra == 'hetzner'", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["linear"], marker = "extra == 'linear'", editable = "packages/tanren-core" },
 ]
-provides-extras = ["hetzner", "gcp", "github"]
+provides-extras = ["hetzner", "gcp", "github", "linear"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1630,6 +1638,7 @@ dev = [
     { name = "tanren-core", extras = ["gcp"], editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["github"], editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["hetzner"], editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["linear"], editable = "packages/tanren-core" },
     { name = "tanren-daemon", editable = "services/tanren-daemon" },
     { name = "ty", specifier = ">=0.0.1a13,<1" },
 ]
