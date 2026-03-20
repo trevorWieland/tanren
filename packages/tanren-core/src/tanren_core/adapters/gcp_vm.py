@@ -324,8 +324,9 @@ class GCPVMProvisioner:
     def _extract_ip(instance: object, *, prefer_external: bool = True) -> str | None:
         """Extract an IP from an instance's first network interface.
 
-        When *prefer_external* is True the external (NAT) IP is tried first.
-        The internal IP is always used as a fallback.
+        When *prefer_external* is True only the external (NAT) IP is returned;
+        returning None keeps the acquire() polling loop waiting for GCE to
+        populate the address.  When False the internal IP is used directly.
 
         Returns:
             The IP string, or None if not found.
@@ -340,7 +341,8 @@ class GCPVMProvisioner:
                 ip = getattr(access_configs[0], "nat_i_p", None)
                 if isinstance(ip, str) and ip:
                     return ip
-        # Internal IP fallback
+            return None
+        # Private VPC mode — use internal IP directly
         internal = getattr(first, "network_i_p", None)
         if isinstance(internal, str) and internal:
             return internal

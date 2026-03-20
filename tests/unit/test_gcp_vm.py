@@ -292,20 +292,25 @@ async def test_acquire_external_ip_attaches_access_config(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_acquire_falls_back_to_internal_ip(monkeypatch):
+async def test_acquire_waits_for_external_ip_when_enabled(monkeypatch):
     monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
-    # External IP enabled but not yet assigned (empty string)
-    fake = _FakeInstance(ip="", internal_ip="10.128.0.9")
+    # First poll: RUNNING but external IP not yet assigned; second poll: IP available
+    no_ip = _FakeInstance(ip="", internal_ip="10.128.0.9")
+    with_ip = _FakeInstance(ip="34.120.0.2", internal_ip="10.128.0.9")
     insert_op = Mock()
     insert_op.result = Mock(return_value=None)
     client = Mock()
     client.insert = Mock(return_value=insert_op)
-    client.get = Mock(return_value=fake)
+    client.get = Mock(side_effect=[no_ip, with_ip])
 
-    provisioner = _make_provisioner(monkeypatch, client, enable_external_ip=True)
+    provisioner = _make_provisioner(
+        monkeypatch, client, enable_external_ip=True, poll_interval_secs=1
+    )
     handle = await provisioner.acquire(VMRequirements(profile="default"))
 
-    assert handle.host == "10.128.0.9"
+    # Must have polled twice and returned the external IP, not the internal one
+    assert handle.host == "34.120.0.2"
+    assert client.get.call_count == 2
 
 
 def test_boot_disk_size_and_type_in_instance_resource(monkeypatch):
