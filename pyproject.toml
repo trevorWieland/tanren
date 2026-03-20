@@ -7,6 +7,7 @@ requires-python = ">=3.14"
 [project.optional-dependencies]
 hetzner = ["tanren-core[hetzner]"]
 gcp = ["tanren-core[gcp]"]
+github = ["tanren-core[github]"]
 
 [tool.uv]
 managed = true
@@ -76,12 +77,13 @@ markers = [
     "hetzner: requires Hetzner API token and provisions real VMs",
     "gcp: requires GCP credentials and provisions real VMs",
     "postgres: requires a real Postgres database",
+    "github: requires GitHub token and accesses real GitHub API",
 ]
 
 # ===== COVERAGE =====
 [tool.coverage.run]
 source = ["packages", "services"]
-omit = ["*/tests/*", "*/__pycache__/*", "*/adapters/hetzner_vm.py", "*/adapters/gcp_vm.py"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/adapters/hetzner_vm.py", "*/adapters/gcp_vm.py", "*/adapters/github_issue.py"]
 
 [tool.coverage.report]
 fail_under = 80
@@ -98,6 +100,7 @@ exclude_lines = [
 [dependency-groups]
 dev = [
     "tanren-core[gcp]",
+    "tanren-core[github]",
     "tanren-core[hetzner]",
     "tanren-cli",
     "tanren-api",
