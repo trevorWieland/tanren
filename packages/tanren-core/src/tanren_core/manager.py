@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         WorktreeManager,
     )
     from tanren_core.adapters.protocols import VMProvisioner as VMProvisionerProtocol
+    from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 
 
 from tanren_core.adapters import (
@@ -52,11 +53,12 @@ from tanren_core.adapters import (
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
 from tanren_core.adapters.postgres_pool import is_postgres_url
-from tanren_core.adapters.remote_types import VMHandle, VMProvider
+from tanren_core.adapters.remote_types import VMHandle, VMProvider, WorkspacePath
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.types import (
     EnvironmentHandle,
     LocalEnvironmentRuntime,
+    PhaseResult,
     ProvisionError,
     RemoteEnvironmentRuntime,
 )
@@ -68,14 +70,20 @@ from tanren_core.config import Config
 from tanren_core.heartbeat import HeartbeatWriter
 from tanren_core.ipc import (
     atomic_write,
+    delete_checkpoint,
     delete_file,
+    list_checkpoints,
+    read_checkpoint,
     scan_dispatch_dir,
+    write_checkpoint,
     write_nudge,
     write_result,
 )
 from tanren_core.queues import DispatchRouter
 from tanren_core.remote_config import ProvisionerType, load_remote_config
 from tanren_core.schemas import (
+    Checkpoint,
+    CheckpointStage,
     Cli,
     Dispatch,
     FindingSeverity,
@@ -159,6 +167,8 @@ class WorkerManager:
         self._results_dir = Path(self._config.ipc_dir) / "results"
         self._in_progress_dir = Path(self._config.ipc_dir) / "in-progress"
         self._input_dir = Path(self._config.ipc_dir) / "input"
+        self._checkpoints_dir = Path(self._config.checkpoints_dir)
+        self._checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self._heartbeat = HeartbeatWriter(self._in_progress_dir, self._config.heartbeat_interval)
         self._router = DispatchRouter(
             handler=self._handle_dispatch,
@@ -243,6 +253,9 @@ class WorkerManager:
 
         # Startup recovery: check active VM assignments
         await self._recover_vm_state()
+
+        # Startup recovery: resume stale checkpoints
+        await self._recover_checkpoints()
 
         self._started_at = datetime.now(UTC).isoformat()
 
@@ -620,24 +633,30 @@ class WorkerManager:
         dispatch_stem: str,
         worktree_path: Path,
     ) -> None:
-        """Handle agent/gate phases: provision, execute, report."""
+        """Handle agent/gate phases: provision, execute, post-process, write result.
+
+        Writes progressive checkpoints at each phase boundary so that
+        partially completed dispatches can be resumed after a crash.
+        """
         start = time.monotonic()
+        now = datetime.now(UTC).isoformat()
+
+        # Write initial checkpoint (DISPATCHED)
+        checkpoint = Checkpoint(
+            workflow_id=dispatch.workflow_id,
+            stage=CheckpointStage.DISPATCHED,
+            dispatch_json=dispatch.model_dump_json(),
+            worktree_path=str(worktree_path),
+            dispatch_stem=dispatch_stem,
+            created_at=now,
+            updated_at=now,
+        )
+        await write_checkpoint(self._checkpoints_dir, checkpoint)
 
         # 1. Provision
         try:
-            handle = await self._execution_env.provision(dispatch, self._config)
-
-            await self._emitter.emit(
-                PreflightCompleted(
-                    timestamp=datetime.now(UTC).isoformat(),
-                    workflow_id=dispatch.workflow_id,
-                    passed=True,
-                    repairs=self._preflight_repairs(handle),
-                )
-            )
-
+            handle = await self._provision_phase(dispatch)
         except ProvisionError as e:
-            # Emit PreflightCompleted(passed=False) if preflight ran
             await self._emitter.emit(
                 PreflightCompleted(
                     timestamp=datetime.now(UTC).isoformat(),
@@ -647,141 +666,33 @@ class WorkerManager:
                 )
             )
             await self._write_result_and_nudge(e.result, dispatch.workflow_id)
+            await delete_checkpoint(self._checkpoints_dir, dispatch.workflow_id)
             return
 
-        # 2. Execute
+        # Update checkpoint to PROVISIONED
+        checkpoint.stage = CheckpointStage.PROVISIONED
+        checkpoint.vm_id = self._extract_vm_id(handle)
+        checkpoint.environment_profile = dispatch.environment_profile
+        if handle.runtime.kind == "remote":
+            remote_rt = cast("RemoteEnvironmentRuntime", handle.runtime)
+            checkpoint.workspace_remote_path = remote_rt.workspace_path.path
+        checkpoint.updated_at = datetime.now(UTC).isoformat()
+        await write_checkpoint(self._checkpoints_dir, checkpoint)
+
+        # 2. Execute + 3. Post-process
         dispatch_start_utc = datetime.now(UTC)
         try:
-            phase_result = await self._execution_env.execute(
-                handle, dispatch, self._config, dispatch_stem=dispatch_stem
-            )
+            phase_result = await self._execute_phase(handle, dispatch, dispatch_stem)
 
-            duration = phase_result.duration_secs
-            spec_folder_path = worktree_path / dispatch.spec_folder
+            # Update checkpoint to EXECUTED
+            checkpoint.stage = CheckpointStage.EXECUTED
+            checkpoint.phase_result_json = phase_result.model_dump_json()
+            checkpoint.dispatch_start_utc = dispatch_start_utc.isoformat()
+            checkpoint.updated_at = datetime.now(UTC).isoformat()
+            await write_checkpoint(self._checkpoints_dir, checkpoint)
 
-            # 2b. Sync remote changes to local worktree for findings parsing
-            if self._config.remote_config_path:
-                await self._sync_remote_changes(worktree_path)
-
-            # 3. Build gate_output (gate phases only)
-            gate_output = None
-            if dispatch.phase == Phase.GATE:
-                gate_output = _build_gate_output(phase_result.stdout, phase_result.outcome)
-
-            # 4. Build tail_output
-            tail_output = None
-            is_agent_phase = dispatch.phase not in (
-                Phase.GATE,
-                Phase.SETUP,
-                Phase.CLEANUP,
-            )
-            if is_agent_phase or phase_result.outcome != Outcome.SUCCESS:
-                tail_output = build_tail_output(phase_result.stdout)
-
-            # 5. Apply postflight results
-            pushed: bool | None = None
-            integrity_repairs = None
-            spec_modified = False
-            if phase_result.postflight_result is not None:
-                postflight_result = phase_result.postflight_result
-
-                await self._emitter.emit(
-                    PostflightCompleted(
-                        timestamp=datetime.now(UTC).isoformat(),
-                        workflow_id=dispatch.workflow_id,
-                        phase=dispatch.phase.value,
-                        pushed=postflight_result.pushed,
-                        integrity_repairs=postflight_result.integrity_repairs,
-                    )
-                )
-
-                pushed = postflight_result.pushed
-                integrity_repairs = postflight_result.integrity_repairs
-                spec_modified = postflight_result.integrity_repairs.spec_reverted
-                if not postflight_result.pushed and postflight_result.push_error:
-                    if tail_output:
-                        tail_output += (
-                            f"\n\n--- git push failed ---\n{postflight_result.push_error}"
-                        )
-                    else:
-                        tail_output = f"git push failed: {postflight_result.push_error}"
-
-            # Capture execution-end timestamp before any post-processing
-            exec_end_utc = datetime.now(UTC)
-
-            # 6. Parse structured findings
-            new_tasks, findings_data = self._parse_findings(dispatch, spec_folder_path)
-
-            # 6b. Collect token usage (best-effort, 30s timeout)
-            token_usage_data = None
-            if dispatch.cli != Cli.BASH:
-                if isinstance(handle.runtime, RemoteEnvironmentRuntime):
-                    # Already collected inside SSHExecutionEnvironment.execute()
-                    if phase_result.token_usage is not None:
-                        token_usage_data = phase_result.token_usage.model_dump(mode="json")
-                else:
-                    # Local execution: collect here
-                    runner = LocalCommandRunner()
-                    usage = await collect_token_usage(
-                        dispatch.cli,
-                        str(worktree_path),
-                        dispatch_start_utc,
-                        exec_end_utc,
-                        self._config,
-                        runner,
-                    )
-                    if usage is not None:
-                        token_usage_data = usage.model_dump(mode="json")
-
-                if token_usage_data is not None:
-                    await self._emitter.emit(
-                        TokenUsageRecorded(
-                            timestamp=datetime.now(UTC).isoformat(),
-                            workflow_id=dispatch.workflow_id,
-                            phase=dispatch.phase.value,
-                            project=dispatch.project,
-                            cli=dispatch.cli.value,
-                            **{
-                                k: v
-                                for k, v in token_usage_data.items()
-                                if k not in ("provider", "project")
-                            },
-                        )
-                    )
-
-            # 7. Construct Result
-            result = Result(
-                workflow_id=dispatch.workflow_id,
-                phase=dispatch.phase,
-                outcome=phase_result.outcome,
-                signal=phase_result.signal,
-                exit_code=phase_result.exit_code,
-                duration_secs=duration,
-                gate_output=gate_output,
-                tail_output=tail_output,
-                stderr_tail=build_tail_output(phase_result.stderr),
-                unchecked_tasks=phase_result.unchecked_tasks,
-                plan_hash=phase_result.plan_hash,
-                spec_modified=spec_modified,
-                pushed=pushed,
-                integrity_repairs=integrity_repairs,
-                new_tasks=new_tasks,
-                findings=findings_data,
-                token_usage=token_usage_data,
-            )
-
-            # 8. Emit PhaseCompleted
-            await self._emitter.emit(
-                PhaseCompleted(
-                    timestamp=datetime.now(UTC).isoformat(),
-                    workflow_id=dispatch.workflow_id,
-                    phase=dispatch.phase.value,
-                    project=dispatch.project,
-                    outcome=phase_result.outcome.value,
-                    signal=phase_result.signal,
-                    duration_secs=duration,
-                    exit_code=phase_result.exit_code,
-                )
+            result = await self._post_process_phase(
+                dispatch, handle, phase_result, worktree_path, dispatch_start_utc
             )
 
         except Exception as e:
@@ -799,11 +710,405 @@ class WorkerManager:
                 plan_hash="00000000",
                 spec_modified=False,
             )
+            # Record error in checkpoint
+            checkpoint.last_error = str(e)
+            checkpoint.failure_count += 1
+            checkpoint.updated_at = datetime.now(UTC).isoformat()
+            await write_checkpoint(self._checkpoints_dir, checkpoint)
 
         finally:
             await self._execution_env.teardown(handle)
 
+        # 4. Write result
         await self._write_result_and_nudge(result, dispatch.workflow_id)
+        await delete_checkpoint(self._checkpoints_dir, dispatch.workflow_id)
+
+    async def _provision_phase(self, dispatch: Dispatch) -> EnvironmentHandle:
+        """Phase 1: Provision execution environment.
+
+        Returns:
+            EnvironmentHandle on success.
+        """
+        handle = await self._execution_env.provision(dispatch, self._config)
+
+        await self._emitter.emit(
+            PreflightCompleted(
+                timestamp=datetime.now(UTC).isoformat(),
+                workflow_id=dispatch.workflow_id,
+                passed=True,
+                repairs=self._preflight_repairs(handle),
+            )
+        )
+
+        return handle
+
+    async def _execute_phase(
+        self,
+        handle: EnvironmentHandle,
+        dispatch: Dispatch,
+        dispatch_stem: str,
+    ) -> PhaseResult:
+        """Phase 2: Execute agent/gate process.
+
+        Returns:
+            PhaseResult with outcome, signal, and metrics.
+        """
+        return await self._execution_env.execute(
+            handle, dispatch, self._config, dispatch_stem=dispatch_stem
+        )
+
+    async def _post_process_phase(
+        self,
+        dispatch: Dispatch,
+        handle: EnvironmentHandle,
+        phase_result: PhaseResult,
+        worktree_path: Path,
+        dispatch_start_utc: datetime,
+    ) -> Result:
+        """Phase 3: Post-process execution results and construct Result.
+
+        Handles remote sync, gate/tail output, postflight, findings,
+        token usage, and PhaseCompleted event emission.
+
+        Returns:
+            Fully constructed Result ready for writing.
+        """
+        duration = phase_result.duration_secs
+        spec_folder_path = worktree_path / dispatch.spec_folder
+
+        # Sync remote changes to local worktree for findings parsing
+        if self._config.remote_config_path:
+            await self._sync_remote_changes(worktree_path)
+
+        # Build gate_output (gate phases only)
+        gate_output = None
+        if dispatch.phase == Phase.GATE:
+            gate_output = _build_gate_output(phase_result.stdout, phase_result.outcome)
+
+        # Build tail_output
+        tail_output = None
+        is_agent_phase = dispatch.phase not in (
+            Phase.GATE,
+            Phase.SETUP,
+            Phase.CLEANUP,
+        )
+        if is_agent_phase or phase_result.outcome != Outcome.SUCCESS:
+            tail_output = build_tail_output(phase_result.stdout)
+
+        # Apply postflight results
+        pushed: bool | None = None
+        integrity_repairs = None
+        spec_modified = False
+        if phase_result.postflight_result is not None:
+            postflight_result = phase_result.postflight_result
+
+            await self._emitter.emit(
+                PostflightCompleted(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    phase=dispatch.phase.value,
+                    pushed=postflight_result.pushed,
+                    integrity_repairs=postflight_result.integrity_repairs,
+                )
+            )
+
+            pushed = postflight_result.pushed
+            integrity_repairs = postflight_result.integrity_repairs
+            spec_modified = postflight_result.integrity_repairs.spec_reverted
+            if not postflight_result.pushed and postflight_result.push_error:
+                if tail_output:
+                    tail_output += f"\n\n--- git push failed ---\n{postflight_result.push_error}"
+                else:
+                    tail_output = f"git push failed: {postflight_result.push_error}"
+
+        # Capture execution-end timestamp before any post-processing
+        exec_end_utc = datetime.now(UTC)
+
+        # Parse structured findings
+        new_tasks, findings_data = self._parse_findings(dispatch, spec_folder_path)
+
+        # Collect token usage (best-effort, 30s timeout)
+        token_usage_data = None
+        if dispatch.cli != Cli.BASH:
+            if isinstance(handle.runtime, RemoteEnvironmentRuntime):
+                # Already collected inside SSHExecutionEnvironment.execute()
+                if phase_result.token_usage is not None:
+                    token_usage_data = phase_result.token_usage.model_dump(mode="json")
+            else:
+                # Local execution: collect here
+                runner = LocalCommandRunner()
+                usage = await collect_token_usage(
+                    dispatch.cli,
+                    str(worktree_path),
+                    dispatch_start_utc,
+                    exec_end_utc,
+                    self._config,
+                    runner,
+                )
+                if usage is not None:
+                    token_usage_data = usage.model_dump(mode="json")
+
+            if token_usage_data is not None:
+                await self._emitter.emit(
+                    TokenUsageRecorded(
+                        timestamp=datetime.now(UTC).isoformat(),
+                        workflow_id=dispatch.workflow_id,
+                        phase=dispatch.phase.value,
+                        project=dispatch.project,
+                        cli=dispatch.cli.value,
+                        **{
+                            k: v
+                            for k, v in token_usage_data.items()
+                            if k not in ("provider", "project")
+                        },
+                    )
+                )
+
+        # Construct Result
+        result = Result(
+            workflow_id=dispatch.workflow_id,
+            phase=dispatch.phase,
+            outcome=phase_result.outcome,
+            signal=phase_result.signal,
+            exit_code=phase_result.exit_code,
+            duration_secs=duration,
+            gate_output=gate_output,
+            tail_output=tail_output,
+            stderr_tail=build_tail_output(phase_result.stderr),
+            unchecked_tasks=phase_result.unchecked_tasks,
+            plan_hash=phase_result.plan_hash,
+            spec_modified=spec_modified,
+            pushed=pushed,
+            integrity_repairs=integrity_repairs,
+            new_tasks=new_tasks,
+            findings=findings_data,
+            token_usage=token_usage_data,
+        )
+
+        # Emit PhaseCompleted
+        await self._emitter.emit(
+            PhaseCompleted(
+                timestamp=datetime.now(UTC).isoformat(),
+                workflow_id=dispatch.workflow_id,
+                phase=dispatch.phase.value,
+                project=dispatch.project,
+                outcome=phase_result.outcome.value,
+                signal=phase_result.signal,
+                duration_secs=duration,
+                exit_code=phase_result.exit_code,
+            )
+        )
+
+        return result
+
+    def _extract_vm_id(self, handle: EnvironmentHandle) -> str | None:
+        """Extract VM ID from handle if remote runtime.
+
+        Returns:
+            VM ID string, or None for local environments.
+        """
+        if handle.runtime.kind == "remote":
+            remote_rt = cast("RemoteEnvironmentRuntime", handle.runtime)
+            return remote_rt.vm_handle.vm_id
+        return None
+
+    async def resume_dispatch(self, workflow_id: str) -> Result | None:
+        """Resume a dispatch from its most recent checkpoint.
+
+        Returns:
+            Result if the dispatch completed, None if no checkpoint found.
+
+        Raises:
+            ValueError: If the checkpoint's VM is no longer available.
+        """
+        checkpoint = await read_checkpoint(self._checkpoints_dir, workflow_id)
+        if checkpoint is None:
+            return None
+
+        dispatch = Dispatch.model_validate_json(checkpoint.dispatch_json)
+        worktree_path = Path(checkpoint.worktree_path)
+
+        # Increment retry count
+        checkpoint.retry_count += 1
+        checkpoint.updated_at = datetime.now(UTC).isoformat()
+        await write_checkpoint(self._checkpoints_dir, checkpoint)
+
+        logger.info(
+            "Resuming dispatch %s from stage %s (attempt %d)",
+            workflow_id,
+            checkpoint.stage,
+            checkpoint.retry_count,
+        )
+
+        handle: EnvironmentHandle | None = None
+        phase_result: PhaseResult | None = None
+        result: Result | None = None
+
+        try:
+            if checkpoint.stage == CheckpointStage.DISPATCHED:
+                # Re-run from provision
+                handle = await self._provision_phase(dispatch)
+                checkpoint.stage = CheckpointStage.PROVISIONED
+                checkpoint.vm_id = self._extract_vm_id(handle)
+                checkpoint.environment_profile = dispatch.environment_profile
+                if handle.runtime.kind == "remote":
+                    remote_rt = cast("RemoteEnvironmentRuntime", handle.runtime)
+                    checkpoint.workspace_remote_path = remote_rt.workspace_path.path
+                checkpoint.updated_at = datetime.now(UTC).isoformat()
+                await write_checkpoint(self._checkpoints_dir, checkpoint)
+
+            if checkpoint.stage == CheckpointStage.PROVISIONED:
+                # Skip provision, run execute + post-process
+                if handle is None:
+                    handle = await self._reconstruct_handle_for_resume(checkpoint, dispatch)
+                phase_result = await self._execute_phase(handle, dispatch, checkpoint.dispatch_stem)
+                checkpoint.stage = CheckpointStage.EXECUTED
+                checkpoint.phase_result_json = phase_result.model_dump_json()
+                checkpoint.dispatch_start_utc = datetime.now(UTC).isoformat()
+                checkpoint.updated_at = datetime.now(UTC).isoformat()
+                await write_checkpoint(self._checkpoints_dir, checkpoint)
+
+            if checkpoint.stage == CheckpointStage.EXECUTED:
+                # Skip provision + execute, run post-process only
+                if handle is None:
+                    handle = await self._reconstruct_handle_for_resume(checkpoint, dispatch)
+                if phase_result is None and checkpoint.phase_result_json:
+                    phase_result = PhaseResult.model_validate_json(checkpoint.phase_result_json)
+                if phase_result is None:
+                    raise ValueError("No phase_result available for post-processing")
+                dispatch_start_utc = datetime.now(UTC)
+                if checkpoint.dispatch_start_utc:
+                    dispatch_start_utc = datetime.fromisoformat(checkpoint.dispatch_start_utc)
+                result = await self._post_process_phase(
+                    dispatch, handle, phase_result, worktree_path, dispatch_start_utc
+                )
+
+            if checkpoint.stage == CheckpointStage.POST_PROCESSED:
+                logger.warning("Checkpoint at POST_PROCESSED stage — retrying result write only")
+
+            # Write result if available
+            if result is not None:
+                await self._write_result_and_nudge(result, workflow_id)
+
+        except Exception as exc:
+            logger.exception("Resume failed for %s", workflow_id)
+            checkpoint.last_error = str(exc)
+            checkpoint.failure_count += 1
+            checkpoint.updated_at = datetime.now(UTC).isoformat()
+            await write_checkpoint(self._checkpoints_dir, checkpoint)
+            raise
+
+        finally:
+            if handle is not None:
+                await self._execution_env.teardown(handle)
+
+        # Clean up checkpoint on success
+        await delete_checkpoint(self._checkpoints_dir, workflow_id)
+        return result
+
+    async def _reconstruct_handle_for_resume(
+        self,
+        checkpoint: Checkpoint,
+        dispatch: Dispatch,
+    ) -> EnvironmentHandle:
+        """Reconstruct an EnvironmentHandle from checkpoint data for resume.
+
+        For remote environments, validates the VM is still active.
+
+        Returns:
+            Reconstructed EnvironmentHandle.
+
+        Raises:
+            ValueError: If the VM is no longer available.
+        """
+        worktree_path = Path(checkpoint.worktree_path)
+
+        if checkpoint.vm_id is not None:
+            # Remote environment — verify VM still exists
+            if not hasattr(self, "_remote_state_store"):
+                raise ValueError("No remote state store available for VM verification")
+
+            assignment = await self._remote_state_store.get_assignment(checkpoint.vm_id)
+            if assignment is None:
+                raise ValueError(
+                    f"VM {checkpoint.vm_id} is no longer active — cannot resume. "
+                    "Re-dispatch the workflow."
+                )
+
+            from tanren_core.adapters.ssh import (  # noqa: PLC0415 — deferred import for optional dependency
+                SSHConfig,
+                SSHConnection,
+            )
+
+            ssh_env = cast("SSHExecutionEnvironment", self._execution_env)
+            ssh_config = SSHConfig(
+                host=assignment.host,
+                user=ssh_env.ssh_defaults.user,
+                key_path=ssh_env.ssh_defaults.key_path,
+                port=ssh_env.ssh_defaults.port,
+                connect_timeout=ssh_env.ssh_defaults.connect_timeout,
+                host_key_policy=ssh_env.ssh_defaults.host_key_policy,
+            )
+            conn = SSHConnection(ssh_config)
+
+            workspace_path = WorkspacePath(
+                path=checkpoint.workspace_remote_path or f"/workspace/{dispatch.project}",
+                project=dispatch.project,
+                branch=dispatch.branch,
+            )
+
+            profile = ssh_env._resolve_profile(dispatch, self._config)
+
+            return EnvironmentHandle(
+                env_id=f"resume-{checkpoint.workflow_id}",
+                worktree_path=worktree_path,
+                branch=dispatch.branch,
+                project=dispatch.project,
+                runtime=RemoteEnvironmentRuntime(
+                    vm_handle=VMHandle(
+                        vm_id=checkpoint.vm_id,
+                        host=assignment.host,
+                        provider=ssh_env._provider,
+                        created_at=assignment.assigned_at,
+                    ),
+                    connection=conn,
+                    workspace_path=workspace_path,
+                    profile=profile,
+                    teardown_commands=profile.teardown,
+                    provision_start=time.monotonic(),
+                    workflow_id=dispatch.workflow_id,
+                ),
+            )
+
+        # Local environment — simple reconstruction
+        return EnvironmentHandle(
+            env_id=f"resume-{checkpoint.workflow_id}",
+            worktree_path=worktree_path,
+            branch=dispatch.branch,
+            project=dispatch.project,
+            runtime=LocalEnvironmentRuntime(),
+        )
+
+    async def _recover_checkpoints(self) -> None:
+        """Resume any checkpointed dispatches found at startup.
+
+        Best-effort: logs errors but does not crash the worker.
+        """
+        checkpoints = await list_checkpoints(self._checkpoints_dir)
+        if not checkpoints:
+            return
+
+        logger.info("Found %d checkpoint(s) to resume at startup", len(checkpoints))
+        for cp in checkpoints:
+            try:
+                await self.resume_dispatch(cp.workflow_id)
+                logger.info("Successfully resumed dispatch %s", cp.workflow_id)
+            except Exception:
+                logger.warning(
+                    "Failed to resume dispatch %s — checkpoint retained for manual retry",
+                    cp.workflow_id,
+                    exc_info=True,
+                )
 
     def _parse_findings(
         self, dispatch: Dispatch, spec_folder_path: Path

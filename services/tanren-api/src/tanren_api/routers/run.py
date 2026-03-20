@@ -8,9 +8,12 @@ from fastapi import APIRouter, Depends, Path
 
 from tanren_api.dependencies import get_api_store, get_config, get_execution_env
 from tanren_api.models import (
+    CheckpointDetail,
+    CheckpointSummary,
     DispatchAccepted,
     ExecuteRequest,
     ProvisionRequest,
+    ResumeAccepted,
     RunEnvironment,
     RunExecuteAccepted,
     RunFullRequest,
@@ -109,3 +112,45 @@ async def run_status(
         RunStatus: Current status of the environment.
     """
     return await _run_service(store).status(env_id)
+
+
+@router.post("/run/{workflow_id}/resume")
+async def resume_dispatch(
+    workflow_id: Annotated[str, Path(description="Workflow ID to resume")],
+    store: Annotated[APIStateStore, Depends(get_api_store)],
+    execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
+    config: Annotated[Config, Depends(get_config)],
+) -> ResumeAccepted:
+    """Resume a checkpointed dispatch.
+
+    Returns:
+        ResumeAccepted confirmation.
+    """
+    return await _run_service(store, config, execution_env).resume(workflow_id)
+
+
+@router.get("/run/checkpoints")
+async def get_checkpoints(
+    store: Annotated[APIStateStore, Depends(get_api_store)],
+    config: Annotated[Config, Depends(get_config)],
+) -> list[CheckpointSummary]:
+    """List all active checkpoints.
+
+    Returns:
+        List of CheckpointSummary instances.
+    """
+    return await _run_service(store, config).get_checkpoints()
+
+
+@router.get("/run/{workflow_id}/checkpoint")
+async def get_checkpoint(
+    workflow_id: Annotated[str, Path(description="Workflow ID")],
+    store: Annotated[APIStateStore, Depends(get_api_store)],
+    config: Annotated[Config, Depends(get_config)],
+) -> CheckpointDetail:
+    """Get checkpoint details for a specific workflow.
+
+    Returns:
+        CheckpointDetail for the workflow.
+    """
+    return await _run_service(store, config).get_checkpoint(workflow_id)
