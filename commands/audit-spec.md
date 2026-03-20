@@ -2,7 +2,7 @@
 
 Bird's-eye audit of the full implementation after all tasks and demo pass. Score rubrics, check non-negotiables, verify standards adherence, detect regressions. Fully autonomous — no user interaction.
 
-**Suggested model:** Strong reasoner, different from do-task (e.g., Codex high reasoning via headless CLI). Deep review — quality matters more than speed.
+**Suggested model:** Strong reasoner, different from do-task. Autonomous — no user interaction. Deep review — quality matters more than speed.
 
 ## Important Guidelines
 

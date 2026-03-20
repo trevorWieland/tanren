@@ -2,7 +2,7 @@
 
 Execute the demo plan and validate it works. If it fails, investigate and route issues back to the task loop. Fully autonomous — no user interaction.
 
-**Suggested model:** Capable implementer with good debugging skills (e.g., Sonnet via headless CLI).
+**Suggested model:** Capable implementer with good debugging skills. Autonomous — no user interaction.
 
 ## Important Guidelines
 
