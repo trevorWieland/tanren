@@ -1,5 +1,5 @@
 .PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean \
-	docker-base docker-hetzner docker-gcp
+	docker docker-slim
 
 install:
 	uv sync --upgrade
@@ -46,14 +46,11 @@ ci:
 openapi:
 	uv run tanren-openapi
 
-docker-base:
+docker:
 	docker build -f services/tanren-api/Dockerfile -t tanren-api:latest .
 
-docker-hetzner:
-	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS=hetzner -t tanren-api:hetzner .
-
-docker-gcp:
-	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS=gcp -t tanren-api:gcp .
+docker-slim:
+	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS="" -t tanren-api:slim .
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

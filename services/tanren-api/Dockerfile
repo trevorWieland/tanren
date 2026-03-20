@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1
 # Build context: repo root (docker build -f services/tanren-api/Dockerfile .)
 #
-# Cloud provider extras (space-separated, e.g. "hetzner gcp" or "" for none):
-#   docker build --build-arg EXTRAS=hetzner -f services/tanren-api/Dockerfile .
+# Extras (default "all" includes every adapter; pass "" for a slim image):
+#   docker build -f services/tanren-api/Dockerfile .                 # all adapters
+#   docker build --build-arg EXTRAS="" -f services/tanren-api/Dockerfile .  # slim
 
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM python:3.14-slim-bookworm AS build
 
-ARG EXTRAS=""
+ARG EXTRAS="all"
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 

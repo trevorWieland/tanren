@@ -8,6 +8,7 @@ requires-python = ">=3.14"
 hetzner = ["tanren-core[hetzner]"]
 gcp = ["tanren-core[gcp]"]
 github = ["tanren-core[github]"]
+all = ["tanren-core[all]"]
 
 [tool.uv]
 managed = true
