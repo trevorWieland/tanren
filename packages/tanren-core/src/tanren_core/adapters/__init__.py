@@ -45,6 +45,10 @@ try:  # noqa: SIM105, RUF067
 except ImportError:  # httpx not installed
     pass
 try:  # noqa: SIM105, RUF067
+    from tanren_core.adapters.linear_issue import LinearIssueSettings, LinearIssueSource
+except ImportError:  # httpx not installed
+    pass
+try:  # noqa: SIM105, RUF067
     from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 except ImportError:  # hcloud not installed
     pass
@@ -142,6 +146,8 @@ __all__ = [
     "Issue",
     "IssueSource",
     "IssueSummary",
+    "LinearIssueSettings",
+    "LinearIssueSource",
     "LocalExecutionEnvironment",
     "ManualProvisionerSettings",
     "ManualVMConfig",
