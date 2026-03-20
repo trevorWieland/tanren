@@ -17,9 +17,9 @@ class GateTestResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(...)
-    passed: bool = Field(...)
-    output: str = Field(default="")
+    name: str = Field(..., description="Normalized test or check name")
+    passed: bool = Field(..., description="Whether the test passed")
+    output: str = Field(default="", description="Captured test output or error message")
 
 
 def evaluate_gate(

@@ -52,7 +52,9 @@ class MCPApiKeyAuth(Middleware):
             await self._verifier.verify(api_key)
         except AuthenticationError:
             from mcp import McpError  # noqa: PLC0415 — deferred import for exception handling
-            from mcp.types import ErrorData  # noqa: PLC0415 — deferred import for exception handling
+            from mcp.types import (
+                ErrorData,
+            )
 
             raise McpError(
                 error=ErrorData(code=-32001, message="Invalid or missing API key")

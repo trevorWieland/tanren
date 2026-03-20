@@ -25,9 +25,9 @@ class ResourceRequirements(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    cpu: int = Field(default=2, ge=1)
-    memory_gb: int = Field(default=4, ge=1)
-    gpu: bool = Field(default=False)
+    cpu: int = Field(default=2, ge=1, description="Number of CPU cores required")
+    memory_gb: int = Field(default=4, ge=1, description="Memory requirement in gigabytes")
+    gpu: bool = Field(default=False, description="Whether a GPU is required")
 
 
 class McpServerConfig(BaseModel):
@@ -35,8 +35,10 @@ class McpServerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    url: str = Field(...)
-    headers: dict[str, str] = Field(default_factory=dict)
+    url: str = Field(..., description="MCP server endpoint URL")
+    headers: dict[str, str] = Field(
+        default_factory=dict, description="HTTP headers to include in MCP requests"
+    )
 
 
 _MCP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -47,14 +49,26 @@ class EnvironmentProfile(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(...)
-    type: EnvironmentProfileType = Field(default=EnvironmentProfileType.LOCAL)
-    resources: ResourceRequirements = Field(default_factory=ResourceRequirements)
-    setup: tuple[str, ...] = Field(default_factory=tuple)
-    teardown: tuple[str, ...] = Field(default_factory=tuple)
-    gate_cmd: str = Field(default="make check")
-    server_type: str | None = Field(default=None)
-    mcp: dict[str, McpServerConfig] = Field(default_factory=dict)
+    name: str = Field(..., description="Profile name used for selection")
+    type: EnvironmentProfileType = Field(
+        default=EnvironmentProfileType.LOCAL, description="Execution environment type"
+    )
+    resources: ResourceRequirements = Field(
+        default_factory=ResourceRequirements, description="Compute resource requirements"
+    )
+    setup: tuple[str, ...] = Field(
+        default_factory=tuple, description="Shell commands to run during environment setup"
+    )
+    teardown: tuple[str, ...] = Field(
+        default_factory=tuple, description="Shell commands to run during environment teardown"
+    )
+    gate_cmd: str = Field(default="make check", description="Default gate command for this profile")
+    server_type: str | None = Field(
+        default=None, description="VM server type hint for the provisioner"
+    )
+    mcp: dict[str, McpServerConfig] = Field(
+        default_factory=dict, description="MCP server configurations keyed by server name"
+    )
 
     @field_validator("mcp")
     @classmethod
@@ -103,8 +117,12 @@ class IssueSourceConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    type: IssueSourceType = Field(default=IssueSourceType.GITHUB)
-    settings: dict[str, JsonValue] = Field(default_factory=dict)
+    type: IssueSourceType = Field(
+        default=IssueSourceType.GITHUB, description="Issue tracker backend type"
+    )
+    settings: dict[str, JsonValue] = Field(
+        default_factory=dict, description="Provider-specific issue source settings"
+    )
 
 
 def parse_issue_source(data: Mapping[str, object]) -> IssueSourceConfig | None:

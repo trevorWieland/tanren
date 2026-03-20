@@ -86,9 +86,11 @@ class BootstrapInstallStep(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(...)
-    check_command: str = Field(...)
-    install_command: str = Field(...)
+    name: str = Field(..., description="Human-readable name of the tool to install")
+    check_command: str = Field(
+        ..., description="Shell command to test if the tool is already installed"
+    )
+    install_command: str = Field(..., description="Shell command to install the tool")
 
 
 class BootstrapPlan(BaseModel):
@@ -96,8 +98,12 @@ class BootstrapPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    apt_packages: tuple[str, ...] = Field(default_factory=tuple)
-    install_steps: tuple[BootstrapInstallStep, ...] = Field(default_factory=tuple)
+    apt_packages: tuple[str, ...] = Field(
+        default_factory=tuple, description="APT packages to install before tool steps"
+    )
+    install_steps: tuple[BootstrapInstallStep, ...] = Field(
+        default_factory=tuple, description="Ordered list of conditional install steps"
+    )
 
 
 class UbuntuBootstrapper:

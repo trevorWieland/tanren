@@ -19,10 +19,10 @@ class RequiredEnvVar(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    key: str = Field(...)
-    description: str = Field(default="")
+    key: str = Field(..., description="Environment variable name")
+    description: str = Field(default="", description="Human-readable purpose of this variable")
     pattern: str | None = Field(default=None, description="Regex for re.fullmatch()")
-    hint: str = Field(default="")
+    hint: str = Field(default="", description="User-facing hint for how to set this variable")
     source: str | None = Field(
         default=None,
         description="Secret source, e.g. 'secret:my-api-key' to resolve via SecretProvider",
@@ -34,10 +34,10 @@ class OptionalEnvVar(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    key: str = Field(...)
-    description: str = Field(default="")
-    pattern: str | None = Field(default=None)
-    default: str | None = Field(default=None)
+    key: str = Field(..., description="Environment variable name")
+    description: str = Field(default="", description="Human-readable purpose of this variable")
+    pattern: str | None = Field(default=None, description="Regex pattern for value validation")
+    default: str | None = Field(default=None, description="Default value if variable is unset")
     source: str | None = Field(
         default=None,
         description="Secret source, e.g. 'secret:my-api-key' to resolve via SecretProvider",
@@ -56,8 +56,12 @@ class SecretsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    provider: SecretsProviderType = Field(default=SecretsProviderType.DOTENV)
-    settings: dict[str, str] = Field(default_factory=dict)
+    provider: SecretsProviderType = Field(
+        default=SecretsProviderType.DOTENV, description="Secret storage backend type"
+    )
+    settings: dict[str, str] = Field(
+        default_factory=dict, description="Provider-specific configuration settings"
+    )
 
 
 class EnvBlock(BaseModel):
@@ -65,9 +69,15 @@ class EnvBlock(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    on_missing: OnMissing = Field(default=OnMissing.ERROR)
-    required: list[RequiredEnvVar] = Field(default_factory=list)
-    optional: list[OptionalEnvVar] = Field(default_factory=list)
+    on_missing: OnMissing = Field(
+        default=OnMissing.ERROR, description="Policy when a required variable is missing"
+    )
+    required: list[RequiredEnvVar] = Field(
+        default_factory=list, description="Required environment variable declarations"
+    )
+    optional: list[OptionalEnvVar] = Field(
+        default_factory=list, description="Optional environment variable declarations"
+    )
 
 
 class TanrenConfig(BaseModel):
@@ -75,14 +85,22 @@ class TanrenConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: str = Field(...)
-    profile: str = Field(...)
-    installed: str = Field(...)
-    env: EnvBlock | None = Field(default=None)
-    secrets: SecretsConfig | None = Field(default=None)
+    version: str = Field(..., description="tanren.yml schema version")
+    profile: str = Field(..., description="Active environment profile name")
+    installed: str = Field(..., description="Date or version when tanren was installed")
+    env: EnvBlock | None = Field(
+        default=None, description="Environment variable policy and declarations"
+    )
+    secrets: SecretsConfig | None = Field(
+        default=None, description="Secret storage backend configuration"
+    )
     # Consumed by runtime environment selection logic outside env tooling.
-    environment: dict[str, object] | None = Field(default=None)
-    issue_source: dict[str, object] | None = Field(default=None)
+    environment: dict[str, object] | None = Field(
+        default=None, description="Raw environment profile definitions"
+    )
+    issue_source: dict[str, object] | None = Field(
+        default=None, description="Raw issue source configuration"
+    )
 
     @model_validator(mode="before")
     @classmethod

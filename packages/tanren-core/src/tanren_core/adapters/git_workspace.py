@@ -33,9 +33,13 @@ class GitAuthConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    auth_method: GitAuthMethod = Field(default=GitAuthMethod.TOKEN)
-    token: str | None = Field(default=None)
-    ssh_key_path: str | None = Field(default=None)
+    auth_method: GitAuthMethod = Field(
+        default=GitAuthMethod.TOKEN, description="Git authentication method (token or ssh)"
+    )
+    token: str | None = Field(default=None, description="Personal access token for HTTPS git auth")
+    ssh_key_path: str | None = Field(
+        default=None, description="Path to SSH private key for git auth"
+    )
 
 
 class GitWorkspaceManager:

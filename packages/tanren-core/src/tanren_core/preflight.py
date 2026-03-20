@@ -22,11 +22,17 @@ class PreflightResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    passed: bool = Field(...)
-    repairs: list[str] = Field(default_factory=list)
-    error: str | None = Field(default=None)
-    file_hashes: dict[str, str] = Field(default_factory=dict)
-    file_backups: dict[str, str] = Field(default_factory=dict)
+    passed: bool = Field(..., description="Whether all pre-flight checks passed")
+    repairs: list[str] = Field(
+        default_factory=list, description="Descriptions of auto-repairs performed"
+    )
+    error: str | None = Field(default=None, description="Fatal error message if checks failed")
+    file_hashes: dict[str, str] = Field(
+        default_factory=dict, description="MD5 hashes of protected files before execution"
+    )
+    file_backups: dict[str, str] = Field(
+        default_factory=dict, description="Full text backups of protected files for revert"
+    )
 
 
 async def run_preflight(

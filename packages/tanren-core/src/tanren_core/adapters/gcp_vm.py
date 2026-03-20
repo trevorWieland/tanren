@@ -50,20 +50,37 @@ class GCPProvisionerSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    project_id: str = Field(...)
-    zone: str = Field(...)
-    default_machine_type: str = Field(...)
-    image_family: str = Field(...)
-    image_project: str = Field(default="ubuntu-os-cloud")
-    network: str = Field(default="default")
-    subnet: str | None = Field(default=None)
-    ssh_user: str = Field(default="tanren")
-    ssh_key_env: str = Field(default="GCP_SSH_PUBLIC_KEY")
-    service_account_email: str | None = Field(default=None)
-    name_prefix: str = Field(default="tanren")
-    labels: dict[str, str] = Field(default_factory=dict)
-    managed_by_label_key: str = Field(default="managed-by")
-    managed_by_label_value: str = Field(default="tanren")
+    project_id: str = Field(..., description="GCP project ID")
+    zone: str = Field(..., description="GCP zone (e.g. us-central1-a)")
+    default_machine_type: str = Field(..., description="Default machine type (e.g. e2-standard-4)")
+    image_family: str = Field(..., description="OS image family (e.g. ubuntu-2404-lts-amd64)")
+    image_project: str = Field(
+        default="ubuntu-os-cloud", description="GCP project hosting the image family"
+    )
+    network: str = Field(default="default", description="VPC network name")
+    subnet: str | None = Field(
+        default=None, description="VPC subnet name (auto-detected if omitted)"
+    )
+    ssh_user: str = Field(
+        default="tanren", description="SSH username provisioned via instance metadata"
+    )
+    ssh_key_env: str = Field(
+        default="GCP_SSH_PUBLIC_KEY",
+        description="Environment variable containing the SSH public key",
+    )
+    service_account_email: str | None = Field(
+        default=None, description="GCP service account email to attach to instances"
+    )
+    name_prefix: str = Field(default="tanren", description="Prefix for generated instance names")
+    labels: dict[str, str] = Field(
+        default_factory=dict, description="Additional labels to apply to created instances"
+    )
+    managed_by_label_key: str = Field(
+        default="managed-by", description="Label key used to identify managed instances"
+    )
+    managed_by_label_value: str = Field(
+        default="tanren", description="Label value used to identify managed instances"
+    )
     enable_external_ip: bool = Field(
         default=True,
         description=(
@@ -80,8 +97,12 @@ class GCPProvisionerSettings(BaseModel):
         default="pd-balanced",
         description="Boot disk type short name (e.g. pd-balanced, pd-ssd, pd-standard).",
     )
-    readiness_timeout_secs: int = Field(default=300, ge=10)
-    poll_interval_secs: int = Field(default=5, ge=1)
+    readiness_timeout_secs: int = Field(
+        default=300, ge=10, description="Maximum seconds to wait for VM readiness"
+    )
+    poll_interval_secs: int = Field(
+        default=5, ge=1, description="Seconds between readiness poll attempts"
+    )
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, JsonValue]) -> GCPProvisionerSettings:

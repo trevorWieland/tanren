@@ -23,8 +23,14 @@ class SecretConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    developer_secrets_path: str = Field(default=str(DEFAULT_SECRETS_DIR / "secrets.env"))
-    infrastructure_env_vars: tuple[str, ...] = Field(default=("GIT_TOKEN",))
+    developer_secrets_path: str = Field(
+        default=str(DEFAULT_SECRETS_DIR / "secrets.env"),
+        description="Filesystem path to the developer secrets.env file",
+    )
+    infrastructure_env_vars: tuple[str, ...] = Field(
+        default=("GIT_TOKEN",),
+        description="Environment variable names to load as infrastructure secrets",
+    )
 
 
 class SecretLoader:

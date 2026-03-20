@@ -55,10 +55,10 @@ class ProcessResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    exit_code: int = Field(...)
-    stdout: str = Field(default="")
-    timed_out: bool = Field(...)
-    duration_secs: int = Field(..., ge=0)
+    exit_code: int = Field(..., description="Process exit code")
+    stdout: str = Field(default="", description="Captured standard output")
+    timed_out: bool = Field(..., description="Whether the process was killed due to timeout")
+    duration_secs: int = Field(..., ge=0, description="Wall-clock execution time in seconds")
 
 
 def assemble_prompt(

@@ -23,12 +23,16 @@ class SSHConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    host: str = Field(...)
-    user: str = Field(default="root")
-    key_path: str = Field(default="~/.ssh/tanren_vm")
-    port: int = Field(default=22, ge=1, le=65535)
-    connect_timeout: int = Field(default=10, ge=1)
-    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
+    host: str = Field(..., description="Remote host address (IP or hostname)")
+    user: str = Field(default="root", description="SSH username")
+    key_path: str = Field(
+        default="~/.ssh/tanren_vm", description="Path to the SSH private key file"
+    )
+    port: int = Field(default=22, ge=1, le=65535, description="SSH port number")
+    connect_timeout: int = Field(default=10, ge=1, description="Connection timeout in seconds")
+    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(
+        default="auto_add", description="Host key verification policy"
+    )
 
 
 class SSHConnection:
@@ -210,7 +214,11 @@ class SSHConnection:
             RemoteResult with exit code, stdout, stderr, and timeout flag.
         """
         return await asyncio.to_thread(
-            self._run_sync, command, timeout=timeout_secs, stdin_data=stdin_data, request_pty=request_pty
+            self._run_sync,
+            command,
+            timeout=timeout_secs,
+            stdin_data=stdin_data,
+            request_pty=request_pty,
         )
 
     async def run_script(self, script: str, *, timeout_secs: int | None = None) -> RemoteResult:

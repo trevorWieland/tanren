@@ -26,11 +26,15 @@ class ManualVMConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    vm_id: str = Field(...)
-    host: str = Field(...)
-    labels: dict[str, str] = Field(default_factory=dict)
-    metadata: dict[str, str] = Field(default_factory=dict)
-    hourly_cost: float | None = Field(default=None, ge=0.0)
+    vm_id: str = Field(..., description="Unique VM identifier")
+    host: str = Field(..., description="VM host address (IP or hostname)")
+    labels: dict[str, str] = Field(default_factory=dict, description="Labels attached to this VM")
+    metadata: dict[str, str] = Field(
+        default_factory=dict, description="Arbitrary metadata key-value pairs"
+    )
+    hourly_cost: float | None = Field(
+        default=None, ge=0.0, description="Estimated hourly cost in USD"
+    )
 
     @classmethod
     def from_raw(cls, raw: Mapping[str, JsonValue]) -> ManualVMConfig:
@@ -50,7 +54,9 @@ class ManualProvisionerSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    vms: tuple[ManualVMConfig, ...] = Field(default_factory=tuple)
+    vms: tuple[ManualVMConfig, ...] = Field(
+        default_factory=tuple, description="Pre-configured VM pool entries"
+    )
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, JsonValue]) -> ManualProvisionerSettings:

@@ -31,17 +31,25 @@ class TokenUsage(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    input_tokens: int = Field(..., ge=0)
-    output_tokens: int = Field(..., ge=0)
-    cache_creation_tokens: int = Field(default=0, ge=0)
-    cache_read_tokens: int = Field(default=0, ge=0)
-    cached_input_tokens: int = Field(default=0, ge=0)
-    reasoning_tokens: int = Field(default=0, ge=0)
-    total_tokens: int = Field(..., ge=0)
-    total_cost: float = Field(..., ge=0.0)
-    models_used: list[str] = Field(default_factory=list)
-    provider: str = Field(...)
-    session_id: str | None = Field(default=None)
+    input_tokens: int = Field(..., ge=0, description="Number of input tokens consumed")
+    output_tokens: int = Field(..., ge=0, description="Number of output tokens generated")
+    cache_creation_tokens: int = Field(
+        default=0, ge=0, description="Tokens used to create prompt cache entries"
+    )
+    cache_read_tokens: int = Field(default=0, ge=0, description="Tokens served from prompt cache")
+    cached_input_tokens: int = Field(
+        default=0, ge=0, description="Input tokens served from cache (Codex-style)"
+    )
+    reasoning_tokens: int = Field(
+        default=0, ge=0, description="Tokens used for chain-of-thought reasoning"
+    )
+    total_tokens: int = Field(..., ge=0, description="Sum of all token categories")
+    total_cost: float = Field(..., ge=0.0, description="Estimated cost in USD")
+    models_used: list[str] = Field(
+        default_factory=list, description="Model identifiers used during the session"
+    )
+    provider: str = Field(..., description="Token usage provider name (claude, codex, opencode)")
+    session_id: str | None = Field(default=None, description="Provider-specific session identifier")
 
 
 class CommandRunner(Protocol):

@@ -121,7 +121,9 @@ class TestClaudeCredentialProvider:
         assert cred_uploads[0].args[1] == "/home/deploy/.claude/.credentials.json"
         assert cred_uploads[0].args[0] == creds
         conn.run.assert_any_call("mkdir -p /home/deploy/.claude", timeout_secs=10)
-        conn.run.assert_any_call("chmod 600 /home/deploy/.claude/.credentials.json", timeout_secs=10)
+        conn.run.assert_any_call(
+            "chmod 600 /home/deploy/.claude/.credentials.json", timeout_secs=10
+        )
 
     @pytest.mark.asyncio
     async def test_returns_false_when_key_missing(self):

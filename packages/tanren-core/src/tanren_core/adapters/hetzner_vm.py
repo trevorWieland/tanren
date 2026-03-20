@@ -45,18 +45,30 @@ class HetznerProvisionerSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    token_env: str = Field(default="HCLOUD_TOKEN")
-    default_server_type: str = Field(...)
-    location: str = Field(...)
-    image: str = Field(...)
-    architecture: str = Field(default="x86")
-    ssh_key_name: str = Field(...)
-    name_prefix: str = Field(default="tanren")
-    labels: dict[str, str] = Field(default_factory=dict)
-    managed_by_label_key: str = Field(default="managed-by")
-    managed_by_label_value: str = Field(default="tanren")
-    readiness_timeout_secs: int = Field(default=300, ge=10)
-    poll_interval_secs: int = Field(default=2, ge=1)
+    token_env: str = Field(
+        default="HCLOUD_TOKEN", description="Environment variable containing the Hetzner API token"
+    )
+    default_server_type: str = Field(..., description="Default Hetzner server type (e.g. cpx31)")
+    location: str = Field(..., description="Hetzner datacenter location (e.g. fsn1)")
+    image: str = Field(..., description="OS image name (e.g. ubuntu-24.04)")
+    architecture: str = Field(default="x86", description="CPU architecture for image lookup")
+    ssh_key_name: str = Field(..., description="Name of the SSH key registered in Hetzner")
+    name_prefix: str = Field(default="tanren", description="Prefix for generated server names")
+    labels: dict[str, str] = Field(
+        default_factory=dict, description="Additional labels to apply to created servers"
+    )
+    managed_by_label_key: str = Field(
+        default="managed-by", description="Label key used to identify managed servers"
+    )
+    managed_by_label_value: str = Field(
+        default="tanren", description="Label value used to identify managed servers"
+    )
+    readiness_timeout_secs: int = Field(
+        default=300, ge=10, description="Maximum seconds to wait for VM readiness"
+    )
+    poll_interval_secs: int = Field(
+        default=2, ge=1, description="Seconds between readiness poll attempts"
+    )
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, JsonValue]) -> HetznerProvisionerSettings:

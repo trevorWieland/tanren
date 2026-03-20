@@ -586,7 +586,9 @@ class SSHExecutionEnvironment:
                 _SSH_READY_POLL_SECS,
             )
             await asyncio.sleep(_SSH_READY_POLL_SECS)
-        raise TimeoutError(f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}")
+        raise TimeoutError(
+            f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}"
+        )
 
     def _resolve_profile(self, dispatch: Dispatch, config: Config) -> EnvironmentProfile:
         """Read tanren.yml locally and resolve environment profile.
