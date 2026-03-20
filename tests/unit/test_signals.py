@@ -1,6 +1,6 @@
 """Tests for signals module — covers every outcome mapping row from PROTOCOL.md."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.schemas import FindingSeverity, Outcome, Phase
 from tanren_core.signals import (
@@ -12,6 +12,9 @@ from tanren_core.signals import (
     parse_investigation_report,
     parse_signal_token,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestParseSignalToken:

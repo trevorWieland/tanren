@@ -257,7 +257,7 @@ async def check_isolation(  # noqa: RUF029 — kept async for consistency with c
     workflow_id: str,
     branch: str,
     worktree_path: Path,
-    github_dir: str,
+    github_dir: str,  # noqa: ARG001 — required by interface
 ) -> None:
     """Enforce isolation invariants: no shared branches, paths, or main copies.
 

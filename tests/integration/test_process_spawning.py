@@ -1,12 +1,18 @@
 """Integration test: real process spawning and timeout handling."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.config import Config
-from tanren_core.process import _run_with_timeout, spawn_process  # noqa: PLC2701
+from tanren_core.process import (
+    _run_with_timeout,
+    spawn_process,
+)
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestRunWithTimeout:
@@ -16,7 +22,7 @@ class TestRunWithTimeout:
             ["echo", "hello"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
         )
         assert result.exit_code == 0
         assert "hello" in result.stdout
@@ -28,7 +34,7 @@ class TestRunWithTimeout:
             ["bash", "-c", "exit 42"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
         )
         assert result.exit_code == 42
         assert not result.timed_out
@@ -39,7 +45,7 @@ class TestRunWithTimeout:
             ["cat"],
             cwd=tmp_path,
             stdin_data="hello from stdin",
-            timeout=10,
+            timeout_secs=10,
         )
         assert result.exit_code == 0
         assert "hello from stdin" in result.stdout
@@ -51,7 +57,7 @@ class TestRunWithTimeout:
             ["sleep", "60"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=1,
+            timeout_secs=1,
         )
         assert result.timed_out
         assert result.duration_secs >= 1
@@ -62,7 +68,7 @@ class TestRunWithTimeout:
             ["bash", "-c", "echo error >&2"],
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
         )
         assert "error" in result.stdout
 
@@ -174,7 +180,7 @@ class TestCliArgSmoke:
             cmd,
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
         )
         # "File not found" in stdout means opencode interpreted -f as part of
         # the message rather than as a flag — i.e. arg ordering is wrong.
@@ -203,7 +209,7 @@ class TestCliArgSmoke:
             cmd,
             cwd=tmp_path,
             stdin_data=None,
-            timeout=10,
+            timeout_secs=10,
         )
         # With wrong order, we expect an error about the file or arg parsing.
         # This validates our test oracle — if this test fails, the oracle
@@ -232,7 +238,7 @@ class TestCodexCliArgSmoke:
             cmd,
             cwd=tmp_path,
             stdin_data="Test prompt",
-            timeout=10,
+            timeout_secs=10,
         )
         # exit_code 2 = clap arg-parse error
         assert result.exit_code != 2

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.env import load_and_validate_env
-from tanren_core.env.validator import EnvReport
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from tanren_core.env.validator import EnvReport
 
 
 class DotenvEnvValidator:

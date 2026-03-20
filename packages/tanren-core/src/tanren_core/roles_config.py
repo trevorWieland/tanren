@@ -22,7 +22,7 @@ def load_roles_config(path: str | Path) -> RoleMapping:
 
     Raises:
         FileNotFoundError: If the config file does not exist.
-        ValueError: If the YAML is invalid or missing required fields.
+        TypeError: If the YAML structure is not a mapping or missing required sections.
     """
     path = Path(path)
     if not path.exists():
@@ -30,13 +30,13 @@ def load_roles_config(path: str | Path) -> RoleMapping:
 
     data = yaml.safe_load(path.read_text())
     if not isinstance(data, Mapping):
-        raise ValueError(f"Roles config {path}: expected a mapping, got {type(data).__name__}")
+        raise TypeError(f"Roles config {path}: expected a mapping, got {type(data).__name__}")
 
     agents = data.get("agents")
     if not isinstance(agents, Mapping):
-        raise ValueError(f"Roles config {path}: missing required 'agents' section")
+        raise TypeError(f"Roles config {path}: missing required 'agents' section")
 
-    def _as_str(raw: object) -> str | None:
+    def _as_str(raw: object) -> str | None:  # YAML value of unknown type; object is correct
         return raw if isinstance(raw, str) else None
 
     def _parse_cli(source: Mapping[str, object], context: str) -> Cli:
@@ -75,7 +75,7 @@ def load_roles_config(path: str | Path) -> RoleMapping:
 
     default_source = agents.get("default")
     if not isinstance(default_source, Mapping):
-        raise ValueError(
+        raise TypeError(
             f"Roles config {path}: agents.default must be a mapping with at least 'cli'"
         )
     default_tool = _parse_tool(default_source, "agents.default")

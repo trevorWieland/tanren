@@ -4,7 +4,10 @@ import asyncio
 import contextlib
 import logging
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +70,7 @@ class HeartbeatWriter:
                 with contextlib.suppress(FileNotFoundError):
                     entry.unlink()
 
-    async def _update_loop(self, path: Path, dispatch_stem: str) -> None:
+    async def _update_loop(self, path: Path, dispatch_stem: str) -> None:  # noqa: ARG002 — required by protocol interface
         """Background task: update heartbeat file every interval seconds."""
         try:
             while True:

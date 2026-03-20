@@ -3,9 +3,12 @@
 import asyncio
 import hashlib
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +32,27 @@ class IntegrityRepairs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    branch_switched: bool = Field(default=False)
-    spec_reverted: bool = Field(default=False)
-    plan_reverted: bool = Field(default=False)
-    makefile_modified: bool = Field(default=False)
-    deps_modified: bool = Field(default=False)
-    gitignore_modified: bool = Field(default=False)
-    wip_committed: bool = Field(default=False)
+    branch_switched: bool = Field(
+        default=False, description="Whether the agent switched away from the expected branch"
+    )
+    spec_reverted: bool = Field(
+        default=False, description="Whether spec.md was reverted to its pre-flight state"
+    )
+    plan_reverted: bool = Field(
+        default=False, description="Whether plan.md was reverted to its pre-flight state"
+    )
+    makefile_modified: bool = Field(
+        default=False, description="Whether the agent modified the Makefile"
+    )
+    deps_modified: bool = Field(
+        default=False, description="Whether the agent modified pyproject.toml"
+    )
+    gitignore_modified: bool = Field(
+        default=False, description="Whether the agent modified .gitignore"
+    )
+    wip_committed: bool = Field(
+        default=False, description="Whether uncommitted agent work was auto-committed"
+    )
 
 
 class PostflightResult(BaseModel):
@@ -43,9 +60,13 @@ class PostflightResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    integrity_repairs: IntegrityRepairs = Field(default_factory=IntegrityRepairs)
-    pushed: bool = Field(default=False)
-    push_error: str | None = Field(default=None)
+    integrity_repairs: IntegrityRepairs = Field(
+        default_factory=IntegrityRepairs, description="File and branch integrity repair indicators"
+    )
+    pushed: bool = Field(default=False, description="Whether changes were successfully pushed")
+    push_error: str | None = Field(
+        default=None, description="Git push error message if push failed"
+    )
 
 
 async def run_postflight(
@@ -102,7 +123,7 @@ async def run_postflight(
         if not fpath.exists():
             continue
         current_content = fpath.read_text()
-        current_md5 = hashlib.md5(current_content.encode()).hexdigest()
+        current_md5 = hashlib.md5(current_content.encode()).hexdigest()  # noqa: S324 — md5 for file-change detection, not cryptographic security
         if current_md5 == md5_original:
             continue
 

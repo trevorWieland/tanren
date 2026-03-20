@@ -1,12 +1,15 @@
 """Integration tests for roles_config YAML loading and parsing."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.roles import RoleMapping
 from tanren_core.roles_config import load_roles_config
 from tanren_core.schemas import AuthMode, Cli
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestLoadRolesConfig:
@@ -78,19 +81,19 @@ class TestLoadRolesConfig:
     def test_malformed_yaml_not_mapping(self, tmp_path: Path):
         cfg = tmp_path / "roles.yml"
         cfg.write_text("just a string\n")
-        with pytest.raises(ValueError, match="expected a mapping"):
+        with pytest.raises(TypeError, match="expected a mapping"):
             load_roles_config(cfg)
 
     def test_empty_yaml(self, tmp_path: Path):
         cfg = tmp_path / "roles.yml"
         cfg.write_text("")
-        with pytest.raises(ValueError, match="expected a mapping"):
+        with pytest.raises(TypeError, match="expected a mapping"):
             load_roles_config(cfg)
 
     def test_missing_agents_section(self, tmp_path: Path):
         cfg = tmp_path / "roles.yml"
         cfg.write_text("version: 1\n")
-        with pytest.raises(ValueError, match="missing required 'agents' section"):
+        with pytest.raises(TypeError, match="missing required 'agents' section"):
             load_roles_config(cfg)
 
     def test_missing_default_agent(self, tmp_path: Path):
@@ -102,7 +105,7 @@ class TestLoadRolesConfig:
             "    auth: api_key\n"
             "    model: sonnet-4\n"
         )
-        with pytest.raises(ValueError, match=r"agents\.default must be a mapping"):
+        with pytest.raises(TypeError, match=r"agents\.default must be a mapping"):
             load_roles_config(cfg)
 
     def test_invalid_cli_value(self, tmp_path: Path):

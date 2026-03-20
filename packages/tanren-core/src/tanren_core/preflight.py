@@ -4,9 +4,12 @@ import asyncio
 import hashlib
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +22,17 @@ class PreflightResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    passed: bool = Field(...)
-    repairs: list[str] = Field(default_factory=list)
-    error: str | None = Field(default=None)
-    file_hashes: dict[str, str] = Field(default_factory=dict)
-    file_backups: dict[str, str] = Field(default_factory=dict)
+    passed: bool = Field(..., description="Whether all pre-flight checks passed")
+    repairs: list[str] = Field(
+        default_factory=list, description="Descriptions of auto-repairs performed"
+    )
+    error: str | None = Field(default=None, description="Fatal error message if checks failed")
+    file_hashes: dict[str, str] = Field(
+        default_factory=dict, description="MD5 hashes of protected files before execution"
+    )
+    file_backups: dict[str, str] = Field(
+        default_factory=dict, description="Full text backups of protected files for revert"
+    )
 
 
 async def run_preflight(
@@ -102,7 +111,7 @@ async def run_preflight(
         fpath = worktree_path / fname
         if fpath.exists():
             content = fpath.read_text()
-            md5 = hashlib.md5(content.encode()).hexdigest()
+            md5 = hashlib.md5(content.encode()).hexdigest()  # noqa: S324 — md5 for file-change detection, not cryptographic security
             result.file_hashes[fname] = md5
             result.file_backups[fname] = content
 

@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import yaml
 from dotenv import dotenv_values
@@ -21,18 +21,6 @@ from tanren_core.adapters.credentials import (
     inject_all_cli_credentials,
 )
 from tanren_core.adapters.events import BootstrapCompleted, VMProvisioned, VMReleased
-from tanren_core.adapters.protocols import (
-    EnvironmentBootstrapper,
-    EventEmitter,
-    VMStateStore,
-)
-from tanren_core.adapters.protocols import (
-    VMProvisioner as VMProvisionerProtocol,
-)
-from tanren_core.adapters.protocols import (
-    WorkspaceManager as WorkspaceManagerProtocol,
-)
-from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import (
     VMHandle,
     VMProvider,
@@ -48,13 +36,27 @@ from tanren_core.adapters.types import (
     RemoteEnvironmentRuntime,
 )
 from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from tanren_core.process import assemble_prompt
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase, Result
-from tanren_core.secrets import SecretLoader
 from tanren_core.signals import map_outcome, parse_signal_token
+
+if TYPE_CHECKING:
+    from tanren_core.adapters.protocols import (
+        EnvironmentBootstrapper,
+        EventEmitter,
+        VMStateStore,
+    )
+    from tanren_core.adapters.protocols import (
+        VMProvisioner as VMProvisionerProtocol,
+    )
+    from tanren_core.adapters.protocols import (
+        WorkspaceManager as WorkspaceManagerProtocol,
+    )
+    from tanren_core.adapters.remote_runner import RemoteAgentRunner
+    from tanren_core.config import Config
+    from tanren_core.secrets import SecretLoader
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +187,7 @@ class SSHExecutionEnvironment:
             conn = SSHConnection(ssh_config)
 
             # 4b. Wait for SSH to accept connections (sshd lags behind API status)
-            await self._await_ssh_ready(conn, timeout=self._ssh_ready_timeout_secs)
+            await self._await_ssh_ready(conn, timeout_secs=self._ssh_ready_timeout_secs)
 
             # 5. Bootstrap VM (idempotent)
             bootstrap_result = await self._bootstrapper.bootstrap(conn)
@@ -232,7 +234,7 @@ class SSHExecutionEnvironment:
                     f"chown {quoted_user}:{quoted_user}"
                     f" /workspace/.developer-secrets /workspace/.git-askpass 2>/dev/null;"
                     f" chown -R {quoted_user}:{quoted_user} {quoted_ws}",
-                    timeout=10,
+                    timeout_secs=10,
                 )
 
             # 8. Inject all CLI credentials
@@ -247,7 +249,7 @@ class SSHExecutionEnvironment:
             if self._agent_user:
                 await conn.run(
                     f"chown -R {self._agent_user}:{self._agent_user} /home/{self._agent_user}",
-                    timeout=10,
+                    timeout_secs=10,
                 )
 
             # 9. Record assignment
@@ -314,7 +316,7 @@ class SSHExecutionEnvironment:
         dispatch: Dispatch,
         config: Config,
         *,
-        dispatch_stem: str = "",
+        dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:
         """Run agent on remote VM with retry logic.
 
@@ -326,8 +328,8 @@ class SSHExecutionEnvironment:
         """
         if handle.runtime.kind != "remote":
             raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-        conn = cast(SSHConnection, remote_runtime.connection)
+        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
+        conn = cast("SSHConnection", remote_runtime.connection)
         workspace = remote_runtime.workspace_path
 
         start = time.monotonic()
@@ -353,7 +355,7 @@ class SSHExecutionEnvironment:
                 prompt_content=prompt_content,
                 cli_command=cli_command,
                 signal_path=signal_path,
-                timeout=dispatch.timeout,
+                timeout_secs=dispatch.timeout,
             )
 
             # Parse signal token from raw file content
@@ -412,7 +414,7 @@ class SSHExecutionEnvironment:
         final_stdout = agent_result.stdout
         if dispatch.phase in _PUSH_PHASES and outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
             push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
-            push_result = await conn.run(self._wrap_for_agent_user(push_cmd), timeout=120)
+            push_result = await conn.run(self._wrap_for_agent_user(push_cmd), timeout_secs=120)
             if push_result.exit_code != 0:
                 logger.error(
                     "Remote git push failed (exit %d) for %s branch %s: %s",
@@ -442,7 +444,7 @@ class SSHExecutionEnvironment:
                 usage_runner,
             )
             if usage is not None:
-                token_usage_data = usage.model_dump(mode="json")
+                token_usage_data = usage
 
         return PhaseResult(
             outcome=outcome,
@@ -469,7 +471,7 @@ class SSHExecutionEnvironment:
         """
         if handle.runtime.kind != "remote":
             raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
         vm_handle = remote_runtime.vm_handle
         ssh_str = f"ssh {self._ssh_defaults.user}@{vm_handle.host}"
         vscode_str = (
@@ -496,8 +498,8 @@ class SSHExecutionEnvironment:
         """
         if handle.runtime.kind != "remote":
             raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-        conn = cast(SSHConnection, remote_runtime.connection)
+        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
+        conn = cast("SSHConnection", remote_runtime.connection)
         workspace = remote_runtime.workspace_path
         teardown_cmds = remote_runtime.teardown_commands
         vm_handle = remote_runtime.vm_handle
@@ -509,7 +511,7 @@ class SSHExecutionEnvironment:
                     teardown_cmd = f"cd {shlex.quote(workspace.path)} && {cmd}"
                     await conn.run(
                         self._wrap_for_agent_user(teardown_cmd),
-                        timeout=120,
+                        timeout_secs=120,
                     )
                 except Exception:
                     logger.warning("Teardown command failed: %s", cmd, exc_info=True)
@@ -522,7 +524,7 @@ class SSHExecutionEnvironment:
                 cred_paths = [p.replace("~", home) for p in raw_paths]
                 for cred_path in cred_paths:
                     try:
-                        await conn.run(f"rm -f {shlex.quote(cred_path)}", timeout=10)
+                        await conn.run(f"rm -f {shlex.quote(cred_path)}", timeout_secs=10)
                     except Exception:
                         logger.warning("Credential cleanup failed: %s", cred_path, exc_info=True)
             except Exception:
@@ -564,14 +566,14 @@ class SSHExecutionEnvironment:
         self,
         conn: SSHConnection,
         *,
-        timeout: int = _SSH_READY_TIMEOUT_SECS,  # noqa: ASYNC109
+        timeout_secs: int = _SSH_READY_TIMEOUT_SECS,
     ) -> None:
         """Poll SSH until the host accepts connections or deadline expires.
 
         Raises:
             TimeoutError: If SSH is not reachable within the timeout.
         """
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout_secs
         attempt = 0
         while time.monotonic() < deadline:
             attempt += 1
@@ -584,7 +586,9 @@ class SSHExecutionEnvironment:
                 _SSH_READY_POLL_SECS,
             )
             await asyncio.sleep(_SSH_READY_POLL_SECS)
-        raise TimeoutError(f"SSH not reachable within {timeout}s on {conn.get_host_identifier()}")
+        raise TimeoutError(
+            f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}"
+        )
 
     def _resolve_profile(self, dispatch: Dispatch, config: Config) -> EnvironmentProfile:
         """Read tanren.yml locally and resolve environment profile.
@@ -653,7 +657,7 @@ class SSHExecutionEnvironment:
         if not isinstance(data, dict):
             return None
 
-        from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415
+        from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415 — avoid circular import
 
         try:
             tc = TanrenConfig.model_validate(data)
@@ -671,7 +675,9 @@ class SSHExecutionEnvironment:
         if not has_sources:
             return None
 
-        from tanren_core.env.secret_provider_factory import create_secret_provider  # noqa: PLC0415
+        from tanren_core.env.secret_provider_factory import (  # noqa: PLC0415 — avoid circular import
+            create_secret_provider,
+        )
 
         secrets_dir = self._secrets_dir()
         provider = create_secret_provider(tc.secrets, secrets_dir=secrets_dir)

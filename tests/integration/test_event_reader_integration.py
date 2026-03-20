@@ -1,12 +1,15 @@
 """Integration tests for SqliteEventReader with real SQLite databases."""
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiosqlite
 import pytest
 
 from tanren_core.adapters.event_reader import SqliteEventReader, query_events
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 async def _create_events_db(db_path: Path, events: list[tuple]) -> None:

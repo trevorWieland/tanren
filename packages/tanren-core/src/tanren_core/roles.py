@@ -26,11 +26,13 @@ class AgentTool(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    cli: Cli = Field(...)
-    model: str | None = Field(default=None)
-    endpoint: str | None = Field(default=None)
-    auth: AuthMode = Field(default=AuthMode.API_KEY)
-    cli_path: str | None = Field(default=None)
+    cli: Cli = Field(..., description="CLI tool to use for this agent")
+    model: str | None = Field(default=None, description="Model identifier override")
+    endpoint: str | None = Field(default=None, description="Custom API endpoint URL")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode for the CLI")
+    cli_path: str | None = Field(
+        default=None, description="Custom filesystem path to the CLI binary"
+    )
 
 
 class RoleMapping(BaseModel):
@@ -42,12 +44,18 @@ class RoleMapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    default: AgentTool = Field(...)
-    conversation: AgentTool | None = Field(default=None)
-    implementation: AgentTool | None = Field(default=None)
-    audit: AgentTool | None = Field(default=None)
-    feedback: AgentTool | None = Field(default=None)
-    conflict_resolution: AgentTool | None = Field(default=None)
+    default: AgentTool = Field(..., description="Fallback agent tool for unmapped roles")
+    conversation: AgentTool | None = Field(
+        default=None, description="Agent tool for conversation phase"
+    )
+    implementation: AgentTool | None = Field(
+        default=None, description="Agent tool for implementation phase"
+    )
+    audit: AgentTool | None = Field(default=None, description="Agent tool for audit phase")
+    feedback: AgentTool | None = Field(default=None, description="Agent tool for feedback phase")
+    conflict_resolution: AgentTool | None = Field(
+        default=None, description="Agent tool for conflict resolution phase"
+    )
 
     def resolve(self, role: RoleName | str) -> AgentTool:
         """Resolve a role to its agent tool, falling back to default.

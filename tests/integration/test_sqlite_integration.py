@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiosqlite
 import pytest
@@ -11,6 +11,9 @@ from tanren_core.adapters.events import DispatchReceived
 from tanren_core.adapters.remote_types import VMAssignment
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_event(workflow_id: str = "wf-1") -> DispatchReceived:

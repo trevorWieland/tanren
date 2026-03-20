@@ -271,7 +271,7 @@ class TestParseIssueFromWorkflowId:
             parse_issue_from_workflow_id("invalid")
 
     def test_missing_prefix(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid workflow_id format"):
             parse_issue_from_workflow_id("rentl-144-1741359600")
 
     def test_project_context_numeric(self):

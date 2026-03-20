@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from tanren_core.adapters.events import Event
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tanren_core.adapters.events import Event
 
 
 class NullEventEmitter:

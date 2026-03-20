@@ -8,9 +8,12 @@ import re
 import secrets
 import time
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.schemas import Dispatch, Nudge, ProgressState, Result, TaskState
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def generate_filename() -> str:
@@ -58,7 +61,7 @@ async def scan_dispatch_dir(dispatch_dir: Path) -> list[tuple[Path, Dispatch]]:
                 content = entry.read_text()
                 dispatch = Dispatch.model_validate_json(content)
                 results.append((entry, dispatch))
-            except Exception:
+            except Exception:  # noqa: S112 — intentional continue on transient error
                 # Skip unparseable files — don't crash the poll loop
                 continue
         return results
@@ -136,9 +139,10 @@ async def init_progress_from_plan(plan_md_path: Path, spec_id: str) -> ProgressS
 
     def _parse() -> ProgressState:
         content = plan_md_path.read_text()
-        tasks = []
-        for match in re.finditer(r"^\s*- \[[ x]\] Task (\d+):\s*(.+)$", content, re.MULTILINE):
-            tasks.append(TaskState(id=int(match.group(1)), title=match.group(2).strip()))
+        tasks = [
+            TaskState(id=int(match.group(1)), title=match.group(2).strip())
+            for match in re.finditer(r"^\s*- \[[ x]\] Task (\d+):\s*(.+)$", content, re.MULTILINE)
+        ]
         now = datetime.now(UTC).isoformat()
         return ProgressState(spec_id=spec_id, created_at=now, updated_at=now, tasks=tasks)
 

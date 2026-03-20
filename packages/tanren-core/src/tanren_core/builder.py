@@ -15,16 +15,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncpg
 
+    from tanren_core.adapters.protocols import EventEmitter, VMStateStore
+    from tanren_core.config import Config
+
 from tanren_core.adapters.credentials import providers_for_clis
 from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
-from tanren_core.adapters.protocols import EventEmitter, VMStateStore
 from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
-from tanren_core.config import Config
 from tanren_core.remote_config import ProvisionerType, load_remote_config
 from tanren_core.roles_config import load_roles_config
 from tanren_core.secrets import SecretConfig, SecretLoader
@@ -65,11 +66,15 @@ def build_ssh_execution_environment(
     )
 
     if pool is not None:
-        from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+        from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
+            PostgresVMStateStore,
+        )
 
         state_store: VMStateStore = PostgresVMStateStore(pool)
     else:
-        from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore  # noqa: PLC0415
+        from tanren_core.adapters.sqlite_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
+            SqliteVMStateStore,
+        )
 
         state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
 
@@ -104,7 +109,7 @@ def build_ssh_execution_environment(
         vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), state_store)
         provider = VMProvider.MANUAL
     elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
-        from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415
+        from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415 — optional dep
             HetznerProvisionerSettings,
             HetznerVMProvisioner,
         )
@@ -113,7 +118,7 @@ def build_ssh_execution_environment(
         vm_provisioner = HetznerVMProvisioner(hetzner_settings)
         provider = VMProvider.HETZNER
     elif remote_cfg.provisioner.type == ProvisionerType.GCP:
-        from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415
+        from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415 — optional dep
             GCPProvisionerSettings,
             GCPVMProvisioner,
         )

@@ -61,7 +61,7 @@ class TestOpencodeCredentialProvider:
         assert data["zai-coding-plan"]["type"] == "api"
         assert data["zai-coding-plan"]["key"] == "zai-key-123"
         conn.run.assert_any_call(
-            "chmod 600 /home/deploy/.local/share/opencode/auth.json", timeout=10
+            "chmod 600 /home/deploy/.local/share/opencode/auth.json", timeout_secs=10
         )
 
     @pytest.mark.asyncio
@@ -120,8 +120,10 @@ class TestClaudeCredentialProvider:
         assert len(cred_uploads) == 1
         assert cred_uploads[0].args[1] == "/home/deploy/.claude/.credentials.json"
         assert cred_uploads[0].args[0] == creds
-        conn.run.assert_any_call("mkdir -p /home/deploy/.claude", timeout=10)
-        conn.run.assert_any_call("chmod 600 /home/deploy/.claude/.credentials.json", timeout=10)
+        conn.run.assert_any_call("mkdir -p /home/deploy/.claude", timeout_secs=10)
+        conn.run.assert_any_call(
+            "chmod 600 /home/deploy/.claude/.credentials.json", timeout_secs=10
+        )
 
     @pytest.mark.asyncio
     async def test_returns_false_when_key_missing(self):
@@ -163,8 +165,8 @@ class TestCodexCredentialProvider:
         assert len(auth_uploads) == 1
         assert auth_uploads[0].args[1] == "/root/.codex/auth.json"
         assert auth_uploads[0].args[0] == auth
-        conn.run.assert_any_call("mkdir -p /root/.codex", timeout=10)
-        conn.run.assert_any_call("chmod 600 /root/.codex/auth.json", timeout=10)
+        conn.run.assert_any_call("mkdir -p /root/.codex", timeout_secs=10)
+        conn.run.assert_any_call("chmod 600 /root/.codex/auth.json", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_returns_false_when_key_missing(self):
@@ -202,12 +204,12 @@ class TestHomeDirParameter:
         upload_calls = conn.upload_content.call_args_list
         auth_uploads = [c for c in upload_calls if "auth.json" in str(c)]
         assert auth_uploads[0].args[1] == "/home/tanren/.local/share/opencode/auth.json"
-        conn.run.assert_any_call("mkdir -p /home/tanren/.local/share/opencode", timeout=10)
+        conn.run.assert_any_call("mkdir -p /home/tanren/.local/share/opencode", timeout_secs=10)
         conn.run.assert_any_call(
-            "chmod 600 /home/tanren/.local/share/opencode/auth.json", timeout=10
+            "chmod 600 /home/tanren/.local/share/opencode/auth.json", timeout_secs=10
         )
         conn.run.assert_any_call(
-            "chown -R tanren:tanren /home/tanren/.local/share/opencode", timeout=10
+            "chown -R tanren:tanren /home/tanren/.local/share/opencode", timeout_secs=10
         )
 
     @pytest.mark.asyncio
@@ -221,8 +223,8 @@ class TestHomeDirParameter:
         upload_calls = conn.upload_content.call_args_list
         cred_uploads = [c for c in upload_calls if ".credentials.json" in str(c)]
         assert cred_uploads[0].args[1] == "/home/tanren/.claude/.credentials.json"
-        conn.run.assert_any_call("mkdir -p /home/tanren/.claude", timeout=10)
-        conn.run.assert_any_call("chown -R tanren:tanren /home/tanren/.claude", timeout=10)
+        conn.run.assert_any_call("mkdir -p /home/tanren/.claude", timeout_secs=10)
+        conn.run.assert_any_call("chown -R tanren:tanren /home/tanren/.claude", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_codex_uses_home_dir(self):
@@ -235,8 +237,8 @@ class TestHomeDirParameter:
         upload_calls = conn.upload_content.call_args_list
         auth_uploads = [c for c in upload_calls if ".codex/auth.json" in str(c)]
         assert auth_uploads[0].args[1] == "/home/tanren/.codex/auth.json"
-        conn.run.assert_any_call("mkdir -p /home/tanren/.codex", timeout=10)
-        conn.run.assert_any_call("chown -R tanren:tanren /home/tanren/.codex", timeout=10)
+        conn.run.assert_any_call("mkdir -p /home/tanren/.codex", timeout_secs=10)
+        conn.run.assert_any_call("chown -R tanren:tanren /home/tanren/.codex", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_no_chown_without_home_dir(self):

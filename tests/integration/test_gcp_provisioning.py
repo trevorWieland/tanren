@@ -24,7 +24,7 @@ pytestmark = pytest.mark.gcp
 _PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 
 
-@pytest.fixture()
+@pytest.fixture
 def provisioner():
     """Create a GCPVMProvisioner using real GCP credentials."""
     settings = GCPProvisionerSettings(
@@ -38,7 +38,7 @@ def provisioner():
     return GCPVMProvisioner(settings)
 
 
-@pytest.fixture()
+@pytest.fixture
 def requirements():
     return VMRequirements(profile="test", cpu=2, memory_gb=4, gpu=False)
 

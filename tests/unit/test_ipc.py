@@ -2,7 +2,7 @@
 
 import json
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -28,6 +28,9 @@ from tanren_core.schemas import (
     TaskState,
     TaskStatus,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestGenerateFilename:

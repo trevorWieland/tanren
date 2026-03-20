@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.worktree import (
     cleanup_worktree,
     create_worktree,
     register_worktree,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class GitWorktreeManager:

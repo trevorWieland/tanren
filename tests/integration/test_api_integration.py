@@ -30,7 +30,10 @@ from tanren_api.settings import APISettings
 from tanren_api.state import APIStateStore
 from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.remote_types import VMAssignment, VMHandle, VMProvider, WorkspacePath
-from tanren_core.adapters.sqlite_emitter import _SCHEMA, SqliteEventEmitter  # noqa: PLC2701
+from tanren_core.adapters.sqlite_emitter import (
+    _SCHEMA,
+    SqliteEventEmitter,
+)
 from tanren_core.adapters.types import (
     EnvironmentHandle,
     PhaseResult,
@@ -586,8 +589,12 @@ async def test_run_status_not_found(client, auth_headers):
 @pytest.mark.asyncio
 async def test_run_teardown_uses_fresh_handle(client, auth_headers, app, mock_execution_env):
     """Teardown uses the transitioned record (not stale snapshot) so VM is released."""
-    from tanren_api.models import RunEnvironmentStatus  # noqa: PLC0415
-    from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+    from tanren_api.models import (
+        RunEnvironmentStatus,
+    )
+    from tanren_api.state import (
+        EnvironmentRecord,
+    )
 
     store = app.state.api_store
     handle = mock_execution_env.provision.return_value
@@ -619,9 +626,9 @@ async def test_provision_then_immediate_teardown_no_orphan(
     Provision returns a handle but gets cancelled before persisting it.
     The finally block in _provision_background cleans up the orphaned handle.
     """
-    import contextlib  # noqa: PLC0415
+    import contextlib
 
-    from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701
+    from tanren_api.state import _UNSET
 
     store = app.state.api_store
     original_handle = mock_execution_env.provision.return_value
@@ -687,7 +694,9 @@ async def test_teardown_during_noncancellable_provision_no_orphan(
         try:
             await provision_release.wait()
         except asyncio.CancelledError:
-            asyncio.current_task().uncancel()  # type: ignore[union-attr]
+            task = asyncio.current_task()
+            assert task is not None
+            task.uncancel()
             await provision_release.wait()
         return original_handle
 
@@ -753,7 +762,9 @@ async def test_concurrent_teardown_during_provision_preserves_tearing_down(
         try:
             await provision_release.wait()
         except asyncio.CancelledError:
-            asyncio.current_task().uncancel()  # type: ignore[union-attr]
+            task = asyncio.current_task()
+            assert task is not None
+            task.uncancel()
             await provision_release.wait()
         return original_handle
 
@@ -1653,7 +1664,11 @@ async def test_vm_provision_records_reaped_after_retention(client, auth_headers,
     await asyncio.sleep(0.1)
 
     # Patch the first record's completed_at to be old (beyond retention)
-    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+    from datetime import (
+        UTC,
+        datetime,
+        timedelta,
+    )
 
     old_time = (datetime.now(UTC) - timedelta(seconds=3660)).isoformat()
     await store.update_environment(env_id_1, completed_at=old_time)

@@ -8,7 +8,9 @@ import aiosqlite
 import pytest
 
 from tanren_core.adapters.event_reader import EventReader, SqliteEventReader, query_events
-from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
+from tanren_core.adapters.sqlite_emitter import (
+    _SCHEMA,
+)
 
 
 async def _setup_db(db_path, events: list[tuple[str, str, str, dict]]):
@@ -42,7 +44,7 @@ async def _setup_db_raw(db_path, events: list[tuple[str, str, str, str]]):
 class TestReadOnlyConnection:
     async def test_readonly_connection(self, tmp_path):
         """Verify the event reader uses a read-only SQLite connection."""
-        import sqlite3  # noqa: PLC0415
+        import sqlite3
 
         db = tmp_path / "events.db"
         # Create the DB first with read-write

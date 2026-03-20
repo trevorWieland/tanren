@@ -29,7 +29,7 @@ class TestDispatchRouter:
     async def test_routes_opencode(self):
         handled: list[str] = []
 
-        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029
+        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029 — async required by interface
             handled.append(dispatch.cli.value)
 
         router = DispatchRouter(handler)
@@ -46,7 +46,7 @@ class TestDispatchRouter:
     async def test_routes_codex(self):
         handled: list[str] = []
 
-        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029
+        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029 — async required by interface
             handled.append(dispatch.cli.value)
 
         router = DispatchRouter(handler)
@@ -64,7 +64,7 @@ class TestDispatchRouter:
     async def test_routes_bash(self):
         handled: list[str] = []
 
-        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029
+        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029 — async required by interface
             handled.append(dispatch.cli.value)
 
         router = DispatchRouter(handler)
@@ -81,7 +81,7 @@ class TestDispatchRouter:
     async def test_routes_claude_to_impl(self):
         handled: list[str] = []
 
-        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029
+        async def handler(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029 — async required by interface
             handled.append(dispatch.cli.value)
 
         router = DispatchRouter(handler)

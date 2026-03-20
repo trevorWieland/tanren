@@ -8,8 +8,8 @@ import pytest
 
 from tanren_core.adapters.remote_types import RemoteResult
 from tanren_core.adapters.ubuntu_bootstrap import (
-    _AGENT_USER,  # noqa: PLC2701
-    _MARKER_PATH,  # noqa: PLC2701
+    _AGENT_USER,
+    _MARKER_PATH,
     UbuntuBootstrapper,
 )
 from tanren_core.schemas import Cli
@@ -42,7 +42,7 @@ def _make_conn(
     def _run_side_effect(
         command: str,
         *,
-        timeout: int | None = None,
+        timeout_secs: int | None = None,
         stdin_data: str | None = None,
     ) -> RemoteResult:
         # Marker check

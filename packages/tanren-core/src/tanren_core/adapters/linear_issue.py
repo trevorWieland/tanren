@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import types
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -14,6 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from tanren_core.adapters.issue_types import Issue, IssueSummary
 
 if TYPE_CHECKING:
+    import types
+    from collections.abc import Mapping
+
     import httpx
 
 logger = logging.getLogger(__name__)
@@ -31,14 +32,14 @@ def _import_httpx() -> types.ModuleType:
         ImportError: If httpx is not installed.
     """
     try:
-        import httpx as _httpx  # noqa: PLC0415
-
-        return _httpx
+        import httpx as _httpx  # noqa: PLC0415 — deferred import for optional dependency
     except ImportError:
         raise ImportError(
             "httpx is required for the Linear issue adapter. "
             "Install it with: uv sync --extra linear"
         ) from None
+    else:
+        return _httpx
 
 
 class LinearIssueSettings(BaseModel):
@@ -160,7 +161,9 @@ mutation($issueId: String!, $body: String!) {
 type _JsonDict = dict[str, object]
 
 
-def _as_dict(val: object) -> _JsonDict:
+def _as_dict(
+    val: object,
+) -> _JsonDict:  # Receives parsed JSON of unknown shape; object is intentional
     """Cast a JSON value known to be a dict to ``dict[str, object]``.
 
     Call only after confirming ``isinstance(val, dict)``.
@@ -168,7 +171,7 @@ def _as_dict(val: object) -> _JsonDict:
     Returns:
         The value cast to ``dict[str, object]``.
     """
-    return cast(_JsonDict, val)
+    return cast("_JsonDict", val)
 
 
 class LinearIssueSource:
@@ -209,6 +212,7 @@ class LinearIssueSource:
             The ``data`` dict from the GraphQL response.
 
         Raises:
+            TypeError: If the response format is invalid.
             RuntimeError: If the response contains GraphQL errors.
         """
         payload: dict[str, object] = {"query": query, "variables": variables}
@@ -216,13 +220,13 @@ class LinearIssueSource:
         response.raise_for_status()
         body = response.json()
         if not isinstance(body, dict):
-            raise RuntimeError("Unexpected GraphQL response format")
+            raise TypeError("Unexpected GraphQL response format")
         if "errors" in body:
             errors = body["errors"]
             raise RuntimeError(f"GraphQL errors: {errors}")
         data = body.get("data")
         if not isinstance(data, dict):
-            raise RuntimeError("Missing 'data' in GraphQL response")
+            raise TypeError("Missing 'data' in GraphQL response")
         return data
 
     @staticmethod
@@ -314,13 +318,13 @@ class LinearIssueSource:
             The Issue model for the requested issue.
 
         Raises:
-            ValueError: If the issue is not found.
+            TypeError: If the issue is not found in the response.
         """
         variables: dict[str, object] = {"id": issue_id}
         data = await asyncio.to_thread(self._execute, _GET_ISSUE_QUERY, variables)
         issue_data = data.get("issue")
         if not isinstance(issue_data, dict):
-            raise ValueError(f"Issue {issue_id} not found")
+            raise TypeError(f"Issue {issue_id} not found")
         issue = self._build_issue(_as_dict(issue_data))
         # Cache or update team ID based on the fetched issue.
         team_id = issue.metadata.get("team_id", "")
@@ -354,10 +358,9 @@ class LinearIssueSource:
         nodes = _as_dict(issues_data).get("nodes")
         if not isinstance(nodes, list):
             return []
-        summaries: list[IssueSummary] = []
-        for node in nodes:
-            if isinstance(node, dict):
-                summaries.append(self._build_summary(_as_dict(node)))
+        summaries: list[IssueSummary] = [
+            self._build_summary(_as_dict(node)) for node in nodes if isinstance(node, dict)
+        ]
         return summaries
 
     async def update_status(self, issue_id: str, status: str) -> None:

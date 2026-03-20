@@ -1,5 +1,4 @@
 """Health check endpoints — no auth required."""
-# ruff: noqa: DOC201
 
 from fastapi import APIRouter
 
@@ -13,11 +12,19 @@ _svc = HealthService()
 
 @router.get("/api/v1/health")
 async def health() -> HealthResponse:
-    """Return service health and version info."""
+    """Return service health and version info.
+
+    Returns:
+        HealthResponse: Service health status and version.
+    """
     return await _svc.health()
 
 
 @router.get("/api/v1/health/ready")
 async def readiness() -> ReadinessResponse:
-    """Readiness probe."""
+    """Readiness probe.
+
+    Returns:
+        ReadinessResponse: Service readiness status.
+    """
     return await _svc.readiness()

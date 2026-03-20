@@ -15,9 +15,9 @@ from typer.testing import CliRunner
 from tanren_cli.run_cli import (
     PersistedRunHandle,
     PersistedSSHDefaults,
-    _build_remote_execution_env,  # noqa: PLC2701
-    _load_handle,  # noqa: PLC2701
-    _save_handle,  # noqa: PLC2701
+    _build_remote_execution_env,
+    _load_handle,
+    _save_handle,
     run,
 )
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, WorkspacePath

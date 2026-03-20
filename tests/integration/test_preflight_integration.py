@@ -2,11 +2,14 @@
 
 import asyncio
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.preflight import run_preflight
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture

@@ -7,8 +7,6 @@ import logging
 import os
 import re
 import time
-import types
-from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -17,6 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 
 if TYPE_CHECKING:
+    import types
+    from collections.abc import Mapping
+
+    from google.cloud import compute_v1
     from google.cloud.compute_v1.types import Instance
 
 
@@ -30,14 +32,14 @@ def _import_compute() -> types.ModuleType:
         ImportError: If the google-cloud-compute package is not installed.
     """
     try:
-        import google.cloud.compute_v1 as _compute  # noqa: PLC0415
-
-        return _compute
+        import google.cloud.compute_v1 as _compute  # noqa: PLC0415 — deferred import for optional dependency
     except ImportError:
         raise ImportError(
             "google-cloud-compute is required for GCP provisioning. "
             "Install it with: uv sync --extra gcp"
         ) from None
+    else:
+        return _compute
 
 
 logger = logging.getLogger(__name__)
@@ -48,20 +50,37 @@ class GCPProvisionerSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    project_id: str = Field(...)
-    zone: str = Field(...)
-    default_machine_type: str = Field(...)
-    image_family: str = Field(...)
-    image_project: str = Field(default="ubuntu-os-cloud")
-    network: str = Field(default="default")
-    subnet: str | None = Field(default=None)
-    ssh_user: str = Field(default="tanren")
-    ssh_key_env: str = Field(default="GCP_SSH_PUBLIC_KEY")
-    service_account_email: str | None = Field(default=None)
-    name_prefix: str = Field(default="tanren")
-    labels: dict[str, str] = Field(default_factory=dict)
-    managed_by_label_key: str = Field(default="managed-by")
-    managed_by_label_value: str = Field(default="tanren")
+    project_id: str = Field(..., description="GCP project ID")
+    zone: str = Field(..., description="GCP zone (e.g. us-central1-a)")
+    default_machine_type: str = Field(..., description="Default machine type (e.g. e2-standard-4)")
+    image_family: str = Field(..., description="OS image family (e.g. ubuntu-2404-lts-amd64)")
+    image_project: str = Field(
+        default="ubuntu-os-cloud", description="GCP project hosting the image family"
+    )
+    network: str = Field(default="default", description="VPC network name")
+    subnet: str | None = Field(
+        default=None, description="VPC subnet name (auto-detected if omitted)"
+    )
+    ssh_user: str = Field(
+        default="tanren", description="SSH username provisioned via instance metadata"
+    )
+    ssh_key_env: str = Field(
+        default="GCP_SSH_PUBLIC_KEY",
+        description="Environment variable containing the SSH public key",
+    )
+    service_account_email: str | None = Field(
+        default=None, description="GCP service account email to attach to instances"
+    )
+    name_prefix: str = Field(default="tanren", description="Prefix for generated instance names")
+    labels: dict[str, str] = Field(
+        default_factory=dict, description="Additional labels to apply to created instances"
+    )
+    managed_by_label_key: str = Field(
+        default="managed-by", description="Label key used to identify managed instances"
+    )
+    managed_by_label_value: str = Field(
+        default="tanren", description="Label value used to identify managed instances"
+    )
     enable_external_ip: bool = Field(
         default=True,
         description=(
@@ -78,8 +97,12 @@ class GCPProvisionerSettings(BaseModel):
         default="pd-balanced",
         description="Boot disk type short name (e.g. pd-balanced, pd-ssd, pd-standard).",
     )
-    readiness_timeout_secs: int = Field(default=300, ge=10)
-    poll_interval_secs: int = Field(default=5, ge=1)
+    readiness_timeout_secs: int = Field(
+        default=300, ge=10, description="Maximum seconds to wait for VM readiness"
+    )
+    poll_interval_secs: int = Field(
+        default=5, ge=1, description="Seconds between readiness poll attempts"
+    )
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, JsonValue]) -> GCPProvisionerSettings:
@@ -196,9 +219,11 @@ class GCPVMProvisioner:
             )
             await asyncio.to_thread(operation.result)
         except Exception:
-            import sys  # noqa: PLC0415
+            import sys  # noqa: PLC0415 — deferred import for exception handling
 
-            from google.api_core.exceptions import NotFound  # noqa: PLC0415
+            from google.api_core.exceptions import (  # noqa: PLC0415 — deferred import for optional dependency
+                NotFound,
+            )
 
             exc = sys.exc_info()[1]
             if isinstance(exc, NotFound):
@@ -321,7 +346,7 @@ class GCPVMProvisioner:
         )
 
     @staticmethod
-    def _extract_ip(instance: object, *, prefer_external: bool = True) -> str | None:
+    def _extract_ip(instance: compute_v1.Instance, *, prefer_external: bool = True) -> str | None:
         """Extract an IP from an instance's first network interface.
 
         When *prefer_external* is True only the external (NAT) IP is returned;

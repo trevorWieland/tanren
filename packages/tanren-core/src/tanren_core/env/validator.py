@@ -10,16 +10,16 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.env.loader import resolve_env_var
-from tanren_core.env.schema import EnvBlock
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import SecretProvider
+    from tanren_core.env.schema import EnvBlock
 
 
 class VarStatus(StrEnum):
     """Status of a validated environment variable."""
 
-    PASS = "pass"
+    PASS = "pass"  # noqa: S105 — enum value name, not a real password
     MISSING = "missing"
     EMPTY = "empty"
     PATTERN_MISMATCH = "pattern_mismatch"
@@ -31,12 +31,12 @@ class VarResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    key: str = Field(...)
-    status: VarStatus = Field(...)
-    description: str = Field(default="")
-    hint: str = Field(default="")
-    source: str | None = Field(default=None)
-    message: str = Field(default="")
+    key: str = Field(..., description="Environment variable name")
+    status: VarStatus = Field(..., description="Validation outcome for this variable")
+    description: str = Field(default="", description="Human-readable purpose of this variable")
+    hint: str = Field(default="", description="User-facing hint for how to set this variable")
+    source: str | None = Field(default=None, description="Where the value was resolved from")
+    message: str = Field(default="", description="Validation detail or error message")
 
 
 class EnvReport(BaseModel):
@@ -44,10 +44,14 @@ class EnvReport(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    passed: bool = Field(...)
-    required_results: list[VarResult] = Field(default_factory=list)
-    optional_results: list[VarResult] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    passed: bool = Field(..., description="Whether all required variables passed validation")
+    required_results: list[VarResult] = Field(
+        default_factory=list, description="Validation results for required variables"
+    )
+    optional_results: list[VarResult] = Field(
+        default_factory=list, description="Validation results for optional variables"
+    )
+    warnings: list[str] = Field(default_factory=list, description="Non-fatal validation warnings")
 
 
 async def _resolve_secret(

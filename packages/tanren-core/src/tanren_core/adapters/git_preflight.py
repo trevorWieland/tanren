@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.preflight import PreflightResult, run_preflight
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class GitPreflightRunner:

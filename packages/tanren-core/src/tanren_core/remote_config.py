@@ -29,7 +29,7 @@ class ProvisionerType(StrEnum):
 class GitAuthMethod(StrEnum):
     """Supported git authentication methods for remote clone/push."""
 
-    TOKEN = "token"
+    TOKEN = "token"  # noqa: S105 — enum value name, not a real password
     SSH = "ssh"
 
 
@@ -38,12 +38,16 @@ class RemoteSSHConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    user: str = Field(default="root")
-    key_path: str = Field(default="~/.ssh/tanren_vm")
-    port: int = Field(default=22, ge=1, le=65535)
-    connect_timeout: int = Field(default=10, ge=1)
-    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
-    ssh_ready_timeout_secs: int = Field(default=300, ge=30)
+    user: str = Field(default="root", description="SSH login user")
+    key_path: str = Field(default="~/.ssh/tanren_vm", description="Path to SSH private key")
+    port: int = Field(default=22, ge=1, le=65535, description="SSH port number")
+    connect_timeout: int = Field(default=10, ge=1, description="SSH connection timeout in seconds")
+    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(
+        default="auto_add", description="SSH host key verification policy"
+    )
+    ssh_ready_timeout_secs: int = Field(
+        default=300, ge=30, description="Max seconds to wait for SSH readiness after VM boot"
+    )
 
 
 class RemoteGitConfig(BaseModel):
@@ -51,8 +55,12 @@ class RemoteGitConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    auth: GitAuthMethod = Field(default=GitAuthMethod.TOKEN)
-    token_env: str = Field(default="GIT_TOKEN")
+    auth: GitAuthMethod = Field(
+        default=GitAuthMethod.TOKEN, description="Git authentication method"
+    )
+    token_env: str = Field(
+        default="GIT_TOKEN", description="Environment variable name containing the git auth token"
+    )
 
 
 class RemoteProvisionerConfig(BaseModel):
@@ -60,8 +68,10 @@ class RemoteProvisionerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    type: ProvisionerType = Field(...)
-    settings: dict[str, JsonValue] = Field(default_factory=dict)
+    type: ProvisionerType = Field(..., description="VM provisioner backend type")
+    settings: dict[str, JsonValue] = Field(
+        default_factory=dict, description="Provider-specific provisioner settings"
+    )
 
 
 class RemoteBootstrapConfig(BaseModel):
@@ -69,7 +79,9 @@ class RemoteBootstrapConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    extra_script: str | None = Field(default=None)
+    extra_script: str | None = Field(
+        default=None, description="Optional shell script to run during VM bootstrap"
+    )
 
 
 class RemoteSecretsConfig(BaseModel):
@@ -77,7 +89,9 @@ class RemoteSecretsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    developer_secrets_path: str = Field(default="")
+    developer_secrets_path: str = Field(
+        default="", description="Path to the developer secrets.env file"
+    )
 
 
 class RemoteRepoBinding(BaseModel):
@@ -85,9 +99,11 @@ class RemoteRepoBinding(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    project: str = Field(...)
-    repo_url: str = Field(...)
-    metadata: dict[str, str] = Field(default_factory=dict)
+    project: str = Field(..., description="Project name matching the repo")
+    repo_url: str = Field(..., description="Git remote URL for the project")
+    metadata: dict[str, str] = Field(
+        default_factory=dict, description="Arbitrary key-value metadata for the binding"
+    )
 
 
 class RemoteConfig(BaseModel):
@@ -95,13 +111,27 @@ class RemoteConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    execution_mode: ExecutionMode = Field(default=ExecutionMode.REMOTE)
-    ssh: RemoteSSHConfig = Field(default_factory=RemoteSSHConfig)
-    git: RemoteGitConfig = Field(default_factory=RemoteGitConfig)
-    provisioner: RemoteProvisionerConfig = Field(...)
-    bootstrap: RemoteBootstrapConfig = Field(default_factory=RemoteBootstrapConfig)
-    secrets: RemoteSecretsConfig = Field(default_factory=RemoteSecretsConfig)
-    repos: list[RemoteRepoBinding] = Field(default_factory=list)
+    execution_mode: ExecutionMode = Field(
+        default=ExecutionMode.REMOTE, description="Whether to execute locally or on remote VMs"
+    )
+    ssh: RemoteSSHConfig = Field(
+        default_factory=RemoteSSHConfig, description="SSH connection defaults"
+    )
+    git: RemoteGitConfig = Field(
+        default_factory=RemoteGitConfig, description="Git authentication configuration"
+    )
+    provisioner: RemoteProvisionerConfig = Field(
+        ..., description="VM provisioner backend configuration"
+    )
+    bootstrap: RemoteBootstrapConfig = Field(
+        default_factory=RemoteBootstrapConfig, description="VM bootstrap configuration"
+    )
+    secrets: RemoteSecretsConfig = Field(
+        default_factory=RemoteSecretsConfig, description="Secret loading configuration"
+    )
+    repos: list[RemoteRepoBinding] = Field(
+        default_factory=list, description="Project-to-repo URL bindings"
+    )
 
     def repo_url_for(self, project: str) -> str | None:
         """Return configured repo URL for a project name."""
@@ -111,17 +141,18 @@ class RemoteConfig(BaseModel):
         return None
 
 
-def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:
+def _coerce_repos(
+    raw: object,
+) -> list[RemoteRepoBinding]:  # YAML parser returns untyped values; object is correct
     """Coerce repos section into a typed list of bindings.
 
     Returns:
         List of RemoteRepoBinding instances.
     """
     if isinstance(raw, list):
-        bindings: list[RemoteRepoBinding] = []
-        for item in raw:
-            if isinstance(item, Mapping):
-                bindings.append(RemoteRepoBinding.model_validate(item))
+        bindings: list[RemoteRepoBinding] = [
+            RemoteRepoBinding.model_validate(item) for item in raw if isinstance(item, Mapping)
+        ]
         return bindings
     if isinstance(raw, Mapping):
         bindings = []
@@ -136,7 +167,9 @@ def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:
     return []
 
 
-def _coerce_provisioner(raw: object) -> dict[str, JsonValue]:
+def _coerce_provisioner(
+    raw: object,
+) -> dict[str, JsonValue]:  # YAML parser returns untyped values; object is correct
     """Coerce provisioner section to a plain dict for Pydantic validation.
 
     Returns:
@@ -148,12 +181,12 @@ def _coerce_provisioner(raw: object) -> dict[str, JsonValue]:
     settings_raw = raw_mapping.get("settings", {})
     settings: dict[str, JsonValue]
     if isinstance(settings_raw, Mapping):
-        settings = {str(k): cast(JsonValue, v) for k, v in settings_raw.items()}
+        settings = {str(k): cast("JsonValue", v) for k, v in settings_raw.items()}
     else:
         settings = {}
     return {
-        "type": cast(JsonValue, raw_mapping.get("type")),
-        "settings": cast(JsonValue, settings),
+        "type": cast("JsonValue", raw_mapping.get("type")),
+        "settings": cast("JsonValue", settings),
     }
 
 

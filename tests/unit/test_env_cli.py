@@ -1,11 +1,14 @@
 """Tests for env CLI subcommands."""
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from typer.testing import CliRunner
 
 from tanren_cli.env_cli import env, secret
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestEnvCheck:

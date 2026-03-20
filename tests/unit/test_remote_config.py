@@ -1,6 +1,6 @@
 """Tests for remote config loader."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +14,9 @@ from tanren_core.remote_config import (
     RemoteSSHConfig,
     load_remote_config,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 FULL_YAML = """\
 execution_mode: remote

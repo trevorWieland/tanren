@@ -1,11 +1,14 @@
 """Tests for SqliteVMStateStore."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiosqlite
 import pytest
 
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture

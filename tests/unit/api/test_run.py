@@ -309,7 +309,9 @@ class TestRun:
             try:
                 await asyncio.sleep(3600)
             except asyncio.CancelledError:
-                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                task = asyncio.current_task()
+                assert task is not None
+                task.uncancel()
                 await asyncio.sleep(3600)
 
         task = asyncio.create_task(_resist_one_cancel())
@@ -452,7 +454,7 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env
     ):
         """Re-executing a COMPLETED env clears outcome and completed_at."""
-        from tanren_core.schemas import Outcome  # noqa: PLC0415
+        from tanren_core.schemas import Outcome
 
         # Provision
         prov_resp = await client.post(
@@ -731,7 +733,9 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env
     ):
         """Teardown uses the transitioned record's handle, not the stale snapshot."""
-        from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+        from tanren_api.state import (
+            EnvironmentRecord,
+        )
 
         store = app.state.api_store
 
@@ -786,7 +790,9 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """Provision cancelled after handle obtained → finally block calls teardown."""
-        from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701
+        from tanren_api.state import (
+            _UNSET,
+        )
 
         store = app.state.api_store
         original_handle = mock_execution_env.provision.return_value
@@ -837,7 +843,9 @@ class TestRun:
     ):
         """Teardown re-reads handle from store, picking up a handle that was
         persisted after the transition snapshot was taken."""
-        from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+        from tanren_api.state import (
+            EnvironmentRecord,
+        )
 
         store = app.state.api_store
         handle = mock_execution_env.provision.return_value
@@ -873,7 +881,9 @@ class TestRun:
     ):
         """When provision was cancelled and cleaned up its own handle,
         teardown re-reads handle=None and just removes the record."""
-        from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+        from tanren_api.state import (
+            EnvironmentRecord,
+        )
 
         store = app.state.api_store
 
@@ -958,7 +968,9 @@ class TestRun:
             except asyncio.CancelledError:
                 # Resist cancellation — simulate a provider call that
                 # cannot be interrupted (e.g. Hetzner API).
-                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                task = asyncio.current_task()
+                assert task is not None
+                task.uncancel()
                 await provision_release.wait()
             return original_handle
 
@@ -1076,7 +1088,9 @@ class TestRun:
                 await provision_release.wait()
             except asyncio.CancelledError:
                 # Resist cancellation — simulate non-cancellable provider
-                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                task = asyncio.current_task()
+                assert task is not None
+                task.uncancel()
                 await provision_release.wait()
             return original_handle
 
@@ -1138,7 +1152,9 @@ class TestRun:
             try:
                 await provision_release.wait()
             except asyncio.CancelledError:
-                asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                task = asyncio.current_task()
+                assert task is not None
+                task.uncancel()
                 await provision_release.wait()
             raise RuntimeError("provider error")
 
@@ -1183,7 +1199,7 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """Prior task that hangs forever does not block teardown indefinitely."""
-        import tanren_api.services.run as run_module  # noqa: PLC0415
+        import tanren_api.services.run as run_module
 
         store = app.state.api_store
 
@@ -1197,7 +1213,9 @@ class TestRun:
                 try:
                     await asyncio.sleep(3600)
                 except asyncio.CancelledError:
-                    asyncio.current_task().uncancel()  # type: ignore[union-attr]
+                    task = asyncio.current_task()
+                    assert task is not None
+                    task.uncancel()
 
         mock_execution_env.provision = AsyncMock(side_effect=_stuck_provision)
 

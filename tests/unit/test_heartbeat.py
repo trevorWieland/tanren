@@ -2,11 +2,14 @@
 
 import asyncio
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.heartbeat import HeartbeatWriter
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestHeartbeatWriter:

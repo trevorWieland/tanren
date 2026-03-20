@@ -23,12 +23,16 @@ class SSHConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    host: str = Field(...)
-    user: str = Field(default="root")
-    key_path: str = Field(default="~/.ssh/tanren_vm")
-    port: int = Field(default=22, ge=1, le=65535)
-    connect_timeout: int = Field(default=10, ge=1)
-    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
+    host: str = Field(..., description="Remote host address (IP or hostname)")
+    user: str = Field(default="root", description="SSH username")
+    key_path: str = Field(
+        default="~/.ssh/tanren_vm", description="Path to the SSH private key file"
+    )
+    port: int = Field(default=22, ge=1, le=65535, description="SSH port number")
+    connect_timeout: int = Field(default=10, ge=1, description="Connection timeout in seconds")
+    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(
+        default="auto_add", description="Host key verification policy"
+    )
 
 
 class SSHConnection:
@@ -69,11 +73,11 @@ class SSHConnection:
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
         elif self._config.host_key_policy == "warn":
             client.load_system_host_keys()
-            client.set_missing_host_key_policy(paramiko.WarningPolicy())
+            client.set_missing_host_key_policy(paramiko.WarningPolicy())  # noqa: S507 — WarningPolicy logs but accepts unknown keys for ephemeral VMs
         else:
             # auto_add: skip system host keys — ephemeral VMs reuse IPs
             # and stale entries cause BadHostKeyException
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # noqa: S507 — intentional AutoAddPolicy for ephemeral VMs
 
         key_path = str(Path(self._config.key_path).expanduser())
         try:
@@ -112,12 +116,13 @@ class SSHConnection:
         if self._sftp is not None:
             try:
                 self._sftp.stat(".")
-                return self._sftp
             except Exception:
                 logger.debug(
                     "SFTP channel stale, recreating for %s", self._config.host, exc_info=True
                 )
                 self._sftp = None
+            else:
+                return self._sftp
 
         client = self._ensure_connected()
         self._sftp = client.open_sftp()
@@ -200,7 +205,7 @@ class SSHConnection:
         self,
         command: str,
         *,
-        timeout: int | None = None,  # noqa: ASYNC109 — passed to paramiko channel, not asyncio.sleep
+        timeout_secs: int | None = None,
         stdin_data: str | None = None,
         request_pty: bool = False,
     ) -> RemoteResult:
@@ -210,16 +215,20 @@ class SSHConnection:
             RemoteResult with exit code, stdout, stderr, and timeout flag.
         """
         return await asyncio.to_thread(
-            self._run_sync, command, timeout=timeout, stdin_data=stdin_data, request_pty=request_pty
+            self._run_sync,
+            command,
+            timeout=timeout_secs,
+            stdin_data=stdin_data,
+            request_pty=request_pty,
         )
 
-    async def run_script(self, script: str, *, timeout: int | None = None) -> RemoteResult:  # noqa: ASYNC109
+    async def run_script(self, script: str, *, timeout_secs: int | None = None) -> RemoteResult:
         """Execute a bash script via stdin.
 
         Returns:
             RemoteResult from the script execution.
         """
-        return await self.run("bash -s", timeout=timeout, stdin_data=script)
+        return await self.run("bash -s", timeout_secs=timeout_secs, stdin_data=script)
 
     def _upload_sync(self, content: str, remote_path: str) -> None:
         """Upload content to remote path synchronously."""
@@ -297,11 +306,12 @@ class SSHConnection:
             True if the connection is alive.
         """
         try:
-            result = await self.run("echo tanren-ok", timeout=10)
-            return result.exit_code == 0 and "tanren-ok" in result.stdout
+            result = await self.run("echo tanren-ok", timeout_secs=10)
         except Exception:
             logger.debug("check_connection failed for %s", self._config.host, exc_info=True)
             return False
+        else:
+            return result.exit_code == 0 and "tanren-ok" in result.stdout
 
     def get_host_identifier(self) -> str:
         """Return the host identifier for this connection.

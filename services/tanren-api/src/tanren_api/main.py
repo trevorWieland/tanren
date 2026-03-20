@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
-from typing import Any
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any, cast
 
 import uvicorn
 from fastapi import Depends, FastAPI
@@ -76,14 +76,18 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         app.state.event_reader = None
         app.state.metrics_reader = None
         if db and is_postgres_url(db):
-            from tanren_core.adapters.postgres_emitter import PostgresEventEmitter  # noqa: PLC0415
-            from tanren_core.adapters.postgres_event_reader import (  # noqa: PLC0415
+            from tanren_core.adapters.postgres_emitter import (  # noqa: PLC0415 — optional dep
+                PostgresEventEmitter,
+            )
+            from tanren_core.adapters.postgres_event_reader import (  # noqa: PLC0415 — optional dep
                 PostgresEventReader,
             )
-            from tanren_core.adapters.postgres_metrics_reader import (  # noqa: PLC0415
+            from tanren_core.adapters.postgres_metrics_reader import (  # noqa: PLC0415 — optional dep
                 PostgresMetricsReader,
             )
-            from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+            from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — optional dep
+                create_postgres_pool,
+            )
 
             pg_pool = await create_postgres_pool(db)
             app.state.pg_pool = pg_pool
@@ -161,13 +165,13 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
     # Build middleware stack before creating app (order matters: outermost first)
     middleware_stack: list[Middleware] = [
-        Middleware(RequestIDMiddleware),  # type: ignore[arg-type]
-        Middleware(RequestLoggingMiddleware),  # type: ignore[arg-type]
+        Middleware(RequestIDMiddleware),  # ty: ignore[invalid-argument-type]  # ASGI middleware class; ty can't resolve Starlette's overloaded Middleware constructor
+        Middleware(RequestLoggingMiddleware),  # ty: ignore[invalid-argument-type]  # same as above
     ]
     if settings.cors_origins:
         middleware_stack.append(
             Middleware(
-                CORSMiddleware,  # type: ignore[arg-type]
+                CORSMiddleware,  # ty: ignore[invalid-argument-type]  # Starlette CORSMiddleware is a valid middleware class; ty can't resolve the overloaded factory type
                 allow_origins=settings.cors_origins,
                 allow_credentials=True,
                 allow_methods=["*"],
@@ -178,15 +182,21 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     # Create MCP sub-application and combine lifespans
     mcp_app = mcp.http_app(path="/")
 
-    from fastmcp.utilities.lifespan import combine_lifespans  # noqa: PLC0415
+    from fastmcp.utilities.lifespan import (  # noqa: PLC0415 — deferred import for optional dependency
+        combine_lifespans,
+    )
 
-    combined_lifespan = combine_lifespans(lifespan, mcp_app.lifespan)  # type: ignore[arg-type]
+    # cast needed: @asynccontextmanager return type doesn't satisfy Lifespan generic
+    combined_lifespan = cast(
+        "Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, Any] | None]]",
+        combine_lifespans(lifespan, mcp_app.lifespan),  # ty: ignore[invalid-argument-type]  # @asynccontextmanager return type doesn't satisfy Starlette Lifespan generic
+    )
 
     app = FastAPI(
         title="tanren",
         description="Tanren worker-manager HTTP API",
         version="0.1.0",
-        lifespan=combined_lifespan,
+        lifespan=combined_lifespan,  # ty: ignore[invalid-argument-type]  # cast-wrapped lifespan; ty can't verify the cast target
         middleware=middleware_stack,
     )
 

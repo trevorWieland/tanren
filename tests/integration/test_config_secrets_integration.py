@@ -1,7 +1,7 @@
 """Integration tests for config loading and secret management."""
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -9,6 +9,9 @@ from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.config import Config, DotenvConfigSource, load_config_env
 from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretConfig, SecretLoader
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _ALL_CLIS = frozenset({Cli.CLAUDE, Cli.CODEX, Cli.OPENCODE})
 

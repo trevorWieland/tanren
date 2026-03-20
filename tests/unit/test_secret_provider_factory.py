@@ -1,12 +1,15 @@
 """Tests for secret provider factory."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.adapters.dotenv_secret_provider import DotenvSecretProvider
 from tanren_core.env.schema import SecretsConfig, SecretsProviderType
 from tanren_core.env.secret_provider_factory import create_secret_provider
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestCreateSecretProvider:

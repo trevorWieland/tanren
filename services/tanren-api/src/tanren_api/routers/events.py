@@ -1,5 +1,4 @@
 """Events endpoint — query structured events."""
-# ruff: noqa: DOC201
 
 from __future__ import annotations
 
@@ -26,7 +25,11 @@ async def list_events(
     limit: Annotated[int, Query(ge=1, le=100, description="Page size")] = 50,
     offset: Annotated[int, Query(ge=0, description="Pagination offset")] = 0,
 ) -> PaginatedEvents:
-    """Query structured events with optional filters."""
+    """Query structured events with optional filters.
+
+    Returns:
+        PaginatedEvents: Paginated list of matching events.
+    """
     config = getattr(request.app.state, "config", None)
     return await EventsService(settings, config, event_reader=event_reader).query(
         workflow_id=workflow_id,

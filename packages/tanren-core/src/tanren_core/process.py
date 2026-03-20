@@ -38,11 +38,14 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tanren_core.config import Config
 from tanren_core.schemas import Cli, Dispatch
+
+if TYPE_CHECKING:
+    from tanren_core.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +55,10 @@ class ProcessResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    exit_code: int = Field(...)
-    stdout: str = Field(default="")
-    timed_out: bool = Field(...)
-    duration_secs: int = Field(..., ge=0)
+    exit_code: int = Field(..., description="Process exit code")
+    stdout: str = Field(default="", description="Captured standard output")
+    timed_out: bool = Field(..., description="Whether the process was killed due to timeout")
+    duration_secs: int = Field(..., ge=0, description="Wall-clock execution time in seconds")
 
 
 def assemble_prompt(
@@ -144,7 +147,7 @@ async def _spawn_opencode(
         logger.info("opencode cmd: %s", cmd)
 
         return await _run_with_timeout(
-            cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout, env=task_env
+            cmd, cwd=worktree_path, stdin_data=None, timeout_secs=dispatch.timeout, env=task_env
         )
     finally:
         Path(prompt_file_path).unlink(missing_ok=True)  # noqa: ASYNC240 — trivial cleanup
@@ -186,7 +189,7 @@ async def _spawn_codex(
         cmd,
         cwd=worktree_path,
         stdin_data=prompt,
-        timeout=dispatch.timeout,
+        timeout_secs=dispatch.timeout,
         discard_stdout=True,
         env=task_env,
     )
@@ -195,9 +198,9 @@ async def _spawn_codex(
     try:
         last_msg_path = Path(last_msg_file)
         if last_msg_path.exists():  # noqa: ASYNC240 — trivial file check after process exit
-            result.stdout = last_msg_path.read_text()  # noqa: ASYNC240
-            last_msg_path.unlink(missing_ok=True)  # noqa: ASYNC240
-    except Exception:
+            result.stdout = last_msg_path.read_text()  # noqa: ASYNC240 — trivial sync fs op after async work
+            last_msg_path.unlink(missing_ok=True)  # noqa: ASYNC240 — trivial sync fs op after async work
+    except Exception:  # noqa: S110 — intentional silent exception during cleanup
         pass
 
     return result
@@ -221,7 +224,7 @@ async def _spawn_bash(
     cmd = ["bash", "-c", dispatch.gate_cmd]
 
     return await _run_with_timeout(
-        cmd, cwd=worktree_path, stdin_data=None, timeout=dispatch.timeout, env=task_env
+        cmd, cwd=worktree_path, stdin_data=None, timeout_secs=dispatch.timeout, env=task_env
     )
 
 
@@ -248,7 +251,7 @@ async def _spawn_claude(
     logger.info("claude cmd: %s", cmd)
 
     return await _run_with_timeout(
-        cmd, cwd=worktree_path, stdin_data=prompt, timeout=dispatch.timeout, env=task_env
+        cmd, cwd=worktree_path, stdin_data=prompt, timeout_secs=dispatch.timeout, env=task_env
     )
 
 
@@ -256,7 +259,7 @@ async def _run_with_timeout(
     cmd: list[str],
     cwd: Path,
     stdin_data: str | None,
-    timeout: int,  # noqa: ASYNC109 — passed to asyncio.wait_for, not blocking sleep
+    timeout_secs: int,
     discard_stdout: bool = False,
     env: dict[str, str] | None = None,
 ) -> ProcessResult:
@@ -295,7 +298,7 @@ async def _run_with_timeout(
         stdin_bytes = stdin_data.encode() if stdin_data else None
         stdout_bytes_raw, _ = await asyncio.wait_for(
             proc.communicate(input=stdin_bytes),
-            timeout=timeout,
+            timeout=timeout_secs,
         )
         if stdout_bytes_raw:
             stdout_bytes = stdout_bytes_raw

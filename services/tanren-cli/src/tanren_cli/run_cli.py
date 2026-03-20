@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Annotated, Literal, cast
 if TYPE_CHECKING:
     import asyncpg
 
+    from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
+
 import typer
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -25,7 +27,6 @@ from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.remote_types import VMHandle, WorkspacePath
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
-from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
 from tanren_core.env.environment_schema import (
@@ -94,11 +95,15 @@ async def _build_remote_execution_env(
     Returns:
         Tuple of (SSHExecutionEnvironment, asyncpg.Pool | None).
     """
-    from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
+    from tanren_core.builder import (  # noqa: PLC0415 — avoid circular import
+        build_ssh_execution_environment,
+    )
 
     pool = None
     if config.events_db and is_postgres_url(config.events_db):
-        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+        from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — optional dep
+            create_postgres_pool,
+        )
 
         pool = await create_postgres_pool(config.events_db)
 
@@ -126,9 +131,10 @@ def _is_managed_handle(config: Config, handle_path: Path) -> bool:
     """Return True if handle_path lives inside the managed run-handles directory."""
     try:
         handle_path.resolve().relative_to(_handle_dir(config).resolve())
-        return True
     except ValueError:
         return False
+    else:
+        return True
 
 
 def _is_explicit_path(identifier: str) -> bool:
@@ -360,11 +366,11 @@ def run_provision(
                 environment_profile=environment_profile,
             )
             handle = await env.provision(dispatch, config)
-            runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+            runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
             vm = runtime.vm_handle
 
             # Close the SSH connection from provision (not needed after handle save)
-            conn = cast(SSHConnection, runtime.connection)
+            conn = cast("SSHConnection", runtime.connection)
             await conn.close()
 
             persisted = PersistedRunHandle(
@@ -454,8 +460,8 @@ def run_execute(
                 tool=tool,
             )
             env_handle = _reconstruct_handle(persisted)
-            runtime = cast(RemoteEnvironmentRuntime, env_handle.runtime)
-            conn = cast(SSHConnection, runtime.connection)
+            runtime = cast("RemoteEnvironmentRuntime", env_handle.runtime)
+            conn = cast("SSHConnection", runtime.connection)
 
             try:
                 result = await env.execute(env_handle, dispatch, config)
@@ -467,8 +473,8 @@ def run_execute(
             typer.echo(f"exit_code: {result.exit_code}")
             typer.echo(f"duration_secs: {result.duration_secs}")
             if result.token_usage:
-                typer.echo(f"token_cost: ${result.token_usage.get('total_cost', 0):.4f}")
-                typer.echo(f"token_total: {result.token_usage.get('total_tokens', 0)}")
+                typer.echo(f"token_cost: ${getattr(result.token_usage, 'total_cost', 0):.4f}")
+                typer.echo(f"token_total: {getattr(result.token_usage, 'total_tokens', 0)}")
             tail = build_tail_output(result.stdout)
             if tail:
                 typer.echo("stdout_tail:")
@@ -559,11 +565,11 @@ def run_full(
                 environment_profile=environment_profile,
             )
             handle = await env.provision(provision_dispatch, config)
-            runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+            runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
             vm = runtime.vm_handle
 
             # Close the SSH connection from provision (not needed after handle save)
-            conn = cast(SSHConnection, runtime.connection)
+            conn = cast("SSHConnection", runtime.connection)
             await conn.close()
 
             persisted = PersistedRunHandle(
@@ -611,8 +617,8 @@ def run_full(
                     tool=tool,
                 )
                 exec_handle = _reconstruct_handle(persisted)
-                exec_runtime = cast(RemoteEnvironmentRuntime, exec_handle.runtime)
-                exec_conn = cast(SSHConnection, exec_runtime.connection)
+                exec_runtime = cast("RemoteEnvironmentRuntime", exec_handle.runtime)
+                exec_conn = cast("SSHConnection", exec_runtime.connection)
                 try:
                     result = await env.execute(exec_handle, dispatch, config)
                 finally:
@@ -623,8 +629,8 @@ def run_full(
                 typer.echo(f"exit_code: {result.exit_code}")
                 typer.echo(f"duration_secs: {result.duration_secs}")
                 if result.token_usage:
-                    typer.echo(f"token_cost: ${result.token_usage.get('total_cost', 0):.4f}")
-                    typer.echo(f"token_total: {result.token_usage.get('total_tokens', 0)}")
+                    typer.echo(f"token_cost: ${getattr(result.token_usage, 'total_cost', 0):.4f}")
+                    typer.echo(f"token_total: {getattr(result.token_usage, 'total_tokens', 0)}")
                 if result.stderr:
                     stderr_tail = build_tail_output(result.stderr)
                     if stderr_tail:

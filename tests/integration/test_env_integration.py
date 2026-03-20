@@ -1,17 +1,20 @@
 """Integration tests for full env validation flow."""
 
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.env import load_and_validate_env
 from tanren_core.env.loader import (
-    _check_permissions,  # noqa: PLC2701
+    _check_permissions,
     discover_env_vars_from_dotenv_example,
     load_env_layers,
     resolve_env_var,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestFullFlow:

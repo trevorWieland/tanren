@@ -2,13 +2,16 @@
 
 import asyncio
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.config import Config
 from tanren_core.manager import WorkerManager
 from tanren_core.schemas import Cli, Dispatch, Phase, Result
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestManagerLifecycle:

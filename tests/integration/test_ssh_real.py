@@ -24,7 +24,7 @@ async def test_real_ssh_connect_and_run(ssh_config):
     """Connect and run a simple command."""
     conn = SSHConnection(ssh_config)
     try:
-        result = await conn.run("echo hello", timeout=10)
+        result = await conn.run("echo hello", timeout_secs=10)
         assert result.exit_code == 0
         assert "hello" in result.stdout
     finally:
@@ -39,7 +39,7 @@ async def test_real_ssh_upload_download(ssh_config):
         await conn.upload_content(content, "/tmp/tanren-test-upload.txt")
         downloaded = await conn.download_content("/tmp/tanren-test-upload.txt")
         assert downloaded == content
-        await conn.run("rm /tmp/tanren-test-upload.txt", timeout=10)
+        await conn.run("rm /tmp/tanren-test-upload.txt", timeout_secs=10)
     finally:
         await conn.close()
 

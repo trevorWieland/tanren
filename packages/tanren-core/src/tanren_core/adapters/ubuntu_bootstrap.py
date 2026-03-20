@@ -86,9 +86,11 @@ class BootstrapInstallStep(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(...)
-    check_command: str = Field(...)
-    install_command: str = Field(...)
+    name: str = Field(..., description="Human-readable name of the tool to install")
+    check_command: str = Field(
+        ..., description="Shell command to test if the tool is already installed"
+    )
+    install_command: str = Field(..., description="Shell command to install the tool")
 
 
 class BootstrapPlan(BaseModel):
@@ -96,8 +98,12 @@ class BootstrapPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    apt_packages: tuple[str, ...] = Field(default_factory=tuple)
-    install_steps: tuple[BootstrapInstallStep, ...] = Field(default_factory=tuple)
+    apt_packages: tuple[str, ...] = Field(
+        default_factory=tuple, description="APT packages to install before tool steps"
+    )
+    install_steps: tuple[BootstrapInstallStep, ...] = Field(
+        default_factory=tuple, description="Ordered list of conditional install steps"
+    )
 
 
 class UbuntuBootstrapper:
@@ -166,7 +172,7 @@ class UbuntuBootstrapper:
         skipped: list[str] = []
 
         if not force:
-            marker_check = await conn.run(f"test -f {_MARKER_PATH} && echo exists", timeout=10)
+            marker_check = await conn.run(f"test -f {_MARKER_PATH} && echo exists", timeout_secs=10)
             if "exists" in marker_check.stdout:
                 logger.info("VM already bootstrapped (marker exists)")
                 return BootstrapResult(duration_secs=0)
@@ -174,7 +180,7 @@ class UbuntuBootstrapper:
         # Step 1: apt packages
         apt_result = await conn.run(
             f"apt-get update -qq && apt-get install -y -qq {' '.join(_APT_PACKAGES)}",
-            timeout=300,
+            timeout_secs=300,
         )
         if apt_result.exit_code != 0:
             raise RuntimeError(f"apt install failed: {apt_result.stderr}")
@@ -183,14 +189,14 @@ class UbuntuBootstrapper:
         # Step 2+: Infra + CLI + ccusage steps
         steps = self._build_steps()
         for name, check_cmd, install_cmd in steps:
-            check = await conn.run(check_cmd, timeout=10)
+            check = await conn.run(check_cmd, timeout_secs=10)
             if check.exit_code == 0 and not force:
                 skipped.append(name)
                 logger.info("Skipping %s (already installed)", name)
                 continue
 
             logger.info("Installing %s...", name)
-            result = await conn.run(install_cmd, timeout=600)
+            result = await conn.run(install_cmd, timeout_secs=600)
             if result.exit_code != 0:
                 raise RuntimeError(f"Failed to install {name}: {result.stderr}")
             installed.append(name)
@@ -200,12 +206,12 @@ class UbuntuBootstrapper:
             f"id -u {_AGENT_USER} >/dev/null 2>&1"
             f" || useradd --create-home --shell /bin/bash {_AGENT_USER}"
         )
-        useradd_result = await conn.run(useradd_cmd, timeout=30)
+        useradd_result = await conn.run(useradd_cmd, timeout_secs=30)
         if useradd_result.exit_code != 0:
             raise RuntimeError(f"Agent user setup failed: {useradd_result.stderr}")
         workspace_result = await conn.run(
             f"mkdir -p /workspace && chown {_AGENT_USER}:{_AGENT_USER} /workspace",
-            timeout=10,
+            timeout_secs=10,
         )
         if workspace_result.exit_code != 0:
             raise RuntimeError(f"Workspace directory setup failed: {workspace_result.stderr}")
@@ -213,14 +219,14 @@ class UbuntuBootstrapper:
         # Extra script (if configured)
         if self._extra_script is not None:
             logger.info("Running extra bootstrap script...")
-            await conn.upload_content(self._extra_script, "/tmp/tanren-extra-bootstrap.sh")
-            extra_result = await conn.run("bash /tmp/tanren-extra-bootstrap.sh", timeout=600)
+            await conn.upload_content(self._extra_script, "/tmp/tanren-extra-bootstrap.sh")  # noqa: S108 — fixed temp path for bootstrap script
+            extra_result = await conn.run("bash /tmp/tanren-extra-bootstrap.sh", timeout_secs=600)
             if extra_result.exit_code != 0:
                 raise RuntimeError(f"Extra bootstrap script failed: {extra_result.stderr}")
             installed.append("extra-script")
 
         # Write marker
-        await conn.run(f"touch {_MARKER_PATH}", timeout=10)
+        await conn.run(f"touch {_MARKER_PATH}", timeout_secs=10)
 
         duration = int(time.monotonic() - start)
         return BootstrapResult(
@@ -235,5 +241,5 @@ class UbuntuBootstrapper:
         Returns:
             True if the bootstrap marker file exists.
         """
-        result = await conn.run(f"test -f {_MARKER_PATH} && echo exists", timeout=10)
+        result = await conn.run(f"test -f {_MARKER_PATH} && echo exists", timeout_secs=10)
         return "exists" in result.stdout

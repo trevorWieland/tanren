@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -14,6 +14,9 @@ from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.builder import build_ssh_execution_environment
 from tanren_core.config import Config
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _ROLES_YML = """\
 agents:

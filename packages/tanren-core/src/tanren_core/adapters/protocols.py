@@ -7,29 +7,31 @@ Reference docs:
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from tanren_core.adapters.events import Event
-from tanren_core.adapters.issue_types import Issue, IssueSummary
-from tanren_core.adapters.remote_types import (
-    BootstrapResult,
-    RemoteResult,
-    SecretBundle,
-    VMAssignment,
-    VMHandle,
-    VMRequirements,
-    WorkspacePath,
-    WorkspaceSpec,
-)
-from tanren_core.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
-from tanren_core.config import Config
-from tanren_core.env.environment_schema import McpServerConfig
-from tanren_core.env.validator import EnvReport
-from tanren_core.postflight import PostflightResult
-from tanren_core.preflight import PreflightResult
-from tanren_core.process import ProcessResult
-from tanren_core.schemas import Dispatch
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from tanren_core.adapters.events import Event
+    from tanren_core.adapters.issue_types import Issue, IssueSummary
+    from tanren_core.adapters.remote_types import (
+        BootstrapResult,
+        RemoteResult,
+        SecretBundle,
+        VMAssignment,
+        VMHandle,
+        VMRequirements,
+        WorkspacePath,
+        WorkspaceSpec,
+    )
+    from tanren_core.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
+    from tanren_core.config import Config
+    from tanren_core.env.environment_schema import McpServerConfig
+    from tanren_core.env.validator import EnvReport
+    from tanren_core.postflight import PostflightResult
+    from tanren_core.preflight import PreflightResult
+    from tanren_core.process import ProcessResult
+    from tanren_core.schemas import Dispatch
 
 
 @runtime_checkable
@@ -337,7 +339,7 @@ class RemoteConnection(Protocol):
         self,
         command: str,
         *,
-        timeout: int | None = None,  # noqa: ASYNC109 — protocol signature, not an actual timeout
+        timeout_secs: int | None = None,
         stdin_data: str | None = None,
         request_pty: bool = False,
     ) -> RemoteResult:

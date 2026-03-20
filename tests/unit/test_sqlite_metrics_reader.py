@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiosqlite
 import pytest
 
 from tanren_core.adapters.metrics_reader import MetricsReader
-from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
+from tanren_core.adapters.sqlite_emitter import (
+    _SCHEMA,
+)
 from tanren_core.adapters.sqlite_metrics_reader import SqliteMetricsReader
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 async def _setup_db(db_path: Path, events: list[tuple[str, str, str, dict]]) -> None:

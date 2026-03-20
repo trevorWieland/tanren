@@ -28,13 +28,13 @@ def _import_hcloud() -> type:
         ImportError: If the hcloud package is not installed.
     """
     try:
-        from hcloud import Client as _Client  # noqa: PLC0415
-
-        return _Client
+        from hcloud import Client as _Client  # noqa: PLC0415 — optional dep
     except ImportError:
         raise ImportError(
             "hcloud is required for Hetzner provisioning. Install it with: uv sync --extra hetzner"
         ) from None
+    else:
+        return _Client
 
 
 logger = logging.getLogger(__name__)
@@ -45,18 +45,30 @@ class HetznerProvisionerSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    token_env: str = Field(default="HCLOUD_TOKEN")
-    default_server_type: str = Field(...)
-    location: str = Field(...)
-    image: str = Field(...)
-    architecture: str = Field(default="x86")
-    ssh_key_name: str = Field(...)
-    name_prefix: str = Field(default="tanren")
-    labels: dict[str, str] = Field(default_factory=dict)
-    managed_by_label_key: str = Field(default="managed-by")
-    managed_by_label_value: str = Field(default="tanren")
-    readiness_timeout_secs: int = Field(default=300, ge=10)
-    poll_interval_secs: int = Field(default=2, ge=1)
+    token_env: str = Field(
+        default="HCLOUD_TOKEN", description="Environment variable containing the Hetzner API token"
+    )
+    default_server_type: str = Field(..., description="Default Hetzner server type (e.g. cpx31)")
+    location: str = Field(..., description="Hetzner datacenter location (e.g. fsn1)")
+    image: str = Field(..., description="OS image name (e.g. ubuntu-24.04)")
+    architecture: str = Field(default="x86", description="CPU architecture for image lookup")
+    ssh_key_name: str = Field(..., description="Name of the SSH key registered in Hetzner")
+    name_prefix: str = Field(default="tanren", description="Prefix for generated server names")
+    labels: dict[str, str] = Field(
+        default_factory=dict, description="Additional labels to apply to created servers"
+    )
+    managed_by_label_key: str = Field(
+        default="managed-by", description="Label key used to identify managed servers"
+    )
+    managed_by_label_value: str = Field(
+        default="tanren", description="Label value used to identify managed servers"
+    )
+    readiness_timeout_secs: int = Field(
+        default=300, ge=10, description="Maximum seconds to wait for VM readiness"
+    )
+    poll_interval_secs: int = Field(
+        default=2, ge=1, description="Seconds between readiness poll attempts"
+    )
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, JsonValue]) -> HetznerProvisionerSettings:
@@ -285,12 +297,16 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _is_running(server: object) -> bool:
+    def _is_running(
+        server: object,
+    ) -> bool:  # hcloud types are unstable; duck-typing via object is intentional
         status = str(getattr(server, "status", "")).lower()
         return status == "running"
 
     @staticmethod
-    def _extract_public_ipv4(server: object) -> str | None:
+    def _extract_public_ipv4(
+        server: object,
+    ) -> str | None:  # hcloud types are unstable; duck-typing via object is intentional
         public_net = getattr(server, "public_net", None)
         if public_net is None:
             return None
@@ -316,7 +332,9 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _price_location_name(price: object) -> str | None:
+    def _price_location_name(
+        price: object,
+    ) -> str | None:  # hcloud types are unstable; duck-typing via object is intentional
         location = getattr(price, "location", None)
         if location is not None:
             loc_name = getattr(location, "name", None)
@@ -335,8 +353,12 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _price_hourly_value(price: object) -> float | None:
-        def _as_float(value: object) -> float | None:
+    def _price_hourly_value(
+        price: object,
+    ) -> float | None:  # hcloud types are unstable; duck-typing via object is intentional
+        def _as_float(
+            value: object,
+        ) -> float | None:  # hcloud types are unstable; duck-typing via object is intentional
             if not isinstance(value, str | int | float):
                 return None
             try:
@@ -366,7 +388,9 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _server_type_name(server: object) -> str:
+    def _server_type_name(
+        server: object,
+    ) -> str:  # hcloud types are unstable; duck-typing via object is intentional
         st = getattr(server, "server_type", None)
         if st is None:
             return ""

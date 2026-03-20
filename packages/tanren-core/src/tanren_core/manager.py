@@ -10,7 +10,7 @@ import contextlib
 import logging
 import os
 import signal
-import subprocess
+import subprocess  # noqa: S404 — subprocess used for local process management
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,8 +18,20 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import asyncpg
+    from pydantic import JsonValue
 
-from pydantic import JsonValue
+    from tanren_core.adapters.protocols import (
+        EnvProvisioner,
+        EnvValidator,
+        EventEmitter,
+        ExecutionEnvironment,
+        PostflightRunner,
+        PreflightRunner,
+        ProcessSpawner,
+        WorktreeManager,
+    )
+    from tanren_core.adapters.protocols import VMProvisioner as VMProvisionerProtocol
+
 
 from tanren_core.adapters import (
     DispatchReceived,
@@ -40,17 +52,6 @@ from tanren_core.adapters import (
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
 from tanren_core.adapters.postgres_pool import is_postgres_url
-from tanren_core.adapters.protocols import (
-    EnvProvisioner,
-    EnvValidator,
-    EventEmitter,
-    ExecutionEnvironment,
-    PostflightRunner,
-    PreflightRunner,
-    ProcessSpawner,
-    WorktreeManager,
-)
-from tanren_core.adapters.protocols import VMProvisioner as VMProvisionerProtocol
 from tanren_core.adapters.remote_types import VMHandle, VMProvider
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.types import (
@@ -333,7 +334,9 @@ class WorkerManager:
         Returns:
             Configured SSHExecutionEnvironment.
         """
-        from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
+        from tanren_core.builder import (  # noqa: PLC0415 — avoid circular import
+            build_ssh_execution_environment,
+        )
 
         env, state_store = build_ssh_execution_environment(self._config, self._emitter, pool=pool)
         self._remote_state_store = state_store
@@ -344,8 +347,12 @@ class WorkerManager:
         if self._pg_dsn is None:
             return
 
-        from tanren_core.adapters.postgres_emitter import PostgresEventEmitter  # noqa: PLC0415
-        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+        from tanren_core.adapters.postgres_emitter import (  # noqa: PLC0415 — conditional import based on configuration
+            PostgresEventEmitter,
+        )
+        from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — conditional import based on configuration
+            create_postgres_pool,
+        )
 
         pool = await create_postgres_pool(self._pg_dsn)
         self._pg_pool = pool
@@ -370,7 +377,9 @@ class WorkerManager:
         remote_cfg = load_remote_config(self._config.remote_config_path)
 
         if self._pg_pool is not None:
-            from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+            from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
+                PostgresVMStateStore,
+            )
 
             store = PostgresVMStateStore(self._pg_pool)
         else:
@@ -395,7 +404,7 @@ class WorkerManager:
                     vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), store)
                     provider = VMProvider.MANUAL
                 elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
-                    from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415
+                    from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415 — deferred import for optional dependency
                         HetznerProvisionerSettings,
                         HetznerVMProvisioner,
                     )
@@ -406,7 +415,7 @@ class WorkerManager:
                     vm_provisioner = HetznerVMProvisioner(hetzner_settings)
                     provider = VMProvider.HETZNER
                 elif remote_cfg.provisioner.type == ProvisionerType.GCP:
-                    from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415
+                    from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415 — deferred import for optional dependency
                         GCPProvisionerSettings,
                         GCPVMProvisioner,
                     )
@@ -511,7 +520,7 @@ class WorkerManager:
             )
             await self._write_result_and_nudge(result, dispatch.workflow_id)
 
-    async def _handle_setup(self, dispatch: Dispatch, issue: str, worktree_path: Path) -> None:
+    async def _handle_setup(self, dispatch: Dispatch, issue: str, worktree_path: Path) -> None:  # noqa: ARG002 — required by interface
         """Handle setup phase: create worktree + register."""
         start = time.monotonic()
         try:
@@ -606,7 +615,7 @@ class WorkerManager:
 
     async def _handle_work_phase(
         self,
-        path: Path,
+        path: Path,  # noqa: ARG002 — required by interface
         dispatch: Dispatch,
         dispatch_stem: str,
         worktree_path: Path,
@@ -708,7 +717,8 @@ class WorkerManager:
             if dispatch.cli != Cli.BASH:
                 if isinstance(handle.runtime, RemoteEnvironmentRuntime):
                     # Already collected inside SSHExecutionEnvironment.execute()
-                    token_usage_data = phase_result.token_usage
+                    if phase_result.token_usage is not None:
+                        token_usage_data = phase_result.token_usage.model_dump(mode="json")
                 else:
                     # Local execution: collect here
                     runner = LocalCommandRunner()
@@ -844,7 +854,7 @@ class WorkerManager:
         """
         if handle.runtime.kind != "local":
             return []
-        local_runtime = cast(LocalEnvironmentRuntime, handle.runtime)
+        local_runtime = cast("LocalEnvironmentRuntime", handle.runtime)
         if local_runtime.preflight_result is None:
             return []
         return local_runtime.preflight_result.repairs

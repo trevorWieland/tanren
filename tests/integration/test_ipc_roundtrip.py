@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -21,6 +21,9 @@ from tanren_core.schemas import (
     Phase,
     Result,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestIPCRoundtrip:

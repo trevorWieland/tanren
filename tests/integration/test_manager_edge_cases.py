@@ -8,7 +8,7 @@ import pytest
 from tanren_core.config import Config
 from tanren_core.manager import (
     WorkerManager,
-    _build_gate_output,  # noqa: PLC2701
+    _build_gate_output,
     build_tail_output,
 )
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase

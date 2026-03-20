@@ -2,7 +2,7 @@
 
 import json
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.schemas import (
     Finding,
@@ -11,6 +11,9 @@ from tanren_core.schemas import (
     Outcome,
     Phase,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def parse_signal_token(command_name: str, content: str) -> str | None:
@@ -82,7 +85,7 @@ def _extract_audit_spec_signal(spec_folder_path: Path) -> str | None:
             if status == "unknown":
                 return None  # Treated as error by outcome mapping
             return status
-    except Exception:
+    except Exception:  # noqa: S110 — intentional silent exception during cleanup
         pass
     return None
 
@@ -209,7 +212,7 @@ def _parse_findings_file(path: Path) -> FindingsOutput | None:
         return None
     try:
         return FindingsOutput.model_validate_json(path.read_text())
-    except Exception:
+    except Exception:  # noqa: S110 — intentional silent exception during cleanup
         pass
     # Best-effort: strip markdown code fences and retry
     try:

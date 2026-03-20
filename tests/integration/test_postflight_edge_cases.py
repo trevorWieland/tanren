@@ -3,11 +3,14 @@
 import asyncio
 import hashlib
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.postflight import run_postflight
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture

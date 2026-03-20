@@ -1,17 +1,20 @@
 """Tests for config module."""
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.config import (
-    _REQUIRED_KEYS,  # noqa: PLC2701
+    _REQUIRED_KEYS,
     Config,
     ConfigSource,
     DotenvConfigSource,
     load_config_env,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,10 +1,13 @@
 """Tests for metrics module."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.metrics import compute_plan_hash, count_unchecked_tasks
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestCountUncheckedTasks:

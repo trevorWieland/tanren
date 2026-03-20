@@ -391,11 +391,15 @@ class CostBucketResponse(BaseModel):
     group_key: str = Field(..., description="Grouping key (model list, date, or workflow_id)")
     total_cost: float = Field(..., ge=0.0, description="Total spend in USD")
     total_tokens: int = Field(..., ge=0, description="Total tokens consumed")
-    input_tokens: int = Field(..., ge=0)
-    output_tokens: int = Field(..., ge=0)
-    cache_read_tokens: int = Field(default=0, ge=0)
-    cache_creation_tokens: int = Field(default=0, ge=0)
-    reasoning_tokens: int = Field(default=0, ge=0)
+    input_tokens: int = Field(..., ge=0, description="Total input tokens in this bucket")
+    output_tokens: int = Field(..., ge=0, description="Total output tokens in this bucket")
+    cache_read_tokens: int = Field(default=0, ge=0, description="Tokens served from prompt cache")
+    cache_creation_tokens: int = Field(
+        default=0, ge=0, description="Tokens used to create prompt cache entries"
+    )
+    reasoning_tokens: int = Field(
+        default=0, ge=0, description="Tokens used for chain-of-thought reasoning"
+    )
     event_count: int = Field(..., ge=0, description="Number of token usage events")
 
 
@@ -415,12 +419,12 @@ class MetricsVMsResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    total_provisioned: int = Field(..., ge=0)
-    total_released: int = Field(..., ge=0)
-    currently_active: int = Field(..., ge=0)
-    total_vm_duration_secs: int = Field(..., ge=0)
-    total_estimated_cost: float = Field(..., ge=0.0)
-    avg_duration_secs: float = Field(..., ge=0.0)
+    total_provisioned: int = Field(..., ge=0, description="Total number of VMs provisioned")
+    total_released: int = Field(..., ge=0, description="Total number of VMs released")
+    currently_active: int = Field(..., ge=0, description="Number of VMs currently active")
+    total_vm_duration_secs: int = Field(..., ge=0, description="Sum of all VM lifetimes in seconds")
+    total_estimated_cost: float = Field(..., ge=0.0, description="Total estimated VM cost in USD")
+    avg_duration_secs: float = Field(..., ge=0.0, description="Average VM lifetime in seconds")
     by_provider: dict[str, int] = Field(
         default_factory=dict, description="Provisioned count per provider"
     )

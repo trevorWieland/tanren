@@ -11,11 +11,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import RemoteConnection
+    from tanren_core.adapters.remote_types import SecretBundle
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def _resolve_remote_home(conn: RemoteConnection) -> str:
     Raises:
         RuntimeError: If the ``echo $HOME`` command fails.
     """
-    result = await conn.run("echo $HOME", timeout=10)
+    result = await conn.run("echo $HOME", timeout_secs=10)
     home = result.stdout.strip()
     if not home or result.exit_code != 0:
         raise RuntimeError(f"Failed to resolve remote $HOME: {result.stderr}")
@@ -103,12 +103,12 @@ class OpencodeCredentialProvider:
         remote_home = home_dir or await _resolve_remote_home(conn)
         auth_dir = f"{remote_home}/{Path(self._SUFFIX).parent}"
         abs_auth_path = f"{remote_home}/{self._SUFFIX}"
-        await conn.run(f"mkdir -p {auth_dir}", timeout=10)
+        await conn.run(f"mkdir -p {auth_dir}", timeout_secs=10)
         await conn.upload_content(content, abs_auth_path)
-        await conn.run(f"chmod 600 {abs_auth_path}", timeout=10)
+        await conn.run(f"chmod 600 {abs_auth_path}", timeout_secs=10)
         if home_dir:
             user = Path(home_dir).name
-            await conn.run(f"chown -R {user}:{user} {auth_dir}", timeout=10)
+            await conn.run(f"chown -R {user}:{user} {auth_dir}", timeout_secs=10)
         logger.info("Injected opencode auth.json (zai-coding-plan)")
         return True
 
@@ -145,12 +145,12 @@ class ClaudeCredentialProvider:
         remote_home = home_dir or await _resolve_remote_home(conn)
         auth_dir = f"{remote_home}/{Path(self._SUFFIX).parent}"
         abs_auth_path = f"{remote_home}/{self._SUFFIX}"
-        await conn.run(f"mkdir -p {auth_dir}", timeout=10)
+        await conn.run(f"mkdir -p {auth_dir}", timeout_secs=10)
         await conn.upload_content(content, abs_auth_path)
-        await conn.run(f"chmod 600 {abs_auth_path}", timeout=10)
+        await conn.run(f"chmod 600 {abs_auth_path}", timeout_secs=10)
         if home_dir:
             user = Path(home_dir).name
-            await conn.run(f"chown -R {user}:{user} {auth_dir}", timeout=10)
+            await conn.run(f"chown -R {user}:{user} {auth_dir}", timeout_secs=10)
         logger.info("Injected claude credentials.json (subscription)")
         return True
 
@@ -187,12 +187,12 @@ class CodexCredentialProvider:
         remote_home = home_dir or await _resolve_remote_home(conn)
         auth_dir = f"{remote_home}/{Path(self._SUFFIX).parent}"
         abs_auth_path = f"{remote_home}/{self._SUFFIX}"
-        await conn.run(f"mkdir -p {auth_dir}", timeout=10)
+        await conn.run(f"mkdir -p {auth_dir}", timeout_secs=10)
         await conn.upload_content(content, abs_auth_path)
-        await conn.run(f"chmod 600 {abs_auth_path}", timeout=10)
+        await conn.run(f"chmod 600 {abs_auth_path}", timeout_secs=10)
         if home_dir:
             user = Path(home_dir).name
-            await conn.run(f"chown -R {user}:{user} {auth_dir}", timeout=10)
+            await conn.run(f"chown -R {user}:{user} {auth_dir}", timeout_secs=10)
         logger.info("Injected codex auth.json (subscription)")
         return True
 

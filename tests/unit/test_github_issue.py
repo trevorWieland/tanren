@@ -182,7 +182,7 @@ class TestGetIssue:
         client.post = Mock(return_value=_FakeResponse(response_data))
         source = _make_source(monkeypatch, client)
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(TypeError, match="not found"):
             await source.get_issue("999")
 
     async def test_non_numeric_id_raises(self, monkeypatch):

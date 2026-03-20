@@ -1,11 +1,14 @@
 """Tests for secrets loader."""
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretConfig, SecretLoader
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _ALL_CLIS = frozenset({Cli.CLAUDE, Cli.CODEX, Cli.OPENCODE})
 

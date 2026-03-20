@@ -18,11 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
+    from tanren_core.adapters.protocols import RemoteConnection
     from tanren_core.config import Config
 
 logger = logging.getLogger(__name__)
 
-_COLLECTION_TIMEOUT = 30.0
+_COLLECTION_TIMEOUT = 30
 
 
 class TokenUsage(BaseModel):
@@ -30,23 +31,31 @@ class TokenUsage(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    input_tokens: int = Field(..., ge=0)
-    output_tokens: int = Field(..., ge=0)
-    cache_creation_tokens: int = Field(default=0, ge=0)
-    cache_read_tokens: int = Field(default=0, ge=0)
-    cached_input_tokens: int = Field(default=0, ge=0)
-    reasoning_tokens: int = Field(default=0, ge=0)
-    total_tokens: int = Field(..., ge=0)
-    total_cost: float = Field(..., ge=0.0)
-    models_used: list[str] = Field(default_factory=list)
-    provider: str = Field(...)
-    session_id: str | None = Field(default=None)
+    input_tokens: int = Field(..., ge=0, description="Number of input tokens consumed")
+    output_tokens: int = Field(..., ge=0, description="Number of output tokens generated")
+    cache_creation_tokens: int = Field(
+        default=0, ge=0, description="Tokens used to create prompt cache entries"
+    )
+    cache_read_tokens: int = Field(default=0, ge=0, description="Tokens served from prompt cache")
+    cached_input_tokens: int = Field(
+        default=0, ge=0, description="Input tokens served from cache (Codex-style)"
+    )
+    reasoning_tokens: int = Field(
+        default=0, ge=0, description="Tokens used for chain-of-thought reasoning"
+    )
+    total_tokens: int = Field(..., ge=0, description="Sum of all token categories")
+    total_cost: float = Field(..., ge=0.0, description="Estimated cost in USD")
+    models_used: list[str] = Field(
+        default_factory=list, description="Model identifiers used during the session"
+    )
+    provider: str = Field(..., description="Token usage provider name (claude, codex, opencode)")
+    session_id: str | None = Field(default=None, description="Provider-specific session identifier")
 
 
 class CommandRunner(Protocol):
     """Abstracts local subprocess vs SSH command execution."""
 
-    async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
+    async def run_command(self, cmd: list[str], timeout_secs: int) -> tuple[int, str]:
         """Run a command and return (exit_code, stdout).
 
         Returns:
@@ -58,7 +67,7 @@ class CommandRunner(Protocol):
 class LocalCommandRunner:
     """Run commands as local subprocesses."""
 
-    async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
+    async def run_command(self, cmd: list[str], timeout_secs: int) -> tuple[int, str]:
         """Run a command locally via asyncio subprocess.
 
         Returns:
@@ -73,7 +82,7 @@ class LocalCommandRunner:
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_secs)
         except TimeoutError:
             proc.kill()
             await proc.wait()
@@ -84,12 +93,12 @@ class LocalCommandRunner:
 class RemoteCommandRunner:
     """Run commands via an SSH connection."""
 
-    def __init__(self, connection: object, *, run_as_user: str | None = None) -> None:
+    def __init__(self, connection: RemoteConnection, *, run_as_user: str | None = None) -> None:
         """Initialize with an SSH connection object."""
         self._connection = connection
         self._run_as_user = run_as_user
 
-    async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
+    async def run_command(self, cmd: list[str], timeout_secs: int) -> tuple[int, str]:
         """Run a command on a remote host via SSH.
 
         Returns:
@@ -98,7 +107,7 @@ class RemoteCommandRunner:
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
         if self._run_as_user:
             cmd_str = f"su - {shlex.quote(self._run_as_user)} -c {shlex.quote(cmd_str)}"
-        result = await self._connection.run(cmd_str, timeout=timeout)  # type: ignore[union-attr]
+        result = await self._connection.run(cmd_str, timeout_secs=timeout_secs)
         return result.exit_code, result.stdout
 
 
@@ -123,19 +132,22 @@ async def collect_token_usage(
 
     try:
         if cli == Cli.CLAUDE:
-            return await _collect_claude(worktree_path, dispatch_start_utc, config, runner)
-        if cli == Cli.CODEX:
-            return await _collect_codex(dispatch_start_utc, dispatch_end_utc, config, runner)
-        if cli == Cli.OPENCODE:
-            return await _collect_opencode(dispatch_start_utc, dispatch_end_utc, config, runner)
-        logger.warning("Unknown CLI for token usage collection: %s", cli)
-        return None
+            result = await _collect_claude(worktree_path, dispatch_start_utc, config, runner)
+        elif cli == Cli.CODEX:
+            result = await _collect_codex(dispatch_start_utc, dispatch_end_utc, config, runner)
+        elif cli == Cli.OPENCODE:
+            result = await _collect_opencode(dispatch_start_utc, dispatch_end_utc, config, runner)
+        else:
+            logger.warning("Unknown CLI for token usage collection: %s", cli)
+            result = None
     except TimeoutError:
         logger.warning("Token usage collection timed out for cli=%s", cli)
         return None
     except Exception:
         logger.warning("Token usage collection failed for cli=%s", cli, exc_info=True)
         return None
+    else:
+        return result
 
 
 async def _collect_claude(
@@ -165,7 +177,7 @@ async def _collect_claude(
         "--no-color",
     ]
 
-    exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
+    exit_code, stdout = await runner.run_command(cmd, timeout_secs=_COLLECTION_TIMEOUT)
     if exit_code != 0:
         logger.warning("ccusage (claude) exited with code %d", exit_code)
         return None
@@ -196,7 +208,7 @@ async def _collect_codex(
     base_cmd = shlex.split(config.ccusage_codex_cmd)
     cmd = [*base_cmd, "session", "--json", "--since", since, "--offline", "--noColor"]
 
-    exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
+    exit_code, stdout = await runner.run_command(cmd, timeout_secs=_COLLECTION_TIMEOUT)
     if exit_code != 0:
         logger.warning("@ccusage/codex exited with code %d", exit_code)
         return None
@@ -225,7 +237,7 @@ async def _collect_opencode(
     base_cmd = shlex.split(config.ccusage_opencode_cmd)
     cmd = [*base_cmd, "session", "--json"]
 
-    exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
+    exit_code, stdout = await runner.run_command(cmd, timeout_secs=_COLLECTION_TIMEOUT)
     if exit_code != 0:
         logger.warning("@ccusage/opencode exited with code %d", exit_code)
         return None

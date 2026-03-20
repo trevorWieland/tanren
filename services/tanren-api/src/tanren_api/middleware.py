@@ -1,5 +1,7 @@
 """Request middleware for the tanren API."""
 
+from __future__ import annotations
+
 import logging
 import time
 import uuid
@@ -10,19 +12,27 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
+# ASGI message type — no typed alternative in starlette.types
 Message = MutableMapping[str, Any]
 
 
-def RequestIDMiddleware(app: ASGIApp, /) -> ASGIApp:
-    """Generate a UUID per request and attach it to the response.
+class RequestIDMiddleware:
+    """Generate a UUID per request and attach it to the response."""
 
-    Returns:
-        ASGI middleware that adds X-Request-ID headers.
-    """
+    def __init__(self, app: ASGIApp) -> None:
+        """Initialize with the wrapped ASGI application."""
+        self.app = app
 
-    async def middleware(scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Add X-Request-ID header to HTTP responses.
+
+        Args:
+            scope: ASGI connection scope.
+            receive: ASGI receive callable.
+            send: ASGI send callable.
+        """
         if scope["type"] != "http":
-            await app(scope, receive, send)
+            await self.app(scope, receive, send)
             return
 
         request_id = str(uuid.uuid4())
@@ -30,26 +40,31 @@ def RequestIDMiddleware(app: ASGIApp, /) -> ASGIApp:
 
         async def send_with_request_id(message: Message) -> None:
             if message.get("type") == "http.response.start":
-                headers: list[Any] = list(message.get("headers", []))
+                headers: list[tuple[bytes, bytes]] = list(message.get("headers", []))
                 headers.append((b"x-request-id", request_id.encode()))
                 message["headers"] = headers
             await send(message)
 
-        await app(scope, receive, send_with_request_id)
-
-    return middleware
+        await self.app(scope, receive, send_with_request_id)
 
 
-def RequestLoggingMiddleware(app: ASGIApp, /) -> ASGIApp:
-    """Log method, path, status code, and duration for every request.
+class RequestLoggingMiddleware:
+    """Log method, path, status code, and duration for every request."""
 
-    Returns:
-        ASGI middleware that logs request details.
-    """
+    def __init__(self, app: ASGIApp) -> None:
+        """Initialize with the wrapped ASGI application."""
+        self.app = app
 
-    async def middleware(scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Log request details for HTTP requests.
+
+        Args:
+            scope: ASGI connection scope.
+            receive: ASGI receive callable.
+            send: ASGI send callable.
+        """
         if scope["type"] != "http":
-            await app(scope, receive, send)
+            await self.app(scope, receive, send)
             return
 
         start = time.monotonic()
@@ -61,7 +76,7 @@ def RequestLoggingMiddleware(app: ASGIApp, /) -> ASGIApp:
                 status_code = message.get("status", 0)
             await send(message)
 
-        await app(scope, receive, send_with_logging)
+        await self.app(scope, receive, send_with_logging)
         duration_ms = (time.monotonic() - start) * 1000
         logger.info(
             "%s %s %d %.1fms",
@@ -70,5 +85,3 @@ def RequestLoggingMiddleware(app: ASGIApp, /) -> ASGIApp:
             status_code,
             duration_ms,
         )
-
-    return middleware

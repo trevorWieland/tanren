@@ -12,7 +12,7 @@
           "health"
         ],
         "summary": "Health",
-        "description": "Return service health and version info.",
+        "description": "Return service health and version info.\n\nReturns:\n    HealthResponse: Service health status and version.",
         "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
@@ -34,7 +34,7 @@
           "health"
         ],
         "summary": "Readiness",
-        "description": "Readiness probe.",
+        "description": "Readiness probe.\n\nReturns:\n    ReadinessResponse: Service readiness status.",
         "operationId": "readiness_api_v1_health_ready_get",
         "responses": {
           "200": {
@@ -56,7 +56,7 @@
           "dispatch"
         ],
         "summary": "Create Dispatch",
-        "description": "Accept a new dispatch request.",
+        "description": "Accept a new dispatch request.\n\nReturns:\n    DispatchAccepted: Accepted response with workflow ID.",
         "operationId": "create_dispatch_api_v1_dispatch_post",
         "parameters": [
           {
@@ -109,7 +109,7 @@
           "dispatch"
         ],
         "summary": "Get Dispatch",
-        "description": "Query dispatch status by workflow ID.",
+        "description": "Query dispatch status by workflow ID.\n\nReturns:\n    DispatchDetail: Dispatch details including current status.",
         "operationId": "get_dispatch_api_v1_dispatch__dispatch_id__get",
         "parameters": [
           {
@@ -161,7 +161,7 @@
           "dispatch"
         ],
         "summary": "Cancel Dispatch",
-        "description": "Cancel a pending dispatch.",
+        "description": "Cancel a pending dispatch.\n\nReturns:\n    DispatchCancelled: Confirmation of the cancelled dispatch.",
         "operationId": "cancel_dispatch_api_v1_dispatch__dispatch_id__delete",
         "parameters": [
           {
@@ -215,7 +215,7 @@
           "vm"
         ],
         "summary": "List Vms",
-        "description": "List active VM assignments.",
+        "description": "List active VM assignments.\n\nReturns:\n    list[VMSummary]: Active VM assignments.",
         "operationId": "list_vms_api_v1_vm_get",
         "parameters": [
           {
@@ -262,7 +262,7 @@
           "vm"
         ],
         "summary": "Provision Vm",
-        "description": "Provision a new VM (non-blocking).",
+        "description": "Provision a new VM (non-blocking).\n\nReturns:\n    VMProvisionAccepted: Accepted response with tracking env_id.",
         "operationId": "provision_vm_api_v1_vm_provision_post",
         "parameters": [
           {
@@ -315,7 +315,7 @@
           "vm"
         ],
         "summary": "Get Provision Status",
-        "description": "Poll status of an in-progress or completed VM provisioning.",
+        "description": "Poll status of an in-progress or completed VM provisioning.\n\nReturns:\n    VMProvisionStatus: Current provisioning status.",
         "operationId": "get_provision_status_api_v1_vm_provision__env_id__get",
         "parameters": [
           {
@@ -369,7 +369,7 @@
           "vm"
         ],
         "summary": "Release Vm",
-        "description": "Release a VM assignment.",
+        "description": "Release a VM assignment.\n\nReturns:\n    VMReleaseConfirmed: Confirmation of the released VM.",
         "operationId": "release_vm_api_v1_vm__vm_id__delete",
         "parameters": [
           {
@@ -423,7 +423,7 @@
           "vm"
         ],
         "summary": "Dry Run Provision",
-        "description": "Dry-run provision \u2014 show what would happen without creating resources.",
+        "description": "Dry-run provision \u2014 show what would happen without creating resources.\n\nReturns:\n    VMDryRunResult: Simulated provisioning result.",
         "operationId": "dry_run_provision_api_v1_vm_dry_run_post",
         "parameters": [
           {
@@ -476,7 +476,7 @@
           "run"
         ],
         "summary": "Run Provision",
-        "description": "Provision a remote execution environment (non-blocking).",
+        "description": "Provision a remote execution environment (non-blocking).\n\nReturns:\n    RunEnvironment: Provisioning environment with tracking env_id.",
         "operationId": "run_provision_api_v1_run_provision_post",
         "parameters": [
           {
@@ -529,7 +529,7 @@
           "run"
         ],
         "summary": "Run Execute",
-        "description": "Execute a phase against a provisioned environment.",
+        "description": "Execute a phase against a provisioned environment.\n\nReturns:\n    RunExecuteAccepted: Accepted response with env_id and dispatch_id.",
         "operationId": "run_execute_api_v1_run__env_id__execute_post",
         "parameters": [
           {
@@ -593,7 +593,7 @@
           "run"
         ],
         "summary": "Run Teardown",
-        "description": "Teardown a provisioned environment.",
+        "description": "Teardown a provisioned environment.\n\nReturns:\n    RunTeardownAccepted: Confirmation that teardown has been initiated.",
         "operationId": "run_teardown_api_v1_run__env_id__teardown_post",
         "parameters": [
           {
@@ -647,7 +647,7 @@
           "run"
         ],
         "summary": "Run Full",
-        "description": "Full lifecycle: provision, execute, teardown. Returns ID for polling.",
+        "description": "Full lifecycle: provision, execute, teardown. Returns ID for polling.\n\nReturns:\n    DispatchAccepted: Accepted response with dispatch_id for polling.",
         "operationId": "run_full_api_v1_run_full_post",
         "parameters": [
           {
@@ -700,7 +700,7 @@
           "run"
         ],
         "summary": "Run Status",
-        "description": "Poll status of a running environment.",
+        "description": "Poll status of a running environment.\n\nReturns:\n    RunStatus: Current status of the environment.",
         "operationId": "run_status_api_v1_run__env_id__status_get",
         "parameters": [
           {
@@ -797,7 +797,7 @@
           "events"
         ],
         "summary": "List Events",
-        "description": "Query structured events with optional filters.",
+        "description": "Query structured events with optional filters.\n\nReturns:\n    PaginatedEvents: Paginated list of matching events.",
         "operationId": "list_events_api_v1_events_get",
         "parameters": [
           {
@@ -903,7 +903,7 @@
           "metrics"
         ],
         "summary": "Metrics Summary",
-        "description": "Workflow success/failure rate and duration stats.",
+        "description": "Workflow success/failure rate and duration stats.\n\nReturns:\n    MetricsSummaryResponse: Aggregated success/failure rates and duration statistics.",
         "operationId": "metrics_summary_api_v1_metrics_summary_get",
         "parameters": [
           {
@@ -1000,7 +1000,7 @@
           "metrics"
         ],
         "summary": "Metrics Costs",
-        "description": "Token cost metrics grouped by model, day, or workflow.",
+        "description": "Token cost metrics grouped by model, day, or workflow.\n\nReturns:\n    MetricsCostsResponse: Token cost metrics with grouping buckets.",
         "operationId": "metrics_costs_api_v1_metrics_costs_get",
         "parameters": [
           {
@@ -1108,7 +1108,7 @@
           "metrics"
         ],
         "summary": "Metrics Vms",
-        "description": "VM utilization metrics.",
+        "description": "VM utilization metrics.\n\nReturns:\n    MetricsVMsResponse: VM provisioning and utilization metrics.",
         "operationId": "metrics_vms_api_v1_metrics_vms_get",
         "parameters": [
           {
@@ -1221,7 +1221,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -1232,26 +1233,30 @@
           },
           "vm_id": {
             "type": "string",
-            "title": "Vm Id"
+            "title": "Vm Id",
+            "description": "Unique VM identifier"
           },
           "installed": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Installed"
+            "title": "Installed",
+            "description": "Tools that were installed during bootstrap"
           },
           "skipped": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Skipped"
+            "title": "Skipped",
+            "description": "Tools that were already installed and skipped"
           },
           "duration_secs": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Duration Secs",
+            "description": "Bootstrap duration in seconds",
             "default": 0
           }
         },
@@ -1362,29 +1367,34 @@
           "input_tokens": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Input Tokens"
+            "title": "Input Tokens",
+            "description": "Total input tokens in this bucket"
           },
           "output_tokens": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Output Tokens"
+            "title": "Output Tokens",
+            "description": "Total output tokens in this bucket"
           },
           "cache_read_tokens": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Cache Read Tokens",
+            "description": "Tokens served from prompt cache",
             "default": 0
           },
           "cache_creation_tokens": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Cache Creation Tokens",
+            "description": "Tokens used to create prompt cache entries",
             "default": 0
           },
           "reasoning_tokens": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Reasoning Tokens",
+            "description": "Tokens used for chain-of-thought reasoning",
             "default": 0
           },
           "event_count": {
@@ -1613,7 +1623,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -1624,15 +1635,18 @@
           },
           "phase": {
             "type": "string",
-            "title": "Phase"
+            "title": "Phase",
+            "description": "Dispatch phase name (e.g. agent, gate)"
           },
           "project": {
             "type": "string",
-            "title": "Project"
+            "title": "Project",
+            "description": "Target project name"
           },
           "cli": {
             "type": "string",
-            "title": "Cli"
+            "title": "Cli",
+            "description": "CLI tool used for this dispatch"
           }
         },
         "additionalProperties": false,
@@ -1768,7 +1782,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -1779,11 +1794,13 @@
           },
           "phase": {
             "type": "string",
-            "title": "Phase"
+            "title": "Phase",
+            "description": "Phase during which the error occurred"
           },
           "error": {
             "type": "string",
-            "title": "Error"
+            "title": "Error",
+            "description": "Error message text"
           },
           "error_class": {
             "anyOf": [
@@ -1794,7 +1811,8 @@
                 "type": "null"
               }
             ],
-            "title": "Error Class"
+            "title": "Error Class",
+            "description": "Fully qualified exception class name"
           }
         },
         "additionalProperties": false,
@@ -1934,36 +1952,43 @@
           "branch_switched": {
             "type": "boolean",
             "title": "Branch Switched",
+            "description": "Whether the agent switched away from the expected branch",
             "default": false
           },
           "spec_reverted": {
             "type": "boolean",
             "title": "Spec Reverted",
+            "description": "Whether spec.md was reverted to its pre-flight state",
             "default": false
           },
           "plan_reverted": {
             "type": "boolean",
             "title": "Plan Reverted",
+            "description": "Whether plan.md was reverted to its pre-flight state",
             "default": false
           },
           "makefile_modified": {
             "type": "boolean",
             "title": "Makefile Modified",
+            "description": "Whether the agent modified the Makefile",
             "default": false
           },
           "deps_modified": {
             "type": "boolean",
             "title": "Deps Modified",
+            "description": "Whether the agent modified pyproject.toml",
             "default": false
           },
           "gitignore_modified": {
             "type": "boolean",
             "title": "Gitignore Modified",
+            "description": "Whether the agent modified .gitignore",
             "default": false
           },
           "wip_committed": {
             "type": "boolean",
             "title": "Wip Committed",
+            "description": "Whether uncommitted agent work was auto-committed",
             "default": false
           }
         },
@@ -2086,32 +2111,38 @@
           "total_provisioned": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Total Provisioned"
+            "title": "Total Provisioned",
+            "description": "Total number of VMs provisioned"
           },
           "total_released": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Total Released"
+            "title": "Total Released",
+            "description": "Total number of VMs released"
           },
           "currently_active": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Currently Active"
+            "title": "Currently Active",
+            "description": "Number of VMs currently active"
           },
           "total_vm_duration_secs": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Total Vm Duration Secs"
+            "title": "Total Vm Duration Secs",
+            "description": "Sum of all VM lifetimes in seconds"
           },
           "total_estimated_cost": {
             "type": "number",
             "minimum": 0.0,
-            "title": "Total Estimated Cost"
+            "title": "Total Estimated Cost",
+            "description": "Total estimated VM cost in USD"
           },
           "avg_duration_secs": {
             "type": "number",
             "minimum": 0.0,
-            "title": "Avg Duration Secs"
+            "title": "Avg Duration Secs",
+            "description": "Average VM lifetime in seconds"
           },
           "by_provider": {
             "additionalProperties": {
@@ -2264,7 +2295,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -2275,15 +2307,18 @@
           },
           "phase": {
             "type": "string",
-            "title": "Phase"
+            "title": "Phase",
+            "description": "Phase that completed"
           },
           "project": {
             "type": "string",
-            "title": "Project"
+            "title": "Project",
+            "description": "Target project name"
           },
           "outcome": {
             "type": "string",
-            "title": "Outcome"
+            "title": "Outcome",
+            "description": "Result outcome (e.g. success, failure, error)"
           },
           "signal": {
             "anyOf": [
@@ -2294,16 +2329,19 @@
                 "type": "null"
               }
             ],
-            "title": "Signal"
+            "title": "Signal",
+            "description": "Signal file content if present"
           },
           "duration_secs": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Duration Secs"
+            "title": "Duration Secs",
+            "description": "Wall-clock duration in seconds"
           },
           "exit_code": {
             "type": "integer",
-            "title": "Exit Code"
+            "title": "Exit Code",
+            "description": "Process exit code"
           }
         },
         "additionalProperties": false,
@@ -2329,7 +2367,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -2340,11 +2379,13 @@
           },
           "phase": {
             "type": "string",
-            "title": "Phase"
+            "title": "Phase",
+            "description": "Phase being started"
           },
           "worktree_path": {
             "type": "string",
-            "title": "Worktree Path"
+            "title": "Worktree Path",
+            "description": "Filesystem path to the git worktree"
           }
         },
         "additionalProperties": false,
@@ -2367,7 +2408,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -2378,7 +2420,8 @@
           },
           "phase": {
             "type": "string",
-            "title": "Phase"
+            "title": "Phase",
+            "description": "Phase that was post-flighted"
           },
           "pushed": {
             "anyOf": [
@@ -2389,10 +2432,12 @@
                 "type": "null"
               }
             ],
-            "title": "Pushed"
+            "title": "Pushed",
+            "description": "Whether changes were pushed to remote"
           },
           "integrity_repairs": {
-            "$ref": "#/components/schemas/IntegrityRepairs"
+            "$ref": "#/components/schemas/IntegrityRepairs",
+            "description": "Integrity repairs performed during postflight"
           }
         },
         "additionalProperties": false,
@@ -2414,7 +2459,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -2425,14 +2471,16 @@
           },
           "passed": {
             "type": "boolean",
-            "title": "Passed"
+            "title": "Passed",
+            "description": "Whether all preflight checks passed"
           },
           "repairs": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Repairs"
+            "title": "Repairs",
+            "description": "List of repairs applied during preflight"
           }
         },
         "additionalProperties": false,
@@ -2498,7 +2546,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -2509,22 +2558,26 @@
           },
           "phase": {
             "type": "string",
-            "title": "Phase"
+            "title": "Phase",
+            "description": "Phase being retried"
           },
           "attempt": {
             "type": "integer",
             "minimum": 1.0,
-            "title": "Attempt"
+            "title": "Attempt",
+            "description": "Current attempt number (1-based)"
           },
           "max_attempts": {
             "type": "integer",
             "minimum": 1.0,
-            "title": "Max Attempts"
+            "title": "Max Attempts",
+            "description": "Maximum number of retry attempts"
           },
           "backoff_secs": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Backoff Secs"
+            "title": "Backoff Secs",
+            "description": "Backoff delay before next attempt in seconds"
           }
         },
         "additionalProperties": false,
@@ -2815,7 +2868,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -2826,66 +2880,78 @@
           },
           "phase": {
             "type": "string",
-            "title": "Phase"
+            "title": "Phase",
+            "description": "Phase that generated the token usage"
           },
           "project": {
             "type": "string",
-            "title": "Project"
+            "title": "Project",
+            "description": "Target project name"
           },
           "cli": {
             "type": "string",
-            "title": "Cli"
+            "title": "Cli",
+            "description": "CLI tool that consumed the tokens"
           },
           "input_tokens": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Input Tokens"
+            "title": "Input Tokens",
+            "description": "Number of input tokens consumed"
           },
           "output_tokens": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Output Tokens"
+            "title": "Output Tokens",
+            "description": "Number of output tokens generated"
           },
           "cache_creation_tokens": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Cache Creation Tokens",
+            "description": "Tokens used to create prompt cache entries",
             "default": 0
           },
           "cache_read_tokens": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Cache Read Tokens",
+            "description": "Tokens read from prompt cache",
             "default": 0
           },
           "cached_input_tokens": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Cached Input Tokens",
+            "description": "Input tokens served from cache",
             "default": 0
           },
           "reasoning_tokens": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Reasoning Tokens",
+            "description": "Tokens used for chain-of-thought reasoning",
             "default": 0
           },
           "total_tokens": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Total Tokens"
+            "title": "Total Tokens",
+            "description": "Total token count across all categories"
           },
           "total_cost": {
             "type": "number",
             "minimum": 0.0,
-            "title": "Total Cost"
+            "title": "Total Cost",
+            "description": "Estimated total cost in USD"
           },
           "models_used": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Models Used"
+            "title": "Models Used",
+            "description": "Model identifiers used during the session"
           },
           "session_id": {
             "anyOf": [
@@ -2896,7 +2962,8 @@
                 "type": "null"
               }
             ],
-            "title": "Session Id"
+            "title": "Session Id",
+            "description": "CLI session identifier if available"
           }
         },
         "additionalProperties": false,
@@ -3074,7 +3141,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -3085,22 +3153,27 @@
           },
           "vm_id": {
             "type": "string",
-            "title": "Vm Id"
+            "title": "Vm Id",
+            "description": "Unique VM identifier"
           },
           "host": {
             "type": "string",
-            "title": "Host"
+            "title": "Host",
+            "description": "VM host address (IP or hostname)"
           },
           "provider": {
-            "$ref": "#/components/schemas/VMProvider"
+            "$ref": "#/components/schemas/VMProvider",
+            "description": "Cloud provider that provisioned the VM"
           },
           "project": {
             "type": "string",
-            "title": "Project"
+            "title": "Project",
+            "description": "Target project name"
           },
           "profile": {
             "type": "string",
-            "title": "Profile"
+            "title": "Profile",
+            "description": "Environment profile used for provisioning"
           },
           "hourly_cost": {
             "anyOf": [
@@ -3112,7 +3185,8 @@
                 "type": "null"
               }
             ],
-            "title": "Hourly Cost"
+            "title": "Hourly Cost",
+            "description": "Estimated hourly cost in USD"
           }
         },
         "additionalProperties": false,
@@ -3159,7 +3233,8 @@
           },
           "workflow_id": {
             "type": "string",
-            "title": "Workflow Id"
+            "title": "Workflow Id",
+            "description": "Unique identifier for the workflow run"
           },
           "type": {
             "type": "string",
@@ -3170,16 +3245,19 @@
           },
           "vm_id": {
             "type": "string",
-            "title": "Vm Id"
+            "title": "Vm Id",
+            "description": "Unique VM identifier"
           },
           "project": {
             "type": "string",
-            "title": "Project"
+            "title": "Project",
+            "description": "Target project name"
           },
           "duration_secs": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Duration Secs"
+            "title": "Duration Secs",
+            "description": "Total VM usage duration in seconds"
           },
           "estimated_cost": {
             "anyOf": [
@@ -3191,7 +3269,8 @@
                 "type": "null"
               }
             ],
-            "title": "Estimated Cost"
+            "title": "Estimated Cost",
+            "description": "Estimated total cost in USD"
           }
         },
         "additionalProperties": false,
@@ -3210,23 +3289,27 @@
         "properties": {
           "profile": {
             "type": "string",
-            "title": "Profile"
+            "title": "Profile",
+            "description": "Environment profile name for this VM request"
           },
           "cpu": {
             "type": "integer",
             "minimum": 1.0,
             "title": "Cpu",
+            "description": "Minimum number of CPU cores",
             "default": 2
           },
           "memory_gb": {
             "type": "integer",
             "minimum": 1.0,
             "title": "Memory Gb",
+            "description": "Minimum memory in gigabytes",
             "default": 4
           },
           "gpu": {
             "type": "boolean",
             "title": "Gpu",
+            "description": "Whether a GPU is required",
             "default": false
           },
           "server_type": {
@@ -3238,14 +3321,16 @@
                 "type": "null"
               }
             ],
-            "title": "Server Type"
+            "title": "Server Type",
+            "description": "Provider-specific server type override"
           },
           "labels": {
             "additionalProperties": {
               "type": "string"
             },
             "type": "object",
-            "title": "Labels"
+            "title": "Labels",
+            "description": "Labels to apply to the provisioned VM"
           }
         },
         "additionalProperties": false,

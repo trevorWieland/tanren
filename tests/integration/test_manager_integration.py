@@ -1,7 +1,7 @@
 """Integration tests for WorkerManager dispatch handling, findings parsing, and result writing."""
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,7 +17,7 @@ from tanren_core.adapters.types import (
 from tanren_core.config import Config
 from tanren_core.manager import (
     WorkerManager,
-    _build_gate_output,  # noqa: PLC2701
+    _build_gate_output,
     build_tail_output,
 )
 from tanren_core.postflight import IntegrityRepairs, PostflightResult
@@ -29,6 +29,9 @@ from tanren_core.schemas import (
     Phase,
     Result,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_config(tmp_path: Path) -> Config:

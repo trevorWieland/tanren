@@ -2,11 +2,14 @@
 
 import json
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.schemas import GateExpectation, GateResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class GateTestResult(BaseModel):
@@ -14,9 +17,9 @@ class GateTestResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(...)
-    passed: bool = Field(...)
-    output: str = Field(default="")
+    name: str = Field(..., description="Normalized test or check name")
+    passed: bool = Field(..., description="Whether the test passed")
+    output: str = Field(default="", description="Captured test output or error message")
 
 
 def evaluate_gate(
@@ -137,6 +140,6 @@ def load_gate_expectations(spec_folder_path: Path, task_id: int) -> GateExpectat
         for entry in data:
             if entry.get("task_id") == task_id:
                 return GateExpectation.model_validate(entry.get("gate", {}))
-    except Exception:
+    except Exception:  # noqa: S110 — intentional silent exception during cleanup
         pass
     return None

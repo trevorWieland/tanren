@@ -114,8 +114,7 @@ def format_report(
         lines.append("")
 
     # Warnings
-    for w in report.warnings:
-        lines.append(f"  WARNING: {w}")
+    lines.extend(f"  WARNING: {w}" for w in report.warnings)
 
     # Summary
     if report.passed:

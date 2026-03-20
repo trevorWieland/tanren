@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from tanren_core.config import Config
 from tanren_core.process import ProcessResult, spawn_process
-from tanren_core.schemas import Dispatch
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from tanren_core.config import Config
+    from tanren_core.schemas import Dispatch
 
 
 class SubprocessSpawner:

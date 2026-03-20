@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import types
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import types
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +22,14 @@ def _import_secret_manager() -> types.ModuleType:
         ImportError: If the google-cloud-secret-manager package is not installed.
     """
     try:
-        import google.cloud.secretmanager as _sm  # noqa: PLC0415
-
-        return _sm
+        import google.cloud.secretmanager as _sm  # noqa: PLC0415 — deferred import for optional dependency
     except ImportError:
         raise ImportError(
             "google-cloud-secret-manager is required for GCP secrets. "
             "Install it with: uv sync --extra gcp"
         ) from None
+    else:
+        return _sm
 
 
 class GCPSecretManagerProvider:
@@ -61,7 +64,6 @@ class GCPSecretManagerProvider:
             )
             value = response.payload.data.decode("UTF-8")
             self._cache[cache_key] = value
-            return value
         except Exception:
             logger.warning(
                 "Failed to fetch secret %s from GCP Secret Manager",
@@ -69,6 +71,8 @@ class GCPSecretManagerProvider:
                 exc_info=True,
             )
             return None
+        else:
+            return value
 
     async def list_secrets(self) -> list[str]:
         """List secret IDs in the GCP project.

@@ -34,7 +34,7 @@ class RemoteAgentRunner:
         prompt_content: str,
         cli_command: str,
         signal_path: str,
-        timeout: int = 1800,  # noqa: ASYNC109 — passed through to conn.run, not blocking sleep
+        timeout_secs: int = 1800,
     ) -> RemoteAgentResult:
         """Execute an agent command on the remote VM.
 
@@ -44,7 +44,7 @@ class RemoteAgentRunner:
             prompt_content: Content of the prompt file to upload.
             cli_command: The CLI command to execute.
             signal_path: Remote path to read signal from after execution.
-            timeout: Maximum execution time in seconds.
+            timeout_secs: Maximum execution time in seconds.
 
         Returns:
             RemoteAgentResult with exit code, stdout, signal content.
@@ -57,7 +57,7 @@ class RemoteAgentRunner:
         if self._run_as_user:
             await conn.run(
                 f"chown {shlex.quote(self._run_as_user)} {shlex.quote(prompt_path)}",
-                timeout=10,
+                timeout_secs=10,
             )
 
         # Build command with PATH augmentation and secret sourcing
@@ -76,7 +76,7 @@ class RemoteAgentRunner:
             command = f"su - {shlex.quote(self._run_as_user)} -c {shlex.quote(command)}"
 
         logger.info("Executing remote agent: %s", cli_command)
-        result = await conn.run(command, timeout=timeout, request_pty=True)
+        result = await conn.run(command, timeout_secs=timeout_secs, request_pty=True)
 
         duration = int(time.monotonic() - start)
 
@@ -84,7 +84,7 @@ class RemoteAgentRunner:
         signal_content = await conn.download_content(signal_path) or ""
 
         # Clean up prompt file
-        await conn.run(f"rm -f {shlex.quote(prompt_path)}", timeout=10)
+        await conn.run(f"rm -f {shlex.quote(prompt_path)}", timeout_secs=10)
 
         return RemoteAgentResult(
             exit_code=result.exit_code,
