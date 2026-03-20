@@ -23,6 +23,10 @@ class RequiredEnvVar(BaseModel):
     description: str = Field(default="")
     pattern: str | None = Field(default=None, description="Regex for re.fullmatch()")
     hint: str = Field(default="")
+    source: str | None = Field(
+        default=None,
+        description="Secret source, e.g. 'secret:my-api-key' to resolve via SecretProvider",
+    )
 
 
 class OptionalEnvVar(BaseModel):
@@ -34,6 +38,26 @@ class OptionalEnvVar(BaseModel):
     description: str = Field(default="")
     pattern: str | None = Field(default=None)
     default: str | None = Field(default=None)
+    source: str | None = Field(
+        default=None,
+        description="Secret source, e.g. 'secret:my-api-key' to resolve via SecretProvider",
+    )
+
+
+class SecretsProviderType(StrEnum):
+    """Supported secret storage backends."""
+
+    DOTENV = "dotenv"
+    GCP = "gcp"
+
+
+class SecretsConfig(BaseModel):
+    """Configuration for the project's secret storage backend."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: SecretsProviderType = Field(default=SecretsProviderType.DOTENV)
+    settings: dict[str, str] = Field(default_factory=dict)
 
 
 class EnvBlock(BaseModel):
@@ -55,6 +79,7 @@ class TanrenConfig(BaseModel):
     profile: str = Field(...)
     installed: str = Field(...)
     env: EnvBlock | None = Field(default=None)
+    secrets: SecretsConfig | None = Field(default=None)
     # Consumed by runtime environment selection logic outside env tooling.
     environment: dict[str, object] | None = Field(default=None)
     issue_source: dict[str, object] | None = Field(default=None)

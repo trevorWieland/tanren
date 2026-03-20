@@ -29,8 +29,9 @@ from tanren_core.schemas import ProgressState
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
 class TestValidateEnv:
-    def test_validate_required_pattern_mismatch(self, monkeypatch) -> None:
+    async def test_validate_required_pattern_mismatch(self, monkeypatch) -> None:
         """Required var exists but doesn't match pattern -> PATTERN_MISMATCH."""
         monkeypatch.delenv("TEST_API_KEY_INTEG", raising=False)
         env_block = EnvBlock(
@@ -43,14 +44,14 @@ class TestValidateEnv:
         merged = {"TEST_API_KEY_INTEG": "wrong-prefix-value"}
         source_map = {"TEST_API_KEY_INTEG": ".env"}
 
-        report = validate_env(env_block, merged, source_map)
+        report = await validate_env(env_block, merged, source_map)
 
         assert not report.passed
         assert len(report.required_results) == 1
         assert report.required_results[0].status == VarStatus.PATTERN_MISMATCH
         assert report.required_results[0].key == "TEST_API_KEY_INTEG"
 
-    def test_validate_optional_missing_with_default(self, monkeypatch) -> None:
+    async def test_validate_optional_missing_with_default(self, monkeypatch) -> None:
         """Optional var missing, has default -> DEFAULTED status, default applied."""
         monkeypatch.delenv("OPT_LOG_LEVEL", raising=False)
         env_block = EnvBlock(
@@ -61,7 +62,7 @@ class TestValidateEnv:
         merged: dict[str, str] = {}
         source_map: dict[str, str] = {}
 
-        report = validate_env(env_block, merged, source_map)
+        report = await validate_env(env_block, merged, source_map)
 
         assert report.passed
         assert len(report.optional_results) == 1
@@ -70,7 +71,7 @@ class TestValidateEnv:
         assert merged["OPT_LOG_LEVEL"] == "INFO"
         assert source_map["OPT_LOG_LEVEL"] == "default"
 
-    def test_validate_optional_missing_no_default(self, monkeypatch) -> None:
+    async def test_validate_optional_missing_no_default(self, monkeypatch) -> None:
         """Optional var missing, no default -> MISSING but still passes."""
         monkeypatch.delenv("OPT_EXTRA_FLAG", raising=False)
         env_block = EnvBlock(
@@ -81,14 +82,14 @@ class TestValidateEnv:
         merged: dict[str, str] = {}
         source_map: dict[str, str] = {}
 
-        report = validate_env(env_block, merged, source_map)
+        report = await validate_env(env_block, merged, source_map)
 
         assert report.passed
         assert len(report.optional_results) == 1
         assert report.optional_results[0].status == VarStatus.MISSING
         assert "OPT_EXTRA_FLAG" not in merged
 
-    def test_validate_empty_required(self, monkeypatch) -> None:
+    async def test_validate_empty_required(self, monkeypatch) -> None:
         """Required var exists but empty string -> EMPTY status."""
         monkeypatch.delenv("EMPTY_REQ_VAR", raising=False)
         env_block = EnvBlock(
@@ -99,7 +100,7 @@ class TestValidateEnv:
         merged = {"EMPTY_REQ_VAR": ""}
         source_map = {"EMPTY_REQ_VAR": ".env"}
 
-        report = validate_env(env_block, merged, source_map)
+        report = await validate_env(env_block, merged, source_map)
 
         assert not report.passed
         assert len(report.required_results) == 1

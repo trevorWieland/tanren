@@ -1,6 +1,5 @@
 """Integration test: real process spawning and timeout handling."""
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -143,7 +142,7 @@ class TestSpawnBashGate:
         assert result.exit_code == 1
 
 
-@pytest.mark.skipif(shutil.which("opencode") is None, reason="opencode CLI not installed")
+@pytest.mark.local_env
 class TestCliArgSmoke:
     """Smoke tests that invoke real CLI binaries to verify arg ordering.
 
@@ -212,7 +211,7 @@ class TestCliArgSmoke:
         assert "File not found" in result.stdout or result.exit_code != 0
 
 
-@pytest.mark.skipif(shutil.which("codex") is None, reason="codex CLI not installed")
+@pytest.mark.local_env
 class TestCodexCliArgSmoke:
     @pytest.mark.asyncio
     @pytest.mark.timeout(15)

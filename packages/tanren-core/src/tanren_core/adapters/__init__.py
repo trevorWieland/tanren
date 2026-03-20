@@ -15,6 +15,7 @@ from tanren_core.adapters.credentials import (
     providers_for_clis,
 )
 from tanren_core.adapters.dotenv_provisioner import DotenvEnvProvisioner
+from tanren_core.adapters.dotenv_secret_provider import DotenvSecretProvider
 from tanren_core.adapters.dotenv_validator import DotenvEnvValidator
 from tanren_core.adapters.events import (
     BootstrapCompleted,
@@ -36,6 +37,10 @@ from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManage
 from tanren_core.adapters.git_worktree import GitWorktreeManager
 from tanren_core.adapters.issue_types import Issue, IssueSummary
 
+try:  # noqa: SIM105, RUF067
+    from tanren_core.adapters.gcp_secret_manager import GCPSecretManagerProvider
+except ImportError:  # google-cloud-secret-manager not installed
+    pass
 try:  # noqa: SIM105, RUF067
     from tanren_core.adapters.gcp_vm import GCPProvisionerSettings, GCPVMProvisioner
 except ImportError:  # google-cloud-compute not installed
@@ -72,6 +77,7 @@ from tanren_core.adapters.protocols import (
     PreflightRunner,
     ProcessSpawner,
     RemoteConnection,
+    SecretProvider,
     VMStateStore,
     WorktreeManager,
 )
@@ -119,6 +125,7 @@ __all__ = [
     "DispatchReceived",
     "DotenvEnvProvisioner",
     "DotenvEnvValidator",
+    "DotenvSecretProvider",
     "EnvProvisioner",
     "EnvValidator",
     "EnvironmentBootstrapper",
@@ -129,6 +136,7 @@ __all__ = [
     "EventReader",
     "ExecutionEnvironment",
     "GCPProvisionerSettings",
+    "GCPSecretManagerProvider",
     "GCPVMProvisioner",
     "GitAuthConfig",
     "GitHubIssueSettings",
@@ -170,6 +178,7 @@ __all__ = [
     "SSHConnection",
     "SSHExecutionEnvironment",
     "SecretBundle",
+    "SecretProvider",
     "SqliteEventEmitter",
     "SqliteEventReader",
     "SqliteVMStateStore",

@@ -104,14 +104,25 @@ class SecretLoader:
                     result[key] = content
         return result
 
-    def build_bundle(self, project_secrets: dict[str, str] | None = None) -> SecretBundle:
+    def build_bundle(
+        self,
+        project_secrets: dict[str, str] | None = None,
+        cloud_secrets: dict[str, str] | None = None,
+    ) -> SecretBundle:
         """Build a SecretBundle from all secret sources.
+
+        Args:
+            project_secrets: Env vars from the project's .env file.
+            cloud_secrets: Secrets fetched from a cloud SecretProvider.
+                Merged into the developer scope (overrides dotenv values).
 
         Returns:
             SecretBundle combining developer, project, and infrastructure secrets.
         """
         developer = self.load_developer()
         developer.update(self.load_credential_files())
+        if cloud_secrets:
+            developer.update(cloud_secrets)
         return SecretBundle(
             developer=developer,
             project=project_secrets or {},

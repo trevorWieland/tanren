@@ -1,12 +1,19 @@
 """Validate required/optional env vars against loaded layers."""
 
+from __future__ import annotations
+
+import os
 import re
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.env.loader import resolve_env_var
 from tanren_core.env.schema import EnvBlock
+
+if TYPE_CHECKING:
+    from tanren_core.adapters.protocols import SecretProvider
 
 
 class VarStatus(StrEnum):
@@ -43,10 +50,32 @@ class EnvReport(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-def validate_env(
+async def _resolve_secret(
+    key: str,
+    source: str | None,
+    merged_env: dict[str, str],
+    source_map: dict[str, str],
+    secret_provider: SecretProvider | None,
+) -> None:
+    """Resolve a secret: source into merged_env if the var is not already set."""
+    if not source or not source.startswith("secret:") or secret_provider is None:
+        return
+    # Only fetch from provider if not already resolved from a higher-priority source
+    if key in merged_env or os.environ.get(key) is not None:
+        return
+    secret_name = source[len("secret:") :]
+    fetched = await secret_provider.get_secret(secret_name)
+    if fetched is not None:
+        merged_env[key] = fetched
+        source_map[key] = f"secret:{secret_name}"
+
+
+async def validate_env(
     env_block: EnvBlock,
     merged_env: dict[str, str],
     source_map: dict[str, str],
+    *,
+    secret_provider: SecretProvider | None = None,
 ) -> EnvReport:
     """Validate env vars against schema.
 
@@ -55,6 +84,10 @@ def validate_env(
 
     Optional vars: if absent, inject default into merged env (status=DEFAULTED).
     If present + pattern, validate.
+
+    When a secret_provider is given, vars with ``source: "secret:X"`` are
+    resolved from the provider before checking the normal env layers.
+    Priority: os.environ > dotenv layers > secret provider.
 
     Never logs full secret values -- redacted to first 4 chars + '...'.
 
@@ -67,6 +100,9 @@ def validate_env(
     all_pass = True
 
     for var in env_block.required:
+        # Resolve from secret provider if source declared and var not already set
+        await _resolve_secret(var.key, var.source, merged_env, source_map, secret_provider)
+
         value, source = resolve_env_var(var.key, merged_env, source_map)
 
         if value is None:
@@ -122,6 +158,9 @@ def validate_env(
         )
 
     for var in env_block.optional:
+        # Resolve from secret provider if source declared and var not already set
+        await _resolve_secret(var.key, var.source, merged_env, source_map, secret_provider)
+
         value, source = resolve_env_var(var.key, merged_env, source_map)
 
         if value is None:

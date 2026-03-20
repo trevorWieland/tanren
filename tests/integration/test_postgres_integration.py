@@ -16,8 +16,7 @@ pytestmark = pytest.mark.postgres
 @pytest.fixture
 def postgres_url(request):
     url = request.config.getoption("--postgres-url")
-    if url is None:
-        pytest.skip("--postgres-url not provided")  # type: ignore[invalid-argument-type,too-many-positional-arguments]
+    assert url is not None, "--postgres-url not provided (run with -m postgres)"
     return url
 
 

@@ -21,18 +21,12 @@ from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 
 pytestmark = pytest.mark.gcp
 
-_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
-_skip_reason = "GOOGLE_CLOUD_PROJECT not set"
+_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 
 
 @pytest.fixture()
 def provisioner():
     """Create a GCPVMProvisioner using real GCP credentials."""
-    if not _PROJECT:
-        raise pytest.skip.Exception(_skip_reason)
-    if not os.environ.get("GCP_SSH_PUBLIC_KEY"):
-        raise pytest.skip.Exception("GCP_SSH_PUBLIC_KEY not set")
-
     settings = GCPProvisionerSettings(
         project_id=_PROJECT,
         zone="us-central1-a",

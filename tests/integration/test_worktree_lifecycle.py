@@ -6,12 +6,15 @@ from pathlib import Path
 
 import pytest
 
+from tanren_core.schemas import WorktreeEntry, WorktreeRegistry
 from tanren_core.worktree import (
+    check_isolation,
     cleanup_worktree,
     create_worktree,
     load_registry,
     register_worktree,
     remove_worktree,
+    save_registry,
 )
 
 
@@ -306,3 +309,157 @@ class TestWorktreeResilience:
         assert wt_path2.exists()
 
         await remove_worktree(wt_path2, github_dir / "test-project")
+
+
+class TestWorktreeRegistryEdgeCases:
+    @pytest.mark.asyncio
+    async def test_load_registry_missing_file(self, tmp_path: Path):
+        """Loading from a non-existent path returns empty registry."""
+        reg = await load_registry(tmp_path / "nonexistent.json")
+        assert reg.worktrees == {}
+
+    @pytest.mark.asyncio
+    async def test_load_registry_corrupted_file(self, tmp_path: Path):
+        """Corrupted JSON returns empty registry (graceful recovery)."""
+        bad_file = tmp_path / "worktrees.json"
+        bad_file.write_text("{invalid json!!!")
+        reg = await load_registry(bad_file)
+        assert reg.worktrees == {}
+
+    @pytest.mark.asyncio
+    async def test_save_and_load_roundtrip(self, tmp_path: Path):
+        """Registry can be saved and loaded back."""
+
+        registry_path = tmp_path / "worktrees.json"
+        reg = WorktreeRegistry()
+        reg.worktrees["wf-test-1-100"] = WorktreeEntry(
+            project="test",
+            issue="1",
+            branch="feature-1",
+            path="/tmp/test-wt-1",
+            created_at="2026-01-01T00:00:00",
+        )
+        await save_registry(registry_path, reg)
+
+        loaded = await load_registry(registry_path)
+        assert "wf-test-1-100" in loaded.worktrees
+        assert loaded.worktrees["wf-test-1-100"].branch == "feature-1"
+
+
+class TestWorktreeIsolation:
+    @pytest.mark.asyncio
+    async def test_branch_conflict_detected(self, tmp_path: Path):
+        """Registering a branch already in use by another workflow raises."""
+
+        reg = WorktreeRegistry()
+        reg.worktrees["wf-existing-1-100"] = WorktreeEntry(
+            project="test",
+            issue="1",
+            branch="shared-branch",
+            path="/tmp/test-wt-1",
+            created_at="2026-01-01T00:00:00",
+        )
+
+        with pytest.raises(RuntimeError, match="Branch shared-branch already in use"):
+            await check_isolation(
+                reg,
+                "wf-new-2-200",
+                "shared-branch",
+                Path("/tmp/test-wt-2"),
+                str(tmp_path),
+            )
+
+    @pytest.mark.asyncio
+    async def test_path_conflict_detected(self, tmp_path: Path):
+        """Registering a path already in use by another workflow raises."""
+
+        reg = WorktreeRegistry()
+        reg.worktrees["wf-existing-1-100"] = WorktreeEntry(
+            project="test",
+            issue="1",
+            branch="branch-a",
+            path="/tmp/test-wt-1",
+            created_at="2026-01-01T00:00:00",
+        )
+
+        with pytest.raises(RuntimeError, match=r"Worktree path .* already in use"):
+            await check_isolation(
+                reg,
+                "wf-new-2-200",
+                "branch-b",
+                Path("/tmp/test-wt-1"),
+                str(tmp_path),
+            )
+
+    @pytest.mark.asyncio
+    async def test_main_copy_rejected(self, tmp_path: Path):
+        """Path without -wt- suffix is rejected as a main working copy."""
+        reg = WorktreeRegistry()
+        with pytest.raises(RuntimeError, match="appears to be a main working copy"):
+            await check_isolation(
+                reg,
+                "wf-test-1-100",
+                "feature-1",
+                Path("/tmp/test-project"),
+                str(tmp_path),
+            )
+
+    @pytest.mark.asyncio
+    async def test_same_workflow_skipped(self, tmp_path: Path):
+        """Re-registration of the same workflow_id is allowed (no conflict)."""
+
+        reg = WorktreeRegistry()
+        reg.worktrees["wf-test-1-100"] = WorktreeEntry(
+            project="test",
+            issue="1",
+            branch="feature-1",
+            path="/tmp/test-wt-1",
+            created_at="2026-01-01T00:00:00",
+        )
+
+        # Should not raise — same workflow re-registering
+        await check_isolation(
+            reg,
+            "wf-test-1-100",
+            "feature-1",
+            Path("/tmp/test-wt-1"),
+            str(tmp_path),
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_registry_passes(self, tmp_path: Path):
+        """Empty registry has no conflicts."""
+        reg = WorktreeRegistry()
+        await check_isolation(
+            reg,
+            "wf-test-1-100",
+            "feature-1",
+            Path("/tmp/test-wt-1"),
+            str(tmp_path),
+        )
+
+    @pytest.mark.asyncio
+    async def test_wrong_branch_worktree_raises(self, tmp_path: Path):
+        """Existing worktree on wrong branch raises RuntimeError."""
+        github_dir = tmp_path
+        repo, branch = await _setup_git_repo(tmp_path)
+
+        # Create worktree on feature-123
+        wt_path = await create_worktree("test-project", "123", branch, str(github_dir))
+
+        # Create another branch
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "branch",
+            "different-branch",
+            cwd=str(repo),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+
+        # Try to create worktree at same path but different branch
+        with pytest.raises(RuntimeError, match="exists on branch"):
+            await create_worktree("test-project", "123", "different-branch", str(github_dir))
+
+        await remove_worktree(wt_path, repo)
