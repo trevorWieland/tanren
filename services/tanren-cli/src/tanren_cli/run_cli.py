@@ -34,6 +34,7 @@ from tanren_core.env.environment_schema import (
     EnvironmentProfileType,
     parse_environment_profiles,
 )
+from tanren_core.env.gates import resolve_gate_cmd
 from tanren_core.manager import build_tail_output
 from tanren_core.roles import AgentTool, AuthMode, RoleName
 from tanren_core.roles_config import load_roles_config
@@ -220,7 +221,8 @@ def _resolve_gate_cmd(
 
     resolved = gate_cmd
     if resolved is None:
-        resolved = _resolve_profile(config, project, environment_profile).gate_cmd
+        profile = _resolve_profile(config, project, environment_profile)
+        resolved = resolve_gate_cmd(profile, phase)
 
     normalized = resolved.strip() if resolved is not None else ""
     if not normalized:

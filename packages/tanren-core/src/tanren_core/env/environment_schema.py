@@ -63,6 +63,18 @@ class EnvironmentProfile(BaseModel):
         default_factory=tuple, description="Shell commands to run during environment teardown"
     )
     gate_cmd: str = Field(default="make check", description="Default gate command for this profile")
+    task_gate_cmd: str | None = Field(
+        default=None,
+        description=(
+            "Gate command for task-scoped phases (do-task, gate, audit-task);"
+            " falls back to gate_cmd"
+        ),
+    )
+    spec_gate_cmd: str | None = Field(
+        default=None,
+        description="Gate command for spec-scoped phases (run-demo, audit-spec)."
+        " Falls back to gate_cmd",
+    )
     server_type: str | None = Field(
         default=None, description="VM server type hint for the provisioner"
     )
