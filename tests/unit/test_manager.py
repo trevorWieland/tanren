@@ -10,11 +10,11 @@ from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.remote_types import VMAssignment, VMProvider
 from tanren_core.config import Config
 from tanren_core.manager import (
-    _GATE_OUTPUT_LINES_FAIL,  # noqa: PLC2701
-    _GATE_OUTPUT_LINES_SUCCESS,  # noqa: PLC2701
-    _TAIL_OUTPUT_LINES,  # noqa: PLC2701
+    _GATE_OUTPUT_LINES_FAIL,  # noqa: PLC2701 — testing private implementation
+    _GATE_OUTPUT_LINES_SUCCESS,  # noqa: PLC2701 — testing private implementation
+    _TAIL_OUTPUT_LINES,  # noqa: PLC2701 — testing private implementation
     WorkerManager,
-    _build_gate_output,  # noqa: PLC2701
+    _build_gate_output,  # noqa: PLC2701 — testing private implementation
     build_tail_output,
 )
 from tanren_core.schemas import Outcome
@@ -322,7 +322,10 @@ class TestInitPostgres:
         should still create the pool and emitter but must not rebuild the
         execution environment.
         """
-        from unittest.mock import MagicMock, patch  # noqa: PLC0415
+        from unittest.mock import (  # noqa: PLC0415 — deferred import for test clarity
+            MagicMock,
+            patch,
+        )
 
         remote_cfg = tmp_path / "remote.yml"
         remote_cfg.write_text(

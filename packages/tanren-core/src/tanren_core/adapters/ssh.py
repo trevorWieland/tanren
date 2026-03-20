@@ -200,7 +200,7 @@ class SSHConnection:
         self,
         command: str,
         *,
-        timeout: int | None = None,  # noqa: ASYNC109 — passed to paramiko channel, not asyncio.sleep
+        timeout_secs: int | None = None,
         stdin_data: str | None = None,
         request_pty: bool = False,
     ) -> RemoteResult:
@@ -210,16 +210,16 @@ class SSHConnection:
             RemoteResult with exit code, stdout, stderr, and timeout flag.
         """
         return await asyncio.to_thread(
-            self._run_sync, command, timeout=timeout, stdin_data=stdin_data, request_pty=request_pty
+            self._run_sync, command, timeout=timeout_secs, stdin_data=stdin_data, request_pty=request_pty
         )
 
-    async def run_script(self, script: str, *, timeout: int | None = None) -> RemoteResult:  # noqa: ASYNC109
+    async def run_script(self, script: str, *, timeout_secs: int | None = None) -> RemoteResult:
         """Execute a bash script via stdin.
 
         Returns:
             RemoteResult from the script execution.
         """
-        return await self.run("bash -s", timeout=timeout, stdin_data=script)
+        return await self.run("bash -s", timeout_secs=timeout_secs, stdin_data=script)
 
     def _upload_sync(self, content: str, remote_path: str) -> None:
         """Upload content to remote path synchronously."""
@@ -297,7 +297,7 @@ class SSHConnection:
             True if the connection is alive.
         """
         try:
-            result = await self.run("echo tanren-ok", timeout=10)
+            result = await self.run("echo tanren-ok", timeout_secs=10)
             return result.exit_code == 0 and "tanren-ok" in result.stdout
         except Exception:
             logger.debug("check_connection failed for %s", self._config.host, exc_info=True)

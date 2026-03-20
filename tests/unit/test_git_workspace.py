@@ -68,7 +68,7 @@ class TestGitAuth:
         assert "ghp_abc" in script
         # Token is single-quoted for safety
         assert "'ghp_abc'" in script
-        conn.run.assert_any_call("chmod 700 /workspace/.git-askpass", timeout=10)
+        conn.run.assert_any_call("chmod 700 /workspace/.git-askpass", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_setup_git_auth_skipped_without_token(self):
@@ -202,7 +202,7 @@ class TestInjectSecrets:
         await mgr.inject_secrets(conn, _workspace(), secrets)
 
         conn.upload_content.assert_any_call("API_KEY='abc123'\n", "/workspace/.developer-secrets")
-        conn.run.assert_any_call("chmod 600 /workspace/.developer-secrets", timeout=10)
+        conn.run.assert_any_call("chmod 600 /workspace/.developer-secrets", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_writes_project_secrets_shell_quoted(self):
@@ -214,7 +214,7 @@ class TestInjectSecrets:
         conn.upload_content.assert_any_call(
             "DB_URL='postgres://localhost'\n", "/workspace/myapp/.env"
         )
-        conn.run.assert_any_call("chmod 600 /workspace/myapp/.env", timeout=10)
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/.env", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_skips_empty_secrets(self):
@@ -293,12 +293,12 @@ class TestCleanup:
         mgr = GitWorkspaceManager(GitAuthConfig())
         await mgr.cleanup(conn, _workspace())
 
-        conn.run.assert_any_call("rm -f /workspace/.developer-secrets", timeout=10)
-        conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout=10)
-        conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout=10)
-        conn.run.assert_any_call("rm -f /workspace/myapp/.mcp.json", timeout=10)
-        conn.run.assert_any_call("rm -f /workspace/myapp/.codex/config.toml", timeout=10)
-        conn.run.assert_any_call("rm -f /workspace/myapp/opencode.json", timeout=10)
+        conn.run.assert_any_call("rm -f /workspace/.developer-secrets", timeout_secs=10)
+        conn.run.assert_any_call("rm -f /workspace/myapp/.env", timeout_secs=10)
+        conn.run.assert_any_call("rm -f /workspace/.git-askpass", timeout_secs=10)
+        conn.run.assert_any_call("rm -f /workspace/myapp/.mcp.json", timeout_secs=10)
+        conn.run.assert_any_call("rm -f /workspace/myapp/.codex/config.toml", timeout_secs=10)
+        conn.run.assert_any_call("rm -f /workspace/myapp/opencode.json", timeout_secs=10)
         assert conn.run.call_count == 6
 
 
@@ -355,7 +355,7 @@ class TestInjectMcpConfig:
         assert server["url"] == "https://mcp.context7.com/sse"
         assert server["headers"]["Authorization"] == "${MCP_CONTEXT7_KEY}"
 
-        conn.run.assert_any_call("chmod 600 /workspace/myapp/.mcp.json", timeout=10)
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/.mcp.json", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_codex_config_toml_format(self):
@@ -370,8 +370,8 @@ class TestInjectMcpConfig:
         assert "[mcp_servers.context7.env_http_headers]" in content
         assert 'Authorization = "MCP_CONTEXT7_KEY"' in content
 
-        conn.run.assert_any_call("mkdir -p /workspace/myapp/.codex", timeout=10)
-        conn.run.assert_any_call("chmod 600 /workspace/myapp/.codex/config.toml", timeout=10)
+        conn.run.assert_any_call("mkdir -p /workspace/myapp/.codex", timeout_secs=10)
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/.codex/config.toml", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_opencode_json_format(self):
@@ -389,7 +389,7 @@ class TestInjectMcpConfig:
         assert server["oauth"] is False
         assert server["headers"]["Authorization"] == "{env:MCP_CONTEXT7_KEY}"
 
-        conn.run.assert_any_call("chmod 600 /workspace/myapp/opencode.json", timeout=10)
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/opencode.json", timeout_secs=10)
 
     @pytest.mark.asyncio
     async def test_no_headers_skips_chmod(self):
@@ -424,4 +424,4 @@ class TestInjectMcpConfig:
         assert "headers" not in parsed["mcpServers"]["ctx7"]
         assert parsed["mcpServers"]["other"]["headers"]["X-Api-Key"] == "${OTHER_KEY}"
         # chmod still called because at least one server has headers
-        conn.run.assert_any_call("chmod 600 /workspace/myapp/.mcp.json", timeout=10)
+        conn.run.assert_any_call("chmod 600 /workspace/myapp/.mcp.json", timeout_secs=10)

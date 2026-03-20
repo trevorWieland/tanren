@@ -92,7 +92,9 @@ class EventsService:
                 offset=offset,
             )
         else:
-            from tanren_core.adapters.event_reader import query_events  # noqa: PLC0415
+            from tanren_core.adapters.event_reader import (  # noqa: PLC0415 — conditional import based on configuration
+                query_events,
+            )
 
             db_path = self._settings.events_db
             if db_path is None and self._config is not None:
@@ -133,9 +135,9 @@ class EventsService:
 
 def _get_event_adapter() -> TypeAdapter[EventPayload]:
     """Lazy-initialize the event TypeAdapter (avoids import-time cost)."""
-    from pydantic import TypeAdapter as TA  # noqa: PLC0415
+    from pydantic import TypeAdapter as TA  # noqa: PLC0415 — lazy init
 
-    from tanren_api.models import EventPayload as EP  # noqa: PLC0415
+    from tanren_api.models import EventPayload as EP  # noqa: PLC0415 — lazy init
 
     global _event_adapter
     if _event_adapter is None:

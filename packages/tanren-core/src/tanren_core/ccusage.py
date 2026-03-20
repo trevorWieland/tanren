@@ -47,7 +47,7 @@ class TokenUsage(BaseModel):
 class CommandRunner(Protocol):
     """Abstracts local subprocess vs SSH command execution."""
 
-    async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
+    async def run_command(self, cmd: list[str], timeout_secs: float) -> tuple[int, str]:
         """Run a command and return (exit_code, stdout).
 
         Returns:
@@ -59,7 +59,7 @@ class CommandRunner(Protocol):
 class LocalCommandRunner:
     """Run commands as local subprocesses."""
 
-    async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
+    async def run_command(self, cmd: list[str], timeout_secs: float) -> tuple[int, str]:
         """Run a command locally via asyncio subprocess.
 
         Returns:
@@ -74,7 +74,7 @@ class LocalCommandRunner:
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_secs)
         except TimeoutError:
             proc.kill()
             await proc.wait()
@@ -90,7 +90,7 @@ class RemoteCommandRunner:
         self._connection = connection
         self._run_as_user = run_as_user
 
-    async def run_command(self, cmd: list[str], timeout: float) -> tuple[int, str]:  # noqa: ASYNC109
+    async def run_command(self, cmd: list[str], timeout_secs: float) -> tuple[int, str]:
         """Run a command on a remote host via SSH.
 
         Returns:
@@ -99,7 +99,7 @@ class RemoteCommandRunner:
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
         if self._run_as_user:
             cmd_str = f"su - {shlex.quote(self._run_as_user)} -c {shlex.quote(cmd_str)}"
-        result = await self._connection.run(cmd_str, timeout=timeout)
+        result = await self._connection.run(cmd_str, timeout_secs=timeout_secs)
         return result.exit_code, result.stdout
 
 
@@ -166,7 +166,7 @@ async def _collect_claude(
         "--no-color",
     ]
 
-    exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
+    exit_code, stdout = await runner.run_command(cmd, timeout_secs=_COLLECTION_TIMEOUT)
     if exit_code != 0:
         logger.warning("ccusage (claude) exited with code %d", exit_code)
         return None
@@ -197,7 +197,7 @@ async def _collect_codex(
     base_cmd = shlex.split(config.ccusage_codex_cmd)
     cmd = [*base_cmd, "session", "--json", "--since", since, "--offline", "--noColor"]
 
-    exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
+    exit_code, stdout = await runner.run_command(cmd, timeout_secs=_COLLECTION_TIMEOUT)
     if exit_code != 0:
         logger.warning("@ccusage/codex exited with code %d", exit_code)
         return None
@@ -226,7 +226,7 @@ async def _collect_opencode(
     base_cmd = shlex.split(config.ccusage_opencode_cmd)
     cmd = [*base_cmd, "session", "--json"]
 
-    exit_code, stdout = await runner.run_command(cmd, timeout=_COLLECTION_TIMEOUT)
+    exit_code, stdout = await runner.run_command(cmd, timeout_secs=_COLLECTION_TIMEOUT)
     if exit_code != 0:
         logger.warning("@ccusage/opencode exited with code %d", exit_code)
         return None
@@ -367,5 +367,5 @@ def _parse_activity_time(s: str) -> datetime | None:
             return datetime.fromisoformat(cleaned)
         # Date only (e.g. "2026-03-14") — treat as midnight UTC
         return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None

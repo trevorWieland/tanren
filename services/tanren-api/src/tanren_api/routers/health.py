@@ -1,5 +1,5 @@
 """Health check endpoints — no auth required."""
-# ruff: noqa: DOC201
+# ruff: noqa: DOC201 — FastAPI endpoints return Response objects implicitly
 
 from fastapi import APIRouter
 

@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, patch
 from tanren_core.config import Config
 from tanren_core.process import (
     ProcessResult,
-    _spawn_claude,  # noqa: PLC2701
-    _spawn_opencode,  # noqa: PLC2701
+    _spawn_claude,  # noqa: PLC2701 — testing private implementation
+    _spawn_opencode,  # noqa: PLC2701 — testing private implementation
     assemble_prompt,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
@@ -153,7 +153,7 @@ class TestSpawnOpencode:
 
         captured_file_path = None
 
-        async def fake_run(cmd, *, cwd, stdin_data, timeout, **kwargs):  # noqa: RUF029, ASYNC109
+        async def fake_run(cmd, *, cwd, stdin_data, timeout_secs, **kwargs):  # noqa: RUF029 — async required by interface
             nonlocal captured_file_path
             # Find the file path after -f flag
             f_idx = cmd.index("-f")
@@ -177,12 +177,12 @@ class TestSpawnOpencode:
 
         captured_file_path = None
 
-        async def fake_run(cmd, *, cwd, stdin_data, timeout, **kwargs):  # noqa: RUF029, ASYNC109
+        async def fake_run(cmd, *, cwd, stdin_data, timeout_secs, **kwargs):  # noqa: RUF029 — async required by interface
             nonlocal captured_file_path
             f_idx = cmd.index("-f")
             captured_file_path = cmd[f_idx + 1]
             # Verify file exists during execution
-            assert Path(captured_file_path).exists()  # noqa: ASYNC240
+            assert Path(captured_file_path).exists()  # noqa: ASYNC240 — trivial sync fs op after async work
             return ProcessResult(exit_code=0, stdout="done", timed_out=False, duration_secs=5)
 
         with patch(
@@ -201,11 +201,11 @@ class TestSpawnOpencode:
 
         captured_file_path = None
 
-        async def fake_run(cmd, *, cwd, stdin_data, timeout, **kwargs):  # noqa: RUF029, ASYNC109
+        async def fake_run(cmd, *, cwd, stdin_data, timeout_secs, **kwargs):  # noqa: RUF029 — async required by interface
             nonlocal captured_file_path
             f_idx = cmd.index("-f")
             captured_file_path = cmd[f_idx + 1]
-            assert Path(captured_file_path).exists()  # noqa: ASYNC240
+            assert Path(captured_file_path).exists()  # noqa: ASYNC240 — trivial sync fs op after async work
             raise RuntimeError("process exploded")
 
         with (

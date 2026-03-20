@@ -334,7 +334,9 @@ class WorkerManager:
         Returns:
             Configured SSHExecutionEnvironment.
         """
-        from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
+        from tanren_core.builder import (  # noqa: PLC0415 — avoid circular import
+            build_ssh_execution_environment,
+        )
 
         env, state_store = build_ssh_execution_environment(self._config, self._emitter, pool=pool)
         self._remote_state_store = state_store
@@ -345,8 +347,12 @@ class WorkerManager:
         if self._pg_dsn is None:
             return
 
-        from tanren_core.adapters.postgres_emitter import PostgresEventEmitter  # noqa: PLC0415
-        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+        from tanren_core.adapters.postgres_emitter import (  # noqa: PLC0415 — conditional import based on configuration
+            PostgresEventEmitter,
+        )
+        from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — conditional import based on configuration
+            create_postgres_pool,
+        )
 
         pool = await create_postgres_pool(self._pg_dsn)
         self._pg_pool = pool
@@ -371,7 +377,9 @@ class WorkerManager:
         remote_cfg = load_remote_config(self._config.remote_config_path)
 
         if self._pg_pool is not None:
-            from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+            from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
+                PostgresVMStateStore,
+            )
 
             store = PostgresVMStateStore(self._pg_pool)
         else:
@@ -396,7 +404,7 @@ class WorkerManager:
                     vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), store)
                     provider = VMProvider.MANUAL
                 elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
-                    from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415
+                    from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415 — deferred import for optional dependency
                         HetznerProvisionerSettings,
                         HetznerVMProvisioner,
                     )
@@ -407,7 +415,7 @@ class WorkerManager:
                     vm_provisioner = HetznerVMProvisioner(hetzner_settings)
                     provider = VMProvider.HETZNER
                 elif remote_cfg.provisioner.type == ProvisionerType.GCP:
-                    from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415
+                    from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415 — deferred import for optional dependency
                         GCPProvisionerSettings,
                         GCPVMProvisioner,
                     )

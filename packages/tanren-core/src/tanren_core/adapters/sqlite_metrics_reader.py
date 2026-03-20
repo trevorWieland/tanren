@@ -1,4 +1,4 @@
-# ruff: noqa: DOC201
+# ruff: noqa: DOC201 — return docs enforced by protocol, not per-method
 """SQLite-backed metrics reader for dashboard aggregation."""
 
 from __future__ import annotations

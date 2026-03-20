@@ -452,7 +452,7 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env
     ):
         """Re-executing a COMPLETED env clears outcome and completed_at."""
-        from tanren_core.schemas import Outcome  # noqa: PLC0415
+        from tanren_core.schemas import Outcome  # noqa: PLC0415 — deferred import for test clarity
 
         # Provision
         prov_resp = await client.post(
@@ -731,7 +731,9 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env
     ):
         """Teardown uses the transitioned record's handle, not the stale snapshot."""
-        from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+        from tanren_api.state import (
+            EnvironmentRecord,
+        )
 
         store = app.state.api_store
 
@@ -786,7 +788,9 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """Provision cancelled after handle obtained → finally block calls teardown."""
-        from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701
+        from tanren_api.state import (
+            _UNSET,  # noqa: PLC2701 — testing private implementation
+        )
 
         store = app.state.api_store
         original_handle = mock_execution_env.provision.return_value
@@ -837,7 +841,9 @@ class TestRun:
     ):
         """Teardown re-reads handle from store, picking up a handle that was
         persisted after the transition snapshot was taken."""
-        from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+        from tanren_api.state import (
+            EnvironmentRecord,
+        )
 
         store = app.state.api_store
         handle = mock_execution_env.provision.return_value
@@ -873,7 +879,9 @@ class TestRun:
     ):
         """When provision was cancelled and cleaned up its own handle,
         teardown re-reads handle=None and just removes the record."""
-        from tanren_api.state import EnvironmentRecord  # noqa: PLC0415
+        from tanren_api.state import (
+            EnvironmentRecord,
+        )
 
         store = app.state.api_store
 
@@ -1183,7 +1191,7 @@ class TestRun:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """Prior task that hangs forever does not block teardown indefinitely."""
-        import tanren_api.services.run as run_module  # noqa: PLC0415
+        import tanren_api.services.run as run_module  # noqa: PLC0415 — deferred import for test clarity
 
         store = app.state.api_store
 

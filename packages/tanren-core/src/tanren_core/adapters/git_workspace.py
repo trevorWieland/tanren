@@ -56,7 +56,7 @@ class GitWorkspaceManager:
         if self._auth.auth_method == GitAuthMethod.TOKEN and self._auth.token:
             script = f"#!/bin/sh\necho {_shell_quote(self._auth.token)}\n"
             await conn.upload_content(script, self._ASKPASS_PATH)
-            await conn.run(f"chmod 700 {self._ASKPASS_PATH}", timeout=10)
+            await conn.run(f"chmod 700 {self._ASKPASS_PATH}", timeout_secs=10)
 
     def _git_env_prefix(self) -> str:
         """Return env prefix for git commands when using token auth."""
@@ -82,7 +82,7 @@ class GitWorkspaceManager:
         quoted_dir = shlex.quote(workspace_dir)
 
         # Check if already cloned
-        check = await conn.run(f"test -d {quoted_dir}/.git && echo exists", timeout=10)
+        check = await conn.run(f"test -d {quoted_dir}/.git && echo exists", timeout_secs=10)
 
         if "exists" in check.stdout:
             # Pull latest
@@ -92,7 +92,7 @@ class GitWorkspaceManager:
                 f" && git checkout {shlex.quote(spec.branch)}"
                 f" && {git_prefix}git pull origin {shlex.quote(spec.branch)}"
             )
-            result = await conn.run(pull_cmd, timeout=120)
+            result = await conn.run(pull_cmd, timeout_secs=120)
             if result.exit_code != 0:
                 raise RuntimeError(f"Git pull failed: {result.stderr}")
         else:
@@ -102,7 +102,7 @@ class GitWorkspaceManager:
                 f"{git_prefix}git clone --branch {shlex.quote(spec.branch)}"
                 f" {shlex.quote(spec.repo_url)} {quoted_dir}"
             )
-            result = await conn.run(clone_cmd, timeout=300)
+            result = await conn.run(clone_cmd, timeout_secs=300)
             if result.exit_code != 0:
                 raise RuntimeError(f"Git clone failed: {result.stderr}")
 
@@ -110,7 +110,7 @@ class GitWorkspaceManager:
         path_prefix = 'export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH" && '
         for cmd in spec.setup_commands:
             logger.info("Running setup command: %s", cmd)
-            result = await conn.run(f"{path_prefix}cd {quoted_dir} && {cmd}", timeout=300)
+            result = await conn.run(f"{path_prefix}cd {quoted_dir} && {cmd}", timeout_secs=300)
             if result.exit_code != 0:
                 raise RuntimeError(f"Setup command failed ({cmd}): {result.stderr}")
 
@@ -132,7 +132,7 @@ class GitWorkspaceManager:
             lines = [f"{k}={_shell_quote(v)}" for k, v in secrets.developer.items()]
             content = "\n".join(lines) + "\n"
             await conn.upload_content(content, "/workspace/.developer-secrets")
-            await conn.run("chmod 600 /workspace/.developer-secrets", timeout=10)
+            await conn.run("chmod 600 /workspace/.developer-secrets", timeout_secs=10)
 
         # Project secrets -> /workspace/{project}/.env
         if secrets.project:
@@ -140,7 +140,7 @@ class GitWorkspaceManager:
             content = "\n".join(lines) + "\n"
             env_path = f"{workspace.path}/.env"
             await conn.upload_content(content, env_path)
-            await conn.run(f"chmod 600 {shlex.quote(env_path)}", timeout=10)
+            await conn.run(f"chmod 600 {shlex.quote(env_path)}", timeout_secs=10)
 
     _MCP_FILES: ClassVar[dict[str, str]] = {
         "claude": ".mcp.json",
@@ -168,13 +168,13 @@ class GitWorkspaceManager:
 
         # mkdir -p for .codex/ subdirectory
         codex_dir = f"{workspace.path}/.codex"
-        await conn.run(f"mkdir -p {shlex.quote(codex_dir)}", timeout=10)
+        await conn.run(f"mkdir -p {shlex.quote(codex_dir)}", timeout_secs=10)
 
         for rel_path, content in configs:
             full_path = f"{workspace.path}/{rel_path}"
             await conn.upload_content(content, full_path)
             if has_headers:
-                await conn.run(f"chmod 600 {shlex.quote(full_path)}", timeout=10)
+                await conn.run(f"chmod 600 {shlex.quote(full_path)}", timeout_secs=10)
 
     @staticmethod
     def _render_claude_mcp(mcp_servers: dict[str, McpServerConfig]) -> str:
@@ -220,8 +220,8 @@ class GitWorkspaceManager:
 
     async def cleanup(self, conn: RemoteConnection, workspace: WorkspacePath) -> None:
         """Remove secret files, MCP configs, and auth helpers from remote workspace."""
-        await conn.run("rm -f /workspace/.developer-secrets", timeout=10)
-        await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout=10)
-        await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout=10)
+        await conn.run("rm -f /workspace/.developer-secrets", timeout_secs=10)
+        await conn.run(f"rm -f {shlex.quote(workspace.path + '/.env')}", timeout_secs=10)
+        await conn.run(f"rm -f {self._ASKPASS_PATH}", timeout_secs=10)
         for rel_path in self._MCP_FILES.values():
-            await conn.run(f"rm -f {shlex.quote(workspace.path + '/' + rel_path)}", timeout=10)
+            await conn.run(f"rm -f {shlex.quote(workspace.path + '/' + rel_path)}", timeout_secs=10)

@@ -1,5 +1,5 @@
 """In-memory API state store for tracking in-flight dispatches and environments."""
-# ruff: noqa: DOC201
+# ruff: noqa: DOC201 — return docs on internal store methods are redundant
 
 from __future__ import annotations
 

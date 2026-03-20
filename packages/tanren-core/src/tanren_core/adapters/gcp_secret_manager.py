@@ -22,7 +22,7 @@ def _import_secret_manager() -> types.ModuleType:
         ImportError: If the google-cloud-secret-manager package is not installed.
     """
     try:
-        import google.cloud.secretmanager as _sm  # noqa: PLC0415
+        import google.cloud.secretmanager as _sm  # noqa: PLC0415 — deferred import for optional dependency
 
         return _sm
     except ImportError:

@@ -52,8 +52,12 @@ async def _get_state_store(config: Config) -> tuple[VMStateStore, asyncpg.Pool |
         Tuple of (VMStateStore, asyncpg.Pool | None).
     """
     if config.events_db and is_postgres_url(config.events_db):
-        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
-        from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+        from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — conditional import based on configuration
+            create_postgres_pool,
+        )
+        from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
+            PostgresVMStateStore,
+        )
 
         pool = await create_postgres_pool(config.events_db)
         return PostgresVMStateStore(pool), pool
@@ -200,7 +204,9 @@ def vm_dry_run(
     typer.echo(f"provisioner: {remote_cfg.provisioner.type.value}")
 
     if remote_cfg.provisioner.type == ProvisionerType.HETZNER:
-        from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings  # noqa: PLC0415
+        from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415 — deferred import for optional dependency
+            HetznerProvisionerSettings,
+        )
 
         settings = HetznerProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         resolved_server_type = profile.server_type or settings.default_server_type
@@ -214,7 +220,9 @@ def vm_dry_run(
         typer.echo(f"image: {settings.image}")
         typer.echo(f"ssh_key_name: {settings.ssh_key_name}")
     elif remote_cfg.provisioner.type == ProvisionerType.GCP:
-        from tanren_core.adapters.gcp_vm import GCPProvisionerSettings  # noqa: PLC0415
+        from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415 — deferred import for optional dependency
+            GCPProvisionerSettings,
+        )
 
         gcp_settings = GCPProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         resolved_machine_type = profile.server_type or gcp_settings.default_machine_type

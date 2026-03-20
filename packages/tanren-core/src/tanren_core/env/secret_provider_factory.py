@@ -27,14 +27,14 @@ def create_secret_provider(
         ValueError: If the provider type is unsupported or required settings are missing.
     """
     if config is None or config.provider == SecretsProviderType.DOTENV:
-        from tanren_core.adapters.dotenv_secret_provider import (  # noqa: PLC0415
+        from tanren_core.adapters.dotenv_secret_provider import (  # noqa: PLC0415 — deferred import for optional dependency
             DotenvSecretProvider,
         )
 
         return DotenvSecretProvider(secrets_dir=secrets_dir)
 
     if config.provider == SecretsProviderType.GCP:
-        from tanren_core.adapters.gcp_secret_manager import (  # noqa: PLC0415
+        from tanren_core.adapters.gcp_secret_manager import (  # noqa: PLC0415 — deferred import for optional dependency
             GCPSecretManagerProvider,
         )
 

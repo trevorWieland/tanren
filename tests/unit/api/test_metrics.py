@@ -7,7 +7,9 @@ import json
 import aiosqlite
 import pytest
 
-from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
+from tanren_core.adapters.sqlite_emitter import (
+    _SCHEMA,  # noqa: PLC2701 — testing private implementation
+)
 from tanren_core.adapters.sqlite_metrics_reader import SqliteMetricsReader
 
 

@@ -486,7 +486,9 @@ class TestDispatch:
         self, client, auth_headers, app
     ):
         """Background task exits without provisioning when dispatch is already CANCELLED."""
-        from tanren_api.services import DispatchService  # noqa: PLC0415
+        from tanren_api.services import (
+            DispatchService,
+        )
 
         store = app.state.api_store
         mock_env = app.state.execution_env
@@ -565,7 +567,9 @@ class TestDispatch:
     async def test_dispatch_teardown_shielded_from_cancellation(self, client, auth_headers, app):
         """Teardown is shielded from cancellation in _dispatch_background
         and the task doesn't return until teardown actually finishes."""
-        from tanren_api.services import DispatchService  # noqa: PLC0415
+        from tanren_api.services import (
+            DispatchService,
+        )
 
         store = app.state.api_store
         mock_env = app.state.execution_env
@@ -670,7 +674,9 @@ class TestDispatch:
 
     async def test_background_task_does_not_overwrite_cancelled(self, client, auth_headers, app):
         """Background task completing after cancellation does not overwrite CANCELLED status."""
-        from tanren_api.services import DispatchService  # noqa: PLC0415
+        from tanren_api.services import (
+            DispatchService,
+        )
 
         store = app.state.api_store
         mock_env = app.state.execution_env

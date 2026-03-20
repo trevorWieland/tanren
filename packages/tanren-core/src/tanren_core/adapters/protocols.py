@@ -339,7 +339,7 @@ class RemoteConnection(Protocol):
         self,
         command: str,
         *,
-        timeout: int | None = None,  # noqa: ASYNC109 — protocol signature, not an actual timeout
+        timeout_secs: int | None = None,
         stdin_data: str | None = None,
         request_pty: bool = False,
     ) -> RemoteResult:

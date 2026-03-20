@@ -7,7 +7,7 @@ import pytest
 
 from tanren_core.env import load_and_validate_env
 from tanren_core.env.loader import (
-    _check_permissions,  # noqa: PLC2701
+    _check_permissions,  # noqa: PLC2701 — testing private implementation
     discover_env_vars_from_dotenv_example,
     load_env_layers,
     resolve_env_var,

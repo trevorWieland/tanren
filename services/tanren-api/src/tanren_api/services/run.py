@@ -1,5 +1,5 @@
 """Run lifecycle service — provision, execute, teardown, full lifecycle, status."""
-# ruff: noqa: DOC201,DOC501
+# ruff: noqa: DOC201,DOC501 — service methods document via protocol, not per-method
 
 from __future__ import annotations
 

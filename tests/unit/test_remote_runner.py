@@ -157,11 +157,11 @@ class TestRemoteAgentRunnerRun:
             prompt_content="prompt",
             cli_command="claude --prompt .tanren-prompt.md",
             signal_path="/workspace/myproj/.signal",
-            timeout=600,
+            timeout_secs=600,
         )
 
         agent_call = conn.run.call_args_list[0]
-        assert agent_call.kwargs["timeout"] == 600
+        assert agent_call.kwargs["timeout_secs"] == 600
 
     async def test_agent_command_requests_pty(self):
         conn = _make_conn()

@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from tanren_core.env.reporter import (
-    _format_var,  # noqa: PLC2701
-    _icon,  # noqa: PLC2701
+    _format_var,  # noqa: PLC2701 — testing private implementation
+    _icon,  # noqa: PLC2701 — testing private implementation
     format_report,
     format_report_json,
     supports_color,

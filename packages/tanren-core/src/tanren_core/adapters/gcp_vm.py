@@ -32,7 +32,7 @@ def _import_compute() -> types.ModuleType:
         ImportError: If the google-cloud-compute package is not installed.
     """
     try:
-        import google.cloud.compute_v1 as _compute  # noqa: PLC0415
+        import google.cloud.compute_v1 as _compute  # noqa: PLC0415 — deferred import for optional dependency
 
         return _compute
     except ImportError:
@@ -198,9 +198,11 @@ class GCPVMProvisioner:
             )
             await asyncio.to_thread(operation.result)
         except Exception:
-            import sys  # noqa: PLC0415
+            import sys  # noqa: PLC0415 — deferred import for exception handling
 
-            from google.api_core.exceptions import NotFound  # noqa: PLC0415
+            from google.api_core.exceptions import (  # noqa: PLC0415 — deferred import for optional dependency
+                NotFound,
+            )
 
             exc = sys.exc_info()[1]
             if isinstance(exc, NotFound):

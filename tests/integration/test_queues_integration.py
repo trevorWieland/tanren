@@ -104,7 +104,7 @@ class TestDispatchRouterConsumers:
         """Consumer should not die when handler raises."""
         call_count = 0
 
-        async def failing_then_ok(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029
+        async def failing_then_ok(path: Path, dispatch: Dispatch) -> None:  # noqa: RUF029 — async required by interface
             nonlocal call_count
             call_count += 1
             if call_count == 1:

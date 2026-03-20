@@ -224,7 +224,9 @@ class TestRecoverStaleAssignments:
 
     async def test_recover_stale_releases_and_records(self, env_kit):
         """Releases each stale assignment and records release for all."""
-        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+        from tanren_core.adapters.remote_types import (
+            VMAssignment,
+        )
 
         env = env_kit["env"]
         assignments = [
@@ -257,7 +259,9 @@ class TestRecoverStaleAssignments:
 
     async def test_recover_stale_records_release_on_provider_failure(self, env_kit):
         """record_release is still called when provider release raises."""
-        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+        from tanren_core.adapters.remote_types import (
+            VMAssignment,
+        )
 
         env = env_kit["env"]
         assignments = [
@@ -280,7 +284,9 @@ class TestRecoverStaleAssignments:
 
     async def test_recover_stale_uses_configured_provider(self, env_kit):
         """recover_stale_assignments uses the configured provider, not hardcoded MANUAL."""
-        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+        from tanren_core.adapters.remote_types import (
+            VMAssignment,
+        )
 
         env = env_kit["env"]
         assignments = [
@@ -354,7 +360,7 @@ class TestProvision:
         dispatch = _make_dispatch()
         config = env_kit["config"]
 
-        import asyncio  # noqa: PLC0415
+        import asyncio  # noqa: PLC0415 — deferred import for test clarity
 
         # Make bootstrap raise CancelledError (simulates task cancellation)
         env_kit["bootstrapper"].bootstrap.side_effect = asyncio.CancelledError()
@@ -453,10 +459,10 @@ class TestProvision:
         config = env_kit["config"]
         call_order: list[str] = []
 
-        async def _track_ssh_ready(conn, **kwargs):  # noqa: RUF029
+        async def _track_ssh_ready(conn, **kwargs):  # noqa: RUF029 — async required by interface
             call_order.append("ssh_ready")
 
-        async def _track_bootstrap(conn):  # noqa: RUF029
+        async def _track_bootstrap(conn):  # noqa: RUF029 — async required by interface
             call_order.append("bootstrap")
             return _make_bootstrap_result()
 
@@ -676,7 +682,9 @@ class TestExecute:
 
     async def test_execute_collects_token_usage(self, env_kit):
         """execute() collects token usage and populates result.token_usage."""
-        from tanren_core.ccusage import TokenUsage  # noqa: PLC0415
+        from tanren_core.ccusage import (
+            TokenUsage,
+        )
 
         env = env_kit["env"]
         conn = AsyncMock()
@@ -1212,7 +1220,7 @@ class TestSSHReadyTimeoutConfigurable:
 
         mock_await.assert_awaited_once()
         _, kwargs = mock_await.call_args
-        assert kwargs["timeout"] == 450
+        assert kwargs["timeout_secs"] == 450
 
 
 class TestAwaitSshReady:
@@ -1256,7 +1264,7 @@ class TestAwaitSshReady:
             patch(f"{_SSH_ENV}.time.monotonic", side_effect=lambda: next(clock)),
             pytest.raises(TimeoutError, match="SSH not reachable"),
         ):
-            await env._await_ssh_ready(conn, timeout=120)
+            await env._await_ssh_ready(conn, timeout_secs=120)
 
 
 class TestMcpInjection:
@@ -1273,7 +1281,7 @@ class TestMcpInjection:
         proj_dir = tmp_path / dispatch.project
         proj_dir.mkdir(parents=True, exist_ok=True)
         tanren_yml = proj_dir / "tanren.yml"
-        import yaml  # noqa: PLC0415
+        import yaml  # noqa: PLC0415 — deferred import for test clarity
 
         tanren_yml.write_text(
             yaml.dump({

@@ -95,11 +95,15 @@ async def _build_remote_execution_env(
     Returns:
         Tuple of (SSHExecutionEnvironment, asyncpg.Pool | None).
     """
-    from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
+    from tanren_core.builder import (  # noqa: PLC0415 — avoid circular import
+        build_ssh_execution_environment,
+    )
 
     pool = None
     if config.events_db and is_postgres_url(config.events_db):
-        from tanren_core.adapters.postgres_pool import create_postgres_pool  # noqa: PLC0415
+        from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — optional dep
+            create_postgres_pool,
+        )
 
         pool = await create_postgres_pool(config.events_db)
 

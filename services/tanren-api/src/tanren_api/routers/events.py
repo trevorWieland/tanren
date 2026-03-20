@@ -1,5 +1,5 @@
 """Events endpoint — query structured events."""
-# ruff: noqa: DOC201
+# ruff: noqa: DOC201 — FastAPI endpoints return Response objects implicitly
 
 from __future__ import annotations
 

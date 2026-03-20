@@ -16,7 +16,7 @@ from tanren_core.worktree import (
 
 async def _init_repo(repo: Path, default_branch: str = "main") -> None:
     """Initialize a git repo with one commit."""
-    repo.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240 — test setup
+    repo.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240 — trivial sync fs op after async work
     for cmd in [
         ["git", "init"],
         ["git", "config", "user.email", "test@test.com"],

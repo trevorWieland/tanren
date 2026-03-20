@@ -10,11 +10,11 @@ import pytest
 from tanren_core.config import Config
 from tanren_core.process import (
     ProcessResult,
-    _run_with_timeout,  # noqa: PLC2701
-    _spawn_bash,  # noqa: PLC2701
-    _spawn_claude,  # noqa: PLC2701
-    _spawn_codex,  # noqa: PLC2701
-    _spawn_opencode,  # noqa: PLC2701
+    _run_with_timeout,  # noqa: PLC2701 — testing private implementation
+    _spawn_bash,  # noqa: PLC2701 — testing private implementation
+    _spawn_claude,  # noqa: PLC2701 — testing private implementation
+    _spawn_codex,  # noqa: PLC2701 — testing private implementation
+    _spawn_opencode,  # noqa: PLC2701 — testing private implementation
     assemble_prompt,
     spawn_process,
 )

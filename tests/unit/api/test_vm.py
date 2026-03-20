@@ -194,7 +194,9 @@ class TestVM:
 
     async def test_release_vm_no_execution_env_returns_500(self, client, auth_headers, app):
         """release_vm returns 500 when execution_env is None; record_release is NOT called."""
-        from tanren_core.adapters.remote_types import VMAssignment  # noqa: PLC0415
+        from tanren_core.adapters.remote_types import (
+            VMAssignment,
+        )
 
         app.state.execution_env = None
         app.state.vm_state_store.get_assignment.return_value = VMAssignment(
@@ -226,7 +228,9 @@ class TestVM:
         self, client, auth_headers, app, mock_execution_env, monkeypatch
     ):
         """VM provision cancelled after handle obtained → finally block calls teardown."""
-        from tanren_api.state import _UNSET  # noqa: PLC0415, PLC2701
+        from tanren_api.state import (
+            _UNSET,  # noqa: PLC2701 — testing private implementation
+        )
 
         store = app.state.api_store
         original_handle = mock_execution_env.provision.return_value

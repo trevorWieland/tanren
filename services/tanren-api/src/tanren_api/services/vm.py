@@ -1,5 +1,5 @@
 """VM service — list, provision, poll, release, and dry-run VMs."""
-# ruff: noqa: DOC201,DOC501
+# ruff: noqa: DOC201,DOC501 — service methods document via protocol, not per-method
 
 from __future__ import annotations
 

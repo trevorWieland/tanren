@@ -1,5 +1,5 @@
 """Dispatch service — create, query, and cancel dispatch requests."""
-# ruff: noqa: DOC201,DOC501
+# ruff: noqa: DOC201,DOC501 — service methods document via protocol, not per-method
 
 from __future__ import annotations
 

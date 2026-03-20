@@ -8,8 +8,8 @@ import pytest
 
 from tanren_core.adapters.remote_types import RemoteResult
 from tanren_core.adapters.ubuntu_bootstrap import (
-    _AGENT_USER,  # noqa: PLC2701
-    _MARKER_PATH,  # noqa: PLC2701
+    _AGENT_USER,  # noqa: PLC2701 — testing private implementation
+    _MARKER_PATH,  # noqa: PLC2701 — testing private implementation
     UbuntuBootstrapper,
 )
 from tanren_core.schemas import Cli
@@ -34,7 +34,7 @@ def _make_conn(
     """
     conn = AsyncMock()
 
-    async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029
+    async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029 — async required by interface
         # Marker check
         if _MARKER_PATH in cmd and "test -f" in cmd:
             return _ok("exists") if marker_exists else _ok("")
@@ -125,7 +125,7 @@ class TestStepFailure:
     async def test_apt_failure_raises(self):
         conn = _make_conn()
 
-        async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029
+        async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029 — async required by interface
             if _MARKER_PATH in cmd and "test -f" in cmd:
                 return _ok("")
             if "apt-get" in cmd:
@@ -142,7 +142,7 @@ class TestStepFailure:
     async def test_tool_install_failure_raises(self):
         conn = _make_conn()
 
-        async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029
+        async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029 — async required by interface
             if _MARKER_PATH in cmd and "test -f" in cmd:
                 return _ok("")
             if cmd.startswith("command -v"):
@@ -176,7 +176,7 @@ class TestExtraScript:
     async def test_extra_script_failure_raises(self):
         conn = _make_conn()
 
-        async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029
+        async def _run(cmd: str, **kwargs) -> RemoteResult:  # noqa: RUF029 — async required by interface
             if _MARKER_PATH in cmd and "test -f" in cmd:
                 return _ok("")
             if cmd.startswith("command -v"):

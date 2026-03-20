@@ -66,11 +66,15 @@ def build_ssh_execution_environment(
     )
 
     if pool is not None:
-        from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore  # noqa: PLC0415
+        from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
+            PostgresVMStateStore,
+        )
 
         state_store: VMStateStore = PostgresVMStateStore(pool)
     else:
-        from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore  # noqa: PLC0415
+        from tanren_core.adapters.sqlite_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
+            SqliteVMStateStore,
+        )
 
         state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
 
@@ -105,7 +109,7 @@ def build_ssh_execution_environment(
         vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), state_store)
         provider = VMProvider.MANUAL
     elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
-        from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415
+        from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415 — optional dep
             HetznerProvisionerSettings,
             HetznerVMProvisioner,
         )
@@ -114,7 +118,7 @@ def build_ssh_execution_environment(
         vm_provisioner = HetznerVMProvisioner(hetzner_settings)
         provider = VMProvider.HETZNER
     elif remote_cfg.provisioner.type == ProvisionerType.GCP:
-        from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415
+        from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415 — optional dep
             GCPProvisionerSettings,
             GCPVMProvisioner,
         )

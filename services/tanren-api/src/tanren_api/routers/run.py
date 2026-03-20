@@ -1,5 +1,5 @@
 """Run lifecycle endpoints — provision, execute, teardown, full."""
-# ruff: noqa: DOC201
+# ruff: noqa: DOC201 — FastAPI endpoints return Response objects implicitly
 
 from __future__ import annotations
 

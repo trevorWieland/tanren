@@ -18,7 +18,9 @@ _TEST_SECRET_NAME = os.environ.get("GCP_TEST_SECRET_NAME", "tanren-test-secret")
 @pytest.fixture
 def provider():
     """Create a live GCP Secret Manager provider."""
-    from tanren_core.adapters.gcp_secret_manager import GCPSecretManagerProvider  # noqa: PLC0415
+    from tanren_core.adapters.gcp_secret_manager import (
+        GCPSecretManagerProvider,
+    )
 
     return GCPSecretManagerProvider(project_id=_PROJECT)
 

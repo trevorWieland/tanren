@@ -9,7 +9,9 @@ import aiosqlite
 import pytest
 
 from tanren_core.adapters.event_reader import EventQueryResult, EventRow
-from tanren_core.adapters.sqlite_emitter import _SCHEMA  # noqa: PLC2701
+from tanren_core.adapters.sqlite_emitter import (
+    _SCHEMA,  # noqa: PLC2701 — testing private implementation
+)
 
 
 async def _setup_events_db(db_path, events: list[tuple[str, str, str, dict]]):

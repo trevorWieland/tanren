@@ -1,5 +1,5 @@
 """Metrics endpoints — aggregated dashboard data."""
-# ruff: noqa: DOC201
+# ruff: noqa: DOC201 — FastAPI endpoints return Response objects implicitly
 
 from __future__ import annotations
 

@@ -37,23 +37,23 @@ from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManage
 from tanren_core.adapters.git_worktree import GitWorktreeManager
 from tanren_core.adapters.issue_types import Issue, IssueSummary
 
-try:  # noqa: SIM105, RUF067
+try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.gcp_secret_manager import GCPSecretManagerProvider
 except ImportError:  # google-cloud-secret-manager not installed
     pass
-try:  # noqa: SIM105, RUF067
+try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.gcp_vm import GCPProvisionerSettings, GCPVMProvisioner
 except ImportError:  # google-cloud-compute not installed
     pass
-try:  # noqa: SIM105, RUF067
+try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.github_issue import GitHubIssueSettings, GitHubIssueSource
 except ImportError:  # httpx not installed
     pass
-try:  # noqa: SIM105, RUF067
+try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.linear_issue import LinearIssueSettings, LinearIssueSource
 except ImportError:  # httpx not installed
     pass
-try:  # noqa: SIM105, RUF067
+try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 except ImportError:  # hcloud not installed
     pass

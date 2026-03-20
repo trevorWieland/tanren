@@ -32,7 +32,7 @@ def _import_httpx() -> types.ModuleType:
         ImportError: If httpx is not installed.
     """
     try:
-        import httpx as _httpx  # noqa: PLC0415
+        import httpx as _httpx  # noqa: PLC0415 — deferred import for optional dependency
 
         return _httpx
     except ImportError:
@@ -161,7 +161,9 @@ mutation($issueId: String!, $body: String!) {
 type _JsonDict = dict[str, object]
 
 
-def _as_dict(val: object) -> _JsonDict:  # Receives parsed JSON of unknown shape; object is intentional
+def _as_dict(
+    val: object,
+) -> _JsonDict:  # Receives parsed JSON of unknown shape; object is intentional
     """Cast a JSON value known to be a dict to ``dict[str, object]``.
 
     Call only after confirming ``isinstance(val, dict)``.
