@@ -485,6 +485,100 @@ def test_run_execute_gate_rejects_blank_gate_cmd(tmp_path: Path, monkeypatch):
     env.execute.assert_not_called()
 
 
+def test_run_execute_gate_uses_task_gate_cmd_from_profile(tmp_path: Path, monkeypatch):
+    config = _config(tmp_path)
+    _persisted(config)
+    _write_tanren_yml(
+        config,
+        (
+            "environment:\n"
+            "  default:\n"
+            "    type: remote\n"
+            "    gate_cmd: make full-check\n"
+            "    task_gate_cmd: make unit-only\n"
+        ),
+    )
+    env = AsyncMock()
+    env.execute.return_value = PhaseResult(
+        outcome=Outcome.SUCCESS,
+        signal="ok",
+        exit_code=0,
+        stdout="gate ok",
+        duration_secs=1,
+        preflight_passed=True,
+        retries=0,
+    )
+
+    monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
+
+    result = CliRunner().invoke(
+        run,
+        [
+            "execute",
+            "--handle",
+            "env-123",
+            "--project",
+            "proj",
+            "--spec-path",
+            "tanren/specs/s1",
+            "--phase",
+            "gate",
+        ],
+    )
+
+    assert result.exit_code == 0
+    dispatch = env.execute.await_args.args[1]
+    assert dispatch.gate_cmd == "make unit-only"
+
+
+def test_run_execute_gate_cli_flag_overrides_task_gate_cmd(tmp_path: Path, monkeypatch):
+    config = _config(tmp_path)
+    _persisted(config)
+    _write_tanren_yml(
+        config,
+        "environment:\n  default:\n    type: remote\n    task_gate_cmd: make unit-only\n",
+    )
+    env = AsyncMock()
+    env.execute.return_value = PhaseResult(
+        outcome=Outcome.SUCCESS,
+        signal="ok",
+        exit_code=0,
+        stdout="gate ok",
+        duration_secs=1,
+        preflight_passed=True,
+        retries=0,
+    )
+
+    monkeypatch.setattr("tanren_cli.run_cli._load_config", lambda: config)
+    monkeypatch.setattr(
+        "tanren_cli.run_cli._build_remote_execution_env", AsyncMock(return_value=(env, None))
+    )
+
+    result = CliRunner().invoke(
+        run,
+        [
+            "execute",
+            "--handle",
+            "env-123",
+            "--project",
+            "proj",
+            "--spec-path",
+            "tanren/specs/s1",
+            "--phase",
+            "gate",
+            "--gate-cmd",
+            "make custom",
+        ],
+    )
+
+    assert result.exit_code == 0
+    dispatch = env.execute.await_args.args[1]
+    assert dispatch.gate_cmd == "make custom"
+
+
 def test_load_handle_accepts_file_path(tmp_path: Path):
     config = _config(tmp_path)
     persisted = PersistedRunHandle(

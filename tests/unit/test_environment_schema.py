@@ -104,6 +104,57 @@ class TestMultipleProfiles:
         assert result["staging"].setup == ("docker compose up -d",)
 
 
+class TestEnvironmentProfileGateFields:
+    def test_task_gate_cmd_default_none(self):
+        p = EnvironmentProfile(name="test")
+        assert p.task_gate_cmd is None
+
+    def test_spec_gate_cmd_default_none(self):
+        p = EnvironmentProfile(name="test")
+        assert p.spec_gate_cmd is None
+
+    def test_task_gate_cmd_set(self):
+        p = EnvironmentProfile(name="test", task_gate_cmd="make unit")
+        assert p.task_gate_cmd == "make unit"
+        assert p.gate_cmd == "make check"
+
+    def test_spec_gate_cmd_set(self):
+        p = EnvironmentProfile(name="test", spec_gate_cmd="make integration")
+        assert p.spec_gate_cmd == "make integration"
+        assert p.gate_cmd == "make check"
+
+    def test_both_set_with_gate_cmd(self):
+        p = EnvironmentProfile(
+            name="test",
+            gate_cmd="make all",
+            task_gate_cmd="make unit",
+            spec_gate_cmd="make integration",
+        )
+        assert p.gate_cmd == "make all"
+        assert p.task_gate_cmd == "make unit"
+        assert p.spec_gate_cmd == "make integration"
+
+    def test_parsed_from_yml(self):
+        data = {
+            "environment": {
+                "ci": {
+                    "gate_cmd": "make check",
+                    "task_gate_cmd": "make unit",
+                    "spec_gate_cmd": "make integration",
+                }
+            }
+        }
+        result = parse_environment_profiles(data)
+        ci = result["ci"]
+        assert ci.task_gate_cmd == "make unit"
+        assert ci.spec_gate_cmd == "make integration"
+
+    def test_frozen(self):
+        p = EnvironmentProfile(name="test", task_gate_cmd="make unit")
+        with pytest.raises(ValueError, match="Instance is frozen"):
+            p.task_gate_cmd = "changed"
+
+
 class TestMcpServerConfig:
     def test_url_required(self):
         with pytest.raises(ValueError, match="url"):
