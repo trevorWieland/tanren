@@ -26,10 +26,10 @@ on:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write
+  contents: read
   packages: write
 
 jobs:
@@ -38,6 +38,8 @@ jobs:
     if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.bump.outputs.version }}
       sha: ${{ steps.push.outputs.sha }}
@@ -78,7 +80,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add pyproject.toml packages/tanren-core/pyproject.toml services/*/pyproject.toml uv.lock
           git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
-          git pull --rebase origin master
+          git pull --rebase https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git master
           git push https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git HEAD:master
           SHA="$(git rev-parse HEAD)"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"

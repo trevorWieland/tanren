@@ -68,7 +68,7 @@ def main() -> None:
         if not p.exists():
             print(f"ERROR: file not found: {p}", file=sys.stderr)
             sys.exit(1)
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         v = find_version(text)
         if v is None:
             print(f"ERROR: no version found in {p}", file=sys.stderr)
@@ -85,7 +85,7 @@ def main() -> None:
 
     for p in paths:
         updated = VERSION_RE.sub(rf"\g<1>{new}\3", contents[p], count=1)
-        p.write_text(updated)
+        p.write_text(updated, encoding="utf-8")
 
     print(new)
 
