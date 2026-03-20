@@ -95,12 +95,12 @@ class TestSecretProviderFactoryIntegration:
         provider = create_secret_provider(config, secrets_dir=tmp_path)
         assert await provider.get_secret("KEY") == "val"
 
-    def test_gcp_missing_project_id_raises(self):
+    async def test_gcp_missing_project_id_raises(self):
         config = SecretsConfig(provider=SecretsProviderType.GCP, settings={})
         with pytest.raises(ValueError, match="project_id"):
             create_secret_provider(config)
 
-    def test_gcp_empty_project_id_raises(self):
+    async def test_gcp_empty_project_id_raises(self):
         config = SecretsConfig(provider=SecretsProviderType.GCP, settings={"project_id": ""})
         with pytest.raises(ValueError, match="project_id"):
             create_secret_provider(config)
