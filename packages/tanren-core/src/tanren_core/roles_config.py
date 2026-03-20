@@ -36,7 +36,7 @@ def load_roles_config(path: str | Path) -> RoleMapping:
     if not isinstance(agents, Mapping):
         raise ValueError(f"Roles config {path}: missing required 'agents' section")
 
-    def _as_str(raw: object) -> str | None:
+    def _as_str(raw: object) -> str | None:  # YAML value of unknown type; object is correct
         return raw if isinstance(raw, str) else None
 
     def _parse_cli(source: Mapping[str, object], context: str) -> Cli:

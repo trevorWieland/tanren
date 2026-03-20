@@ -134,7 +134,7 @@ _OPEN_STATUSES = frozenset({"open", "reopened"})
 type _JsonDict = dict[str, object]
 
 
-def _as_dict(val: object) -> _JsonDict:
+def _as_dict(val: object) -> _JsonDict:  # Receives parsed JSON of unknown shape; object is intentional
     """Cast a JSON value known to be a dict to ``dict[str, object]``.
 
     Call only after confirming ``isinstance(val, dict)``.

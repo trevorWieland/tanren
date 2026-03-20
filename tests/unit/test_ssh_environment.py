@@ -707,8 +707,8 @@ class TestExecute:
             result = await env.execute(handle, dispatch, config)
 
         assert result.token_usage is not None
-        assert result.token_usage["total_cost"] == pytest.approx(1.50)
-        assert result.token_usage["total_tokens"] == 300
+        assert result.token_usage.total_cost == pytest.approx(1.50)
+        assert result.token_usage.total_tokens == 300
 
     async def test_execute_skips_token_usage_for_bash(self, env_kit):
         """execute() does not collect token usage for Cli.BASH dispatches."""

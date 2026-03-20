@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import VMHandle, WorkspacePath
+from tanren_core.ccusage import TokenUsage
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
@@ -83,7 +84,7 @@ class PhaseResult(BaseModel):
     unchecked_tasks: int = Field(default=0, ge=0)
     plan_hash: str = Field(default="00000000")
     retries: int = Field(default=0, ge=0)
-    token_usage: dict[str, Any] | None = Field(default=None)
+    token_usage: TokenUsage | None = Field(default=None)
 
 
 class AccessInfo(BaseModel):

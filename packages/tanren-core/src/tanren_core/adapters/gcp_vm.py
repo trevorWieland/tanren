@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     import types
     from collections.abc import Mapping
 
+    from google.cloud import compute_v1
     from google.cloud.compute_v1.types import Instance
 
 
@@ -322,7 +323,7 @@ class GCPVMProvisioner:
         )
 
     @staticmethod
-    def _extract_ip(instance: object, *, prefer_external: bool = True) -> str | None:
+    def _extract_ip(instance: compute_v1.Instance, *, prefer_external: bool = True) -> str | None:
         """Extract an IP from an instance's first network interface.
 
         When *prefer_external* is True only the external (NAT) IP is returned;

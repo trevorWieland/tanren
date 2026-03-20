@@ -285,12 +285,12 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _is_running(server: object) -> bool:
+    def _is_running(server: object) -> bool:  # hcloud types are unstable; duck-typing via object is intentional
         status = str(getattr(server, "status", "")).lower()
         return status == "running"
 
     @staticmethod
-    def _extract_public_ipv4(server: object) -> str | None:
+    def _extract_public_ipv4(server: object) -> str | None:  # hcloud types are unstable; duck-typing via object is intentional
         public_net = getattr(server, "public_net", None)
         if public_net is None:
             return None
@@ -316,7 +316,7 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _price_location_name(price: object) -> str | None:
+    def _price_location_name(price: object) -> str | None:  # hcloud types are unstable; duck-typing via object is intentional
         location = getattr(price, "location", None)
         if location is not None:
             loc_name = getattr(location, "name", None)
@@ -335,13 +335,13 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _price_hourly_value(price: object) -> float | None:
-        def _as_float(value: object) -> float | None:
+    def _price_hourly_value(price: object) -> float | None:  # hcloud types are unstable; duck-typing via object is intentional
+        def _as_float(value: object) -> float | None:  # hcloud types are unstable; duck-typing via object is intentional
             if not isinstance(value, str | int | float):
                 return None
             try:
                 return float(value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return None
 
         price_hourly = getattr(price, "price_hourly", None)
@@ -366,7 +366,7 @@ class HetznerVMProvisioner:
         return None
 
     @staticmethod
-    def _server_type_name(server: object) -> str:
+    def _server_type_name(server: object) -> str:  # hcloud types are unstable; duck-typing via object is intentional
         st = getattr(server, "server_type", None)
         if st is None:
             return ""

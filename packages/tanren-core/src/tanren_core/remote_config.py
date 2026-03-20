@@ -111,7 +111,7 @@ class RemoteConfig(BaseModel):
         return None
 
 
-def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:
+def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:  # YAML parser returns untyped values; object is correct
     """Coerce repos section into a typed list of bindings.
 
     Returns:
@@ -135,7 +135,7 @@ def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:
     return []
 
 
-def _coerce_provisioner(raw: object) -> dict[str, JsonValue]:
+def _coerce_provisioner(raw: object) -> dict[str, JsonValue]:  # YAML parser returns untyped values; object is correct
     """Coerce provisioner section to a plain dict for Pydantic validation.
 
     Returns:

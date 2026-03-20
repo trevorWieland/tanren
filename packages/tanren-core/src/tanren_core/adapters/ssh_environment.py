@@ -444,7 +444,7 @@ class SSHExecutionEnvironment:
                 usage_runner,
             )
             if usage is not None:
-                token_usage_data = usage.model_dump(mode="json")
+                token_usage_data = usage
 
         return PhaseResult(
             outcome=outcome,

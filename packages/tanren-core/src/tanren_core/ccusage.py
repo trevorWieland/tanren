@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
+    from tanren_core.adapters.protocols import RemoteConnection
     from tanren_core.config import Config
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ class LocalCommandRunner:
 class RemoteCommandRunner:
     """Run commands via an SSH connection."""
 
-    def __init__(self, connection: object, *, run_as_user: str | None = None) -> None:
+    def __init__(self, connection: RemoteConnection, *, run_as_user: str | None = None) -> None:
         """Initialize with an SSH connection object."""
         self._connection = connection
         self._run_as_user = run_as_user
@@ -98,7 +99,7 @@ class RemoteCommandRunner:
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
         if self._run_as_user:
             cmd_str = f"su - {shlex.quote(self._run_as_user)} -c {shlex.quote(cmd_str)}"
-        result = await self._connection.run(cmd_str, timeout=timeout)  # type: ignore[union-attr]
+        result = await self._connection.run(cmd_str, timeout=timeout)
         return result.exit_code, result.stdout
 
 
@@ -366,5 +367,5 @@ def _parse_activity_time(s: str) -> datetime | None:
             return datetime.fromisoformat(cleaned)
         # Date only (e.g. "2026-03-14") — treat as midnight UTC
         return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return None
