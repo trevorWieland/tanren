@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import types
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import types
 
 logger = logging.getLogger(__name__)
 

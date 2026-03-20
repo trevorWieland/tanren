@@ -11,11 +11,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from tanren_core.adapters.remote_types import SecretBundle
 from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import RemoteConnection
+    from tanren_core.adapters.remote_types import SecretBundle
 
 logger = logging.getLogger(__name__)
 

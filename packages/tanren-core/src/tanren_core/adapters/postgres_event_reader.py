@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
-
-import asyncpg
+from typing import TYPE_CHECKING
 
 from tanren_core.adapters.event_reader import EventQueryResult, EventRow
+
+if TYPE_CHECKING:
+    import asyncpg
 
 logger = logging.getLogger(__name__)
 

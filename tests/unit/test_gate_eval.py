@@ -1,7 +1,7 @@
 """Tests for gate_eval module — expectation matching and pytest parsing."""
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.gate_eval import (
     GateTestResult,
@@ -12,6 +12,9 @@ from tanren_core.gate_eval import (
     parse_pytest_output,
 )
 from tanren_core.schemas import GateExpectation
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestEvaluateGateNoExpectations:

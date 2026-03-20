@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import types
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -14,6 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from tanren_core.adapters.issue_types import Issue, IssueSummary
 
 if TYPE_CHECKING:
+    import types
+    from collections.abc import Mapping
+
     import httpx
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,7 @@ def _as_dict(val: object) -> _JsonDict:
     Returns:
         The value cast to ``dict[str, object]``.
     """
-    return cast(_JsonDict, val)
+    return cast("_JsonDict", val)
 
 
 class GitHubIssueSource:
@@ -350,10 +351,9 @@ class GitHubIssueSource:
         nodes = _as_dict(issues_data).get("nodes")
         if not isinstance(nodes, list):
             return []
-        summaries: list[IssueSummary] = []
-        for node in nodes:
-            if isinstance(node, dict):
-                summaries.append(self._build_summary(_as_dict(node)))
+        summaries: list[IssueSummary] = [
+            self._build_summary(_as_dict(node)) for node in nodes if isinstance(node, dict)
+        ]
         return summaries
 
     async def update_status(self, issue_id: str, status: str) -> None:

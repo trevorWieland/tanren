@@ -3,7 +3,10 @@
 import asyncio
 import hashlib
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 async def count_unchecked_tasks(plan_path: Path) -> int:

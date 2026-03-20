@@ -7,8 +7,6 @@ import logging
 import os
 import re
 import time
-import types
-from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -17,6 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 
 if TYPE_CHECKING:
+    import types
+    from collections.abc import Mapping
+
     from google.cloud.compute_v1.types import Instance
 
 

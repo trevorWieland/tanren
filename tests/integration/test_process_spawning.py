@@ -1,12 +1,15 @@
 """Integration test: real process spawning and timeout handling."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.config import Config
 from tanren_core.process import _run_with_timeout, spawn_process  # noqa: PLC2701
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestRunWithTimeout:

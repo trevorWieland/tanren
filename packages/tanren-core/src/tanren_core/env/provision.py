@@ -6,9 +6,12 @@ and writes a .env file to the worktree.
 """
 
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.env.loader import load_env_layers, parse_tanren_yml, resolve_env_var
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

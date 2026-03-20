@@ -1,12 +1,15 @@
 """Tests for markdown docs link and anchor validation."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.docs_links import (
     _find_repo_root,  # noqa: PLC2701
     discover_markdown_files,
     validate_markdown_files,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write(path: Path, content: str) -> Path:

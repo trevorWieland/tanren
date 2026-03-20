@@ -5,15 +5,8 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-from tanren_core.adapters.protocols import (
-    EnvValidator,
-    PostflightRunner,
-    PreflightRunner,
-    ProcessSpawner,
-)
-from tanren_core.adapters.remote_types import VMHandle
 from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
@@ -21,13 +14,22 @@ from tanren_core.adapters.types import (
     PhaseResult,
     ProvisionError,
 )
-from tanren_core.config import Config
 from tanren_core.env.reporter import format_report
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
-from tanren_core.heartbeat import HeartbeatWriter
 from tanren_core.metrics import compute_plan_hash, count_unchecked_tasks
 from tanren_core.schemas import Dispatch, Outcome, Phase, Result, parse_issue_from_workflow_id
 from tanren_core.signals import extract_signal, map_outcome
+
+if TYPE_CHECKING:
+    from tanren_core.adapters.protocols import (
+        EnvValidator,
+        PostflightRunner,
+        PreflightRunner,
+        ProcessSpawner,
+    )
+    from tanren_core.adapters.remote_types import VMHandle
+    from tanren_core.config import Config
+    from tanren_core.heartbeat import HeartbeatWriter
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +150,7 @@ class LocalExecutionEnvironment:
         spec_folder_path = handle.worktree_path / dispatch.spec_folder
         if handle.runtime.kind != "local":
             raise RuntimeError("LocalExecutionEnvironment requires local runtime handle")
-        local_runtime = cast(LocalEnvironmentRuntime, handle.runtime)
+        local_runtime = cast("LocalEnvironmentRuntime", handle.runtime)
 
         # Start heartbeat
         await self._heartbeat.start(dispatch_stem)

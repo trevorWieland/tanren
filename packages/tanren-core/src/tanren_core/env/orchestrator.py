@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.env.loader import (
     discover_env_vars_from_dotenv_example,
@@ -12,6 +12,9 @@ from tanren_core.env.loader import (
 from tanren_core.env.schema import EnvBlock, OnMissing
 from tanren_core.env.secret_provider_factory import create_secret_provider
 from tanren_core.env.validator import EnvReport, validate_env
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

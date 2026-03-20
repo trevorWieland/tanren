@@ -15,16 +15,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncpg
 
+    from tanren_core.adapters.protocols import EventEmitter, VMStateStore
+    from tanren_core.config import Config
+
 from tanren_core.adapters.credentials import providers_for_clis
 from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
-from tanren_core.adapters.protocols import EventEmitter, VMStateStore
 from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
-from tanren_core.config import Config
 from tanren_core.remote_config import ProvisionerType, load_remote_config
 from tanren_core.roles_config import load_roles_config
 from tanren_core.secrets import SecretConfig, SecretLoader

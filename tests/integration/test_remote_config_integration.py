@@ -1,6 +1,6 @@
 """Integration tests for remote_config loading from real YAML files."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -11,6 +11,9 @@ from tanren_core.remote_config import (
     ProvisionerType,
     load_remote_config,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Helpers

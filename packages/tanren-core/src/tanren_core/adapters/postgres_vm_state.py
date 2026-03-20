@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-
-import asyncpg
+from typing import TYPE_CHECKING
 
 from tanren_core.adapters.remote_types import VMAssignment
+
+if TYPE_CHECKING:
+    import asyncpg
 
 logger = logging.getLogger(__name__)
 

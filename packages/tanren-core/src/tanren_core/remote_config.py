@@ -118,10 +118,9 @@ def _coerce_repos(raw: object) -> list[RemoteRepoBinding]:
         List of RemoteRepoBinding instances.
     """
     if isinstance(raw, list):
-        bindings: list[RemoteRepoBinding] = []
-        for item in raw:
-            if isinstance(item, Mapping):
-                bindings.append(RemoteRepoBinding.model_validate(item))
+        bindings: list[RemoteRepoBinding] = [
+            RemoteRepoBinding.model_validate(item) for item in raw if isinstance(item, Mapping)
+        ]
         return bindings
     if isinstance(raw, Mapping):
         bindings = []
@@ -148,12 +147,12 @@ def _coerce_provisioner(raw: object) -> dict[str, JsonValue]:
     settings_raw = raw_mapping.get("settings", {})
     settings: dict[str, JsonValue]
     if isinstance(settings_raw, Mapping):
-        settings = {str(k): cast(JsonValue, v) for k, v in settings_raw.items()}
+        settings = {str(k): cast("JsonValue", v) for k, v in settings_raw.items()}
     else:
         settings = {}
     return {
-        "type": cast(JsonValue, raw_mapping.get("type")),
-        "settings": cast(JsonValue, settings),
+        "type": cast("JsonValue", raw_mapping.get("type")),
+        "settings": cast("JsonValue", settings),
     }
 
 

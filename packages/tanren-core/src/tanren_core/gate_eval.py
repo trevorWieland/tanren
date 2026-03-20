@@ -2,11 +2,14 @@
 
 import json
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.schemas import GateExpectation, GateResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class GateTestResult(BaseModel):

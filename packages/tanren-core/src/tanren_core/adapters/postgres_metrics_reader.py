@@ -6,8 +6,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-
-import asyncpg
+from typing import TYPE_CHECKING
 
 from tanren_core.adapters.metrics_reader import (
     CostBucket,
@@ -15,6 +14,9 @@ from tanren_core.adapters.metrics_reader import (
     SummaryMetrics,
     VMMetrics,
 )
+
+if TYPE_CHECKING:
+    import asyncpg
 
 logger = logging.getLogger(__name__)
 

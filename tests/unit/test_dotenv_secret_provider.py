@@ -1,10 +1,13 @@
 """Tests for DotenvSecretProvider."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tanren_core.adapters.dotenv_secret_provider import DotenvSecretProvider
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.mark.asyncio

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class EnvironmentProfileType(StrEnum):

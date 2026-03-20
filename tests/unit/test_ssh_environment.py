@@ -128,7 +128,7 @@ def _make_agent_result(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def env_kit(tmp_path: Path):
     """Build an SSHExecutionEnvironment with all sub-adapters mocked."""
     vm_provisioner = AsyncMock()

@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.env.loader import resolve_env_var
-from tanren_core.env.schema import EnvBlock
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import SecretProvider
+    from tanren_core.env.schema import EnvBlock
 
 
 class VarStatus(StrEnum):

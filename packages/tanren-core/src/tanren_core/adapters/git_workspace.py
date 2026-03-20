@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING, ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
-from tanren_core.env.environment_schema import McpServerConfig
 from tanren_core.remote_config import GitAuthMethod
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import RemoteConnection
+    from tanren_core.env.environment_schema import McpServerConfig
 
 logger = logging.getLogger(__name__)
 

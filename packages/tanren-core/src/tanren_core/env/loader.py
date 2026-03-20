@@ -13,13 +13,16 @@ Does NOT mutate os.environ — returns a dict.
 import logging
 import os
 import stat
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from dotenv import dotenv_values
 
 from tanren_core.env.schema import RequiredEnvVar, TanrenConfig
 from tanren_core.env.secrets import DEFAULT_SECRETS_DIR
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

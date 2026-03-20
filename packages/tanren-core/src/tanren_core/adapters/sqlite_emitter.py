@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiosqlite
 
-from tanren_core.adapters.events import Event
+if TYPE_CHECKING:
+    from tanren_core.adapters.events import Event
 
 logger = logging.getLogger(__name__)
 

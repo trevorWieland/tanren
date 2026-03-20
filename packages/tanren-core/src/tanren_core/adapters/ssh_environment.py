@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import yaml
 from dotenv import dotenv_values
@@ -21,18 +21,6 @@ from tanren_core.adapters.credentials import (
     inject_all_cli_credentials,
 )
 from tanren_core.adapters.events import BootstrapCompleted, VMProvisioned, VMReleased
-from tanren_core.adapters.protocols import (
-    EnvironmentBootstrapper,
-    EventEmitter,
-    VMStateStore,
-)
-from tanren_core.adapters.protocols import (
-    VMProvisioner as VMProvisionerProtocol,
-)
-from tanren_core.adapters.protocols import (
-    WorkspaceManager as WorkspaceManagerProtocol,
-)
-from tanren_core.adapters.remote_runner import RemoteAgentRunner
 from tanren_core.adapters.remote_types import (
     VMHandle,
     VMProvider,
@@ -48,13 +36,27 @@ from tanren_core.adapters.types import (
     RemoteEnvironmentRuntime,
 )
 from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
 from tanren_core.process import assemble_prompt
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase, Result
-from tanren_core.secrets import SecretLoader
 from tanren_core.signals import map_outcome, parse_signal_token
+
+if TYPE_CHECKING:
+    from tanren_core.adapters.protocols import (
+        EnvironmentBootstrapper,
+        EventEmitter,
+        VMStateStore,
+    )
+    from tanren_core.adapters.protocols import (
+        VMProvisioner as VMProvisionerProtocol,
+    )
+    from tanren_core.adapters.protocols import (
+        WorkspaceManager as WorkspaceManagerProtocol,
+    )
+    from tanren_core.adapters.remote_runner import RemoteAgentRunner
+    from tanren_core.config import Config
+    from tanren_core.secrets import SecretLoader
 
 logger = logging.getLogger(__name__)
 
@@ -326,8 +328,8 @@ class SSHExecutionEnvironment:
         """
         if handle.runtime.kind != "remote":
             raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-        conn = cast(SSHConnection, remote_runtime.connection)
+        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
+        conn = cast("SSHConnection", remote_runtime.connection)
         workspace = remote_runtime.workspace_path
 
         start = time.monotonic()
@@ -469,7 +471,7 @@ class SSHExecutionEnvironment:
         """
         if handle.runtime.kind != "remote":
             raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
         vm_handle = remote_runtime.vm_handle
         ssh_str = f"ssh {self._ssh_defaults.user}@{vm_handle.host}"
         vscode_str = (
@@ -496,8 +498,8 @@ class SSHExecutionEnvironment:
         """
         if handle.runtime.kind != "remote":
             raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
-        conn = cast(SSHConnection, remote_runtime.connection)
+        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
+        conn = cast("SSHConnection", remote_runtime.connection)
         workspace = remote_runtime.workspace_path
         teardown_cmds = remote_runtime.teardown_commands
         vm_handle = remote_runtime.vm_handle

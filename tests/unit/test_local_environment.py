@@ -1,6 +1,6 @@
 """Tests for LocalExecutionEnvironment."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,6 +19,9 @@ from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_config(tmp_path: Path) -> Config:

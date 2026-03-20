@@ -15,7 +15,7 @@ from tanren_core.adapters.linear_issue import LinearIssueSettings, LinearIssueSo
 pytestmark = pytest.mark.linear
 
 
-@pytest.fixture()
+@pytest.fixture
 def source():
     """Create a LinearIssueSource using real Linear credentials."""
     if not os.environ.get("LINEAR_API_KEY"):

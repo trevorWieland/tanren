@@ -1,6 +1,6 @@
 """Verify each adapter class satisfies its protocol via isinstance checks."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.adapters import (
     DotenvEnvProvisioner,
@@ -23,6 +23,9 @@ from tanren_core.adapters.protocols import (
     SecretProvider,
     WorktreeManager,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestProtocolConformance:

@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Annotated, Literal, cast
 if TYPE_CHECKING:
     import asyncpg
 
+    from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
+
 import typer
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -25,7 +27,6 @@ from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.remote_types import VMHandle, WorkspacePath
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
-from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
 from tanren_core.env.environment_schema import (
@@ -360,11 +361,11 @@ def run_provision(
                 environment_profile=environment_profile,
             )
             handle = await env.provision(dispatch, config)
-            runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+            runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
             vm = runtime.vm_handle
 
             # Close the SSH connection from provision (not needed after handle save)
-            conn = cast(SSHConnection, runtime.connection)
+            conn = cast("SSHConnection", runtime.connection)
             await conn.close()
 
             persisted = PersistedRunHandle(
@@ -454,8 +455,8 @@ def run_execute(
                 tool=tool,
             )
             env_handle = _reconstruct_handle(persisted)
-            runtime = cast(RemoteEnvironmentRuntime, env_handle.runtime)
-            conn = cast(SSHConnection, runtime.connection)
+            runtime = cast("RemoteEnvironmentRuntime", env_handle.runtime)
+            conn = cast("SSHConnection", runtime.connection)
 
             try:
                 result = await env.execute(env_handle, dispatch, config)
@@ -559,11 +560,11 @@ def run_full(
                 environment_profile=environment_profile,
             )
             handle = await env.provision(provision_dispatch, config)
-            runtime = cast(RemoteEnvironmentRuntime, handle.runtime)
+            runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
             vm = runtime.vm_handle
 
             # Close the SSH connection from provision (not needed after handle save)
-            conn = cast(SSHConnection, runtime.connection)
+            conn = cast("SSHConnection", runtime.connection)
             await conn.close()
 
             persisted = PersistedRunHandle(
@@ -611,8 +612,8 @@ def run_full(
                     tool=tool,
                 )
                 exec_handle = _reconstruct_handle(persisted)
-                exec_runtime = cast(RemoteEnvironmentRuntime, exec_handle.runtime)
-                exec_conn = cast(SSHConnection, exec_runtime.connection)
+                exec_runtime = cast("RemoteEnvironmentRuntime", exec_handle.runtime)
+                exec_conn = cast("SSHConnection", exec_runtime.connection)
                 try:
                     result = await env.execute(exec_handle, dispatch, config)
                 finally:

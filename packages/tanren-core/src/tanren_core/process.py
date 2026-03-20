@@ -38,11 +38,14 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tanren_core.config import Config
 from tanren_core.schemas import Cli, Dispatch
+
+if TYPE_CHECKING:
+    from tanren_core.config import Config
 
 logger = logging.getLogger(__name__)
 

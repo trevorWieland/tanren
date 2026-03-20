@@ -18,8 +18,20 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import asyncpg
+    from pydantic import JsonValue
 
-from pydantic import JsonValue
+    from tanren_core.adapters.protocols import (
+        EnvProvisioner,
+        EnvValidator,
+        EventEmitter,
+        ExecutionEnvironment,
+        PostflightRunner,
+        PreflightRunner,
+        ProcessSpawner,
+        WorktreeManager,
+    )
+    from tanren_core.adapters.protocols import VMProvisioner as VMProvisionerProtocol
+
 
 from tanren_core.adapters import (
     DispatchReceived,
@@ -40,17 +52,6 @@ from tanren_core.adapters import (
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings, ManualVMProvisioner
 from tanren_core.adapters.postgres_pool import is_postgres_url
-from tanren_core.adapters.protocols import (
-    EnvProvisioner,
-    EnvValidator,
-    EventEmitter,
-    ExecutionEnvironment,
-    PostflightRunner,
-    PreflightRunner,
-    ProcessSpawner,
-    WorktreeManager,
-)
-from tanren_core.adapters.protocols import VMProvisioner as VMProvisionerProtocol
 from tanren_core.adapters.remote_types import VMHandle, VMProvider
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.types import (
@@ -844,7 +845,7 @@ class WorkerManager:
         """
         if handle.runtime.kind != "local":
             return []
-        local_runtime = cast(LocalEnvironmentRuntime, handle.runtime)
+        local_runtime = cast("LocalEnvironmentRuntime", handle.runtime)
         if local_runtime.preflight_result is None:
             return []
         return local_runtime.preflight_result.repairs

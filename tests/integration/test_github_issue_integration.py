@@ -15,7 +15,7 @@ from tanren_core.adapters.github_issue import GitHubIssueSettings, GitHubIssueSo
 pytestmark = pytest.mark.github
 
 
-@pytest.fixture()
+@pytest.fixture
 def source():
     """Create a GitHubIssueSource using real GitHub credentials."""
     if not os.environ.get("GITHUB_TOKEN"):

@@ -1,7 +1,7 @@
 """Integration tests for full env validation flow."""
 
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,6 +12,9 @@ from tanren_core.env.loader import (
     load_env_layers,
     resolve_env_var,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestFullFlow:

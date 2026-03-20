@@ -1,9 +1,12 @@
 """Tests for env secrets module."""
 
 import stat
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.env.secrets import ensure_secrets_dir, list_secrets, redact, set_secret
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestRedact:

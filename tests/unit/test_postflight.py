@@ -1,12 +1,15 @@
 """Tests for postflight module."""
 
 import hashlib
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tanren_core.postflight import PostflightResult, run_postflight
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_proc_mock(stdout=b"", stderr=b"", returncode=0):

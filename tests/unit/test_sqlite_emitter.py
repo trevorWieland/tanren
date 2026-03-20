@@ -1,13 +1,16 @@
 """Tests for SqliteEventEmitter."""
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiosqlite
 import pytest
 
 from tanren_core.adapters.events import DispatchReceived, Event, PhaseCompleted, TokenUsageRecorded
 from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestSqliteEventEmitter:

@@ -4,7 +4,7 @@ import asyncio
 import json
 import subprocess
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -23,6 +23,9 @@ from tanren_core.ipc import (
 )
 from tanren_core.preflight import SNAPSHOT_FILES, run_preflight
 from tanren_core.schemas import ProgressState
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # env/validator.py

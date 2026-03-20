@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncpg
 
+    from tanren_core.adapters.protocols import VMStateStore
+
 import typer
 import yaml
 from dotenv import dotenv_values
 
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings
 from tanren_core.adapters.postgres_pool import is_postgres_url
-from tanren_core.adapters.protocols import VMStateStore
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper

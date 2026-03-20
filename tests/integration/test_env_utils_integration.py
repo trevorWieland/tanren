@@ -2,10 +2,8 @@
 
 import json
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
-
-import pytest
 
 from tanren_core.env.reporter import (
     _format_var,  # noqa: PLC2701
@@ -21,6 +19,11 @@ from tanren_core.env.secrets import (
     set_secret,
 )
 from tanren_core.env.validator import EnvReport, VarResult, VarStatus
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 # ---------------------------------------------------------------------------
 # secrets.py tests

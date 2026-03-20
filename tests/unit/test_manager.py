@@ -1,7 +1,7 @@
 """Tests for manager module."""
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +18,9 @@ from tanren_core.manager import (
     build_tail_output,
 )
 from tanren_core.schemas import Outcome
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestWorkerManagerInit:

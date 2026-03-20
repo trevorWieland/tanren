@@ -36,7 +36,7 @@ def _load_token() -> str | None:
 _TOKEN = _load_token()
 
 
-@pytest.fixture()
+@pytest.fixture
 def provisioner():
     """Create a HetznerVMProvisioner using developer secrets and real config values."""
     assert _TOKEN, "HETZNER_API_TOKEN not found in secrets.env (run with -m hetzner)"
@@ -55,7 +55,7 @@ def provisioner():
     return HetznerVMProvisioner(settings)
 
 
-@pytest.fixture()
+@pytest.fixture
 def requirements():
     return VMRequirements(profile="test", cpu=2, memory_gb=4, gpu=False)
 

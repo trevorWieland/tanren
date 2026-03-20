@@ -15,7 +15,7 @@ _PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 _TEST_SECRET_NAME = os.environ.get("GCP_TEST_SECRET_NAME", "tanren-test-secret")
 
 
-@pytest.fixture()
+@pytest.fixture
 def provider():
     """Create a live GCP Secret Manager provider."""
     from tanren_core.adapters.gcp_secret_manager import GCPSecretManagerProvider  # noqa: PLC0415

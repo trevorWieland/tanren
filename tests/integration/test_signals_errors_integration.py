@@ -1,7 +1,7 @@
 """Integration tests for signal extraction, findings parsing, and error classification."""
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.errors import ErrorClass, classify_error
 from tanren_core.schemas import Finding, FindingsOutput, InvestigationReport, Outcome, Phase
@@ -13,6 +13,9 @@ from tanren_core.signals import (
     parse_demo_findings,
     parse_investigation_report,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # extract_signal

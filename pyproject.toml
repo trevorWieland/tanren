@@ -47,6 +47,15 @@ select = [
     "ANN",    # flake8-annotations
     "FURB",   # refurb
     "PLC",    # pylint convention
+    "S",      # flake8-bandit (security)
+    "PT",     # flake8-pytest-style
+    "TCH",    # flake8-type-checking
+    "TRY",    # tryceratops (exception style)
+    "PERF",   # perflint (performance)
+    "ARG",    # flake8-unused-arguments
+]
+extend-ignore = [
+    "TRY003",  # long exception messages — would require custom classes for every error
 ]
 
 [tool.ruff.lint.isort]
@@ -56,7 +65,7 @@ known-first-party = ["tanren_core", "tanren_cli", "tanren_api", "tanren_daemon"]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "ANN", "DOC"]
+"tests/**" = ["D", "ANN", "DOC", "S101", "S108", "S105", "S106", "ARG"]
 
 # ===== TY =====
 [tool.ty.rules]

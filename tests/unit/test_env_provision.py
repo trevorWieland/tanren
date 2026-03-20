@@ -1,10 +1,13 @@
 """Tests for env provision module."""
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from tanren_core.env.provision import provision_worktree_env
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_tanren_yml(path: Path, content: str) -> None:

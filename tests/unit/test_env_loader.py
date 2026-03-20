@@ -2,7 +2,7 @@
 
 import logging
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -13,6 +13,9 @@ from tanren_core.env.loader import (
     parse_tanren_yml,
     resolve_env_var,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestParseTanrenYml:

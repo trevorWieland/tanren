@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dotenv import dotenv_values
 
 from tanren_core.env.secrets import DEFAULT_SECRETS_DIR
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class DotenvSecretProvider:
@@ -36,17 +39,13 @@ class DotenvSecretProvider:
         secrets_path = self._secrets_dir / "secrets.env"
         if secrets_path.exists():
             values = dotenv_values(secrets_path)
-            for k, v in values.items():
-                if v is not None:
-                    merged[k] = v
+            merged.update({k: v for k, v in values.items() if v is not None})
 
         secrets_d = self._secrets_dir / "secrets.d"
         if secrets_d.is_dir():
             for env_file in sorted(secrets_d.glob("*.env")):
                 values = dotenv_values(env_file)
-                for k, v in values.items():
-                    if v is not None:
-                        merged[k] = v
+                merged.update({k: v for k, v in values.items() if v is not None})
 
         self._cache = merged
         return merged

@@ -89,6 +89,6 @@ class TanrenConfig(BaseModel):
     def _coerce_installed(cls, value: object) -> object:
         # YAML can parse bare dates (e.g., 2026-01-01) as datetime.date.
         if isinstance(value, dict) and "installed" in value:
-            value_dict = cast(dict[str, object], value)
+            value_dict = cast("dict[str, object]", value)
             return {**value_dict, "installed": str(value_dict.get("installed"))}
         return value

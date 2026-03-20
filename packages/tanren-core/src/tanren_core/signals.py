@@ -2,7 +2,7 @@
 
 import json
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tanren_core.schemas import (
     Finding,
@@ -11,6 +11,9 @@ from tanren_core.schemas import (
     Outcome,
     Phase,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def parse_signal_token(command_name: str, content: str) -> str | None:
