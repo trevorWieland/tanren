@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
-from typing import Any
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any, cast
 
 import uvicorn
 from fastapi import Depends, FastAPI
@@ -161,26 +161,20 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
     # Build middleware stack before creating app (order matters: outermost first)
     middleware_stack: list[Middleware] = [
-        Middleware(RequestIDMiddleware),  # type: ignore[arg-type]
-        Middleware(RequestLoggingMiddleware),  # type: ignore[arg-type]
+        Middleware(RequestIDMiddleware),
+        Middleware(RequestLoggingMiddleware),
     ]
-    if settings.cors_origins:
-        middleware_stack.append(
-            Middleware(
-                CORSMiddleware,  # type: ignore[arg-type]
-                allow_origins=settings.cors_origins,
-                allow_credentials=True,
-                allow_methods=["*"],
-                allow_headers=["*"],
-            )
-        )
 
     # Create MCP sub-application and combine lifespans
     mcp_app = mcp.http_app(path="/")
 
-    from fastmcp.utilities.lifespan import combine_lifespans  # noqa: PLC0415
+    from fastmcp.utilities.lifespan import combine_lifespans  # noqa: PLC0415 — avoid circular import
 
-    combined_lifespan = combine_lifespans(lifespan, mcp_app.lifespan)  # type: ignore[arg-type]
+    # cast needed: @asynccontextmanager return type doesn't satisfy Lifespan generic
+    combined_lifespan = cast(
+        "Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, Any] | None]]",
+        combine_lifespans(lifespan, mcp_app.lifespan),
+    )
 
     app = FastAPI(
         title="tanren",
@@ -189,6 +183,16 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         lifespan=combined_lifespan,
         middleware=middleware_stack,
     )
+
+    # CORS — added after app creation to avoid Starlette Middleware type mismatch
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # Mount MCP sub-application
     app.mount("/mcp", mcp_app)
