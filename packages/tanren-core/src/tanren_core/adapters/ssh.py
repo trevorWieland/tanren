@@ -73,7 +73,7 @@ class SSHConnection:
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
         elif self._config.host_key_policy == "warn":
             client.load_system_host_keys()
-            client.set_missing_host_key_policy(paramiko.WarningPolicy())  # noqa: S507 — intentional AutoAddPolicy for ephemeral VMs
+            client.set_missing_host_key_policy(paramiko.WarningPolicy())  # noqa: S507 — WarningPolicy logs but accepts unknown keys for ephemeral VMs
         else:
             # auto_add: skip system host keys — ephemeral VMs reuse IPs
             # and stale entries cause BadHostKeyException

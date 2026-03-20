@@ -743,7 +743,7 @@ class WorkerManager:
                             cli=dispatch.cli.value,
                             **{
                                 k: v
-                                for k, v in token_usage_data.model_dump().items()
+                                for k, v in token_usage_data.items()
                                 if k not in ("provider", "project")
                             },
                         )
