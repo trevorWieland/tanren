@@ -9,6 +9,7 @@ hetzner = ["tanren-core[hetzner]"]
 gcp = ["tanren-core[gcp]"]
 github = ["tanren-core[github]"]
 linear = ["tanren-core[linear]"]
+all = ["tanren-core[all]"]
 
 [tool.uv]
 managed = true

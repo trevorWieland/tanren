@@ -14,6 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 hetzner = ["tanren-core[hetzner]"]
 gcp = ["tanren-core[gcp]"]
+all = ["tanren-core[all]"]
 
 [project.scripts]
 tanren-api = "tanren_api.main:main"

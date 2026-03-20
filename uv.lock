@@ -1491,6 +1491,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "tanren-core", extra = ["all"] },
+]
 gcp = [
     { name = "tanren-core", extra = ["gcp"] },
 ]
@@ -1504,11 +1507,12 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=2.14.5" },
     { name = "pydantic-settings", specifier = ">=2.0,<3" },
     { name = "tanren-core", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["all"], marker = "extra == 'all'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["gcp"], marker = "extra == 'gcp'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["hetzner"], marker = "extra == 'hetzner'", editable = "packages/tanren-core" },
     { name = "uvicorn", specifier = ">=0.40.0,<1" },
 ]
-provides-extras = ["hetzner", "gcp"]
+provides-extras = ["hetzner", "gcp", "all"]
 
 [[package]]
 name = "tanren-cli"
@@ -1539,6 +1543,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "google-cloud-compute" },
+    { name = "google-cloud-secret-manager" },
+    { name = "hcloud" },
+    { name = "httpx" },
+]
 gcp = [
     { name = "google-cloud-compute" },
     { name = "google-cloud-secret-manager" },
@@ -1557,9 +1567,13 @@ linear = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20,<1" },
     { name = "asyncpg", specifier = ">=0.30,<1" },
+    { name = "google-cloud-compute", marker = "extra == 'all'", specifier = ">=1.20.0,<2" },
     { name = "google-cloud-compute", marker = "extra == 'gcp'", specifier = ">=1.20.0,<2" },
+    { name = "google-cloud-secret-manager", marker = "extra == 'all'", specifier = ">=2.20.0,<3" },
     { name = "google-cloud-secret-manager", marker = "extra == 'gcp'", specifier = ">=2.20.0,<3" },
+    { name = "hcloud", marker = "extra == 'all'", specifier = ">=2.4.0,<3" },
     { name = "hcloud", marker = "extra == 'hetzner'", specifier = ">=2.4.0,<3" },
+    { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27,<1" },
     { name = "httpx", marker = "extra == 'github'", specifier = ">=0.27,<1" },
     { name = "httpx", marker = "extra == 'linear'", specifier = ">=0.27,<1" },
     { name = "paramiko", specifier = ">=3.0,<4" },
@@ -1567,7 +1581,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0,<2" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["gcp", "github", "hetzner", "linear"]
+provides-extras = ["gcp", "github", "hetzner", "linear", "all"]
 
 [[package]]
 name = "tanren-daemon"
@@ -1586,6 +1600,9 @@ version = "0.2.0"
 source = { virtual = "." }
 
 [package.optional-dependencies]
+all = [
+    { name = "tanren-core", extra = ["all"] },
+]
 gcp = [
     { name = "tanren-core", extra = ["gcp"] },
 ]
@@ -1617,12 +1634,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "tanren-core", extras = ["all"], marker = "extra == 'all'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["gcp"], marker = "extra == 'gcp'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["github"], marker = "extra == 'github'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["hetzner"], marker = "extra == 'hetzner'", editable = "packages/tanren-core" },
     { name = "tanren-core", extras = ["linear"], marker = "extra == 'linear'", editable = "packages/tanren-core" },
 ]
-provides-extras = ["hetzner", "gcp", "github", "linear"]
+provides-extras = ["hetzner", "gcp", "github", "linear", "all"]
 
 [package.metadata.requires-dev]
 dev = [

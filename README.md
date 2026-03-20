@@ -95,27 +95,17 @@ See `docs/ADAPTERS.md` for protocol details.
 
 ## Docker
 
-The `tanren-api` image is published to GHCR with cloud-provider variants for
-remote VM provisioning.
+The `tanren-api` image is published to GHCR as a single all-inclusive image.
+Adapter selection (Hetzner, GCP, GitHub, Linear) is a runtime config decision —
+all optional deps are included by default (~20-30 MB overhead).
 
-| Image Tag | Extras Included |
-|-----------|----------------|
-| `tanren-api:latest` | None (local/manual provisioning only) |
-| `tanren-api:hetzner` | `hcloud` (Hetzner Cloud) |
-| `tanren-api:gcp` | `google-cloud-compute` (GCP Compute Engine) |
+On merge to master the release workflow auto-bumps the patch version and
+publishes with tags: `latest`, `{version}`, `sha-{short}`.
 
 ```bash
-# Build with Makefile targets
-make docker-base      # tanren-api:latest
-make docker-hetzner   # tanren-api:hetzner
-make docker-gcp       # tanren-api:gcp
-```
-
-For a custom combination of extras, build the image directly:
-
-```bash
-docker build -f services/tanren-api/Dockerfile \
-  --build-arg EXTRAS="hetzner gcp" -t tanren-api:custom .
+# Build locally
+make docker           # tanren-api:latest (all adapters)
+make docker-slim      # tanren-api:slim   (no optional adapters)
 ```
 
 ## Documentation
