@@ -40,9 +40,9 @@ function MemberList({ members }: MemberListProps): ReactNode {
 ```
 
 **Rules:**
-- Custom hooks must start with `use` prefix — enforced by oxlint `react-hooks/rules-of-hooks`
-- Never call hooks conditionally or inside loops
-- `useEffect` must have an explicit dependency array — enforced by oxlint `react-hooks/exhaustive-deps`
+- Custom hooks must start with `use` prefix — required so that hook lint rules (oxlint `react/rules-of-hooks`) can reliably detect them
+- Never call hooks conditionally or inside loops — enforced by oxlint `react/rules-of-hooks`
+- `useEffect` must have an explicit dependency array — enforced by oxlint `react/exhaustive-deps`
 - Prefer computed/derived values over `useState` + `useEffect` sync patterns
 - If a value can be computed from props or other state, compute it inline — don't store it in state
 

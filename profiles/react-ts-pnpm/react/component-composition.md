@@ -4,6 +4,7 @@ Use headless primitives for behavior, CVA for variants, and Tailwind for styling
 
 ```tsx
 // ✓ Good: CVA variants with Radix Slot for polymorphism
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@myorg/utils";
@@ -32,7 +33,7 @@ const buttonVariants = cva(
 );
 
 interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+  extends ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
 }

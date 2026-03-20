@@ -27,7 +27,7 @@ function parseApiResponse(data: any): User {
 ```
 
 **Rules:**
-- `any` is banned in all application code — enforced by oxlint rule `@typescript-eslint/no-explicit-any`
+- `any` is banned in all application code — enforced by oxlint rule `typescript/no-explicit-any`
 - Use `unknown` when the type is genuinely not known at compile time
 - Always narrow `unknown` with type guards, Zod schemas, or assertion functions before use
 - Use generics to propagate types instead of falling back to `any`

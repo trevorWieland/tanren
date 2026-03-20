@@ -5,7 +5,7 @@ All exported functions and methods must have explicit return type annotations. N
 ```typescript
 // ✓ Good: Explicit return types on exports
 export function parseConfig(raw: string): AppConfig {
-  return JSON.parse(raw) as AppConfig;
+  return AppConfigSchema.parse(JSON.parse(raw));
 }
 
 export function useAuth(): AuthContext {
@@ -20,7 +20,7 @@ export function UserProfile({ user }: UserProfileProps): ReactNode {
 
 // ✗ Bad: Inferred return types on exports
 export function parseConfig(raw: string) {
-  return JSON.parse(raw) as AppConfig;
+  return AppConfigSchema.parse(JSON.parse(raw));
 }
 
 export function useAuth() {
@@ -31,7 +31,7 @@ export function useAuth() {
 ```
 
 **Rules:**
-- All `export` functions must have explicit return types — enforced by oxlint rule `@typescript-eslint/explicit-module-boundary-types`
+- All `export` functions must have explicit return types — enforced by oxlint rule `typescript/explicit-module-boundary-types`
 - Internal (non-exported) functions may rely on inference
 - React components must return `ReactNode` explicitly
 - Custom hooks must declare their return type explicitly

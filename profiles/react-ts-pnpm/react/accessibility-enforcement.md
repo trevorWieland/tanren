@@ -56,8 +56,7 @@ function SearchBar({ onSearch }: SearchBarProps): ReactNode {
 
 ```typescript
 // ✓ Good: axe-core check in Storybook play function
-import { expect } from "@storybook/test";
-import { within } from "@storybook/test";
+import { expect, userEvent, within } from "@storybook/test";
 
 export const Default: Story = {
   play: async ({ canvasElement }) => {
