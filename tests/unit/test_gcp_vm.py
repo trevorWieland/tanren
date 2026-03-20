@@ -19,6 +19,8 @@ class _FakeInstance:
         name="test-vm",
         statuses=None,
         ip="203.0.113.10",
+        internal_ip="10.128.0.2",
+        has_access_config=True,
         labels=None,
     ):
         self.name = name
@@ -27,8 +29,8 @@ class _FakeInstance:
         self._statuses = statuses or ["RUNNING"]
         self._idx = 0
         self.status = self._statuses[0]
-        ac = SimpleNamespace(nat_i_p=ip)
-        ni = SimpleNamespace(access_configs=[ac])
+        access_configs = [SimpleNamespace(nat_i_p=ip)] if has_access_config else []
+        ni = SimpleNamespace(access_configs=access_configs, network_i_p=internal_ip)
         self.network_interfaces = [ni]
 
 
@@ -57,6 +59,9 @@ def _settings(**overrides):
         zone=overrides.get("zone", "us-central1-a"),
         default_machine_type=overrides.get("default_machine_type", "e2-standard-4"),
         image_family=overrides.get("image_family", "ubuntu-2404-lts-amd64"),
+        enable_external_ip=overrides.get("enable_external_ip", True),
+        boot_disk_size_gb=overrides.get("boot_disk_size_gb", 50),
+        boot_disk_type=overrides.get("boot_disk_type", "pd-balanced"),
         readiness_timeout_secs=overrides.get("readiness_timeout_secs", 300),
         poll_interval_secs=overrides.get("poll_interval_secs", 5),
     )
@@ -225,6 +230,9 @@ def test_settings_from_remote_yml():
         "ssh_user": "agent",
         "name_prefix": "test",
         "labels": {"env": "ci"},
+        "enable_external_ip": False,
+        "boot_disk_size_gb": 100,
+        "boot_disk_type": "pd-ssd",
     }
     settings = GCPProvisionerSettings.from_settings(raw)
     assert settings.project_id == "my-project"
@@ -232,6 +240,92 @@ def test_settings_from_remote_yml():
     assert settings.ssh_user == "agent"
     assert settings.labels == {"env": "ci"}
     assert settings.image_project == "ubuntu-os-cloud"
+    assert settings.enable_external_ip is False
+    assert settings.boot_disk_size_gb == 100
+    assert settings.boot_disk_type == "pd-ssd"
+
+
+def test_default_settings_match_expected_values():
+    settings = _settings()
+    assert settings.enable_external_ip is True
+    assert settings.boot_disk_size_gb == 50
+    assert settings.boot_disk_type == "pd-balanced"
+
+
+@pytest.mark.asyncio
+async def test_acquire_private_vpc_uses_internal_ip(monkeypatch):
+    monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
+    fake = _FakeInstance(has_access_config=False, internal_ip="10.128.0.5")
+    insert_op = Mock()
+    insert_op.result = Mock(return_value=None)
+    client = Mock()
+    client.insert = Mock(return_value=insert_op)
+    client.get = Mock(return_value=fake)
+
+    provisioner = _make_provisioner(monkeypatch, client, enable_external_ip=False)
+    handle = await provisioner.acquire(VMRequirements(profile="default"))
+
+    assert handle.host == "10.128.0.5"
+    # Verify no AccessConfig was attached
+    resource = client.insert.call_args.kwargs["instance_resource"]
+    assert resource.network_interfaces[0].access_configs == []
+
+
+@pytest.mark.asyncio
+async def test_acquire_external_ip_attaches_access_config(monkeypatch):
+    monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
+    fake = _FakeInstance(ip="34.120.0.1")
+    insert_op = Mock()
+    insert_op.result = Mock(return_value=None)
+    client = Mock()
+    client.insert = Mock(return_value=insert_op)
+    client.get = Mock(return_value=fake)
+
+    provisioner = _make_provisioner(monkeypatch, client, enable_external_ip=True)
+    handle = await provisioner.acquire(VMRequirements(profile="default"))
+
+    assert handle.host == "34.120.0.1"
+    resource = client.insert.call_args.kwargs["instance_resource"]
+    ac_list = resource.network_interfaces[0].access_configs
+    assert len(ac_list) == 1
+    assert ac_list[0].name == "External NAT"
+
+
+@pytest.mark.asyncio
+async def test_acquire_falls_back_to_internal_ip(monkeypatch):
+    monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
+    # External IP enabled but not yet assigned (empty string)
+    fake = _FakeInstance(ip="", internal_ip="10.128.0.9")
+    insert_op = Mock()
+    insert_op.result = Mock(return_value=None)
+    client = Mock()
+    client.insert = Mock(return_value=insert_op)
+    client.get = Mock(return_value=fake)
+
+    provisioner = _make_provisioner(monkeypatch, client, enable_external_ip=True)
+    handle = await provisioner.acquire(VMRequirements(profile="default"))
+
+    assert handle.host == "10.128.0.9"
+
+
+def test_boot_disk_size_and_type_in_instance_resource(monkeypatch):
+    monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
+    client = Mock()
+    provisioner = _make_provisioner(
+        monkeypatch, client, boot_disk_size_gb=200, boot_disk_type="pd-ssd"
+    )
+
+    resource = provisioner._build_instance_resource(
+        name="test-vm",
+        machine_type="e2-standard-4",
+        labels={},
+        ssh_user="tanren",
+        ssh_pub_key="ssh-ed25519 AAAA testkey",
+    )
+
+    boot_disk = resource.disks[0]
+    assert boot_disk.initialize_params.disk_size_gb == 200
+    assert "pd-ssd" in boot_disk.initialize_params.disk_type
 
 
 def _make_handle(vm_id):

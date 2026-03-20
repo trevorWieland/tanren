@@ -62,6 +62,22 @@ class GCPProvisionerSettings(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     managed_by_label_key: str = Field(default="managed-by")
     managed_by_label_value: str = Field(default="tanren")
+    enable_external_ip: bool = Field(
+        default=True,
+        description=(
+            "Attach a public IP via AccessConfig."
+            " Set to False for private VPC / Cloud NAT deployments."
+        ),
+    )
+    boot_disk_size_gb: int = Field(
+        default=50,
+        ge=10,
+        description="Boot disk size in GB.",
+    )
+    boot_disk_type: str = Field(
+        default="pd-balanced",
+        description="Boot disk type short name (e.g. pd-balanced, pd-ssd, pd-standard).",
+    )
     readiness_timeout_secs: int = Field(default=300, ge=10)
     poll_interval_secs: int = Field(default=5, ge=1)
 
@@ -142,7 +158,10 @@ class GCPVMProvisioner:
                     instance=instance_name,
                 )
                 if str(instance.status) == "RUNNING":
-                    host = self._extract_external_ip(instance)
+                    host = self._extract_ip(
+                        instance,
+                        prefer_external=self._settings.enable_external_ip,
+                    )
                     if host:
                         return VMHandle(
                             vm_id=instance_name,
@@ -208,7 +227,9 @@ class GCPVMProvisioner:
 
         handles: list[VMHandle] = []
         for instance in instances:
-            host = self._extract_external_ip(instance) or ""
+            host = (
+                self._extract_ip(instance, prefer_external=self._settings.enable_external_ip) or ""
+            )
             created_at = str(
                 getattr(instance, "creation_timestamp", None) or datetime.now(UTC).isoformat()
             )
@@ -247,17 +268,23 @@ class GCPVMProvisioner:
             boot=True,
             initialize_params=compute.AttachedDiskInitializeParams(
                 source_image=f"projects/{self._settings.image_project}/global/images/family/{self._settings.image_family}",
+                disk_size_gb=self._settings.boot_disk_size_gb,
+                disk_type=f"zones/{zone}/diskTypes/{self._settings.boot_disk_type}",
             ),
         )
 
-        access_config = compute.AccessConfig(
-            name="External NAT",
-            type="ONE_TO_ONE_NAT",
-        )
+        access_configs = []
+        if self._settings.enable_external_ip:
+            access_configs.append(
+                compute.AccessConfig(
+                    name="External NAT",
+                    type="ONE_TO_ONE_NAT",
+                )
+            )
 
         network_interface = compute.NetworkInterface(
             network=f"projects/{self._settings.project_id}/global/networks/{self._settings.network}",
-            access_configs=[access_config],
+            access_configs=access_configs,
         )
         if self._settings.subnet:
             network_interface.subnetwork = (
@@ -294,22 +321,29 @@ class GCPVMProvisioner:
         )
 
     @staticmethod
-    def _extract_external_ip(instance: object) -> str | None:
-        """Extract the external IP from an instance's first network interface.
+    def _extract_ip(instance: object, *, prefer_external: bool = True) -> str | None:
+        """Extract an IP from an instance's first network interface.
+
+        When *prefer_external* is True the external (NAT) IP is tried first.
+        The internal IP is always used as a fallback.
 
         Returns:
-            The external IP string, or None if not found.
+            The IP string, or None if not found.
         """
         interfaces = getattr(instance, "network_interfaces", None)
         if not interfaces:
             return None
         first = interfaces[0]
-        access_configs = getattr(first, "access_configs", None)
-        if not access_configs:
-            return None
-        ip = getattr(access_configs[0], "nat_i_p", None)
-        if isinstance(ip, str) and ip:
-            return ip
+        if prefer_external:
+            access_configs = getattr(first, "access_configs", None)
+            if access_configs:
+                ip = getattr(access_configs[0], "nat_i_p", None)
+                if isinstance(ip, str) and ip:
+                    return ip
+        # Internal IP fallback
+        internal = getattr(first, "network_i_p", None)
+        if isinstance(internal, str) and internal:
+            return internal
         return None
 
     @staticmethod
