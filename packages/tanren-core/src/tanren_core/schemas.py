@@ -1,10 +1,13 @@
 """Pydantic models matching PROTOCOL.md Sections 2-4."""
 
+from __future__ import annotations
+
 import re
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.postflight import IntegrityRepairs
 
 
@@ -212,6 +215,14 @@ class Dispatch(BaseModel):
     environment_profile: str = Field(
         default="default",
         description="Environment profile from tanren.yml",
+    )
+    resolved_profile: EnvironmentProfile | None = Field(
+        default=None,
+        description="Fully resolved environment profile (required for queue-based dispatch)",
+    )
+    preserve_on_failure: bool = Field(
+        default=False,
+        description="If True, skip teardown on step failure for debugging",
     )
 
 

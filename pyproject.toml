@@ -72,6 +72,9 @@ convention = "google"
 "packages/tanren-core/src/tanren_core/schemas.py" = ["TCH"]
 "packages/tanren-core/src/tanren_core/adapters/events.py" = ["TCH"]
 "packages/tanren-core/src/tanren_core/adapters/types.py" = ["TCH"]
+# Store subpackage: Pydantic models, re-exports, event types need runtime imports;
+# store methods return typed objects (DOC201); SQL built from safe clauses (S608)
+"packages/tanren-core/src/tanren_core/store/**" = ["TCH", "DOC201", "S608"]
 # FastAPI evaluates type annotations at runtime for DI, validation, and OpenAPI.
 # S101 asserts guard service-not-None in MCP tools (fast-fail, not security).
 "services/tanren-api/**" = ["TCH", "S101"]
