@@ -585,7 +585,7 @@ def run_full(
                 (s for s in steps if s.step_type == StepType.EXECUTE and s.result_json),
                 None,
             )
-            if exec_step:
+            if exec_step and exec_step.result_json:
                 exec_result = ExecuteResult.model_validate_json(exec_step.result_json)
                 typer.echo(f"outcome: {exec_result.outcome.value}")
                 typer.echo(f"signal: {exec_result.signal}")
@@ -604,7 +604,7 @@ def run_full(
                 (s for s in steps if s.step_type == StepType.PROVISION and s.result_json),
                 None,
             )
-            if prov_step:
+            if prov_step and prov_step.result_json:
                 prov_result = ProvisionResult.model_validate_json(prov_step.result_json)
                 if prov_result.handle.vm:
                     typer.echo(f"provisioned_vm_id: {prov_result.handle.vm.vm_id}")

@@ -142,8 +142,7 @@ class MetricsService:
                 + int(str(payload.get("cache_read_tokens", 0))),
                 cache_creation_tokens=b.cache_creation_tokens
                 + int(str(payload.get("cache_creation_tokens", 0))),
-                reasoning_tokens=b.reasoning_tokens
-                + int(str(payload.get("reasoning_tokens", 0))),
+                reasoning_tokens=b.reasoning_tokens + int(str(payload.get("reasoning_tokens", 0))),
                 event_count=b.event_count + 1,
             )
 

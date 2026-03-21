@@ -66,7 +66,6 @@ def _make_env(tmp_path: Path):
     preflight = AsyncMock()
     postflight = AsyncMock()
     spawner = AsyncMock()
-    heartbeat = AsyncMock()
     config = _make_config(tmp_path)
 
     env = LocalExecutionEnvironment(
@@ -74,11 +73,10 @@ def _make_env(tmp_path: Path):
         preflight=preflight,
         postflight=postflight,
         spawner=spawner,
-        heartbeat=heartbeat,
         config=config,
     )
 
-    return env, env_validator, preflight, postflight, spawner, heartbeat, config
+    return env, env_validator, preflight, postflight, spawner, config
 
 
 class TestProvision:
@@ -198,7 +196,7 @@ class TestExecute:
         mock_plan_hash,
         tmp_path: Path,
     ):
-        env, _, _, postflight, spawner, heartbeat, config = _make_env(tmp_path)
+        env, _, _, postflight, spawner, config = _make_env(tmp_path)
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         handle = self._make_handle(tmp_path)
 
@@ -225,8 +223,6 @@ class TestExecute:
         assert result.plan_hash == "abcd1234"
         assert result.retries == 0
 
-        heartbeat.start.assert_awaited_once_with("test-stem")
-        heartbeat.stop.assert_awaited_once_with("test-stem")
         spawner.spawn.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -245,7 +241,7 @@ class TestExecute:
         mock_plan_hash,
         tmp_path: Path,
     ):
-        env, _, _, postflight, spawner, _heartbeat, config = _make_env(tmp_path)
+        env, _, _, postflight, spawner, config = _make_env(tmp_path)
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         handle = self._make_handle(tmp_path)
 
@@ -292,7 +288,7 @@ class TestExecute:
         mock_plan_hash,
         tmp_path: Path,
     ):
-        env, _, _, postflight, spawner, _heartbeat, config = _make_env(tmp_path)
+        env, _, _, postflight, spawner, config = _make_env(tmp_path)
         dispatch = _make_dispatch(phase=Phase.GATE, cli=Cli.BASH)
         handle = self._make_handle(tmp_path)
 

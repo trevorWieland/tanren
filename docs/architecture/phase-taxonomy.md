@@ -106,4 +106,4 @@ handles steps 3-4. Steps 1-2 are caller responsibilities.
 ## Related Docs
 
 - [Spec Lifecycle](../workflow/spec-lifecycle.md) — orchestration loop
-- [PROTOCOL.md](../../protocol/PROTOCOL.md) — Phase enum and dispatch schema
+- [Protocol README](../../protocol/README.md) — Protocol overview

@@ -49,7 +49,6 @@ class LocalExecutionEnvironment:
         preflight: PreflightRunner,
         postflight: PostflightRunner,
         spawner: ProcessSpawner,
-        heartbeat: object | None = None,
         config: Config,
     ) -> None:
         """Initialize with local subprocess adapters for each lifecycle phase."""
@@ -57,7 +56,6 @@ class LocalExecutionEnvironment:
         self._preflight = preflight
         self._postflight = postflight
         self._spawner = spawner
-        self._heartbeat = heartbeat
         self._config = config
 
     async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
@@ -136,7 +134,7 @@ class LocalExecutionEnvironment:
         dispatch: Dispatch,
         config: Config,
         *,
-        dispatch_stem: str = "",
+        dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:
         """Heartbeat start -> retry loop -> plan metrics -> postflight -> heartbeat stop.
 
@@ -150,12 +148,6 @@ class LocalExecutionEnvironment:
         if handle.runtime.kind != "local":
             raise RuntimeError("LocalExecutionEnvironment requires local runtime handle")
         local_runtime = cast("LocalEnvironmentRuntime", handle.runtime)
-
-        # Start heartbeat (if writer is available)
-        _hb = self._heartbeat
-        if _hb is not None and hasattr(_hb, "start"):
-            start_fn = getattr(_hb, "start")
-            await start_fn(dispatch_stem)
 
         start = time.monotonic()
         transient_retries = 0
@@ -260,11 +252,7 @@ class LocalExecutionEnvironment:
             )
 
         finally:
-            # Stop heartbeat (if writer is available)
-            _hb = self._heartbeat
-            if _hb is not None and hasattr(_hb, "stop"):
-                stop_fn = getattr(_hb, "stop")
-                await stop_fn(dispatch_stem)
+            pass
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
         """Return local worktree path. No SSH/VSCode for local."""

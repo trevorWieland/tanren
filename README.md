@@ -189,7 +189,7 @@ tanren/
 - [docs/interfaces.md](docs/interfaces.md) - CLI/library/IPC interaction surfaces
 - [docs/design-principles.md](docs/design-principles.md) - architectural principles
 - [docs/roadmap.md](docs/roadmap.md) - date-stamped roadmap
-- [protocol/README.md](protocol/README.md) + [protocol/PROTOCOL.md](protocol/PROTOCOL.md) - protocol overview and full spec
+- [protocol/README.md](protocol/README.md) - protocol overview
 - [docs/worker-manager-README.md](docs/worker-manager-README.md) - runtime behavior and operations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) - adapter architecture and extension points
 
