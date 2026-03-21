@@ -206,6 +206,12 @@ class WorkerManager:
         self._execution_env_injected = execution_env is not None
         if execution_env is not None:
             self._execution_env = execution_env
+            # When execution_env is injected but remote config exists,
+            # build the state store so resume can verify VM assignments.
+            if self._config.remote_config_path:
+                self._remote_state_store = SqliteVMStateStore(
+                    f"{self._config.data_dir}/vm-state.db"
+                )
         elif self._config.remote_config_path:
             self._execution_env = self._build_remote_env()
         else:
@@ -255,9 +261,13 @@ class WorkerManager:
         # because checkpoints may reference VMs that are still active.
         await self._recover_checkpoints()
 
+        # Collect VM IDs still owned by retained checkpoints (failed resumes)
+        # so _recover_vm_state skips them.
+        retained_vm_ids = await self._get_checkpoint_vm_ids()
+
         # Startup recovery: release any remaining stale VM assignments
         # not covered by checkpoints.
-        await self._recover_vm_state()
+        await self._recover_vm_state(skip_vm_ids=retained_vm_ids)
 
         self._started_at = datetime.now(UTC).isoformat()
 
@@ -380,8 +390,11 @@ class WorkerManager:
                 await self._remote_state_store.close()
             self._execution_env = self._build_remote_env(pool=pool)
 
-    async def _recover_vm_state(self) -> None:
+    async def _recover_vm_state(self, *, skip_vm_ids: frozenset[str] = frozenset()) -> None:
         """Startup recovery: release stale assignments via provider cleanup.
+
+        Args:
+            skip_vm_ids: VM IDs to skip (owned by retained checkpoints).
 
         Raises:
             ValueError: If the provisioner type in remote.yml is unsupported.
@@ -452,6 +465,13 @@ class WorkerManager:
                 return
 
             for a in assignments:
+                if a.vm_id in skip_vm_ids:
+                    logger.info(
+                        "Skipping VM %s (%s) — owned by retained checkpoint",
+                        a.vm_id,
+                        a.host,
+                    )
+                    continue
                 stale_handle = VMHandle(
                     vm_id=a.vm_id,
                     host=a.host,
@@ -683,6 +703,7 @@ class WorkerManager:
 
         # 2. Execute + 3. Post-process
         dispatch_start_utc = datetime.now(UTC)
+        failed = False
         try:
             phase_result = await self._execute_phase(handle, dispatch, dispatch_stem)
 
@@ -698,6 +719,7 @@ class WorkerManager:
             )
 
         except Exception as e:
+            failed = True
             duration = int(time.monotonic() - start)
             result = Result(
                 workflow_id=dispatch.workflow_id,
@@ -712,20 +734,21 @@ class WorkerManager:
                 plan_hash="00000000",
                 spec_modified=False,
             )
-            # Record error in checkpoint
+            # Record error in checkpoint — keep checkpoint for resume
             checkpoint.last_error = str(e)
             checkpoint.failure_count += 1
             checkpoint.updated_at = datetime.now(UTC).isoformat()
             await write_checkpoint(self._checkpoints_dir, checkpoint)
 
-        finally:
+        # Teardown only on success — preserve VM for resume on failure
+        if not failed:
             await self._execution_env.teardown(handle)
 
         # 4. Write result
         await self._write_result_and_nudge(result, dispatch.workflow_id)
 
         # Only delete checkpoint on success so failures can be resumed
-        if result.outcome != Outcome.ERROR:
+        if not failed:
             await delete_checkpoint(self._checkpoints_dir, dispatch.workflow_id)
 
     async def _provision_phase(self, dispatch: Dispatch) -> EnvironmentHandle:
@@ -1087,13 +1110,17 @@ class WorkerManager:
                 ),
             )
 
-        # Local environment — simple reconstruction
+        # Local environment — re-run env validation to rebuild task_env
+        env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
         return EnvironmentHandle(
             env_id=f"resume-{checkpoint.workflow_id}",
             worktree_path=worktree_path,
             branch=dispatch.branch,
             project=dispatch.project,
-            runtime=LocalEnvironmentRuntime(),
+            runtime=LocalEnvironmentRuntime(
+                task_env=task_env,
+                env_report=env_report,
+            ),
         )
 
     async def _recover_checkpoints(self) -> None:
@@ -1116,6 +1143,15 @@ class WorkerManager:
                     cp.workflow_id,
                     exc_info=True,
                 )
+
+    async def _get_checkpoint_vm_ids(self) -> frozenset[str]:
+        """Collect VM IDs referenced by active checkpoints.
+
+        Returns:
+            Set of VM IDs that should not be released by stale VM cleanup.
+        """
+        checkpoints = await list_checkpoints(self._checkpoints_dir)
+        return frozenset(cp.vm_id for cp in checkpoints if cp.vm_id is not None)
 
     def _parse_findings(
         self, dispatch: Dispatch, spec_folder_path: Path
