@@ -149,6 +149,20 @@ async def init_progress_from_plan(plan_md_path: Path, spec_id: str) -> ProgressS
     return await asyncio.to_thread(_parse)
 
 
+def _safe_checkpoint_path(checkpoints_dir: Path, workflow_id: str) -> Path:
+    """Build a checkpoint file path, rejecting path separators in workflow_id.
+
+    Returns:
+        Safe path within checkpoints_dir.
+
+    Raises:
+        ValueError: If workflow_id contains path separators.
+    """
+    if "/" in workflow_id or "\\" in workflow_id:
+        raise ValueError(f"Invalid workflow_id (contains path separator): {workflow_id}")
+    return checkpoints_dir / f"{workflow_id}.json"
+
+
 async def write_checkpoint(checkpoints_dir: Path, checkpoint: Checkpoint) -> Path:
     """Write a checkpoint file atomically, overwriting any existing for this workflow.
 
@@ -157,7 +171,7 @@ async def write_checkpoint(checkpoints_dir: Path, checkpoint: Checkpoint) -> Pat
     Returns:
         Path to the written checkpoint file.
     """
-    path = checkpoints_dir / f"{checkpoint.workflow_id}.json"
+    path = _safe_checkpoint_path(checkpoints_dir, checkpoint.workflow_id)
     await atomic_write(path, checkpoint.model_dump_json(indent=2))
     return path
 
@@ -168,7 +182,7 @@ async def read_checkpoint(checkpoints_dir: Path, workflow_id: str) -> Checkpoint
     Returns:
         Checkpoint if found, None otherwise.
     """
-    path = checkpoints_dir / f"{workflow_id}.json"
+    path = _safe_checkpoint_path(checkpoints_dir, workflow_id)
     if not path.exists():
         return None
 
@@ -180,7 +194,7 @@ async def read_checkpoint(checkpoints_dir: Path, workflow_id: str) -> Checkpoint
 
 async def delete_checkpoint(checkpoints_dir: Path, workflow_id: str) -> None:
     """Delete a checkpoint after successful result write."""
-    path = checkpoints_dir / f"{workflow_id}.json"
+    path = _safe_checkpoint_path(checkpoints_dir, workflow_id)
     await delete_file(path)
 
 

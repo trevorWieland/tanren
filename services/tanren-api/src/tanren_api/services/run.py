@@ -471,7 +471,7 @@ class RunService:
         )
 
     async def resume(self, workflow_id: str) -> ResumeAccepted:
-        """Resume a checkpointed dispatch (non-blocking background task).
+        """Resume a checkpointed dispatch in a background task.
 
         Returns:
             ResumeAccepted with the workflow_id.
@@ -480,10 +480,24 @@ class RunService:
             NotFoundError: If no checkpoint exists for the workflow.
         """
         config = self._require_config()
+        execution_env = self._require_execution_env()
         checkpoints_dir = Path(config.checkpoints_dir)
         checkpoint = await read_checkpoint(checkpoints_dir, workflow_id)
         if checkpoint is None:
             raise NotFoundError(f"No checkpoint found for workflow: {workflow_id}")
+
+        async def _resume_background() -> None:
+            from tanren_core.manager import (  # noqa: PLC0415 — heavy import
+                WorkerManager,
+            )
+
+            manager = WorkerManager(config=config, execution_env=execution_env)
+            try:
+                await manager.resume_dispatch(workflow_id)
+            except Exception:
+                logger.exception("Background resume failed for %s", workflow_id)
+
+        _task = asyncio.create_task(_resume_background())  # noqa: RUF006 — fire-and-forget background task
 
         return ResumeAccepted(workflow_id=workflow_id)
 

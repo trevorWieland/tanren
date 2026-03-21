@@ -251,11 +251,13 @@ class WorkerManager:
         # Startup recovery: clean stale heartbeats
         await self._heartbeat.cleanup_stale()
 
-        # Startup recovery: check active VM assignments
-        await self._recover_vm_state()
-
-        # Startup recovery: resume stale checkpoints
+        # Startup recovery: resume checkpoints BEFORE releasing stale VMs,
+        # because checkpoints may reference VMs that are still active.
         await self._recover_checkpoints()
+
+        # Startup recovery: release any remaining stale VM assignments
+        # not covered by checkpoints.
+        await self._recover_vm_state()
 
         self._started_at = datetime.now(UTC).isoformat()
 
@@ -721,7 +723,10 @@ class WorkerManager:
 
         # 4. Write result
         await self._write_result_and_nudge(result, dispatch.workflow_id)
-        await delete_checkpoint(self._checkpoints_dir, dispatch.workflow_id)
+
+        # Only delete checkpoint on success so failures can be resumed
+        if result.outcome != Outcome.ERROR:
+            await delete_checkpoint(self._checkpoints_dir, dispatch.workflow_id)
 
     async def _provision_phase(self, dispatch: Dispatch) -> EnvironmentHandle:
         """Phase 1: Provision execution environment.
@@ -996,14 +1001,16 @@ class WorkerManager:
             checkpoint.failure_count += 1
             checkpoint.updated_at = datetime.now(UTC).isoformat()
             await write_checkpoint(self._checkpoints_dir, checkpoint)
+            # Do NOT teardown on failure — keep VM alive for next resume attempt
             raise
 
-        finally:
-            if handle is not None:
-                await self._execution_env.teardown(handle)
+        # Teardown only on success — VM stays alive if resume fails
+        if handle is not None:
+            await self._execution_env.teardown(handle)
 
-        # Clean up checkpoint on success
-        await delete_checkpoint(self._checkpoints_dir, workflow_id)
+        # Clean up checkpoint only when a result was produced and written
+        if result is not None:
+            await delete_checkpoint(self._checkpoints_dir, workflow_id)
         return result
 
     async def _reconstruct_handle_for_resume(

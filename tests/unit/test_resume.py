@@ -257,9 +257,10 @@ class TestResumeDispatch:
         assert updated.last_error == "VM gone"
         assert updated.failure_count == 1
 
-    async def test_resume_teardown_always_called(
+    async def test_resume_skips_teardown_on_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
+        """On failure, VM is preserved for retry — teardown is NOT called."""
         manager = _make_manager(tmp_path)
         cp = _make_checkpoint(CheckpointStage.PROVISIONED)
         await write_checkpoint(manager._checkpoints_dir, cp)
@@ -272,6 +273,31 @@ class TestResumeDispatch:
 
         with pytest.raises(RuntimeError, match="boom"):
             await manager.resume_dispatch("wf-test-1-1000")
+
+        teardown_mock: AsyncMock = manager._execution_env.teardown  # type: ignore[assignment]
+        teardown_mock.assert_not_awaited()
+
+    async def test_resume_teardown_called_on_success(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """On success, teardown is called to release the VM."""
+        manager = _make_manager(tmp_path)
+        cp = _make_checkpoint(CheckpointStage.PROVISIONED)
+        await write_checkpoint(manager._checkpoints_dir, cp)
+
+        handle = _make_handle()
+        phase_result = _make_phase_result()
+        result = _make_result()
+
+        monkeypatch.setattr(manager, "_provision_phase", AsyncMock())
+        monkeypatch.setattr(manager, "_execute_phase", AsyncMock(return_value=phase_result))
+        monkeypatch.setattr(manager, "_post_process_phase", AsyncMock(return_value=result))
+        monkeypatch.setattr(
+            manager, "_reconstruct_handle_for_resume", AsyncMock(return_value=handle)
+        )
+        monkeypatch.setattr(manager, "_write_result_and_nudge", AsyncMock())
+
+        await manager.resume_dispatch("wf-test-1-1000")
 
         teardown_mock: AsyncMock = manager._execution_env.teardown  # type: ignore[assignment]
         teardown_mock.assert_awaited_once_with(handle)
