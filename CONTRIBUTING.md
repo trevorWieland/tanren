@@ -22,6 +22,21 @@ make ci
 If your changes touch SSH or local environment flows, also run the relevant
 integration target (`make integration-ssh` or `make integration-local`).
 
+## Tooling
+
+| Tool | Purpose | Config |
+|------|---------|--------|
+| [ruff](https://docs.astral.sh/ruff/) | Formatting and linting | `pyproject.toml [tool.ruff]` |
+| [ty](https://docs.astral.sh/ty/) | Type checking | `pyproject.toml [tool.ty]` |
+| [pytest](https://docs.pytest.org/) | Testing | `pyproject.toml [tool.pytest.ini_options]` |
+| [uv](https://docs.astral.sh/uv/) | Package and environment management | `pyproject.toml [tool.uv]` |
+| make | Task runner | `Makefile` |
+
+Test markers: `ssh`, `local_env`, `api`, `hetzner`, `gcp`, `postgres`,
+`github`, `linear`. Run a specific marker with `uv run pytest -m <marker>`.
+
+Coverage thresholds: 80% for unit tests, 75% for integration tests.
+
 ## Repository Areas
 
 - `packages/tanren-core/`: core library

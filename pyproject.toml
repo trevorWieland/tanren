@@ -3,6 +3,7 @@ name = "tanren-workspace"
 version = "0.2.4"
 description = "Development lifecycle framework"
 requires-python = ">=3.14"
+license = "Apache-2.0"
 
 [project.optional-dependencies]
 hetzner = ["tanren-core[hetzner]"]
