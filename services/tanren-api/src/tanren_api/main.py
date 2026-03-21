@@ -147,6 +147,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
                 store=app.state.api_store,
                 config=app.state.config,
                 execution_env=app.state.execution_env,
+                vm_state_store=app.state.vm_state_store,
             ),
             config=config_svc,
             events=EventsService(settings, app.state.config, event_reader=app.state.event_reader),

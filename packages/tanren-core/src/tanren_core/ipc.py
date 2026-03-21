@@ -10,7 +10,7 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from tanren_core.schemas import Dispatch, Nudge, ProgressState, Result, TaskState
+from tanren_core.schemas import Checkpoint, Dispatch, Nudge, ProgressState, Result, TaskState
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -147,3 +147,75 @@ async def init_progress_from_plan(plan_md_path: Path, spec_id: str) -> ProgressS
         return ProgressState(spec_id=spec_id, created_at=now, updated_at=now, tasks=tasks)
 
     return await asyncio.to_thread(_parse)
+
+
+def _safe_checkpoint_path(checkpoints_dir: Path, workflow_id: str) -> Path:
+    """Build a checkpoint file path, rejecting path separators in workflow_id.
+
+    Returns:
+        Safe path within checkpoints_dir.
+
+    Raises:
+        ValueError: If workflow_id contains path separators.
+    """
+    if "/" in workflow_id or "\\" in workflow_id:
+        raise ValueError(f"Invalid workflow_id (contains path separator): {workflow_id}")
+    return checkpoints_dir / f"{workflow_id}.json"
+
+
+async def write_checkpoint(checkpoints_dir: Path, checkpoint: Checkpoint) -> Path:
+    """Write a checkpoint file atomically, overwriting any existing for this workflow.
+
+    File naming: {workflow_id}.json (one active checkpoint per workflow).
+
+    Returns:
+        Path to the written checkpoint file.
+    """
+    path = _safe_checkpoint_path(checkpoints_dir, checkpoint.workflow_id)
+    await atomic_write(path, checkpoint.model_dump_json(indent=2))
+    return path
+
+
+async def read_checkpoint(checkpoints_dir: Path, workflow_id: str) -> Checkpoint | None:
+    """Read a checkpoint for a workflow, returning None if not found.
+
+    Returns:
+        Checkpoint if found, None otherwise.
+    """
+    path = _safe_checkpoint_path(checkpoints_dir, workflow_id)
+    if not path.exists():
+        return None
+
+    def _read() -> Checkpoint:
+        return Checkpoint.model_validate_json(path.read_text())
+
+    return await asyncio.to_thread(_read)
+
+
+async def delete_checkpoint(checkpoints_dir: Path, workflow_id: str) -> None:
+    """Delete a checkpoint after successful result write."""
+    path = _safe_checkpoint_path(checkpoints_dir, workflow_id)
+    await delete_file(path)
+
+
+async def list_checkpoints(checkpoints_dir: Path) -> list[Checkpoint]:
+    """List all active checkpoints for resume discovery.
+
+    Returns:
+        List of Checkpoint instances, sorted by filename.
+    """
+
+    def _list() -> list[Checkpoint]:
+        if not checkpoints_dir.exists():
+            return []
+        results: list[Checkpoint] = []
+        for entry in sorted(checkpoints_dir.iterdir()):
+            if entry.suffix != ".json":
+                continue
+            try:
+                results.append(Checkpoint.model_validate_json(entry.read_text()))
+            except Exception:  # noqa: S112 — skip corrupt checkpoints
+                continue
+        return results
+
+    return await asyncio.to_thread(_list)

@@ -7,13 +7,17 @@ import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from tanren_api.errors import ConflictError, NotFoundError, ServiceError
 from tanren_api.models import (
+    CheckpointDetail,
+    CheckpointSummary,
     DispatchAccepted,
     DispatchRunStatus,
     ExecuteRequest,
     ProvisionRequest,
+    ResumeAccepted,
     RunEnvironment,
     RunEnvironmentStatus,
     RunExecuteAccepted,
@@ -22,14 +26,19 @@ from tanren_api.models import (
     RunTeardownAccepted,
 )
 from tanren_api.state import APIStateStore, DispatchRecord, EnvironmentRecord
-from tanren_core.adapters.protocols import ExecutionEnvironment
+from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
+from tanren_core.ipc import list_checkpoints as list_checkpoints_ipc
+from tanren_core.ipc import read_checkpoint
 from tanren_core.roles import RoleName
 from tanren_core.roles_config import load_roles_config
 from tanren_core.schemas import Dispatch, Outcome, Phase
 
 logger = logging.getLogger(__name__)
+
+# Strong references to fire-and-forget resume tasks to prevent GC.
+_resume_tasks: set[asyncio.Task[None]] = set()
 
 _EXECUTE_FROM = frozenset({RunEnvironmentStatus.PROVISIONED, RunEnvironmentStatus.COMPLETED})
 _TEARDOWN_FROM = frozenset({
@@ -58,11 +67,13 @@ class RunService:
         store: APIStateStore,
         config: Config | None = None,
         execution_env: ExecutionEnvironment | None = None,
+        vm_state_store: VMStateStore | None = None,
     ) -> None:
         """Initialize with dependencies."""
         self._store = store
         self._config = config
         self._execution_env = execution_env
+        self._vm_state_store = vm_state_store
 
     def _require_config(self) -> Config:
         """Return config or raise if unavailable.
@@ -462,4 +473,103 @@ class RunService:
             duration_secs=duration_secs,
             vm_id=record.vm_id or None,
             host=record.host or None,
+        )
+
+    async def resume(self, workflow_id: str) -> ResumeAccepted:
+        """Resume a checkpointed dispatch in a background task.
+
+        Works for both local and remote checkpoints. Local deployments
+        (no remote execution env) construct a local WorkerManager from config.
+
+        Returns:
+            ResumeAccepted with the workflow_id.
+
+        Raises:
+            NotFoundError: If no checkpoint exists for the workflow.
+        """
+        config = self._require_config()
+        checkpoints_dir = Path(config.checkpoints_dir)
+        checkpoint = await read_checkpoint(checkpoints_dir, workflow_id)
+        if checkpoint is None:
+            raise NotFoundError(f"No checkpoint found for workflow: {workflow_id}")
+
+        # Capture references for the background closure
+        execution_env = self._execution_env  # may be None for local deployments
+        vm_state_store = self._vm_state_store
+
+        async def _resume_background() -> None:
+            from tanren_core.manager import (  # noqa: PLC0415 — heavy import
+                WorkerManager,
+            )
+
+            manager = WorkerManager(
+                config=config,
+                execution_env=execution_env,
+                vm_state_store=vm_state_store,
+            )
+            try:
+                await manager.resume_dispatch(workflow_id)
+            except Exception:
+                logger.exception("Background resume failed for %s", workflow_id)
+
+        task = asyncio.create_task(_resume_background())
+        # Keep a strong reference so asyncio doesn't GC the task before completion.
+        _resume_tasks.add(task)
+        task.add_done_callback(_resume_tasks.discard)
+
+        return ResumeAccepted(workflow_id=workflow_id)
+
+    async def get_checkpoints(self) -> list[CheckpointSummary]:
+        """List all active checkpoints.
+
+        Returns:
+            List of CheckpointSummary instances.
+        """
+        config = self._require_config()
+        checkpoints_dir = Path(config.checkpoints_dir)
+        checkpoints = await list_checkpoints_ipc(checkpoints_dir)
+        return [
+            CheckpointSummary(
+                workflow_id=cp.workflow_id,
+                stage=cp.stage.value,
+                retry_count=cp.retry_count,
+                vm_id=cp.vm_id,
+                last_error=cp.last_error,
+                failure_count=cp.failure_count,
+                created_at=cp.created_at,
+                updated_at=cp.updated_at,
+            )
+            for cp in checkpoints
+        ]
+
+    async def get_checkpoint(self, workflow_id: str) -> CheckpointDetail:
+        """Get checkpoint details for a workflow.
+
+        Returns:
+            CheckpointDetail for the workflow.
+
+        Raises:
+            NotFoundError: If no checkpoint exists for the workflow.
+        """
+        config = self._require_config()
+        checkpoints_dir = Path(config.checkpoints_dir)
+        cp = await read_checkpoint(checkpoints_dir, workflow_id)
+        if cp is None:
+            raise NotFoundError(f"No checkpoint found for workflow: {workflow_id}")
+        return CheckpointDetail(
+            workflow_id=cp.workflow_id,
+            stage=cp.stage.value,
+            dispatch_json=cp.dispatch_json,
+            worktree_path=cp.worktree_path,
+            dispatch_stem=cp.dispatch_stem,
+            vm_id=cp.vm_id,
+            environment_profile=cp.environment_profile,
+            workspace_remote_path=cp.workspace_remote_path,
+            phase_result_json=cp.phase_result_json,
+            dispatch_start_utc=cp.dispatch_start_utc,
+            retry_count=cp.retry_count,
+            last_error=cp.last_error,
+            failure_count=cp.failure_count,
+            created_at=cp.created_at,
+            updated_at=cp.updated_at,
         )
