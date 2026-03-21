@@ -216,9 +216,9 @@ class Dispatch(BaseModel):
         default="default",
         description="Environment profile from tanren.yml",
     )
-    resolved_profile: EnvironmentProfile | None = Field(
-        default=None,
-        description="Fully resolved environment profile (required for queue-based dispatch)",
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
+        description="Fully resolved environment profile",
     )
     preserve_on_failure: bool = Field(
         default=False,

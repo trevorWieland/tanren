@@ -140,7 +140,6 @@ def env_kit(tmp_path: Path):
     runner = AsyncMock()
     state_store = AsyncMock()
     secret_loader = MagicMock()
-    emitter = AsyncMock()
 
     vm_provisioner.acquire.return_value = _make_vm_handle()
     vm_provisioner.release.return_value = None
@@ -169,7 +168,6 @@ def env_kit(tmp_path: Path):
         runner=runner,
         state_store=state_store,
         secret_loader=secret_loader,
-        emitter=emitter,
         ssh_config_defaults=ssh_defaults,
         repo_urls={"myproj": "git@github.com:org/myproj.git"},
         provider=VMProvider.HETZNER,
@@ -183,7 +181,6 @@ def env_kit(tmp_path: Path):
         "runner": runner,
         "state_store": state_store,
         "secret_loader": secret_loader,
-        "emitter": emitter,
         "config": _make_config(tmp_path),
         "tmp_path": tmp_path,
     }
@@ -927,6 +924,7 @@ class TestBuildCliCommand:
             context=dispatch.context,
             timeout=dispatch.timeout,
             environment_profile=dispatch.environment_profile,
+            resolved_profile=DEFAULT_PROFILE,
         )
         config = env_kit["config"]
         return env._build_cli_command(dispatch, config)
@@ -1198,7 +1196,6 @@ class TestSSHReadyTimeoutConfigurable:
             runner=AsyncMock(),
             state_store=AsyncMock(),
             secret_loader=MagicMock(),
-            emitter=AsyncMock(),
             ssh_config_defaults=SSHConfig(host="placeholder"),
             repo_urls={},
             ssh_ready_timeout_secs=600,

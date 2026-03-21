@@ -20,7 +20,6 @@ from tanren_core.adapters.credentials import (
     all_credential_cleanup_paths,
     inject_all_cli_credentials,
 )
-from tanren_core.adapters.events import BootstrapCompleted, VMProvisioned, VMReleased
 from tanren_core.adapters.remote_types import (
     VMHandle,
     VMProvider,
@@ -45,7 +44,6 @@ from tanren_core.signals import map_outcome, parse_signal_token
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import (
         EnvironmentBootstrapper,
-        EventEmitter,
         VMStateStore,
     )
     from tanren_core.adapters.protocols import (
@@ -83,7 +81,6 @@ class SSHExecutionEnvironment:
         runner: RemoteAgentRunner,
         state_store: VMStateStore,
         secret_loader: SecretLoader,
-        emitter: EventEmitter,
         ssh_config_defaults: SSHConfig,
         repo_urls: dict[str, str],
         provider: VMProvider = VMProvider.MANUAL,
@@ -98,7 +95,6 @@ class SSHExecutionEnvironment:
         self._runner = runner
         self._state_store = state_store
         self._secret_loader = secret_loader
-        self._emitter = emitter
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
         self._provider = provider
@@ -192,17 +188,6 @@ class SSHExecutionEnvironment:
             # 5. Bootstrap VM (idempotent)
             bootstrap_result = await self._bootstrapper.bootstrap(conn)
 
-            await self._emitter.emit(
-                BootstrapCompleted(
-                    timestamp=_now(),
-                    workflow_id=dispatch.workflow_id,
-                    vm_id=vm_handle.vm_id,
-                    installed=list(bootstrap_result.installed),
-                    skipped=list(bootstrap_result.skipped),
-                    duration_secs=bootstrap_result.duration_secs,
-                )
-            )
-
             # 6. Setup workspace
             repo_url = self._repo_urls.get(dispatch.project, "")
             if not repo_url:
@@ -259,19 +244,6 @@ class SSHExecutionEnvironment:
                 project=dispatch.project,
                 spec=dispatch.spec_folder,
                 host=vm_handle.host,
-            )
-
-            await self._emitter.emit(
-                VMProvisioned(
-                    timestamp=_now(),
-                    workflow_id=dispatch.workflow_id,
-                    vm_id=vm_handle.vm_id,
-                    host=vm_handle.host,
-                    provider=vm_handle.provider,
-                    project=dispatch.project,
-                    profile=dispatch.environment_profile,
-                    hourly_cost=vm_handle.hourly_cost,
-                )
             )
 
             # 10. Return handle
@@ -545,22 +517,6 @@ class SSHExecutionEnvironment:
                             exc_info=True,
                         )
                     await self._state_store.record_release(vm_handle.vm_id)
-
-                    duration = int(time.monotonic() - provision_start)
-                    cost = None
-                    if vm_handle.hourly_cost is not None:
-                        cost = vm_handle.hourly_cost * (duration / 3600)
-
-                    await self._emitter.emit(
-                        VMReleased(
-                            timestamp=_now(),
-                            workflow_id=remote_runtime.workflow_id,
-                            vm_id=vm_handle.vm_id,
-                            project=handle.project,
-                            duration_secs=duration,
-                            estimated_cost=cost,
-                        )
-                    )
 
     async def _await_ssh_ready(
         self,

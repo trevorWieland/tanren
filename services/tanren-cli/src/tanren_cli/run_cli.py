@@ -24,7 +24,6 @@ import typer
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.remote_types import VMHandle, WorkspacePath
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
@@ -112,7 +111,7 @@ async def _build_remote_execution_env(
 
         pool = await create_postgres_pool(config.events_db)
 
-    env, _store = build_ssh_execution_environment(config, NullEventEmitter(), pool=pool)
+    env, _store = build_ssh_execution_environment(config, pool=pool)
     return env, pool
 
 

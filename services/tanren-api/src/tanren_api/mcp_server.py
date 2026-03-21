@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 from fastmcp import FastMCP
 
 from tanren_api.models import (
-    CheckpointSummary,
     ConfigResponse,
     DispatchAccepted,
     DispatchCancelled,
@@ -24,7 +23,6 @@ from tanren_api.models import (
     MetricsVMsResponse,
     PaginatedEvents,
     ReadinessResponse,
-    ResumeAccepted,
     RunEnvironment,
     RunExecuteAccepted,
     RunStatus,
@@ -41,12 +39,10 @@ if TYPE_CHECKING:
     from tanren_api.services import (
         ConfigService,
         DispatchService,
-        DispatchServiceV2,
         EventsService,
         HealthService,
         MetricsService,
         RunService,
-        RunServiceV2,
         VMService,
     )
 
@@ -58,9 +54,9 @@ mcp = FastMCP("tanren")
 # ---------------------------------------------------------------------------
 
 _health_svc: HealthService | None = None
-_dispatch_svc: DispatchService | DispatchServiceV2 | None = None
+_dispatch_svc: DispatchService | None = None
 _vm_svc: VMService | None = None
-_run_svc: RunService | RunServiceV2 | None = None
+_run_svc: RunService | None = None
 _config_svc: ConfigService | None = None
 _events_svc: EventsService | None = None
 _metrics_svc: MetricsService | None = None
@@ -69,9 +65,9 @@ _metrics_svc: MetricsService | None = None
 def set_services(
     *,
     health: HealthService,
-    dispatch: DispatchService | DispatchServiceV2,
+    dispatch: DispatchService,
     vm: VMService,
-    run: RunService | RunServiceV2,
+    run: RunService,
     config: ConfigService | None = None,
     events: EventsService,
     metrics: MetricsService | None = None,
@@ -586,43 +582,3 @@ async def metrics_vms(
     return await _metrics_svc.vms(since=since, until=until, project=project)
 
 
-# ---------------------------------------------------------------------------
-# Checkpoint / resume tools
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool(
-    description=(
-        "Resume a checkpointed dispatch that was interrupted. "
-        "The dispatch picks up from the last completed phase."
-    ),
-)
-async def resume_dispatch(workflow_id: str) -> ResumeAccepted:
-    """Resume a checkpointed dispatch.
-
-    Returns:
-        ResumeAccepted confirmation.
-    """
-    assert _run_svc is not None
-    from tanren_api.services import RunService
-
-    assert isinstance(_run_svc, RunService), (
-        "resume requires V1 RunService (filesystem checkpoints)"
-    )
-    return await _run_svc.resume(workflow_id)
-
-
-@mcp.tool(
-    description="List all active dispatch checkpoints with their stage and retry count.",
-)
-async def list_checkpoints() -> list[CheckpointSummary]:
-    """List active checkpoints.
-
-    Returns:
-        List of CheckpointSummary instances.
-    """
-    assert _run_svc is not None
-    from tanren_api.services import RunService
-
-    assert isinstance(_run_svc, RunService), "list_checkpoints requires V1 RunService"
-    return await _run_svc.get_checkpoints()

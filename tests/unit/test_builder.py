@@ -9,7 +9,6 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from tanren_core.adapters.null_emitter import NullEventEmitter
 from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.builder import build_ssh_execution_environment
@@ -55,9 +54,7 @@ repos:
     repo_url: https://github.com/test/test.git
 """)
         config = _make_config(tmp_path, str(remote_yml))
-        emitter = NullEventEmitter()
-
-        env, state_store = build_ssh_execution_environment(config, emitter)
+        env, state_store = build_ssh_execution_environment(config)
 
         assert isinstance(env, SSHExecutionEnvironment)
         assert state_store is not None
@@ -76,9 +73,7 @@ repos:
     repo_url: https://github.com/test/test.git
 """)
         config = _make_config(tmp_path, str(remote_yml))
-        emitter = NullEventEmitter()
-
-        env, _ = build_ssh_execution_environment(config, emitter)
+        env, _ = build_ssh_execution_environment(config)
 
         assert env._provider == VMProvider.MANUAL
 
@@ -91,17 +86,13 @@ provisioner:
 repos: []
 """)
         config = _make_config(tmp_path, str(remote_yml))
-        emitter = NullEventEmitter()
-
         with pytest.raises((ValueError, ValidationError)):
-            build_ssh_execution_environment(config, emitter)
+            build_ssh_execution_environment(config)
 
     def test_build_no_remote_config_path_raises_value_error(self, tmp_path):
         config = _make_config(tmp_path, remote_config_path=None)
-        emitter = NullEventEmitter()
-
         with pytest.raises(ValueError, match="remote_config_path is required"):
-            build_ssh_execution_environment(config, emitter)
+            build_ssh_execution_environment(config)
 
     def test_build_uses_roles_for_credential_providers(self, tmp_path):
         """Builder uses roles.yml to determine credential providers."""
@@ -137,9 +128,7 @@ repos:
             remote_config_path=str(remote_yml),
             roles_config_path=str(roles_path),
         )
-        emitter = NullEventEmitter()
-
-        env, _ = build_ssh_execution_environment(config, emitter)
+        env, _ = build_ssh_execution_environment(config)
 
         provider_names = sorted(p.name for p in env._credential_providers)
         assert provider_names == ["claude", "codex"]
@@ -159,9 +148,7 @@ repos:
     repo_url: https://github.com/test/test.git
 """)
         config = _make_config(tmp_path, str(remote_yml))
-        emitter = NullEventEmitter()
-
-        env, _ = build_ssh_execution_environment(config, emitter)
+        env, _ = build_ssh_execution_environment(config)
 
         assert env._agent_user == "tanren"
 
@@ -180,7 +167,6 @@ repos:
     repo_url: https://github.com/test/test.git
 """)
         config = _make_config(tmp_path, str(remote_yml))
-        emitter = NullEventEmitter()
 
         fake_mod = SimpleNamespace(
             InstancesClient=Mock(return_value=Mock()),
@@ -189,7 +175,7 @@ repos:
         )
         monkeypatch.setattr("tanren_core.adapters.gcp_vm._import_compute", lambda: fake_mod)
 
-        env, _ = build_ssh_execution_environment(config, emitter)
+        env, _ = build_ssh_execution_environment(config)
 
         assert isinstance(env, SSHExecutionEnvironment)
         assert env._provider == VMProvider.GCP

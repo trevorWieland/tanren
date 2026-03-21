@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncpg
 
-    from tanren_core.adapters.protocols import EventEmitter, VMStateStore
+    from tanren_core.adapters.protocols import VMStateStore
     from tanren_core.config import Config
 
 from tanren_core.adapters.credentials import providers_for_clis
@@ -37,10 +37,9 @@ _AGENT_USER = "tanren"
 
 def build_ssh_execution_environment(
     config: Config,
-    emitter: EventEmitter,
     pool: asyncpg.Pool | None = None,
 ) -> tuple[SSHExecutionEnvironment, VMStateStore]:
-    """Construct an SSHExecutionEnvironment from config and emitter.
+    """Construct an SSHExecutionEnvironment from config.
 
     Returns:
         Tuple of (SSHExecutionEnvironment, SqliteVMStateStore).
@@ -139,7 +138,6 @@ def build_ssh_execution_environment(
         runner=RemoteAgentRunner(run_as_user=_AGENT_USER),
         state_store=state_store,
         secret_loader=secret_loader,
-        emitter=emitter,
         ssh_config_defaults=ssh_defaults,
         repo_urls={binding.project: binding.repo_url for binding in remote_cfg.repos},
         provider=provider,

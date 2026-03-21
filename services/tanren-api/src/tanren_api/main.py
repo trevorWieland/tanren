@@ -28,12 +28,10 @@ from tanren_api.routers import vm as vm_router_mod
 from tanren_api.services import (
     ConfigService,
     DispatchService,
-    DispatchServiceV2,
     EventsService,
     HealthService,
     MetricsService,
     RunService,
-    RunServiceV2,
     VMService,
 )
 from tanren_api.settings import APISettings
@@ -129,7 +127,6 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
                 env, vm_store = await asyncio.to_thread(
                     build_ssh_execution_environment,
                     app.state.config,
-                    app.state.emitter,
                     pool=app.state.pg_pool,
                 )
                 app.state.execution_env = env
@@ -148,36 +145,16 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         # Wire MCP service layer — prefer V2 (queue-based) when event-sourced store is available
         config_svc = ConfigService(app.state.config) if app.state.config else None
 
-        dispatch_svc: DispatchService | DispatchServiceV2
-        run_svc: RunService | RunServiceV2
-        if (
-            app.state.event_store is not None
-            and app.state.job_queue is not None
-            and app.state.state_store is not None
-        ):
-            dispatch_svc = DispatchServiceV2(
-                event_store=app.state.event_store,
-                job_queue=app.state.job_queue,
-                state_store=app.state.state_store,
-            )
-            run_svc = RunServiceV2(
-                event_store=app.state.event_store,
-                job_queue=app.state.job_queue,
-                state_store=app.state.state_store,
-            )
-        else:
-            dispatch_svc = DispatchService(
-                store=app.state.api_store,
-                config=app.state.config,
-                emitter=app.state.emitter,
-                execution_env=app.state.execution_env,
-            )
-            run_svc = RunService(
-                store=app.state.api_store,
-                config=app.state.config,
-                execution_env=app.state.execution_env,
-                vm_state_store=app.state.vm_state_store,
-            )
+        dispatch_svc = DispatchService(
+            event_store=app.state.event_store,
+            job_queue=app.state.job_queue,
+            state_store=app.state.state_store,
+        )
+        run_svc = RunService(
+            event_store=app.state.event_store,
+            job_queue=app.state.job_queue,
+            state_store=app.state.state_store,
+        )
 
         set_services(
             health=HealthService(),
