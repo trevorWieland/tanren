@@ -11,6 +11,7 @@ from tanren_core.adapters.event_reader import EventReader
 from tanren_core.adapters.metrics_reader import MetricsReader
 from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment, VMStateStore
 from tanren_core.config import Config
+from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 
 def get_settings(request: Request) -> APISettings:
@@ -58,3 +59,21 @@ def get_metrics_reader(request: Request) -> MetricsReader | None:
 def get_vm_state_store(request: Request) -> VMStateStore | None:
     """Return the VM state store, or None if not configured."""
     return request.app.state.vm_state_store
+
+
+# ── New store-based dependencies (Phase 6) ────────────────────────────────
+
+
+def get_event_store(request: Request) -> EventStore | None:
+    """Return the unified event store, or None if not configured."""
+    return getattr(request.app.state, "event_store", None)
+
+
+def get_job_queue(request: Request) -> JobQueue | None:
+    """Return the job queue, or None if not configured."""
+    return getattr(request.app.state, "job_queue", None)
+
+
+def get_state_store(request: Request) -> StateStore | None:
+    """Return the state store, or None if not configured."""
+    return getattr(request.app.state, "state_store", None)

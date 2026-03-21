@@ -101,6 +101,22 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         else:
             app.state.emitter = NullEventEmitter()
 
+        # ── New event-sourced store (Phase 6) ──
+        app.state.event_store = None
+        app.state.job_queue = None
+        app.state.state_store = None
+        store_url = settings.db_url or db
+        if store_url:
+            from tanren_core.store.factory import create_sqlite_store  # noqa: PLC0415
+
+            try:
+                store = await create_sqlite_store(store_url)
+                app.state.event_store = store
+                app.state.job_queue = store
+                app.state.state_store = store
+            except Exception:
+                logger.warning("Failed to initialize event-sourced store", exc_info=True)
+
         # API state store and execution environment
         app.state.api_store = APIStateStore()
         app.state.execution_env = None
@@ -161,6 +177,8 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         if app.state.execution_env is not None:
             await app.state.execution_env.close()
         await app.state.emitter.close()
+        if app.state.event_store is not None:
+            await app.state.event_store.close()
         if app.state.pg_pool is not None:
             await app.state.pg_pool.close()
 
