@@ -37,6 +37,8 @@ from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 
 _SSH_ENV = "tanren_core.adapters.ssh_environment"
 
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -71,6 +73,7 @@ def _make_dispatch(
         context=context,
         timeout=300,
         environment_profile="default",
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

@@ -15,6 +15,7 @@ from tanren_core.adapters.types import (
     ProvisionError,
 )
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.manager import (
     WorkerManager,
     _build_gate_output,
@@ -29,6 +30,8 @@ from tanren_core.schemas import (
     Phase,
     Result,
 )
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -64,6 +67,7 @@ def _make_dispatch(
         branch=branch,
         cli=cli,
         timeout=timeout,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.ipc import (
     atomic_write,
     delete_file,
@@ -21,6 +22,8 @@ from tanren_core.schemas import (
     Phase,
     Result,
 )
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,6 +49,7 @@ class TestIPCRoundtrip:
                 gate_cmd="make check",
                 context=None,
                 timeout=300,
+                resolved_profile=DEFAULT_PROFILE,
             )
             path = dispatch_dir / f"100{i}-aaaaaa.json"
             await atomic_write(path, d.model_dump_json())

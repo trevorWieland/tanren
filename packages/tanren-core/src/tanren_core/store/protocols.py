@@ -13,7 +13,8 @@ from typing import Protocol, runtime_checkable
 
 from tanren_core.adapters.event_reader import EventQueryResult
 from tanren_core.adapters.events import Event
-from tanren_core.store.enums import Lane
+from tanren_core.schemas import Outcome
+from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane
 from tanren_core.store.views import DispatchListFilter, DispatchView, QueuedStep, StepView
 
 
@@ -132,10 +133,7 @@ class JobQueue(Protocol):
 
 @runtime_checkable
 class StateStore(Protocol):
-    """Read-only state queries against projection tables.
-
-    All methods return frozen dataclass views, never mutable ORM objects.
-    """
+    """State queries and mutations against projection tables."""
 
     async def get_dispatch(self, dispatch_id: str) -> DispatchView | None:
         """Look up a dispatch by ID from the ``dispatch_projection`` table."""
@@ -154,10 +152,28 @@ class StateStore(Protocol):
         ...
 
     async def count_running_steps(self, *, lane: Lane | None = None) -> int:
-        """Count steps with ``status='running'`` for the given lane.
+        """Count steps with ``status='running'`` for the given lane."""
+        ...
 
-        Used by health checks and dashboards.
-        """
+    async def create_dispatch_projection(
+        self,
+        *,
+        dispatch_id: str,
+        mode: DispatchMode,
+        lane: Lane,
+        preserve_on_failure: bool,
+        dispatch_json: str,
+    ) -> None:
+        """Insert a new dispatch projection row."""
+        ...
+
+    async def update_dispatch_status(
+        self,
+        dispatch_id: str,
+        status: DispatchStatus,
+        outcome: Outcome | None = None,
+    ) -> None:
+        """Update dispatch projection status and outcome."""
         ...
 
     async def close(self) -> None:

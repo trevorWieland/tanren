@@ -75,6 +75,8 @@ convention = "google"
 # Store subpackage: Pydantic models, re-exports, event types need runtime imports;
 # store methods return typed objects (DOC201); SQL built from safe clauses (S608)
 "packages/tanren-core/src/tanren_core/store/**" = ["TCH", "DOC201", "S608"]
+# Worker uses deferred imports to break circular deps and handle reconstructions
+"packages/tanren-core/src/tanren_core/worker.py" = ["TCH", "DOC201", "DOC501", "PLC0415", "SIM105", "S110"]
 # FastAPI evaluates type annotations at runtime for DI, validation, and OpenAPI.
 # S101 asserts guard service-not-None in MCP tools (fast-fail, not security).
 "services/tanren-api/**" = ["TCH", "S101"]

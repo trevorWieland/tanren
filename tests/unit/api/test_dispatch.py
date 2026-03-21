@@ -11,7 +11,10 @@ import pytest
 
 from tanren_api.models import DispatchRunStatus
 from tanren_api.state import DispatchRecord
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 @pytest.mark.api
@@ -395,6 +398,7 @@ class TestDispatch:
             spec_folder="specs/test",
             cli=Cli.CLAUDE,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
         record = DispatchRecord(
             dispatch_id="wf-cancel-race",
@@ -444,6 +448,7 @@ class TestDispatch:
             spec_folder="specs/test",
             cli=Cli.CLAUDE,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
         record = DispatchRecord(
             dispatch_id="wf-cancel-pending",
@@ -501,6 +506,7 @@ class TestDispatch:
             spec_folder="specs/test",
             cli=Cli.CLAUDE,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
         record = DispatchRecord(
             dispatch_id="wf-early-cancel",
@@ -582,6 +588,7 @@ class TestDispatch:
             spec_folder="specs/test",
             cli=Cli.CLAUDE,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
         record = DispatchRecord(
             dispatch_id="wf-shield-test",
@@ -645,6 +652,7 @@ class TestDispatch:
             spec_folder="specs/test",
             cli=Cli.CLAUDE,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
         record = DispatchRecord(
             dispatch_id="wf-race-cancel",
@@ -690,6 +698,7 @@ class TestDispatch:
             spec_folder="specs/test",
             cli=Cli.CLAUDE,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
         record = DispatchRecord(
             dispatch_id="wf-race-test",

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.ipc import (
     atomic_write,
     delete_file,
@@ -28,6 +29,8 @@ from tanren_core.schemas import (
     TaskState,
     TaskStatus,
 )
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -93,6 +96,7 @@ class TestScanDispatchDir:
             gate_cmd="make check",
             context=None,
             timeout=300,
+            resolved_profile=DEFAULT_PROFILE,
         )
         file_path = dispatch_dir / "1741359700123-a3f2b8.json"
         file_path.write_text(dispatch.model_dump_json())
@@ -116,6 +120,7 @@ class TestScanDispatchDir:
                 gate_cmd="make check",
                 context=None,
                 timeout=300,
+                resolved_profile=DEFAULT_PROFILE,
             )
             (dispatch_dir / f"{ts}-aaaaaa.json").write_text(d.model_dump_json())
         result = await scan_dispatch_dir(dispatch_dir)

@@ -44,6 +44,8 @@ from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
 
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
+
 
 class PersistedSSHDefaults(BaseModel):
     """Persisted SSH defaults for handle reconstruction."""
@@ -337,6 +339,7 @@ def _build_dispatch(
         context=context,
         timeout=timeout,
         environment_profile=environment_profile,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 
@@ -368,6 +371,7 @@ def run_provision(
                 context=None,
                 timeout=1800,
                 environment_profile=environment_profile,
+                resolved_profile=DEFAULT_PROFILE,
             )
             handle = await env.provision(dispatch, config)
             runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
@@ -567,6 +571,7 @@ def run_full(
                 context=None,
                 timeout=timeout,
                 environment_profile=environment_profile,
+                resolved_profile=DEFAULT_PROFILE,
             )
             handle = await env.provision(provision_dispatch, config)
             runtime = cast("RemoteEnvironmentRuntime", handle.runtime)

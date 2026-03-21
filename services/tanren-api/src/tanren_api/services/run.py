@@ -29,11 +29,14 @@ from tanren_api.state import APIStateStore, DispatchRecord, EnvironmentRecord
 from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.ipc import list_checkpoints as list_checkpoints_ipc
 from tanren_core.ipc import read_checkpoint
 from tanren_core.roles import RoleName
 from tanren_core.roles_config import load_roles_config
 from tanren_core.schemas import Dispatch, Outcome, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +128,7 @@ class RunService:
             auth=resolved_tool.auth,
             timeout=1800,
             environment_profile=body.environment_profile,
+            resolved_profile=DEFAULT_PROFILE,
         )
 
         record = EnvironmentRecord(
@@ -223,6 +227,7 @@ class RunService:
             timeout=body.timeout,
             context=body.context,
             gate_cmd=body.gate_cmd,
+            resolved_profile=DEFAULT_PROFILE,
         )
 
         gate = asyncio.Event()
@@ -357,6 +362,7 @@ class RunService:
             environment_profile=body.environment_profile,
             context=body.context,
             gate_cmd=body.gate_cmd,
+            resolved_profile=DEFAULT_PROFILE,
         )
 
         async def _full_lifecycle() -> None:

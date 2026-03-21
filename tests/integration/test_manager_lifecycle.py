@@ -7,8 +7,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.manager import WorkerManager
 from tanren_core.schemas import Cli, Dispatch, Phase, Result
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -89,6 +92,7 @@ class TestManagerLifecycle:
             gate_cmd=None,
             context=None,
             timeout=30,
+            resolved_profile=DEFAULT_PROFILE,
         )
         setup_file = dispatch_dir / "1000-aaaaaa.json"
         setup_file.write_text(setup_dispatch.model_dump_json())
@@ -142,6 +146,7 @@ class TestManagerLifecycle:
             gate_cmd="echo 'all tests passed'",
             context=None,
             timeout=30,
+            resolved_profile=DEFAULT_PROFILE,
         )
         gate_file = dispatch_dir / "2000-bbbbbb.json"
         gate_file.write_text(gate_dispatch.model_dump_json())

@@ -11,6 +11,7 @@ import pytest
 from tanren_api.models import DispatchRunStatus, RunEnvironmentStatus
 from tanren_api.state import APIStateStore, DispatchRecord, EnvironmentRecord
 from tanren_core.adapters.types import EnvironmentHandle, LocalEnvironmentRuntime
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Phase
 
 
@@ -23,6 +24,7 @@ def _make_dispatch(workflow_id: str = "wf-1") -> Dispatch:
         spec_folder="specs/test",
         cli=Cli.CLAUDE,
         timeout=1800,
+        resolved_profile=EnvironmentProfile(name="default"),
     )
 
 

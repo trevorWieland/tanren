@@ -14,11 +14,14 @@ from tanren_core.adapters.types import (
     ProvisionError,
 )
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,6 +49,7 @@ def _make_dispatch(phase: Phase = Phase.DO_TASK, cli: Cli = Cli.OPENCODE) -> Dis
         gate_cmd="make check" if cli == Cli.BASH else None,
         context=None,
         timeout=300,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

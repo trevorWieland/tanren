@@ -6,12 +6,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.manager import (
     WorkerManager,
     _build_gate_output,
     build_tail_output,
 )
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 def _make_config(tmp_path: Path) -> Config:
@@ -48,6 +51,7 @@ def _make_dispatch(
         branch="feature-1",
         cli=cli,
         timeout=60,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

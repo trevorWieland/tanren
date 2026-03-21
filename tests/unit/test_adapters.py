@@ -12,6 +12,7 @@ from tanren_core.adapters.git_preflight import GitPreflightRunner
 from tanren_core.adapters.git_worktree import GitWorktreeManager
 from tanren_core.adapters.subprocess_spawner import SubprocessSpawner
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
@@ -96,6 +97,7 @@ class TestSubprocessSpawner:
             gate_cmd="make check",
             context=None,
             timeout=60,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
         config = Config(
             ipc_dir="/tmp/ipc",

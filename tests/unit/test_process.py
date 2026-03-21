@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.process import (
     ProcessResult,
     _spawn_claude,
@@ -13,6 +14,8 @@ from tanren_core.process import (
     assemble_prompt,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 class TestAssemblePrompt:
@@ -93,6 +96,7 @@ class TestSpawnOpencode:
             gate_cmd=None,
             context=context,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
 
         config = Config(
@@ -240,6 +244,7 @@ class TestSpawnClaude:
             gate_cmd=None,
             context=context,
             timeout=1800,
+            resolved_profile=DEFAULT_PROFILE,
         )
 
         config = Config(

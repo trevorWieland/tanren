@@ -24,6 +24,7 @@ from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.remote_config import ProvisionerType, load_remote_config
 from tanren_core.roles import RoleName
 from tanren_core.roles_config import load_roles_config
@@ -142,6 +143,7 @@ class VMService:
             auth=resolved_tool.auth,
             timeout=1800,
             environment_profile=body.environment_profile,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
 
         record = EnvironmentRecord(

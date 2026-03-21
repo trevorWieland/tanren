@@ -10,6 +10,7 @@ from pydantic import ValidationError
 if TYPE_CHECKING:
     from pathlib import Path
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.ipc import (
     delete_checkpoint,
     list_checkpoints,
@@ -24,6 +25,8 @@ from tanren_core.schemas import (
     Phase,
 )
 
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
+
 
 def _make_dispatch() -> Dispatch:
     return Dispatch(
@@ -34,6 +37,7 @@ def _make_dispatch() -> Dispatch:
         branch="main",
         cli=Cli.CLAUDE,
         timeout=1800,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

@@ -5,8 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.queues import DispatchRouter
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 def _make_dispatch(cli: Cli, workflow_id: str = "wf-test-1-1000") -> Dispatch:
@@ -21,6 +24,7 @@ def _make_dispatch(cli: Cli, workflow_id: str = "wf-test-1-1000") -> Dispatch:
         gate_cmd="make check" if cli == Cli.BASH else None,
         context=None,
         timeout=300,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

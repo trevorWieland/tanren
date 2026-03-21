@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.process import (
     ProcessResult,
     _run_with_timeout,
@@ -19,6 +20,8 @@ from tanren_core.process import (
     spawn_process,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -61,6 +64,7 @@ def _make_dispatch(
         gate_cmd=gate_cmd,
         context=context,
         timeout=timeout,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

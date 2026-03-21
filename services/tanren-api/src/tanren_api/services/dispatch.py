@@ -21,6 +21,7 @@ from tanren_api.state import APIStateStore, DispatchRecord
 from tanren_core.adapters.events import DispatchReceived
 from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.ipc import atomic_write, generate_filename
 from tanren_core.schemas import Dispatch, Outcome, Result
 
@@ -97,6 +98,7 @@ class DispatchService:
             environment_profile=body.environment_profile,
             context=body.context,
             gate_cmd=body.gate_cmd,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
 
         # Write dispatch to IPC only when delegating to daemon (no local execution env)

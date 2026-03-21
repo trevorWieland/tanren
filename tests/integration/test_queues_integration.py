@@ -6,8 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.queues import DispatchRouter
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 def _make_dispatch(cli: Cli, workflow_id: str = "wf-test-1-100") -> Dispatch:
@@ -19,6 +22,7 @@ def _make_dispatch(cli: Cli, workflow_id: str = "wf-test-1-100") -> Dispatch:
         branch="feature-1",
         cli=cli,
         timeout=60,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 

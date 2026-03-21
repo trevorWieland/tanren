@@ -14,6 +14,7 @@ from tanren_core.adapters.types import (
     PhaseResult,
 )
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.ipc import read_checkpoint, write_checkpoint
 from tanren_core.manager import WorkerManager
 from tanren_core.schemas import (
@@ -25,6 +26,8 @@ from tanren_core.schemas import (
     Phase,
     Result,
 )
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -49,6 +52,7 @@ def _make_dispatch() -> Dispatch:
         branch="main",
         cli=Cli.CLAUDE,
         timeout=1800,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 
