@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
 
-from tanren_api.dependencies import get_api_store, get_config, get_execution_env
+from tanren_api.dependencies import get_api_store, get_config, get_execution_env, get_vm_state_store
 from tanren_api.models import (
     CheckpointDetail,
     CheckpointSummary,
@@ -22,7 +22,7 @@ from tanren_api.models import (
 )
 from tanren_api.services import RunService
 from tanren_api.state import APIStateStore
-from tanren_core.adapters.protocols import ExecutionEnvironment
+from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
 from tanren_core.config import Config
 
 router = APIRouter(tags=["run"])
@@ -32,13 +32,14 @@ def _run_service(
     store: APIStateStore,
     config: Config | None = None,
     execution_env: ExecutionEnvironment | None = None,
+    vm_state_store: VMStateStore | None = None,
 ) -> RunService:
     """Build a RunService with the given dependencies.
 
     Returns:
         RunService: Configured service instance.
     """
-    return RunService(store, config, execution_env)
+    return RunService(store, config, execution_env, vm_state_store=vm_state_store)
 
 
 @router.post("/run/provision")
@@ -119,6 +120,7 @@ async def resume_dispatch(
     workflow_id: Annotated[str, Path(description="Workflow ID to resume")],
     store: Annotated[APIStateStore, Depends(get_api_store)],
     execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
+    vm_state_store: Annotated[VMStateStore | None, Depends(get_vm_state_store)],
     config: Annotated[Config, Depends(get_config)],
 ) -> ResumeAccepted:
     """Resume a checkpointed dispatch.
@@ -126,7 +128,7 @@ async def resume_dispatch(
     Returns:
         ResumeAccepted confirmation.
     """
-    return await _run_service(store, config, execution_env).resume(workflow_id)
+    return await _run_service(store, config, execution_env, vm_state_store).resume(workflow_id)
 
 
 @router.get("/run/checkpoints")

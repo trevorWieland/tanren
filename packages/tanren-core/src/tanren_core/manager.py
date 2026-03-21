@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         PostflightRunner,
         PreflightRunner,
         ProcessSpawner,
+        VMStateStore,
         WorktreeManager,
     )
     from tanren_core.adapters.protocols import VMProvisioner as VMProvisionerProtocol
@@ -159,6 +160,7 @@ class WorkerManager:
         env_validator: EnvValidator | None = None,
         env_provisioner: EnvProvisioner | None = None,
         emitter: EventEmitter | None = None,
+        vm_state_store: VMStateStore | None = None,
     ) -> None:
         """Initialize with optional config and adapter overrides."""
         self._config = config or Config.from_env()
@@ -207,9 +209,11 @@ class WorkerManager:
         if execution_env is not None:
             self._execution_env = execution_env
             # When execution_env is injected but remote config exists,
-            # build the state store so resume can verify VM assignments.
+            # wire the VM state store so resume can verify VM assignments.
+            # Prefer the caller-supplied store (which matches the provisioning backend);
+            # fall back to Sqlite if none was provided.
             if self._config.remote_config_path:
-                self._remote_state_store = SqliteVMStateStore(
+                self._remote_state_store = vm_state_store or SqliteVMStateStore(
                     f"{self._config.data_dir}/vm-state.db"
                 )
         elif self._config.remote_config_path:
@@ -718,6 +722,13 @@ class WorkerManager:
                 dispatch, handle, phase_result, worktree_path, dispatch_start_utc
             )
 
+            # Update checkpoint to POST_PROCESSED — crash between here and
+            # _write_result_and_nudge will resume at result-write only,
+            # avoiding duplicate event emissions from post-processing.
+            checkpoint.stage = CheckpointStage.POST_PROCESSED
+            checkpoint.updated_at = datetime.now(UTC).isoformat()
+            await write_checkpoint(self._checkpoints_dir, checkpoint)
+
         except Exception as e:
             failed = True
             duration = int(time.monotonic() - start)
@@ -1010,13 +1021,24 @@ class WorkerManager:
                 result = await self._post_process_phase(
                     dispatch, handle, phase_result, worktree_path, dispatch_start_utc
                 )
+                checkpoint.stage = CheckpointStage.POST_PROCESSED
+                checkpoint.updated_at = datetime.now(UTC).isoformat()
+                await write_checkpoint(self._checkpoints_dir, checkpoint)
 
             if checkpoint.stage == CheckpointStage.POST_PROCESSED:
-                logger.warning("Checkpoint at POST_PROCESSED stage — retrying result write only")
+                logger.info("Checkpoint at POST_PROCESSED stage — writing result only")
 
             # Write result if available
             if result is not None:
                 await self._write_result_and_nudge(result, workflow_id)
+
+        except ProvisionError as e:
+            # Provision failed with a terminal result — write it and clean up,
+            # matching the handling in _handle_work_phase.
+            logger.warning("Resume provision failed for %s: %s", workflow_id, e)
+            await self._write_result_and_nudge(e.result, workflow_id)
+            await delete_checkpoint(self._checkpoints_dir, workflow_id)
+            return e.result
 
         except Exception as exc:
             logger.exception("Resume failed for %s", workflow_id)

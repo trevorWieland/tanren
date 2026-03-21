@@ -26,7 +26,7 @@ from tanren_api.models import (
     RunTeardownAccepted,
 )
 from tanren_api.state import APIStateStore, DispatchRecord, EnvironmentRecord
-from tanren_core.adapters.protocols import ExecutionEnvironment
+from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
 from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
 from tanren_core.config import Config
 from tanren_core.ipc import list_checkpoints as list_checkpoints_ipc
@@ -36,6 +36,9 @@ from tanren_core.roles_config import load_roles_config
 from tanren_core.schemas import Dispatch, Outcome, Phase
 
 logger = logging.getLogger(__name__)
+
+# Strong references to fire-and-forget resume tasks to prevent GC.
+_resume_tasks: set[asyncio.Task[None]] = set()
 
 _EXECUTE_FROM = frozenset({RunEnvironmentStatus.PROVISIONED, RunEnvironmentStatus.COMPLETED})
 _TEARDOWN_FROM = frozenset({
@@ -64,11 +67,13 @@ class RunService:
         store: APIStateStore,
         config: Config | None = None,
         execution_env: ExecutionEnvironment | None = None,
+        vm_state_store: VMStateStore | None = None,
     ) -> None:
         """Initialize with dependencies."""
         self._store = store
         self._config = config
         self._execution_env = execution_env
+        self._vm_state_store = vm_state_store
 
     def _require_config(self) -> Config:
         """Return config or raise if unavailable.
@@ -473,6 +478,9 @@ class RunService:
     async def resume(self, workflow_id: str) -> ResumeAccepted:
         """Resume a checkpointed dispatch in a background task.
 
+        Works for both local and remote checkpoints. Local deployments
+        (no remote execution env) construct a local WorkerManager from config.
+
         Returns:
             ResumeAccepted with the workflow_id.
 
@@ -480,24 +488,34 @@ class RunService:
             NotFoundError: If no checkpoint exists for the workflow.
         """
         config = self._require_config()
-        execution_env = self._require_execution_env()
         checkpoints_dir = Path(config.checkpoints_dir)
         checkpoint = await read_checkpoint(checkpoints_dir, workflow_id)
         if checkpoint is None:
             raise NotFoundError(f"No checkpoint found for workflow: {workflow_id}")
+
+        # Capture references for the background closure
+        execution_env = self._execution_env  # may be None for local deployments
+        vm_state_store = self._vm_state_store
 
         async def _resume_background() -> None:
             from tanren_core.manager import (  # noqa: PLC0415 — heavy import
                 WorkerManager,
             )
 
-            manager = WorkerManager(config=config, execution_env=execution_env)
+            manager = WorkerManager(
+                config=config,
+                execution_env=execution_env,
+                vm_state_store=vm_state_store,
+            )
             try:
                 await manager.resume_dispatch(workflow_id)
             except Exception:
                 logger.exception("Background resume failed for %s", workflow_id)
 
-        _task = asyncio.create_task(_resume_background())  # noqa: RUF006 — fire-and-forget background task
+        task = asyncio.create_task(_resume_background())
+        # Keep a strong reference so asyncio doesn't GC the task before completion.
+        _resume_tasks.add(task)
+        task.add_done_callback(_resume_tasks.discard)
 
         return ResumeAccepted(workflow_id=workflow_id)
 
