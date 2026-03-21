@@ -3,13 +3,14 @@
 import asyncio
 
 from tanren_core.builder import build_ssh_execution_environment
+from tanren_core.config import Config, load_config_env
 from tanren_core.store.factory import create_store
 from tanren_core.worker import Worker
-from tanren_core.worker_config import WorkerConfig
 
 
 async def _run() -> None:
-    config = WorkerConfig.from_env()
+    load_config_env()
+    config = Config.from_env()
     store = await create_store(config.db_url)
     execution_env, _vm_store = build_ssh_execution_environment(config)
     worker = Worker(
