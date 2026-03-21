@@ -198,6 +198,11 @@ class Config(BaseModel):
         description="Command for @ccusage/opencode",
     )
 
+    @property
+    def checkpoints_dir(self) -> str:
+        """Directory for dispatch checkpoint files, derived from data_dir."""
+        return str(Path(self.data_dir) / "checkpoints")
+
     @classmethod
     def from_env(cls, sources: Sequence[ConfigSource] = ()) -> Config:
         """Load configuration from sources and environment variables.

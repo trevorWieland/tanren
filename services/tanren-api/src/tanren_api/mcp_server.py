@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from fastmcp import FastMCP
 
 from tanren_api.models import (
+    CheckpointSummary,
     ConfigResponse,
     DispatchAccepted,
     DispatchCancelled,
@@ -23,6 +24,7 @@ from tanren_api.models import (
     MetricsVMsResponse,
     PaginatedEvents,
     ReadinessResponse,
+    ResumeAccepted,
     RunEnvironment,
     RunExecuteAccepted,
     RunStatus,
@@ -580,3 +582,37 @@ async def metrics_vms(
     """
     assert _metrics_svc is not None
     return await _metrics_svc.vms(since=since, until=until, project=project)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint / resume tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    description=(
+        "Resume a checkpointed dispatch that was interrupted. "
+        "The dispatch picks up from the last completed phase."
+    ),
+)
+async def resume_dispatch(workflow_id: str) -> ResumeAccepted:
+    """Resume a checkpointed dispatch.
+
+    Returns:
+        ResumeAccepted confirmation.
+    """
+    assert _run_svc is not None
+    return await _run_svc.resume(workflow_id)
+
+
+@mcp.tool(
+    description="List all active dispatch checkpoints with their stage and retry count.",
+)
+async def list_checkpoints() -> list[CheckpointSummary]:
+    """List active checkpoints.
+
+    Returns:
+        List of CheckpointSummary instances.
+    """
+    assert _run_svc is not None
+    return await _run_svc.get_checkpoints()

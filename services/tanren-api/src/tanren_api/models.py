@@ -462,3 +462,54 @@ class PaginatedEvents(BaseModel):
     skipped: int = Field(
         default=0, ge=0, description="Events skipped due to parse errors in this page"
     )
+
+
+# ---------------------------------------------------------------------------
+# Response models — checkpoint
+# ---------------------------------------------------------------------------
+
+
+class CheckpointSummary(BaseModel):
+    """Summary of an active dispatch checkpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: str = Field(..., description="Workflow identifier")
+    stage: str = Field(..., description="Last completed checkpoint stage")
+    retry_count: int = Field(..., ge=0, description="Resume attempts so far")
+    vm_id: str | None = Field(default=None, description="VM identifier if remote")
+    last_error: str | None = Field(default=None, description="Last failure reason")
+    failure_count: int = Field(..., ge=0, description="Total failure count")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
+    updated_at: str = Field(..., description="ISO 8601 last update timestamp")
+
+
+class CheckpointDetail(BaseModel):
+    """Detailed checkpoint information including dispatch and state data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: str = Field(..., description="Workflow identifier")
+    stage: str = Field(..., description="Last completed checkpoint stage")
+    dispatch_json: str = Field(..., description="Serialized Dispatch JSON")
+    worktree_path: str = Field(..., description="Absolute path to the worktree")
+    dispatch_stem: str = Field(default="", description="Original dispatch filename stem")
+    vm_id: str | None = Field(default=None, description="VM identifier if remote")
+    environment_profile: str | None = Field(default=None, description="Environment profile name")
+    workspace_remote_path: str | None = Field(default=None, description="Remote workspace path")
+    phase_result_json: str | None = Field(default=None, description="Serialized PhaseResult JSON")
+    dispatch_start_utc: str | None = Field(default=None, description="Execution start timestamp")
+    retry_count: int = Field(..., ge=0, description="Resume attempts so far")
+    last_error: str | None = Field(default=None, description="Last failure reason")
+    failure_count: int = Field(..., ge=0, description="Total failure count")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
+    updated_at: str = Field(..., description="ISO 8601 last update timestamp")
+
+
+class ResumeAccepted(BaseModel):
+    """Confirmation that a checkpoint resume has been initiated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: str = Field(..., description="Workflow being resumed")
+    status: str = Field(default="resuming", description="Current resume status")

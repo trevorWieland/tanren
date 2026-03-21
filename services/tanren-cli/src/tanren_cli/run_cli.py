@@ -8,6 +8,7 @@ Reference docs:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from datetime import UTC, datetime
@@ -35,6 +36,7 @@ from tanren_core.env.environment_schema import (
     parse_environment_profiles,
 )
 from tanren_core.env.gates import resolve_gate_cmd
+from tanren_core.ipc import list_checkpoints as list_checkpoints_io
 from tanren_core.manager import build_tail_output
 from tanren_core.roles import AgentTool, AuthMode, RoleName
 from tanren_core.roles_config import load_roles_config
@@ -654,6 +656,54 @@ def run_full(
             await env.close()
             if pg_pool is not None:
                 await pg_pool.close()
+
+    asyncio.run(_run())
+
+
+@run_app.command("resume")
+def run_resume(
+    workflow_id: Annotated[str, typer.Argument(help="Workflow ID to resume from checkpoint")],
+) -> None:
+    """Resume a dispatch from its most recent checkpoint."""
+
+    async def _run() -> None:
+        config = _load_config()
+        from tanren_core.manager import WorkerManager  # noqa: PLC0415 — heavy import
+
+        manager = WorkerManager(config)
+        result = await manager.resume_dispatch(workflow_id)
+        if result is None:
+            typer.echo(f"No checkpoint found for {workflow_id}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"outcome: {result.outcome.value}")
+        typer.echo(f"signal: {result.signal}")
+        typer.echo(f"exit_code: {result.exit_code}")
+        typer.echo(f"duration_secs: {result.duration_secs}")
+
+    asyncio.run(_run())
+
+
+@run_app.command("checkpoints")
+def run_checkpoints(
+    as_json: Annotated[bool, typer.Option("--json", help="Output as JSON")] = False,
+) -> None:
+    """List all active checkpoints."""
+
+    async def _run() -> None:
+        config = _load_config()
+        checkpoints_dir = Path(config.checkpoints_dir)
+        entries = await list_checkpoints_io(checkpoints_dir)
+        if as_json:
+            typer.echo(json.dumps([e.model_dump(mode="json") for e in entries], indent=2))
+        else:
+            if not entries:
+                typer.echo("No active checkpoints.")
+                return
+            for entry in entries:
+                typer.echo(
+                    f"{entry.workflow_id}  stage={entry.stage}  "
+                    f"retries={entry.retry_count}  updated={entry.updated_at}"
+                )
 
     asyncio.run(_run())
 

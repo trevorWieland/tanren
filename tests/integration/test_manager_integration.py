@@ -446,8 +446,11 @@ class TestWorkPhaseDetails:
         assert result_data["tail_output"] == "git push failed: auth denied"
 
     @pytest.mark.asyncio
-    async def test_execute_exception_writes_error_result_and_calls_teardown(self, tmp_path: Path):
-        """If execute() raises, an error result is written and teardown is still called."""
+    async def test_execute_exception_writes_error_result_and_preserves_checkpoint(
+        self, tmp_path: Path
+    ):
+        """If execute() raises, an error result is written, teardown is skipped
+        (VM preserved for resume), and the checkpoint is retained."""
         exec_env = AsyncMock()
         worktree_path = tmp_path / "github" / "demo-wt-42"
         worktree_path.mkdir(parents=True)
@@ -470,11 +473,17 @@ class TestWorkPhaseDetails:
 
         await manager._handle_dispatch(dispatch_path, dispatch)
 
-        exec_env.teardown.assert_awaited_once()
+        # Teardown is NOT called — VM preserved for checkpoint resume
+        exec_env.teardown.assert_not_awaited()
+
         result_files = list((tmp_path / "ipc" / "results").iterdir())
         result_data = json.loads(result_files[0].read_text())
         assert result_data["outcome"] == "error"
         assert "execute crashed" in result_data["tail_output"]
+
+        # Checkpoint should be retained for resume
+        checkpoint_files = list(manager._checkpoints_dir.iterdir())
+        assert len(checkpoint_files) == 1
 
 
 # ---------------------------------------------------------------------------

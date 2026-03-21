@@ -99,6 +99,8 @@ class TestMCPToolRegistration:
             "dispatch_create",
             "dispatch_get_status",
             "dispatch_cancel",
+            "resume_dispatch",
+            "list_checkpoints",
             # VM
             "vm_list",
             "vm_provision",
