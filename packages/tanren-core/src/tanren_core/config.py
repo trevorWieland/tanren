@@ -1,4 +1,10 @@
-"""Worker manager configuration from environment variables with WM_ prefix."""
+"""Worker manager configuration from environment variables with WM_ prefix.
+
+.. deprecated::
+    ``Config`` is a transitional alias for ``WorkerConfig``.
+    Use ``WorkerConfig`` directly in new code.  ``Config`` will be
+    removed in Phase 8 of the stateless API refactor.
+"""
 
 import logging
 import os
@@ -6,31 +12,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict
+
+from tanren_core.worker_config import WorkerConfig, _expand, _expand_optional, _pg_or_expand
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
-
-
-def _expand(path: str) -> str:
-    return str(Path(path).expanduser())
-
-
-def _expand_optional(path: str | None) -> str | None:
-    if not path or not path.strip():
-        return None
-    return _expand(path)
-
-
-def _pg_or_expand(value: str | None) -> str | None:
-    """Return Postgres URLs as-is; expand filesystem paths."""
-    if not value or not value.strip():
-        return None
-    if value.lower().startswith(("postgresql://", "postgres://")):
-        return value
-    return _expand(value)
 
 
 @runtime_checkable
@@ -120,88 +109,15 @@ def load_config_env(source: ConfigSource | None = None) -> None:
             os.environ[key] = value
 
 
-class Config(BaseModel):
-    """Worker manager configuration loaded from environment variables."""
+class Config(WorkerConfig):
+    """Worker manager configuration loaded from environment variables.
+
+    .. deprecated::
+        Transitional alias for ``WorkerConfig``.  Will be removed in
+        Phase 8 cleanup.  Use ``WorkerConfig`` directly in new code.
+    """
 
     model_config = ConfigDict(extra="forbid")
-
-    ipc_dir: str = Field(
-        description="IPC directory path for coordinator group",
-    )
-    github_dir: str = Field(
-        description="Root directory containing git repositories",
-    )
-    commands_dir: str = Field(
-        default=".claude/commands/tanren",
-        description="Relative path to tanren commands within a project",
-    )
-    poll_interval: float = Field(
-        default=5.0,
-        description="Seconds between dispatch directory polls",
-    )
-    heartbeat_interval: float = Field(
-        default=30.0,
-        description="Seconds between heartbeat file updates",
-    )
-    opencode_path: str = Field(
-        default="opencode",
-        description="Path to opencode CLI binary",
-    )
-    codex_path: str = Field(
-        default="codex",
-        description="Path to codex CLI binary",
-    )
-    claude_path: str = Field(
-        default="claude",
-        description="Path to Claude Code CLI binary",
-    )
-    roles_config_path: str = Field(
-        ...,
-        description="Path to roles YAML config",
-    )
-    data_dir: str = Field(
-        description="Directory for worker manager runtime state",
-    )
-    worktree_registry_path: str = Field(
-        description="Path to worktrees.json registry file",
-    )
-    max_opencode: int = Field(
-        default=1,
-        description="Maximum concurrent opencode processes",
-    )
-    max_codex: int = Field(
-        default=1,
-        description="Maximum concurrent codex processes",
-    )
-    max_gate: int = Field(
-        default=3,
-        description="Maximum concurrent gate (bash) processes",
-    )
-    events_db: str | None = Field(
-        default=None,
-        description="SQLite path or postgresql:// URL for events and VM state",
-    )
-    remote_config_path: str | None = Field(
-        default=None,
-        description="Path to remote.yml (enables remote execution)",
-    )
-    ccusage_claude_cmd: str = Field(
-        default="npx ccusage",
-        description="Command for ccusage (Claude)",
-    )
-    ccusage_codex_cmd: str = Field(
-        default="npx @ccusage/codex",
-        description="Command for @ccusage/codex",
-    )
-    ccusage_opencode_cmd: str = Field(
-        default="npx @ccusage/opencode",
-        description="Command for @ccusage/opencode",
-    )
-
-    @property
-    def checkpoints_dir(self) -> str:
-        """Directory for dispatch checkpoint files, derived from data_dir."""
-        return str(Path(self.data_dir) / "checkpoints")
 
     @classmethod
     def from_env(cls, sources: Sequence[ConfigSource] = ()) -> Config:
@@ -235,6 +151,9 @@ class Config(BaseModel):
                 "Set them in tanren.env or as environment variables."
             )
 
+        max_opencode = int(resolved["WM_MAX_OPENCODE"])
+        max_codex = int(resolved["WM_MAX_CODEX"])
+
         return cls(
             ipc_dir=_expand(resolved["WM_IPC_DIR"]),
             github_dir=_expand(resolved["WM_GITHUB_DIR"]),
@@ -247,10 +166,13 @@ class Config(BaseModel):
             claude_path=resolved["WM_CLAUDE_PATH"],
             roles_config_path=_expand(resolved["WM_ROLES_CONFIG_PATH"]),
             worktree_registry_path=_expand(resolved["WM_WORKTREE_REGISTRY_PATH"]),
-            max_opencode=int(resolved["WM_MAX_OPENCODE"]),
-            max_codex=int(resolved["WM_MAX_CODEX"]),
+            max_opencode=max_opencode,
+            max_codex=max_codex,
+            max_impl=max_opencode,
+            max_audit=max_codex,
             max_gate=int(resolved["WM_MAX_GATE"]),
             events_db=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
+            db_url=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
             remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
             ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),
             ccusage_codex_cmd=resolved.get("WM_CCUSAGE_CODEX_CMD", "npx @ccusage/codex"),
