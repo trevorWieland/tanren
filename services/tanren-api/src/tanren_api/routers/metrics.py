@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from tanren_api.dependencies import get_metrics_reader
+from tanren_api.dependencies import get_event_store
 from tanren_api.models import (
     CostGroupBy,
     MetricsCostsResponse,
@@ -14,54 +14,42 @@ from tanren_api.models import (
     MetricsVMsResponse,
 )
 from tanren_api.services.metrics import MetricsService
-from tanren_core.adapters.metrics_reader import MetricsReader
+from tanren_core.store.protocols import EventStore
 
 router = APIRouter(tags=["metrics"])
 
 
 @router.get("/metrics/summary")
 async def metrics_summary(
-    metrics_reader: Annotated[MetricsReader | None, Depends(get_metrics_reader)],
+    event_store: Annotated[EventStore, Depends(get_event_store)],
     since: Annotated[str | None, Query(description="ISO 8601 start (inclusive)")] = None,
     until: Annotated[str | None, Query(description="ISO 8601 end (inclusive)")] = None,
     project: Annotated[str | None, Query(description="Filter by project")] = None,
 ) -> MetricsSummaryResponse:
-    """Workflow success/failure rate and duration stats.
-
-    Returns:
-        MetricsSummaryResponse: Aggregated success/failure rates and duration statistics.
-    """
-    return await MetricsService(metrics_reader).summary(since=since, until=until, project=project)
+    """Workflow success/failure rate and duration stats."""
+    return await MetricsService(event_store).summary(since=since, until=until, project=project)
 
 
 @router.get("/metrics/costs")
 async def metrics_costs(
-    metrics_reader: Annotated[MetricsReader | None, Depends(get_metrics_reader)],
+    event_store: Annotated[EventStore, Depends(get_event_store)],
     since: Annotated[str | None, Query(description="ISO 8601 start (inclusive)")] = None,
     until: Annotated[str | None, Query(description="ISO 8601 end (inclusive)")] = None,
     project: Annotated[str | None, Query(description="Filter by project")] = None,
     group_by: Annotated[CostGroupBy, Query(description="Aggregation grouping")] = CostGroupBy.MODEL,
 ) -> MetricsCostsResponse:
-    """Token cost metrics grouped by model, day, or workflow.
-
-    Returns:
-        MetricsCostsResponse: Token cost metrics with grouping buckets.
-    """
-    return await MetricsService(metrics_reader).costs(
+    """Token cost metrics grouped by model, day, or workflow."""
+    return await MetricsService(event_store).costs(
         since=since, until=until, project=project, group_by=group_by.value
     )
 
 
 @router.get("/metrics/vms")
 async def metrics_vms(
-    metrics_reader: Annotated[MetricsReader | None, Depends(get_metrics_reader)],
+    event_store: Annotated[EventStore, Depends(get_event_store)],
     since: Annotated[str | None, Query(description="ISO 8601 start (inclusive)")] = None,
     until: Annotated[str | None, Query(description="ISO 8601 end (inclusive)")] = None,
     project: Annotated[str | None, Query(description="Filter by project")] = None,
 ) -> MetricsVMsResponse:
-    """VM utilization metrics.
-
-    Returns:
-        MetricsVMsResponse: VM provisioning and utilization metrics.
-    """
-    return await MetricsService(metrics_reader).vms(since=since, until=until, project=project)
+    """VM utilization metrics."""
+    return await MetricsService(event_store).vms(since=since, until=until, project=project)

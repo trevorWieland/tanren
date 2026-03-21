@@ -182,19 +182,15 @@ class ReadinessResponse(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    """Non-secret config projection."""
+    """Non-secret config projection (V2)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    ipc_dir: str = Field(..., description="IPC directory path")
-    github_dir: str = Field(..., description="Root directory for git repos")
-    poll_interval: float = Field(..., description="Seconds between polls")
-    heartbeat_interval: float = Field(..., description="Seconds between heartbeats")
-    max_opencode: int = Field(..., description="Max concurrent opencode processes")
-    max_codex: int = Field(..., description="Max concurrent codex processes")
-    max_gate: int = Field(..., description="Max concurrent gate processes")
-    events_enabled: bool = Field(..., description="Whether event emission is active")
+    db_backend: str = Field(..., description="Store backend: sqlite or postgres")
+    store_connected: bool = Field(..., description="Whether the store is reachable")
+    worker_lanes: dict[str, int] = Field(..., description="Lane concurrency limits")
     remote_enabled: bool = Field(..., description="Whether remote execution is configured")
+    version: str = Field(..., description="API version")
 
 
 class DispatchAccepted(BaseModel):

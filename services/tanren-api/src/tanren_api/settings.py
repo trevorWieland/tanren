@@ -14,5 +14,4 @@ class APISettings(BaseSettings):
     workers: int = 1
     log_level: str = "info"
     cors_origins: list[str] = []
-    events_db: str | None = None
-    db_url: str | None = None
+    db_url: str = "tanren.db"

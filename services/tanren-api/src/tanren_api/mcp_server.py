@@ -464,8 +464,7 @@ async def run_status(env_id: str) -> RunStatus:
 @mcp.tool(
     description=(
         "Get the current tanren configuration (non-secret fields only). "
-        "Shows IPC directory, poll intervals, concurrency limits, and "
-        "whether events and remote execution are enabled."
+        "Shows store backend, connection status, worker lanes, and version."
     ),
 )
 async def config_get() -> ConfigResponse | dict[str, str]:
@@ -475,7 +474,7 @@ async def config_get() -> ConfigResponse | dict[str, str]:
         ConfigResponse with configuration details, or error dict if unavailable.
     """
     if _config_svc is None:
-        return {"error": "Configuration unavailable — WM_* environment variables not set"}
+        return {"error": "Configuration unavailable"}
     return await _config_svc.get()
 
 
