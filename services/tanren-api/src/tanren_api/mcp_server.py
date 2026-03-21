@@ -41,10 +41,12 @@ if TYPE_CHECKING:
     from tanren_api.services import (
         ConfigService,
         DispatchService,
+        DispatchServiceV2,
         EventsService,
         HealthService,
         MetricsService,
         RunService,
+        RunServiceV2,
         VMService,
     )
 
@@ -56,9 +58,9 @@ mcp = FastMCP("tanren")
 # ---------------------------------------------------------------------------
 
 _health_svc: HealthService | None = None
-_dispatch_svc: DispatchService | None = None
+_dispatch_svc: DispatchService | DispatchServiceV2 | None = None
 _vm_svc: VMService | None = None
-_run_svc: RunService | None = None
+_run_svc: RunService | RunServiceV2 | None = None
 _config_svc: ConfigService | None = None
 _events_svc: EventsService | None = None
 _metrics_svc: MetricsService | None = None
@@ -67,9 +69,9 @@ _metrics_svc: MetricsService | None = None
 def set_services(
     *,
     health: HealthService,
-    dispatch: DispatchService,
+    dispatch: DispatchService | DispatchServiceV2,
     vm: VMService,
-    run: RunService,
+    run: RunService | RunServiceV2,
     config: ConfigService | None = None,
     events: EventsService,
     metrics: MetricsService | None = None,
@@ -602,6 +604,11 @@ async def resume_dispatch(workflow_id: str) -> ResumeAccepted:
         ResumeAccepted confirmation.
     """
     assert _run_svc is not None
+    from tanren_api.services import RunService
+
+    assert isinstance(_run_svc, RunService), (
+        "resume requires V1 RunService (filesystem checkpoints)"
+    )
     return await _run_svc.resume(workflow_id)
 
 
@@ -615,4 +622,7 @@ async def list_checkpoints() -> list[CheckpointSummary]:
         List of CheckpointSummary instances.
     """
     assert _run_svc is not None
+    from tanren_api.services import RunService
+
+    assert isinstance(_run_svc, RunService), "list_checkpoints requires V1 RunService"
     return await _run_svc.get_checkpoints()

@@ -28,10 +28,12 @@ from tanren_api.routers import vm as vm_router_mod
 from tanren_api.services import (
     ConfigService,
     DispatchService,
+    DispatchServiceV2,
     EventsService,
     HealthService,
     MetricsService,
     RunService,
+    RunServiceV2,
     VMService,
 )
 from tanren_api.settings import APISettings
@@ -143,28 +145,50 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
                     except Exception:
                         logger.warning("Failed to recover stale VM assignments", exc_info=True)
 
-        # Wire MCP service layer
+        # Wire MCP service layer — prefer V2 (queue-based) when event-sourced store is available
         config_svc = ConfigService(app.state.config) if app.state.config else None
-        set_services(
-            health=HealthService(),
-            dispatch=DispatchService(
+
+        dispatch_svc: DispatchService | DispatchServiceV2
+        run_svc: RunService | RunServiceV2
+        if (
+            app.state.event_store is not None
+            and app.state.job_queue is not None
+            and app.state.state_store is not None
+        ):
+            dispatch_svc = DispatchServiceV2(
+                event_store=app.state.event_store,
+                job_queue=app.state.job_queue,
+                state_store=app.state.state_store,
+            )
+            run_svc = RunServiceV2(
+                event_store=app.state.event_store,
+                job_queue=app.state.job_queue,
+                state_store=app.state.state_store,
+            )
+        else:
+            dispatch_svc = DispatchService(
                 store=app.state.api_store,
                 config=app.state.config,
                 emitter=app.state.emitter,
                 execution_env=app.state.execution_env,
-            ),
+            )
+            run_svc = RunService(
+                store=app.state.api_store,
+                config=app.state.config,
+                execution_env=app.state.execution_env,
+                vm_state_store=app.state.vm_state_store,
+            )
+
+        set_services(
+            health=HealthService(),
+            dispatch=dispatch_svc,
             vm=VMService(
                 store=app.state.api_store,
                 config=app.state.config,
                 execution_env=app.state.execution_env,
                 vm_state_store=app.state.vm_state_store,
             ),
-            run=RunService(
-                store=app.state.api_store,
-                config=app.state.config,
-                execution_env=app.state.execution_env,
-                vm_state_store=app.state.vm_state_store,
-            ),
+            run=run_svc,
             config=config_svc,
             events=EventsService(settings, app.state.config, event_reader=app.state.event_reader),
             metrics=MetricsService(metrics_reader=app.state.metrics_reader),
