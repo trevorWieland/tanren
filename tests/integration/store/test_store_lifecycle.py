@@ -36,10 +36,11 @@ def _make_dispatch(workflow_id: str = "wf-test-1-100") -> Dispatch:
 
 
 @pytest.fixture
-async def store(tmp_path: Path) -> SqliteStore:
+async def store(tmp_path: Path):
     s = SqliteStore(tmp_path / "lifecycle.db")
     await s._ensure_conn()
-    return s
+    yield s
+    await s.close()
 
 
 class TestFullDispatchLifecycle:

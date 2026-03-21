@@ -20,10 +20,11 @@ DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 @pytest.fixture
-async def store(tmp_path: Path) -> SqliteStore:
+async def store(tmp_path: Path):
     s = SqliteStore(tmp_path / "test.db")
     await s._ensure_conn()
-    return s
+    yield s
+    await s.close()
 
 
 def _make_request(**overrides: object) -> DispatchRequest:
