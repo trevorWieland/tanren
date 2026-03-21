@@ -107,7 +107,7 @@ class EventsService:
                 offset=offset,
             )
         else:
-            from tanren_core.adapters.event_reader import (  # noqa: PLC0415 — conditional import based on configuration
+            from tanren_core.adapters.event_reader import (
                 query_events,
             )
 
@@ -154,9 +154,9 @@ def _get_event_adapter() -> TypeAdapter[EventPayload]:
     Returns:
         TypeAdapter[EventPayload]: Cached Pydantic type adapter for event payloads.
     """
-    from pydantic import TypeAdapter as TA  # noqa: PLC0415 — lazy init
+    from pydantic import TypeAdapter as TA
 
-    from tanren_api.models import EventPayload as EP  # noqa: PLC0415 — lazy init
+    from tanren_api.models import EventPayload as EP
 
     global _event_adapter
     if _event_adapter is None:

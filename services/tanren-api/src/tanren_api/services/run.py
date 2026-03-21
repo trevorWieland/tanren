@@ -504,7 +504,7 @@ class RunService:
         vm_state_store = self._vm_state_store
 
         async def _resume_background() -> None:
-            from tanren_core.manager import (  # noqa: PLC0415 — heavy import
+            from tanren_core.manager import (
                 WorkerManager,
             )
 

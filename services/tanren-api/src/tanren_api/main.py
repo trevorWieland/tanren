@@ -76,16 +76,16 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         app.state.event_reader = None
         app.state.metrics_reader = None
         if db and is_postgres_url(db):
-            from tanren_core.adapters.postgres_emitter import (  # noqa: PLC0415 — optional dep
+            from tanren_core.adapters.postgres_emitter import (
                 PostgresEventEmitter,
             )
-            from tanren_core.adapters.postgres_event_reader import (  # noqa: PLC0415 — optional dep
+            from tanren_core.adapters.postgres_event_reader import (
                 PostgresEventReader,
             )
-            from tanren_core.adapters.postgres_metrics_reader import (  # noqa: PLC0415 — optional dep
+            from tanren_core.adapters.postgres_metrics_reader import (
                 PostgresMetricsReader,
             )
-            from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — optional dep
+            from tanren_core.adapters.postgres_pool import (
                 create_postgres_pool,
             )
 
@@ -107,7 +107,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         app.state.state_store = None
         store_url = settings.db_url or db
         if store_url:
-            from tanren_core.store.factory import create_sqlite_store  # noqa: PLC0415
+            from tanren_core.store.factory import create_sqlite_store
 
             try:
                 store = await create_sqlite_store(store_url)
@@ -201,7 +201,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     # Create MCP sub-application and combine lifespans
     mcp_app = mcp.http_app(path="/")
 
-    from fastmcp.utilities.lifespan import (  # noqa: PLC0415 — deferred import for optional dependency
+    from fastmcp.utilities.lifespan import (
         combine_lifespans,
     )
 

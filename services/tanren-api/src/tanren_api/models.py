@@ -23,6 +23,7 @@ from tanren_core.adapters.events import (
     VMReleased,
 )
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
 
@@ -89,6 +90,14 @@ class DispatchRequest(BaseModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
         description="Issue identifier ('0' = API-originated)",
     )
+    resolved_profile: EnvironmentProfile | None = Field(
+        default=None,
+        description="Fully resolved environment profile (caller-provided)",
+    )
+    preserve_on_failure: bool = Field(
+        default=False,
+        description="If True, skip teardown on failure for debugging",
+    )
 
 
 class ProvisionRequest(BaseModel):
@@ -99,6 +108,10 @@ class ProvisionRequest(BaseModel):
     project: str = Field(..., description="Project name")
     branch: str = Field(..., description="Git branch")
     environment_profile: str = Field(default="default", description="Environment profile")
+    resolved_profile: EnvironmentProfile | None = Field(
+        default=None,
+        description="Fully resolved environment profile",
+    )
 
 
 class ExecuteRequest(BaseModel):
@@ -308,8 +321,9 @@ class RunEnvironment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     env_id: str = Field(..., description="Environment identifier")
-    vm_id: str = Field(..., description="Backing VM identifier")
-    host: str = Field(..., description="VM hostname or IP")
+    dispatch_id: str = Field(default="", description="Dispatch workflow identifier")
+    vm_id: str = Field(default="", description="Backing VM identifier")
+    host: str = Field(default="", description="VM hostname or IP")
     status: RunEnvironmentStatus = Field(
         default=RunEnvironmentStatus.PROVISIONED, description="Environment status"
     )
@@ -332,7 +346,8 @@ class RunTeardownAccepted(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env_id: str = Field(..., description="Environment identifier")
+    env_id: str = Field(default="", description="Environment identifier")
+    dispatch_id: str = Field(default="", description="Dispatch workflow identifier")
     status: RunEnvironmentStatus = Field(
         default=RunEnvironmentStatus.TEARING_DOWN, description="Teardown status"
     )
@@ -344,6 +359,7 @@ class RunStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     env_id: str = Field(..., description="Environment identifier")
+    dispatch_id: str = Field(default="", description="Dispatch workflow identifier")
     status: RunEnvironmentStatus = Field(..., description="Current environment status")
     phase: Phase | None = Field(default=None, description="Current phase if executing")
     outcome: Outcome | None = Field(default=None, description="Final outcome if completed")

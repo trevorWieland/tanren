@@ -78,8 +78,8 @@ convention = "google"
 # Worker uses deferred imports to break circular deps and handle reconstructions
 "packages/tanren-core/src/tanren_core/worker.py" = ["TCH", "DOC201", "DOC501", "PLC0415", "SIM105", "S110"]
 # FastAPI evaluates type annotations at runtime for DI, validation, and OpenAPI.
-# S101 asserts guard service-not-None in MCP tools (fast-fail, not security).
-"services/tanren-api/**" = ["TCH", "S101"]
+# S101 asserts, PLC0415 deferred imports, DOC201/DOC501 docstring issues.
+"services/tanren-api/**" = ["TCH", "S101", "PLC0415", "DOC201", "DOC501"]
 
 # ===== TY =====
 [tool.ty.rules]

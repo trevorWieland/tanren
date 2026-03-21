@@ -154,7 +154,7 @@ async def dispatch_create(
     Returns:
         DispatchAccepted with dispatch_id and status.
     """
-    from tanren_api.models import DispatchRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import DispatchRequest
 
     assert _dispatch_svc is not None
     body = DispatchRequest(
@@ -243,7 +243,7 @@ async def vm_provision(
     Returns:
         VMProvisionAccepted with env_id and status.
     """
-    from tanren_api.models import ProvisionRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ProvisionRequest
 
     assert _vm_svc is not None
     body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
@@ -295,7 +295,7 @@ async def vm_dry_run(
     Returns:
         VMDryRunResult with provider, server_type, and estimated_cost_hourly.
     """
-    from tanren_api.models import ProvisionRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ProvisionRequest
 
     assert _vm_svc is not None
     body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
@@ -332,7 +332,7 @@ async def run_provision(
     Returns:
         RunEnvironment with env_id, vm_id, host, and status.
     """
-    from tanren_api.models import ProvisionRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ProvisionRequest
 
     assert _run_svc is not None
     body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
@@ -363,7 +363,7 @@ async def run_execute(
     Returns:
         RunExecuteAccepted with env_id, dispatch_id, and status.
     """
-    from tanren_api.models import ExecuteRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ExecuteRequest
 
     assert _run_svc is not None
     body = ExecuteRequest(
@@ -423,7 +423,7 @@ async def run_full(
     Returns:
         DispatchAccepted with dispatch_id and status.
     """
-    from tanren_api.models import RunFullRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import RunFullRequest
 
     assert _run_svc is not None
     body = RunFullRequest(
