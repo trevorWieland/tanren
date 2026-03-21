@@ -186,7 +186,7 @@ class SSHExecutionEnvironment:
             await self._await_ssh_ready(conn, timeout_secs=self._ssh_ready_timeout_secs)
 
             # 5. Bootstrap VM (idempotent)
-            bootstrap_result = await self._bootstrapper.bootstrap(conn)
+            await self._bootstrapper.bootstrap(conn)
 
             # 6. Setup workspace
             repo_url = self._repo_urls.get(dispatch.project, "")
@@ -475,7 +475,6 @@ class SSHExecutionEnvironment:
         workspace = remote_runtime.workspace_path
         teardown_cmds = remote_runtime.teardown_commands
         vm_handle = remote_runtime.vm_handle
-        provision_start = remote_runtime.provision_start
 
         try:
             for cmd in teardown_cmds:

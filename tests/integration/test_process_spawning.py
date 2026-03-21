@@ -5,11 +5,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.process import (
     _run_with_timeout,
     spawn_process,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -94,6 +97,7 @@ class TestSpawnBashGate:
             gate_cmd="echo 'all tests passed'",
             context=None,
             timeout=10,
+            resolved_profile=DEFAULT_PROFILE,
         )
         result = await spawn_process(dispatch, tmp_path, config)
         assert result.exit_code == 0
@@ -119,6 +123,7 @@ class TestSpawnBashGate:
             gate_cmd="exit 1",
             context=None,
             timeout=10,
+            resolved_profile=DEFAULT_PROFILE,
         )
         result = await spawn_process(dispatch, tmp_path, config)
         assert result.exit_code == 1
@@ -143,6 +148,7 @@ class TestSpawnBashGate:
             gate_cmd=None,
             context=None,
             timeout=10,
+            resolved_profile=DEFAULT_PROFILE,
         )
         result = await spawn_process(dispatch, tmp_path, config)
         assert result.exit_code == 1

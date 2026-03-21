@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from tanren_api.errors import NotFoundError, ServiceError
+from tanren_api.errors import NotFoundError
 from tanren_api.models import (
     ProvisionRequest,
     VMDryRunResult,
@@ -200,12 +200,10 @@ class VMService:
                 ),
                 None,
             )
-            if prov and vm_id in prov.result_json:
+            if prov and prov.result_json is not None and vm_id in prov.result_json:
                 result = ProvisionResult.model_validate_json(prov.result_json)
                 step_id = uuid.uuid4().hex
-                payload = TeardownStepPayload(
-                    dispatch=d.dispatch, handle=result.handle
-                )
+                payload = TeardownStepPayload(dispatch=d.dispatch, handle=result.handle)
                 await self._job_queue.enqueue_step(
                     step_id=step_id,
                     dispatch_id=d.dispatch_id,

@@ -579,5 +579,3 @@ async def metrics_vms(
     """
     assert _metrics_svc is not None
     return await _metrics_svc.vms(since=since, until=until, project=project)
-
-

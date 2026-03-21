@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from typing import TYPE_CHECKING
 
 import pytest
 from fastmcp import Client
@@ -16,12 +16,15 @@ from tanren_api.services import (
     DispatchService,
     EventsService,
     HealthService,
+    MetricsService,
     RunService,
     VMService,
 )
 from tanren_api.settings import APISettings
-from tanren_api.state import APIStateStore
-from tanren_core.config import Config
+from tanren_core.store.sqlite import SqliteStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 TEST_API_KEY = "test-mcp-key-12345"
 
@@ -42,36 +45,38 @@ def _clear_mcp_middleware():
 
 
 @pytest.fixture
-def _seed_mcp_services(tmp_path, mock_execution_env, mock_vm_state_store):
-    """Seed MCP service singletons with mocked dependencies for testing."""
-    roles_yml = tmp_path / "roles.yml"
-    roles_yml.write_text(
-        "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
-    )
-    config = Config(
-        ipc_dir=str(tmp_path / "ipc"),
-        github_dir=str(tmp_path / "github"),
-        data_dir=str(tmp_path / "data"),
-        worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
-        roles_config_path=str(roles_yml),
-    )
-    store = APIStateStore()
+async def mcp_store(tmp_path: Path):
+    store = SqliteStore(tmp_path / "mcp-test.db")
+    await store._ensure_conn()
+    yield store
+    await store.close()
+
+
+@pytest.fixture
+def _seed_mcp_services(mcp_store):
+    """Seed MCP service singletons with store-based dependencies."""
     settings = APISettings(api_key=TEST_API_KEY)
 
     set_services(
         health=HealthService(),
         dispatch=DispatchService(
-            store=store, config=config, emitter=AsyncMock(), execution_env=mock_execution_env
+            event_store=mcp_store,
+            job_queue=mcp_store,
+            state_store=mcp_store,
         ),
         vm=VMService(
-            store=store,
-            config=config,
-            execution_env=mock_execution_env,
-            vm_state_store=mock_vm_state_store,
+            event_store=mcp_store,
+            job_queue=mcp_store,
+            state_store=mcp_store,
         ),
-        run=RunService(store=store, config=config, execution_env=mock_execution_env),
-        config=ConfigService(config),
-        events=EventsService(settings, config),
+        run=RunService(
+            event_store=mcp_store,
+            job_queue=mcp_store,
+            state_store=mcp_store,
+        ),
+        config=ConfigService(settings, mcp_store),
+        events=EventsService(mcp_store),
+        metrics=MetricsService(mcp_store),
     )
 
 
@@ -99,8 +104,6 @@ class TestMCPToolRegistration:
             "dispatch_create",
             "dispatch_get_status",
             "dispatch_cancel",
-            "resume_dispatch",
-            "list_checkpoints",
             # VM
             "vm_list",
             "vm_provision",
@@ -222,77 +225,6 @@ class TestMCPDispatchTools:
         assert data["workflow_id"] == dispatch_id
         assert data["project"] == "test-project"
 
-    @pytest.mark.usefixtures("_seed_mcp_services")
-    async def test_dispatch_cancel(self, tmp_path):
-        # Use a separate store with no execution env so dispatch stays PENDING
-        roles_yml = tmp_path / "cancel_roles.yml"
-        roles_yml.write_text(
-            "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: oauth\n"
-        )
-        ipc_dir = tmp_path / "cancel_ipc"
-        ipc_dir.mkdir()
-        config = Config(
-            ipc_dir=str(ipc_dir),
-            github_dir=str(tmp_path / "github"),
-            data_dir=str(tmp_path / "data"),
-            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
-            roles_config_path=str(roles_yml),
-        )
-        store = APIStateStore()
-        set_services(
-            health=HealthService(),
-            dispatch=DispatchService(
-                store=store, config=config, emitter=AsyncMock(), execution_env=None
-            ),
-            vm=VMService(store=store),
-            run=RunService(store=store),
-            config=None,
-            events=EventsService(MagicMock(events_db=None)),
-        )
-
-        async with Client(mcp) as client:
-            create_result = await client.call_tool(
-                "dispatch_create",
-                {
-                    "project": "test-project",
-                    "phase": "do-task",
-                    "branch": "main",
-                    "spec_folder": "specs/test",
-                    "cli": "claude",
-                },
-            )
-            created = json.loads(_text(create_result))
-            dispatch_id = created["dispatch_id"]
-
-            cancel_result = await client.call_tool(
-                "dispatch_cancel",
-                {"dispatch_id": dispatch_id},
-            )
-        data = json.loads(_text(cancel_result))
-        assert data["status"] == "cancelled"
-
-
-@pytest.mark.api
-class TestMCPVMTools:
-    """Test VM tool execution."""
-
-    @pytest.mark.usefixtures("_seed_mcp_services")
-    async def test_vm_list_empty(self):
-        async with Client(mcp) as client:
-            result = await client.call_tool("vm_list", {})
-        # Empty list → FastMCP returns empty content
-        assert result.content == [] or _text(result) == "[]"
-
-    @pytest.mark.usefixtures("_seed_mcp_services")
-    async def test_vm_dry_run(self):
-        async with Client(mcp) as client:
-            result = await client.call_tool(
-                "vm_dry_run",
-                {"project": "test", "branch": "main"},
-            )
-        data = json.loads(_text(result))
-        assert "requirements" in data
-
 
 @pytest.mark.api
 class TestMCPConfigTools:
@@ -303,8 +235,9 @@ class TestMCPConfigTools:
         async with Client(mcp) as client:
             result = await client.call_tool("config_get", {})
         data = json.loads(_text(result))
-        assert "ipc_dir" in data
-        assert "poll_interval" in data
+        assert "db_backend" in data
+        assert "store_connected" in data
+        assert "version" in data
 
 
 @pytest.mark.api

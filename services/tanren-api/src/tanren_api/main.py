@@ -63,13 +63,19 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
         # ── Wire services ──
         dispatch_svc = DispatchService(
-            event_store=store, job_queue=store, state_store=store,
+            event_store=store,
+            job_queue=store,
+            state_store=store,
         )
         run_svc = RunService(
-            event_store=store, job_queue=store, state_store=store,
+            event_store=store,
+            job_queue=store,
+            state_store=store,
         )
         vm_svc = VMService(
-            event_store=store, job_queue=store, state_store=store,
+            event_store=store,
+            job_queue=store,
+            state_store=store,
         )
         events_svc = EventsService(store)
         config_svc = ConfigService(settings, store)

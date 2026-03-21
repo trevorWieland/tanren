@@ -2,12 +2,27 @@
 
 import asyncio
 import logging
+import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tanren_core.ipc import atomic_write
 from tanren_core.schemas import WorktreeEntry, WorktreeRegistry
+
+
+async def atomic_write(path: Path, content: str) -> None:
+    """Write content atomically: write .tmp, fsync, rename."""
+
+    def _write() -> None:
+        tmp_path = path.with_suffix(".tmp")
+        with open(tmp_path, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.rename(path)
+
+    await asyncio.to_thread(_write)
+
 
 logger = logging.getLogger(__name__)
 

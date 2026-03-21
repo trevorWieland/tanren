@@ -139,17 +139,13 @@ class TestModels:
 
     def test_config_response_validates(self):
         resp = ConfigResponse(
-            ipc_dir="/tmp/ipc",
-            github_dir="/tmp/github",
-            poll_interval=5.0,
-            heartbeat_interval=30.0,
-            max_opencode=2,
-            max_codex=2,
-            max_gate=1,
-            events_enabled=True,
-            remote_enabled=False,
+            db_backend="sqlite",
+            store_connected=True,
+            worker_lanes={"impl": 1, "audit": 1, "gate": 3, "provision": 10},
+            remote_enabled=True,
+            version="0.1.0",
         )
-        assert resp.events_enabled is True
+        assert resp.store_connected is True
 
     def test_paginated_events_validates(self):
         resp = PaginatedEvents(events=[], total=0, limit=50, offset=0)

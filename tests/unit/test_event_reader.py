@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import aiosqlite
 import pytest
 
 from tanren_core.adapters.event_reader import EventReader, SqliteEventReader, query_events
-from tanren_core.adapters.sqlite_emitter import (
-    _SCHEMA,
-)
+from tanren_core.store.schema import SQLITE_EVENTS as _SCHEMA
 
 
 async def _setup_db(db_path, events: list[tuple[str, str, str, dict]]):
@@ -20,10 +19,10 @@ async def _setup_db(db_path, events: list[tuple[str, str, str, dict]]):
         for ts, wid, etype, payload in events:
             sql = (
                 "INSERT INTO events "
-                "(timestamp, workflow_id, event_type, payload) "
-                "VALUES (?, ?, ?, ?)"
+                "(event_id, timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?, ?)"
             )
-            await conn.execute(sql, (ts, wid, etype, json.dumps(payload)))
+            await conn.execute(sql, (uuid.uuid4().hex, ts, wid, etype, json.dumps(payload)))
         await conn.commit()
 
 
@@ -34,10 +33,10 @@ async def _setup_db_raw(db_path, events: list[tuple[str, str, str, str]]):
         for ts, wid, etype, raw_payload in events:
             sql = (
                 "INSERT INTO events "
-                "(timestamp, workflow_id, event_type, payload) "
-                "VALUES (?, ?, ?, ?)"
+                "(event_id, timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?, ?)"
             )
-            await conn.execute(sql, (ts, wid, etype, raw_payload))
+            await conn.execute(sql, (uuid.uuid4().hex, ts, wid, etype, raw_payload))
         await conn.commit()
 
 
@@ -51,9 +50,10 @@ class TestReadOnlyConnection:
         async with aiosqlite.connect(str(db)) as conn:
             await conn.executescript(_SCHEMA)
             await conn.execute(
-                "INSERT INTO events (timestamp, workflow_id, event_type, payload) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO events (event_id, timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?, ?)",
                 (
+                    uuid.uuid4().hex,
                     "2026-01-01T00:00:00Z",
                     "wf-1",
                     "DispatchReceived",

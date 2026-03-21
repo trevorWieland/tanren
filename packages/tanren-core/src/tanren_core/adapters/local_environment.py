@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     )
     from tanren_core.adapters.remote_types import VMHandle
     from tanren_core.config import Config
-    from tanren_core.heartbeat import HeartbeatWriter
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,8 @@ _PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase
 class LocalExecutionEnvironment:
     """ExecutionEnvironment backed by local subprocess adapters.
 
-    Wraps EnvValidator, PreflightRunner, PostflightRunner, ProcessSpawner,
-    and HeartbeatWriter into the provision/execute/teardown lifecycle.
+    Wraps EnvValidator, PreflightRunner, PostflightRunner, and ProcessSpawner
+    into the provision/execute/teardown lifecycle.
     """
 
     def __init__(
@@ -50,7 +49,7 @@ class LocalExecutionEnvironment:
         preflight: PreflightRunner,
         postflight: PostflightRunner,
         spawner: ProcessSpawner,
-        heartbeat: HeartbeatWriter,
+        heartbeat: object | None = None,
         config: Config,
     ) -> None:
         """Initialize with local subprocess adapters for each lifecycle phase."""
@@ -152,8 +151,11 @@ class LocalExecutionEnvironment:
             raise RuntimeError("LocalExecutionEnvironment requires local runtime handle")
         local_runtime = cast("LocalEnvironmentRuntime", handle.runtime)
 
-        # Start heartbeat
-        await self._heartbeat.start(dispatch_stem)
+        # Start heartbeat (if writer is available)
+        _hb = self._heartbeat
+        if _hb is not None and hasattr(_hb, "start"):
+            start_fn = getattr(_hb, "start")
+            await start_fn(dispatch_stem)
 
         start = time.monotonic()
         transient_retries = 0
@@ -258,8 +260,11 @@ class LocalExecutionEnvironment:
             )
 
         finally:
-            # Stop heartbeat
-            await self._heartbeat.stop(dispatch_stem)
+            # Stop heartbeat (if writer is available)
+            _hb = self._heartbeat
+            if _hb is not None and hasattr(_hb, "stop"):
+                stop_fn = getattr(_hb, "stop")
+                await stop_fn(dispatch_stem)
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
         """Return local worktree path. No SSH/VSCode for local."""

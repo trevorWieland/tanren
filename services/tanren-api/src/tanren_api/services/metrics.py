@@ -47,10 +47,10 @@ class MetricsService:
 
         for row in result.events:
             payload = row.payload
-            if project and payload.get("project") != project:
+            if project and str(payload.get("project", "")) != project:
                 continue
             total += 1
-            outcome = payload.get("outcome", "")
+            outcome = str(payload.get("outcome", ""))
             if outcome == "success":
                 succeeded += 1
             elif outcome == "fail":
@@ -63,7 +63,7 @@ class MetricsService:
                 blocked += 1
             dur = payload.get("duration_secs")
             if dur is not None:
-                durations.append(float(dur))
+                durations.append(float(str(dur)))
 
         durations.sort()
         avg = sum(durations) / len(durations) if durations else 0.0
@@ -107,18 +107,18 @@ class MetricsService:
 
         for row in result.events:
             payload = row.payload
-            if project and payload.get("project") != project:
+            if project and str(payload.get("project", "")) != project:
                 continue
 
             if group_by == "model":
-                key = payload.get("model", "unknown")
+                key = str(payload.get("model", "unknown"))
             elif group_by == "day":
-                key = payload.get("timestamp", "")[:10]
+                key = str(payload.get("timestamp", ""))[:10]
             else:
-                key = payload.get("workflow_id", "unknown")
+                key = str(payload.get("workflow_id", "unknown"))
 
-            cost = float(payload.get("total_cost", 0))
-            tokens = int(payload.get("total_tokens", 0))
+            cost = float(str(payload.get("total_cost", 0)))
+            tokens = int(str(payload.get("total_tokens", 0)))
             total_cost += cost
             total_tokens += tokens
 
@@ -136,14 +136,14 @@ class MetricsService:
                 group_key=key,
                 total_cost=b.total_cost + cost,
                 total_tokens=b.total_tokens + tokens,
-                input_tokens=b.input_tokens + int(payload.get("input_tokens", 0)),
-                output_tokens=b.output_tokens + int(payload.get("output_tokens", 0)),
+                input_tokens=b.input_tokens + int(str(payload.get("input_tokens", 0))),
+                output_tokens=b.output_tokens + int(str(payload.get("output_tokens", 0))),
                 cache_read_tokens=b.cache_read_tokens
-                + int(payload.get("cache_read_tokens", 0)),
+                + int(str(payload.get("cache_read_tokens", 0))),
                 cache_creation_tokens=b.cache_creation_tokens
-                + int(payload.get("cache_creation_tokens", 0)),
+                + int(str(payload.get("cache_creation_tokens", 0))),
                 reasoning_tokens=b.reasoning_tokens
-                + int(payload.get("reasoning_tokens", 0)),
+                + int(str(payload.get("reasoning_tokens", 0))),
                 event_count=b.event_count + 1,
             )
 
@@ -183,18 +183,18 @@ class MetricsService:
 
         for row in prov_result.events:
             p = row.payload
-            if project and p.get("project") != project:
+            if project and str(p.get("project", "")) != project:
                 continue
-            provider = p.get("provider", "unknown")
+            provider = str(p.get("provider", "unknown"))
             by_provider[provider] = by_provider.get(provider, 0) + 1
 
         for row in rel_result.events:
             p = row.payload
             dur = p.get("duration_secs", 0)
-            total_duration += int(dur) if dur else 0
+            total_duration += int(str(dur)) if dur else 0
             cost = p.get("estimated_cost")
             if cost is not None:
-                total_cost += float(cost)
+                total_cost += float(str(cost))
 
         avg_dur = total_duration / released if released > 0 else 0.0
 

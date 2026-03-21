@@ -57,7 +57,12 @@ try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 except ImportError:  # hcloud not installed
     pass
-from tanren_core.adapters.event_reader import EventReader, SqliteEventReader
+from tanren_core.adapters.event_reader import (
+    EventQueryResult,
+    EventReader,
+    EventRow,
+    SqliteEventReader,
+)
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import (
     ManualProvisionerSettings,
@@ -65,9 +70,6 @@ from tanren_core.adapters.manual_vm import (
     ManualVMProvisioner,
     NoVMAvailableError,
 )
-from tanren_core.adapters.null_emitter import NullEventEmitter
-from tanren_core.adapters.postgres_emitter import PostgresEventEmitter
-from tanren_core.adapters.postgres_event_reader import PostgresEventReader
 from tanren_core.adapters.postgres_pool import create_postgres_pool, is_postgres_url
 from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore
 from tanren_core.adapters.protocols import (
@@ -104,7 +106,6 @@ from tanren_core.adapters.remote_types import (
     WorkspacePath,
     WorkspaceSpec,
 )
-from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
@@ -137,7 +138,9 @@ __all__ = [
     "ErrorOccurred",
     "Event",
     "EventEmitter",
+    "EventQueryResult",
     "EventReader",
+    "EventRow",
     "ExecutionEnvironment",
     "GCPProvisionerSettings",
     "GCPSecretManagerProvider",
@@ -161,15 +164,12 @@ __all__ = [
     "ManualVMConfig",
     "ManualVMProvisioner",
     "NoVMAvailableError",
-    "NullEventEmitter",
     "OpencodeCredentialProvider",
     "PhaseCompleted",
     "PhaseResult",
     "PhaseStarted",
     "PostflightCompleted",
     "PostflightRunner",
-    "PostgresEventEmitter",
-    "PostgresEventReader",
     "PostgresVMStateStore",
     "PreflightCompleted",
     "PreflightRunner",
@@ -185,7 +185,6 @@ __all__ = [
     "SSHExecutionEnvironment",
     "SecretBundle",
     "SecretProvider",
-    "SqliteEventEmitter",
     "SqliteEventReader",
     "SqliteVMStateStore",
     "SubprocessSpawner",

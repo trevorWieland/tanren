@@ -11,7 +11,8 @@ from tanren_core.worker import Worker
 async def _run() -> None:
     load_config_env()
     config = Config.from_env()
-    store = await create_store(config.db_url)
+    db_url = config.db_url or "tanren_events.db"
+    store = await create_store(db_url)
     execution_env, _vm_store = build_ssh_execution_environment(config)
     worker = Worker(
         config=config,

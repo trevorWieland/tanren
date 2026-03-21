@@ -8,10 +8,12 @@ Reference docs:
 from __future__ import annotations
 
 import asyncio
+import shutil
+import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 import yaml
@@ -31,10 +33,15 @@ from tanren_core.store.events import DispatchCreated
 from tanren_core.store.factory import create_sqlite_store
 from tanren_core.store.payloads import (
     ExecuteResult,
+    ExecuteStepPayload,
     ProvisionResult,
     ProvisionStepPayload,
+    TeardownStepPayload,
 )
 from tanren_core.worker import Worker
+
+if TYPE_CHECKING:
+    from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
 
@@ -158,16 +165,15 @@ def _now() -> str:
 
 
 async def _enqueue_dispatch(
-    store: object,
+    store: EventStore | JobQueue | StateStore,
     dispatch: Dispatch,
     mode: DispatchMode,
 ) -> str:
     """Create dispatch projection, append event, enqueue provision step.
 
-    Returns the dispatch_id.
+    Returns:
+        The dispatch_id.
     """
-    from tanren_core.store.protocols import EventStore, JobQueue, StateStore
-
     event_store: EventStore = store  # type: ignore[assignment]
     job_queue: JobQueue = store  # type: ignore[assignment]
     state_store: StateStore = store  # type: ignore[assignment]
@@ -275,13 +281,14 @@ def run_provision(
 
             # Read result
             steps = await store.get_steps_for_dispatch(dispatch_id)
-            provision_step = next(
-                s for s in steps if s.step_type == StepType.PROVISION
-            )
+            provision_step = next(s for s in steps if s.step_type == StepType.PROVISION)
             if provision_step.status == StepStatus.FAILED:
                 typer.echo("Provision failed.", err=True)
                 raise typer.Exit(code=1)
 
+            if not provision_step.result_json:
+                typer.echo("Provision step has no result.", err=True)
+                raise typer.Exit(code=1)
             prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
             handle = prov_result.handle
 
@@ -351,8 +358,6 @@ def run_execute(
                 gate_cmd=gate_cmd,
             )
 
-            from tanren_core.store.payloads import ExecuteStepPayload
-
             exec_dispatch = _build_dispatch(
                 project=project,
                 phase=phase,
@@ -398,9 +403,7 @@ def run_execute(
                     StepStatus.FAILED,
                 ):
                     break
-                step = await store.dequeue(
-                    lane=lane, worker_id="cli", max_concurrent=1
-                )
+                step = await store.dequeue(lane=lane, worker_id="cli", max_concurrent=1)
                 if step:
                     await worker._process_step(step)
                 else:
@@ -414,15 +417,16 @@ def run_execute(
                 typer.echo("Execute failed.", err=True)
                 raise typer.Exit(code=1)
 
+            if not exec_step.result_json:
+                typer.echo("Execute step has no result.", err=True)
+                raise typer.Exit(code=1)
             exec_result = ExecuteResult.model_validate_json(exec_step.result_json)
             typer.echo(f"outcome: {exec_result.outcome.value}")
             typer.echo(f"signal: {exec_result.signal}")
             typer.echo(f"exit_code: {exec_result.exit_code}")
             typer.echo(f"duration_secs: {exec_result.duration_secs}")
             if exec_result.token_usage:
-                typer.echo(
-                    f"token_cost: ${getattr(exec_result.token_usage, 'total_cost', 0):.4f}"
-                )
+                typer.echo(f"token_cost: ${getattr(exec_result.token_usage, 'total_cost', 0):.4f}")
                 typer.echo(f"token_total: {getattr(exec_result.token_usage, 'total_tokens', 0)}")
         finally:
             await execution_env.close()
@@ -468,13 +472,9 @@ def run_teardown(
                 typer.echo(f"Dispatch {dispatch_id} not found", err=True)
                 raise typer.Exit(code=1)
 
-            from tanren_core.store.payloads import TeardownStepPayload
-
             dispatch_data = view.dispatch
             step_id = uuid.uuid4().hex
-            payload = TeardownStepPayload(
-                dispatch=dispatch_data, handle=prov_result.handle
-            )
+            payload = TeardownStepPayload(dispatch=dispatch_data, handle=prov_result.handle)
             await store.enqueue_step(
                 step_id=step_id,
                 dispatch_id=dispatch_id,
@@ -536,8 +536,6 @@ def run_full(
         _require_remote_config(config)
 
         # Use temp DB for single-invocation full lifecycle
-        import tempfile
-
         tmp_dir = Path(tempfile.mkdtemp(prefix="tanren-run-"))
         db_path = str(tmp_dir / "run.db")
         store = await create_sqlite_store(db_path)
@@ -619,8 +617,6 @@ def run_full(
             await execution_env.close()
             await store.close()
             # Clean up temp DB
-            import shutil
-
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     asyncio.run(_run())

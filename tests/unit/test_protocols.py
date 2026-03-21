@@ -9,14 +9,11 @@ from tanren_core.adapters import (
     GitPostflightRunner,
     GitPreflightRunner,
     GitWorktreeManager,
-    NullEventEmitter,
-    SqliteEventEmitter,
     SubprocessSpawner,
 )
 from tanren_core.adapters.protocols import (
     EnvProvisioner,
     EnvValidator,
-    EventEmitter,
     PostflightRunner,
     PreflightRunner,
     ProcessSpawner,
@@ -46,12 +43,6 @@ class TestProtocolConformance:
 
     def test_dotenv_env_provisioner(self):
         assert isinstance(DotenvEnvProvisioner(), EnvProvisioner)
-
-    def test_null_event_emitter(self):
-        assert isinstance(NullEventEmitter(), EventEmitter)
-
-    def test_sqlite_event_emitter(self):
-        assert isinstance(SqliteEventEmitter("/tmp/test.db"), EventEmitter)
 
     def test_dotenv_secret_provider(self, tmp_path: Path):
         assert isinstance(DotenvSecretProvider(secrets_dir=tmp_path), SecretProvider)
