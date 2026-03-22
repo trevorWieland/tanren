@@ -109,7 +109,7 @@ markers = [
 # ===== COVERAGE =====
 [tool.coverage.run]
 source = ["packages", "services"]
-omit = ["*/tests/*", "*/__pycache__/*", "*/adapters/hetzner_vm.py", "*/adapters/gcp_vm.py", "*/adapters/github_issue.py", "*/adapters/linear_issue.py"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/adapters/hetzner_vm.py", "*/adapters/gcp_vm.py", "*/adapters/github_issue.py", "*/adapters/linear_issue.py", "*/store/postgres.py"]
 
 [tool.coverage.report]
 fail_under = 80

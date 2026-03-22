@@ -34,7 +34,7 @@ from tanren_api.services import (
     VMService,
 )
 from tanren_api.settings import APISettings
-from tanren_core.store.factory import create_sqlite_store
+from tanren_core.store.factory import create_store
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         mcp.add_middleware(MCPApiKeyAuth(settings.api_key))
 
         # ── Store (mandatory) ──
-        store = await create_sqlite_store(settings.db_url)
+        store = await create_store(settings.db_url)
         app.state.event_store = store
         app.state.job_queue = store
         app.state.state_store = store

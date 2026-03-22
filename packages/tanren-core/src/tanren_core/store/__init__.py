@@ -31,6 +31,7 @@ from tanren_core.store.payloads import (
     TeardownResult,
     TeardownStepPayload,
 )
+from tanren_core.store.postgres import PostgresStore
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import DispatchListFilter, DispatchView, QueuedStep, StepView
 
@@ -51,6 +52,7 @@ __all__ = [
     "PersistedEnvironmentHandle",
     "PersistedSSHConfig",
     "PersistedVMInfo",
+    "PostgresStore",
     "ProvisionResult",
     "ProvisionStepPayload",
     "QueuedStep",
