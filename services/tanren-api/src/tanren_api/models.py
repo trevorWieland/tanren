@@ -90,9 +90,9 @@ class DispatchRequest(BaseModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
         description="Issue identifier ('0' = API-originated)",
     )
-    resolved_profile: EnvironmentProfile | None = Field(
-        default=None,
-        description="Fully resolved environment profile (caller-provided)",
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
+        description="Fully resolved environment profile",
     )
     preserve_on_failure: bool = Field(
         default=False,
@@ -108,8 +108,8 @@ class ProvisionRequest(BaseModel):
     project: str = Field(..., description="Project name")
     branch: str = Field(..., description="Git branch")
     environment_profile: str = Field(default="default", description="Environment profile")
-    resolved_profile: EnvironmentProfile | None = Field(
-        default=None,
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
         description="Fully resolved environment profile",
     )
 

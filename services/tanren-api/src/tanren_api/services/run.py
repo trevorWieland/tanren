@@ -68,10 +68,6 @@ class RunService:
         epoch = time.time_ns()
         workflow_id = f"wf-{req.project}-run-{epoch}"
 
-        resolved_profile = getattr(req, "resolved_profile", None) or EnvironmentProfile(
-            name=getattr(req, "environment_profile", "default")
-        )
-
         dispatch = Dispatch(
             workflow_id=workflow_id,
             project=req.project,
@@ -80,8 +76,8 @@ class RunService:
             spec_folder=".",
             cli=Cli.CLAUDE,
             timeout=1800,
-            environment_profile=resolved_profile.name,
-            resolved_profile=resolved_profile,
+            environment_profile=req.resolved_profile.name,
+            resolved_profile=req.resolved_profile,
         )
 
         lane = cli_to_lane(dispatch.cli)
@@ -219,6 +215,7 @@ class RunService:
         from tanren_api.models import DispatchRequest
         from tanren_api.services.dispatch import DispatchService
 
+        env_profile = getattr(req, "environment_profile", "default")
         dispatch_req = DispatchRequest(
             phase=req.phase,
             project=req.project,
@@ -229,7 +226,8 @@ class RunService:
             timeout=req.timeout,
             context=req.context,
             gate_cmd=req.gate_cmd,
-            environment_profile=getattr(req, "environment_profile", "default"),
+            environment_profile=env_profile,
+            resolved_profile=EnvironmentProfile(name=env_profile),
         )
 
         dispatch_svc = DispatchService(

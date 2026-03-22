@@ -28,8 +28,11 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 @pytest.mark.api
@@ -41,6 +44,7 @@ class TestModels:
             branch="main",
             spec_folder="specs/feature",
             cli=Cli.CLAUDE,
+            resolved_profile=DEFAULT_PROFILE,
         )
         assert req.project == "my-project"
         assert req.timeout == 1800
@@ -53,6 +57,7 @@ class TestModels:
                 "branch": "main",
                 "spec_folder": "s",
                 "cli": Cli.CLAUDE,
+                "resolved_profile": DEFAULT_PROFILE.model_dump(),
                 "unknown_field": "x",
             })
 
@@ -64,11 +69,12 @@ class TestModels:
                 branch="main",
                 spec_folder="s",
                 cli=Cli.CLAUDE,
+                resolved_profile=DEFAULT_PROFILE,
                 timeout=0,
             )
 
     def test_provision_request_validates(self):
-        req = ProvisionRequest(project="proj", branch="dev")
+        req = ProvisionRequest(project="proj", branch="dev", resolved_profile=DEFAULT_PROFILE)
         assert req.environment_profile == "default"
 
     def test_execute_request_validates(self):

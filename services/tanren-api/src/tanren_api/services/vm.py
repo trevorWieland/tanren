@@ -17,7 +17,6 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
-from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Phase
 from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
 from tanren_core.store.events import DispatchCreated
@@ -107,8 +106,8 @@ class VMService:
             spec_folder="",
             cli=Cli.CLAUDE,
             timeout=1800,
-            environment_profile=body.environment_profile,
-            resolved_profile=EnvironmentProfile(name=body.environment_profile),
+            environment_profile=body.resolved_profile.name,
+            resolved_profile=body.resolved_profile,
         )
 
         lane = cli_to_lane(dispatch.cli)

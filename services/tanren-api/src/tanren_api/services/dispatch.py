@@ -15,7 +15,6 @@ from tanren_api.models import (
     DispatchRequest,
     DispatchRunStatus,
 )
-from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Dispatch
 from tanren_core.store.enums import DispatchMode, DispatchStatus, cli_to_lane
 from tanren_core.store.events import DispatchCreated
@@ -58,8 +57,6 @@ class DispatchService:
         issue = body.issue if body.issue != "0" else str(epoch)
         workflow_id = f"wf-{body.project}-{issue}-{epoch}"
 
-        resolved_profile = body.resolved_profile or EnvironmentProfile(name="default")
-
         dispatch = Dispatch(
             workflow_id=workflow_id,
             project=body.project,
@@ -70,10 +67,10 @@ class DispatchService:
             auth=body.auth,
             model=body.model,
             timeout=body.timeout,
-            environment_profile=resolved_profile.name,
+            environment_profile=body.resolved_profile.name,
             context=body.context,
             gate_cmd=body.gate_cmd,
-            resolved_profile=resolved_profile,
+            resolved_profile=body.resolved_profile,
             preserve_on_failure=getattr(body, "preserve_on_failure", False),
         )
 

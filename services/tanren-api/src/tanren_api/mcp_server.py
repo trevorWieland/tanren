@@ -153,6 +153,7 @@ async def dispatch_create(
         DispatchAccepted with dispatch_id and status.
     """
     from tanren_api.models import DispatchRequest
+    from tanren_core.env.environment_schema import EnvironmentProfile
 
     assert _dispatch_svc is not None
     body = DispatchRequest(
@@ -166,6 +167,7 @@ async def dispatch_create(
         context=context,
         gate_cmd=gate_cmd,
         issue=issue,
+        resolved_profile=EnvironmentProfile(name="default"),
     )
     return await _dispatch_svc.create(body)
 
@@ -242,9 +244,15 @@ async def vm_provision(
         VMProvisionAccepted with env_id and status.
     """
     from tanren_api.models import ProvisionRequest
+    from tanren_core.env.environment_schema import EnvironmentProfile
 
     assert _vm_svc is not None
-    body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
+    body = ProvisionRequest(
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+        resolved_profile=EnvironmentProfile(name=environment_profile),
+    )
     return await _vm_svc.provision(body)
 
 
@@ -294,9 +302,15 @@ async def vm_dry_run(
         VMDryRunResult with provider, server_type, and estimated_cost_hourly.
     """
     from tanren_api.models import ProvisionRequest
+    from tanren_core.env.environment_schema import EnvironmentProfile
 
     assert _vm_svc is not None
-    body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
+    body = ProvisionRequest(
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+        resolved_profile=EnvironmentProfile(name=environment_profile),
+    )
     return await _vm_svc.dry_run(body)
 
 
@@ -331,9 +345,15 @@ async def run_provision(
         RunEnvironment with env_id, vm_id, host, and status.
     """
     from tanren_api.models import ProvisionRequest
+    from tanren_core.env.environment_schema import EnvironmentProfile
 
     assert _run_svc is not None
-    body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
+    body = ProvisionRequest(
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+        resolved_profile=EnvironmentProfile(name=environment_profile),
+    )
     return await _run_svc.provision(body)
 
 
