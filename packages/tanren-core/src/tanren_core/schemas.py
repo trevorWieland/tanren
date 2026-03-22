@@ -1,4 +1,4 @@
-"""Pydantic models matching PROTOCOL.md Sections 2-4."""
+"""Core dispatch/result domain models."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from tanren_core.postflight import IntegrityRepairs
 
 
 class Phase(StrEnum):
-    """Dispatch phase types from PROTOCOL.md Section 2."""
+    """Dispatch phase types."""
 
     DO_TASK = "do-task"
     AUDIT_TASK = "audit-task"
@@ -25,7 +25,7 @@ class Phase(StrEnum):
 
 
 class Cli(StrEnum):
-    """CLI tool types from PROTOCOL.md Section 2."""
+    """CLI tool types."""
 
     OPENCODE = "opencode"
     CODEX = "codex"
@@ -42,7 +42,7 @@ class AuthMode(StrEnum):
 
 
 class Outcome(StrEnum):
-    """Result outcomes from PROTOCOL.md Section 3."""
+    """Result outcomes."""
 
     SUCCESS = "success"
     FAIL = "fail"
@@ -185,7 +185,7 @@ class InvestigationReport(BaseModel):
 
 
 class Dispatch(BaseModel):
-    """Dispatch schema from PROTOCOL.md Section 2."""
+    """Dispatch schema."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -218,7 +218,7 @@ class Dispatch(BaseModel):
 
 
 class Result(BaseModel):
-    """Result schema from PROTOCOL.md Section 3."""
+    """Result schema."""
 
     model_config = ConfigDict(extra="forbid")
 

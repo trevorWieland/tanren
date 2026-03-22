@@ -1,9 +1,8 @@
 """Queue-consuming worker that processes dispatch steps.
 
-Replaces ``WorkerManager``'s file-based IPC poll loop with a
-queue-backed step processor.  Each step (provision, execute, teardown)
-is consumed from the ``JobQueue``, executed via ``ExecutionEnvironment``,
-and acknowledged with its result.
+Each step (provision, execute, teardown) is consumed from the
+``JobQueue``, executed via ``ExecutionEnvironment``, and acknowledged
+with its result.
 
 Auto-chained dispatches (``DispatchMode.AUTO``) automatically enqueue
 the next step in the same transaction as the completion event.

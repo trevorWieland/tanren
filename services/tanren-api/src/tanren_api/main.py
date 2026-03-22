@@ -108,7 +108,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="tanren",
-        description="Tanren worker-manager HTTP API",
+        description="Tanren HTTP API",
         version="0.1.0",
         lifespan=lifespan,
     )

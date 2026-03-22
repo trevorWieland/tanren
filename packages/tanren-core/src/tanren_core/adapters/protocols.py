@@ -1,9 +1,4 @@
-"""Protocol interfaces for worker manager adapters.
-
-Reference docs:
-- worker-manager/ADAPTERS.md
-- docs/architecture/overview.md
-"""
+"""Protocol interfaces for execution environment adapters."""
 
 from __future__ import annotations
 

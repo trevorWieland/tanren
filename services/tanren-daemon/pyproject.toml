@@ -1,7 +1,7 @@
 [project]
 name = "tanren-daemon"
 version = "0.2.5"
-description = "Worker manager polling daemon for tanren"
+description = "Queue-consuming worker daemon for tanren"
 requires-python = ">=3.14"
 license = "Apache-2.0"
 dependencies = [
@@ -9,7 +9,8 @@ dependencies = [
 ]
 
 [project.scripts]
-worker-manager = "tanren_daemon.main:main"
+tanren-daemon = "tanren_daemon.main:main"
+worker-manager = "tanren_daemon.main:main"  # backward compat alias
 
 [build-system]
 requires = ["uv-build>=0.1.0"]

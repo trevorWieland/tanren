@@ -1,9 +1,4 @@
-"""Shared builder for SSHExecutionEnvironment.
-
-Extracted from WorkerManager._build_remote_env() so that both the CLI
-and the API can construct an SSH execution environment without
-instantiating a full WorkerManager.
-"""
+"""Shared builder for SSHExecutionEnvironment used by daemon and CLI."""
 
 from __future__ import annotations
 

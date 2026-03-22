@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "tanren",
-    "description": "Tanren worker-manager HTTP API",
+    "description": "Tanren HTTP API",
     "version": "0.1.0"
   },
   "paths": {
@@ -1279,7 +1279,7 @@
           "bash"
         ],
         "title": "Cli",
-        "description": "CLI tool types from PROTOCOL.md Section 2."
+        "description": "CLI tool types."
       },
       "ConfigResponse": {
         "properties": {
@@ -2291,7 +2291,7 @@
           "timeout"
         ],
         "title": "Outcome",
-        "description": "Result outcomes from PROTOCOL.md Section 3."
+        "description": "Result outcomes."
       },
       "PaginatedEvents": {
         "properties": {
@@ -2399,7 +2399,7 @@
           "cleanup"
         ],
         "title": "Phase",
-        "description": "Dispatch phase types from PROTOCOL.md Section 2."
+        "description": "Dispatch phase types."
       },
       "PhaseCompleted": {
         "properties": {
@@ -3234,6 +3234,42 @@
             ],
             "title": "Created At",
             "description": "ISO 8601 creation timestamp"
+          },
+          "server_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Type",
+            "description": "Server type (set for dry-run results)"
+          },
+          "estimated_cost_hourly": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Hourly",
+            "description": "Estimated hourly cost (set for dry-run results)"
+          },
+          "would_provision": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Would Provision",
+            "description": "Whether provisioning would proceed (set for dry-run results)"
           }
         },
         "additionalProperties": false,

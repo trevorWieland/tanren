@@ -1,4 +1,4 @@
-"""Worktree management: create/validate/remove/registry per PROTOCOL.md Section 8."""
+"""Worktree management: create/validate/remove/registry."""
 
 import asyncio
 import logging
