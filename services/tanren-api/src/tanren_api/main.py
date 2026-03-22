@@ -101,12 +101,10 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             metrics=metrics_svc,
         )
 
-        # Enter MCP sub-app lifespan (handles MCP server internals)
-        async with mcp_app.router.lifespan_context(app):
+        try:
             yield
-
-        # Shutdown
-        await store.close()
+        finally:
+            await store.close()
 
     app = FastAPI(
         title="tanren",

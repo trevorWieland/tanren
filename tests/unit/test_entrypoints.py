@@ -29,6 +29,7 @@ def test_worker_main_calls_asyncio_run(monkeypatch):
 
     def _fake_asyncio_run(coro):
         seen["coro"] = coro
+        coro.close()  # Close the coroutine to prevent ResourceWarning
 
     monkeypatch.setattr(main_mod.asyncio, "run", _fake_asyncio_run)
     main_mod.main()
