@@ -367,6 +367,68 @@ async def test_vm_dry_run(wired_client):
 
 
 @pytest.mark.asyncio
+async def test_vm_dry_run_lifecycle(tmp_path):
+    """VM dry-run: enqueue, worker processes step, status reaches terminal."""
+    from tanren_core.store.enums import DispatchStatus, StepType
+    from tanren_core.store.payloads import DryRunResult
+
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "dry-run-lifecycle.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        # 1. Enqueue dry-run via API
+        resp = await client.post(
+            "/api/v1/vm/dry-run",
+            json={
+                "project": "dry-lifecycle",
+                "branch": "main",
+                "resolved_profile": {"name": "default"},
+            },
+            headers=AUTH,
+        )
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # 2. Simulate worker processing the DRY_RUN step
+        store = app.state.state_store
+        queue = app.state.job_queue
+
+        steps = await store.get_steps_for_dispatch(env_id)
+        assert len(steps) == 1
+        dry_step = steps[0]
+        assert dry_step.step_type == StepType.DRY_RUN
+
+        result = DryRunResult(
+            provider="hetzner",
+            server_type="cx22",
+            estimated_cost_hourly=0.01,
+            would_provision=True,
+        )
+        await queue.ack(dry_step.step_id, result_json=result.model_dump_json())
+        await store.update_dispatch_status(env_id, DispatchStatus.COMPLETED)
+
+        # 3. Poll status — should reflect completed dry-run
+        status_resp = await client.get(
+            f"/api/v1/vm/provision/{env_id}",
+            headers=AUTH,
+        )
+        assert status_resp.status_code == 200
+        status_data = status_resp.json()
+        assert status_data["status"] == "active"
+        assert status_data["provider"] == "hetzner"
+        assert status_data["server_type"] == "cx22"
+        assert status_data["would_provision"] is True
+
+
+@pytest.mark.asyncio
 async def test_vm_provision_status_not_found(wired_client):
     """VM provision status returns 404 for nonexistent env_id."""
     resp = await wired_client.get(

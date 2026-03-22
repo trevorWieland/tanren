@@ -555,6 +555,12 @@ class Worker:
         )
         await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
+        # DRY_RUN is a terminal step — mark dispatch completed
+        await self._state_store.update_dispatch_status(
+            dispatch.workflow_id,
+            DispatchStatus.COMPLETED,
+        )
+
     # ── Error handling ────────────────────────────────────────────────────
 
     async def _handle_step_failure(

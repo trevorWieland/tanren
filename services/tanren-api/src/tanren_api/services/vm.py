@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from tanren_api.errors import NotFoundError
 from tanren_api.models import (
     ProvisionRequest,
+    VMProvider,
     VMProvisionAccepted,
     VMProvisionStatus,
     VMReleaseConfirmed,
@@ -19,6 +20,7 @@ from tanren_core.schemas import Cli, Dispatch, Phase
 from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
 from tanren_core.store.events import DispatchCreated
 from tanren_core.store.payloads import (
+    DryRunResult,
     DryRunStepPayload,
     ProvisionResult,
     ProvisionStepPayload,
@@ -173,8 +175,24 @@ class VMService:
             )
         elif prov and prov.status == StepStatus.FAILED:
             return VMProvisionStatus(env_id=env_id, status=VMStatus.FAILED)
-        else:
-            return VMProvisionStatus(env_id=env_id, status=VMStatus.PROVISIONING)
+
+        # DRY_RUN dispatches have no PROVISION step — check for DRY_RUN
+        dry = next((s for s in steps if s.step_type == StepType.DRY_RUN), None)
+        if dry and dry.status == StepStatus.COMPLETED and dry.result_json:
+            result = DryRunResult.model_validate_json(dry.result_json)
+            return VMProvisionStatus(
+                env_id=env_id,
+                status=VMStatus.ACTIVE,
+                provider=VMProvider(result.provider),
+                server_type=result.server_type,
+                estimated_cost_hourly=result.estimated_cost_hourly,
+                would_provision=result.would_provision,
+                created_at=view.created_at,
+            )
+        elif dry and dry.status == StepStatus.FAILED:
+            return VMProvisionStatus(env_id=env_id, status=VMStatus.FAILED)
+
+        return VMProvisionStatus(env_id=env_id, status=VMStatus.PROVISIONING)
 
     async def release(self, vm_id: str) -> VMReleaseConfirmed:
         """Enqueue a teardown step for the VM.

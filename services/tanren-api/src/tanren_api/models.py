@@ -290,6 +290,15 @@ class VMProvisionStatus(BaseModel):
     host: str | None = Field(default=None, description="VM hostname or IP (set once provisioned)")
     provider: VMProvider | None = Field(default=None, description="VM provider")
     created_at: str | None = Field(default=None, description="ISO 8601 creation timestamp")
+    server_type: str | None = Field(
+        default=None, description="Server type (set for dry-run results)"
+    )
+    estimated_cost_hourly: float | None = Field(
+        default=None, description="Estimated hourly cost (set for dry-run results)"
+    )
+    would_provision: bool | None = Field(
+        default=None, description="Whether provisioning would proceed (set for dry-run results)"
+    )
 
 
 class VMDryRunResult(BaseModel):
