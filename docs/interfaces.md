@@ -1,6 +1,7 @@
 # Interaction Interfaces
 
-Tanren currently exposes three primary interaction methods.
+Tanren exposes four primary interaction methods and a set of store protocols
+that define the internal queue contract.
 
 ## CLI (`tanren`)
 
@@ -13,21 +14,10 @@ Primary for local operation and debugging.
 
 ## Python Library Surface
 
-Coordinators can import worker-manager classes and inject adapter
-implementations directly. Protocol interfaces in
+Coordinators can import core classes and inject adapter implementations
+directly. Protocol interfaces in
 `packages/tanren-core/src/tanren_core/adapters/protocols.py` are the stable
-extension boundary.
-
-## File-Based IPC
-
-Coordinator and worker-manager communicate via filesystem queues:
-
-- `dispatch/` -> coordinator writes dispatches
-- `results/` -> worker writes outcomes
-- `input/` -> worker writes nudges
-- `in-progress/` -> worker heartbeats
-
-Canonical schema and state transitions live in `protocol/PROTOCOL.md`.
+extension boundary for execution environments and adapters.
 
 ## HTTP API
 
@@ -58,3 +48,23 @@ Tanren exposes a FastAPI-based HTTP API for dashboard and multi-coordinator use 
 Configuration via `TANREN_API_*` environment variables (host, port, API key, CORS origins).
 
 OpenAPI spec: `services/tanren-api/openapi.json`
+
+## MCP Server
+
+The MCP (Model Context Protocol) server exposes tanren operations as tools
+that LLM-based agents can invoke directly. It shares the same store backend
+as the HTTP API.
+
+## Store Protocols
+
+The internal queue contract is defined by three store protocols in
+`packages/tanren-core/src/tanren_core/store/protocols.py`:
+
+| Protocol | Responsibility |
+|----------|----------------|
+| `EventStore` | Append-only event log with transactional projection updates |
+| `JobQueue` | Step-based job queue (enqueue, dequeue, ack, nack) |
+| `StateStore` | Read-only queries against dispatch and step projections |
+
+Backed by SQLite (default) or Postgres. See [protocol/README.md](../protocol/README.md)
+for the full dispatch lifecycle and lane definitions.

@@ -28,4 +28,4 @@ Each scope has different ownership and lifecycle constraints.
 ## Operational Reference
 
 For environment validation and secret CLI commands, see
-`../worker-manager-README.md`.
+`../worker-README.md`.

@@ -51,4 +51,4 @@ tanren vm dry-run --project my-project --environment-profile default
 tanren run full --project my-project --spec-path tanren/specs/s0001 --phase do-task
 ```
 
-For full state semantics and protocol details, see `protocol/PROTOCOL.md`.
+For full state semantics and protocol details, see `protocol/README.md`.

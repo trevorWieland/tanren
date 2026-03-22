@@ -44,7 +44,7 @@ Coverage thresholds: 80% for unit tests, 75% for integration tests.
 - `services/tanren-api/`: HTTP API (FastAPI)
 - `commands/`: workflow instructions used by agents
 - `profiles/`: coding standards by stack
-- `protocol/`: IPC wire contract
+- `protocol/`: protocol overview
 - `docs/`: canonical deep-dive documentation
 
 ## Commit Style
@@ -69,8 +69,8 @@ Each PR should include:
 
 If behavior or interfaces change, update docs in the same PR.
 
-1. Update the canonical page in `docs/` (or `protocol/PROTOCOL.md` for wire contracts).
-2. Update summaries/links in `README.md`, `docs/worker-manager-README.md`, or `AGENTS.md` only if needed.
+1. Update the canonical page in `docs/` (or `packages/tanren-core/src/tanren_core/store/protocols.py` for store contracts).
+2. Update summaries/links in `README.md`, `docs/worker-README.md`, or `AGENTS.md` only if needed.
 3. Avoid diverging duplicate explanations across files.
 
 For migration and source-of-truth context, see `docs/hld-migration-map.md` and

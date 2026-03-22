@@ -3,10 +3,10 @@
 The tanren-core library uses protocol-based dependency injection to keep its core
 orchestration logic decoupled from concrete infrastructure. Every external
 concern -- git operations, process spawning, environment validation, event
-storage -- is accessed through a `typing.Protocol` interface. The
-`WorkerManager` constructor accepts optional adapter arguments; when omitted,
-it falls back to built-in defaults that cover the common case (local
-subprocess execution against a git repository with dotenv-based secrets).
+storage -- is accessed through a `typing.Protocol` interface. The `Worker`
+class accepts injected adapters; when omitted, it falls back to built-in
+defaults that cover the common case (local subprocess execution against a
+git repository with dotenv-based secrets).
 
 This design follows the principle of **opinionated defaults, pluggable
 internals**: the built-in adapters handle the 90% case out of the box, while
@@ -535,34 +535,34 @@ remote VM connection/workspace state) through the lifecycle.
 
 For simpler adapters (e.g., a custom `EventEmitter` that posts to a webhook),
 the pattern is the same: implement the protocol methods and inject via the
-`WorkerManager` constructor.
+`Worker` constructor.
 
 
 ## Injecting Custom Adapters
 
-All adapters are injected through the `WorkerManager` constructor. Any
+All adapters are injected through the `Worker` constructor. Any
 parameter left as `None` gets its built-in default:
 
 ```python
-from tanren_core.manager import WorkerManager
+from tanren_core.worker import Worker
 from tanren_core.config import Config
 
 # Use all defaults
-manager = WorkerManager()
+worker = Worker()
 
 # Inject a custom execution environment
-manager = WorkerManager(
+worker = Worker(
     execution_env=DockerExecutionEnvironment(image="my-image:v2"),
 )
 
 # Inject a custom event emitter alongside the default everything else
-manager = WorkerManager(
+worker = Worker(
     emitter=PostgresEventEmitter(dsn="postgresql://..."),
 )
 
 # Override fine-grained adapters (these feed into LocalExecutionEnvironment
 # when no execution_env is provided)
-manager = WorkerManager(
+worker = Worker(
     preflight=CustomPreflightRunner(),
     postflight=CustomPostflightRunner(),
     env_validator=VaultEnvValidator(vault_addr="https://vault.internal"),
@@ -572,30 +572,19 @@ manager = WorkerManager(
 The constructor signature:
 
 ```python
-class WorkerManager:
+class Worker:
     def __init__(
         self,
-        config: Config | None = None,
         *,
-        execution_env: ExecutionEnvironment | None = None,
-        worktree_mgr: WorktreeManager | None = None,
-        preflight: PreflightRunner | None = None,
-        postflight: PostflightRunner | None = None,
-        spawner: ProcessSpawner | None = None,
-        env_validator: EnvValidator | None = None,
-        env_provisioner: EnvProvisioner | None = None,
-        emitter: EventEmitter | None = None,
+        config: WorkerConfig,
+        event_store: EventStore,
+        job_queue: JobQueue,
+        state_store: StateStore,
+        execution_env: ExecutionEnvironment,
     ) -> None: ...
 ```
 
-When `execution_env` is not provided, the manager constructs a
-`LocalExecutionEnvironment` from the fine-grained adapters (env_validator,
-preflight, postflight, spawner). This means you can customize individual
-steps without writing a full `ExecutionEnvironment` implementation. If you
-do provide `execution_env`, it takes full control of the provision/execute
-lifecycle and the fine-grained adapters are only used for SETUP/CLEANUP
-phases (worktree creation and env provisioning).
-
-The event emitter has its own auto-configuration: if `emitter` is not
-injected and `config.events_db` is set, the manager uses
-`SqliteEventEmitter`; otherwise it falls back to `NullEventEmitter`.
+The `Worker` requires explicit store and execution environment injection.
+Use the store factory (`tanren_core.store.factory`) to construct the
+appropriate store backend (SQLite or Postgres) and pass the three store
+protocols along with an `ExecutionEnvironment` implementation.

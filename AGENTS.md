@@ -36,7 +36,7 @@ Unless explicitly stated otherwise, run all build/test/dev commands from the rep
 
 ## Documentation Source of Truth
 - Deep-dive docs live under `docs/`; root `README.md` should summarize and link.
-- IPC wire contract changes are canonical in `protocol/PROTOCOL.md` (not duplicated elsewhere).
+- Store protocol changes are canonical in `packages/tanren-core/src/tanren_core/store/protocols.py` (not duplicated elsewhere).
 - Runtime implementation details are canonical in `docs/ADAPTERS.md`.
 - If behavior, interfaces, lifecycle, or security model changes, update the relevant canonical doc in the same PR.
 - Use `docs/hld-migration-map.md` as the topic coverage index; avoid creating disconnected duplicate explanations.

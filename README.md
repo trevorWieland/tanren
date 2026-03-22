@@ -31,9 +31,10 @@ graph TD
         API[HTTP API]
         MCP[MCP Server]
         CLI[tanren CLI]
-        IPC[File-based IPC]
 
-        WM[WorkerManager]
+        STORE[(Store — SQLite / Postgres)]
+
+        WORKER[Worker daemon]
 
         LOCAL[Local Environment]
         SSH[SSH Environment]
@@ -46,15 +47,16 @@ graph TD
 
     DASH --> API
     DASH --> MCP
-    COORD --> IPC
+    COORD --> CLI
 
-    API --> WM
-    MCP --> WM
-    CLI --> WM
-    IPC --> WM
+    API --> STORE
+    MCP --> STORE
+    CLI --> STORE
 
-    WM --> LOCAL
-    WM --> SSH
+    WORKER --> STORE
+
+    WORKER --> LOCAL
+    WORKER --> SSH
 
     LOCAL --> AGENT_CLI
     LOCAL --> GATES
@@ -131,8 +133,8 @@ for the full bootstrap flow.
   remote VMs over SSH (Hetzner, GCP)
 - **Methodology system** -- reusable commands, coding standards profiles, and
   product context templates installed into target projects
-- **Multiple entry points** -- HTTP API, MCP server, CLI, and file-based IPC
-  for flexible coordinator integration
+- **Multiple entry points** -- HTTP API, MCP server, and CLI for flexible
+  coordinator integration
 - **Gate checks** -- automated validation between phases with configurable
   per-phase gate commands
 - **Event tracking** -- structured event emission to SQLite or Postgres for
@@ -167,7 +169,7 @@ tanren/
 │   ├── tanren-api/  # HTTP API (FastAPI)
 │   ├── tanren-cli/  # CLI tool
 │   └── tanren-daemon/ # worker manager daemon
-├── protocol/        # file-based IPC protocol specification
+├── protocol/        # protocol overview
 ├── docs/            # architecture, workflow, ops, roadmap
 └── scripts/         # install and utility scripts
 ```
@@ -186,11 +188,11 @@ tanren/
 - [docs/getting-started/bootstrap.md](docs/getting-started/bootstrap.md) - install/bootstrap flow
 - [docs/operations/security-secrets.md](docs/operations/security-secrets.md) - security and secret handling
 - [docs/operations/observability.md](docs/operations/observability.md) - events and metering
-- [docs/interfaces.md](docs/interfaces.md) - CLI/library/IPC interaction surfaces
+- [docs/interfaces.md](docs/interfaces.md) - CLI, library, and store interaction surfaces
 - [docs/design-principles.md](docs/design-principles.md) - architectural principles
 - [docs/roadmap.md](docs/roadmap.md) - date-stamped roadmap
 - [protocol/README.md](protocol/README.md) - protocol overview
-- [docs/worker-manager-README.md](docs/worker-manager-README.md) - runtime behavior and operations
+- [docs/worker-README.md](docs/worker-README.md) - worker architecture and operations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) - adapter architecture and extension points
 
 ## Contributing
