@@ -8,6 +8,7 @@ you need step-by-step control over provision → execute → teardown.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
@@ -49,16 +50,24 @@ mcp = FastMCP("tanren")
 
 
 # ---------------------------------------------------------------------------
-# Service accessors — set during lifespan via set_services()
+# Service registry — set once during lifespan via set_services()
 # ---------------------------------------------------------------------------
 
-_health_svc: HealthService | None = None
-_dispatch_svc: DispatchService | None = None
-_vm_svc: VMService | None = None
-_run_svc: RunService | None = None
-_config_svc: ConfigService | None = None
-_events_svc: EventsService | None = None
-_metrics_svc: MetricsService | None = None
+
+@dataclass
+class _MCPServiceRegistry:
+    """Concrete service registry — set once during lifespan."""
+
+    health: HealthService
+    dispatch: DispatchService
+    vm: VMService
+    run: RunService
+    config: ConfigService
+    events: EventsService
+    metrics: MetricsService
+
+
+_registry: _MCPServiceRegistry | None = None
 
 
 def set_services(
@@ -71,15 +80,23 @@ def set_services(
     events: EventsService,
     metrics: MetricsService,
 ) -> None:
-    """Wire service instances into the MCP tool layer (called during app lifespan)."""
-    global _health_svc, _dispatch_svc, _vm_svc, _run_svc, _config_svc, _events_svc, _metrics_svc
-    _health_svc = health
-    _dispatch_svc = dispatch
-    _vm_svc = vm
-    _run_svc = run
-    _config_svc = config
-    _events_svc = events
-    _metrics_svc = metrics
+    """Wire service instances into the MCP tool layer."""
+    global _registry
+    _registry = _MCPServiceRegistry(
+        health=health,
+        dispatch=dispatch,
+        vm=vm,
+        run=run,
+        config=config,
+        events=events,
+        metrics=metrics,
+    )
+
+
+def _svc() -> _MCPServiceRegistry:
+    """Get the service registry. Raises AssertionError if not initialized."""
+    assert _registry is not None, "MCP services not initialized — call set_services() first"
+    return _registry
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +116,7 @@ async def health_check() -> HealthResponse:
     Returns:
         HealthResponse with status, version, and uptime_seconds.
     """
-    assert _health_svc is not None
-    return await _health_svc.health()
+    return await _svc().health.health()
 
 
 @mcp.tool(
@@ -115,8 +131,7 @@ async def readiness_check() -> ReadinessResponse:
     Returns:
         ReadinessResponse with status field.
     """
-    assert _health_svc is not None
-    return await _health_svc.readiness()
+    return await _svc().health.readiness()
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +169,6 @@ async def dispatch_create(
     from tanren_api.models import DispatchRequest
     from tanren_core.env.environment_schema import EnvironmentProfile
 
-    assert _dispatch_svc is not None
     body = DispatchRequest(
         project=project,
         phase=phase,
@@ -168,7 +182,7 @@ async def dispatch_create(
         issue=issue,
         resolved_profile=EnvironmentProfile(name="default"),
     )
-    return await _dispatch_svc.create(body)
+    return await _svc().dispatch.create(body)
 
 
 @mcp.tool(
@@ -184,8 +198,7 @@ async def dispatch_get_status(dispatch_id: str) -> DispatchDetail:
     Returns:
         DispatchDetail with full dispatch state including timestamps.
     """
-    assert _dispatch_svc is not None
-    return await _dispatch_svc.get(dispatch_id)
+    return await _svc().dispatch.get(dispatch_id)
 
 
 @mcp.tool(
@@ -200,8 +213,7 @@ async def dispatch_cancel(dispatch_id: str) -> DispatchCancelled:
     Returns:
         DispatchCancelled with dispatch_id and status.
     """
-    assert _dispatch_svc is not None
-    return await _dispatch_svc.cancel(dispatch_id)
+    return await _svc().dispatch.cancel(dispatch_id)
 
 
 # ---------------------------------------------------------------------------
@@ -221,8 +233,7 @@ async def vm_list() -> list[VMSummary]:
     Returns:
         List of VMSummary records for each active VM assignment.
     """
-    assert _vm_svc is not None
-    return await _vm_svc.list_vms()
+    return await _svc().vm.list_vms()
 
 
 @mcp.tool(
@@ -245,14 +256,13 @@ async def vm_provision(
     from tanren_api.models import ProvisionRequest
     from tanren_core.env.environment_schema import EnvironmentProfile
 
-    assert _vm_svc is not None
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
         resolved_profile=EnvironmentProfile(name=environment_profile),
     )
-    return await _vm_svc.provision(body)
+    return await _svc().vm.provision(body)
 
 
 @mcp.tool(
@@ -267,8 +277,7 @@ async def vm_provision_status(env_id: str) -> VMProvisionStatus:
     Returns:
         VMProvisionStatus with current status, vm_id, and host.
     """
-    assert _vm_svc is not None
-    return await _vm_svc.get_provision_status(env_id)
+    return await _svc().vm.get_provision_status(env_id)
 
 
 @mcp.tool(
@@ -280,8 +289,7 @@ async def vm_release(vm_id: str) -> VMReleaseConfirmed:
     Returns:
         VMReleaseConfirmed with vm_id and status.
     """
-    assert _vm_svc is not None
-    return await _vm_svc.release(vm_id)
+    return await _svc().vm.release(vm_id)
 
 
 @mcp.tool(
@@ -303,14 +311,13 @@ async def vm_dry_run(
     from tanren_api.models import ProvisionRequest
     from tanren_core.env.environment_schema import EnvironmentProfile
 
-    assert _vm_svc is not None
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
         resolved_profile=EnvironmentProfile(name=environment_profile),
     )
-    return await _vm_svc.dry_run(body)
+    return await _svc().vm.dry_run(body)
 
 
 # ---------------------------------------------------------------------------
@@ -346,14 +353,13 @@ async def run_provision(
     from tanren_api.models import ProvisionRequest
     from tanren_core.env.environment_schema import EnvironmentProfile
 
-    assert _run_svc is not None
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
         resolved_profile=EnvironmentProfile(name=environment_profile),
     )
-    return await _run_svc.provision(body)
+    return await _svc().run.provision(body)
 
 
 @mcp.tool(
@@ -382,7 +388,6 @@ async def run_execute(
     """
     from tanren_api.models import ExecuteRequest
 
-    assert _run_svc is not None
     body = ExecuteRequest(
         project=project,
         spec_path=spec_path,
@@ -394,7 +399,7 @@ async def run_execute(
         context=context,
         gate_cmd=gate_cmd,
     )
-    return await _run_svc.execute(env_id, body)
+    return await _svc().run.execute(env_id, body)
 
 
 @mcp.tool(
@@ -410,8 +415,7 @@ async def run_teardown(env_id: str) -> RunTeardownAccepted:
     Returns:
         RunTeardownAccepted with env_id and status.
     """
-    assert _run_svc is not None
-    return await _run_svc.teardown(env_id)
+    return await _svc().run.teardown(env_id)
 
 
 @mcp.tool(
@@ -442,7 +446,6 @@ async def run_full(
     """
     from tanren_api.models import RunFullRequest
 
-    assert _run_svc is not None
     body = RunFullRequest(
         project=project,
         branch=branch,
@@ -455,7 +458,7 @@ async def run_full(
         context=context,
         gate_cmd=gate_cmd,
     )
-    return await _run_svc.full(body)
+    return await _svc().run.full(body)
 
 
 @mcp.tool(
@@ -471,8 +474,7 @@ async def run_status(env_id: str) -> RunStatus:
     Returns:
         RunStatus with env_id, status, phase, outcome, and duration.
     """
-    assert _run_svc is not None
-    return await _run_svc.status(env_id)
+    return await _svc().run.status(env_id)
 
 
 # ---------------------------------------------------------------------------
@@ -492,8 +494,7 @@ async def config_get() -> ConfigResponse:
     Returns:
         ConfigResponse with configuration details.
     """
-    assert _config_svc is not None
-    return await _config_svc.get()
+    return await _svc().config.get()
 
 
 # ---------------------------------------------------------------------------
@@ -519,10 +520,9 @@ async def events_query(
     Returns:
         PaginatedEvents with events list, total count, and pagination info.
     """
-    assert _events_svc is not None
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
-    return await _events_svc.query(
+    return await _svc().events.query(
         workflow_id=workflow_id,
         event_type=event_type,
         limit=limit,
@@ -551,8 +551,7 @@ async def metrics_summary(
     Returns:
         MetricsSummaryResponse with success rate, duration percentiles, and counts.
     """
-    assert _metrics_svc is not None
-    return await _metrics_svc.summary(since=since, until=until, project=project)
+    return await _svc().metrics.summary(since=since, until=until, project=project)
 
 
 @mcp.tool(
@@ -572,8 +571,7 @@ async def metrics_costs(
     Returns:
         MetricsCostsResponse with cost buckets.
     """
-    assert _metrics_svc is not None
-    return await _metrics_svc.costs(since=since, until=until, project=project, group_by=group_by)
+    return await _svc().metrics.costs(since=since, until=until, project=project, group_by=group_by)
 
 
 @mcp.tool(
@@ -592,5 +590,4 @@ async def metrics_vms(
     Returns:
         MetricsVMsResponse with VM counts, duration, and estimated cost.
     """
-    assert _metrics_svc is not None
-    return await _metrics_svc.vms(since=since, until=until, project=project)
+    return await _svc().metrics.vms(since=since, until=until, project=project)

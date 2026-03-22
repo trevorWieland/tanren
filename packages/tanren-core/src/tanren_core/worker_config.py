@@ -245,8 +245,3 @@ class WorkerConfig(BaseModel):
             ccusage_codex_cmd=resolved.get("WM_CCUSAGE_CODEX_CMD", "npx @ccusage/codex"),
             ccusage_opencode_cmd=resolved.get("WM_CCUSAGE_OPENCODE_CMD", "npx @ccusage/opencode"),
         )
-
-    @property
-    def checkpoints_dir(self) -> str:
-        """Directory for dispatch checkpoint files, derived from data_dir."""
-        return str(Path(self.data_dir) / "checkpoints")
