@@ -8,7 +8,7 @@ Never rely on running individual tests, targeted files for linting, etc. for val
 - Core library lives in `packages/tanren-core/src/tanren_core/`.
 - Services live in `services/tanren-{api,daemon,cli}/`.
 - Tests are under `tests/unit/` and `tests/integration/`.
-- Keep new core modules in `packages/tanren-core/src/tanren_core/` and mirror test placement (for example, `tanren_core/ipc.py` -> `tests/unit/test_ipc.py`).
+- Keep new core modules in `packages/tanren-core/src/tanren_core/` and mirror test placement (for example, `tanren_core/worker.py` -> `tests/unit/test_worker.py`).
 
 ## Build, Test, and Development Commands
 Unless explicitly stated otherwise, run all build/test/dev commands from the repo root.

@@ -40,8 +40,7 @@ Interface) are handled by other components but listed here for completeness.
 ## Current Protocol Interfaces
 
 The tanren-core library defines eight protocols. Each one covers a single
-responsibility and has exactly one built-in concrete implementation (two in
-the case of `EventEmitter`).
+responsibility and has exactly one built-in concrete implementation.
 
 ### WorktreeManager
 
@@ -172,27 +171,31 @@ caller wraps it in `asyncio.to_thread()`.
 **Default:** `DotenvEnvProvisioner` -- copies `.env` from project root into
 the worktree.
 
-### EventEmitter
+### EventStore
 
-Emit structured events for observability and debugging.
+Append structured events and query the event log for observability and
+debugging. Defined in `store/protocols.py`.
 
 ```python
-class EventEmitter(Protocol):
-    async def emit(self, event: Event) -> None: ...
+class EventStore(Protocol):
+    async def append(self, event: Event) -> None: ...
+    async def query_events(
+        self, *, dispatch_id=None, event_type=None, since=None, until=None, limit=50, offset=0
+    ) -> EventQueryResult: ...
     async def close(self) -> None: ...
 ```
 
-**Lifecycle:** `emit` is called at key points throughout dispatch handling
+**Lifecycle:** `append` is called at key points throughout dispatch handling
 (DispatchReceived, PhaseStarted, PhaseCompleted, PreflightCompleted,
-PostflightCompleted, RetryScheduled, ErrorOccurred). `close` is called during
+PostflightCompleted, RetryScheduled, ErrorOccurred). `query_events` supports
+paginated, filterable reads over the event log. `close` is called during
 graceful shutdown.
 
-**Defaults:**
-- `NullEventEmitter` -- silently discards all events (used when no
-  `events_db` is configured).
-- `SqliteEventEmitter` -- writes events to a SQLite database with indexed
-  columns for workflow_id, event_type, and timestamp. Lazily opens the
-  connection on first `emit()`.
+**Implementations:**
+- `SqliteStore` -- writes events to a SQLite database with WAL mode and
+  indexed columns for workflow_id, event_type, and timestamp.
+- `PostgresStore` -- writes events to a Postgres database using an
+  externally-owned `asyncpg` connection pool.
 
 ### ExecutionEnvironment
 
@@ -321,7 +324,7 @@ bootstrapping, workspace management, agent execution, and state persistence:
 ```python
 class SSHExecutionEnvironment:
     def __init__(self, *, vm_provisioner, bootstrapper, workspace_mgr,
-                 runner, state_store, secret_loader, emitter,
+                 runner, state_store, secret_loader,
                  ssh_config_defaults, repo_urls): ...
 
     async def provision(self, dispatch, config) -> EnvironmentHandle:
@@ -533,9 +536,9 @@ The typed `runtime` field on `EnvironmentHandle` is the extension point for
 carrying environment-specific state (for example local preflight context or
 remote VM connection/workspace state) through the lifecycle.
 
-For simpler adapters (e.g., a custom `EventEmitter` that posts to a webhook),
-the pattern is the same: implement the protocol methods and inject via the
-`Worker` constructor.
+For simpler adapters (e.g., a custom `EventStore` that forwards to an
+external system), the pattern is the same: implement the protocol methods
+and inject via the `Worker` constructor.
 
 
 ## Injecting Custom Adapters
@@ -555,9 +558,9 @@ worker = Worker(
     execution_env=DockerExecutionEnvironment(image="my-image:v2"),
 )
 
-# Inject a custom event emitter alongside the default everything else
+# Inject a custom event store alongside the default everything else
 worker = Worker(
-    emitter=PostgresEventEmitter(dsn="postgresql://..."),
+    event_store=PostgresStore(pool=my_pg_pool),
 )
 
 # Override fine-grained adapters (these feed into LocalExecutionEnvironment

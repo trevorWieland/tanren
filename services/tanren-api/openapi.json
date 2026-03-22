@@ -215,7 +215,7 @@
           "vm"
         ],
         "summary": "List Vms",
-        "description": "List active VM assignments.\n\nReturns:\n    list[VMSummary]: Active VM assignments.",
+        "description": "List active VM assignments.",
         "operationId": "list_vms_api_v1_vm_get",
         "parameters": [
           {
@@ -262,7 +262,7 @@
           "vm"
         ],
         "summary": "Provision Vm",
-        "description": "Provision a new VM (non-blocking).\n\nReturns:\n    VMProvisionAccepted: Accepted response with tracking env_id.",
+        "description": "Provision a new VM (non-blocking).",
         "operationId": "provision_vm_api_v1_vm_provision_post",
         "parameters": [
           {
@@ -315,7 +315,7 @@
           "vm"
         ],
         "summary": "Get Provision Status",
-        "description": "Poll status of an in-progress or completed VM provisioning.\n\nReturns:\n    VMProvisionStatus: Current provisioning status.",
+        "description": "Poll status of an in-progress or completed VM provisioning.",
         "operationId": "get_provision_status_api_v1_vm_provision__env_id__get",
         "parameters": [
           {
@@ -369,7 +369,7 @@
           "vm"
         ],
         "summary": "Release Vm",
-        "description": "Release a VM assignment.\n\nReturns:\n    VMReleaseConfirmed: Confirmation of the released VM.",
+        "description": "Release a VM assignment.",
         "operationId": "release_vm_api_v1_vm__vm_id__delete",
         "parameters": [
           {
@@ -423,7 +423,7 @@
           "vm"
         ],
         "summary": "Dry Run Provision",
-        "description": "Dry-run provision \u2014 show what would happen without creating resources.\n\nReturns:\n    VMDryRunResult: Simulated provisioning result.",
+        "description": "Dry-run provision \u2014 enqueue a DRY_RUN step and return dispatch_id for polling.",
         "operationId": "dry_run_provision_api_v1_vm_dry_run_post",
         "parameters": [
           {
@@ -452,7 +452,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VMDryRunResult"
+                  "$ref": "#/components/schemas/VMProvisionAccepted"
                 }
               }
             }
@@ -797,7 +797,7 @@
           "events"
         ],
         "summary": "List Events",
-        "description": "Query structured events with optional filters.\n\nReturns:\n    PaginatedEvents: Paginated list of matching events.",
+        "description": "Query structured events with optional filters.",
         "operationId": "list_events_api_v1_events_get",
         "parameters": [
           {
@@ -903,7 +903,7 @@
           "metrics"
         ],
         "summary": "Metrics Summary",
-        "description": "Workflow success/failure rate and duration stats.\n\nReturns:\n    MetricsSummaryResponse: Aggregated success/failure rates and duration statistics.",
+        "description": "Workflow success/failure rate and duration stats.",
         "operationId": "metrics_summary_api_v1_metrics_summary_get",
         "parameters": [
           {
@@ -1000,7 +1000,7 @@
           "metrics"
         ],
         "summary": "Metrics Costs",
-        "description": "Token cost metrics grouped by model, day, or workflow.\n\nReturns:\n    MetricsCostsResponse: Token cost metrics with grouping buckets.",
+        "description": "Token cost metrics grouped by model, day, or workflow.",
         "operationId": "metrics_costs_api_v1_metrics_costs_get",
         "parameters": [
           {
@@ -1108,7 +1108,7 @@
           "metrics"
         ],
         "summary": "Metrics Vms",
-        "description": "VM utilization metrics.\n\nReturns:\n    MetricsVMsResponse: VM provisioning and utilization metrics.",
+        "description": "VM utilization metrics.",
         "operationId": "metrics_vms_api_v1_metrics_vms_get",
         "parameters": [
           {
@@ -1283,67 +1283,46 @@
       },
       "ConfigResponse": {
         "properties": {
-          "ipc_dir": {
+          "db_backend": {
             "type": "string",
-            "title": "Ipc Dir",
-            "description": "IPC directory path"
+            "title": "Db Backend",
+            "description": "Store backend: sqlite or postgres"
           },
-          "github_dir": {
-            "type": "string",
-            "title": "Github Dir",
-            "description": "Root directory for git repos"
-          },
-          "poll_interval": {
-            "type": "number",
-            "title": "Poll Interval",
-            "description": "Seconds between polls"
-          },
-          "heartbeat_interval": {
-            "type": "number",
-            "title": "Heartbeat Interval",
-            "description": "Seconds between heartbeats"
-          },
-          "max_opencode": {
-            "type": "integer",
-            "title": "Max Opencode",
-            "description": "Max concurrent opencode processes"
-          },
-          "max_codex": {
-            "type": "integer",
-            "title": "Max Codex",
-            "description": "Max concurrent codex processes"
-          },
-          "max_gate": {
-            "type": "integer",
-            "title": "Max Gate",
-            "description": "Max concurrent gate processes"
-          },
-          "events_enabled": {
+          "store_connected": {
             "type": "boolean",
-            "title": "Events Enabled",
-            "description": "Whether event emission is active"
+            "title": "Store Connected",
+            "description": "Whether the store is reachable"
+          },
+          "worker_lanes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Worker Lanes",
+            "description": "Lane concurrency limits"
           },
           "remote_enabled": {
             "type": "boolean",
             "title": "Remote Enabled",
             "description": "Whether remote execution is configured"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "API version"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "ipc_dir",
-          "github_dir",
-          "poll_interval",
-          "heartbeat_interval",
-          "max_opencode",
-          "max_codex",
-          "max_gate",
-          "events_enabled",
-          "remote_enabled"
+          "db_backend",
+          "store_connected",
+          "worker_lanes",
+          "remote_enabled",
+          "version"
         ],
         "title": "ConfigResponse",
-        "description": "Non-secret config projection."
+        "description": "Non-secret config projection (V2)."
       },
       "CostBucketResponse": {
         "properties": {
@@ -1747,6 +1726,16 @@
             "title": "Issue",
             "description": "Issue identifier ('0' = API-originated)",
             "default": "0"
+          },
+          "resolved_profile": {
+            "$ref": "#/components/schemas/EnvironmentProfile",
+            "description": "Fully resolved environment profile"
+          },
+          "preserve_on_failure": {
+            "type": "boolean",
+            "title": "Preserve On Failure",
+            "description": "If True, skip teardown on failure for debugging",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -1756,7 +1745,8 @@
           "phase",
           "branch",
           "spec_folder",
-          "cli"
+          "cli",
+          "resolved_profile"
         ],
         "title": "DispatchRequest",
         "description": "Submit a dispatch \u2014 omits workflow_id (auto-generated server-side)."
@@ -1772,6 +1762,107 @@
         ],
         "title": "DispatchRunStatus",
         "description": "Runtime status of a dispatch."
+      },
+      "EnvironmentProfile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Profile name used for selection"
+          },
+          "type": {
+            "$ref": "#/components/schemas/EnvironmentProfileType",
+            "description": "Execution environment type",
+            "default": "local"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResourceRequirements",
+            "description": "Compute resource requirements"
+          },
+          "setup": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Setup",
+            "description": "Shell commands to run during environment setup"
+          },
+          "teardown": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Teardown",
+            "description": "Shell commands to run during environment teardown"
+          },
+          "gate_cmd": {
+            "type": "string",
+            "title": "Gate Cmd",
+            "description": "Default gate command for this profile",
+            "default": "make check"
+          },
+          "task_gate_cmd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Gate Cmd",
+            "description": "Gate command for task-scoped phases (do-task, gate, audit-task); falls back to gate_cmd"
+          },
+          "spec_gate_cmd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec Gate Cmd",
+            "description": "Gate command for spec-scoped phases (run-demo, audit-spec). Falls back to gate_cmd"
+          },
+          "server_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Type",
+            "description": "VM server type hint for the provisioner"
+          },
+          "mcp": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/McpServerConfig"
+            },
+            "type": "object",
+            "title": "Mcp",
+            "description": "MCP server configurations keyed by server name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "EnvironmentProfile",
+        "description": "Parsed environment profile from tanren.yml."
+      },
+      "EnvironmentProfileType": {
+        "type": "string",
+        "enum": [
+          "local",
+          "remote",
+          "docker"
+        ],
+        "title": "EnvironmentProfileType",
+        "description": "Supported environment profile types."
       },
       "ErrorOccurred": {
         "properties": {
@@ -1996,6 +2087,30 @@
         "type": "object",
         "title": "IntegrityRepairs",
         "description": "Typed post-flight integrity repair indicators."
+      },
+      "McpServerConfig": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "MCP server endpoint URL"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers",
+            "description": "HTTP headers to include in MCP requests"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "McpServerConfig",
+        "description": "MCP server configuration for remote CLI environments."
       },
       "MetricsCostsResponse": {
         "properties": {
@@ -2510,13 +2625,18 @@
             "title": "Environment Profile",
             "description": "Environment profile",
             "default": "default"
+          },
+          "resolved_profile": {
+            "$ref": "#/components/schemas/EnvironmentProfile",
+            "description": "Fully resolved environment profile"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "project",
-          "branch"
+          "branch",
+          "resolved_profile"
         ],
         "title": "ProvisionRequest",
         "description": "Request to provision a VM \u2014 subset of Dispatch fields."
@@ -2536,6 +2656,34 @@
         ],
         "title": "ReadinessResponse",
         "description": "Readiness probe response."
+      },
+      "ResourceRequirements": {
+        "properties": {
+          "cpu": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Cpu",
+            "description": "Number of CPU cores required",
+            "default": 2
+          },
+          "memory_gb": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Memory Gb",
+            "description": "Memory requirement in gigabytes",
+            "default": 4
+          },
+          "gpu": {
+            "type": "boolean",
+            "title": "Gpu",
+            "description": "Whether a GPU is required",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ResourceRequirements",
+        "description": "Resource requirements for an execution environment."
       },
       "RetryScheduled": {
         "properties": {
@@ -2598,17 +2746,25 @@
           "env_id": {
             "type": "string",
             "title": "Env Id",
-            "description": "Environment identifier"
+            "description": "Environment/dispatch identifier (same as dispatch_id)"
+          },
+          "dispatch_id": {
+            "type": "string",
+            "title": "Dispatch Id",
+            "description": "Dispatch workflow identifier",
+            "default": ""
           },
           "vm_id": {
             "type": "string",
             "title": "Vm Id",
-            "description": "Backing VM identifier"
+            "description": "Backing VM identifier",
+            "default": ""
           },
           "host": {
             "type": "string",
             "title": "Host",
-            "description": "VM hostname or IP"
+            "description": "VM hostname or IP",
+            "default": ""
           },
           "status": {
             "$ref": "#/components/schemas/RunEnvironmentStatus",
@@ -2619,9 +2775,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "env_id",
-          "vm_id",
-          "host"
+          "env_id"
         ],
         "title": "RunEnvironment",
         "description": "Provisioned run environment handle."
@@ -2753,6 +2907,12 @@
             "title": "Env Id",
             "description": "Environment identifier"
           },
+          "dispatch_id": {
+            "type": "string",
+            "title": "Dispatch Id",
+            "description": "Dispatch workflow identifier",
+            "default": ""
+          },
           "status": {
             "$ref": "#/components/schemas/RunEnvironmentStatus",
             "description": "Current environment status"
@@ -2843,7 +3003,14 @@
           "env_id": {
             "type": "string",
             "title": "Env Id",
-            "description": "Environment identifier"
+            "description": "Environment identifier",
+            "default": ""
+          },
+          "dispatch_id": {
+            "type": "string",
+            "title": "Dispatch Id",
+            "description": "Dispatch workflow identifier",
+            "default": ""
           },
           "status": {
             "$ref": "#/components/schemas/RunEnvironmentStatus",
@@ -2853,9 +3020,6 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": [
-          "env_id"
-        ],
         "title": "RunTeardownAccepted",
         "description": "Confirmation that teardown was accepted."
       },
@@ -2982,57 +3146,6 @@
         "title": "TokenUsageRecorded",
         "description": "Token usage data collected after a dispatch."
       },
-      "VMDryRunResult": {
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/VMProvider",
-            "description": "VM provider that would be used"
-          },
-          "server_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Server Type",
-            "description": "Server type that would be used"
-          },
-          "estimated_cost_hourly": {
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Estimated Cost Hourly",
-            "description": "Estimated hourly cost"
-          },
-          "would_provision": {
-            "type": "boolean",
-            "title": "Would Provision",
-            "description": "Whether provisioning would proceed"
-          },
-          "requirements": {
-            "$ref": "#/components/schemas/VMRequirements",
-            "description": "Resolved VM requirements"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "provider",
-          "would_provision",
-          "requirements"
-        ],
-        "title": "VMDryRunResult",
-        "description": "Result of a VM dry-run provisioning check."
-      },
       "VMProvider": {
         "type": "string",
         "enum": [
@@ -3048,7 +3161,7 @@
           "env_id": {
             "type": "string",
             "title": "Env Id",
-            "description": "Provisioning tracking identifier"
+            "description": "Dispatch identifier for status polling"
           },
           "status": {
             "$ref": "#/components/schemas/VMStatus",
@@ -3284,62 +3397,6 @@
         ],
         "title": "VMReleased",
         "description": "A VM was released after workflow completion."
-      },
-      "VMRequirements": {
-        "properties": {
-          "profile": {
-            "type": "string",
-            "title": "Profile",
-            "description": "Environment profile name for this VM request"
-          },
-          "cpu": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Cpu",
-            "description": "Minimum number of CPU cores",
-            "default": 2
-          },
-          "memory_gb": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Memory Gb",
-            "description": "Minimum memory in gigabytes",
-            "default": 4
-          },
-          "gpu": {
-            "type": "boolean",
-            "title": "Gpu",
-            "description": "Whether a GPU is required",
-            "default": false
-          },
-          "server_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Server Type",
-            "description": "Provider-specific server type override"
-          },
-          "labels": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Labels",
-            "description": "Labels to apply to the provisioned VM"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "profile"
-        ],
-        "title": "VMRequirements",
-        "description": "Resource requirements for VM provisioning."
       },
       "VMStatus": {
         "type": "string",

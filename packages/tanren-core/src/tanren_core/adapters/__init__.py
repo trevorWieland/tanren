@@ -57,10 +57,6 @@ try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 except ImportError:  # hcloud not installed
     pass
-from tanren_core.adapters.event_reader import (
-    EventQueryResult,
-    EventRow,
-)
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import (
     ManualProvisionerSettings,
@@ -114,6 +110,10 @@ from tanren_core.adapters.types import (
     ProvisionError,
 )
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
+from tanren_core.store.views import (
+    EventQueryResult,
+    EventRow,
+)
 
 __all__ = [
     "CLI_CREDENTIAL_PROVIDERS",

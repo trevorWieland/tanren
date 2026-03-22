@@ -33,7 +33,14 @@ from tanren_core.store.payloads import (
 )
 from tanren_core.store.postgres import PostgresStore
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
-from tanren_core.store.views import DispatchListFilter, DispatchView, QueuedStep, StepView
+from tanren_core.store.views import (
+    DispatchListFilter,
+    DispatchView,
+    EventQueryResult,
+    EventRow,
+    QueuedStep,
+    StepView,
+)
 
 __all__ = [
     "CLI_LANE_MAP",
@@ -44,6 +51,8 @@ __all__ = [
     "DispatchMode",
     "DispatchStatus",
     "DispatchView",
+    "EventQueryResult",
+    "EventRow",
     "EventStore",
     "ExecuteResult",
     "ExecuteStepPayload",

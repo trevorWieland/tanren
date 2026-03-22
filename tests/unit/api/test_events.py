@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tanren_core.adapters.event_reader import EventQueryResult, EventRow
 from tanren_core.adapters.events import DispatchReceived
+from tanren_core.store.views import EventQueryResult, EventRow
 
 
 @pytest.mark.api

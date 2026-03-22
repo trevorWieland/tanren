@@ -20,8 +20,10 @@ Common emitted events:
 
 ## Storage Backends
 
-- Default: `NullEventEmitter` (no persistence)
-- Optional: `SqliteEventEmitter` via `WM_EVENTS_DB`
+Events are stored via the unified store layer (`SqliteStore` or
+`PostgresStore`), configured via `db_url`.  Both backends implement the
+`EventStore` protocol (append + query) defined in
+`tanren_core/store/protocols.py`.
 
 ## Typical Queries
 

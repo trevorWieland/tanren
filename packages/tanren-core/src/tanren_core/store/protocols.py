@@ -11,11 +11,16 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from tanren_core.adapters.event_reader import EventQueryResult
 from tanren_core.adapters.events import Event
 from tanren_core.schemas import Outcome
 from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane
-from tanren_core.store.views import DispatchListFilter, DispatchView, QueuedStep, StepView
+from tanren_core.store.views import (
+    DispatchListFilter,
+    DispatchView,
+    EventQueryResult,
+    QueuedStep,
+    StepView,
+)
 
 
 @runtime_checkable

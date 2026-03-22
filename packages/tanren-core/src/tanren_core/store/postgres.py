@@ -13,13 +13,19 @@ from datetime import UTC, datetime
 
 import asyncpg
 
-from tanren_core.adapters.event_reader import EventQueryResult, EventRow
 from tanren_core.adapters.events import Event
 from tanren_core.schemas import Dispatch, Outcome
 from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane, StepStatus, StepType
 from tanren_core.store.events import StepEnqueued
 from tanren_core.store.schema import POSTGRES_ALL
-from tanren_core.store.views import DispatchListFilter, DispatchView, QueuedStep, StepView
+from tanren_core.store.views import (
+    DispatchListFilter,
+    DispatchView,
+    EventQueryResult,
+    EventRow,
+    QueuedStep,
+    StepView,
+)
 
 
 def _now() -> str:

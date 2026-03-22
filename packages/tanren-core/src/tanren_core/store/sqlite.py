@@ -15,13 +15,19 @@ from typing import TYPE_CHECKING
 
 import aiosqlite
 
-from tanren_core.adapters.event_reader import EventQueryResult, EventRow
 from tanren_core.adapters.events import Event
 from tanren_core.schemas import Dispatch, Outcome
 from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane, StepStatus, StepType
 from tanren_core.store.events import StepEnqueued
 from tanren_core.store.schema import SQLITE_ALL
-from tanren_core.store.views import DispatchListFilter, DispatchView, QueuedStep, StepView
+from tanren_core.store.views import (
+    DispatchListFilter,
+    DispatchView,
+    EventQueryResult,
+    EventRow,
+    QueuedStep,
+    StepView,
+)
 
 if TYPE_CHECKING:
     pass

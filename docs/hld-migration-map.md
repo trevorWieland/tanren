@@ -34,8 +34,8 @@ repo docs before deletion.
 | Current adapters | [`ADAPTERS.md`](ADAPTERS.md) + [`roadmap.md`](roadmap.md) |
 | Secret scoping (developer/project/infrastructure) | [`../README.md#configuration`](../README.md#configuration) + [`operations/security-secrets.md#secret-scopes`](operations/security-secrets.md#secret-scopes) |
 | Configuration scopes | [`../README.md#configuration`](../README.md#configuration) + [`operations/security-secrets.md#configuration-scopes`](operations/security-secrets.md#configuration-scopes) |
-| Interaction methodologies (CLI/library/IPC/HTTP API) | [`interfaces.md`](interfaces.md) + [`../protocol/README.md`](../protocol/README.md) |
-| Metering and observability | [`ADAPTERS.md#eventemitter`](ADAPTERS.md#eventemitter) + [`operations/observability.md`](operations/observability.md) |
+| Interaction methodologies (CLI/library/store protocols/HTTP API) | [`interfaces.md`](interfaces.md) + [`../protocol/README.md`](../protocol/README.md) |
+| Metering and observability | [`ADAPTERS.md#eventstore`](ADAPTERS.md#eventstore) + [`operations/observability.md`](operations/observability.md) |
 | Security model | [`operations/security-secrets.md#security-controls`](operations/security-secrets.md#security-controls) |
 | Roadmap (completed/near/medium/long) | [`roadmap.md`](roadmap.md) |
 | Design principles | [`design-principles.md`](design-principles.md) |
