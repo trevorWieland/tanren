@@ -142,7 +142,7 @@ class TestWorkerProcessStep:
             payload_json=payload.model_dump_json(),
         )
 
-        await worker._process_step(step)
+        await worker.process_step(step)
 
         execution_env.provision.assert_called_once()
         job_queue.ack.assert_called_once()
@@ -183,7 +183,7 @@ class TestWorkerProcessStep:
             payload_json=payload.model_dump_json(),
         )
 
-        await worker._process_step(step)
+        await worker.process_step(step)
 
         execution_env.execute.assert_called_once()
         job_queue.ack.assert_called_once()
@@ -242,7 +242,7 @@ class TestWorkerProcessStep:
             payload_json=payload.model_dump_json(),
         )
 
-        await worker._process_step(step)
+        await worker.process_step(step)
 
         execution_env.teardown.assert_called_once()
         job_queue.ack.assert_called_once()
@@ -283,7 +283,7 @@ class TestWorkerProcessStep:
             payload_json=payload.model_dump_json(),
         )
 
-        await worker._process_step(step)
+        await worker.process_step(step)
 
         # Preserve=True: should NOT call teardown
         execution_env.teardown.assert_not_called()
@@ -323,7 +323,7 @@ class TestWorkerManualMode:
             payload_json=payload.model_dump_json(),
         )
 
-        await worker._process_step(step)
+        await worker.process_step(step)
 
         execution_env.provision.assert_called_once()
         job_queue.ack.assert_called_once()

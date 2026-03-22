@@ -9,6 +9,7 @@ from ``WorkerConfig`` so existing code keeps working.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,6 +34,32 @@ def _pg_or_expand(value: str | None) -> str | None:
     if value.lower().startswith(("postgresql://", "postgres://")):
         return value
     return _expand(value)
+
+
+_WC_REQUIRED_KEYS = (
+    "WM_IPC_DIR",
+    "WM_GITHUB_DIR",
+    "WM_DATA_DIR",
+    "WM_COMMANDS_DIR",
+    "WM_POLL_INTERVAL",
+    "WM_HEARTBEAT_INTERVAL",
+    "WM_OPENCODE_PATH",
+    "WM_CODEX_PATH",
+    "WM_CLAUDE_PATH",
+    "WM_MAX_OPENCODE",
+    "WM_MAX_CODEX",
+    "WM_MAX_GATE",
+    "WM_WORKTREE_REGISTRY_PATH",
+    "WM_ROLES_CONFIG_PATH",
+)
+
+_WC_OPTIONAL_KEYS = (
+    "WM_EVENTS_DB",
+    "WM_REMOTE_CONFIG",
+    "WM_CCUSAGE_CLAUDE_CMD",
+    "WM_CCUSAGE_CODEX_CMD",
+    "WM_CCUSAGE_OPENCODE_CMD",
+)
 
 
 class WorkerConfig(BaseModel):
@@ -163,6 +190,61 @@ class WorkerConfig(BaseModel):
         default="npx @ccusage/opencode",
         description="Command for @ccusage/opencode",
     )
+
+    @classmethod
+    def from_env(cls) -> WorkerConfig:
+        """Load configuration from ``WM_*`` environment variables.
+
+        Reads required and optional keys from ``os.environ``, validates
+        that all required keys are present, and returns a fully-populated
+        ``WorkerConfig``.
+
+        Returns:
+            Validated WorkerConfig instance.
+
+        Raises:
+            ValueError: If required configuration keys are missing.
+        """
+        resolved: dict[str, str] = {}
+        for key in (*_WC_REQUIRED_KEYS, *_WC_OPTIONAL_KEYS):
+            env_val = os.environ.get(key)
+            if env_val is not None:
+                resolved[key] = env_val
+
+        missing = [k for k in _WC_REQUIRED_KEYS if not resolved.get(k, "").strip()]
+        if missing:
+            raise ValueError(
+                f"Missing required config: {', '.join(missing)}. "
+                "Set them in tanren.env or as environment variables."
+            )
+
+        max_opencode = int(resolved["WM_MAX_OPENCODE"])
+        max_codex = int(resolved["WM_MAX_CODEX"])
+
+        return cls(
+            ipc_dir=_expand(resolved["WM_IPC_DIR"]),
+            github_dir=_expand(resolved["WM_GITHUB_DIR"]),
+            data_dir=_expand(resolved["WM_DATA_DIR"]),
+            commands_dir=resolved["WM_COMMANDS_DIR"],
+            poll_interval=float(resolved["WM_POLL_INTERVAL"]),
+            heartbeat_interval=float(resolved["WM_HEARTBEAT_INTERVAL"]),
+            opencode_path=resolved["WM_OPENCODE_PATH"],
+            codex_path=resolved["WM_CODEX_PATH"],
+            claude_path=resolved["WM_CLAUDE_PATH"],
+            roles_config_path=_expand(resolved["WM_ROLES_CONFIG_PATH"]),
+            worktree_registry_path=_expand(resolved["WM_WORKTREE_REGISTRY_PATH"]),
+            max_opencode=max_opencode,
+            max_codex=max_codex,
+            max_impl=max_opencode,
+            max_audit=max_codex,
+            max_gate=int(resolved["WM_MAX_GATE"]),
+            events_db=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
+            db_url=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
+            remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
+            ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),
+            ccusage_codex_cmd=resolved.get("WM_CCUSAGE_CODEX_CMD", "npx @ccusage/codex"),
+            ccusage_opencode_cmd=resolved.get("WM_CCUSAGE_OPENCODE_CMD", "npx @ccusage/opencode"),
+        )
 
     @property
     def checkpoints_dir(self) -> str:

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import asyncpg
 
     from tanren_core.adapters.protocols import VMStateStore
-    from tanren_core.config import Config
+    from tanren_core.worker_config import WorkerConfig
 
 from tanren_core.adapters.credentials import providers_for_clis
 from tanren_core.adapters.git_workspace import GitAuthConfig, GitWorkspaceManager
@@ -36,7 +36,7 @@ _AGENT_USER = "tanren"
 
 
 def build_ssh_execution_environment(
-    config: Config,
+    config: WorkerConfig,
     pool: asyncpg.Pool | None = None,
 ) -> tuple[SSHExecutionEnvironment, VMStateStore]:
     """Construct an SSHExecutionEnvironment from config.

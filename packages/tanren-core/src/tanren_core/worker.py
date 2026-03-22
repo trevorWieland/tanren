@@ -27,7 +27,7 @@ from tanren_core.adapters.events import (
 from tanren_core.adapters.types import EnvironmentHandle, ProvisionError
 from tanren_core.errors import ErrorClass, classify_error
 from tanren_core.schemas import Outcome
-from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane, StepType
+from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane, StepStatus, StepType
 from tanren_core.store.events import (
     DispatchCompleted,
     DispatchFailed,
@@ -147,6 +147,50 @@ class Worker:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def run_until_step_complete(self, dispatch_id: str, step_type: StepType) -> None:
+        """Run the worker loop until a specific step type reaches terminal state.
+
+        Used by the CLI's embedded worker for individual lifecycle steps
+        (provision, execute, teardown).
+        """
+        tasks = [
+            asyncio.create_task(
+                self._lane_consumer(None, self._config.max_provision),
+                name="infra-consumer",
+            ),
+            asyncio.create_task(
+                self._lane_consumer(Lane.IMPL, self._config.max_impl),
+                name="impl-consumer",
+            ),
+            asyncio.create_task(
+                self._lane_consumer(Lane.AUDIT, self._config.max_audit),
+                name="audit-consumer",
+            ),
+            asyncio.create_task(
+                self._lane_consumer(Lane.GATE, self._config.max_gate),
+                name="gate-consumer",
+            ),
+        ]
+
+        try:
+            while not self._shutdown.is_set():
+                steps = await self._state_store.get_steps_for_dispatch(dispatch_id)
+                matching = next(
+                    (s for s in steps if s.step_type == step_type),
+                    None,
+                )
+                if matching and matching.status in (
+                    StepStatus.COMPLETED,
+                    StepStatus.FAILED,
+                ):
+                    self._shutdown.set()
+                    break
+                await asyncio.sleep(0.5)
+        finally:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     def shutdown(self) -> None:
         """Signal all consumers to stop."""
         self._shutdown.set()
@@ -181,7 +225,7 @@ class Worker:
                 continue
 
             try:
-                await self._process_step(step)
+                await self.process_step(step)
             except Exception:
                 logger.exception(
                     "Unhandled error processing step %s (dispatch %s)",
@@ -191,7 +235,7 @@ class Worker:
 
     # ── Step dispatch ─────────────────────────────────────────────────────
 
-    async def _process_step(self, step: QueuedStep) -> None:
+    async def process_step(self, step: QueuedStep) -> None:
         """Route a step to the appropriate handler."""
         now = datetime.now(UTC).isoformat()
         await self._event_store.append(

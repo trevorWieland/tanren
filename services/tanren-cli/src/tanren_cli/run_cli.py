@@ -257,23 +257,7 @@ def run_provision(
             )
 
             # Run until provision step completes
-            while True:
-                steps = await store.get_steps_for_dispatch(dispatch_id)
-                provision_step = next(
-                    (s for s in steps if s.step_type == StepType.PROVISION),
-                    None,
-                )
-                if provision_step and provision_step.status in (
-                    StepStatus.COMPLETED,
-                    StepStatus.FAILED,
-                ):
-                    break
-                # Process one poll cycle
-                step = await store.dequeue(lane=None, worker_id="cli", max_concurrent=1)
-                if step:
-                    await worker._process_step(step)
-                else:
-                    await asyncio.sleep(0.1)
+            await worker.run_until_step_complete(dispatch_id, StepType.PROVISION)
 
             # Read result
             steps = await store.get_steps_for_dispatch(dispatch_id)
@@ -388,22 +372,7 @@ def run_execute(
             )
 
             # Run until execute step completes
-            while True:
-                steps = await store.get_steps_for_dispatch(dispatch_id)
-                exec_step = next(
-                    (s for s in steps if s.step_type == StepType.EXECUTE),
-                    None,
-                )
-                if exec_step and exec_step.status in (
-                    StepStatus.COMPLETED,
-                    StepStatus.FAILED,
-                ):
-                    break
-                step = await store.dequeue(lane=lane, worker_id="cli", max_concurrent=1)
-                if step:
-                    await worker._process_step(step)
-                else:
-                    await asyncio.sleep(0.1)
+            await worker.run_until_step_complete(dispatch_id, StepType.EXECUTE)
 
             # Read result
             steps = await store.get_steps_for_dispatch(dispatch_id)
@@ -489,22 +458,7 @@ def run_teardown(
             )
 
             # Run until teardown completes
-            while True:
-                steps = await store.get_steps_for_dispatch(dispatch_id)
-                td_step = next(
-                    (s for s in steps if s.step_type == StepType.TEARDOWN),
-                    None,
-                )
-                if td_step and td_step.status in (
-                    StepStatus.COMPLETED,
-                    StepStatus.FAILED,
-                ):
-                    break
-                step = await store.dequeue(lane=None, worker_id="cli", max_concurrent=1)
-                if step:
-                    await worker._process_step(step)
-                else:
-                    await asyncio.sleep(0.1)
+            await worker.run_until_step_complete(dispatch_id, StepType.TEARDOWN)
 
             typer.echo(f"teardown: completed for {dispatch_id}")
         finally:

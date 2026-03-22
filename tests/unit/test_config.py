@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tanren_core.config import (
-    _REQUIRED_KEYS,
     Config,
     ConfigSource,
     DotenvConfigSource,
     load_config_env,
 )
+from tanren_core.worker_config import _WC_REQUIRED_KEYS as _REQUIRED_KEYS
 
 if TYPE_CHECKING:
     from pathlib import Path
