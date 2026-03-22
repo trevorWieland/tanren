@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
+from tanren_core.adapters.protocols import RemoteConnection
 from tanren_core.adapters.remote_types import VMHandle, WorkspacePath
 from tanren_core.ccusage import TokenUsage
 from tanren_core.env.environment_schema import EnvironmentProfile
@@ -38,7 +39,9 @@ class RemoteEnvironmentRuntime(BaseModel):
 
     kind: Literal["remote"] = Field(default="remote", description="Runtime kind discriminator")
     vm_handle: VMHandle = Field(..., description="Handle to the provisioned VM")
-    connection: object = Field(..., description="Active SSH connection to the VM")
+    connection: SkipValidation[RemoteConnection] = Field(
+        ..., description="Active SSH connection to the VM"
+    )
     workspace_path: WorkspacePath = Field(..., description="Remote workspace path details")
     profile: EnvironmentProfile = Field(
         ..., description="Environment profile used for provisioning"

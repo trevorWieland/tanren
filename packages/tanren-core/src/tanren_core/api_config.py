@@ -39,7 +39,7 @@ class APIConfig(BaseSettings):
 
     # Server
     host: str = Field(
-        default="0.0.0.0",  # noqa: S104
+        default="0.0.0.0",  # noqa: S104 — binding to all interfaces is intentional for container deployment
         description="Bind address",
     )
     port: int = Field(

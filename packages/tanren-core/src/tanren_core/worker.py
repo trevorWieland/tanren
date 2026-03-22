@@ -231,7 +231,7 @@ class Worker:
         dispatch = payload.dispatch
 
         try:
-            handle = await self._execution_env.provision(dispatch, self._config)  # type: ignore[arg-type]
+            handle = await self._execution_env.provision(dispatch, self._config)
         except ProvisionError:
             duration = int(time.monotonic() - start)
             await self._event_store.append(
@@ -285,7 +285,7 @@ class Worker:
         phase_result = await self._execution_env.execute(
             handle,
             dispatch,
-            self._config,  # type: ignore[arg-type]
+            self._config,
         )
         duration = int(time.monotonic() - start)
 

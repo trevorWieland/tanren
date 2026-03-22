@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         ProcessSpawner,
     )
     from tanren_core.adapters.remote_types import VMHandle
-    from tanren_core.config import Config
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class LocalExecutionEnvironment:
         preflight: PreflightRunner,
         postflight: PostflightRunner,
         spawner: ProcessSpawner,
-        config: Config,
+        config: WorkerConfig,
     ) -> None:
         """Initialize with local subprocess adapters for each lifecycle phase."""
         self._env_validator = env_validator
@@ -58,7 +58,7 @@ class LocalExecutionEnvironment:
         self._spawner = spawner
         self._config = config
 
-    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
+    async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
         """Env validation -> preflight -> return handle.
 
         Returns:
@@ -132,7 +132,7 @@ class LocalExecutionEnvironment:
         self,
         handle: EnvironmentHandle,
         dispatch: Dispatch,
-        config: Config,
+        config: WorkerConfig,
         *,
         dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:

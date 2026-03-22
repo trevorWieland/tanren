@@ -53,8 +53,8 @@ if TYPE_CHECKING:
         WorkspaceManager as WorkspaceManagerProtocol,
     )
     from tanren_core.adapters.remote_runner import RemoteAgentRunner
-    from tanren_core.config import Config
     from tanren_core.secrets import SecretLoader
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ class SSHExecutionEnvironment:
 
         return len(assignments)
 
-    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
+    async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets.
 
         Returns:
@@ -286,7 +286,7 @@ class SSHExecutionEnvironment:
         self,
         handle: EnvironmentHandle,
         dispatch: Dispatch,
-        config: Config,
+        config: WorkerConfig,
         *,
         dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:
@@ -545,7 +545,7 @@ class SSHExecutionEnvironment:
             f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}"
         )
 
-    def _resolve_profile(self, dispatch: Dispatch, config: Config) -> EnvironmentProfile:
+    def _resolve_profile(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentProfile:
         """Read tanren.yml locally and resolve environment profile.
 
         Returns:
@@ -584,7 +584,7 @@ class SSHExecutionEnvironment:
 
         return profile
 
-    def _load_project_env(self, dispatch: Dispatch, config: Config) -> dict[str, str]:
+    def _load_project_env(self, dispatch: Dispatch, config: WorkerConfig) -> dict[str, str]:
         """Load project .env file locally for secret injection.
 
         Returns:
@@ -597,7 +597,7 @@ class SSHExecutionEnvironment:
         return {k: v for k, v in values.items() if v is not None}
 
     async def _fetch_cloud_secrets(
-        self, dispatch: Dispatch, config: Config
+        self, dispatch: Dispatch, config: WorkerConfig
     ) -> dict[str, str] | None:
         """Fetch cloud secrets for vars with ``source: "secret:X"`` in tanren.yml.
 
@@ -679,7 +679,7 @@ class SSHExecutionEnvironment:
             return f"su - {shlex.quote(self._agent_user)} -c {shlex.quote(command)}"
         return command
 
-    def _build_cli_command(self, dispatch: Dispatch, config: Config) -> str:
+    def _build_cli_command(self, dispatch: Dispatch, config: WorkerConfig) -> str:
         """Build the CLI command string for remote execution.
 
         Returns:

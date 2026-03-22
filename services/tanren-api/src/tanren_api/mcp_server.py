@@ -68,9 +68,9 @@ def set_services(
     dispatch: DispatchService,
     vm: VMService,
     run: RunService,
-    config: ConfigService | None = None,
+    config: ConfigService,
     events: EventsService,
-    metrics: MetricsService | None = None,
+    metrics: MetricsService,
 ) -> None:
     """Wire service instances into the MCP tool layer (called during app lifespan)."""
     global _health_svc, _dispatch_svc, _vm_svc, _run_svc, _config_svc, _events_svc, _metrics_svc
@@ -467,14 +467,13 @@ async def run_status(env_id: str) -> RunStatus:
         "Shows store backend, connection status, worker lanes, and version."
     ),
 )
-async def config_get() -> ConfigResponse | dict[str, str]:
+async def config_get() -> ConfigResponse:
     """Get non-secret configuration.
 
     Returns:
-        ConfigResponse with configuration details, or error dict if unavailable.
+        ConfigResponse with configuration details.
     """
-    if _config_svc is None:
-        return {"error": "Configuration unavailable"}
+    assert _config_svc is not None
     return await _config_svc.get()
 
 
@@ -548,16 +547,13 @@ async def metrics_costs(
     until: str | None = None,
     project: str | None = None,
     group_by: str = "model",
-) -> MetricsCostsResponse | dict[str, str]:
+) -> MetricsCostsResponse:
     """Get cost metrics.
 
     Returns:
-        MetricsCostsResponse with cost buckets, or error dict for invalid group_by.
+        MetricsCostsResponse with cost buckets.
     """
     assert _metrics_svc is not None
-    valid = {"model", "day", "workflow"}
-    if group_by not in valid:
-        return {"error": f"Invalid group_by '{group_by}'. Must be: model, day, workflow"}
     return await _metrics_svc.costs(since=since, until=until, project=project, group_by=group_by)
 
 

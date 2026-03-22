@@ -19,7 +19,7 @@ from tanren_core.schemas import Cli
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import RemoteConnection
-    from tanren_core.config import Config
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ async def collect_token_usage(
     worktree_path: str,
     dispatch_start_utc: datetime,
     dispatch_end_utc: datetime,
-    config: Config,
+    config: WorkerConfig,
     runner: CommandRunner,
 ) -> TokenUsage | None:
     """Collect token usage for a completed dispatch.
@@ -153,7 +153,7 @@ async def collect_token_usage(
 async def _collect_claude(
     worktree_path: str,
     dispatch_start_utc: datetime,
-    config: Config,
+    config: WorkerConfig,
     runner: CommandRunner,
 ) -> TokenUsage | None:
     """Collect Claude token usage via ccusage.
@@ -195,7 +195,7 @@ async def _collect_claude(
 async def _collect_codex(
     dispatch_start_utc: datetime,
     dispatch_end_utc: datetime,
-    config: Config,
+    config: WorkerConfig,
     runner: CommandRunner,
 ) -> TokenUsage | None:
     """Collect Codex token usage via @ccusage/codex.
@@ -226,7 +226,7 @@ async def _collect_codex(
 async def _collect_opencode(
     dispatch_start_utc: datetime,
     dispatch_end_utc: datetime,
-    config: Config,
+    config: WorkerConfig,
     runner: CommandRunner,
 ) -> TokenUsage | None:
     """Collect OpenCode token usage via @ccusage/opencode.

@@ -41,7 +41,7 @@ from tanren_core.store.payloads import (
 from tanren_core.worker import Worker
 
 if TYPE_CHECKING:
-    from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+    from tanren_core.store.sqlite import SqliteStore
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
 
@@ -165,7 +165,7 @@ def _now() -> str:
 
 
 async def _enqueue_dispatch(
-    store: EventStore | JobQueue | StateStore,
+    store: SqliteStore,
     dispatch: Dispatch,
     mode: DispatchMode,
 ) -> str:
@@ -174,21 +174,17 @@ async def _enqueue_dispatch(
     Returns:
         The dispatch_id.
     """
-    event_store: EventStore = store  # type: ignore[assignment]
-    job_queue: JobQueue = store  # type: ignore[assignment]
-    state_store: StateStore = store  # type: ignore[assignment]
-
     dispatch_id = dispatch.workflow_id
     lane = cli_to_lane(dispatch.cli)
 
-    await state_store.create_dispatch_projection(
+    await store.create_dispatch_projection(
         dispatch_id=dispatch_id,
         mode=mode,
         lane=lane,
         preserve_on_failure=dispatch.preserve_on_failure,
         dispatch_json=dispatch.model_dump_json(),
     )
-    await event_store.append(
+    await store.append(
         DispatchCreated(
             timestamp=_now(),
             workflow_id=dispatch_id,
@@ -199,7 +195,7 @@ async def _enqueue_dispatch(
     )
     step_id = uuid.uuid4().hex
     payload = ProvisionStepPayload(dispatch=dispatch)
-    await job_queue.enqueue_step(
+    await store.enqueue_step(
         step_id=step_id,
         dispatch_id=dispatch_id,
         step_type="provision",

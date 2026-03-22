@@ -24,13 +24,13 @@ if TYPE_CHECKING:
         WorkspaceSpec,
     )
     from tanren_core.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
-    from tanren_core.config import Config
     from tanren_core.env.environment_schema import McpServerConfig
     from tanren_core.env.validator import EnvReport
     from tanren_core.postflight import PostflightResult
     from tanren_core.preflight import PreflightResult
     from tanren_core.process import ProcessResult
     from tanren_core.schemas import Dispatch
+    from tanren_core.worker_config import WorkerConfig
 
 
 @runtime_checkable
@@ -152,7 +152,7 @@ class ProcessSpawner(Protocol):
         self,
         dispatch: Dispatch,
         worktree_path: Path,
-        config: Config,
+        config: WorkerConfig,
         *,
         task_env: dict[str, str] | None = None,
     ) -> ProcessResult:
@@ -198,7 +198,7 @@ class ExecutionEnvironment(Protocol):
     clean up. get_access_info() provides debug connection details.
     """
 
-    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
+    async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
         """Validate and prepare the execution environment."""
         ...
 
@@ -206,7 +206,7 @@ class ExecutionEnvironment(Protocol):
         self,
         handle: EnvironmentHandle,
         dispatch: Dispatch,
-        config: Config,
+        config: WorkerConfig,
         *,
         dispatch_stem: str = "",
     ) -> PhaseResult:
