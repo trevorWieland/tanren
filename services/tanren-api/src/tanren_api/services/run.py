@@ -118,7 +118,7 @@ class RunService:
             status=RunEnvironmentStatus.PROVISIONING,
         )
 
-    async def execute(self, env_id: str, body: ExecuteRequest | None = None) -> RunExecuteAccepted:  # noqa: ARG002
+    async def execute(self, env_id: str, body: ExecuteRequest) -> RunExecuteAccepted:
         """Enqueue an execute step for a provisioned environment.
 
         Returns:
@@ -148,10 +148,29 @@ class RunService:
         prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
 
         dispatch = dispatch_view.dispatch
-        lane = cli_to_lane(dispatch.cli)
+
+        # Build a new Dispatch from the execute request body, preserving
+        # project/branch/profile metadata from the provision-time dispatch.
+        exec_dispatch = Dispatch(
+            workflow_id=dispatch_view.dispatch_id,
+            project=dispatch.project,
+            branch=dispatch.branch,
+            environment_profile=dispatch.environment_profile,
+            resolved_profile=dispatch.resolved_profile,
+            phase=body.phase,
+            spec_folder=body.spec_path,
+            cli=body.cli,
+            auth=body.auth,
+            model=body.model,
+            timeout=body.timeout,
+            context=body.context,
+            gate_cmd=body.gate_cmd,
+        )
+
+        lane = cli_to_lane(exec_dispatch.cli)
 
         step_id = uuid.uuid4().hex
-        payload = ExecuteStepPayload(dispatch=dispatch, handle=prov_result.handle)
+        payload = ExecuteStepPayload(dispatch=exec_dispatch, handle=prov_result.handle)
         await self._job_queue.enqueue_step(
             step_id=step_id,
             dispatch_id=dispatch_view.dispatch_id,
@@ -161,7 +180,9 @@ class RunService:
             payload_json=payload.model_dump_json(),
         )
 
-        return RunExecuteAccepted(dispatch_id=dispatch_view.dispatch_id)
+        return RunExecuteAccepted(
+            env_id=dispatch_view.dispatch_id, dispatch_id=dispatch_view.dispatch_id
+        )
 
     async def teardown(self, env_id: str) -> RunTeardownAccepted:
         """Enqueue a teardown step.
@@ -215,7 +236,7 @@ class RunService:
         from tanren_api.models import DispatchRequest
         from tanren_api.services.dispatch import DispatchService
 
-        env_profile = getattr(req, "environment_profile", "default")
+        env_profile = req.environment_profile
         dispatch_req = DispatchRequest(
             phase=req.phase,
             project=req.project,

@@ -71,7 +71,7 @@ class DispatchService:
             context=body.context,
             gate_cmd=body.gate_cmd,
             resolved_profile=body.resolved_profile,
-            preserve_on_failure=getattr(body, "preserve_on_failure", False),
+            preserve_on_failure=body.preserve_on_failure,
         )
 
         lane = cli_to_lane(body.cli)
