@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, cast
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware import Middleware
 
 from tanren_api.auth import verify_api_key
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
@@ -39,6 +37,11 @@ from tanren_core.store.factory import create_store
 logger = logging.getLogger(__name__)
 
 
+def _add_middleware(app: FastAPI, cls: type, **kwargs: object) -> None:
+    """Add ASGI middleware — thin wrapper to satisfy ty's ParamSpec limitation."""
+    app.add_middleware(cls, **kwargs)
+
+
 def create_app(settings: APISettings | None = None) -> FastAPI:
     """Build and configure the FastAPI application.
 
@@ -47,8 +50,11 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     """
     settings = settings or APISettings()
 
+    # Create MCP sub-application (before lifespan so it can be mounted on app)
+    mcp_app = mcp.http_app(path="/")
+
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[Mapping[str, Any] | None]:
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = settings
 
         # Register MCP auth middleware (clear any stale instances first)
@@ -91,47 +97,32 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             metrics=metrics_svc,
         )
 
-        yield
+        # Enter MCP sub-app lifespan (handles MCP server internals)
+        async with mcp_app.router.lifespan_context(app):
+            yield
 
         # Shutdown
         await store.close()
-
-    # Build middleware stack before creating app (order matters: outermost first)
-    middleware_stack: list[Middleware] = [
-        Middleware(RequestIDMiddleware),  # ty: ignore[invalid-argument-type]  # ASGI middleware class; ty can't resolve Starlette's overloaded Middleware constructor
-        Middleware(RequestLoggingMiddleware),  # ty: ignore[invalid-argument-type]  # same as above
-    ]
-    if settings.cors_origins:
-        middleware_stack.append(
-            Middleware(
-                CORSMiddleware,  # ty: ignore[invalid-argument-type]  # Starlette CORSMiddleware is a valid middleware class; ty can't resolve the overloaded factory type
-                allow_origins=settings.cors_origins,
-                allow_credentials=True,
-                allow_methods=["*"],
-                allow_headers=["*"],
-            )
-        )
-
-    # Create MCP sub-application and combine lifespans
-    mcp_app = mcp.http_app(path="/")
-
-    from fastmcp.utilities.lifespan import (
-        combine_lifespans,
-    )
-
-    # cast needed: @asynccontextmanager return type doesn't satisfy Lifespan generic
-    combined_lifespan = cast(
-        "Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, Any] | None]]",
-        combine_lifespans(lifespan, mcp_app.lifespan),  # ty: ignore[invalid-argument-type]  # @asynccontextmanager return type doesn't satisfy Starlette Lifespan generic
-    )
 
     app = FastAPI(
         title="tanren",
         description="Tanren worker-manager HTTP API",
         version="0.1.0",
-        lifespan=combined_lifespan,  # ty: ignore[invalid-argument-type]  # cast-wrapped lifespan; ty can't verify the cast target
-        middleware=middleware_stack,
+        lifespan=lifespan,
     )
+
+    # Middleware: outermost first (add_middleware wraps each layer around the app)
+    _add_middleware(app, RequestIDMiddleware)
+    _add_middleware(app, RequestLoggingMiddleware)
+    if settings.cors_origins:
+        _add_middleware(
+            app,
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # Mount MCP sub-application
     app.mount("/mcp", mcp_app)
