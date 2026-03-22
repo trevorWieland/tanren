@@ -67,7 +67,6 @@ class RunService:
         req = body
         epoch = time.time_ns()
         workflow_id = f"wf-{req.project}-run-{epoch}"
-        env_id = uuid.uuid4().hex
 
         resolved_profile = getattr(req, "resolved_profile", None) or EnvironmentProfile(
             name=getattr(req, "environment_profile", "default")
@@ -118,7 +117,7 @@ class RunService:
         )
 
         return RunEnvironment(
-            env_id=env_id,
+            env_id=workflow_id,
             dispatch_id=workflow_id,
             status=RunEnvironmentStatus.PROVISIONING,
         )

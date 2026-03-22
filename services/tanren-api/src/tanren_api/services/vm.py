@@ -97,7 +97,6 @@ class VMService:
         Returns:
             VMProvisionAccepted with env_id for polling.
         """
-        env_id = uuid.uuid4().hex
         workflow_id = f"vm-provision-{body.project}-{uuid.uuid4().hex[:8]}"
 
         dispatch = Dispatch(
@@ -141,7 +140,7 @@ class VMService:
             payload_json=payload.model_dump_json(),
         )
 
-        return VMProvisionAccepted(env_id=env_id)
+        return VMProvisionAccepted(env_id=workflow_id)
 
     async def get_provision_status(self, env_id: str) -> VMProvisionStatus:
         """Poll provision status.

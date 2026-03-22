@@ -275,7 +275,7 @@ class VMProvisionAccepted(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env_id: str = Field(..., description="Provisioning tracking identifier")
+    env_id: str = Field(..., description="Dispatch identifier for status polling")
     status: VMStatus = Field(default=VMStatus.PROVISIONING, description="Provisioning status")
 
 
@@ -316,7 +316,7 @@ class RunEnvironment(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env_id: str = Field(..., description="Environment identifier")
+    env_id: str = Field(..., description="Environment/dispatch identifier (same as dispatch_id)")
     dispatch_id: str = Field(default="", description="Dispatch workflow identifier")
     vm_id: str = Field(default="", description="Backing VM identifier")
     host: str = Field(default="", description="VM hostname or IP")
