@@ -369,7 +369,7 @@ class PostgresStore:
         step_id: str,
         *,
         error: str,
-        error_class: str | None = None,  # noqa: ARG002
+        error_class: str | None = None,  # noqa: ARG002 — reserved for future classification filtering
         retry: bool = False,
     ) -> None:
         """Mark step failed or re-enqueue for retry."""

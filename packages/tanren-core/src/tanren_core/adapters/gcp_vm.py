@@ -279,7 +279,7 @@ class GCPVMProvisioner:
         labels: dict[str, str],
         ssh_user: str,
         ssh_pub_key: str,
-    ) -> object:  # object: SDK return type is untyped
+    ) -> Instance:
         """Construct a compute_v1.Instance resource.
 
         Returns:

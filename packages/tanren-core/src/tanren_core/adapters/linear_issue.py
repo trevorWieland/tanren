@@ -162,7 +162,7 @@ type _JsonDict = dict[str, JsonValue]
 
 
 def _as_dict(
-    val: object,  # object: polymorphic cast helper that accepts any value
+    val: JsonValue,
 ) -> _JsonDict:
     """Cast a JSON value known to be a dict to ``_JsonDict``.
 

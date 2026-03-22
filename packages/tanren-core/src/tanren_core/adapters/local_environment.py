@@ -60,7 +60,7 @@ class LocalExecutionEnvironment:
 
     async def dry_run(
         self,
-        requirements: VMRequirements,  # noqa: ARG002
+        requirements: VMRequirements,  # noqa: ARG002 — requirements reserved for future local environment sizing
     ) -> DryRunInfo:
         """Dry-run provision — return what would happen without creating resources.
 

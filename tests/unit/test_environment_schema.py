@@ -166,7 +166,7 @@ class TestMcpServerConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            McpServerConfig(url="https://example.com/sse", bogus="x")  # type: ignore[unknown-argument] — intentionally passing invalid kwarg to test extra-fields rejection
+            McpServerConfig.model_validate({"url": "https://example.com/sse", "bogus": "x"})
 
     def test_frozen(self):
         cfg = McpServerConfig(url="https://example.com/sse")
@@ -268,7 +268,7 @@ class TestIssueSourceConfig:
 
     def test_extra_forbidden(self):
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            IssueSourceConfig(type=IssueSourceType.GITHUB, bogus="x")  # type: ignore[unknown-argument] — intentionally passing invalid kwarg to test extra-fields rejection
+            IssueSourceConfig.model_validate({"type": "github", "bogus": "x"})
 
 
 class TestParseIssueSource:

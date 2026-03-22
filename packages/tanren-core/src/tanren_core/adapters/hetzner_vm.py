@@ -298,15 +298,15 @@ class HetznerVMProvisioner:
 
     @staticmethod
     def _is_running(
-        server: object,
-    ) -> bool:  # hcloud types are unstable; duck-typing via object is intentional
+        server: BoundServer,
+    ) -> bool:
         status = str(getattr(server, "status", "")).lower()
         return status == "running"
 
     @staticmethod
     def _extract_public_ipv4(
-        server: object,
-    ) -> str | None:  # hcloud types are unstable; duck-typing via object is intentional
+        server: BoundServer,
+    ) -> str | None:
         public_net = getattr(server, "public_net", None)
         if public_net is None:
             return None
@@ -333,8 +333,8 @@ class HetznerVMProvisioner:
 
     @staticmethod
     def _price_location_name(
-        price: object,
-    ) -> str | None:  # hcloud types are unstable; duck-typing via object is intentional
+        price: Mapping[str, JsonValue],
+    ) -> str | None:
         location = getattr(price, "location", None)
         if location is not None:
             loc_name = getattr(location, "name", None)
@@ -354,11 +354,11 @@ class HetznerVMProvisioner:
 
     @staticmethod
     def _price_hourly_value(
-        price: object,
-    ) -> float | None:  # hcloud types are unstable; duck-typing via object is intentional
+        price: Mapping[str, JsonValue],
+    ) -> float | None:
         def _as_float(
-            value: object,
-        ) -> float | None:  # hcloud types are unstable; duck-typing via object is intentional
+            value: JsonValue | None,
+        ) -> float | None:
             if not isinstance(value, str | int | float):
                 return None
             try:
@@ -377,20 +377,19 @@ class HetznerVMProvisioner:
         if isinstance(price, Mapping):
             price_dict = {str(k): v for k, v in price.items()}
             raw = price_dict.get("price_hourly")
-            if isinstance(raw, Mapping):
-                hourly_dict = {str(k): v for k, v in raw.items()}
-                gross = hourly_dict.get("gross")
-                if gross is not None:
-                    return _as_float(gross)
-                net = hourly_dict.get("net")
-                if net is not None:
-                    return _as_float(net)
+            if isinstance(raw, dict):
+                result = _as_float(raw.get("gross"))
+                if result is not None:
+                    return result
+                result = _as_float(raw.get("net"))
+                if result is not None:
+                    return result
         return None
 
     @staticmethod
     def _server_type_name(
-        server: object,
-    ) -> str:  # hcloud types are unstable; duck-typing via object is intentional
+        server: BoundServer,
+    ) -> str:
         st = getattr(server, "server_type", None)
         if st is None:
             return ""

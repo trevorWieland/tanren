@@ -43,6 +43,8 @@ from tanren_core.schemas import Cli, Dispatch, Outcome, Phase, Result
 from tanren_core.signals import map_outcome, parse_signal_token
 
 if TYPE_CHECKING:
+    from pydantic import JsonValue
+
     from tanren_core.adapters.protocols import (
         EnvironmentBootstrapper,
         VMStateStore,
@@ -148,7 +150,7 @@ class SSHExecutionEnvironment:
 
     async def dry_run(
         self,
-        requirements: VMRequirements,  # noqa: ARG002
+        requirements: VMRequirements,  # noqa: ARG002 — requirements used by provisioner internally via self._vm_provisioner
     ) -> DryRunInfo:
         """Dry-run provision — return what would happen without creating resources.
 
@@ -675,7 +677,7 @@ class SSHExecutionEnvironment:
         return Path(self._secret_loader._config.developer_secrets_path).expanduser().parent
 
     @staticmethod
-    def _read_yaml(path: Path) -> object:  # object: YAML safe_load returns untyped data
+    def _read_yaml(path: Path) -> JsonValue:
         """Read and parse a YAML file.
 
         Returns:

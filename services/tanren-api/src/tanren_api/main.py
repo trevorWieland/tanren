@@ -37,7 +37,7 @@ from tanren_core.store.factory import create_store
 logger = logging.getLogger(__name__)
 
 
-def _add_middleware(app: FastAPI, cls: type, **kwargs: object) -> None:
+def _add_middleware(app: FastAPI, cls: type, **kwargs: str | bool | list[str]) -> None:
     """Add ASGI middleware — thin wrapper to satisfy ty's ParamSpec limitation."""
     app.add_middleware(cls, **kwargs)
 

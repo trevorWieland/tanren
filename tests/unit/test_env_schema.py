@@ -91,7 +91,7 @@ class TestSecretsConfig:
 
     def test_unknown_provider_rejected(self):
         with pytest.raises(ValidationError):
-            SecretsConfig(provider="aws")  # type: ignore[arg-type] — intentionally passing invalid enum value to test validation
+            SecretsConfig.model_validate({"provider": "aws"})
 
 
 class TestTanrenConfig:
