@@ -209,7 +209,7 @@ def load_remote_config(path: str | Path) -> RemoteConfig:
     if not isinstance(data_raw, Mapping):
         data_raw = {}
 
-    data: dict[str, object] = dict(data_raw)
+    data: dict[str, JsonValue] = dict(data_raw)
     data["repos"] = _coerce_repos(data.get("repos", []))
     data["provisioner"] = _coerce_provisioner(data.get("provisioner", {}))
     return RemoteConfig.model_validate(data)

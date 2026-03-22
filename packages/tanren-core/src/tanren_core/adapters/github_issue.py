@@ -131,18 +131,18 @@ mutation($issueId: ID!) {
 _CLOSE_STATUSES = frozenset({"closed", "merged", "done", "completed"})
 _OPEN_STATUSES = frozenset({"open", "reopened"})
 
-type _JsonDict = dict[str, object]
+type _JsonDict = dict[str, JsonValue]
 
 
 def _as_dict(
-    val: object,
-) -> _JsonDict:  # Receives parsed JSON of unknown shape; object is intentional
-    """Cast a JSON value known to be a dict to ``dict[str, object]``.
+    val: object,  # object: polymorphic cast helper that accepts any value
+) -> _JsonDict:
+    """Cast a JSON value known to be a dict to ``_JsonDict``.
 
     Call only after confirming ``isinstance(val, dict)``.
 
     Returns:
-        The value cast to ``dict[str, object]``.
+        The value cast to ``_JsonDict``.
     """
     return cast("_JsonDict", val)
 
@@ -171,7 +171,7 @@ class GitHubIssueSource:
         self._owner = settings.owner
         self._repo = settings.repo
 
-    def _execute(self, query: str, variables: dict[str, object]) -> dict[str, object]:
+    def _execute(self, query: str, variables: dict[str, JsonValue]) -> dict[str, JsonValue]:
         """Execute a GraphQL query/mutation.
 
         Args:
@@ -185,7 +185,7 @@ class GitHubIssueSource:
             TypeError: If the response format is invalid.
             RuntimeError: If the response contains GraphQL errors.
         """
-        payload: dict[str, object] = {"query": query, "variables": variables}
+        payload: dict[str, JsonValue] = {"query": query, "variables": variables}
         response = self._client.post(self._api_url, json=payload)
         response.raise_for_status()
         body = response.json()
@@ -200,7 +200,7 @@ class GitHubIssueSource:
         return data
 
     @staticmethod
-    def _build_issue(data: dict[str, object]) -> Issue:
+    def _build_issue(data: dict[str, JsonValue]) -> Issue:
         """Map a GraphQL issue node to an Issue model.
 
         Args:
@@ -275,7 +275,7 @@ class GitHubIssueSource:
         )
 
     @staticmethod
-    def _build_summary(data: dict[str, object]) -> IssueSummary:
+    def _build_summary(data: dict[str, JsonValue]) -> IssueSummary:
         """Map a GraphQL issue node to an IssueSummary model.
 
         Args:
@@ -305,7 +305,7 @@ class GitHubIssueSource:
         """
         if not issue_id.isdigit():
             raise ValueError(f"GitHub issue IDs must be numeric, got: {issue_id!r}")
-        variables: dict[str, object] = {
+        variables: dict[str, JsonValue] = {
             "owner": self._owner,
             "repo": self._repo,
             "number": int(issue_id),
@@ -334,7 +334,7 @@ class GitHubIssueSource:
         Returns:
             List of IssueSummary instances.
         """
-        variables: dict[str, object] = {
+        variables: dict[str, JsonValue] = {
             "owner": self._owner,
             "repo": self._repo,
         }
@@ -378,13 +378,13 @@ class GitHubIssueSource:
         node_id = issue.metadata.get("node_id", "")
 
         if normalized in _CLOSE_STATUSES:
-            variables: dict[str, object] = {
+            variables: dict[str, JsonValue] = {
                 "issueId": node_id,
                 "stateReason": "COMPLETED",
             }
             await asyncio.to_thread(self._execute, _CLOSE_ISSUE_MUTATION, variables)
         elif normalized in _OPEN_STATUSES:
-            reopen_vars: dict[str, object] = {"issueId": node_id}
+            reopen_vars: dict[str, JsonValue] = {"issueId": node_id}
             await asyncio.to_thread(self._execute, _REOPEN_ISSUE_MUTATION, reopen_vars)
         else:
             logger.warning(
@@ -402,5 +402,5 @@ class GitHubIssueSource:
         """
         issue = await self.get_issue(issue_id)
         node_id = issue.metadata.get("node_id", "")
-        variables: dict[str, object] = {"issueId": node_id, "body": body}
+        variables: dict[str, JsonValue] = {"issueId": node_id, "body": body}
         await asyncio.to_thread(self._execute, _ADD_COMMENT_MUTATION, variables)

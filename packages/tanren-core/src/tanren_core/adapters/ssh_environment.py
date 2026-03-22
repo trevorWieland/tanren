@@ -675,7 +675,7 @@ class SSHExecutionEnvironment:
         return Path(self._secret_loader._config.developer_secrets_path).expanduser().parent
 
     @staticmethod
-    def _read_yaml(path: Path) -> object:
+    def _read_yaml(path: Path) -> object:  # object: YAML safe_load returns untyped data
         """Read and parse a YAML file.
 
         Returns:

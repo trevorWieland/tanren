@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 
 @dataclass(frozen=True)
@@ -13,7 +17,7 @@ class EventRow:
     timestamp: str
     workflow_id: str
     event_type: str
-    payload: dict[str, object]
+    payload: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)

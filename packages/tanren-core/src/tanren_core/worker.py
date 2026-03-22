@@ -50,6 +50,7 @@ from tanren_core.store.views import QueuedStep
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import ExecutionEnvironment
+    from tanren_core.schemas import Dispatch
     from tanren_core.store.protocols import EventStore, JobQueue, StateStore
     from tanren_core.worker_config import WorkerConfig
 
@@ -643,7 +644,7 @@ class Worker:
     @staticmethod
     def _build_next_step(
         *,
-        dispatch: object,
+        dispatch: Dispatch,
         next_type: StepType,
         next_sequence: int,
         handle: PersistedEnvironmentHandle,

@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 
 class OnMissing(StrEnum):
@@ -95,10 +95,10 @@ class TanrenConfig(BaseModel):
         default=None, description="Secret storage backend configuration"
     )
     # Consumed by runtime environment selection logic outside env tooling.
-    environment: dict[str, object] | None = Field(
+    environment: dict[str, JsonValue] | None = Field(
         default=None, description="Raw environment profile definitions"
     )
-    issue_source: dict[str, object] | None = Field(
+    issue_source: dict[str, JsonValue] | None = Field(
         default=None, description="Raw issue source configuration"
     )
 

@@ -7,7 +7,7 @@ import logging
 import shlex
 from typing import TYPE_CHECKING, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tanren_core.adapters.remote_types import SecretBundle, WorkspacePath, WorkspaceSpec
 from tanren_core.remote_config import GitAuthMethod
@@ -182,9 +182,9 @@ class GitWorkspaceManager:
 
     @staticmethod
     def _render_claude_mcp(mcp_servers: dict[str, McpServerConfig]) -> str:
-        servers: dict[str, object] = {}
+        servers: dict[str, JsonValue] = {}
         for name, cfg in mcp_servers.items():
-            entry: dict[str, object] = {"type": "http", "url": cfg.url}
+            entry: dict[str, JsonValue] = {"type": "http", "url": cfg.url}
             if cfg.headers:
                 entry["headers"] = {h: f"${{{var}}}" for h, var in cfg.headers.items()}
             servers[name] = entry
@@ -204,9 +204,9 @@ class GitWorkspaceManager:
 
     @staticmethod
     def _render_opencode_mcp(mcp_servers: dict[str, McpServerConfig]) -> str:
-        servers: dict[str, object] = {}
+        servers: dict[str, JsonValue] = {}
         for name, cfg in mcp_servers.items():
-            entry: dict[str, object] = {
+            entry: dict[str, JsonValue] = {
                 "type": "remote",
                 "url": cfg.url,
                 "oauth": False,
