@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from tanren_core.adapters.events import Event
     from tanren_core.adapters.issue_types import Issue, IssueSummary
     from tanren_core.adapters.remote_types import (
         BootstrapResult,
@@ -186,26 +185,6 @@ class EnvProvisioner(Protocol):
 
     def provision(self, worktree_path: Path, project_dir: Path) -> int:
         """Provision .env files and return the count of vars provisioned."""
-        ...
-
-
-@runtime_checkable
-class EventEmitter(Protocol):
-    """Emit structured events for observability.
-
-    Events include DispatchReceived, PhaseStarted, PhaseCompleted,
-    PreflightCompleted, PostflightCompleted, ErrorOccurred, and
-    RetryScheduled. Used for metering, auditing, and dashboard display.
-
-    Default implementations: NullEventEmitter (no-op), SqliteEventEmitter.
-    """
-
-    async def emit(self, event: Event) -> None:
-        """Emit a structured event."""
-        ...
-
-    async def close(self) -> None:
-        """Close any resources held by the emitter."""
         ...
 
 

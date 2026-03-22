@@ -51,15 +51,6 @@ class Outcome(StrEnum):
     TIMEOUT = "timeout"
 
 
-class CheckpointStage(StrEnum):
-    """Stage within the dispatch lifecycle for crash-resilient checkpointing."""
-
-    DISPATCHED = "dispatched"
-    PROVISIONED = "provisioned"
-    EXECUTED = "executed"
-    POST_PROCESSED = "post_processed"
-
-
 class TaskStatus(StrEnum):
     """Progress tracking status for individual tasks."""
 
@@ -316,42 +307,6 @@ class WorktreeRegistry(BaseModel):
         default_factory=dict,
         description="Map of workflow_id to worktree entry",
     )
-
-
-class Checkpoint(BaseModel):
-    """Persistent snapshot of dispatch progress for crash-resilient resumption.
-
-    One checkpoint file per workflow, overwritten progressively as stages advance.
-    Deleted after successful result write.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    workflow_id: str = Field(..., description="Matches the dispatch's workflow_id")
-    stage: CheckpointStage = Field(..., description="Last completed stage")
-    dispatch_json: str = Field(..., description="Serialized Dispatch JSON for replay")
-    worktree_path: str = Field(..., description="Absolute path to the worktree")
-    dispatch_stem: str = Field(default="", description="Original dispatch filename stem")
-    created_at: str = Field(..., description="ISO 8601 timestamp of first creation")
-    updated_at: str = Field(..., description="ISO 8601 timestamp of last update")
-
-    # Provision state (populated after PROVISIONED)
-    vm_id: str | None = Field(default=None, description="VM identifier for remote environments")
-    environment_profile: str | None = Field(default=None, description="Environment profile name")
-    workspace_remote_path: str | None = Field(
-        default=None, description="Remote workspace path on the VM"
-    )
-
-    # Execution state (populated after EXECUTED)
-    phase_result_json: str | None = Field(default=None, description="Serialized PhaseResult JSON")
-    dispatch_start_utc: str | None = Field(
-        default=None, description="ISO 8601 timestamp of execution start"
-    )
-
-    # Failure tracking
-    retry_count: int = Field(default=0, ge=0, description="Resume attempts so far")
-    last_error: str | None = Field(default=None, description="Last failure reason")
-    failure_count: int = Field(default=0, ge=0, description="Total failures across resume attempts")
 
 
 def parse_issue_from_workflow_id(workflow_id: str, *, project: str | None = None) -> str:

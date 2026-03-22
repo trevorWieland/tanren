@@ -59,9 +59,7 @@ except ImportError:  # hcloud not installed
     pass
 from tanren_core.adapters.event_reader import (
     EventQueryResult,
-    EventReader,
     EventRow,
-    SqliteEventReader,
 )
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import (
@@ -76,7 +74,6 @@ from tanren_core.adapters.protocols import (
     EnvironmentBootstrapper,
     EnvProvisioner,
     EnvValidator,
-    EventEmitter,
     ExecutionEnvironment,
     IssueSource,
     PostflightRunner,
@@ -137,9 +134,7 @@ __all__ = [
     "EnvironmentHandle",
     "ErrorOccurred",
     "Event",
-    "EventEmitter",
     "EventQueryResult",
-    "EventReader",
     "EventRow",
     "ExecutionEnvironment",
     "GCPProvisionerSettings",
@@ -185,7 +180,6 @@ __all__ = [
     "SSHExecutionEnvironment",
     "SecretBundle",
     "SecretProvider",
-    "SqliteEventReader",
     "SqliteVMStateStore",
     "SubprocessSpawner",
     "TokenUsageRecorded",
