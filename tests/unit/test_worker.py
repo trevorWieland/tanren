@@ -149,6 +149,11 @@ class TestWorkerProcessStep:
         job_queue.ack_and_enqueue.assert_called_once()
         enqueue_call = job_queue.ack_and_enqueue.call_args
         assert enqueue_call.kwargs["next_step_type"] == "execute"
+        # Completion event should be included in the atomic transaction
+        assert "completion_events" in enqueue_call.kwargs
+        completion_events = enqueue_call.kwargs["completion_events"]
+        assert len(completion_events) == 1
+        assert type(completion_events[0]).__name__ == "StepCompleted"
 
     async def test_execute_step_calls_execution_env(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
@@ -189,6 +194,12 @@ class TestWorkerProcessStep:
         job_queue.ack_and_enqueue.assert_called_once()
         enqueue_call = job_queue.ack_and_enqueue.call_args
         assert enqueue_call.kwargs["next_step_type"] == "teardown"
+        # Completion events should be included in the atomic transaction
+        assert "completion_events" in enqueue_call.kwargs
+        completion_events = enqueue_call.kwargs["completion_events"]
+        assert len(completion_events) == 2
+        event_types = [type(e).__name__ for e in completion_events]
+        assert event_types == ["StepCompleted", "PhaseCompleted"]
 
     async def test_teardown_step_calls_execution_env(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)

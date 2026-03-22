@@ -122,6 +122,7 @@ class JobQueue(Protocol):
         next_step_sequence: int,
         next_lane: str | None,
         next_payload_json: str,
+        completion_events: list[Event] | None = None,
     ) -> None:
         """Atomically acknowledge a step and enqueue the next step.
 

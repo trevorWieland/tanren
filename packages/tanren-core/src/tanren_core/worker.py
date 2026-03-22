@@ -309,15 +309,13 @@ class Worker:
         persisted = self._persist_handle(handle)
         result = ProvisionResult(handle=persisted)
 
-        await self._event_store.append(
-            StepCompleted(
-                timestamp=datetime.now(UTC).isoformat(),
-                workflow_id=dispatch.workflow_id,
-                step_id=step.step_id,
-                step_type=StepType.PROVISION,
-                duration_secs=duration,
-                result_payload=result,
-            )
+        step_completed_event = StepCompleted(
+            timestamp=datetime.now(UTC).isoformat(),
+            workflow_id=dispatch.workflow_id,
+            step_id=step.step_id,
+            step_type=StepType.PROVISION,
+            duration_secs=duration,
+            result_payload=result,
         )
 
         # Auto-chain: atomically ack + enqueue execute step
@@ -333,11 +331,14 @@ class Worker:
                 await self._job_queue.ack_and_enqueue(
                     step.step_id,
                     result_json=result.model_dump_json(),
+                    completion_events=[step_completed_event],
                     **next_step,
                 )
             else:
+                await self._event_store.append(step_completed_event)
                 await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
         else:
+            await self._event_store.append(step_completed_event)
             await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
     # ── Execute ───────────────────────────────────────────────────────────
@@ -376,27 +377,23 @@ class Worker:
             token_usage=phase_result.token_usage,
         )
 
-        await self._event_store.append(
-            StepCompleted(
-                timestamp=datetime.now(UTC).isoformat(),
-                workflow_id=dispatch.workflow_id,
-                step_id=step.step_id,
-                step_type=StepType.EXECUTE,
-                duration_secs=duration,
-                result_payload=result,
-            )
+        step_completed_event = StepCompleted(
+            timestamp=datetime.now(UTC).isoformat(),
+            workflow_id=dispatch.workflow_id,
+            step_id=step.step_id,
+            step_type=StepType.EXECUTE,
+            duration_secs=duration,
+            result_payload=result,
         )
-        await self._event_store.append(
-            PhaseCompleted(
-                timestamp=datetime.now(UTC).isoformat(),
-                workflow_id=dispatch.workflow_id,
-                phase=str(dispatch.phase),
-                project=dispatch.project,
-                outcome=str(phase_result.outcome),
-                signal=phase_result.signal,
-                duration_secs=duration,
-                exit_code=phase_result.exit_code,
-            )
+        phase_completed_event = PhaseCompleted(
+            timestamp=datetime.now(UTC).isoformat(),
+            workflow_id=dispatch.workflow_id,
+            phase=str(dispatch.phase),
+            project=dispatch.project,
+            outcome=str(phase_result.outcome),
+            signal=phase_result.signal,
+            duration_secs=duration,
+            exit_code=phase_result.exit_code,
         )
 
         # Auto-chain: atomically ack + enqueue teardown (respecting preserve_on_failure)
@@ -407,6 +404,8 @@ class Worker:
                 and dispatch.preserve_on_failure
             ):
                 # Terminal failure with preserve — ack then mark dispatch failed, skip teardown
+                await self._event_store.append(step_completed_event)
+                await self._event_store.append(phase_completed_event)
                 await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
                 await self._mark_dispatch_failed(
                     dispatch.workflow_id,
@@ -430,11 +429,16 @@ class Worker:
                     await self._job_queue.ack_and_enqueue(
                         step.step_id,
                         result_json=result.model_dump_json(),
+                        completion_events=[step_completed_event, phase_completed_event],
                         **next_step,
                     )
                 else:
+                    await self._event_store.append(step_completed_event)
+                    await self._event_store.append(phase_completed_event)
                     await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
         else:
+            await self._event_store.append(step_completed_event)
+            await self._event_store.append(phase_completed_event)
             await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
     # ── Teardown ──────────────────────────────────────────────────────────

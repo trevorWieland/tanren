@@ -281,6 +281,7 @@ class SqliteStore:
         next_step_sequence: int,
         next_lane: str | None,
         next_payload_json: str,
+        completion_events: list[Event] | None = None,
     ) -> None:
         """Atomically ack a step and enqueue the next step in one transaction."""
         conn = await self._ensure_conn()
@@ -294,7 +295,19 @@ class SqliteStore:
                 "WHERE step_id = ?",
                 (result_json, now, step_id),
             )
-            # 2. Enqueue: insert next step
+            # 2. Insert completion events (if any)
+            if completion_events:
+                for evt in completion_events:
+                    evt_id = uuid.uuid4().hex
+                    evt_type = type(evt).__name__
+                    evt_payload = json.dumps(evt.model_dump(mode="json"))
+                    await conn.execute(
+                        "INSERT INTO events "
+                        "(event_id, timestamp, workflow_id, event_type, payload) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (evt_id, evt.timestamp, evt.workflow_id, evt_type, evt_payload),
+                    )
+            # 3. Enqueue: insert next step
             await conn.execute(
                 "INSERT INTO step_projection "
                 "(step_id, dispatch_id, step_type, step_sequence, lane, "
@@ -311,7 +324,7 @@ class SqliteStore:
                     now,
                 ),
             )
-            # 3. Append StepEnqueued event
+            # 4. Append StepEnqueued event
             event = StepEnqueued(
                 timestamp=now,
                 workflow_id=next_dispatch_id,
@@ -327,7 +340,7 @@ class SqliteStore:
                 "VALUES (?, ?, ?, ?, ?)",
                 (uuid.uuid4().hex, now, next_dispatch_id, "StepEnqueued", event_payload),
             )
-            # 4. Update dispatch status to running (if still pending)
+            # 5. Update dispatch status to running (if still pending)
             await conn.execute(
                 "UPDATE dispatch_projection "
                 "SET status = 'running', updated_at = ? "
