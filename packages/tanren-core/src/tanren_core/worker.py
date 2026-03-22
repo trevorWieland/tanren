@@ -17,7 +17,7 @@ import os
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from tanren_core.adapters.events import (
     ErrorOccurred,
@@ -37,6 +37,8 @@ from tanren_core.store.events import (
 )
 from tanren_core.store.handle import PersistedEnvironmentHandle
 from tanren_core.store.payloads import (
+    DryRunResult,
+    DryRunStepPayload,
     ExecuteResult,
     ExecuteStepPayload,
     ProvisionResult,
@@ -52,6 +54,18 @@ if TYPE_CHECKING:
     from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
+
+
+class _NextStepKwargs(TypedDict):
+    """Keyword arguments for ``ack_and_enqueue()`` (next step fields)."""
+
+    next_step_id: str
+    next_dispatch_id: str
+    next_step_type: str
+    next_step_sequence: int
+    next_lane: str | None
+    next_payload_json: str
+
 
 _MAX_RETRIES = 3
 _TRANSIENT_BACKOFF = (10, 30, 60)
@@ -258,6 +272,9 @@ class Worker:
             elif step.step_type == StepType.TEARDOWN:
                 payload_td = TeardownStepPayload.model_validate_json(step.payload_json)
                 await self._do_teardown(payload_td, step)
+            elif step.step_type == StepType.DRY_RUN:
+                payload_dr = DryRunStepPayload.model_validate_json(step.payload_json)
+                await self._do_dry_run(payload_dr, step)
             else:
                 raise ValueError(f"Unknown step type: {step.step_type}")
         except Exception as exc:
@@ -302,17 +319,26 @@ class Worker:
                 result_payload=result,
             )
         )
-        await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
-        # Auto-chain: enqueue execute step
+        # Auto-chain: atomically ack + enqueue execute step
         dispatch_view = await self._state_store.get_dispatch(dispatch.workflow_id)
         if dispatch_view and dispatch_view.mode == DispatchMode.AUTO:
-            await self._enqueue_next_step(
+            next_step = self._build_next_step(
                 dispatch=dispatch,
                 next_type=StepType.EXECUTE,
                 next_sequence=1,
                 handle=persisted,
             )
+            if next_step is not None:
+                await self._job_queue.ack_and_enqueue(
+                    step.step_id,
+                    result_json=result.model_dump_json(),
+                    **next_step,
+                )
+            else:
+                await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
+        else:
+            await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
     # ── Execute ───────────────────────────────────────────────────────────
 
@@ -372,16 +398,16 @@ class Worker:
                 exit_code=phase_result.exit_code,
             )
         )
-        await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
-        # Auto-chain: enqueue teardown (respecting preserve_on_failure)
+        # Auto-chain: atomically ack + enqueue teardown (respecting preserve_on_failure)
         dispatch_view = await self._state_store.get_dispatch(dispatch.workflow_id)
         if dispatch_view and dispatch_view.mode == DispatchMode.AUTO:
             if (
                 phase_result.outcome in (Outcome.ERROR, Outcome.TIMEOUT)
                 and dispatch.preserve_on_failure
             ):
-                # Terminal failure with preserve — mark dispatch failed, skip teardown
+                # Terminal failure with preserve — ack then mark dispatch failed, skip teardown
+                await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
                 await self._mark_dispatch_failed(
                     dispatch.workflow_id,
                     step.step_id,
@@ -393,13 +419,23 @@ class Worker:
                     Outcome.ERROR,
                     Outcome.TIMEOUT,
                 )
-                await self._enqueue_next_step(
+                next_step = self._build_next_step(
                     dispatch=dispatch,
                     next_type=StepType.TEARDOWN,
                     next_sequence=2,
                     handle=payload.handle,
                     preserve=preserve,
                 )
+                if next_step is not None:
+                    await self._job_queue.ack_and_enqueue(
+                        step.step_id,
+                        result_json=result.model_dump_json(),
+                        **next_step,
+                    )
+                else:
+                    await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
+        else:
+            await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
     # ── Teardown ──────────────────────────────────────────────────────────
 
@@ -470,6 +506,49 @@ class Worker:
             DispatchStatus.COMPLETED,
             final_outcome,
         )
+
+    # ── Dry run ───────────────────────────────────────────────────────────
+
+    async def _do_dry_run(
+        self,
+        payload: DryRunStepPayload,
+        step: QueuedStep,
+    ) -> None:
+        """Execute a dry-run step — check what provisioning would do."""
+        dispatch = payload.dispatch
+
+        # Build VMRequirements from dispatch's resolved_profile
+        from tanren_core.adapters.remote_types import VMRequirements
+
+        profile = dispatch.resolved_profile
+        requirements = VMRequirements(
+            profile=dispatch.environment_profile,
+            cpu=profile.resources.cpu if profile else 2,
+            memory_gb=profile.resources.memory_gb if profile else 4,
+            gpu=profile.resources.gpu if profile else False,
+            server_type=profile.server_type if profile else None,
+        )
+
+        info = await self._execution_env.dry_run(requirements)
+
+        result = DryRunResult(
+            provider=str(info.provider),
+            server_type=info.server_type,
+            estimated_cost_hourly=info.estimated_cost_hourly,
+            would_provision=info.would_provision,
+        )
+
+        await self._event_store.append(
+            StepCompleted(
+                timestamp=datetime.now(UTC).isoformat(),
+                workflow_id=dispatch.workflow_id,
+                step_id=step.step_id,
+                step_type=StepType.DRY_RUN,
+                duration_secs=0,
+                result_payload=result,
+            )
+        )
+        await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
     # ── Error handling ────────────────────────────────────────────────────
 
@@ -557,21 +636,26 @@ class Worker:
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
-    async def _enqueue_next_step(
-        self,
+    @staticmethod
+    def _build_next_step(
         *,
         dispatch: object,
         next_type: StepType,
         next_sequence: int,
         handle: PersistedEnvironmentHandle,
         preserve: bool = False,
-    ) -> None:
-        """Enqueue the next step in the auto-chain."""
+    ) -> _NextStepKwargs | None:
+        """Build kwargs for ``ack_and_enqueue()`` without calling the queue.
+
+        Returns:
+            A ``_NextStepKwargs`` dict with the ``next_*`` keyword arguments,
+            or ``None`` if the dispatch is not a valid ``Dispatch`` instance.
+        """
         from tanren_core.schemas import Dispatch
 
         disp = dispatch if isinstance(dispatch, Dispatch) else None
         if disp is None:
-            return
+            return None
 
         step_id = uuid.uuid4().hex
         lane: Lane | None = None
@@ -579,19 +663,19 @@ class Worker:
             from tanren_core.store.enums import cli_to_lane
 
             lane = cli_to_lane(disp.cli)
-            payload = ExecuteStepPayload(dispatch=disp, handle=handle)
+            step_payload = ExecuteStepPayload(dispatch=disp, handle=handle)
         elif next_type == StepType.TEARDOWN:
-            payload = TeardownStepPayload(dispatch=disp, handle=handle, preserve=preserve)
+            step_payload = TeardownStepPayload(dispatch=disp, handle=handle, preserve=preserve)
         else:
-            return
+            return None
 
-        await self._job_queue.enqueue_step(
-            step_id=step_id,
-            dispatch_id=disp.workflow_id,
-            step_type=str(next_type),
-            step_sequence=next_sequence,
-            lane=str(lane) if lane else None,
-            payload_json=payload.model_dump_json(),
+        return _NextStepKwargs(
+            next_step_id=step_id,
+            next_dispatch_id=disp.workflow_id,
+            next_step_type=str(next_type),
+            next_step_sequence=next_sequence,
+            next_lane=str(lane) if lane else None,
+            next_payload_json=step_payload.model_dump_json(),
         )
 
     async def _mark_dispatch_failed(

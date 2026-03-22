@@ -111,6 +111,26 @@ class JobQueue(Protocol):
         """
         ...
 
+    async def ack_and_enqueue(
+        self,
+        step_id: str,
+        *,
+        result_json: str,
+        next_step_id: str,
+        next_dispatch_id: str,
+        next_step_type: str,
+        next_step_sequence: int,
+        next_lane: str | None,
+        next_payload_json: str,
+    ) -> None:
+        """Atomically acknowledge a step and enqueue the next step.
+
+        Combines the ack (UPDATE step to completed) and enqueue (INSERT
+        new step + INSERT StepEnqueued event + UPDATE dispatch status) in
+        a single transaction to prevent race conditions during auto-chaining.
+        """
+        ...
+
     async def nack(
         self,
         step_id: str,

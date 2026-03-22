@@ -129,3 +129,22 @@ class TeardownResult(BaseModel):
         ge=0.0,
         description="Estimated total VM cost in USD",
     )
+
+
+class DryRunStepPayload(BaseModel):
+    """Payload for a dry-run step."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dispatch: Dispatch = Field(..., description="Full dispatch payload")
+
+
+class DryRunResult(BaseModel):
+    """Result of a dry-run step."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(..., description="VM provider that would be used")
+    server_type: str | None = Field(default=None, description="Server type")
+    estimated_cost_hourly: float | None = Field(default=None, description="Estimated hourly cost")
+    would_provision: bool = Field(..., description="Whether provisioning would proceed")

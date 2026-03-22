@@ -22,6 +22,7 @@ class StepType(StrEnum):
     PROVISION = "provision"
     EXECUTE = "execute"
     TEARDOWN = "teardown"
+    DRY_RUN = "dry_run"
 
 
 class Lane(StrEnum):

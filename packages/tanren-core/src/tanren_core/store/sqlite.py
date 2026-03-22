@@ -270,6 +270,75 @@ class SqliteStore:
             await conn.rollback()
             raise
 
+    async def ack_and_enqueue(
+        self,
+        step_id: str,
+        *,
+        result_json: str,
+        next_step_id: str,
+        next_dispatch_id: str,
+        next_step_type: str,
+        next_step_sequence: int,
+        next_lane: str | None,
+        next_payload_json: str,
+    ) -> None:
+        """Atomically ack a step and enqueue the next step in one transaction."""
+        conn = await self._ensure_conn()
+        now = _now()
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            # 1. Ack: mark current step completed
+            await conn.execute(
+                "UPDATE step_projection "
+                "SET status = 'completed', result_json = ?, updated_at = ? "
+                "WHERE step_id = ?",
+                (result_json, now, step_id),
+            )
+            # 2. Enqueue: insert next step
+            await conn.execute(
+                "INSERT INTO step_projection "
+                "(step_id, dispatch_id, step_type, step_sequence, lane, "
+                "status, payload_json, retry_count, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?)",
+                (
+                    next_step_id,
+                    next_dispatch_id,
+                    next_step_type,
+                    next_step_sequence,
+                    next_lane,
+                    next_payload_json,
+                    now,
+                    now,
+                ),
+            )
+            # 3. Append StepEnqueued event
+            event = StepEnqueued(
+                timestamp=now,
+                workflow_id=next_dispatch_id,
+                step_id=next_step_id,
+                step_type=StepType(next_step_type),
+                step_sequence=next_step_sequence,
+                lane=Lane(next_lane) if next_lane else None,
+            )
+            event_payload = json.dumps(event.model_dump(mode="json"))
+            await conn.execute(
+                "INSERT INTO events "
+                "(event_id, timestamp, workflow_id, event_type, payload) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, now, next_dispatch_id, "StepEnqueued", event_payload),
+            )
+            # 4. Update dispatch status to running (if still pending)
+            await conn.execute(
+                "UPDATE dispatch_projection "
+                "SET status = 'running', updated_at = ? "
+                "WHERE dispatch_id = ? AND status = 'pending'",
+                (now, next_dispatch_id),
+            )
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+
     async def nack(
         self,
         step_id: str,

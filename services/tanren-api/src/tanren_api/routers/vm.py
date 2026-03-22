@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, Path, Request
 from tanren_api.dependencies import get_event_store, get_job_queue, get_state_store
 from tanren_api.models import (
     ProvisionRequest,
-    VMDryRunResult,
     VMProvisionAccepted,
     VMProvisionStatus,
     VMReleaseConfirmed,
@@ -68,6 +67,6 @@ async def release_vm(
 async def dry_run_provision(
     body: ProvisionRequest,
     service: Annotated[VMService, Depends(_vm_service)],
-) -> VMDryRunResult:
-    """Dry-run provision — show what would happen without creating resources."""
+) -> VMProvisionAccepted:
+    """Dry-run provision — enqueue a DRY_RUN step and return dispatch_id for polling."""
     return await service.dry_run(body)

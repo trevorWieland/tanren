@@ -21,6 +21,7 @@ from tanren_core.adapters.credentials import (
     inject_all_cli_credentials,
 )
 from tanren_core.adapters.remote_types import (
+    DryRunInfo,
     VMHandle,
     VMProvider,
     VMRequirements,
@@ -144,6 +145,20 @@ class SSHExecutionEnvironment:
                 logger.info("Recovered stale VM %s (%s)", a.vm_id, a.host)
 
         return len(assignments)
+
+    async def dry_run(
+        self,
+        requirements: VMRequirements,  # noqa: ARG002
+    ) -> DryRunInfo:
+        """Dry-run provision — return what would happen without creating resources.
+
+        Returns:
+            DryRunInfo with provider info from this environment.
+        """
+        return DryRunInfo(
+            provider=self._provider,
+            would_provision=True,
+        )
 
     async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets.

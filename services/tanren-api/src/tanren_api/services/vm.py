@@ -9,18 +9,21 @@ from datetime import UTC, datetime
 from tanren_api.errors import NotFoundError
 from tanren_api.models import (
     ProvisionRequest,
-    VMDryRunResult,
     VMProvisionAccepted,
     VMProvisionStatus,
     VMReleaseConfirmed,
     VMStatus,
     VMSummary,
 )
-from tanren_core.adapters.remote_types import VMProvider, VMRequirements
 from tanren_core.schemas import Cli, Dispatch, Phase
 from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
 from tanren_core.store.events import DispatchCreated
-from tanren_core.store.payloads import ProvisionResult, ProvisionStepPayload, TeardownStepPayload
+from tanren_core.store.payloads import (
+    DryRunStepPayload,
+    ProvisionResult,
+    ProvisionStepPayload,
+    TeardownStepPayload,
+)
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 logger = logging.getLogger(__name__)
@@ -214,15 +217,53 @@ class VMService:
 
         raise NotFoundError(f"VM {vm_id} not found")
 
-    async def dry_run(self, body: ProvisionRequest) -> VMDryRunResult:
-        """Dry-run provision — show what would happen.
+    async def dry_run(self, body: ProvisionRequest) -> VMProvisionAccepted:
+        """Enqueue a DRY_RUN step and return the dispatch_id for polling.
 
         Returns:
-            VMDryRunResult.
+            VMProvisionAccepted with env_id for polling.
         """
-        requirements = VMRequirements(profile=body.environment_profile)
-        return VMDryRunResult(
-            provider=VMProvider.MANUAL,
-            would_provision=True,
-            requirements=requirements,
+        workflow_id = f"vm-dryrun-{body.project}-{uuid.uuid4().hex[:8]}"
+
+        dispatch = Dispatch(
+            workflow_id=workflow_id,
+            project=body.project,
+            phase=Phase.DO_TASK,
+            branch=body.branch,
+            spec_folder="",
+            cli=Cli.CLAUDE,
+            timeout=60,
+            environment_profile=body.resolved_profile.name,
+            resolved_profile=body.resolved_profile,
         )
+
+        lane = cli_to_lane(dispatch.cli)
+        await self._state_store.create_dispatch_projection(
+            dispatch_id=workflow_id,
+            mode=DispatchMode.MANUAL,
+            lane=lane,
+            preserve_on_failure=False,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+        await self._event_store.append(
+            DispatchCreated(
+                timestamp=_now(),
+                workflow_id=workflow_id,
+                dispatch=dispatch,
+                mode=DispatchMode.MANUAL,
+                lane=lane,
+            )
+        )
+
+        step_id = uuid.uuid4().hex
+        payload = DryRunStepPayload(dispatch=dispatch)
+        await self._job_queue.enqueue_step(
+            step_id=step_id,
+            dispatch_id=workflow_id,
+            step_type="dry_run",
+            step_sequence=0,
+            lane=None,
+            payload_json=payload.model_dump_json(),
+        )
+
+        return VMProvisionAccepted(env_id=workflow_id)

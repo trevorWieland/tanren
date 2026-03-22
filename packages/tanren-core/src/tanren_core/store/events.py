@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tanren_core.adapters.events import Event
 from tanren_core.schemas import Dispatch, Outcome
 from tanren_core.store.enums import DispatchMode, Lane, StepType
-from tanren_core.store.payloads import ExecuteResult, ProvisionResult, TeardownResult
+from tanren_core.store.payloads import DryRunResult, ExecuteResult, ProvisionResult, TeardownResult
 
 # ── Dispatch-level events ─────────────────────────────────────────────────
 
@@ -123,12 +123,13 @@ class StepStarted(Event):
 
 # ── Step result payload (discriminated union by step_type) ────────────────
 
-StepResultPayload = ProvisionResult | ExecuteResult | TeardownResult
+StepResultPayload = ProvisionResult | ExecuteResult | TeardownResult | DryRunResult
 
 _STEP_RESULT_MODEL: dict[str, type[BaseModel]] = {
     StepType.PROVISION: ProvisionResult,
     StepType.EXECUTE: ExecuteResult,
     StepType.TEARDOWN: TeardownResult,
+    StepType.DRY_RUN: DryRunResult,
 }
 
 
@@ -144,7 +145,7 @@ class StepCompleted(Event):
     step_id: str = Field(..., description="Step that completed")
     step_type: StepType = Field(..., description="Step type for quick filtering")
     duration_secs: int = Field(..., ge=0, description="Wall-clock step duration")
-    result_payload: ProvisionResult | ExecuteResult | TeardownResult = Field(
+    result_payload: ProvisionResult | ExecuteResult | TeardownResult | DryRunResult = Field(
         ...,
         description="Step-type-specific result data",
     )

@@ -27,7 +27,6 @@ from tanren_api.models import (
     RunExecuteAccepted,
     RunStatus,
     RunTeardownAccepted,
-    VMDryRunResult,
     VMProvisionAccepted,
     VMProvisionStatus,
     VMReleaseConfirmed,
@@ -295,11 +294,11 @@ async def vm_dry_run(
     project: str,
     branch: str,
     environment_profile: str = "default",
-) -> VMDryRunResult:
-    """Dry-run VM provision.
+) -> VMProvisionAccepted:
+    """Dry-run VM provision — enqueue a DRY_RUN step and return dispatch_id for polling.
 
     Returns:
-        VMDryRunResult with provider, server_type, and estimated_cost_hourly.
+        VMProvisionAccepted with env_id for polling.
     """
     from tanren_api.models import ProvisionRequest
     from tanren_core.env.environment_schema import EnvironmentProfile

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from tanren_core.adapters.issue_types import Issue, IssueSummary
     from tanren_core.adapters.remote_types import (
         BootstrapResult,
+        DryRunInfo,
         RemoteResult,
         SecretBundle,
         VMAssignment,
@@ -219,6 +220,10 @@ class ExecutionEnvironment(Protocol):
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
         """Clean up the execution environment and release resources."""
+        ...
+
+    async def dry_run(self, requirements: VMRequirements) -> DryRunInfo:
+        """Dry-run provision — return what would happen without creating resources."""
         ...
 
     async def release_vm(self, vm_handle: VMHandle) -> None:

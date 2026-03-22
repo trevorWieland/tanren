@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         PreflightRunner,
         ProcessSpawner,
     )
-    from tanren_core.adapters.remote_types import VMHandle
+    from tanren_core.adapters.remote_types import DryRunInfo, VMHandle, VMRequirements
     from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,22 @@ class LocalExecutionEnvironment:
         self._postflight = postflight
         self._spawner = spawner
         self._config = config
+
+    async def dry_run(
+        self,
+        requirements: VMRequirements,  # noqa: ARG002
+    ) -> DryRunInfo:
+        """Dry-run provision — return what would happen without creating resources.
+
+        Returns:
+            DryRunInfo indicating no provisioning (local environment).
+        """
+        from tanren_core.adapters.remote_types import DryRunInfo, VMProvider  # noqa: PLC0415
+
+        return DryRunInfo(
+            provider=VMProvider.MANUAL,
+            would_provision=False,
+        )
 
     async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
         """Env validation -> preflight -> return handle.

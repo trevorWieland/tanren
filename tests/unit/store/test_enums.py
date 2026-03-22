@@ -37,7 +37,7 @@ class TestEnumValues:
         assert set(DispatchMode) == {"auto", "manual"}
 
     def test_step_type_values(self) -> None:
-        assert set(StepType) == {"provision", "execute", "teardown"}
+        assert set(StepType) == {"provision", "execute", "teardown", "dry_run"}
 
     def test_lane_values(self) -> None:
         assert set(Lane) == {"impl", "audit", "gate"}

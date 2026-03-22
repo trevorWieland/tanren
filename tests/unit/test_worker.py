@@ -145,11 +145,10 @@ class TestWorkerProcessStep:
         await worker.process_step(step)
 
         execution_env.provision.assert_called_once()
-        job_queue.ack.assert_called_once()
-        # Auto-chain: should enqueue execute step
-        job_queue.enqueue_step.assert_called_once()
-        enqueue_call = job_queue.enqueue_step.call_args
-        assert enqueue_call.kwargs["step_type"] == "execute"
+        # Auto-chain: should atomically ack + enqueue execute step
+        job_queue.ack_and_enqueue.assert_called_once()
+        enqueue_call = job_queue.ack_and_enqueue.call_args
+        assert enqueue_call.kwargs["next_step_type"] == "execute"
 
     async def test_execute_step_calls_execution_env(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
@@ -186,11 +185,10 @@ class TestWorkerProcessStep:
         await worker.process_step(step)
 
         execution_env.execute.assert_called_once()
-        job_queue.ack.assert_called_once()
-        # Auto-chain: should enqueue teardown step
-        job_queue.enqueue_step.assert_called_once()
-        enqueue_call = job_queue.enqueue_step.call_args
-        assert enqueue_call.kwargs["step_type"] == "teardown"
+        # Auto-chain: should atomically ack + enqueue teardown step
+        job_queue.ack_and_enqueue.assert_called_once()
+        enqueue_call = job_queue.ack_and_enqueue.call_args
+        assert enqueue_call.kwargs["next_step_type"] == "teardown"
 
     async def test_teardown_step_calls_execution_env(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
