@@ -15,7 +15,6 @@ all = ["tanren-core[all]"]
 
 [project.scripts]
 tanren-daemon = "tanren_daemon.main:main"
-worker-manager = "tanren_daemon.main:main"  # backward compat alias
 
 [build-system]
 requires = ["uv-build>=0.1.0"]

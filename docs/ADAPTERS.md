@@ -408,7 +408,7 @@ during remote environment initialization (no global startup autoload).
 
 The tanren-core `ExecutionEnvironment` protocol takes `Dispatch` and
 `Config` arguments, making it dispatch-aware. This is intentional: the
-worker manager always has a dispatch context when it provisions and executes
+worker always has a dispatch context when it provisions and executes
 environments.
 
 The tanren architecture document defines a more generic version intended for

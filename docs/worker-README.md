@@ -1,8 +1,7 @@
 # Worker
 
 The Worker is a queue-consuming daemon that processes dispatch steps from the
-store. It replaces the former file-based WorkerManager with an event-sourced
-queue model backed by SQLite or Postgres.
+store, backed by SQLite or Postgres.
 
 ## Architecture
 

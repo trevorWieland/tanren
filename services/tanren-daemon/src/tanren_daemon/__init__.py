@@ -1,1 +1,1 @@
-"""Daemon service for the tanren worker manager."""
+"""Daemon service for the tanren worker."""

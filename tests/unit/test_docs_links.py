@@ -146,12 +146,12 @@ class TestDiscoverMarkdownFiles:
         repo = tmp_path
         _write(repo / "README.md", "# Root\n")
         _write(repo / "docs" / "guide.md", "# Guide\n")
-        _write(repo / "protocol" / "PROTOCOL.md", "# Protocol\n")
+        _write(repo / "protocol" / "README.md", "# Protocol\n")
         _write(repo / ".venv" / "docs.md", "# Ignored\n")
 
         files = {path.relative_to(repo).as_posix() for path in discover_markdown_files(repo)}
 
         assert "README.md" in files
         assert "docs/guide.md" in files
-        assert "protocol/PROTOCOL.md" in files
+        assert "protocol/README.md" in files
         assert ".venv/docs.md" not in files

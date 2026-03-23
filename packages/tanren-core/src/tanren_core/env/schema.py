@@ -81,7 +81,7 @@ class EnvBlock(BaseModel):
 
 
 class TanrenConfig(BaseModel):
-    """Top-level tanren.yml model needed by worker-manager env tooling."""
+    """Top-level tanren.yml model needed by worker env tooling."""
 
     model_config = ConfigDict(extra="forbid")
 
