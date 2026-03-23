@@ -167,6 +167,10 @@ class RunService:
             gate_cmd=body.gate_cmd,
         )
 
+        # Guard: prevent duplicate execute steps
+        if any(s.step_type == StepType.EXECUTE for s in steps):
+            raise ServiceError("Execute step already enqueued for this environment")
+
         lane = cli_to_lane(exec_dispatch.cli)
 
         step_id = uuid.uuid4().hex
@@ -205,6 +209,10 @@ class RunService:
         )
         if provision_step is None or provision_step.result_json is None:
             raise ServiceError("Provision step not completed — cannot teardown")
+
+        # Guard: prevent duplicate teardown steps
+        if any(s.step_type == StepType.TEARDOWN for s in steps):
+            raise ServiceError("Teardown already enqueued for this environment")
 
         from tanren_core.store.payloads import ProvisionResult
 
