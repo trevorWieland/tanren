@@ -138,10 +138,11 @@ class JobQueue(Protocol):
         ...
 
     async def cancel_pending_steps(self, dispatch_id: str) -> int:
-        """Cancel all pending steps for a dispatch.
+        """Cancel pending forward-progress steps for a dispatch.
 
-        Sets ``status='cancelled'`` on every ``step_projection`` row
-        belonging to *dispatch_id* that is still ``'pending'``.
+        Sets ``status='cancelled'`` on pending ``step_projection`` rows
+        belonging to *dispatch_id*, **excluding teardown** steps so
+        resource cleanup still runs.
 
         Returns the number of rows updated.
         """

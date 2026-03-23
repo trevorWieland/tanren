@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 _PAGE_SIZE = 5000
 
 
+def _safe_float(value: object, default: float = 0.0) -> float:
+    """Parse a float from an event payload value, returning default on failure."""
+    try:
+        return float(str(value))
+    except ValueError, TypeError:
+        return default
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    """Parse an int from an event payload value, returning default on failure."""
+    try:
+        return int(str(value))
+    except ValueError, TypeError:
+        return default
+
+
 class MetricsService:
     """Service for querying aggregated dashboard metrics from EventStore."""
 
@@ -85,7 +101,9 @@ class MetricsService:
                 counts[outcome] += 1
             dur = payload.get("duration_secs")
             if dur is not None:
-                durations.append(float(str(dur)))
+                dur_val = _safe_float(dur, default=-1.0)
+                if dur_val >= 0:
+                    durations.append(dur_val)
 
         durations.sort()
         avg = sum(durations) / len(durations) if durations else 0.0
@@ -140,8 +158,8 @@ class MetricsService:
             else:
                 key = str(payload.get("workflow_id", "unknown"))
 
-            cost = float(str(payload.get("total_cost", 0)))
-            tokens = int(str(payload.get("total_tokens", 0)))
+            cost = _safe_float(payload.get("total_cost", 0))
+            tokens = _safe_int(payload.get("total_tokens", 0))
             total_cost += cost
             total_tokens += tokens
 
@@ -160,13 +178,13 @@ class MetricsService:
                 group_key=key,
                 total_cost=b.total_cost + cost,
                 total_tokens=b.total_tokens + tokens,
-                input_tokens=b.input_tokens + int(str(payload.get("input_tokens", 0))),
-                output_tokens=b.output_tokens + int(str(payload.get("output_tokens", 0))),
+                input_tokens=b.input_tokens + _safe_int(payload.get("input_tokens", 0)),
+                output_tokens=b.output_tokens + _safe_int(payload.get("output_tokens", 0)),
                 cache_read_tokens=b.cache_read_tokens
-                + int(str(payload.get("cache_read_tokens", 0))),
+                + _safe_int(payload.get("cache_read_tokens", 0)),
                 cache_creation_tokens=b.cache_creation_tokens
-                + int(str(payload.get("cache_creation_tokens", 0))),
-                reasoning_tokens=b.reasoning_tokens + int(str(payload.get("reasoning_tokens", 0))),
+                + _safe_int(payload.get("cache_creation_tokens", 0)),
+                reasoning_tokens=b.reasoning_tokens + _safe_int(payload.get("reasoning_tokens", 0)),
                 event_count=b.event_count + 1,
             )
 
@@ -209,11 +227,10 @@ class MetricsService:
             if project and str(p.get("project", "")) != project:
                 continue
             released += 1
-            dur = p.get("duration_secs", 0)
-            total_duration += int(str(dur)) if dur else 0
+            total_duration += _safe_int(p.get("duration_secs", 0))
             cost = p.get("estimated_cost")
             if cost is not None:
-                total_cost += float(str(cost))
+                total_cost += _safe_float(cost)
 
         avg_dur = total_duration / released if released > 0 else 0.0
 

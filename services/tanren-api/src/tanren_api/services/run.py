@@ -278,9 +278,14 @@ class RunService:
 
         steps = await self._state_store.get_steps_for_dispatch(dispatch_view.dispatch_id)
 
-        # Derive environment status from step states
+        # Derive environment status from step states.
+        # Track whether any step failed so teardown completion doesn't
+        # overwrite the failure.
         env_status = RunEnvironmentStatus.PROVISIONING
+        had_failure = False
         for step in steps:
+            if step.status == StepStatus.FAILED:
+                had_failure = True
             if step.step_type == StepType.PROVISION and step.status == StepStatus.COMPLETED:
                 env_status = RunEnvironmentStatus.PROVISIONED
             elif step.step_type == StepType.EXECUTE and step.status == StepStatus.RUNNING:
@@ -291,8 +296,9 @@ class RunService:
                 env_status = RunEnvironmentStatus.TEARING_DOWN
                 if step.status == StepStatus.COMPLETED:
                     env_status = RunEnvironmentStatus.COMPLETED
-            if step.status == StepStatus.FAILED:
-                env_status = RunEnvironmentStatus.FAILED
+
+        if had_failure:
+            env_status = RunEnvironmentStatus.FAILED
 
         return RunStatus(
             env_id=env_id,

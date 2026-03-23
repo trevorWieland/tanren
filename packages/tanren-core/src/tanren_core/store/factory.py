@@ -16,7 +16,7 @@ async def create_sqlite_store(db_path: str) -> SqliteStore:
         A ``SqliteStore`` instance (implements EventStore, JobQueue, StateStore).
     """
     store = SqliteStore(db_path)
-    await store._ensure_conn()
+    await store.ensure_schema()
     return store
 
 

@@ -380,13 +380,17 @@ class PostgresStore:
             )
 
     async def cancel_pending_steps(self, dispatch_id: str) -> int:
-        """Cancel all pending steps for a dispatch."""
+        """Cancel pending forward-progress steps for a dispatch.
+
+        Teardown steps are excluded so resource cleanup still runs.
+        """
         now = _now()
         async with self._pool.acquire() as conn, conn.transaction():
             result = await conn.execute(
                 "UPDATE step_projection "
                 "SET status = 'cancelled', updated_at = $1 "
-                "WHERE dispatch_id = $2 AND status = 'pending'",
+                "WHERE dispatch_id = $2 AND status = 'pending' "
+                "AND step_type != 'teardown'",
                 now,
                 dispatch_id,
             )

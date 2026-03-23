@@ -461,7 +461,7 @@ from tanren_core.adapters.types import (
     PhaseResult,
     ProvisionError,
 )
-from tanren_core.config import Config
+from tanren_core.worker_config import WorkerConfig
 from tanren_core.schemas import Dispatch, Outcome
 
 
@@ -548,7 +548,7 @@ parameter left as `None` gets its built-in default:
 
 ```python
 from tanren_core.worker import Worker
-from tanren_core.config import Config
+from tanren_core.worker_config import WorkerConfig
 
 # Use all defaults
 worker = Worker()

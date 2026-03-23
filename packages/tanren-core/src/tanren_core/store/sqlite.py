@@ -47,6 +47,10 @@ class SqliteStore:
         self._db_path = Path(db_path)
         self._conn: aiosqlite.Connection | None = None
 
+    async def ensure_schema(self) -> None:
+        """Initialize the database connection and create tables idempotently."""
+        await self._ensure_conn()
+
     async def _ensure_conn(self) -> aiosqlite.Connection:
         if self._conn is None:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -357,13 +361,17 @@ class SqliteStore:
             )
 
     async def cancel_pending_steps(self, dispatch_id: str) -> int:
-        """Cancel all pending steps for a dispatch."""
+        """Cancel pending forward-progress steps for a dispatch.
+
+        Teardown steps are excluded so resource cleanup still runs.
+        """
         conn = await self._ensure_conn()
         now = _now()
         cursor = await conn.execute(
             "UPDATE step_projection "
             "SET status = 'cancelled', updated_at = ? "
-            "WHERE dispatch_id = ? AND status = 'pending'",
+            "WHERE dispatch_id = ? AND status = 'pending' "
+            "AND step_type != 'teardown'",
             (now, dispatch_id),
         )
         await conn.commit()

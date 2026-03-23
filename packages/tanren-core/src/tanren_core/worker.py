@@ -59,6 +59,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _utc_now() -> str:
+    """Return current UTC timestamp in canonical Z-suffix format."""
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 class _NextStepKwargs(TypedDict):
     """Keyword arguments for ``ack_and_enqueue()`` (next step fields)."""
 
@@ -255,7 +260,7 @@ class Worker:
     async def process_step(self, step: QueuedStep) -> None:
         """Route a step to the appropriate handler."""
         try:
-            now = datetime.now(UTC).isoformat()
+            now = _utc_now()
             await self._event_store.append(
                 StepStarted(
                     timestamp=now,
@@ -300,7 +305,7 @@ class Worker:
             duration = int(time.monotonic() - start)
             await self._event_store.append(
                 PreflightCompleted(
-                    timestamp=datetime.now(UTC).isoformat(),
+                    timestamp=_utc_now(),
                     workflow_id=dispatch.workflow_id,
                     passed=False,
                     repairs=[],
@@ -316,7 +321,7 @@ class Worker:
         if persisted.vm is not None:
             await self._event_store.append(
                 VMProvisioned(
-                    timestamp=datetime.now(UTC).isoformat(),
+                    timestamp=_utc_now(),
                     workflow_id=dispatch.workflow_id,
                     vm_id=persisted.vm.vm_id,
                     host=persisted.vm.host,
@@ -328,7 +333,7 @@ class Worker:
             )
 
         step_completed_event = StepCompleted(
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_utc_now(),
             workflow_id=dispatch.workflow_id,
             step_id=step.step_id,
             step_type=StepType.PROVISION,
@@ -422,7 +427,7 @@ class Worker:
             tu = phase_result.token_usage
             await self._event_store.append(
                 TokenUsageRecorded(
-                    timestamp=datetime.now(UTC).isoformat(),
+                    timestamp=_utc_now(),
                     workflow_id=dispatch.workflow_id,
                     phase=str(dispatch.phase),
                     project=dispatch.project,
@@ -441,7 +446,7 @@ class Worker:
             )
 
         step_completed_event = StepCompleted(
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_utc_now(),
             workflow_id=dispatch.workflow_id,
             step_id=step.step_id,
             step_type=StepType.EXECUTE,
@@ -449,7 +454,7 @@ class Worker:
             result_payload=result,
         )
         phase_completed_event = PhaseCompleted(
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_utc_now(),
             workflow_id=dispatch.workflow_id,
             phase=str(dispatch.phase),
             project=dispatch.project,
@@ -540,7 +545,7 @@ class Worker:
             estimated_cost = (hourly * vm_duration / 3600.0) if hourly else None
             await self._event_store.append(
                 VMReleased(
-                    timestamp=datetime.now(UTC).isoformat(),
+                    timestamp=_utc_now(),
                     workflow_id=dispatch.workflow_id,
                     vm_id=payload.handle.vm.vm_id,
                     project=dispatch.project,
@@ -551,7 +556,7 @@ class Worker:
 
         await self._event_store.append(
             StepCompleted(
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=_utc_now(),
                 workflow_id=dispatch.workflow_id,
                 step_id=step.step_id,
                 step_type=StepType.TEARDOWN,
@@ -586,13 +591,13 @@ class Worker:
                 pass
 
         # Use FAILED status for non-success outcomes
-        now_ts = datetime.now(UTC).isoformat()
+        now_ts = _utc_now()
         if final_outcome in (Outcome.ERROR, Outcome.TIMEOUT):
             await self._event_store.append(
                 DispatchFailed(
                     timestamp=now_ts,
                     workflow_id=dispatch.workflow_id,
-                    failed_step_id=step.step_id,
+                    failed_step_id=execute_step.step_id if execute_step else step.step_id,
                     failed_step_type=StepType.EXECUTE,
                     error=f"Execution outcome: {final_outcome}",
                 )
@@ -650,7 +655,7 @@ class Worker:
 
         await self._event_store.append(
             StepCompleted(
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=_utc_now(),
                 workflow_id=dispatch.workflow_id,
                 step_id=step.step_id,
                 step_type=StepType.DRY_RUN,
@@ -674,7 +679,7 @@ class Worker:
         exc: Exception,
     ) -> None:
         """Handle a step failure — retry or mark terminal."""
-        now = datetime.now(UTC).isoformat()
+        now = _utc_now()
         error_msg = str(exc)
 
         # Classify error for retry decision
@@ -745,31 +750,38 @@ class Worker:
             )
 
             # For failed execute steps in AUTO mode, enqueue teardown to
-            # clean up remote VMs/workspaces before marking dispatch failed
+            # clean up remote VMs/workspaces. Defer marking dispatch failed
+            # so run_until_dispatch_complete doesn't cancel consumers
+            # before teardown runs.
+            enqueued_teardown = False
             if step.step_type == StepType.EXECUTE:
-                await self._enqueue_teardown_on_failure(step)
+                enqueued_teardown = await self._enqueue_teardown_on_failure(step)
 
-            await self._mark_dispatch_failed(
-                step.dispatch_id,
-                step.step_id,
-                step.step_type,
-                error_msg,
-            )
+            if not enqueued_teardown:
+                await self._mark_dispatch_failed(
+                    step.dispatch_id,
+                    step.step_id,
+                    step.step_type,
+                    error_msg,
+                )
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
-    async def _enqueue_teardown_on_failure(self, step: QueuedStep) -> None:
+    async def _enqueue_teardown_on_failure(self, step: QueuedStep) -> bool:
         """Best-effort teardown enqueue for failed execute steps.
 
         Prevents orphaning remote VMs when execution raises unexpectedly.
         Only enqueues when the dispatch is AUTO mode and not preserving on failure.
+
+        Returns:
+            True if teardown was enqueued (caller should defer FAILED status).
         """
         try:
             dispatch_view = await self._state_store.get_dispatch(step.dispatch_id)
             if dispatch_view is None or dispatch_view.mode != DispatchMode.AUTO:
-                return
+                return False
             if dispatch_view.dispatch.preserve_on_failure:
-                return
+                return False
             # Find provision result to get the handle
             steps = await self._state_store.get_steps_for_dispatch(step.dispatch_id)
             prov = next(
@@ -777,7 +789,7 @@ class Worker:
                 None,
             )
             if prov is None or prov.result_json is None:
-                return
+                return False
             prov_result = ProvisionResult.model_validate_json(prov.result_json)
             td_payload = TeardownStepPayload(
                 dispatch=dispatch_view.dispatch, handle=prov_result.handle
@@ -791,10 +803,13 @@ class Worker:
                 payload_json=td_payload.model_dump_json(),
             )
             logger.info("Enqueued cleanup teardown for failed execute %s", step.step_id)
+            enqueued = True
         except Exception:
             logger.warning(
                 "Failed to enqueue teardown for failed execute %s", step.step_id, exc_info=True
             )
+            enqueued = False
+        return enqueued
 
     @staticmethod
     def _build_next_step(
@@ -848,7 +863,7 @@ class Worker:
         """Mark a dispatch as terminally failed."""
         await self._event_store.append(
             DispatchFailed(
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=_utc_now(),
                 workflow_id=dispatch_id,
                 failed_step_id=failed_step_id,
                 failed_step_type=failed_step_type,
@@ -926,7 +941,7 @@ class Worker:
             teardown_commands=teardown_commands,
             profile_name=profile_name,
             dispatch_id=dispatch_id,
-            provision_timestamp=datetime.now(UTC).isoformat(),
+            provision_timestamp=_utc_now(),
             agent_user=agent_user,
             task_env=task_env,
         )
