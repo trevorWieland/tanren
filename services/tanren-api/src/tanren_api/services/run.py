@@ -20,7 +20,7 @@ from tanren_api.models import (
     RunTeardownAccepted,
 )
 from tanren_core.env.environment_schema import EnvironmentProfile
-from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.store.enums import (
     DispatchMode,
     DispatchStatus,
@@ -281,8 +281,8 @@ class RunService:
         steps = await self._state_store.get_steps_for_dispatch(dispatch_view.dispatch_id)
 
         # Derive environment status from step states.
-        # Track whether any step failed so teardown completion doesn't
-        # overwrite the failure.
+        # Check both step status (FAILED) and execute outcome (error/timeout)
+        # since execute steps are marked COMPLETED even on error outcomes.
         env_status = RunEnvironmentStatus.PROVISIONING
         had_failure = False
         for step in steps:
@@ -293,6 +293,16 @@ class RunService:
             elif step.step_type == StepType.EXECUTE and step.status == StepStatus.RUNNING:
                 env_status = RunEnvironmentStatus.EXECUTING
             elif step.step_type == StepType.EXECUTE and step.status == StepStatus.COMPLETED:
+                # Check actual outcome — execute is "completed" even on error
+                if step.result_json:
+                    from tanren_core.store.payloads import ExecuteResult
+
+                    try:
+                        er = ExecuteResult.model_validate_json(step.result_json)
+                        if er.outcome in (Outcome.ERROR, Outcome.TIMEOUT):
+                            had_failure = True
+                    except Exception:  # noqa: S110 — best-effort outcome check
+                        pass
                 env_status = RunEnvironmentStatus.COMPLETED
             elif step.step_type == StepType.TEARDOWN:
                 env_status = RunEnvironmentStatus.TEARING_DOWN

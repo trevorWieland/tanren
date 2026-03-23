@@ -17,6 +17,8 @@ from tanren_core.worker import Worker
 from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
+    import asyncpg
+
     from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
 
 logger = logging.getLogger(__name__)
@@ -24,8 +26,13 @@ logger = logging.getLogger(__name__)
 
 def _build_execution_env(
     config: WorkerConfig,
+    pool: asyncpg.Pool | None = None,
 ) -> tuple[ExecutionEnvironment, VMStateStore | None]:
     """Build the appropriate ExecutionEnvironment based on config.
+
+    Args:
+        config: Worker configuration.
+        pool: Optional asyncpg pool for Postgres-backed VM state.
 
     Returns:
         Tuple of (ExecutionEnvironment, VMStateStore | None).
@@ -35,7 +42,7 @@ def _build_execution_env(
     if config.remote_config_path:
         from tanren_core.builder import build_ssh_execution_environment  # noqa: PLC0415
 
-        return build_ssh_execution_environment(config)
+        return build_ssh_execution_environment(config, pool=pool)
 
     logger.info("No WM_REMOTE_CONFIG set — using local execution environment")
     env = LocalExecutionEnvironment(
@@ -53,7 +60,11 @@ async def _run() -> None:
     config = WorkerConfig.from_env()
     db_url = config.db_url or "tanren_events.db"
     store = await create_store(db_url)
-    execution_env, vm_store = _build_execution_env(config)
+
+    # Pass the Postgres pool to the builder so VM state uses the same
+    # backend as the event store (avoids SQLite/Postgres state split)
+    pg_pool: asyncpg.Pool | None = getattr(store, "_pool", None)
+    execution_env, vm_store = _build_execution_env(config, pool=pg_pool)
     worker = Worker(
         config=config,
         event_store=store,

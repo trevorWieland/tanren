@@ -468,21 +468,24 @@ class Worker:
         # Teardown is always enqueued even for cancelled dispatches — it's cleanup,
         # not forward progress, and skipping it would orphan remote VMs.
         dispatch_view = await self._state_store.get_dispatch(dispatch.workflow_id)
+        is_cancelled = dispatch_view and dispatch_view.status == DispatchStatus.CANCELLED
         if dispatch_view and dispatch_view.mode == DispatchMode.AUTO:
             if (
                 phase_result.outcome in (Outcome.ERROR, Outcome.TIMEOUT)
                 and dispatch.preserve_on_failure
             ):
-                # Terminal failure with preserve — ack then mark dispatch failed, skip teardown
+                # Terminal failure with preserve — ack then mark dispatch failed, skip teardown.
+                # But don't overwrite CANCELLED status.
                 await self._event_store.append(step_completed_event)
                 await self._event_store.append(phase_completed_event)
                 await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
-                await self._mark_dispatch_failed(
-                    dispatch.workflow_id,
-                    step.step_id,
-                    StepType.EXECUTE,
-                    f"Execution {phase_result.outcome}, VM preserved",
-                )
+                if not is_cancelled:
+                    await self._mark_dispatch_failed(
+                        dispatch.workflow_id,
+                        step.step_id,
+                        StepType.EXECUTE,
+                        f"Execution {phase_result.outcome}, VM preserved",
+                    )
             else:
                 preserve = dispatch.preserve_on_failure and phase_result.outcome in (
                     Outcome.ERROR,
