@@ -66,8 +66,11 @@ async def _run() -> None:
     pg_pool: asyncpg.Pool | None = getattr(store, "_pool", None)
     execution_env, vm_store = _build_execution_env(config, pool=pg_pool)
 
-    # Recover stale VM assignments from prior crashes before processing new work.
-    # Only applies to remote (SSH) environments; local env has no VMs to recover.
+    # Recover stale state from prior crashes before processing new work
+    stale_steps = await store.recover_stale_steps()
+    if stale_steps:
+        logger.info("Recovered %d stale running step(s) on startup", stale_steps)
+
     if config.remote_config_path and hasattr(execution_env, "recover_stale_assignments"):
         recovered: int = await execution_env.recover_stale_assignments()  # type: ignore[union-attr]
         if recovered:

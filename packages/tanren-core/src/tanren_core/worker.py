@@ -473,20 +473,19 @@ class Worker:
             if (
                 phase_result.outcome in (Outcome.ERROR, Outcome.TIMEOUT)
                 and dispatch.preserve_on_failure
+                and not is_cancelled
             ):
                 # Terminal failure with preserve — ack then mark dispatch failed, skip teardown.
-                # But don't overwrite CANCELLED status.
                 await self._event_store.append(step_completed_event)
                 await self._event_store.append(phase_completed_event)
                 await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
-                if not is_cancelled:
-                    await self._mark_dispatch_failed(
-                        dispatch.workflow_id,
-                        step.step_id,
-                        StepType.EXECUTE,
-                        f"Execution {phase_result.outcome}, VM preserved",
-                        outcome=phase_result.outcome,
-                    )
+                await self._mark_dispatch_failed(
+                    dispatch.workflow_id,
+                    step.step_id,
+                    StepType.EXECUTE,
+                    f"Execution {phase_result.outcome}, VM preserved",
+                    outcome=phase_result.outcome,
+                )
             else:
                 preserve = dispatch.preserve_on_failure and phase_result.outcome in (
                     Outcome.ERROR,
@@ -713,27 +712,33 @@ class Worker:
 
         should_retry = error_class == ErrorClass.TRANSIENT and retry_count < _MAX_RETRIES
 
-        await self._event_store.append(
-            StepFailed(
-                timestamp=now,
-                workflow_id=step.dispatch_id,
-                step_id=step.step_id,
-                step_type=step.step_type,
-                error=error_msg,
-                error_class=str(error_class.value),
-                retry_count=retry_count + 1,
-                duration_secs=0,
+        # Best-effort event recording — nack must run even if events fail
+        try:
+            await self._event_store.append(
+                StepFailed(
+                    timestamp=now,
+                    workflow_id=step.dispatch_id,
+                    step_id=step.step_id,
+                    step_type=step.step_type,
+                    error=error_msg,
+                    error_class=str(error_class.value),
+                    retry_count=retry_count + 1,
+                    duration_secs=0,
+                )
             )
-        )
-        await self._event_store.append(
-            ErrorOccurred(
-                timestamp=now,
-                workflow_id=step.dispatch_id,
-                phase=str(step.step_type),
-                error=error_msg,
-                error_class=str(error_class.value),
+            await self._event_store.append(
+                ErrorOccurred(
+                    timestamp=now,
+                    workflow_id=step.dispatch_id,
+                    phase=str(step.step_type),
+                    error=error_msg,
+                    error_class=str(error_class.value),
+                )
             )
-        )
+        except Exception:
+            logger.warning(
+                "Failed to record failure events for step %s", step.step_id, exc_info=True
+            )
 
         if should_retry:
             logger.warning(

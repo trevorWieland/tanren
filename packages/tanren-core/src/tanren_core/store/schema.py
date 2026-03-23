@@ -111,4 +111,23 @@ CREATE INDEX IF NOT EXISTS idx_step_status      ON step_projection(status);
 CREATE INDEX IF NOT EXISTS idx_step_lane_status ON step_projection(lane, status);
 """
 
-POSTGRES_ALL = POSTGRES_EVENTS + POSTGRES_DISPATCH_PROJECTION + POSTGRES_STEP_PROJECTION
+POSTGRES_VM_ASSIGNMENTS = """\
+CREATE TABLE IF NOT EXISTS vm_assignments (
+    vm_id       TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    project     TEXT NOT NULL,
+    spec        TEXT NOT NULL,
+    host        TEXT NOT NULL,
+    assigned_at TEXT NOT NULL,
+    released_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vm_active
+    ON vm_assignments(released_at) WHERE released_at IS NULL;
+"""
+
+POSTGRES_ALL = (
+    POSTGRES_EVENTS
+    + POSTGRES_DISPATCH_PROJECTION
+    + POSTGRES_STEP_PROJECTION
+    + POSTGRES_VM_ASSIGNMENTS
+)

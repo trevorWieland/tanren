@@ -108,7 +108,10 @@ class DispatchService:
 
         await self._state_store.update_dispatch_status(dispatch_id, DispatchStatus.CANCELLED)
 
-        # Cancel any pending steps so workers don't pick them up
+        # Cancel pending forward-progress steps (teardowns preserved).
+        # Not atomic with status update, but safe: if this fails, the
+        # CANCELLED status + worker auto-chain guards prevent new steps
+        # from being chained.
         await self._job_queue.cancel_pending_steps(dispatch_id)
 
         return DispatchCancelled(dispatch_id=dispatch_id)

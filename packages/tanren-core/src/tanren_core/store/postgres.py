@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 
@@ -395,6 +395,22 @@ class PostgresStore:
                 dispatch_id,
             )
             # asyncpg returns "UPDATE N"
+            return int(result.split()[-1])
+
+    async def recover_stale_steps(self, *, timeout_secs: int = 300) -> int:
+        """Reset running steps older than timeout_secs back to pending."""
+        now = _now()
+        cutoff = (
+            (datetime.now(UTC) - timedelta(seconds=timeout_secs)).isoformat().replace("+00:00", "Z")
+        )
+        async with self._pool.acquire() as conn, conn.transaction():
+            result = await conn.execute(
+                "UPDATE step_projection "
+                "SET status = 'pending', worker_id = NULL, updated_at = $1 "
+                "WHERE status = 'running' AND updated_at < $2",
+                now,
+                cutoff,
+            )
             return int(result.split()[-1])
 
     async def nack(

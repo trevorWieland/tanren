@@ -163,6 +163,16 @@ class JobQueue(Protocol):
         """
         ...
 
+    async def recover_stale_steps(self, *, timeout_secs: int = 300) -> int:
+        """Reset running steps older than *timeout_secs* back to pending.
+
+        This recovers steps left in ``running`` state by crashed workers,
+        preventing permanent lane capacity exhaustion.
+
+        Returns the number of recovered steps.
+        """
+        ...
+
     async def close(self) -> None:
         """Close any resources."""
         ...

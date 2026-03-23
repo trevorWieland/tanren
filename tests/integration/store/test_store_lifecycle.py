@@ -265,6 +265,39 @@ class TestFullDispatchLifecycle:
         cancelled = await store.cancel_pending_steps("wf-nopending-100")
         assert cancelled == 0
 
+    async def test_recover_stale_steps(self, store: SqliteStore) -> None:
+        """recover_stale_steps resets old running steps back to pending."""
+        dispatch = _make_dispatch(workflow_id="wf-stale-100")
+        await store.create_dispatch_projection(
+            dispatch_id="wf-stale-100",
+            mode=DispatchMode.AUTO,
+            lane=Lane.IMPL,
+            preserve_on_failure=False,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+        payload = ProvisionStepPayload(dispatch=dispatch)
+        await store.enqueue_step(
+            step_id="step-stale",
+            dispatch_id="wf-stale-100",
+            step_type="provision",
+            step_sequence=0,
+            lane=None,
+            payload_json=payload.model_dump_json(),
+        )
+
+        # Dequeue to make it running
+        step = await store.dequeue(lane=None, worker_id="w1", max_concurrent=10)
+        assert step is not None
+
+        # Recover with a very short timeout (0 seconds) to force recovery
+        recovered = await store.recover_stale_steps(timeout_secs=0)
+        assert recovered == 1
+
+        # Step should be pending again
+        steps = await store.get_steps_for_dispatch("wf-stale-100")
+        assert steps[0].status == StepStatus.PENDING
+        assert steps[0].worker_id is None
+
     async def test_cancel_does_not_affect_running_steps(self, store: SqliteStore) -> None:
         """cancel_pending_steps leaves running steps untouched."""
         dispatch = _make_dispatch(workflow_id="wf-running-100")
