@@ -18,8 +18,8 @@ from tanren_core.ccusage import (
     _normalize_opencode,
     collect_token_usage,
 )
-from tanren_core.config import Config
 from tanren_core.schemas import Cli
+from tanren_core.worker_config import WorkerConfig
 
 # ---------------------------------------------------------------------------
 # Fixtures — real-shaped ccusage JSON
@@ -71,9 +71,9 @@ OPENCODE_SESSION = {
 # ---------------------------------------------------------------------------
 
 
-def _make_config() -> Config:
-    """Build a minimal Config with ccusage command defaults."""
-    return Config(
+def _make_config() -> WorkerConfig:
+    """Build a minimal WorkerConfig with ccusage command defaults."""
+    return WorkerConfig(
         ipc_dir="/tmp/ipc",
         github_dir="/tmp/gh",
         data_dir="/tmp/data",

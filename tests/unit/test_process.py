@@ -5,7 +5,6 @@ import contextlib
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.process import (
     ProcessResult,
@@ -14,6 +13,7 @@ from tanren_core.process import (
     assemble_prompt,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.worker_config import WorkerConfig
 
 DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
@@ -99,7 +99,7 @@ class TestSpawnOpencode:
             resolved_profile=DEFAULT_PROFILE,
         )
 
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path / "ipc"),
             github_dir=str(tmp_path),
             commands_dir=".claude/commands/tanren",
@@ -247,7 +247,7 @@ class TestSpawnClaude:
             resolved_profile=DEFAULT_PROFILE,
         )
 
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path / "ipc"),
             github_dir=str(tmp_path),
             commands_dir=".claude/commands/tanren",

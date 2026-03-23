@@ -19,7 +19,6 @@ import typer
 import yaml
 
 from tanren_core.builder import build_ssh_execution_environment
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import (
     EnvironmentProfile,
     parse_environment_profiles,
@@ -39,6 +38,7 @@ from tanren_core.store.payloads import (
     TeardownStepPayload,
 )
 from tanren_core.worker import Worker
+from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from tanren_core.store.sqlite import SqliteStore
@@ -48,21 +48,23 @@ run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coo
 DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
-def _load_config() -> Config:
+def _load_config() -> WorkerConfig:
     try:
-        return Config.from_env()
+        return WorkerConfig.from_env()
     except Exception as exc:
         typer.echo(f"Failed to load config from WM_* environment: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
 
-def _require_remote_config(config: Config) -> None:
+def _require_remote_config(config: WorkerConfig) -> None:
     if not config.remote_config_path:
         typer.echo("WM_REMOTE_CONFIG is required for tanren run commands.", err=True)
         raise typer.Exit(code=1)
 
 
-def _resolve_profile(config: Config, project: str, environment_profile: str) -> EnvironmentProfile:
+def _resolve_profile(
+    config: WorkerConfig, project: str, environment_profile: str
+) -> EnvironmentProfile:
     tanren_yml = Path(config.github_dir) / project / "tanren.yml"
     if tanren_yml.exists():
         loaded = yaml.safe_load(tanren_yml.read_text()) or {}
@@ -82,7 +84,7 @@ def _resolve_profile(config: Config, project: str, environment_profile: str) -> 
 
 def _resolve_gate_cmd_for_phase(
     *,
-    config: Config,
+    config: WorkerConfig,
     project: str,
     environment_profile: str,
     phase: Phase,
@@ -119,7 +121,7 @@ def _role_for_phase(phase: Phase) -> RoleName:
     return RoleName.DEFAULT
 
 
-def _resolve_agent_tool(config: Config, phase: Phase) -> AgentTool:
+def _resolve_agent_tool(config: WorkerConfig, phase: Phase) -> AgentTool:
     if phase == Phase.GATE:
         return AgentTool(cli=Cli.BASH, auth=AuthMode.API_KEY)
     return load_roles_config(config.roles_config_path).resolve(_role_for_phase(phase))
@@ -155,7 +157,7 @@ def _build_dispatch(
     )
 
 
-def _store_path(config: Config) -> str:
+def _store_path(config: WorkerConfig) -> str:
     """Return the persistent store path for multi-step CLI workflows."""
     return str(Path(config.data_dir) / "run.db")
 

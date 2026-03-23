@@ -12,8 +12,8 @@ from pydantic import ValidationError
 from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.builder import build_ssh_execution_environment, validate_provisioner_requirements
-from tanren_core.config import Config
 from tanren_core.remote_config import ProvisionerType
+from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,10 +27,10 @@ agents:
 """
 
 
-def _make_config(tmp_path: Path, remote_config_path: str | None) -> Config:
+def _make_config(tmp_path: Path, remote_config_path: str | None) -> WorkerConfig:
     roles_path = tmp_path / "roles.yml"
     roles_path.write_text(_ROLES_YML)
-    return Config(
+    return WorkerConfig(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path / "github"),
         data_dir=str(tmp_path / "data"),
@@ -121,7 +121,7 @@ repos:
   - project: test
     repo_url: https://github.com/test/test.git
 """)
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path / "ipc"),
             github_dir=str(tmp_path / "github"),
             data_dir=str(tmp_path / "data"),

@@ -13,13 +13,13 @@ from tanren_core.adapters.types import (
     PhaseResult,
     ProvisionError,
 )
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.worker_config import WorkerConfig
 
 DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
@@ -27,8 +27,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _make_config(tmp_path: Path) -> Config:
-    return Config(
+def _make_config(tmp_path: Path) -> WorkerConfig:
+    return WorkerConfig(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path),
         data_dir=str(tmp_path / "data"),

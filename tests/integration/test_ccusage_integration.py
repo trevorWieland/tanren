@@ -15,8 +15,8 @@ from tanren_core.ccusage import (
     TokenUsage,
     collect_token_usage,
 )
-from tanren_core.config import Config
 from tanren_core.schemas import Cli, Outcome, Phase, Result
+from tanren_core.worker_config import WorkerConfig
 
 # ---------------------------------------------------------------------------
 # Fixtures — real-shaped JSON from ccusage tools
@@ -75,8 +75,8 @@ OPENCODE_FIXTURE = {
 }
 
 
-def _make_config() -> Config:
-    return Config(
+def _make_config() -> WorkerConfig:
+    return WorkerConfig(
         ipc_dir="/tmp/ipc",
         github_dir="/tmp/gh",
         data_dir="/tmp/data",

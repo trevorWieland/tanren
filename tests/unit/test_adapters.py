@@ -11,13 +11,13 @@ from tanren_core.adapters.git_postflight import GitPostflightRunner
 from tanren_core.adapters.git_preflight import GitPreflightRunner
 from tanren_core.adapters.git_worktree import GitWorktreeManager
 from tanren_core.adapters.subprocess_spawner import SubprocessSpawner
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
 from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.worker_config import WorkerConfig
 
 
 class TestGitWorktreeManager:
@@ -99,7 +99,7 @@ class TestSubprocessSpawner:
             timeout=60,
             resolved_profile=EnvironmentProfile(name="default"),
         )
-        config = Config(
+        config = WorkerConfig(
             ipc_dir="/tmp/ipc",
             github_dir="/tmp/github",
             data_dir="/tmp/data",

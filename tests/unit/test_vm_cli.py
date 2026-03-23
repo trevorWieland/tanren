@@ -9,14 +9,14 @@ from typer.testing import CliRunner
 
 from tanren_cli.vm_cli import vm
 from tanren_core.adapters.remote_types import VMAssignment
-from tanren_core.config import Config
+from tanren_core.worker_config import WorkerConfig
 
 _ROLES_YML = "agents:\n  default:\n    cli: claude\n    model: sonnet\n    auth: subscription\n"
 
 
-def _mock_config(tmp_path=None) -> Config:
+def _mock_config(tmp_path=None) -> WorkerConfig:
     base = str(tmp_path) if tmp_path else "/tmp"
-    return Config(
+    return WorkerConfig(
         ipc_dir=f"{base}/ipc",
         github_dir=f"{base}/github",
         data_dir=f"{base}/data",
@@ -205,7 +205,7 @@ class TestVmDryRun:
         )
         (tmp_path / "roles.yml").write_text(_ROLES_YML)
 
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path / "ipc"),
             github_dir=str(github_dir),
             data_dir=str(tmp_path / "data"),
@@ -251,7 +251,7 @@ class TestVmDryRun:
         )
         (tmp_path / "roles.yml").write_text(_ROLES_YML)
 
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path / "ipc"),
             github_dir=str(github_dir),
             data_dir=str(tmp_path / "data"),
@@ -290,7 +290,7 @@ class TestVmDryRun:
         (tmp_path / "roles.yml").write_text(_ROLES_YML)
         monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
 
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path / "ipc"),
             github_dir=str(github_dir),
             data_dir=str(tmp_path / "data"),

@@ -9,8 +9,8 @@ from tanren_core.process import ProcessResult, spawn_process
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from tanren_core.config import Config
     from tanren_core.schemas import Dispatch
+    from tanren_core.worker_config import WorkerConfig
 
 
 class SubprocessSpawner:
@@ -20,7 +20,7 @@ class SubprocessSpawner:
         self,
         dispatch: Dispatch,
         worktree_path: Path,
-        config: Config,
+        config: WorkerConfig,
         *,
         task_env: dict[str, str] | None = None,
     ) -> ProcessResult:

@@ -45,7 +45,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from tanren_core.schemas import Cli, Dispatch
 
 if TYPE_CHECKING:
-    from tanren_core.config import Config
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ For example, write exactly one line like \
 async def spawn_process(
     dispatch: Dispatch,
     worktree_path: Path,
-    config: Config,
+    config: WorkerConfig,
     task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn a CLI process based on dispatch.cli type.
@@ -119,7 +119,7 @@ async def spawn_process(
 async def _spawn_opencode(
     dispatch: Dispatch,
     worktree_path: Path,
-    config: Config,
+    config: WorkerConfig,
     task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn opencode run process.
@@ -156,7 +156,7 @@ async def _spawn_opencode(
 async def _spawn_codex(
     dispatch: Dispatch,
     worktree_path: Path,
-    config: Config,
+    config: WorkerConfig,
     task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn codex exec process.
@@ -231,7 +231,7 @@ async def _spawn_bash(
 async def _spawn_claude(
     dispatch: Dispatch,
     worktree_path: Path,
-    config: Config,
+    config: WorkerConfig,
     task_env: dict[str, str] | None = None,
 ) -> ProcessResult:
     """Spawn Claude Code process. Uses -p (print mode) with prompt on stdin.

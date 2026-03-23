@@ -1,9 +1,7 @@
 """Worker configuration with lane-based concurrency and filesystem paths.
 
-``WorkerConfig`` is the successor to ``Config`` — it carries all fields a
-worker process needs (filesystem paths, CLI binary paths, concurrency
-limits, polling intervals).  During the transition, ``Config`` inherits
-from ``WorkerConfig`` so existing code keeps working.
+``WorkerConfig`` carries all fields a worker process needs (filesystem
+paths, CLI binary paths, concurrency limits, polling intervals).
 """
 
 from __future__ import annotations
@@ -122,12 +120,12 @@ class WorkerConfig(BaseModel):
     max_impl: int = Field(
         default=1,
         ge=1,
-        description="Max concurrent impl-lane steps (was max_opencode)",
+        description="Max concurrent impl-lane steps",
     )
     max_audit: int = Field(
         default=1,
         ge=1,
-        description="Max concurrent audit-lane steps (was max_codex)",
+        description="Max concurrent audit-lane steps",
     )
     max_gate: int = Field(
         default=3,
@@ -138,16 +136,6 @@ class WorkerConfig(BaseModel):
         default=10,
         ge=1,
         description="Max concurrent provision/teardown steps",
-    )
-
-    # Legacy concurrency aliases (kept for backward compat with Config)
-    max_opencode: int = Field(
-        default=1,
-        description="Legacy alias for max_impl",
-    )
-    max_codex: int = Field(
-        default=1,
-        description="Legacy alias for max_audit",
     )
 
     # Polling
@@ -169,12 +157,6 @@ class WorkerConfig(BaseModel):
     worker_id: str = Field(
         default="",
         description="Unique worker identifier (auto-generated if empty)",
-    )
-
-    # Events DB (legacy — aliased to db_url during migration)
-    events_db: str | None = Field(
-        default=None,
-        description="Legacy: SQLite path or postgresql:// URL for events",
     )
 
     # Token usage collection
@@ -218,9 +200,6 @@ class WorkerConfig(BaseModel):
                 "Set them in tanren.env or as environment variables."
             )
 
-        max_opencode = int(resolved["WM_MAX_OPENCODE"])
-        max_codex = int(resolved["WM_MAX_CODEX"])
-
         return cls(
             ipc_dir=_expand(resolved["WM_IPC_DIR"]),
             github_dir=_expand(resolved["WM_GITHUB_DIR"]),
@@ -233,12 +212,9 @@ class WorkerConfig(BaseModel):
             claude_path=resolved["WM_CLAUDE_PATH"],
             roles_config_path=_expand(resolved["WM_ROLES_CONFIG_PATH"]),
             worktree_registry_path=_expand(resolved["WM_WORKTREE_REGISTRY_PATH"]),
-            max_opencode=max_opencode,
-            max_codex=max_codex,
-            max_impl=max_opencode,
-            max_audit=max_codex,
+            max_impl=int(resolved["WM_MAX_OPENCODE"]),
+            max_audit=int(resolved["WM_MAX_CODEX"]),
             max_gate=int(resolved["WM_MAX_GATE"]),
-            events_db=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
             db_url=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
             remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
             ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),

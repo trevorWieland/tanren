@@ -1,23 +1,13 @@
-"""Worker manager configuration from environment variables with WM_ prefix.
-
-.. deprecated::
-    ``Config`` is a transitional alias for ``WorkerConfig``.
-    Use ``WorkerConfig`` directly in new code.  ``Config`` will be
-    removed in Phase 8 of the stateless API refactor.
-"""
+"""Worker configuration from environment variables with WM_ prefix."""
 
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from dotenv import dotenv_values
-from pydantic import ConfigDict
 
-from tanren_core.worker_config import _WC_OPTIONAL_KEYS, _WC_REQUIRED_KEYS, WorkerConfig
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from tanren_core.worker_config import _WC_OPTIONAL_KEYS, _WC_REQUIRED_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +17,9 @@ class ConfigSource(Protocol):
     """Provide WM_* configuration values from an external source.
 
     Implementations load configuration from different backends
-    (dotenv files, Vault, SSM). Resolution in Config.from_env():
-    sources provide base values, os.environ overrides.
-    All required fields must be present — no built-in defaults.
+    (dotenv files, Vault, SSM). Sources provide base values,
+    os.environ overrides.  All required fields must be present —
+    no built-in defaults.
 
     Default implementation: DotenvConfigSource.
     """
@@ -82,37 +72,3 @@ def load_config_env(source: ConfigSource | None = None) -> None:
     for key, value in values.items():
         if key in _WM_KEYS and key not in os.environ:
             os.environ[key] = value
-
-
-class Config(WorkerConfig):
-    """Worker manager configuration loaded from environment variables.
-
-    .. deprecated::
-        Transitional alias for ``WorkerConfig``.  Will be removed in
-        Phase 8 cleanup.  Use ``WorkerConfig`` directly in new code.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # TODO: delete Config alias once all references migrated to WorkerConfig
-    @classmethod
-    def from_env(cls, sources: Sequence[ConfigSource] = ()) -> Config:
-        """Load configuration from sources and environment variables.
-
-        Sources provide base values (loaded into ``os.environ``), then
-        delegates to ``WorkerConfig.from_env()`` for the actual
-        construction.
-
-        Returns:
-            Validated Config instance.
-        """
-        # Merge source values into environ so WorkerConfig.from_env() sees them
-        for source in sources:
-            values = source.load()
-            for key, value in values.items():
-                if key in _WM_KEYS and key not in os.environ:
-                    os.environ[key] = value
-
-        # Delegate to the shared implementation on WorkerConfig
-        base = WorkerConfig.from_env()
-        return cls(**base.model_dump())

@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tanren_core.config import (
-    Config,
     ConfigSource,
     DotenvConfigSource,
     load_config_env,
 )
 from tanren_core.worker_config import _WC_REQUIRED_KEYS as _REQUIRED_KEYS
+from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -119,11 +119,11 @@ class TestLoadConfigEnv:
 
 
 # ---------------------------------------------------------------------------
-# TestConfigFromEnvWithSources
+# TestWorkerConfigFromEnvWithSources
 # ---------------------------------------------------------------------------
 
 
-class TestConfigFromEnvWithSources:
+class TestWorkerConfigFromEnvWithSources:
     @pytest.fixture(autouse=True)
     def _clear_wm_env(self, monkeypatch):
         """Ensure no WM_* env vars leak into source-based tests."""
@@ -132,7 +132,8 @@ class TestConfigFromEnvWithSources:
 
     def test_resolves_all_required_from_source(self):
         source = _DictSource(_ALL_REQUIRED_ENV)
-        config = Config.from_env(sources=[source])
+        load_config_env(source)
+        config = WorkerConfig.from_env()
         assert config.ipc_dir == "/tmp/test-ipc"
         assert config.github_dir == "/tmp/github"
         assert config.poll_interval == pytest.approx(5.0)
@@ -141,44 +142,47 @@ class TestConfigFromEnvWithSources:
     def test_env_overrides_source(self, monkeypatch):
         source = _DictSource(_ALL_REQUIRED_ENV)
         monkeypatch.setenv("WM_POLL_INTERVAL", "99.0")
-        config = Config.from_env(sources=[source])
+        load_config_env(source)
+        config = WorkerConfig.from_env()
         assert config.poll_interval == pytest.approx(99.0)
 
     def test_raises_on_missing_required(self):
         source = _DictSource({"WM_IPC_DIR": "/tmp/ipc"})
+        load_config_env(source)
         with pytest.raises(ValueError, match="Missing required config"):
-            Config.from_env(sources=[source])
+            WorkerConfig.from_env()
 
     def test_optional_keys_default_to_none(self):
         source = _DictSource(_ALL_REQUIRED_ENV)
-        config = Config.from_env(sources=[source])
-        assert config.events_db is None
+        load_config_env(source)
+        config = WorkerConfig.from_env()
+        assert config.db_url is None
         assert config.remote_config_path is None
 
 
 # ---------------------------------------------------------------------------
-# TestConfig (existing — updated for zero-defaults)
+# TestWorkerConfig
 # ---------------------------------------------------------------------------
 
 
-class TestConfig:
+class TestWorkerConfig:
     def test_raises_on_missing_required_keys(self, monkeypatch):
         """from_env() with no sources and no env vars raises for all required keys."""
         for key in _REQUIRED_KEYS:
             monkeypatch.delenv(key, raising=False)
         with pytest.raises(ValueError, match="Missing required config"):
-            Config.from_env()
+            WorkerConfig.from_env()
 
     def test_ipc_dir_expanded(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_IPC_DIR", "~/test-ipc")
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert "~" not in config.ipc_dir
 
     def test_data_dir_expanded(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_DATA_DIR", "~/data")
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert "~" not in config.data_dir
 
     def test_env_override(self, monkeypatch):
@@ -186,31 +190,31 @@ class TestConfig:
         monkeypatch.setenv("WM_POLL_INTERVAL", "10.0")
         monkeypatch.setenv("WM_MAX_GATE", "5")
         monkeypatch.setenv("WM_OPENCODE_PATH", "/usr/local/bin/opencode")
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert config.poll_interval == pytest.approx(10.0)
         assert config.max_gate == 5
         assert config.opencode_path == "/usr/local/bin/opencode"
 
     def test_claude_path(self, monkeypatch):
         _set_all_required(monkeypatch)
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert config.claude_path == "claude"
 
     def test_roles_config_path_from_env(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_ROLES_CONFIG_PATH", "/etc/tanren/roles.yml")
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert config.roles_config_path == "/etc/tanren/roles.yml"
 
     def test_worktree_registry_path(self, monkeypatch):
         _set_all_required(monkeypatch)
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert config.worktree_registry_path == "/tmp/data/worktrees.json"
 
     def test_worktree_registry_path_expanded(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_WORKTREE_REGISTRY_PATH", "~/wt.json")
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert "~" not in config.worktree_registry_path
 
     def test_optional_paths_expanded(self, monkeypatch):
@@ -218,49 +222,49 @@ class TestConfig:
         monkeypatch.setenv("WM_ROLES_CONFIG_PATH", "~/roles.yml")
         monkeypatch.setenv("WM_EVENTS_DB", "~/events.db")
         monkeypatch.setenv("WM_REMOTE_CONFIG", "~/remote.yml")
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert config.roles_config_path is not None
-        assert config.events_db is not None
+        assert config.db_url is not None
         assert config.remote_config_path is not None
         assert "~" not in config.roles_config_path
-        assert "~" not in config.events_db
+        assert "~" not in config.db_url
         assert "~" not in config.remote_config_path
 
     def test_raises_on_empty_required_value(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_IPC_DIR", "")
         with pytest.raises(ValueError, match="WM_IPC_DIR"):
-            Config.from_env()
+            WorkerConfig.from_env()
 
     def test_raises_on_whitespace_only_value(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_IPC_DIR", "   ")
         with pytest.raises(ValueError, match="WM_IPC_DIR"):
-            Config.from_env()
+            WorkerConfig.from_env()
 
     def test_empty_optional_value_treated_as_none(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_REMOTE_CONFIG", "")
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
         assert config.remote_config_path is None
 
     def test_whitespace_optional_value_treated_as_none(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_EVENTS_DB", "   ")
-        config = Config.from_env()
-        assert config.events_db is None
+        config = WorkerConfig.from_env()
+        assert config.db_url is None
 
     def test_postgres_url_not_path_expanded(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_EVENTS_DB", "postgresql://host/db")
-        config = Config.from_env()
-        assert config.events_db == "postgresql://host/db"
+        config = WorkerConfig.from_env()
+        assert config.db_url == "postgresql://host/db"
 
     def test_uppercase_postgres_url_not_path_expanded(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_EVENTS_DB", "POSTGRESQL://host/db")
-        config = Config.from_env()
-        assert config.events_db == "POSTGRESQL://host/db"
+        config = WorkerConfig.from_env()
+        assert config.db_url == "POSTGRESQL://host/db"
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,6 @@ from tanren_core.adapters.types import (
     ProvisionError,
     RemoteEnvironmentRuntime,
 )
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import (
     EnvironmentProfile,
     EnvironmentProfileType,
@@ -34,6 +33,7 @@ from tanren_core.env.environment_schema import (
 )
 from tanren_core.errors import ErrorClass
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.worker_config import WorkerConfig
 
 _SSH_ENV = "tanren_core.adapters.ssh_environment"
 
@@ -44,8 +44,8 @@ DEFAULT_PROFILE = EnvironmentProfile(name="default")
 # ---------------------------------------------------------------------------
 
 
-def _make_config(tmp_path: Path) -> Config:
-    return Config(
+def _make_config(tmp_path: Path) -> WorkerConfig:
+    return WorkerConfig(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path),
         data_dir=str(tmp_path / "data"),
