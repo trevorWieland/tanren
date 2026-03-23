@@ -230,33 +230,30 @@ class RunService:
         Returns:
             DispatchAccepted with workflow_id.
         """
-        req = body
-
-        # Delegate to dispatch service for auto-chained creation
         from tanren_api.models import DispatchRequest
-        from tanren_api.services.dispatch import DispatchService
+        from tanren_api.services.dispatch_lifecycle import create_dispatch_from_request
 
-        env_profile = req.environment_profile
+        env_profile = body.environment_profile
         dispatch_req = DispatchRequest(
-            phase=req.phase,
-            project=req.project,
-            branch=req.branch,
-            spec_folder=req.spec_path,
-            cli=req.cli,
-            auth=req.auth,
-            timeout=req.timeout,
-            context=req.context,
-            gate_cmd=req.gate_cmd,
+            phase=body.phase,
+            project=body.project,
+            branch=body.branch,
+            spec_folder=body.spec_path,
+            cli=body.cli,
+            auth=body.auth,
+            timeout=body.timeout,
+            context=body.context,
+            gate_cmd=body.gate_cmd,
             environment_profile=env_profile,
             resolved_profile=EnvironmentProfile(name=env_profile),
         )
 
-        dispatch_svc = DispatchService(
+        return await create_dispatch_from_request(
+            body=dispatch_req,
             event_store=self._event_store,
             job_queue=self._job_queue,
             state_store=self._state_store,
         )
-        return await dispatch_svc.create(dispatch_req)
 
     async def status(self, env_id: str) -> RunStatus:
         """Check status of a run environment.

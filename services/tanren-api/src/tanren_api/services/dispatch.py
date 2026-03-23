@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
-import uuid
-from datetime import UTC, datetime
 
 from tanren_api.errors import ConflictError, NotFoundError
 from tanren_api.models import (
@@ -15,17 +12,11 @@ from tanren_api.models import (
     DispatchRequest,
     DispatchRunStatus,
 )
-from tanren_core.schemas import Dispatch
-from tanren_core.store.enums import DispatchMode, DispatchStatus, cli_to_lane
-from tanren_core.store.events import DispatchCreated
-from tanren_core.store.payloads import ProvisionStepPayload
+from tanren_api.services.dispatch_lifecycle import create_dispatch_from_request
+from tanren_core.store.enums import DispatchStatus
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 logger = logging.getLogger(__name__)
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 class DispatchService:
@@ -53,62 +44,12 @@ class DispatchService:
         Returns:
             DispatchAccepted with the workflow ID.
         """
-        epoch = time.time_ns()
-        issue = body.issue if body.issue != "0" else str(epoch)
-        workflow_id = f"wf-{body.project}-{issue}-{epoch}"
-
-        dispatch = Dispatch(
-            workflow_id=workflow_id,
-            project=body.project,
-            phase=body.phase,
-            branch=body.branch,
-            spec_folder=body.spec_folder,
-            cli=body.cli,
-            auth=body.auth,
-            model=body.model,
-            timeout=body.timeout,
-            environment_profile=body.resolved_profile.name,
-            context=body.context,
-            gate_cmd=body.gate_cmd,
-            resolved_profile=body.resolved_profile,
-            preserve_on_failure=body.preserve_on_failure,
+        return await create_dispatch_from_request(
+            body=body,
+            event_store=self._event_store,
+            job_queue=self._job_queue,
+            state_store=self._state_store,
         )
-
-        lane = cli_to_lane(body.cli)
-
-        # 1. Create dispatch projection
-        await self._state_store.create_dispatch_projection(
-            dispatch_id=workflow_id,
-            mode=DispatchMode.AUTO,
-            lane=lane,
-            preserve_on_failure=dispatch.preserve_on_failure,
-            dispatch_json=dispatch.model_dump_json(),
-        )
-
-        # 2. Append DispatchCreated event
-        await self._event_store.append(
-            DispatchCreated(
-                timestamp=_now(),
-                workflow_id=workflow_id,
-                dispatch=dispatch,
-                mode=DispatchMode.AUTO,
-                lane=lane,
-            )
-        )
-
-        # 3. Enqueue provision step (worker will auto-chain to execute → teardown)
-        step_id = uuid.uuid4().hex
-        payload = ProvisionStepPayload(dispatch=dispatch)
-        await self._job_queue.enqueue_step(
-            step_id=step_id,
-            dispatch_id=workflow_id,
-            step_type="provision",
-            step_sequence=0,
-            lane=None,
-            payload_json=payload.model_dump_json(),
-        )
-
-        return DispatchAccepted(dispatch_id=workflow_id)
 
     async def get(self, dispatch_id: str) -> DispatchDetail:
         """Query dispatch status from the state store.
