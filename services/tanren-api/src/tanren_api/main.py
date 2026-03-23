@@ -87,10 +87,6 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         config_svc = ConfigService(settings, store)
         metrics_svc = MetricsService(store)
 
-        app.state.dispatch_service = dispatch_svc
-        app.state.run_service = run_svc
-        app.state.vm_service = vm_svc
-
         set_services(
             health=HealthService(),
             dispatch=dispatch_svc,
