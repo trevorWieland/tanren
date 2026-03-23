@@ -162,7 +162,8 @@ class TestMetricsCosts:
         assert resp.status_code == 200
         data = resp.json()
         assert data["group_by"] == "model"
-        assert len(data["buckets"]) >= 1
+        assert len(data["buckets"]) == 1
+        assert data["buckets"][0]["group_key"] == "claude-sonnet-4-20250514"
         assert data["total_cost"] == pytest.approx(0.05)
 
     async def test_group_by_day(self, client, auth_headers, sqlite_store):
@@ -220,6 +221,9 @@ class TestMetricsVMs:
 
         resp = await client.get("/api/v1/metrics/vms?project=alpha", headers=auth_headers)
         data = resp.json()
+        assert data["total_provisioned"] == 1
+        assert data["total_released"] == 1
+        assert data["currently_active"] == 0
         assert data["by_provider"] == {"hetzner": 1}
         assert data["total_estimated_cost"] == pytest.approx(0.083)
         assert data["total_vm_duration_secs"] == 600

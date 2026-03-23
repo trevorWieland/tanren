@@ -35,9 +35,15 @@ def _now() -> str:
 class PostgresStore:
     """Unified Postgres store implementing EventStore, JobQueue, and StateStore."""
 
-    def __init__(self, pool: asyncpg.Pool) -> None:
-        """Initialise with an externally-owned asyncpg connection pool."""
+    def __init__(self, pool: asyncpg.Pool, *, owns_pool: bool = False) -> None:
+        """Initialise with an asyncpg connection pool.
+
+        When *owns_pool* is True (e.g. when the factory creates the pool),
+        ``close()`` will shut down the pool.  Otherwise the caller is
+        responsible for pool lifecycle.
+        """
         self._pool = pool
+        self._owns_pool = owns_pool
 
     async def ensure_schema(self) -> None:
         """Create store tables idempotently."""
@@ -576,7 +582,9 @@ class PostgresStore:
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
     async def close(self) -> None:
-        """No-op: pool is externally owned."""
+        """Close the pool if this store owns it."""
+        if self._owns_pool:
+            await self._pool.close()
 
     # ── Internal helpers ──────────────────────────────────────────────────
 

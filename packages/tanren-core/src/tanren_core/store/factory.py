@@ -29,7 +29,7 @@ async def create_postgres_store(dsn: str) -> PostgresStore:
         A ``PostgresStore`` instance (implements EventStore, JobQueue, StateStore).
     """
     pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
-    store = PostgresStore(pool)
+    store = PostgresStore(pool, owns_pool=True)
     await store.ensure_schema()
     return store
 

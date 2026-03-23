@@ -220,6 +220,9 @@ class VMService:
                 None,
             )
             if prov and prov.result_json is not None and vm_id in prov.result_json:
+                # Guard: skip if teardown already enqueued or completed
+                if any(s.step_type == StepType.TEARDOWN for s in steps):
+                    continue
                 result = ProvisionResult.model_validate_json(prov.result_json)
                 step_id = uuid.uuid4().hex
                 payload = TeardownStepPayload(dispatch=d.dispatch, handle=result.handle)

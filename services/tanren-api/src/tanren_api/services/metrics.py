@@ -111,7 +111,11 @@ class MetricsService:
                 continue
 
             if group_by == "model":
-                key = str(payload.get("model", "unknown"))
+                models_used = payload.get("models_used", [])
+                if isinstance(models_used, list) and models_used:
+                    key = str(models_used[0])
+                else:
+                    key = str(payload.get("model", "unknown"))
             elif group_by == "day":
                 key = str(payload.get("timestamp", ""))[:10]
             else:
@@ -174,8 +178,8 @@ class MetricsService:
             limit=10000,
         )
 
-        provisioned = len(prov_result.events)
-        released = len(rel_result.events)
+        provisioned = 0
+        released = 0
         total_duration = 0
         total_cost = 0.0
         by_provider: dict[str, int] = {}
@@ -184,11 +188,15 @@ class MetricsService:
             p = row.payload
             if project and str(p.get("project", "")) != project:
                 continue
+            provisioned += 1
             provider = str(p.get("provider", "unknown"))
             by_provider[provider] = by_provider.get(provider, 0) + 1
 
         for row in rel_result.events:
             p = row.payload
+            if project and str(p.get("project", "")) != project:
+                continue
+            released += 1
             dur = p.get("duration_secs", 0)
             total_duration += int(str(dur)) if dur else 0
             cost = p.get("estimated_cost")
