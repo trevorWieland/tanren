@@ -11,12 +11,14 @@ from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import AuthMode, Cli, Dispatch, Outcome, Phase
 from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane, StepStatus, StepType
 from tanren_core.store.events import DispatchCompleted, DispatchCreated
+from tanren_core.store.factory import create_sqlite_store
 from tanren_core.store.payloads import ProvisionStepPayload
-from tanren_core.store.sqlite import SqliteStore
 from tanren_core.store.views import DispatchListFilter
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from tanren_core.store.sqlite import SqliteStore
 
 DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
@@ -37,8 +39,7 @@ def _make_dispatch(workflow_id: str = "wf-test-1-100") -> Dispatch:
 
 @pytest.fixture
 async def store(tmp_path: Path):
-    s = SqliteStore(tmp_path / "lifecycle.db")
-    await s._ensure_conn()
+    s = await create_sqlite_store(str(tmp_path / "lifecycle.db"))
     yield s
     await s.close()
 

@@ -53,7 +53,7 @@ async def _run() -> None:
     config = WorkerConfig.from_env()
     db_url = config.db_url or "tanren_events.db"
     store = await create_store(db_url)
-    execution_env, _vm_store = _build_execution_env(config)
+    execution_env, vm_store = _build_execution_env(config)
     worker = Worker(
         config=config,
         event_store=store,
@@ -64,8 +64,8 @@ async def _run() -> None:
     try:
         await worker.run()
     finally:
-        if hasattr(execution_env, "close"):
-            await execution_env.close()
+        if vm_store is not None:
+            await vm_store.close()
         await store.close()
 
 

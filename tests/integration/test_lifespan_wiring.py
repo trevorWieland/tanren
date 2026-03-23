@@ -157,7 +157,8 @@ async def test_config_endpoint(wired_client):
     assert data["db_backend"] == "sqlite"
     assert data["store_connected"] is True
     assert "impl" in data["worker_lanes"]
-    assert data["version"] == "0.1.0"
+    # Version is read from package metadata at runtime
+    assert data["version"]
 
 
 @pytest.mark.asyncio
