@@ -338,7 +338,11 @@ class Worker:
 
         # Auto-chain: atomically ack + enqueue execute step
         dispatch_view = await self._state_store.get_dispatch(dispatch.workflow_id)
-        if dispatch_view and dispatch_view.mode == DispatchMode.AUTO:
+        if (
+            dispatch_view
+            and dispatch_view.mode == DispatchMode.AUTO
+            and dispatch_view.status != DispatchStatus.CANCELLED
+        ):
             next_step = self._build_next_step(
                 dispatch=dispatch,
                 next_type=StepType.EXECUTE,
@@ -439,7 +443,11 @@ class Worker:
 
         # Auto-chain: atomically ack + enqueue teardown (respecting preserve_on_failure)
         dispatch_view = await self._state_store.get_dispatch(dispatch.workflow_id)
-        if dispatch_view and dispatch_view.mode == DispatchMode.AUTO:
+        if (
+            dispatch_view
+            and dispatch_view.mode == DispatchMode.AUTO
+            and dispatch_view.status != DispatchStatus.CANCELLED
+        ):
             if (
                 phase_result.outcome in (Outcome.ERROR, Outcome.TIMEOUT)
                 and dispatch.preserve_on_failure
@@ -719,6 +727,12 @@ class Worker:
                 error_class=str(error_class.value),
                 retry=False,
             )
+
+            # For failed execute steps in AUTO mode, enqueue teardown to
+            # clean up remote VMs/workspaces before marking dispatch failed
+            if step.step_type == StepType.EXECUTE:
+                await self._enqueue_teardown_on_failure(step)
+
             await self._mark_dispatch_failed(
                 step.dispatch_id,
                 step.step_id,
@@ -727,6 +741,44 @@ class Worker:
             )
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    async def _enqueue_teardown_on_failure(self, step: QueuedStep) -> None:
+        """Best-effort teardown enqueue for failed execute steps.
+
+        Prevents orphaning remote VMs when execution raises unexpectedly.
+        Only enqueues when the dispatch is AUTO mode and not preserving on failure.
+        """
+        try:
+            dispatch_view = await self._state_store.get_dispatch(step.dispatch_id)
+            if dispatch_view is None or dispatch_view.mode != DispatchMode.AUTO:
+                return
+            if dispatch_view.dispatch.preserve_on_failure:
+                return
+            # Find provision result to get the handle
+            steps = await self._state_store.get_steps_for_dispatch(step.dispatch_id)
+            prov = next(
+                (s for s in steps if s.step_type == StepType.PROVISION and s.result_json),
+                None,
+            )
+            if prov is None or prov.result_json is None:
+                return
+            prov_result = ProvisionResult.model_validate_json(prov.result_json)
+            td_payload = TeardownStepPayload(
+                dispatch=dispatch_view.dispatch, handle=prov_result.handle
+            )
+            await self._job_queue.enqueue_step(
+                step_id=uuid.uuid4().hex,
+                dispatch_id=step.dispatch_id,
+                step_type="teardown",
+                step_sequence=2,
+                lane=None,
+                payload_json=td_payload.model_dump_json(),
+            )
+            logger.info("Enqueued cleanup teardown for failed execute %s", step.step_id)
+        except Exception:
+            logger.warning(
+                "Failed to enqueue teardown for failed execute %s", step.step_id, exc_info=True
+            )
 
     @staticmethod
     def _build_next_step(
@@ -909,7 +961,7 @@ class Worker:
             try:
                 prov_dt = datetime.fromisoformat(persisted.provision_timestamp)
                 elapsed = (datetime.now(UTC) - prov_dt).total_seconds()
-                provision_start = time.monotonic() - elapsed
+                provision_start = max(0.0, time.monotonic() - elapsed)
             except ValueError, TypeError:
                 pass
 
