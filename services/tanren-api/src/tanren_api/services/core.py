@@ -79,7 +79,7 @@ class ConfigService:
             db_backend=db_backend,
             store_connected=store_connected,
             worker_lanes={"impl": 1, "audit": 1, "gate": 3, "provision": 10},
-            remote_enabled=True,
+            remote_enabled=False,
             version=version,
         )
 

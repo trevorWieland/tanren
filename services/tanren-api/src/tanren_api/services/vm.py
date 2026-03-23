@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class VMService:

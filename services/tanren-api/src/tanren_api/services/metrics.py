@@ -189,7 +189,7 @@ class MetricsService:
             )
 
         return MetricsCostsResponse(
-            buckets=list(buckets_map.values()),
+            buckets=sorted(buckets_map.values(), key=lambda b: b.group_key),
             total_cost=total_cost,
             total_tokens=total_tokens,
             group_by=group_by,

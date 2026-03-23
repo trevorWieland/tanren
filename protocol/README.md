@@ -42,7 +42,7 @@ define the contract between business logic and storage:
 | impl | Implementation work (opencode, claude) | 1 |
 | audit | Code review and auditing (codex) | 1 |
 | gate | Test/lint/build checks (bash) | 3 |
-| provision | Environment provisioning | 1 |
+| _(none)_ | Provision/teardown (infra consumer, `lane=None`) | 10 |
 
 ## When To Update
 

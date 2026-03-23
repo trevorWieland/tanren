@@ -15,7 +15,7 @@ from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 async def create_dispatch_from_request(

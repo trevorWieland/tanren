@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class RunService:
@@ -233,7 +233,9 @@ class RunService:
             payload_json=payload.model_dump_json(),
         )
 
-        return RunTeardownAccepted(dispatch_id=dispatch_view.dispatch_id)
+        return RunTeardownAccepted(
+            env_id=dispatch_view.dispatch_id, dispatch_id=dispatch_view.dispatch_id
+        )
 
     async def full(self, body: RunFullRequest) -> DispatchAccepted:
         """Enqueue a full dispatch lifecycle (auto-chained provision → execute → teardown).

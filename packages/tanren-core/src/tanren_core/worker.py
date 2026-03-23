@@ -590,12 +590,21 @@ class Worker:
             except ValueError, TypeError:
                 pass
 
-        # Use FAILED status for non-success outcomes
-        now_ts = _utc_now()
-        if final_outcome in (Outcome.ERROR, Outcome.TIMEOUT):
+        # Preserve CANCELLED status — cleanup teardown should not overwrite
+        # the cancelled state that triggered it
+        if dispatch_view and dispatch_view.status == DispatchStatus.CANCELLED:
+            await self._event_store.append(
+                DispatchCompleted(
+                    timestamp=_utc_now(),
+                    workflow_id=dispatch.workflow_id,
+                    outcome=final_outcome,
+                    total_duration_secs=total_duration,
+                )
+            )
+        elif final_outcome in (Outcome.ERROR, Outcome.TIMEOUT):
             await self._event_store.append(
                 DispatchFailed(
-                    timestamp=now_ts,
+                    timestamp=_utc_now(),
                     workflow_id=dispatch.workflow_id,
                     failed_step_id=execute_step.step_id if execute_step else step.step_id,
                     failed_step_type=StepType.EXECUTE,
@@ -610,7 +619,7 @@ class Worker:
         else:
             await self._event_store.append(
                 DispatchCompleted(
-                    timestamp=now_ts,
+                    timestamp=_utc_now(),
                     workflow_id=dispatch.workflow_id,
                     outcome=final_outcome,
                     total_duration_secs=total_duration,
