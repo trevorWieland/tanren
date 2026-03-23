@@ -1,0 +1,59 @@
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER:-trevorwieland}/tanren-api:${TANREN_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: services/tanren-api/Dockerfile
+    ports:
+      - "${TANREN_API_PORT:-8000}:8000"
+    env_file:
+      - api.env
+    volumes:
+      - tanren-data:/data
+    restart: unless-stopped
+
+  daemon:
+    image: ghcr.io/${GHCR_OWNER:-trevorwieland}/tanren-daemon:${TANREN_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: services/tanren-daemon/Dockerfile
+    env_file:
+      - daemon.env
+    volumes:
+      - tanren-data:/data
+      - repos:/repos
+      # Mount config files from host
+      - ./roles.yml:/config/roles.yml:ro
+      # Optional: mount remote.yml for cloud provisioning
+      # - ./remote.yml:/config/remote.yml:ro
+      # Optional: mount host CLI binaries for local execution
+      # - /usr/local/bin/claude:/usr/local/bin/claude:ro
+      # - /usr/local/bin/opencode:/usr/local/bin/opencode:ro
+      # - /usr/local/bin/codex:/usr/local/bin/codex:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Postgres (optional, activate with: docker compose --profile postgres up) ─
+  postgres:
+    image: postgres:18-alpine
+    profiles: [postgres]
+    environment:
+      POSTGRES_DB: tanren
+      POSTGRES_USER: tanren
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tanren"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  tanren-data:
+  repos:
+  pgdata:

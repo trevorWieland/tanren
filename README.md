@@ -81,6 +81,30 @@ docker run -d --name tanren-api \
 
 Health check: `curl http://localhost:8000/api/v1/health`
 
+### Run API + Worker (Docker Compose)
+
+```bash
+cp api.env.example api.env && cp daemon.env.example daemon.env
+# Edit both env files — at minimum set TANREN_API_API_KEY
+docker compose up -d
+```
+
+With Postgres: `docker compose --profile postgres up -d`
+
+See `api.env.example` and `daemon.env.example` for the full env var reference.
+
+#### Adapter Requirements
+
+| Adapter | Python Package | Required Env Vars | When |
+|---------|---------------|-------------------|------|
+| Manual  | *(core)* | *(none)* | `provisioner.type: manual` in remote.yml |
+| Hetzner | `hcloud` | `HCLOUD_TOKEN` | `provisioner.type: hetzner` |
+| GCP     | `google-cloud-compute` | `GCP_SSH_PUBLIC_KEY` | `provisioner.type: gcp` |
+
+All adapters are included in the default Docker image (`EXTRAS="all"`).
+Build with `--build-arg EXTRAS="hetzner"` for a single-adapter image,
+or `EXTRAS=""` for no cloud adapters.
+
 ### Run with the CLI
 
 ```bash
