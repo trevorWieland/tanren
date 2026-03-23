@@ -275,7 +275,7 @@ class SqliteStore:
         async with self._transaction() as conn:
             await conn.execute(
                 "UPDATE step_projection "
-                "SET status = 'completed', result_json = ?, updated_at = ? "
+                "SET status = 'completed', result_json = ?, error = NULL, updated_at = ? "
                 "WHERE step_id = ?",
                 (result_json, now, step_id),
             )
@@ -299,7 +299,7 @@ class SqliteStore:
             # 1. Ack: mark current step completed
             await conn.execute(
                 "UPDATE step_projection "
-                "SET status = 'completed', result_json = ?, updated_at = ? "
+                "SET status = 'completed', result_json = ?, error = NULL, updated_at = ? "
                 "WHERE step_id = ?",
                 (result_json, now, step_id),
             )
@@ -565,7 +565,7 @@ class SqliteStore:
     # ── Internal helpers ──────────────────────────────────────────────────
 
     @staticmethod
-    def _row_to_dispatch_view(row: aiosqlite.Row) -> DispatchView:
+    def _row_to_dispatch_view(row: tuple[object, ...]) -> DispatchView:
         dispatch_str = row[6] if isinstance(row[6], str) else json.dumps(row[6])
         return DispatchView(
             dispatch_id=str(row[0]),
@@ -580,7 +580,7 @@ class SqliteStore:
         )
 
     @staticmethod
-    def _row_to_step_view(row: aiosqlite.Row) -> StepView:
+    def _row_to_step_view(row: tuple[object, ...]) -> StepView:
         return StepView(
             step_id=str(row[0]),
             dispatch_id=str(row[1]),

@@ -254,18 +254,18 @@ class Worker:
 
     async def process_step(self, step: QueuedStep) -> None:
         """Route a step to the appropriate handler."""
-        now = datetime.now(UTC).isoformat()
-        await self._event_store.append(
-            StepStarted(
-                timestamp=now,
-                workflow_id=step.dispatch_id,
-                step_id=step.step_id,
-                worker_id=self._worker_id,
-                step_type=step.step_type,
-            )
-        )
-
         try:
+            now = datetime.now(UTC).isoformat()
+            await self._event_store.append(
+                StepStarted(
+                    timestamp=now,
+                    workflow_id=step.dispatch_id,
+                    step_id=step.step_id,
+                    worker_id=self._worker_id,
+                    step_type=step.step_type,
+                )
+            )
+
             if step.step_type == StepType.PROVISION:
                 payload = ProvisionStepPayload.model_validate_json(step.payload_json)
                 await self._do_provision(payload, step)
@@ -537,16 +537,17 @@ class Worker:
         )
         await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
-        # Mark dispatch completed
-        # Find the execute step's result to get the final outcome
+        # Determine final outcome from the execute step
         steps = await self._state_store.get_steps_for_dispatch(dispatch.workflow_id)
         execute_step = next(
-            (s for s in steps if s.step_type == StepType.EXECUTE and s.result_json),
+            (s for s in steps if s.step_type == StepType.EXECUTE),
             None,
         )
         if execute_step and execute_step.result_json:
             exec_result = ExecuteResult.model_validate_json(execute_step.result_json)
             final_outcome = exec_result.outcome
+        elif execute_step and execute_step.status == StepStatus.FAILED:
+            final_outcome = Outcome.ERROR
         else:
             final_outcome = Outcome.SUCCESS
 
@@ -560,19 +561,37 @@ class Worker:
             except ValueError, TypeError:
                 pass
 
-        await self._event_store.append(
-            DispatchCompleted(
-                timestamp=datetime.now(UTC).isoformat(),
-                workflow_id=dispatch.workflow_id,
-                outcome=final_outcome,
-                total_duration_secs=total_duration,
+        # Use FAILED status for non-success outcomes
+        now_ts = datetime.now(UTC).isoformat()
+        if final_outcome in (Outcome.ERROR, Outcome.TIMEOUT):
+            await self._event_store.append(
+                DispatchFailed(
+                    timestamp=now_ts,
+                    workflow_id=dispatch.workflow_id,
+                    failed_step_id=step.step_id,
+                    failed_step_type=StepType.EXECUTE,
+                    error=f"Execution outcome: {final_outcome}",
+                )
             )
-        )
-        await self._state_store.update_dispatch_status(
-            dispatch.workflow_id,
-            DispatchStatus.COMPLETED,
-            final_outcome,
-        )
+            await self._state_store.update_dispatch_status(
+                dispatch.workflow_id,
+                DispatchStatus.FAILED,
+                final_outcome,
+            )
+        else:
+            await self._event_store.append(
+                DispatchCompleted(
+                    timestamp=now_ts,
+                    workflow_id=dispatch.workflow_id,
+                    outcome=final_outcome,
+                    total_duration_secs=total_duration,
+                )
+            )
+            await self._state_store.update_dispatch_status(
+                dispatch.workflow_id,
+                DispatchStatus.COMPLETED,
+                final_outcome,
+            )
 
     # ── Dry run ───────────────────────────────────────────────────────────
 

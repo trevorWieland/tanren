@@ -281,7 +281,7 @@ class PostgresStore:
         async with self._pool.acquire() as conn, conn.transaction():
             await conn.execute(
                 "UPDATE step_projection "
-                "SET status = 'completed', result_json = $1, updated_at = $2 "
+                "SET status = 'completed', result_json = $1, error = NULL, updated_at = $2 "
                 "WHERE step_id = $3",
                 result_json,
                 now,
@@ -307,7 +307,7 @@ class PostgresStore:
             # 1. Ack: mark current step completed
             await conn.execute(
                 "UPDATE step_projection "
-                "SET status = 'completed', result_json = $1, updated_at = $2 "
+                "SET status = 'completed', result_json = $1, error = NULL, updated_at = $2 "
                 "WHERE step_id = $3",
                 result_json,
                 now,
