@@ -231,21 +231,25 @@ class PostgresStore:
             if running >= max_concurrent:
                 return None
 
-            # Select pending step with FOR UPDATE SKIP LOCKED
-            cols = "step_id, dispatch_id, step_type, step_sequence, lane, payload_json"
+            # Select pending step, excluding cancelled dispatches
+            cols = "s.step_id, s.dispatch_id, s.step_type, s.step_sequence, s.lane, s.payload_json"
+            cancelled_filter = (
+                "JOIN dispatch_projection d ON s.dispatch_id = d.dispatch_id "
+                "WHERE s.status = 'pending' AND d.status != 'cancelled'"
+            )
             if lane is not None:
                 row = await conn.fetchrow(
-                    f"SELECT {cols} FROM step_projection "
-                    "WHERE lane = $1 AND status = 'pending' "
-                    "ORDER BY step_sequence, created_at "
+                    f"SELECT {cols} FROM step_projection s "
+                    f"{cancelled_filter} AND s.lane = $1 "
+                    "ORDER BY s.step_sequence, s.created_at "
                     "LIMIT 1 FOR UPDATE SKIP LOCKED",
                     str(lane),
                 )
             else:
                 row = await conn.fetchrow(
-                    f"SELECT {cols} FROM step_projection "
-                    "WHERE lane IS NULL AND status = 'pending' "
-                    "ORDER BY step_sequence, created_at "
+                    f"SELECT {cols} FROM step_projection s "
+                    f"{cancelled_filter} AND s.lane IS NULL "
+                    "ORDER BY s.step_sequence, s.created_at "
                     "LIMIT 1 FOR UPDATE SKIP LOCKED",
                 )
             if row is None:

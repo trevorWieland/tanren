@@ -231,19 +231,25 @@ class SqliteStore:
                 await conn.rollback()
                 return None
 
-            cols = "step_id, dispatch_id, step_type, step_sequence, lane, payload_json"
+            # Exclude steps from cancelled dispatches to prevent race
+            # between cancel() and dequeue()
+            cols = "s.step_id, s.dispatch_id, s.step_type, s.step_sequence, s.lane, s.payload_json"
+            cancelled_filter = (
+                "JOIN dispatch_projection d ON s.dispatch_id = d.dispatch_id "
+                "WHERE s.status = 'pending' AND d.status != 'cancelled'"
+            )
             if lane is not None:
                 cursor = await conn.execute(
-                    f"SELECT {cols} FROM step_projection "
-                    "WHERE lane = ? AND status = 'pending' "
-                    "ORDER BY step_sequence, created_at LIMIT 1",
+                    f"SELECT {cols} FROM step_projection s "
+                    f"{cancelled_filter} AND s.lane = ? "
+                    "ORDER BY s.step_sequence, s.created_at LIMIT 1",
                     (str(lane),),
                 )
             else:
                 cursor = await conn.execute(
-                    f"SELECT {cols} FROM step_projection "
-                    "WHERE lane IS NULL AND status = 'pending' "
-                    "ORDER BY step_sequence, created_at LIMIT 1",
+                    f"SELECT {cols} FROM step_projection s "
+                    f"{cancelled_filter} AND s.lane IS NULL "
+                    "ORDER BY s.step_sequence, s.created_at LIMIT 1",
                 )
             row = await cursor.fetchone()
             if row is None:

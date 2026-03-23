@@ -487,9 +487,11 @@ class Worker:
                     outcome=phase_result.outcome,
                 )
             else:
-                preserve = dispatch.preserve_on_failure and phase_result.outcome in (
-                    Outcome.ERROR,
-                    Outcome.TIMEOUT,
+                # Cancellation overrides preserve — always clean up resources
+                preserve = (
+                    not is_cancelled
+                    and dispatch.preserve_on_failure
+                    and phase_result.outcome in (Outcome.ERROR, Outcome.TIMEOUT)
                 )
                 next_step = self._build_next_step(
                     dispatch=dispatch,
