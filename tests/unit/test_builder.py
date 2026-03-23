@@ -11,8 +11,9 @@ from pydantic import ValidationError
 
 from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
-from tanren_core.builder import build_ssh_execution_environment
+from tanren_core.builder import build_ssh_execution_environment, validate_provisioner_requirements
 from tanren_core.config import Config
+from tanren_core.remote_config import ProvisionerType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -168,6 +169,7 @@ repos:
 """)
         config = _make_config(tmp_path, str(remote_yml))
 
+        monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA_test_key")
         fake_mod = SimpleNamespace(
             InstancesClient=Mock(return_value=Mock()),
             ZoneOperationsClient=Mock(return_value=Mock()),
@@ -179,3 +181,33 @@ repos:
 
         assert isinstance(env, SSHExecutionEnvironment)
         assert env._provider == VMProvider.GCP
+
+
+class TestValidateProvisionerRequirements:
+    def test_manual_requires_nothing(self):
+        validate_provisioner_requirements(ProvisionerType.MANUAL)
+
+    def test_hetzner_requires_token(self, monkeypatch):
+        monkeypatch.delenv("HCLOUD_TOKEN", raising=False)
+        with pytest.raises(ValueError, match="HCLOUD_TOKEN"):
+            validate_provisioner_requirements(ProvisionerType.HETZNER)
+
+    def test_hetzner_passes_when_configured(self, monkeypatch):
+        monkeypatch.setenv("HCLOUD_TOKEN", "test-token")
+        # hcloud package is available in dev env; should pass with token set
+        validate_provisioner_requirements(ProvisionerType.HETZNER)
+
+    def test_gcp_requires_ssh_key(self, monkeypatch):
+        monkeypatch.delenv("GCP_SSH_PUBLIC_KEY", raising=False)
+        with pytest.raises(ValueError, match="GCP_SSH_PUBLIC_KEY"):
+            validate_provisioner_requirements(ProvisionerType.GCP)
+
+    def test_gcp_passes_when_configured(self, monkeypatch):
+        monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA_test")
+        # google-cloud-compute is available in dev env; should pass with key set
+        validate_provisioner_requirements(ProvisionerType.GCP)
+
+    def test_error_message_includes_adapter_name(self, monkeypatch):
+        monkeypatch.delenv("GCP_SSH_PUBLIC_KEY", raising=False)
+        with pytest.raises(ValueError, match="Adapter 'gcp' configuration errors"):
+            validate_provisioner_requirements(ProvisionerType.GCP)

@@ -29,6 +29,57 @@ logger = logging.getLogger(__name__)
 
 _AGENT_USER = "tanren"
 
+# ── Adapter requirement registry ─────────────────────────────────────────────
+# Single source of truth for per-adapter env vars and packages.
+# Add entries here when implementing a new provisioner adapter.
+
+_ADAPTER_REQUIREMENTS: dict[ProvisionerType, list[tuple[str, str]]] = {
+    ProvisionerType.HETZNER: [
+        ("HCLOUD_TOKEN", "Hetzner Cloud API token"),
+    ],
+    ProvisionerType.GCP: [
+        ("GCP_SSH_PUBLIC_KEY", "SSH public key for GCP VM access"),
+    ],
+}
+
+_ADAPTER_PACKAGES: dict[ProvisionerType, tuple[str, str]] = {
+    ProvisionerType.HETZNER: ("hcloud", "hetzner"),
+    ProvisionerType.GCP: ("google.cloud.compute_v1", "gcp"),
+}
+
+
+def validate_provisioner_requirements(provisioner_type: ProvisionerType) -> None:
+    """Validate env vars and packages for the configured provisioner.
+
+    Checks that the required Python package is importable and that all
+    required environment variables are set.  Called at startup before
+    constructing the provisioner so the daemon fails fast with a clear
+    message listing every missing requirement.
+
+    Raises:
+        ValueError: With a message listing all missing requirements.
+    """
+    errors: list[str] = []
+
+    if provisioner_type in _ADAPTER_PACKAGES:
+        module_name, extra_name = _ADAPTER_PACKAGES[provisioner_type]
+        try:
+            __import__(module_name)
+        except ImportError:
+            errors.append(
+                f"Python package '{module_name}' is not installed. Build with: --extra {extra_name}"
+            )
+
+    for env_var, description in _ADAPTER_REQUIREMENTS.get(provisioner_type, []):
+        if not os.environ.get(env_var, "").strip():
+            errors.append(f"Missing env var {env_var} ({description})")
+
+    if errors:
+        raise ValueError(
+            f"Adapter '{provisioner_type}' configuration errors:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+
 
 def build_ssh_execution_environment(
     config: WorkerConfig,
@@ -97,6 +148,8 @@ def build_ssh_execution_environment(
         auth_method=remote_cfg.git.auth,
         token=token or None,
     )
+
+    validate_provisioner_requirements(remote_cfg.provisioner.type)
 
     if remote_cfg.provisioner.type == ProvisionerType.MANUAL:
         manual_settings = ManualProvisionerSettings.from_settings(remote_cfg.provisioner.settings)

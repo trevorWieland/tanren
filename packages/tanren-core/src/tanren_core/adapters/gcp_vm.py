@@ -120,10 +120,16 @@ class GCPVMProvisioner:
     def __init__(self, settings: GCPProvisionerSettings) -> None:
         """Initialize with GCP provisioner settings.
 
-        Args:
-            settings: Validated GCP provisioner settings.
+        Raises:
+            ValueError: If the SSH public key environment variable is not set.
         """
         self._settings = settings
+        ssh_pub_key = os.environ.get(settings.ssh_key_env)
+        if not ssh_pub_key:
+            raise ValueError(
+                f"Missing SSH public key in environment variable: {settings.ssh_key_env}"
+            )
+        self._ssh_pub_key = ssh_pub_key
         self._compute = _import_compute()
         self._instances_client = self._compute.InstancesClient()
         self._zone_ops_client = self._compute.ZoneOperationsClient()
@@ -137,14 +143,9 @@ class GCPVMProvisioner:
 
         Raises:
             TimeoutError: If the VM does not become ready within the timeout.
-            ValueError: If the SSH public key environment variable is not set.
         """
         machine_type = requirements.server_type or self._settings.default_machine_type
-        ssh_pub_key = os.environ.get(self._settings.ssh_key_env)
-        if not ssh_pub_key:
-            raise ValueError(
-                f"Missing SSH public key in environment variable: {self._settings.ssh_key_env}"
-            )
+        ssh_pub_key = self._ssh_pub_key
 
         safe_profile = re.sub(r"[^a-z0-9-]", "-", requirements.profile.lower())[:20].strip("-")
 
