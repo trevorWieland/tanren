@@ -23,6 +23,7 @@ from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Phase
 from tanren_core.store.enums import (
     DispatchMode,
+    DispatchStatus,
     StepStatus,
     StepType,
     cli_to_lane,
@@ -129,6 +130,8 @@ class RunService:
         dispatch_view = await self._find_dispatch_for_env(env_id)
         if dispatch_view is None:
             raise NotFoundError(f"Environment {env_id} not found")
+        if dispatch_view.status == DispatchStatus.CANCELLED:
+            raise ServiceError(f"Dispatch {dispatch_view.dispatch_id} is cancelled")
 
         # Get the provision step's result to extract the handle
         steps = await self._state_store.get_steps_for_dispatch(dispatch_view.dispatch_id)
@@ -308,13 +311,22 @@ class RunService:
         if view is not None:
             return view
 
-        # Scan recent dispatches for matching env_id in steps
+        # Scan recent dispatches for matching env_id in provision results
+        import json
+
         from tanren_core.store.views import DispatchListFilter
 
         dispatches = await self._state_store.query_dispatches(DispatchListFilter(limit=100))
         for d in dispatches:
             steps = await self._state_store.get_steps_for_dispatch(d.dispatch_id)
             for step in steps:
-                if step.result_json and env_id in step.result_json:
-                    return d
+                if not step.result_json:
+                    continue
+                try:
+                    result_data = json.loads(step.result_json)
+                    handle = result_data.get("handle", {})
+                    if handle.get("env_id") == env_id:
+                        return d
+                except json.JSONDecodeError, TypeError:
+                    continue
         return None

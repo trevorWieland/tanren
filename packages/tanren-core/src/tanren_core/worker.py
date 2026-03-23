@@ -336,13 +336,31 @@ class Worker:
             result_payload=result,
         )
 
-        # Auto-chain: atomically ack + enqueue execute step
+        # Auto-chain: atomically ack + enqueue next step
         dispatch_view = await self._state_store.get_dispatch(dispatch.workflow_id)
-        if (
-            dispatch_view
-            and dispatch_view.mode == DispatchMode.AUTO
-            and dispatch_view.status != DispatchStatus.CANCELLED
-        ):
+        is_auto = dispatch_view and dispatch_view.mode == DispatchMode.AUTO
+        is_cancelled = dispatch_view and dispatch_view.status == DispatchStatus.CANCELLED
+
+        if is_auto and is_cancelled:
+            # Cancelled mid-provision: skip execute, but enqueue teardown
+            # to clean up the VM/workspace that was just provisioned
+            td_step = self._build_next_step(
+                dispatch=dispatch,
+                next_type=StepType.TEARDOWN,
+                next_sequence=2,
+                handle=persisted,
+            )
+            if td_step is not None:
+                await self._job_queue.ack_and_enqueue(
+                    step.step_id,
+                    result_json=result.model_dump_json(),
+                    completion_events=[step_completed_event],
+                    **td_step,
+                )
+            else:
+                await self._event_store.append(step_completed_event)
+                await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
+        elif is_auto and not is_cancelled:
             next_step = self._build_next_step(
                 dispatch=dispatch,
                 next_type=StepType.EXECUTE,
@@ -441,13 +459,11 @@ class Worker:
             exit_code=phase_result.exit_code,
         )
 
-        # Auto-chain: atomically ack + enqueue teardown (respecting preserve_on_failure)
+        # Auto-chain: atomically ack + enqueue teardown (respecting preserve_on_failure).
+        # Teardown is always enqueued even for cancelled dispatches — it's cleanup,
+        # not forward progress, and skipping it would orphan remote VMs.
         dispatch_view = await self._state_store.get_dispatch(dispatch.workflow_id)
-        if (
-            dispatch_view
-            and dispatch_view.mode == DispatchMode.AUTO
-            and dispatch_view.status != DispatchStatus.CANCELLED
-        ):
+        if dispatch_view and dispatch_view.mode == DispatchMode.AUTO:
             if (
                 phase_result.outcome in (Outcome.ERROR, Outcome.TIMEOUT)
                 and dispatch.preserve_on_failure

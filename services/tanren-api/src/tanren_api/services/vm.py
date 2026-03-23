@@ -27,6 +27,7 @@ from tanren_core.store.payloads import (
     TeardownStepPayload,
 )
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.views import DispatchView
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +51,34 @@ class VMService:
         self._job_queue = job_queue
         self._state_store = state_store
 
+    async def _fetch_all_dispatches(self) -> list[DispatchView]:
+        """Paginate through all dispatches.
+
+        Returns:
+            Complete list of DispatchView objects.
+        """
+        from tanren_core.store.views import DispatchListFilter
+
+        all_dispatches: list[DispatchView] = []
+        page_size = 500
+        offset = 0
+        while True:
+            page = await self._state_store.query_dispatches(
+                DispatchListFilter(limit=page_size, offset=offset)
+            )
+            all_dispatches.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+        return all_dispatches
+
     async def list_vms(self) -> list[VMSummary]:
         """List active VMs by scanning provision steps without matching teardowns.
 
         Returns:
             list[VMSummary]: Active VM summaries.
         """
-        from tanren_core.store.views import DispatchListFilter
-
-        dispatches = await self._state_store.query_dispatches(DispatchListFilter(limit=200))
+        dispatches = await self._fetch_all_dispatches()
         vms: list[VMSummary] = []
         for d in dispatches:
             steps = await self._state_store.get_steps_for_dispatch(d.dispatch_id)
@@ -204,9 +224,7 @@ class VMService:
             NotFoundError: If VM not found.
         """
         # Find the dispatch that provisioned this VM
-        from tanren_core.store.views import DispatchListFilter
-
-        dispatches = await self._state_store.query_dispatches(DispatchListFilter(limit=200))
+        dispatches = await self._fetch_all_dispatches()
         for d in dispatches:
             steps = await self._state_store.get_steps_for_dispatch(d.dispatch_id)
             prov = next(
@@ -223,8 +241,12 @@ class VMService:
                 result = ProvisionResult.model_validate_json(prov.result_json)
                 if result.handle.vm is None or result.handle.vm.vm_id != vm_id:
                     continue
-                # Guard: skip if teardown already enqueued or completed
-                if any(s.step_type == StepType.TEARDOWN for s in steps):
+                # Guard: skip if teardown is pending, running, or completed.
+                # Allow retry if previous teardown failed.
+                if any(
+                    s.step_type == StepType.TEARDOWN and s.status != StepStatus.FAILED
+                    for s in steps
+                ):
                     continue
                 step_id = uuid.uuid4().hex
                 payload = TeardownStepPayload(dispatch=d.dispatch, handle=result.handle)
