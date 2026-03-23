@@ -14,10 +14,6 @@ from tanren_core.store.payloads import ProvisionStepPayload
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
-
-
 async def create_dispatch_from_request(
     *,
     body: DispatchRequest,
@@ -63,7 +59,7 @@ async def create_dispatch_from_request(
 
     await event_store.append(
         DispatchCreated(
-            timestamp=_now(),
+            timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             workflow_id=workflow_id,
             dispatch=dispatch,
             mode=DispatchMode.AUTO,

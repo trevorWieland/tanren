@@ -153,16 +153,12 @@ class StepCompleted(Event):
     @model_validator(mode="before")
     @classmethod
     def _resolve_result_payload(cls, data: dict[str, object]) -> dict[str, object]:
-        # Deserialize result_payload using step_type as discriminator.
-        if not isinstance(data, dict):
-            return data
-        step_type = data.get("step_type")
-        raw = data.get("result_payload")
-        if isinstance(raw, dict) and isinstance(step_type, str):
-            model_cls = _STEP_RESULT_MODEL.get(step_type)
-            if model_cls is not None:
-                data = dict(data)
-                data["result_payload"] = model_cls.model_validate(raw)
+        """Deserialize result_payload using step_type as discriminator."""
+        if isinstance(data, dict):
+            raw = data.get("result_payload")
+            model_cls = _STEP_RESULT_MODEL.get(str(data.get("step_type", "")))
+            if isinstance(raw, dict) and model_cls is not None:
+                data = {**data, "result_payload": model_cls.model_validate(raw)}
         return data
 
 

@@ -18,6 +18,19 @@ from tanren_core.adapters.events import (
     VMReleased,
 )
 from tanren_core.adapters.remote_types import VMProvider
+from tanren_core.env.environment_schema import EnvironmentProfile
+from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.store.enums import DispatchMode, Lane, StepType
+from tanren_core.store.events import (
+    DispatchCompleted,
+    DispatchCreated,
+    DispatchFailed,
+    StepCompleted,
+    StepEnqueued,
+    StepFailed,
+    StepStarted,
+)
+from tanren_core.store.payloads import TeardownResult
 
 _TS = "2026-01-01T00:00:00Z"
 _WF = "wf-proj-1-1234"
@@ -62,6 +75,63 @@ EVENT_INSTANCES = [
         total_tokens=1500,
         total_cost=0.05,
     ),
+    # Store lifecycle events
+    DispatchCreated(
+        timestamp=_TS,
+        workflow_id=_WF,
+        dispatch=Dispatch(
+            workflow_id=_WF,
+            phase=Phase.DO_TASK,
+            project="proj",
+            spec_folder="specs/001",
+            branch="main",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+            resolved_profile=EnvironmentProfile(name="default"),
+        ),
+        mode=DispatchMode.AUTO,
+        lane=Lane.IMPL,
+    ),
+    DispatchCompleted(
+        timestamp=_TS, workflow_id=_WF, outcome=Outcome.SUCCESS, total_duration_secs=60
+    ),
+    DispatchFailed(
+        timestamp=_TS,
+        workflow_id=_WF,
+        failed_step_id="step-1",
+        failed_step_type=StepType.EXECUTE,
+        error="boom",
+    ),
+    StepEnqueued(
+        timestamp=_TS,
+        workflow_id=_WF,
+        step_id="step-1",
+        step_type=StepType.PROVISION,
+        step_sequence=0,
+    ),
+    StepStarted(
+        timestamp=_TS,
+        workflow_id=_WF,
+        step_id="step-1",
+        worker_id="w1",
+        step_type=StepType.PROVISION,
+    ),
+    StepCompleted(
+        timestamp=_TS,
+        workflow_id=_WF,
+        step_id="step-1",
+        step_type=StepType.TEARDOWN,
+        duration_secs=5,
+        result_payload=TeardownResult(vm_released=True, duration_secs=5),
+    ),
+    StepFailed(
+        timestamp=_TS,
+        workflow_id=_WF,
+        step_id="step-1",
+        step_type=StepType.EXECUTE,
+        error="timeout",
+        duration_secs=30,
+    ),
 ]
 
 EXPECTED_TYPES = [
@@ -76,6 +146,13 @@ EXPECTED_TYPES = [
     "vm_released",
     "bootstrap_completed",
     "token_usage_recorded",
+    "dispatch_created",
+    "dispatch_completed",
+    "dispatch_failed",
+    "step_enqueued",
+    "step_started",
+    "step_completed",
+    "step_failed",
 ]
 
 

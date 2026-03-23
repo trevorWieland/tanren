@@ -485,6 +485,7 @@ class Worker:
                         step.step_id,
                         StepType.EXECUTE,
                         f"Execution {phase_result.outcome}, VM preserved",
+                        outcome=phase_result.outcome,
                     )
             else:
                 preserve = dispatch.preserve_on_failure and phase_result.outcome in (
@@ -871,6 +872,7 @@ class Worker:
         failed_step_id: str,
         failed_step_type: StepType,
         error: str,
+        outcome: Outcome = Outcome.ERROR,
     ) -> None:
         """Mark a dispatch as terminally failed."""
         await self._event_store.append(
@@ -885,7 +887,7 @@ class Worker:
         await self._state_store.update_dispatch_status(
             dispatch_id,
             DispatchStatus.FAILED,
-            Outcome.ERROR,
+            outcome,
         )
 
     @staticmethod

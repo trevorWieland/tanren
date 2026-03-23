@@ -26,6 +26,15 @@ from tanren_core.adapters.remote_types import VMProvider, VMRequirements
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
+from tanren_core.store.events import (
+    DispatchCompleted,
+    DispatchCreated,
+    DispatchFailed,
+    StepCompleted,
+    StepEnqueued,
+    StepFailed,
+    StepStarted,
+)
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -456,6 +465,7 @@ class MetricsVMsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 EventPayload = Annotated[
+    # Adapter events
     DispatchReceived
     | PhaseStarted
     | PhaseCompleted
@@ -466,7 +476,15 @@ EventPayload = Annotated[
     | VMProvisioned
     | VMReleased
     | BootstrapCompleted
-    | TokenUsageRecorded,
+    | TokenUsageRecorded
+    # Store lifecycle events
+    | DispatchCreated
+    | DispatchCompleted
+    | DispatchFailed
+    | StepEnqueued
+    | StepStarted
+    | StepCompleted
+    | StepFailed,
     Field(discriminator="type"),
 ]
 

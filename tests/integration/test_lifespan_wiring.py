@@ -197,6 +197,9 @@ async def test_events_endpoint_after_dispatch(wired_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] > 0
+    # Verify store lifecycle events are included (not skipped as unparseable)
+    event_types = {e["type"] for e in data["events"]}
+    assert "dispatch_created" in event_types or "step_enqueued" in event_types
 
 
 @pytest.mark.asyncio

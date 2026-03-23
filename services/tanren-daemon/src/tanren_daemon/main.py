@@ -58,13 +58,21 @@ def _build_execution_env(
 async def _run() -> None:
     load_config_env()
     config = WorkerConfig.from_env()
-    db_url = config.db_url or "tanren_events.db"
+    db_url = config.db_url or "tanren.db"
     store = await create_store(db_url)
 
     # Pass the Postgres pool to the builder so VM state uses the same
     # backend as the event store (avoids SQLite/Postgres state split)
     pg_pool: asyncpg.Pool | None = getattr(store, "_pool", None)
     execution_env, vm_store = _build_execution_env(config, pool=pg_pool)
+
+    # Recover stale VM assignments from prior crashes before processing new work.
+    # Only applies to remote (SSH) environments; local env has no VMs to recover.
+    if config.remote_config_path and hasattr(execution_env, "recover_stale_assignments"):
+        recovered: int = await execution_env.recover_stale_assignments()  # type: ignore[union-attr]
+        if recovered:
+            logger.info("Recovered %d stale VM assignment(s) on startup", recovered)
+
     worker = Worker(
         config=config,
         event_store=store,
