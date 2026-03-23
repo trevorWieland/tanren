@@ -1,5 +1,5 @@
 .PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean \
-	docker docker-slim
+	docker docker-slim docker-daemon docker-daemon-slim
 
 install:
 	uv sync --upgrade
@@ -51,6 +51,12 @@ docker:
 
 docker-slim:
 	docker build -f services/tanren-api/Dockerfile --build-arg EXTRAS="" -t tanren-api:slim .
+
+docker-daemon:
+	docker build -f services/tanren-daemon/Dockerfile -t tanren-daemon:latest .
+
+docker-daemon-slim:
+	docker build -f services/tanren-daemon/Dockerfile --build-arg EXTRAS="" -t tanren-daemon:slim .
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

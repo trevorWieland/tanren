@@ -1591,8 +1591,25 @@ dependencies = [
     { name = "tanren-core" },
 ]
 
+[package.optional-dependencies]
+all = [
+    { name = "tanren-core", extra = ["all"] },
+]
+gcp = [
+    { name = "tanren-core", extra = ["gcp"] },
+]
+hetzner = [
+    { name = "tanren-core", extra = ["hetzner"] },
+]
+
 [package.metadata]
-requires-dist = [{ name = "tanren-core", editable = "packages/tanren-core" }]
+requires-dist = [
+    { name = "tanren-core", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["all"], marker = "extra == 'all'", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["gcp"], marker = "extra == 'gcp'", editable = "packages/tanren-core" },
+    { name = "tanren-core", extras = ["hetzner"], marker = "extra == 'hetzner'", editable = "packages/tanren-core" },
+]
+provides-extras = ["hetzner", "gcp", "all"]
 
 [[package]]
 name = "tanren-workspace"

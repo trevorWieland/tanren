@@ -8,6 +8,11 @@ dependencies = [
     "tanren-core",
 ]
 
+[project.optional-dependencies]
+hetzner = ["tanren-core[hetzner]"]
+gcp = ["tanren-core[gcp]"]
+all = ["tanren-core[all]"]
+
 [project.scripts]
 tanren-daemon = "tanren_daemon.main:main"
 worker-manager = "tanren_daemon.main:main"  # backward compat alias

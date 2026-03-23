@@ -28,5 +28,4 @@ README.md
 Makefile
 *.log
 services/tanren-cli/src
-services/tanren-daemon/src
 services/tanren-api/openapi.json
