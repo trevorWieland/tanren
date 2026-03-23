@@ -94,7 +94,7 @@ class EnvironmentProfile(BaseModel):
         return v
 
 
-def parse_environment_profiles(data: Mapping[str, object]) -> dict[str, EnvironmentProfile]:
+def parse_environment_profiles(data: Mapping[str, JsonValue]) -> dict[str, EnvironmentProfile]:
     """Parse 'environment' section of tanren.yml.
 
     Always returns at least 'default' (type=local).
@@ -137,7 +137,7 @@ class IssueSourceConfig(BaseModel):
     )
 
 
-def parse_issue_source(data: Mapping[str, object]) -> IssueSourceConfig | None:
+def parse_issue_source(data: Mapping[str, JsonValue]) -> IssueSourceConfig | None:
     """Parse 'issue_source' section of tanren.yml.
 
     Returns:

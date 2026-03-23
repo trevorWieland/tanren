@@ -1,6 +1,7 @@
 """Tests for git workspace manager."""
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -35,8 +36,8 @@ def _make_conn() -> AsyncMock:
     return conn
 
 
-def _spec(**overrides: object) -> WorkspaceSpec:
-    defaults: dict[str, object] = {
+def _spec(**overrides: Any) -> WorkspaceSpec:
+    defaults: dict[str, Any] = {
         "project": "myapp",
         "repo_url": "https://github.com/org/myapp.git",
         "branch": "main",

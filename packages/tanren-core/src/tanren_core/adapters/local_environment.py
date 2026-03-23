@@ -67,7 +67,10 @@ class LocalExecutionEnvironment:
         Returns:
             DryRunInfo indicating no provisioning (local environment).
         """
-        from tanren_core.adapters.remote_types import DryRunInfo, VMProvider  # noqa: PLC0415
+        from tanren_core.adapters.remote_types import (  # noqa: PLC0415 — deferred import to avoid circular dependency at module level
+            DryRunInfo,
+            VMProvider,
+        )
 
         return DryRunInfo(
             provider=VMProvider.MANUAL,

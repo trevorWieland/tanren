@@ -1,5 +1,7 @@
 """Tests for step payload and result models."""
 
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -18,8 +20,8 @@ from tanren_core.store.payloads import (
 DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
-def _make_dispatch(**overrides: object) -> Dispatch:
-    defaults: dict[str, object] = {
+def _make_dispatch(**overrides: Any) -> Dispatch:
+    defaults: dict[str, Any] = {
         "workflow_id": "wf-test-1-100",
         "phase": Phase.DO_TASK,
         "project": "test",
@@ -33,8 +35,8 @@ def _make_dispatch(**overrides: object) -> Dispatch:
     return Dispatch.model_validate(defaults | overrides)
 
 
-def _make_handle(**overrides: object) -> PersistedEnvironmentHandle:
-    defaults: dict[str, object] = {
+def _make_handle(**overrides: Any) -> PersistedEnvironmentHandle:
+    defaults: dict[str, Any] = {
         "env_id": "env-abc",
         "worktree_path": "/workspace/test",
         "branch": "main",

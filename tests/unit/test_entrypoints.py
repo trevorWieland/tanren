@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from tanren_cli import main as cli_mod
 from tanren_daemon import main as main_mod
 
@@ -25,7 +27,7 @@ def test_cli_main_invokes_typer_app(monkeypatch):
 
 
 def test_worker_main_calls_asyncio_run(monkeypatch):
-    seen: dict[str, object] = {}
+    seen: dict[str, Any] = {}
 
     def _fake_asyncio_run(coro):
         seen["coro"] = coro

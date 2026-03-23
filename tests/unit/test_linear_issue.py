@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import types
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -25,8 +26,8 @@ class _FakeResponse:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
-def _settings(**overrides: object) -> LinearIssueSettings:
-    defaults: dict[str, object] = {"team_key": "PROJ"}
+def _settings(**overrides: Any) -> LinearIssueSettings:
+    defaults: dict[str, Any] = {"team_key": "PROJ"}
     defaults.update(overrides)
     return LinearIssueSettings.model_validate(defaults)
 

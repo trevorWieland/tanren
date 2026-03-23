@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -27,8 +27,8 @@ async def store(tmp_path: Path):
     await s.close()
 
 
-def _make_request(**overrides: object) -> DispatchRequest:
-    defaults: dict[str, object] = {
+def _make_request(**overrides: Any) -> DispatchRequest:
+    defaults: dict[str, Any] = {
         "project": "test",
         "phase": Phase.DO_TASK,
         "branch": "main",

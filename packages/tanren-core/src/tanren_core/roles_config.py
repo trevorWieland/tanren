@@ -1,13 +1,19 @@
 """Load role mapping configuration from YAML."""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from tanren_core.roles import AgentTool, AuthMode, RoleMapping
 from tanren_core.schemas import Cli
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +42,10 @@ def load_roles_config(path: str | Path) -> RoleMapping:
     if not isinstance(agents, Mapping):
         raise TypeError(f"Roles config {path}: missing required 'agents' section")
 
-    def _as_str(raw: object) -> str | None:  # YAML value of unknown type; object is correct
+    def _as_str(raw: JsonValue) -> str | None:
         return raw if isinstance(raw, str) else None
 
-    def _parse_cli(source: Mapping[str, object], context: str) -> Cli:
+    def _parse_cli(source: Mapping[str, JsonValue], context: str) -> Cli:
         if "cli" not in source:
             raise ValueError(f"Roles config {path}: {context} missing required 'cli' field")
         cli_raw = _as_str(source["cli"])
@@ -48,7 +54,7 @@ def load_roles_config(path: str | Path) -> RoleMapping:
             raise ValueError(f"Invalid CLI value '{cli_raw}'. Must be one of: {allowed}")
         return Cli(cli_raw)
 
-    def _parse_auth(source: Mapping[str, object], context: str) -> AuthMode:
+    def _parse_auth(source: Mapping[str, JsonValue], context: str) -> AuthMode:
         if "auth" not in source:
             raise ValueError(f"Roles config {path}: {context} missing required 'auth' field")
         auth_raw = _as_str(source["auth"])
@@ -56,7 +62,7 @@ def load_roles_config(path: str | Path) -> RoleMapping:
             raise ValueError(f"Roles config {path}: {context} 'auth' must be a string")
         return AuthMode(auth_raw)
 
-    def _parse_model(source: Mapping[str, object], context: str) -> str:
+    def _parse_model(source: Mapping[str, JsonValue], context: str) -> str:
         if "model" not in source:
             raise ValueError(f"Roles config {path}: {context} missing required 'model' field")
         model_raw = _as_str(source["model"])
@@ -64,7 +70,7 @@ def load_roles_config(path: str | Path) -> RoleMapping:
             raise ValueError(f"Roles config {path}: {context} 'model' must be a string")
         return model_raw
 
-    def _parse_tool(tool_data: Mapping[str, object], context: str) -> AgentTool:
+    def _parse_tool(tool_data: Mapping[str, JsonValue], context: str) -> AgentTool:
         return AgentTool(
             cli=_parse_cli(tool_data, context),
             model=_parse_model(tool_data, context),

@@ -1,5 +1,7 @@
 """Tests for PersistedEnvironmentHandle serialization."""
 
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -11,13 +13,13 @@ from tanren_core.store.handle import (
 )
 
 
-def _make_ssh_config(**overrides: object) -> PersistedSSHConfig:
-    defaults: dict[str, object] = {"host": "10.0.0.1"}
+def _make_ssh_config(**overrides: Any) -> PersistedSSHConfig:
+    defaults: dict[str, Any] = {"host": "10.0.0.1"}
     return PersistedSSHConfig.model_validate(defaults | overrides)
 
 
-def _make_vm_info(**overrides: object) -> PersistedVMInfo:
-    defaults: dict[str, object] = {
+def _make_vm_info(**overrides: Any) -> PersistedVMInfo:
+    defaults: dict[str, Any] = {
         "vm_id": "vm-123",
         "host": "10.0.0.1",
         "created_at": "2026-01-01T00:00:00Z",
@@ -25,8 +27,8 @@ def _make_vm_info(**overrides: object) -> PersistedVMInfo:
     return PersistedVMInfo.model_validate(defaults | overrides)
 
 
-def _make_handle(**overrides: object) -> PersistedEnvironmentHandle:
-    defaults: dict[str, object] = {
+def _make_handle(**overrides: Any) -> PersistedEnvironmentHandle:
+    defaults: dict[str, Any] = {
         "env_id": "env-abc",
         "worktree_path": "/workspace/myproject",
         "branch": "main",
