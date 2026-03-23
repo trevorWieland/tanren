@@ -22,6 +22,9 @@ from tanren_core.adapters.events import (
     ErrorOccurred,
     PhaseCompleted,
     PreflightCompleted,
+    TokenUsageRecorded,
+    VMProvisioned,
+    VMReleased,
 )
 from tanren_core.adapters.types import EnvironmentHandle, ProvisionError
 from tanren_core.errors import ErrorClass, classify_error
@@ -309,6 +312,21 @@ class Worker:
         persisted = self._persist_handle(handle)
         result = ProvisionResult(handle=persisted)
 
+        # Emit VMProvisioned event for remote environments
+        if persisted.vm is not None:
+            await self._event_store.append(
+                VMProvisioned(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    vm_id=persisted.vm.vm_id,
+                    host=persisted.vm.host,
+                    provider=persisted.vm.provider,
+                    project=dispatch.project,
+                    profile=dispatch.environment_profile,
+                    hourly_cost=persisted.vm.hourly_cost,
+                )
+            )
+
         step_completed_event = StepCompleted(
             timestamp=datetime.now(UTC).isoformat(),
             workflow_id=dispatch.workflow_id,
@@ -376,6 +394,29 @@ class Worker:
             else False,
             token_usage=phase_result.token_usage,
         )
+
+        # Emit token usage event if usage data was collected
+        if phase_result.token_usage is not None:
+            tu = phase_result.token_usage
+            await self._event_store.append(
+                TokenUsageRecorded(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    phase=str(dispatch.phase),
+                    project=dispatch.project,
+                    cli=str(dispatch.cli),
+                    input_tokens=tu.input_tokens,
+                    output_tokens=tu.output_tokens,
+                    cache_creation_tokens=getattr(tu, "cache_creation_tokens", 0),
+                    cache_read_tokens=getattr(tu, "cache_read_tokens", 0),
+                    cached_input_tokens=getattr(tu, "cached_input_tokens", 0),
+                    reasoning_tokens=getattr(tu, "reasoning_tokens", 0),
+                    total_tokens=tu.total_tokens,
+                    total_cost=tu.total_cost,
+                    models_used=list(getattr(tu, "models_used", [])),
+                    session_id=getattr(tu, "session_id", None),
+                )
+            )
 
         step_completed_event = StepCompleted(
             timestamp=datetime.now(UTC).isoformat(),
@@ -461,6 +502,28 @@ class Worker:
             vm_released=not payload.preserve,
             duration_secs=duration,
         )
+
+        # Emit VMReleased event for remote environments
+        if not payload.preserve and payload.handle.vm is not None:
+            provision_ts = payload.handle.provision_timestamp
+            vm_duration = duration
+            try:
+                created = datetime.fromisoformat(provision_ts)
+                vm_duration = int((datetime.now(UTC) - created).total_seconds())
+            except ValueError, TypeError:
+                pass
+            hourly = payload.handle.vm.hourly_cost
+            estimated_cost = (hourly * vm_duration / 3600.0) if hourly else None
+            await self._event_store.append(
+                VMReleased(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    workflow_id=dispatch.workflow_id,
+                    vm_id=payload.handle.vm.vm_id,
+                    project=dispatch.project,
+                    duration_secs=vm_duration,
+                    estimated_cost=estimated_cost,
+                )
+            )
 
         await self._event_store.append(
             StepCompleted(
@@ -737,8 +800,21 @@ class Worker:
                     labels=dict(rt.vm_handle.labels),
                     hourly_cost=rt.vm_handle.hourly_cost,
                 )
-                # Extract SSH config from connection
-                ssh_config = PersistedSSHConfig(host=rt.vm_handle.host)
+                # Extract SSH config from live connection
+                from tanren_core.adapters.ssh import SSHConnection as _SSHConn
+
+                if isinstance(rt.connection, _SSHConn):
+                    conn_cfg = rt.connection._config
+                    ssh_config = PersistedSSHConfig(
+                        host=conn_cfg.host,
+                        user=conn_cfg.user,
+                        key_path=conn_cfg.key_path,
+                        port=conn_cfg.port,
+                        connect_timeout=conn_cfg.connect_timeout,
+                        host_key_policy=conn_cfg.host_key_policy,
+                    )
+                else:
+                    ssh_config = PersistedSSHConfig(host=rt.vm_handle.host)
                 workspace_remote_path = rt.workspace_path.path
                 teardown_commands = rt.teardown_commands
                 profile_name = rt.profile.name

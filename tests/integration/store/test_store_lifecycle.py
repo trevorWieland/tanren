@@ -214,3 +214,85 @@ class TestFullDispatchLifecycle:
 
         results = await store.query_dispatches(DispatchListFilter(project="nonexistent", limit=10))
         assert len(results) == 0
+
+    async def test_cancel_pending_steps(self, store: SqliteStore) -> None:
+        """cancel_pending_steps stops pending steps from being dequeued."""
+        dispatch = _make_dispatch(workflow_id="wf-cancel-100")
+        await store.create_dispatch_projection(
+            dispatch_id="wf-cancel-100",
+            mode=DispatchMode.AUTO,
+            lane=Lane.IMPL,
+            preserve_on_failure=False,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+
+        payload = ProvisionStepPayload(dispatch=dispatch)
+        await store.enqueue_step(
+            step_id="step-cancel-prov",
+            dispatch_id="wf-cancel-100",
+            step_type="provision",
+            step_sequence=0,
+            lane=None,
+            payload_json=payload.model_dump_json(),
+        )
+
+        # Cancel all pending steps
+        cancelled = await store.cancel_pending_steps("wf-cancel-100")
+        assert cancelled == 1
+
+        # Dequeue should return nothing
+        step = await store.dequeue(lane=None, worker_id="w1", max_concurrent=10)
+        assert step is None
+
+        # Verify step is cancelled in the projection
+        steps = await store.get_steps_for_dispatch("wf-cancel-100")
+        assert len(steps) == 1
+        assert steps[0].status == StepStatus.CANCELLED
+
+    async def test_cancel_pending_steps_no_pending(self, store: SqliteStore) -> None:
+        """cancel_pending_steps returns 0 when no pending steps exist."""
+        dispatch = _make_dispatch(workflow_id="wf-nopending-100")
+        await store.create_dispatch_projection(
+            dispatch_id="wf-nopending-100",
+            mode=DispatchMode.AUTO,
+            lane=Lane.IMPL,
+            preserve_on_failure=False,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+
+        # No steps enqueued — cancel should return 0
+        cancelled = await store.cancel_pending_steps("wf-nopending-100")
+        assert cancelled == 0
+
+    async def test_cancel_does_not_affect_running_steps(self, store: SqliteStore) -> None:
+        """cancel_pending_steps leaves running steps untouched."""
+        dispatch = _make_dispatch(workflow_id="wf-running-100")
+        await store.create_dispatch_projection(
+            dispatch_id="wf-running-100",
+            mode=DispatchMode.AUTO,
+            lane=Lane.IMPL,
+            preserve_on_failure=False,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+
+        payload = ProvisionStepPayload(dispatch=dispatch)
+        await store.enqueue_step(
+            step_id="step-running-prov",
+            dispatch_id="wf-running-100",
+            step_type="provision",
+            step_sequence=0,
+            lane=None,
+            payload_json=payload.model_dump_json(),
+        )
+
+        # Dequeue to make it running
+        step = await store.dequeue(lane=None, worker_id="w1", max_concurrent=10)
+        assert step is not None
+
+        # Cancel should not affect the running step
+        cancelled = await store.cancel_pending_steps("wf-running-100")
+        assert cancelled == 0
+
+        # Step should still be running
+        steps = await store.get_steps_for_dispatch("wf-running-100")
+        assert steps[0].status == StepStatus.RUNNING

@@ -50,6 +50,7 @@ class StepStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 CLI_LANE_MAP: dict[str, Lane] = {

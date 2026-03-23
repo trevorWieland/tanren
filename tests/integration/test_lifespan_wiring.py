@@ -99,13 +99,35 @@ async def test_dispatch_cancel(wired_client):
     assert resp.status_code == 200
     dispatch_id = resp.json()["dispatch_id"]
 
-    # Cancel
+    # Cancel (also cancels pending steps)
     del_resp = await client.delete(
         f"/api/v1/dispatch/{dispatch_id}",
         headers=AUTH,
     )
     assert del_resp.status_code == 200
     assert del_resp.json()["status"] == "cancelled"
+
+    # Verify dispatch shows cancelled
+    get_resp = await client.get(
+        f"/api/v1/dispatch/{dispatch_id}",
+        headers=AUTH,
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["status"] == "cancelled"
+
+    # Cancel again should fail with 409 conflict
+    del_again = await client.delete(
+        f"/api/v1/dispatch/{dispatch_id}",
+        headers=AUTH,
+    )
+    assert del_again.status_code == 409
+
+    # Cancel nonexistent should 404
+    del_missing = await client.delete(
+        "/api/v1/dispatch/nonexistent-id",
+        headers=AUTH,
+    )
+    assert del_missing.status_code == 404
 
 
 @pytest.mark.asyncio

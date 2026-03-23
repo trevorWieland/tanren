@@ -122,6 +122,28 @@ class TestMetricsSummary:
         assert data["failed"] == 1
         assert data["success_rate"] == pytest.approx(0.6667)
 
+    async def test_all_outcome_branches(self, client, auth_headers, sqlite_store):
+        """Cover error, timeout, and blocked outcome branches."""
+        for outcome in ("error", "timeout", "blocked"):
+            await sqlite_store.append(
+                PhaseCompleted(
+                    timestamp="2026-03-03T10:00:00Z",
+                    workflow_id=f"wf-{outcome}-1-100",
+                    phase="do-task",
+                    project="gamma",
+                    outcome=outcome,
+                    duration_secs=10,
+                    exit_code=1,
+                )
+            )
+
+        resp = await client.get("/api/v1/metrics/summary?project=gamma", headers=auth_headers)
+        data = resp.json()
+        assert data["total_phases"] == 3
+        assert data["errored"] == 1
+        assert data["timed_out"] == 1
+        assert data["blocked"] == 1
+
     async def test_project_filter(self, client, auth_headers, sqlite_store):
         await _insert_fixture_events(sqlite_store)
 
@@ -152,6 +174,29 @@ class TestMetricsCosts:
         assert len(data["buckets"]) == 1
         assert data["buckets"][0]["group_key"] == "2026-03-01"
 
+    async def test_group_by_workflow(self, client, auth_headers, sqlite_store):
+        await _insert_fixture_events(sqlite_store)
+
+        resp = await client.get("/api/v1/metrics/costs?group_by=workflow", headers=auth_headers)
+        data = resp.json()
+        assert data["group_by"] == "workflow"
+        assert len(data["buckets"]) >= 1
+        assert data["total_tokens"] == 1500
+
+    async def test_project_filter(self, client, auth_headers, sqlite_store):
+        await _insert_fixture_events(sqlite_store)
+
+        resp = await client.get("/api/v1/metrics/costs?project=alpha", headers=auth_headers)
+        data = resp.json()
+        assert data["total_cost"] == pytest.approx(0.05)
+
+    async def test_no_data(self, client, auth_headers):
+        resp = await client.get("/api/v1/metrics/costs", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_cost"] == pytest.approx(0.0)
+        assert data["buckets"] == []
+
     async def test_invalid_group_by(self, client, auth_headers):
         resp = await client.get("/api/v1/metrics/costs?group_by=invalid", headers=auth_headers)
         assert resp.status_code == 422
@@ -169,6 +214,15 @@ class TestMetricsVMs:
         assert data["total_released"] == 1
         assert data["currently_active"] == 1
         assert data["by_provider"] == {"hetzner": 1, "gcp": 1}
+
+    async def test_project_filter(self, client, auth_headers, sqlite_store):
+        await _insert_fixture_events(sqlite_store)
+
+        resp = await client.get("/api/v1/metrics/vms?project=alpha", headers=auth_headers)
+        data = resp.json()
+        assert data["by_provider"] == {"hetzner": 1}
+        assert data["total_estimated_cost"] == pytest.approx(0.083)
+        assert data["total_vm_duration_secs"] == 600
 
     async def test_no_data_returns_zeros(self, client, auth_headers):
         resp = await client.get("/api/v1/metrics/vms", headers=auth_headers)

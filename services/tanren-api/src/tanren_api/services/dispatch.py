@@ -108,4 +108,7 @@ class DispatchService:
 
         await self._state_store.update_dispatch_status(dispatch_id, DispatchStatus.CANCELLED)
 
+        # Cancel any pending steps so workers don't pick them up
+        await self._job_queue.cancel_pending_steps(dispatch_id)
+
         return DispatchCancelled(dispatch_id=dispatch_id)

@@ -137,6 +137,16 @@ class JobQueue(Protocol):
         """
         ...
 
+    async def cancel_pending_steps(self, dispatch_id: str) -> int:
+        """Cancel all pending steps for a dispatch.
+
+        Sets ``status='cancelled'`` on every ``step_projection`` row
+        belonging to *dispatch_id* that is still ``'pending'``.
+
+        Returns the number of rows updated.
+        """
+        ...
+
     async def nack(
         self,
         step_id: str,

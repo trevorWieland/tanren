@@ -198,8 +198,17 @@ class PostgresStore:
         worker_id: str,
         max_concurrent: int,
     ) -> QueuedStep | None:
-        """Atomically claim a pending step if capacity allows."""
+        """Atomically claim a pending step if capacity allows.
+
+        Uses ``pg_advisory_xact_lock`` per lane to serialize concurrent
+        dequeue attempts, preventing TOCTOU races on the running-count
+        check.
+        """
         async with self._pool.acquire() as conn, conn.transaction():
+            # Serialize dequeue per lane so running-count + claim is atomic
+            lane_key = f"dequeue-{lane}" if lane is not None else "dequeue-infra"
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", lane_key)
+
             # Check running count
             if lane is not None:
                 row = await conn.fetchrow(
@@ -363,6 +372,20 @@ class PostgresStore:
                 now,
                 next_dispatch_id,
             )
+
+    async def cancel_pending_steps(self, dispatch_id: str) -> int:
+        """Cancel all pending steps for a dispatch."""
+        now = _now()
+        async with self._pool.acquire() as conn, conn.transaction():
+            result = await conn.execute(
+                "UPDATE step_projection "
+                "SET status = 'cancelled', updated_at = $1 "
+                "WHERE dispatch_id = $2 AND status = 'pending'",
+                now,
+                dispatch_id,
+            )
+            # asyncpg returns "UPDATE N"
+            return int(result.split()[-1])
 
     async def nack(
         self,

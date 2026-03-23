@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -54,26 +56,36 @@ class SqliteStore:
             await self._conn.executescript(SQLITE_ALL)
         return self._conn
 
+    @asynccontextmanager
+    async def _transaction(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Begin an IMMEDIATE transaction, commit on success, rollback on error.
+
+        Yields:
+            The aiosqlite connection inside the active transaction.
+        """
+        conn = await self._ensure_conn()
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+
     # ── EventStore ────────────────────────────────────────────────────────
 
     async def append(self, event: Event) -> None:
         """Append an event to the log."""
-        conn = await self._ensure_conn()
         event_id = uuid.uuid4().hex
         event_type = type(event).__name__
         payload = json.dumps(event.model_dump(mode="json"))
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self._transaction() as conn:
             await conn.execute(
                 "INSERT INTO events "
                 "(event_id, timestamp, workflow_id, event_type, payload) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (event_id, event.timestamp, event.workflow_id, event_type, payload),
             )
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
 
     async def query_events(
         self,
@@ -152,10 +164,8 @@ class SqliteStore:
         payload_json: str,
     ) -> None:
         """Insert a step and append StepEnqueued event, atomically."""
-        conn = await self._ensure_conn()
         now = _now()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self._transaction() as conn:
             await conn.execute(
                 "INSERT INTO step_projection "
                 "(step_id, dispatch_id, step_type, step_sequence, lane, "
@@ -184,10 +194,6 @@ class SqliteStore:
                 "WHERE dispatch_id = ? AND status = 'pending'",
                 (now, dispatch_id),
             )
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
 
     async def dequeue(
         self,
@@ -196,7 +202,11 @@ class SqliteStore:
         worker_id: str,
         max_concurrent: int,
     ) -> QueuedStep | None:
-        """Atomically claim a pending step if capacity allows."""
+        """Atomically claim a pending step if capacity allows.
+
+        Uses manual transaction control because early-return paths
+        require explicit rollback before returning None.
+        """
         conn = await self._ensure_conn()
         await conn.execute("BEGIN IMMEDIATE")
         try:
@@ -261,20 +271,14 @@ class SqliteStore:
 
     async def ack(self, step_id: str, *, result_json: str) -> None:
         """Mark step completed with result."""
-        conn = await self._ensure_conn()
         now = _now()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self._transaction() as conn:
             await conn.execute(
                 "UPDATE step_projection "
                 "SET status = 'completed', result_json = ?, updated_at = ? "
                 "WHERE step_id = ?",
                 (result_json, now, step_id),
             )
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
 
     async def ack_and_enqueue(
         self,
@@ -290,10 +294,8 @@ class SqliteStore:
         completion_events: list[Event] | None = None,
     ) -> None:
         """Atomically ack a step and enqueue the next step in one transaction."""
-        conn = await self._ensure_conn()
         now = _now()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self._transaction() as conn:
             # 1. Ack: mark current step completed
             await conn.execute(
                 "UPDATE step_projection "
@@ -353,10 +355,19 @@ class SqliteStore:
                 "WHERE dispatch_id = ? AND status = 'pending'",
                 (now, next_dispatch_id),
             )
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
+
+    async def cancel_pending_steps(self, dispatch_id: str) -> int:
+        """Cancel all pending steps for a dispatch."""
+        conn = await self._ensure_conn()
+        now = _now()
+        cursor = await conn.execute(
+            "UPDATE step_projection "
+            "SET status = 'cancelled', updated_at = ? "
+            "WHERE dispatch_id = ? AND status = 'pending'",
+            (now, dispatch_id),
+        )
+        await conn.commit()
+        return cursor.rowcount
 
     async def nack(
         self,
@@ -367,10 +378,8 @@ class SqliteStore:
         retry: bool = False,
     ) -> None:
         """Mark step failed or re-enqueue for retry."""
-        conn = await self._ensure_conn()
         now = _now()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self._transaction() as conn:
             if retry:
                 await conn.execute(
                     "UPDATE step_projection "
@@ -387,10 +396,6 @@ class SqliteStore:
                     "WHERE step_id = ?",
                     (error, now, step_id),
                 )
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
 
     # ── StateStore ────────────────────────────────────────────────────────
 
@@ -514,10 +519,8 @@ class SqliteStore:
         dispatch_json: str,
     ) -> None:
         """Insert a new dispatch projection row."""
-        conn = await self._ensure_conn()
         now = _now()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self._transaction() as conn:
             await conn.execute(
                 "INSERT INTO dispatch_projection "
                 "(dispatch_id, mode, status, lane, "
@@ -534,10 +537,6 @@ class SqliteStore:
                     now,
                 ),
             )
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
 
     async def update_dispatch_status(
         self,
@@ -546,20 +545,14 @@ class SqliteStore:
         outcome: Outcome | None = None,
     ) -> None:
         """Update dispatch projection status."""
-        conn = await self._ensure_conn()
         now = _now()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self._transaction() as conn:
             await conn.execute(
                 "UPDATE dispatch_projection "
                 "SET status = ?, outcome = ?, updated_at = ? "
                 "WHERE dispatch_id = ?",
                 (str(status), str(outcome) if outcome else None, now, dispatch_id),
             )
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tanren_core.adapters.types import EnvironmentHandle, LocalEnvironmentRuntime, PhaseResult
+from tanren_core.ccusage import TokenUsage
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType, cli_to_lane
@@ -286,5 +287,109 @@ async def test_process_step_provision_manual_no_chain(tmp_path):
     # execute/teardown NOT called
     mock_env.execute.assert_not_awaited()
     mock_env.teardown.assert_not_awaited()
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_execute_with_token_usage_emits_event(tmp_path):
+    """Worker emits TokenUsageRecorded event when execute captures usage."""
+    config = _make_config(tmp_path)
+    store = await create_sqlite_store(str(tmp_path / "token.db"))
+
+    mock_env = AsyncMock()
+    handle = EnvironmentHandle(
+        env_id="env-tok",
+        worktree_path=Path("/tmp/wt"),
+        branch="main",
+        project="test",
+        runtime=LocalEnvironmentRuntime(task_env={}),
+    )
+    mock_env.provision = AsyncMock(return_value=handle)
+    mock_env.execute = AsyncMock(
+        return_value=PhaseResult(
+            outcome=Outcome.SUCCESS,
+            signal="complete",
+            exit_code=0,
+            stdout="ok",
+            duration_secs=5,
+            preflight_passed=True,
+            token_usage=TokenUsage(
+                input_tokens=1000,
+                output_tokens=500,
+                total_tokens=1500,
+                total_cost=0.015,
+                provider="claude",
+            ),
+        )
+    )
+    mock_env.teardown = AsyncMock()
+
+    worker = Worker(
+        config=config,
+        event_store=store,
+        job_queue=store,
+        state_store=store,
+        execution_env=mock_env,
+    )
+
+    dispatch = _make_dispatch()
+    dispatch_id = dispatch.workflow_id
+    lane = cli_to_lane(dispatch.cli)
+
+    await store.create_dispatch_projection(
+        dispatch_id=dispatch_id,
+        mode=DispatchMode.AUTO,
+        lane=lane,
+        preserve_on_failure=False,
+        dispatch_json=dispatch.model_dump_json(),
+    )
+    await store.append(
+        DispatchCreated(
+            timestamp=datetime.now(UTC).isoformat(),
+            workflow_id=dispatch_id,
+            dispatch=dispatch,
+            mode=DispatchMode.AUTO,
+            lane=lane,
+        )
+    )
+    await store.enqueue_step(
+        step_id=uuid.uuid4().hex,
+        dispatch_id=dispatch_id,
+        step_type="provision",
+        step_sequence=0,
+        lane=None,
+        payload_json=ProvisionStepPayload(dispatch=dispatch).model_dump_json(),
+    )
+
+    # Step 1: provision
+    step = await store.dequeue(lane=None, worker_id="w1", max_concurrent=10)
+    assert step is not None
+    await worker.process_step(step)
+
+    # Step 2: execute (auto-chained)
+    step = await store.dequeue(lane=lane, worker_id="w1", max_concurrent=10)
+    assert step is not None
+    await worker.process_step(step)
+
+    # Verify TokenUsageRecorded event was emitted
+    events = await store.query_events(dispatch_id=dispatch_id)
+    event_types = [e.event_type for e in events.events]
+    assert "TokenUsageRecorded" in event_types
+
+    # Process teardown to complete the lifecycle
+    step = await store.dequeue(lane=None, worker_id="w1", max_concurrent=10)
+    assert step is not None
+    assert step.step_type == StepType.TEARDOWN
+    await worker.process_step(step)
+
+    # Verify dispatch completed with events
+    view = await store.get_dispatch(dispatch_id)
+    assert view is not None
+    assert view.status == DispatchStatus.COMPLETED
+
+    all_events = await store.query_events(dispatch_id=dispatch_id)
+    all_types = [e.event_type for e in all_events.events]
+    assert "DispatchCompleted" in all_types
 
     await store.close()

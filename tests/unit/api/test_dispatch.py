@@ -10,7 +10,7 @@ from tanren_api.models import DispatchRequest, DispatchRunStatus
 from tanren_api.services.dispatch import DispatchService
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import AuthMode, Cli, Phase
-from tanren_core.store.enums import DispatchStatus
+from tanren_core.store.enums import DispatchStatus, StepStatus
 from tanren_core.store.sqlite import SqliteStore
 
 if TYPE_CHECKING:
@@ -105,6 +105,24 @@ class TestDispatchServiceCancel:
         view = await store.get_dispatch(accepted.dispatch_id)
         assert view is not None
         assert view.status == DispatchStatus.CANCELLED
+
+    async def test_cancel_also_cancels_pending_steps(self, store: SqliteStore) -> None:
+        svc = DispatchService(event_store=store, job_queue=store, state_store=store)
+
+        accepted = await svc.create(_make_request())
+        await store.update_dispatch_status(accepted.dispatch_id, DispatchStatus.PENDING)
+
+        # Verify there's a pending step (provision)
+        steps_before = await store.get_steps_for_dispatch(accepted.dispatch_id)
+        pending = [s for s in steps_before if s.status == StepStatus.PENDING]
+        assert len(pending) >= 1
+
+        await svc.cancel(accepted.dispatch_id)
+
+        # All pending steps should now be cancelled
+        steps_after = await store.get_steps_for_dispatch(accepted.dispatch_id)
+        still_pending = [s for s in steps_after if s.status == StepStatus.PENDING]
+        assert still_pending == []
 
     async def test_cancel_completed_dispatch_raises_conflict(self, store: SqliteStore) -> None:
         from tanren_api.errors import ConflictError

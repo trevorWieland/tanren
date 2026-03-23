@@ -46,4 +46,4 @@ class TestEnumValues:
         assert set(DispatchStatus) == {"pending", "running", "completed", "failed", "cancelled"}
 
     def test_step_status_values(self) -> None:
-        assert set(StepStatus) == {"pending", "running", "completed", "failed"}
+        assert set(StepStatus) == {"pending", "running", "completed", "failed", "cancelled"}
