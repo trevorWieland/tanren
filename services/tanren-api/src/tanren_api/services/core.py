@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -69,12 +70,17 @@ class ConfigService:
         except Exception:
             store_connected = False
 
+        try:
+            version = importlib.metadata.version("tanren-api")
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown"
+
         return ConfigResponse(
             db_backend=db_backend,
             store_connected=store_connected,
             worker_lanes={"impl": 1, "audit": 1, "gate": 3, "provision": 10},
             remote_enabled=True,
-            version="0.1.0",
+            version=version,
         )
 
 

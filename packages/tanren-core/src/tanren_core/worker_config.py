@@ -141,7 +141,7 @@ class WorkerConfig(BaseModel):
     # Polling
     poll_interval: float = Field(
         default=5.0,
-        description="Seconds between dispatch directory polls",
+        description="Seconds between filesystem dispatch polls (legacy)",
     )
     heartbeat_interval: float = Field(
         default=30.0,
@@ -150,7 +150,7 @@ class WorkerConfig(BaseModel):
     poll_interval_secs: float = Field(
         default=2.0,
         ge=0.1,
-        description="Seconds between queue polls (new name)",
+        description="Seconds between job queue polls",
     )
 
     # Worker identity

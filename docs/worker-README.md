@@ -18,7 +18,7 @@ Each step is assigned to a lane that controls concurrency:
 | **impl** | `opencode`, `claude` | 1 | Implementation and modification work |
 | **audit** | `codex` | 1 | Code review and spec auditing |
 | **gate** | `bash` | 3 (parallel) | Test/lint/build gate checks |
-| **provision** | -- | 1 | Environment provisioning |
+| **provision** | -- | 10 | Environment provisioning |
 
 ### Step Processing
 

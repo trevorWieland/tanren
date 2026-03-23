@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import statistics
 from typing import TYPE_CHECKING
 
 from tanren_api.models import (
@@ -13,6 +15,9 @@ from tanren_api.models import (
 
 if TYPE_CHECKING:
     from tanren_core.store.protocols import EventStore
+    from tanren_core.store.views import EventRow
+
+_PAGE_SIZE = 5000
 
 
 class MetricsService:
@@ -22,6 +27,34 @@ class MetricsService:
         """Initialize with the unified event store."""
         self._event_store = event_store
 
+    async def _fetch_all_events(
+        self,
+        *,
+        event_type: str,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[EventRow]:
+        """Paginate through all matching events.
+
+        Returns:
+            Complete list of EventRow objects across all pages.
+        """
+        all_events: list[EventRow] = []
+        offset = 0
+        while True:
+            result = await self._event_store.query_events(
+                event_type=event_type,
+                since=since,
+                until=until,
+                limit=_PAGE_SIZE,
+                offset=offset,
+            )
+            all_events.extend(result.events)
+            if len(result.events) < _PAGE_SIZE:
+                break
+            offset += _PAGE_SIZE
+        return all_events
+
     async def summary(
         self,
         *,
@@ -30,12 +63,7 @@ class MetricsService:
         project: str | None = None,
     ) -> MetricsSummaryResponse:
         """Return workflow execution summary metrics from lifecycle events."""
-        result = await self._event_store.query_events(
-            event_type="PhaseCompleted",
-            since=since,
-            until=until,
-            limit=10000,
-        )
+        events = await self._fetch_all_events(event_type="PhaseCompleted", since=since, until=until)
 
         counts: dict[str, int] = {
             "success": 0,
@@ -47,7 +75,7 @@ class MetricsService:
         total = 0
         durations: list[float] = []
 
-        for row in result.events:
+        for row in events:
             payload = row.payload
             if project and str(payload.get("project", "")) != project:
                 continue
@@ -61,9 +89,9 @@ class MetricsService:
 
         durations.sort()
         avg = sum(durations) / len(durations) if durations else 0.0
-        p50 = durations[len(durations) // 2] if durations else 0.0
-        p95_idx = int(len(durations) * 0.95)
-        p95 = durations[min(p95_idx, len(durations) - 1)] if durations else 0.0
+        p50 = statistics.median(durations) if durations else 0.0
+        p95_idx = min(math.ceil(len(durations) * 0.95) - 1, len(durations) - 1)
+        p95 = durations[p95_idx] if durations else 0.0
         rate = counts["success"] / total if total > 0 else 0.0
 
         return MetricsSummaryResponse(
@@ -88,18 +116,15 @@ class MetricsService:
         group_by: str = "model",
     ) -> MetricsCostsResponse:
         """Return token cost metrics from TokenUsageRecorded events."""
-        result = await self._event_store.query_events(
-            event_type="TokenUsageRecorded",
-            since=since,
-            until=until,
-            limit=10000,
+        events = await self._fetch_all_events(
+            event_type="TokenUsageRecorded", since=since, until=until
         )
 
         buckets_map: dict[str, CostBucketResponse] = {}
         total_cost = 0.0
         total_tokens = 0
 
-        for row in result.events:
+        for row in events:
             payload = row.payload
             if project and str(payload.get("project", "")) != project:
                 continue
@@ -107,7 +132,7 @@ class MetricsService:
             if group_by == "model":
                 models_used = payload.get("models_used", [])
                 if isinstance(models_used, list) and models_used:
-                    key = str(models_used[0])
+                    key = ", ".join(sorted(str(m) for m in models_used))
                 else:
                     key = str(payload.get("model", "unknown"))
             elif group_by == "day":
@@ -160,18 +185,10 @@ class MetricsService:
         project: str | None = None,
     ) -> MetricsVMsResponse:
         """Return VM utilization metrics from lifecycle events."""
-        prov_result = await self._event_store.query_events(
-            event_type="VMProvisioned",
-            since=since,
-            until=until,
-            limit=10000,
+        prov_events = await self._fetch_all_events(
+            event_type="VMProvisioned", since=since, until=until
         )
-        rel_result = await self._event_store.query_events(
-            event_type="VMReleased",
-            since=since,
-            until=until,
-            limit=10000,
-        )
+        rel_events = await self._fetch_all_events(event_type="VMReleased", since=since, until=until)
 
         provisioned = 0
         released = 0
@@ -179,7 +196,7 @@ class MetricsService:
         total_cost = 0.0
         by_provider: dict[str, int] = {}
 
-        for row in prov_result.events:
+        for row in prov_events:
             p = row.payload
             if project and str(p.get("project", "")) != project:
                 continue
@@ -187,7 +204,7 @@ class MetricsService:
             provider = str(p.get("provider", "unknown"))
             by_provider[provider] = by_provider.get(provider, 0) + 1
 
-        for row in rel_result.events:
+        for row in rel_events:
             p = row.payload
             if project and str(p.get("project", "")) != project:
                 continue

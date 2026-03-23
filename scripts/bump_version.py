@@ -25,6 +25,11 @@ PYPROJECT_FILES = [
     "services/tanren-daemon/pyproject.toml",
 ]
 
+# Additional files with version references that should stay in sync
+EXTRA_VERSION_FILES = [
+    ("README.md", re.compile(r"(badge/version-)(\d+\.\d+\.\d+)(-)")),
+]
+
 VERSION_RE = re.compile(r'^(version\s*=\s*")(\d+\.\d+\.\d+)(")', re.MULTILINE)
 
 
@@ -86,6 +91,14 @@ def main() -> None:
     for p in paths:
         updated = VERSION_RE.sub(rf"\g<1>{new}\3", contents[p], count=1)
         p.write_text(updated, encoding="utf-8")
+
+    # Update additional version references (README badge, etc.)
+    for rel_path, pattern in EXTRA_VERSION_FILES:
+        extra = root / rel_path
+        if extra.exists():
+            text = extra.read_text(encoding="utf-8")
+            updated = pattern.sub(rf"\g<1>{new}\3", text)
+            extra.write_text(updated, encoding="utf-8")
 
     print(new)
 
