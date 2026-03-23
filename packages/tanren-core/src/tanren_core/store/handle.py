@@ -91,6 +91,10 @@ class PersistedEnvironmentHandle(BaseModel):
         default="default",
         description="Name of the resolved environment profile",
     )
+    dispatch_id: str | None = Field(
+        default=None,
+        description="Original dispatch/workflow ID for handle reconstruction",
+    )
     provision_timestamp: str = Field(
         ...,
         description="ISO 8601 timestamp when provisioning completed",

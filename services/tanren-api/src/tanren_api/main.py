@@ -97,6 +97,11 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             metrics=metrics_svc,
         )
 
+        # NOTE: FastMCP's http_app() has its own lifespan, but we don't
+        # invoke it here because it uses anyio cancel scopes that conflict
+        # with httpx-based test clients. Our MCP setup works without it:
+        # set_services() injects service instances directly and
+        # MCPApiKeyAuth is registered as middleware above.
         try:
             yield
         finally:

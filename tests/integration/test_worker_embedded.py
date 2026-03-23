@@ -123,6 +123,13 @@ async def test_process_step_provision_auto_chains(tmp_path):
     assert provision_step.status == StepStatus.COMPLETED
     assert execute_step.status == StepStatus.PENDING
 
+    # Verify provision result includes dispatch_id for handle reconstruction
+    from tanren_core.store.payloads import ProvisionResult
+
+    assert provision_step.result_json is not None
+    prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
+    assert prov_result.handle.dispatch_id == dispatch_id
+
     await store.close()
 
 

@@ -37,12 +37,14 @@ class MetricsService:
             limit=10000,
         )
 
+        counts: dict[str, int] = {
+            "success": 0,
+            "fail": 0,
+            "error": 0,
+            "timeout": 0,
+            "blocked": 0,
+        }
         total = 0
-        succeeded = 0
-        failed = 0
-        errored = 0
-        timed_out = 0
-        blocked = 0
         durations: list[float] = []
 
         for row in result.events:
@@ -51,16 +53,8 @@ class MetricsService:
                 continue
             total += 1
             outcome = str(payload.get("outcome", ""))
-            if outcome == "success":
-                succeeded += 1
-            elif outcome == "fail":
-                failed += 1
-            elif outcome == "error":
-                errored += 1
-            elif outcome == "timeout":
-                timed_out += 1
-            elif outcome == "blocked":
-                blocked += 1
+            if outcome in counts:
+                counts[outcome] += 1
             dur = payload.get("duration_secs")
             if dur is not None:
                 durations.append(float(str(dur)))
@@ -70,15 +64,15 @@ class MetricsService:
         p50 = durations[len(durations) // 2] if durations else 0.0
         p95_idx = int(len(durations) * 0.95)
         p95 = durations[min(p95_idx, len(durations) - 1)] if durations else 0.0
-        rate = succeeded / total if total > 0 else 0.0
+        rate = counts["success"] / total if total > 0 else 0.0
 
         return MetricsSummaryResponse(
             total_phases=total,
-            succeeded=succeeded,
-            failed=failed,
-            errored=errored,
-            timed_out=timed_out,
-            blocked=blocked,
+            succeeded=counts["success"],
+            failed=counts["fail"],
+            errored=counts["error"],
+            timed_out=counts["timeout"],
+            blocked=counts["blocked"],
             success_rate=round(rate, 4),
             avg_duration_secs=round(avg, 2),
             p50_duration_secs=round(p50, 2),
@@ -126,16 +120,17 @@ class MetricsService:
             total_cost += cost
             total_tokens += tokens
 
-            if key not in buckets_map:
-                buckets_map[key] = CostBucketResponse(
+            b = buckets_map.setdefault(
+                key,
+                CostBucketResponse(
                     group_key=key,
                     total_cost=0.0,
                     total_tokens=0,
                     input_tokens=0,
                     output_tokens=0,
                     event_count=0,
-                )
-            b = buckets_map[key]
+                ),
+            )
             buckets_map[key] = CostBucketResponse(
                 group_key=key,
                 total_cost=b.total_cost + cost,

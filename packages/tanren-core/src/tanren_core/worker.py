@@ -309,7 +309,7 @@ class Worker:
             raise
 
         duration = int(time.monotonic() - start)
-        persisted = self._persist_handle(handle)
+        persisted = self._persist_handle(handle, dispatch_id=dispatch.workflow_id)
         result = ProvisionResult(handle=persisted)
 
         # Emit VMProvisioned event for remote environments
@@ -794,7 +794,11 @@ class Worker:
         )
 
     @staticmethod
-    def _persist_handle(handle: EnvironmentHandle) -> PersistedEnvironmentHandle:
+    def _persist_handle(
+        handle: EnvironmentHandle,
+        *,
+        dispatch_id: str | None = None,
+    ) -> PersistedEnvironmentHandle:
         """Convert a live EnvironmentHandle to a serializable form."""
         from tanren_core.adapters.types import RemoteEnvironmentRuntime
 
@@ -853,6 +857,7 @@ class Worker:
             workspace_remote_path=workspace_remote_path,
             teardown_commands=teardown_commands,
             profile_name=profile_name,
+            dispatch_id=dispatch_id,
             provision_timestamp=datetime.now(UTC).isoformat(),
             agent_user=agent_user,
             task_env=task_env,
@@ -898,14 +903,24 @@ class Worker:
                 project=persisted.project,
                 branch=persisted.branch,
             )
+            # Compute provision_start from persisted timestamp so
+            # VM duration calculations reflect real elapsed time
+            provision_start = time.monotonic()
+            try:
+                prov_dt = datetime.fromisoformat(persisted.provision_timestamp)
+                elapsed = (datetime.now(UTC) - prov_dt).total_seconds()
+                provision_start = time.monotonic() - elapsed
+            except ValueError, TypeError:
+                pass
+
             runtime = RemoteEnvironmentRuntime(
                 vm_handle=vm_handle,
                 connection=conn,
                 workspace_path=workspace,
                 profile=EnvironmentProfile(name=persisted.profile_name),
                 teardown_commands=persisted.teardown_commands,
-                provision_start=time.monotonic(),
-                workflow_id=f"reconstructed-{persisted.env_id}",
+                provision_start=provision_start,
+                workflow_id=persisted.dispatch_id or f"reconstructed-{persisted.env_id}",
             )
         else:
             # Local handle

@@ -6,12 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.ccusage import TokenUsage
 from tanren_core.postflight import IntegrityRepairs
-
-# ---------------------------------------------------------------------------
-# Forward reference -- Dispatch is imported at runtime but under TYPE_CHECKING
-# the full import would create a cycle.  We use a string annotation and
-# model_rebuild() at module load time to resolve it.
-# ---------------------------------------------------------------------------
 from tanren_core.schemas import Dispatch, Finding, Outcome
 from tanren_core.store.handle import PersistedEnvironmentHandle
 

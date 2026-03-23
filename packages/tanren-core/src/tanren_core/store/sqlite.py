@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class SqliteStore:
@@ -565,7 +565,7 @@ class SqliteStore:
     # ── Internal helpers ──────────────────────────────────────────────────
 
     @staticmethod
-    def _row_to_dispatch_view(row: tuple[object, ...]) -> DispatchView:
+    def _row_to_dispatch_view(row: aiosqlite.Row) -> DispatchView:  # type is tuple at runtime
         dispatch_str = row[6] if isinstance(row[6], str) else json.dumps(row[6])
         return DispatchView(
             dispatch_id=str(row[0]),
@@ -580,7 +580,7 @@ class SqliteStore:
         )
 
     @staticmethod
-    def _row_to_step_view(row: tuple[object, ...]) -> StepView:
+    def _row_to_step_view(row: aiosqlite.Row) -> StepView:  # type is tuple at runtime
         return StepView(
             step_id=str(row[0]),
             dispatch_id=str(row[1]),

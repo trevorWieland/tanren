@@ -29,7 +29,7 @@ from tanren_core.store.views import (
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class PostgresStore:
