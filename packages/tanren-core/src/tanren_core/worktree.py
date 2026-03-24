@@ -337,7 +337,18 @@ async def cleanup_worktree(
         worktree_path = Path(entry.path)
         project_dir = Path(github_dir) / entry.project
 
-        await remove_worktree(worktree_path, project_dir)
+        try:
+            await remove_worktree(worktree_path, project_dir)
+        except Exception:
+            logger.warning(
+                "remove_worktree failed for %s, clearing registry entry anyway",
+                workflow_id,
+                exc_info=True,
+            )
 
+        # Always clear the registry entry — even if filesystem cleanup
+        # was incomplete.  A stale registry entry blocks all future
+        # dispatches on the same branch; a stale directory is harmless
+        # (git worktree add handles it idempotently).
         del registry.worktrees[workflow_id]
         await save_registry(registry_path, registry)
