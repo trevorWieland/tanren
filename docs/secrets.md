@@ -155,6 +155,19 @@ dispatch.project_env = {
 | Project | Update project `.env`; next dispatch picks it up automatically |
 | Operational | Update `api.env`/`daemon.env`, restart services |
 
+## Daemon Secret Loading
+
+The daemon's `SecretLoader.autoload_into_env()` loads `secrets.env` into
+`os.environ` at startup (without overriding existing env vars). This means
+the daemon's effective secret store is the **union** of process env vars
+and `secrets.env`. In Docker, `daemon.env` provides the process env; in
+local development, `secrets.env` provides the same secrets.
+
+Provision-time resolution reads from `os.environ` (which includes
+autoloaded values). If a required CLI auth secret is completely absent
+from both sources, provision fails hard with a clear error before any VM
+resources are allocated.
+
 ## Security Properties
 
 - Infrastructure secrets never leave the daemon process

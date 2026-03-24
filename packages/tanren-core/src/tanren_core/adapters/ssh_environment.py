@@ -70,7 +70,7 @@ _CLI_AUTH_GROUPS: dict[Cli, tuple[tuple[str, ...], ...]] = {
 }
 
 
-def _validate_cli_auth(cli: Cli, resolved: dict[str, str]) -> None:
+def _validate_cli_auth(cli: Cli, resolved: dict[str, str], *, phase: str = "") -> None:
     """Ensure at least one auth secret was resolved for the dispatch CLI.
 
     Raises:
@@ -82,8 +82,10 @@ def _validate_cli_auth(cli: Cli, resolved: dict[str, str]) -> None:
     for group in groups:
         if not any(name in resolved for name in group):
             names = " or ".join(group)
+            context = f" (phase {phase} uses {cli.value})" if phase else ""
             raise RuntimeError(
-                f"No auth secret resolved for {cli.value}: need {names} in daemon environment"
+                f"No auth secret resolved for {cli.value}{context}: "
+                f"need {names} in daemon environment"
             )
 
 
@@ -292,7 +294,7 @@ class SSHExecutionEnvironment:
                     )
                 # Validate CLI auth: at least one secret must be
                 # resolvable for the dispatch's CLI.
-                _validate_cli_auth(dispatch.cli, resolved)
+                _validate_cli_auth(dispatch.cli, resolved, phase=dispatch.phase.value)
                 developer_overrides = resolved
 
             project_env = dispatch.project_env
