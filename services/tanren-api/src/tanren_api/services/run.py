@@ -177,6 +177,14 @@ class RunService:
         ):
             raise ServiceError("Execute step already in progress for this environment")
 
+        # Guard: block execute after teardown has been requested
+        if any(
+            s.step_type == StepType.TEARDOWN
+            and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
+            for s in steps
+        ):
+            raise ServiceError("Cannot execute after teardown")
+
         lane = cli_to_lane(exec_dispatch.cli)
 
         # Compute next sequence number for multi-phase support
@@ -297,35 +305,26 @@ class RunService:
         steps = await self._state_store.get_steps_for_dispatch(dispatch_view.dispatch_id)
 
         # Derive environment status from step states.
-        # Check both step status (FAILED) and execute outcome (error/timeout)
-        # since execute steps are marked COMPLETED even on error outcomes.
+        # Use the latest execute step for failure detection (not cumulative).
         env_status = RunEnvironmentStatus.PROVISIONING
-        had_failure = False
         for step in steps:
-            if step.status == StepStatus.FAILED:
-                had_failure = True
             if step.step_type == StepType.PROVISION and step.status == StepStatus.COMPLETED:
                 env_status = RunEnvironmentStatus.PROVISIONED
             elif step.step_type == StepType.EXECUTE and step.status == StepStatus.RUNNING:
                 env_status = RunEnvironmentStatus.EXECUTING
             elif step.step_type == StepType.EXECUTE and step.status == StepStatus.COMPLETED:
-                # Check actual outcome — execute is "completed" even on error
-                if step.result_json:
-                    from tanren_core.store.payloads import ExecuteResult
-
-                    try:
-                        er = ExecuteResult.model_validate_json(step.result_json)
-                        if er.outcome in (Outcome.ERROR, Outcome.TIMEOUT):
-                            had_failure = True
-                    except Exception:  # noqa: S110 — best-effort outcome check
-                        pass
                 env_status = RunEnvironmentStatus.COMPLETED
             elif step.step_type == StepType.TEARDOWN:
                 env_status = RunEnvironmentStatus.TEARING_DOWN
                 if step.status == StepStatus.COMPLETED:
                     env_status = RunEnvironmentStatus.COMPLETED
+            if step.status == StepStatus.FAILED:
+                env_status = RunEnvironmentStatus.FAILED
 
-        if had_failure:
+        # Check dispatch-level status for cancellation and outcome
+        is_cancelled = dispatch_view.status == DispatchStatus.CANCELLED
+        has_error_outcome = dispatch_view.outcome in (Outcome.ERROR, Outcome.TIMEOUT)
+        if is_cancelled or (has_error_outcome and env_status != RunEnvironmentStatus.FAILED):
             env_status = RunEnvironmentStatus.FAILED
 
         return RunStatus(

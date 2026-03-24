@@ -136,6 +136,13 @@ class DispatchService:
         )
         if prov is None or any(s.step_type == StepType.TEARDOWN for s in steps):
             return
+        # Don't enqueue teardown while execute is active — the worker's
+        # auto-chain will handle teardown after execute completes
+        if any(
+            s.step_type == StepType.EXECUTE and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
+            for s in steps
+        ):
+            return
         assert prov.result_json is not None
         prov_result = ProvisionResult.model_validate_json(prov.result_json)
         await self._job_queue.enqueue_step(

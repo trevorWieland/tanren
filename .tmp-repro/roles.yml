@@ -1,0 +1,4 @@
+agents:
+  default:
+    cli: claude
+    auth: api_key
