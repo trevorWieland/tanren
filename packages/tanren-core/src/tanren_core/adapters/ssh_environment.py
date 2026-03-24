@@ -583,6 +583,13 @@ class SSHExecutionEnvironment:
             if usage is not None:
                 token_usage_data = usage
 
+        # Capture gate output for gate phases so it's visible in results
+        captured_gate_output = None
+        if dispatch.phase == Phase.GATE:
+            combined = (final_stdout or "") + (agent_result.stderr or "")
+            if combined.strip():
+                captured_gate_output = combined
+
         return PhaseResult(
             outcome=outcome,
             signal=signal_val,
@@ -593,7 +600,7 @@ class SSHExecutionEnvironment:
             preflight_passed=True,
             postflight_result=None,
             env_report=None,
-            gate_output=None,
+            gate_output=captured_gate_output,
             unchecked_tasks=0,
             plan_hash="00000000",
             retries=transient_retries,

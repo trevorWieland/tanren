@@ -8,8 +8,6 @@ Reference docs:
 from __future__ import annotations
 
 import asyncio
-import shutil
-import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -485,9 +483,8 @@ def run_full(
         config = _load_config()
         profile = resolve_profile(config, project, environment_profile)
 
-        # Use temp DB for single-invocation full lifecycle
-        tmp_dir = Path(tempfile.mkdtemp(prefix="tanren-run-"))
-        db_path = str(tmp_dir / "run.db")
+        # Use persistent store so dispatches are auditable
+        db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
         env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
 
@@ -576,8 +573,6 @@ def run_full(
             if hasattr(execution_env, "close"):
                 await execution_env.close()
             await store.close()
-            # Clean up temp DB
-            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     asyncio.run(_run())
 
