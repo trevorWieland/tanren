@@ -10,7 +10,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from tanren_api.mcp_auth import MCPApiKeyAuth
-from tanren_api.mcp_server import mcp, set_services
+from tanren_api.mcp_server import mcp, set_services, set_worker_config
 from tanren_api.services import (
     ConfigService,
     DispatchService,
@@ -53,8 +53,24 @@ async def mcp_store(tmp_path: Path):
 
 
 @pytest.fixture
-def _seed_mcp_services(mcp_store):
+def _seed_mcp_services(mcp_store, tmp_path: Path):
     """Seed MCP service singletons with store-based dependencies."""
+    # Create a minimal project layout for dispatch resolution
+    from tanren_core.worker_config import WorkerConfig
+
+    github_dir = tmp_path / "github"
+    project_dir = github_dir / "test-project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "tanren.yml").write_text("environment:\n  default:\n    type: local\n")
+    config = WorkerConfig(
+        ipc_dir=str(tmp_path / "ipc"),
+        github_dir=str(github_dir),
+        data_dir=str(tmp_path / "data"),
+        db_url=str(tmp_path / "events.db"),
+        worktree_registry_path=str(tmp_path / "worktrees.json"),
+    )
+    set_worker_config(config)
+
     settings = APISettings(api_key=TEST_API_KEY)
 
     set_services(

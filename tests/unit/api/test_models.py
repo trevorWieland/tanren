@@ -111,6 +111,8 @@ class TestModels:
             )
 
     def test_run_full_request_validates(self):
+        from tanren_core.env.environment_schema import EnvironmentProfile
+
         req = RunFullRequest(
             project="proj",
             branch="main",
@@ -118,6 +120,7 @@ class TestModels:
             phase=Phase.GATE,
             cli=Cli.CLAUDE,
             auth=AuthMode.API_KEY,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
         assert req.timeout == 1800
 

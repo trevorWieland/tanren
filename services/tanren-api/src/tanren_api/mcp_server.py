@@ -33,7 +33,14 @@ from tanren_api.models import (
     VMReleaseConfirmed,
     VMSummary,
 )
+from tanren_core.dispatch_resolver import (
+    resolve_cloud_secrets,
+    resolve_profile,
+    resolve_project_env,
+    resolve_required_secrets,
+)
 from tanren_core.schemas import AuthMode, Cli, Phase
+from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from tanren_api.services import (
@@ -68,6 +75,7 @@ class _MCPServiceRegistry:
 
 
 _registry: _MCPServiceRegistry | None = None
+_worker_config: WorkerConfig | None = None
 
 
 def set_services(
@@ -97,6 +105,19 @@ def _svc() -> _MCPServiceRegistry:
     """Get the service registry. Raises AssertionError if not initialized."""
     assert _registry is not None, "MCP services not initialized — call set_services() first"
     return _registry
+
+
+def set_worker_config(config: WorkerConfig) -> None:
+    """Wire the WorkerConfig for dispatch resolution."""
+    global _worker_config
+    _worker_config = config
+
+
+def _config() -> WorkerConfig:
+    """Get the worker config, falling back to env vars."""
+    if _worker_config is not None:
+        return _worker_config
+    return WorkerConfig.from_env()
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +181,7 @@ async def dispatch_create(
     context: str | None = None,
     gate_cmd: str | None = None,
     issue: str = "0",
+    environment_profile: str = "default",
 ) -> DispatchAccepted:
     """Create a new dispatch.
 
@@ -167,8 +189,9 @@ async def dispatch_create(
         DispatchAccepted with dispatch_id and status.
     """
     from tanren_api.models import DispatchRequest
-    from tanren_core.env.environment_schema import EnvironmentProfile
 
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
     body = DispatchRequest(
         project=project,
         phase=phase,
@@ -180,7 +203,11 @@ async def dispatch_create(
         context=context,
         gate_cmd=gate_cmd,
         issue=issue,
-        resolved_profile=EnvironmentProfile(name="default"),
+        environment_profile=environment_profile,
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
     )
     return await _svc().dispatch.create(body)
 
@@ -254,13 +281,17 @@ async def vm_provision(
         VMProvisionAccepted with env_id and status.
     """
     from tanren_api.models import ProvisionRequest
-    from tanren_core.env.environment_schema import EnvironmentProfile
 
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=EnvironmentProfile(name=environment_profile),
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
     )
     return await _svc().vm.provision(body)
 
@@ -309,13 +340,14 @@ async def vm_dry_run(
         VMProvisionAccepted with env_id for polling.
     """
     from tanren_api.models import ProvisionRequest
-    from tanren_core.env.environment_schema import EnvironmentProfile
 
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=EnvironmentProfile(name=environment_profile),
+        resolved_profile=profile,
     )
     return await _svc().vm.dry_run(body)
 
@@ -351,13 +383,17 @@ async def run_provision(
         RunEnvironment with env_id, vm_id, host, and status.
     """
     from tanren_api.models import ProvisionRequest
-    from tanren_core.env.environment_schema import EnvironmentProfile
 
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=EnvironmentProfile(name=environment_profile),
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
     )
     return await _svc().run.provision(body)
 
@@ -446,6 +482,8 @@ async def run_full(
     """
     from tanren_api.models import RunFullRequest
 
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
     body = RunFullRequest(
         project=project,
         branch=branch,
@@ -457,6 +495,10 @@ async def run_full(
         timeout=timeout,
         context=context,
         gate_cmd=gate_cmd,
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
     )
     return await _svc().run.full(body)
 

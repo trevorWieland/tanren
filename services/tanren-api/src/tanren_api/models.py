@@ -178,6 +178,22 @@ class RunFullRequest(BaseModel):
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
     gate_cmd: str | None = Field(default=None, description="Gate command")
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
+        description="Fully resolved environment profile",
+    )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets",
+    )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
+    )
 
 
 # ---------------------------------------------------------------------------

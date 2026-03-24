@@ -19,7 +19,6 @@ from tanren_api.models import (
     RunStatus,
     RunTeardownAccepted,
 )
-from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.store.enums import (
     DispatchMode,
@@ -274,7 +273,6 @@ class RunService:
         from tanren_api.models import DispatchRequest
         from tanren_api.services.dispatch_lifecycle import create_dispatch_from_request
 
-        env_profile = body.environment_profile
         dispatch_req = DispatchRequest(
             phase=body.phase,
             project=body.project,
@@ -285,8 +283,11 @@ class RunService:
             timeout=body.timeout,
             context=body.context,
             gate_cmd=body.gate_cmd,
-            environment_profile=env_profile,
-            resolved_profile=EnvironmentProfile(name=env_profile),
+            environment_profile=body.environment_profile,
+            resolved_profile=body.resolved_profile,
+            project_env=body.project_env,
+            cloud_secrets=body.cloud_secrets,
+            required_secrets=body.required_secrets,
         )
 
         return await create_dispatch_from_request(

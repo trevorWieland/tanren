@@ -16,22 +16,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
-import yaml
 
 from tanren_core.builder import build_execution_environment
-from tanren_core.env.environment_schema import (
-    DispatchGitConfig,
-    DispatchProvisionerConfig,
-    EnvironmentProfile,
-    EnvironmentProfileType,
-    RemoteExecutionConfig,
-    SSHDefaults,
-    parse_environment_profiles,
+from tanren_core.dispatch_resolver import (
+    resolve_agent_tool,
+    resolve_cloud_secrets,
+    resolve_gate_cmd,
+    resolve_profile,
+    resolve_project_env,
+    resolve_required_secrets,
 )
-from tanren_core.env.gates import resolve_gate_cmd
-from tanren_core.roles import AgentTool, AuthMode, RoleName
-from tanren_core.roles_config import load_roles_config
-from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.schemas import Dispatch, Phase
 from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
 from tanren_core.store.events import DispatchCreated
 from tanren_core.store.factory import create_sqlite_store
@@ -46,6 +41,8 @@ from tanren_core.worker import Worker
 from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
+    from tanren_core.env.environment_schema import EnvironmentProfile
+    from tanren_core.roles import AgentTool
     from tanren_core.store.sqlite import SqliteStore
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
@@ -59,174 +56,6 @@ def _load_config() -> WorkerConfig:
         raise typer.Exit(code=1) from exc
 
 
-def _resolve_profile(
-    config: WorkerConfig, project: str, environment_profile: str
-) -> EnvironmentProfile:
-    tanren_yml = Path(config.github_dir) / project / "tanren.yml"
-    if tanren_yml.exists():
-        loaded = yaml.safe_load(tanren_yml.read_text()) or {}
-        data = loaded if isinstance(loaded, dict) else {}
-        profiles = parse_environment_profiles(data)
-    else:
-        profiles = parse_environment_profiles({})
-    profile = profiles.get(environment_profile)
-    if profile is None:
-        available = sorted(profiles.keys())
-        raise ValueError(
-            f"Environment profile '{environment_profile}' not found in tanren.yml. "
-            f"Available: {available}"
-        )
-
-    # For remote profiles, populate remote_config from remote.yml + roles.yml
-    if profile.type == EnvironmentProfileType.REMOTE and profile.remote_config is None:
-        remote_cfg = _resolve_remote_config(config, project)
-        # Rebuild profile with remote_config (frozen model requires reconstruction)
-        profile = profile.model_copy(update={"remote_config": remote_cfg})
-
-    return profile
-
-
-def _resolve_remote_config(config: WorkerConfig, project: str) -> RemoteExecutionConfig:
-    """Read remote.yml + roles.yml and build dispatch-carried RemoteExecutionConfig.
-
-    Returns:
-        Fully resolved RemoteExecutionConfig for the dispatch payload.
-
-    Raises:
-        ValueError: If WM_REMOTE_CONFIG is not set.
-    """
-    from tanren_core.remote_config import load_remote_config  # noqa: PLC0415
-
-    if not config.remote_config_path:
-        raise ValueError("WM_REMOTE_CONFIG is required for remote profiles")
-
-    remote = load_remote_config(config.remote_config_path)
-
-    # Read bootstrap extra_script content (if configured)
-    extra_script = None
-    if remote.bootstrap.extra_script:
-        script_path = Path(remote.bootstrap.extra_script).expanduser()
-        if not script_path.is_absolute():
-            config_dir = Path(config.remote_config_path).resolve().parent
-            script_path = config_dir / script_path
-        if script_path.exists():
-            extra_script = script_path.read_text()
-
-    # Resolve required CLIs from roles.yml
-    required_clis: tuple[str, ...] = ()
-    if config.roles_config_path:
-        roles = load_roles_config(config.roles_config_path)
-        required_clis = tuple(str(c) for c in roles.required_clis())
-
-    # Look up repo URL for this project
-    repo_url = remote.repo_url_for(project) or ""
-
-    return RemoteExecutionConfig(
-        ssh=SSHDefaults(
-            user=remote.ssh.user,
-            key_path=remote.ssh.key_path,
-            port=remote.ssh.port,
-            connect_timeout=remote.ssh.connect_timeout,
-            host_key_policy=remote.ssh.host_key_policy,
-            ssh_ready_timeout_secs=remote.ssh.ssh_ready_timeout_secs,
-        ),
-        git=DispatchGitConfig(
-            auth_method=str(remote.git.auth),
-            token_env=remote.git.token_env,
-        ),
-        provisioner=DispatchProvisionerConfig(
-            type=str(remote.provisioner.type),
-            settings=dict(remote.provisioner.settings),
-        ),
-        repo_url=repo_url,
-        required_clis=required_clis,
-        bootstrap_extra_script=extra_script,
-    )
-
-
-def _resolve_project_env(config: WorkerConfig, project: str) -> dict[str, str]:
-    """Read project .env file for dispatch payload.
-
-    Returns:
-        Dict of env var key-value pairs from the project .env file.
-    """
-    from dotenv import dotenv_values  # noqa: PLC0415
-
-    env_file = Path(config.github_dir) / project / ".env"
-    if not env_file.exists():
-        return {}
-    values = dotenv_values(env_file)
-    return {k: v for k, v in values.items() if v is not None}
-
-
-async def _resolve_cloud_secrets(config: WorkerConfig, project: str) -> dict[str, str]:
-    """Fetch cloud secrets for vars with ``source: "secret:X"`` in tanren.yml.
-
-    Returns:
-        Dict of secret name to value for vars with cloud secret sources.
-    """
-    tanren_yml = Path(config.github_dir) / project / "tanren.yml"
-    if not tanren_yml.exists():
-        return {}
-
-    from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415
-
-    data = yaml.safe_load(tanren_yml.read_text()) or {}
-    if not isinstance(data, dict):
-        return {}
-    try:
-        tc = TanrenConfig.model_validate(data)
-    except Exception:
-        return {}
-
-    if tc.env is None:
-        return {}
-
-    has_sources = any(v.source for v in (*tc.env.required, *tc.env.optional))
-    if not has_sources:
-        return {}
-
-    from tanren_core.env.secret_provider_factory import create_secret_provider  # noqa: PLC0415
-
-    provider = create_secret_provider(tc.secrets)
-    result: dict[str, str] = {}
-    for var in (*tc.env.required, *tc.env.optional):
-        if var.source and var.source.startswith("secret:"):
-            secret_name = var.source[len("secret:") :]
-            value = await provider.get_secret(secret_name)
-            if value is not None:
-                result[var.key] = value
-    return result
-
-
-def _resolve_required_secrets(profile: EnvironmentProfile) -> tuple[str, ...]:
-    """Determine which secret names the dispatch needs based on required CLIs and MCP config.
-
-    Returns:
-        Tuple of secret names the daemon must resolve from its environment.
-    """
-    if profile.remote_config is None:
-        return ()
-
-    names: list[str] = []
-    for cli in profile.remote_config.required_clis:
-        if cli == "claude":
-            names.extend(["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CREDENTIALS_JSON"])
-        elif cli == "opencode":
-            names.append("OPENCODE_ZAI_API_KEY")
-        elif cli == "codex":
-            names.append("CODEX_AUTH_JSON")
-
-    # Add MCP secret references (env var refs like $MCP_CONTEXT7_KEY)
-    for mcp in profile.mcp.values():
-        for val in mcp.headers.values():
-            if not val.startswith("$"):
-                continue
-            names.append(val.lstrip("$").strip("{}"))
-
-    return tuple(names)
-
-
 def _resolve_gate_cmd_for_phase(
     *,
     config: WorkerConfig,
@@ -235,43 +64,21 @@ def _resolve_gate_cmd_for_phase(
     phase: Phase,
     gate_cmd: str | None,
 ) -> str | None:
-    if phase != Phase.GATE:
-        return gate_cmd
+    """CLI wrapper around ``resolve_gate_cmd``.
 
-    resolved = gate_cmd
-    if resolved is None:
-        profile = _resolve_profile(config, project, environment_profile)
-        resolved = resolve_gate_cmd(profile, phase)
+    Converts ValueError to typer.Exit for CLI error handling.
 
-    normalized = resolved.strip() if resolved is not None else ""
-    if not normalized:
-        typer.echo(
-            "Gate phase requires a non-empty gate command. "
-            "Provide --gate-cmd or configure environment.<profile>.gate_cmd in tanren.yml.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    return normalized
+    Returns:
+        Resolved gate command string, or the original gate_cmd for non-gate phases.
 
-
-def _role_for_phase(phase: Phase) -> RoleName:
-    if phase in (Phase.AUDIT_TASK, Phase.AUDIT_SPEC):
-        return RoleName.AUDIT
-    if phase == Phase.RUN_DEMO:
-        return RoleName.FEEDBACK
-    if phase == Phase.DO_TASK:
-        return RoleName.IMPLEMENTATION
-    if phase == Phase.INVESTIGATE:
-        return RoleName.CONVERSATION
-    return RoleName.DEFAULT
-
-
-def _resolve_agent_tool(config: WorkerConfig, phase: Phase) -> AgentTool:
-    if phase == Phase.GATE:
-        return AgentTool(cli=Cli.BASH, auth=AuthMode.API_KEY)
-    if not config.roles_config_path:
-        raise ValueError("WM_ROLES_CONFIG_PATH is required for non-gate phases")
-    return load_roles_config(config.roles_config_path).resolve(_role_for_phase(phase))
+    Raises:
+        typer.Exit: If the gate command is missing or empty.
+    """
+    try:
+        return resolve_gate_cmd(config, project, environment_profile, phase, gate_cmd)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def _build_dispatch(
@@ -397,7 +204,7 @@ def run_provision(
 
     async def _run() -> None:
         config = _load_config()
-        profile = _resolve_profile(config, project, environment_profile)
+        profile = resolve_profile(config, project, environment_profile)
 
         db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
@@ -407,10 +214,10 @@ def run_provision(
             workflow_id = (
                 f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
             )
-            tool = _resolve_agent_tool(config, Phase.DO_TASK)
-            project_env = _resolve_project_env(config, project)
-            cloud_secrets = await _resolve_cloud_secrets(config, project)
-            required_secrets = _resolve_required_secrets(profile)
+            tool = resolve_agent_tool(config, Phase.DO_TASK)
+            project_env = resolve_project_env(config, project)
+            cloud_secrets = await resolve_cloud_secrets(config, project)
+            required_secrets = resolve_required_secrets(profile)
             dispatch = _build_dispatch(
                 project=project,
                 phase=Phase.DO_TASK,
@@ -513,7 +320,7 @@ def run_execute(
             profile = dispatch_data.resolved_profile
             env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
 
-            tool = _resolve_agent_tool(config, phase)
+            tool = resolve_agent_tool(config, phase)
             resolved_gate_cmd = _resolve_gate_cmd_for_phase(
                 config=config,
                 project=project,
@@ -675,7 +482,7 @@ def run_full(
 
     async def _run() -> None:
         config = _load_config()
-        profile = _resolve_profile(config, project, environment_profile)
+        profile = resolve_profile(config, project, environment_profile)
 
         # Use temp DB for single-invocation full lifecycle
         tmp_dir = Path(tempfile.mkdtemp(prefix="tanren-run-"))
@@ -687,7 +494,7 @@ def run_full(
             workflow_id = (
                 f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
             )
-            tool = _resolve_agent_tool(config, phase)
+            tool = resolve_agent_tool(config, phase)
             resolved_gate_cmd = _resolve_gate_cmd_for_phase(
                 config=config,
                 project=project,
@@ -695,9 +502,9 @@ def run_full(
                 phase=phase,
                 gate_cmd=gate_cmd,
             )
-            project_env = _resolve_project_env(config, project)
-            cloud_secrets = await _resolve_cloud_secrets(config, project)
-            required_secrets = _resolve_required_secrets(profile)
+            project_env = resolve_project_env(config, project)
+            cloud_secrets = await resolve_cloud_secrets(config, project)
+            required_secrets = resolve_required_secrets(profile)
             dispatch = _build_dispatch(
                 project=project,
                 phase=phase,

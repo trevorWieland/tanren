@@ -288,6 +288,7 @@ async def test_run_full(wired_client):
             "phase": "do-task",
             "cli": "claude",
             "auth": "api_key",
+            "resolved_profile": {"name": "default"},
         },
         headers=AUTH,
     )
