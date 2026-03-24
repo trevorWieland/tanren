@@ -248,7 +248,13 @@ Summarize:
 
 ### Step 10: Exit
 
-Print one of these exit signals (machine-readable):
+Write your exit signal to the status file **and** print it to stdout.
+
+First, write the status file (the orchestrator reads this):
+
+    echo "sync-roadmap-status: {token}" > {spec_folder}/.agent-status
+
+Then print the same signal to stdout (machine-readable fallback):
 
 - `sync-roadmap-status: synced` — all sources aligned, no conflicts remain
 - `sync-roadmap-status: conflicts` — unresolvable conflicts flagged for manual review

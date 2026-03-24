@@ -114,6 +114,7 @@ class SecretLoader:
         self,
         project_secrets: dict[str, str] | None = None,
         cloud_secrets: dict[str, str] | None = None,
+        developer_overrides: dict[str, str] | None = None,
     ) -> SecretBundle:
         """Build a SecretBundle from all secret sources.
 
@@ -121,14 +122,21 @@ class SecretLoader:
             project_secrets: Env vars from the project's .env file.
             cloud_secrets: Secrets fetched from a cloud SecretProvider.
                 Merged into the developer scope (overrides dotenv values).
+            developer_overrides: Pre-resolved developer secrets (e.g. from
+                daemon ``os.environ`` via ``dispatch.required_secrets``).
+                When provided, these are used as the developer scope and
+                filesystem-based loading is skipped.
 
         Returns:
             SecretBundle combining developer, project, and infrastructure secrets.
         """
-        developer = self.load_developer()
-        developer.update(self.load_credential_files())
-        if cloud_secrets:
-            developer.update(cloud_secrets)
+        if developer_overrides is not None:
+            developer = dict(developer_overrides)
+        else:
+            developer = self.load_developer()
+            developer.update(self.load_credential_files())
+            if cloud_secrets:
+                developer.update(cloud_secrets)
         return SecretBundle(
             developer=developer,
             project=project_secrets or {},

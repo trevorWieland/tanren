@@ -176,6 +176,30 @@ class TestBuildBundle:
         assert bundle.project == {"PROJ_KEY": "proj_val"}
         assert bundle.infrastructure == {"GIT_TOKEN": "ghp_xyz"}
 
+    def test_developer_overrides_skip_filesystem(self, tmp_path: Path, monkeypatch):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("SHOULD_NOT_APPEAR=filesystem_val\n")
+        (tmp_path / "claude_credentials.json").write_text('{"token": "abc"}')
+        monkeypatch.setenv("GIT_TOKEN", "ghp_xyz")
+        config = SecretConfig(
+            developer_secrets_path=str(secrets_file),
+            infrastructure_env_vars=("GIT_TOKEN",),
+        )
+        loader = SecretLoader(config, required_clis=frozenset({Cli.CLAUDE}))
+
+        overrides = {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        bundle = loader.build_bundle(
+            project_secrets={"PROJ_KEY": "proj_val"},
+            developer_overrides=overrides,
+        )
+
+        assert isinstance(bundle, SecretBundle)
+        assert bundle.developer == {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        assert "SHOULD_NOT_APPEAR" not in bundle.developer
+        assert "CLAUDE_CREDENTIALS_JSON" not in bundle.developer
+        assert bundle.project == {"PROJ_KEY": "proj_val"}
+        assert bundle.infrastructure == {"GIT_TOKEN": "ghp_xyz"}
+
 
 class TestDefaultPath:
     def test_xdg_default_used_when_env_not_set(self, monkeypatch):

@@ -199,6 +199,34 @@ async def _resolve_cloud_secrets(config: WorkerConfig, project: str) -> dict[str
     return result
 
 
+def _resolve_required_secrets(profile: EnvironmentProfile) -> tuple[str, ...]:
+    """Determine which secret names the dispatch needs based on required CLIs and MCP config.
+
+    Returns:
+        Tuple of secret names the daemon must resolve from its environment.
+    """
+    if profile.remote_config is None:
+        return ()
+
+    names: list[str] = []
+    for cli in profile.remote_config.required_clis:
+        if cli == "claude":
+            names.extend(["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CREDENTIALS_JSON"])
+        elif cli == "opencode":
+            names.append("OPENCODE_ZAI_API_KEY")
+        elif cli == "codex":
+            names.append("CODEX_AUTH_JSON")
+
+    # Add MCP secret references (env var refs like $MCP_CONTEXT7_KEY)
+    for mcp in profile.mcp.values():
+        for val in mcp.headers.values():
+            if not val.startswith("$"):
+                continue
+            names.append(val.lstrip("$").strip("{}"))
+
+    return tuple(names)
+
+
 def _resolve_gate_cmd_for_phase(
     *,
     config: WorkerConfig,
@@ -261,6 +289,7 @@ def _build_dispatch(
     resolved_profile: EnvironmentProfile,
     project_env: dict[str, str] | None = None,
     cloud_secrets: dict[str, str] | None = None,
+    required_secrets: tuple[str, ...] = (),
 ) -> Dispatch:
     return Dispatch(
         workflow_id=workflow_id,
@@ -278,6 +307,7 @@ def _build_dispatch(
         resolved_profile=resolved_profile,
         project_env=project_env or {},
         cloud_secrets=cloud_secrets or {},
+        required_secrets=required_secrets,
     )
 
 
@@ -380,6 +410,7 @@ def run_provision(
             tool = _resolve_agent_tool(config, Phase.DO_TASK)
             project_env = _resolve_project_env(config, project)
             cloud_secrets = await _resolve_cloud_secrets(config, project)
+            required_secrets = _resolve_required_secrets(profile)
             dispatch = _build_dispatch(
                 project=project,
                 phase=Phase.DO_TASK,
@@ -394,6 +425,7 @@ def run_provision(
                 resolved_profile=profile,
                 project_env=project_env,
                 cloud_secrets=cloud_secrets,
+                required_secrets=required_secrets,
             )
 
             dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.MANUAL)
@@ -665,6 +697,7 @@ def run_full(
             )
             project_env = _resolve_project_env(config, project)
             cloud_secrets = await _resolve_cloud_secrets(config, project)
+            required_secrets = _resolve_required_secrets(profile)
             dispatch = _build_dispatch(
                 project=project,
                 phase=phase,
@@ -679,6 +712,7 @@ def run_full(
                 resolved_profile=profile,
                 project_env=project_env,
                 cloud_secrets=cloud_secrets,
+                required_secrets=required_secrets,
             )
 
             dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.AUTO)

@@ -18,7 +18,10 @@ from tanren_core.adapters.remote_types import (
     WorkspacePath,
 )
 from tanren_core.adapters.ssh import SSHConfig
-from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
+from tanren_core.adapters.ssh_environment import (
+    SSHExecutionEnvironment,
+    _extract_signal_token,
+)
 from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
@@ -538,6 +541,56 @@ class TestProvision:
         assert handle.runtime.profile == profile
         assert handle.runtime.teardown_commands == profile.teardown
 
+    async def test_provision_resolves_required_secrets_from_environ(self, env_kit, monkeypatch):
+        """provision() resolves required_secrets from os.environ as developer_overrides."""
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-test-123")
+        monkeypatch.setenv("MCP_CONTEXT7_KEY", "ctx7-test-456")
+
+        env = env_kit["env"]
+        dispatch = _make_dispatch(
+            resolved_profile=_make_profile(),
+            project_env={"PROJ_KEY": "val"},
+        )
+        # Inject required_secrets into dispatch
+        dispatch = dispatch.model_copy(
+            update={"required_secrets": ("CLAUDE_CODE_OAUTH_TOKEN", "MCP_CONTEXT7_KEY")}
+        )
+        config = env_kit["config"]
+
+        with (
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
+            MockSSH.return_value = mock_conn
+            await env.provision(dispatch, config)
+
+        # build_bundle called with developer_overrides from os.environ
+        call_kwargs = env_kit["secret_loader"].build_bundle.call_args
+        assert call_kwargs.kwargs["developer_overrides"] == {
+            "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-test-123",
+            "MCP_CONTEXT7_KEY": "ctx7-test-456",
+        }
+
+    async def test_provision_no_required_secrets_uses_filesystem(self, env_kit):
+        """Without required_secrets, falls back to filesystem loading."""
+        env = env_kit["env"]
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
+        config = env_kit["config"]
+
+        with (
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
+            MockSSH.return_value = mock_conn
+            await env.provision(dispatch, config)
+
+        call_kwargs = env_kit["secret_loader"].build_bundle.call_args
+        assert call_kwargs.kwargs.get("developer_overrides") is None
+
 
 class TestExecute:
     async def test_runs_agent_returns_phase_result(self, env_kit):
@@ -781,6 +834,182 @@ class TestExecute:
             await env.execute(handle, dispatch, config)
 
         mock_inject.assert_not_awaited()
+
+
+class TestExtractSignalToken:
+    def test_extracts_from_file_content(self):
+        token = _extract_signal_token("do-task", "do-task-status: complete", "")
+        assert token == "complete"
+
+    def test_falls_back_to_stdout(self):
+        token = _extract_signal_token("do-task", "", "output\ndo-task-status: all-done\n")
+        assert token == "all-done"
+
+    def test_file_takes_precedence(self):
+        token = _extract_signal_token(
+            "do-task", "do-task-status: complete", "do-task-status: blocked"
+        )
+        assert token == "complete"
+
+    def test_returns_none_when_no_signal(self):
+        token = _extract_signal_token("do-task", "", "no signal here")
+        assert token is None
+
+    def test_last_stdout_match_wins(self):
+        token = _extract_signal_token(
+            "do-task", "", "do-task-status: error\ndo-task-status: complete"
+        )
+        assert token == "complete"
+
+    def test_works_with_audit_task(self):
+        token = _extract_signal_token("audit-task", "audit-task-status: pass", "")
+        assert token == "pass"
+
+    def test_whitespace_only_file_falls_through(self):
+        token = _extract_signal_token("do-task", "  \n  ", "do-task-status: blocked")
+        assert token == "blocked"
+
+    def test_file_has_wrong_command_name(self):
+        token = _extract_signal_token(
+            "do-task", "audit-task-status: pass", "do-task-status: complete"
+        )
+        assert token == "complete"
+
+    def test_empty_everything(self):
+        assert _extract_signal_token("do-task", "", "") is None
+
+
+class TestSignalExtraction:
+    async def test_stdout_fallback_when_file_empty(self, env_kit):
+        """Signal extracted from stdout when .agent-status file is empty."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0,
+            stdout="pushed",
+            stderr="",
+            timed_out=False,
+        )
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        env_kit["runner"].run.return_value = _make_agent_result(
+            signal_content="",
+            stdout="some output\ndo-task-status: all-done\n",
+        )
+
+        with patch(
+            f"{_SSH_ENV}.collect_token_usage",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await env.execute(handle, dispatch, config)
+
+        assert result.outcome == Outcome.SUCCESS
+        assert result.signal == "all-done"
+
+    async def test_file_signal_takes_precedence_over_stdout(self, env_kit):
+        """Signal from .agent-status file wins over stdout."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0,
+            stdout="pushed",
+            stderr="",
+            timed_out=False,
+        )
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        env_kit["runner"].run.return_value = _make_agent_result(
+            signal_content="do-task-status: complete",
+            stdout="do-task-status: all-done\n",
+        )
+
+        with patch(
+            f"{_SSH_ENV}.collect_token_usage",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await env.execute(handle, dispatch, config)
+
+        assert result.outcome == Outcome.SUCCESS
+        assert result.signal == "complete"
+
+    async def test_nudge_recovery_on_no_signal_exit_zero(self, env_kit):
+        """Nudge recovery sends follow-up when exit 0 but no signal."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0,
+            stdout="pushed",
+            stderr="",
+            timed_out=False,
+        )
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        # First call: no signal at all (empty file, no stdout match)
+        no_signal = _make_agent_result(
+            signal_content="",
+            stdout="task done, no signal",
+            exit_code=0,
+        )
+        # Second call (nudge): agent writes signal
+        nudge_ok = _make_agent_result(
+            signal_content="do-task-status: complete",
+            stdout="",
+            exit_code=0,
+        )
+        env_kit["runner"].run.side_effect = [no_signal, nudge_ok]
+
+        with patch(
+            f"{_SSH_ENV}.collect_token_usage",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await env.execute(handle, dispatch, config)
+
+        assert result.outcome == Outcome.SUCCESS
+        assert result.signal == "complete"
+        # Runner called twice: original + nudge
+        assert env_kit["runner"].run.await_count == 2
+
+    async def test_nudge_recovery_falls_through_on_failure(self, env_kit):
+        """If nudge also produces no signal, falls through to blind retry."""
+        env = env_kit["env"]
+        conn = AsyncMock()
+        conn.run.return_value = RemoteResult(
+            exit_code=0,
+            stdout="ok",
+            stderr="",
+            timed_out=False,
+        )
+        handle = _make_handle(conn=conn)
+        dispatch = _make_dispatch()
+        config = env_kit["config"]
+
+        # All calls: no signal
+        no_signal = _make_agent_result(
+            signal_content="",
+            stdout="no signal here",
+            exit_code=0,
+        )
+        env_kit["runner"].run.return_value = no_signal
+
+        with patch(
+            f"{_SSH_ENV}.collect_token_usage",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await env.execute(handle, dispatch, config)
+
+        assert result.outcome == Outcome.ERROR
+        # Runner called 3 times: original + nudge + blind retry
+        assert env_kit["runner"].run.await_count == 3
 
 
 class TestGetAccessInfo:

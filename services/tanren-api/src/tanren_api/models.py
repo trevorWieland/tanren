@@ -115,6 +115,10 @@ class DispatchRequest(BaseModel):
         default_factory=dict,
         description="Pre-resolved cloud secrets",
     )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
+    )
 
 
 class ProvisionRequest(BaseModel):
@@ -136,6 +140,10 @@ class ProvisionRequest(BaseModel):
     cloud_secrets: dict[str, str] = Field(
         default_factory=dict,
         description="Pre-resolved cloud secrets",
+    )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
     )
 
 

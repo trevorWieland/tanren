@@ -223,6 +223,10 @@ class Dispatch(BaseModel):
         default_factory=dict,
         description="Pre-resolved cloud secrets (from secret:X sources in tanren.yml)",
     )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
+    )
 
 
 class Result(BaseModel):

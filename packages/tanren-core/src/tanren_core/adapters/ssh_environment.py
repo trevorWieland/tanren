@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 import shlex
 import time
 import uuid
@@ -57,6 +59,32 @@ _PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase
 
 _SSH_READY_TIMEOUT_SECS = 300
 _SSH_READY_POLL_SECS = 3
+
+
+def _extract_signal_token(
+    command_name: str,
+    signal_content: str,
+    stdout: str,
+) -> str | None:
+    """Extract signal token from file content, falling back to stdout.
+
+    Mirrors the two-step resolution in ``signals.extract_signal``:
+    1. Parse the ``.agent-status`` file content
+    2. Grep stdout for ``{command}-status: {token}`` (last match)
+
+    Returns:
+        Signal token string or ``None``.
+    """
+    if signal_content.strip():
+        token = parse_signal_token(command_name, signal_content)
+        if token:
+            return token
+    if stdout:
+        pattern = rf"{re.escape(command_name)}-status:\s*(\w[\w-]*)"
+        matches = re.findall(pattern, stdout)
+        if matches:
+            return matches[-1]
+    return None
 
 
 class SSHExecutionEnvironment:
@@ -219,10 +247,26 @@ class SSHExecutionEnvironment:
             )
             workspace_path = await self._workspace_mgr.setup(conn, workspace_spec)
 
-            # 7a. Inject secrets (dispatch-carried, resolved by CLI/API)
+            # 7a. Inject secrets
+            # Resolve required_secrets from daemon's os.environ (reference-based)
+            developer_overrides: dict[str, str] | None = None
+            if dispatch.required_secrets:
+                resolved: dict[str, str] = {}
+                for name in dispatch.required_secrets:
+                    value = os.environ.get(name, "")
+                    if value:
+                        resolved[name] = value
+                    else:
+                        logger.warning("Required secret %s not found in daemon environment", name)
+                developer_overrides = resolved
+
             project_env = dispatch.project_env
             cloud_secrets = dispatch.cloud_secrets or None
-            bundle = self._secret_loader.build_bundle(project_env, cloud_secrets=cloud_secrets)
+            bundle = self._secret_loader.build_bundle(
+                project_env,
+                cloud_secrets=cloud_secrets,
+                developer_overrides=developer_overrides,
+            )
             await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
             # 7b. Inject MCP config
@@ -369,10 +413,11 @@ class SSHExecutionEnvironment:
                 timeout_secs=dispatch.timeout,
             )
 
-            # Parse signal token from raw file content
-            raw_signal = agent_result.signal_content or ""
-            signal_token = (
-                parse_signal_token(command_name, raw_signal) if raw_signal.strip() else None
+            # Extract signal: .agent-status file first, stdout fallback
+            signal_token = _extract_signal_token(
+                command_name,
+                agent_result.signal_content or "",
+                agent_result.stdout or "",
             )
 
             # Map outcome
@@ -407,6 +452,50 @@ class SSHExecutionEnvironment:
                     continue
                 if error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
                     transient_retries += 1
+
+                    # Signal recovery nudge: agent likely finished but
+                    # forgot to write the status file.  Re-invoke with a
+                    # short prompt asking it to emit the signal instead of
+                    # blindly re-running the entire task.
+                    if agent_result.exit_code == 0 and dispatch.cli != Cli.BASH:
+                        logger.warning(
+                            "No signal detected (exit 0), nudging agent to write status file"
+                        )
+                        nudge_prompt = (
+                            "You completed your task but did not write "
+                            "the status file.\n\n"
+                            "Write your exit signal to the status file "
+                            "AND print it to stdout:\n\n"
+                            f'    echo "{command_name}-status: complete"'
+                            f" > {dispatch.spec_folder}/.agent-status\n\n"
+                            f"Then print: {command_name}-status: complete\n\n"
+                            "If you did not complete successfully, use the "
+                            "appropriate signal (blocked, error, all-done, "
+                            "fail) instead."
+                        )
+                        nudge_result = await self._runner.run(
+                            conn,
+                            workspace,
+                            prompt_content=nudge_prompt,
+                            cli_command=cli_command,
+                            signal_path=signal_path,
+                            timeout_secs=120,
+                        )
+                        nudge_token = _extract_signal_token(
+                            command_name,
+                            nudge_result.signal_content or "",
+                            nudge_result.stdout or "",
+                        )
+                        if nudge_token is not None:
+                            outcome, signal_val = map_outcome(
+                                dispatch.phase,
+                                nudge_token,
+                                nudge_result.exit_code,
+                                nudge_result.timed_out,
+                            )
+                            agent_result = nudge_result
+                            break
+
                     logger.warning(
                         "Ambiguous error, retrying once in 10s. "
                         "exit_code=%d stderr=%.500s stdout=%.500s",

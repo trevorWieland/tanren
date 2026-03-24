@@ -81,6 +81,7 @@ class RunService:
             resolved_profile=req.resolved_profile,
             project_env=req.project_env,
             cloud_secrets=req.cloud_secrets,
+            required_secrets=req.required_secrets,
         )
 
         lane = cli_to_lane(dispatch.cli)

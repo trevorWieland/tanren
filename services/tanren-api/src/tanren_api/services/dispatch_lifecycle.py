@@ -47,6 +47,7 @@ async def create_dispatch_from_request(
         preserve_on_failure=body.preserve_on_failure,
         project_env=body.project_env,
         cloud_secrets=body.cloud_secrets,
+        required_secrets=body.required_secrets,
     )
 
     lane = cli_to_lane(body.cli)
