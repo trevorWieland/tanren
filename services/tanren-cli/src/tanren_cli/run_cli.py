@@ -354,13 +354,15 @@ def run_execute(
             )
 
             lane = cli_to_lane(exec_dispatch.cli)
+            existing_steps = await store.get_steps_for_dispatch(dispatch_id)
+            max_seq = max((s.step_sequence for s in existing_steps), default=0)
             step_id = uuid.uuid4().hex
             payload = ExecuteStepPayload(dispatch=exec_dispatch, handle=prov_result.handle)
             await store.enqueue_step(
                 step_id=step_id,
                 dispatch_id=dispatch_id,
                 step_type="execute",
-                step_sequence=1,
+                step_sequence=max_seq + 1,
                 lane=str(lane),
                 payload_json=payload.model_dump_json(),
             )
@@ -376,9 +378,10 @@ def run_execute(
             # Run until execute step completes
             await worker.run_until_step_complete(dispatch_id, StepType.EXECUTE)
 
-            # Read result
+            # Read result from the latest execute step
             steps = await store.get_steps_for_dispatch(dispatch_id)
-            exec_step = next(s for s in steps if s.step_type == StepType.EXECUTE)
+            exec_steps = [s for s in steps if s.step_type == StepType.EXECUTE]
+            exec_step = exec_steps[-1]
 
             if exec_step.status == StepStatus.FAILED:
                 typer.echo("Execute failed.", err=True)

@@ -246,13 +246,14 @@ class RunService:
         prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
 
         dispatch = dispatch_view.dispatch
+        max_seq = max((s.step_sequence for s in steps), default=0)
         step_id = uuid.uuid4().hex
         payload = TeardownStepPayload(dispatch=dispatch, handle=prov_result.handle)
         await self._job_queue.enqueue_step(
             step_id=step_id,
             dispatch_id=dispatch_view.dispatch_id,
             step_type="teardown",
-            step_sequence=2,
+            step_sequence=max_seq + 1,
             lane=None,
             payload_json=payload.model_dump_json(),
         )

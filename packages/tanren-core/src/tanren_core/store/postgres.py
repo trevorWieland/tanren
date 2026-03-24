@@ -248,10 +248,12 @@ class PostgresStore:
                     str(lane),
                 )
             else:
+                # Infra lane: FIFO by enqueue time so teardowns aren't
+                # starved behind provisions under sustained load
                 row = await conn.fetchrow(
                     f"SELECT {cols} FROM step_projection s "
                     f"{cancelled_filter} AND s.lane IS NULL "
-                    "ORDER BY s.step_sequence, s.created_at "
+                    "ORDER BY s.created_at, s.step_sequence "
                     "LIMIT 1 FOR UPDATE SKIP LOCKED",
                 )
             if row is None:
