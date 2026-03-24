@@ -32,6 +32,7 @@ def _make_config(tmp_path: Path) -> WorkerConfig:
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path),
         data_dir=str(tmp_path / "data"),
+        db_url=str(tmp_path / "events.db"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
         roles_config_path=str(tmp_path / "roles.yml"),
     )
@@ -66,6 +67,8 @@ def _make_env(tmp_path: Path):
     preflight = AsyncMock()
     postflight = AsyncMock()
     spawner = AsyncMock()
+    worktree_mgr = AsyncMock()
+    worktree_mgr.create = AsyncMock(return_value=wt_path)
     config = _make_config(tmp_path)
 
     env = LocalExecutionEnvironment(
@@ -73,6 +76,7 @@ def _make_env(tmp_path: Path):
         preflight=preflight,
         postflight=postflight,
         spawner=spawner,
+        worktree_mgr=worktree_mgr,
         config=config,
     )
 

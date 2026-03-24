@@ -44,7 +44,15 @@ async def create_store(
 
     Returns:
         A store instance implementing EventStore, JobQueue, and StateStore.
+
+    Raises:
+        ValueError: If the URL scheme is not recognised.
     """
     if is_postgres_url(db_url):
         return await create_postgres_store(db_url)
+    if "://" in db_url:
+        raise ValueError(
+            f"Unsupported database URL scheme: {db_url.split('://', maxsplit=1)[0]}://. "
+            "Use a filesystem path for SQLite or postgresql:// for Postgres."
+        )
     return await create_sqlite_store(db_url)

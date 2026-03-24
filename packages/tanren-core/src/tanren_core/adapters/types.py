@@ -23,6 +23,7 @@ class LocalEnvironmentRuntime(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     kind: Literal["local"] = Field(default="local", description="Runtime kind discriminator")
+    workflow_id: str = Field(default="", description="Workflow ID for registry cleanup on teardown")
     preflight_result: PreflightResult | None = Field(
         default=None, description="Preflight check result if available"
     )

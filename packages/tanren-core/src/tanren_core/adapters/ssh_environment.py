@@ -11,9 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import yaml
-from dotenv import dotenv_values
-
 from tanren_core.adapters.credentials import (
     DEFAULT_CREDENTIAL_PROVIDERS,
     CredentialProvider,
@@ -32,19 +29,14 @@ from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
     PhaseResult,
-    ProvisionError,
     RemoteEnvironmentRuntime,
 )
 from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
-from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
-from tanren_core.process import assemble_prompt
-from tanren_core.schemas import Cli, Dispatch, Outcome, Phase, Result
+from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.signals import map_outcome, parse_signal_token
 
 if TYPE_CHECKING:
-    from pydantic import JsonValue
-
     from tanren_core.adapters.protocols import (
         EnvironmentBootstrapper,
         VMStateStore,
@@ -162,7 +154,11 @@ class SSHExecutionEnvironment:
             would_provision=True,
         )
 
-    async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
+    async def provision(
+        self,
+        dispatch: Dispatch,
+        config: WorkerConfig,  # noqa: ARG002 — required by protocol; config no longer read here
+    ) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets.
 
         Returns:
@@ -171,8 +167,8 @@ class SSHExecutionEnvironment:
         Raises:
             RuntimeError: If no repo URL is configured for the project.
         """
-        # 1. Read tanren.yml LOCALLY to get environment profile
-        profile = self._resolve_profile(dispatch, config)
+        # 1. Use dispatch-carried profile (resolved by CLI/API before dispatch)
+        profile = dispatch.resolved_profile
 
         # 2. Build VM requirements from profile
         requirements = VMRequirements(
@@ -205,22 +201,27 @@ class SSHExecutionEnvironment:
             # 5. Bootstrap VM (idempotent)
             await self._bootstrapper.bootstrap(conn)
 
-            # 6. Setup workspace
-            repo_url = self._repo_urls.get(dispatch.project, "")
+            # 6. Setup workspace — repo URL from dispatch profile or instance mapping
+            repo_url = ""
+            if profile.remote_config is not None:
+                repo_url = profile.remote_config.repo_url
+            if not repo_url:
+                repo_url = self._repo_urls.get(dispatch.project, "")
             if not repo_url:
                 raise RuntimeError(f"No repo URL configured for project: {dispatch.project}")
 
+            # Clone only (setup commands run later as agent user)
             workspace_spec = WorkspaceSpec(
                 project=dispatch.project,
                 repo_url=repo_url,
                 branch=dispatch.branch,
-                setup_commands=profile.setup,
+                setup_commands=(),  # deferred to after chown
             )
             workspace_path = await self._workspace_mgr.setup(conn, workspace_spec)
 
-            # 7a. Inject secrets (including cloud-fetched secrets)
-            project_env = self._load_project_env(dispatch, config)
-            cloud_secrets = await self._fetch_cloud_secrets(dispatch, config)
+            # 7a. Inject secrets (dispatch-carried, resolved by CLI/API)
+            project_env = dispatch.project_env
+            cloud_secrets = dispatch.cloud_secrets or None
             bundle = self._secret_loader.build_bundle(project_env, cloud_secrets=cloud_secrets)
             await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
@@ -228,7 +229,7 @@ class SSHExecutionEnvironment:
             if profile.mcp:
                 await self._workspace_mgr.inject_mcp_config(conn, workspace_path, profile.mcp)
 
-            # 7c. Make workspace secrets readable by agent user
+            # 7c. Transfer workspace ownership to agent user BEFORE setup
             if self._agent_user:
                 quoted_user = shlex.quote(self._agent_user)
                 quoted_ws = shlex.quote(workspace_path.path)
@@ -236,8 +237,24 @@ class SSHExecutionEnvironment:
                     f"chown {quoted_user}:{quoted_user}"
                     f" /workspace/.developer-secrets /workspace/.git-askpass 2>/dev/null;"
                     f" chown -R {quoted_user}:{quoted_user} {quoted_ws}",
-                    timeout_secs=10,
+                    timeout_secs=30,
                 )
+
+            # 7d. Run setup commands AS agent user (so uv/pip create venvs with correct ownership)
+            if profile.setup:
+                quoted_ws = shlex.quote(workspace_path.path)
+                for cmd in profile.setup:
+                    logger.info(
+                        "Running setup command (as %s): %s", self._agent_user or "root", cmd
+                    )
+                    setup_cmd = f"cd {quoted_ws} && {cmd}"
+                    if self._agent_user:
+                        setup_cmd = (
+                            f"su - {shlex.quote(self._agent_user)} -c {shlex.quote(setup_cmd)}"
+                        )
+                    result = await conn.run(setup_cmd, timeout_secs=300)
+                    if result.exit_code != 0:
+                        raise RuntimeError(f"Setup command failed ({cmd}): {result.stderr}")
 
             # 8. Inject all CLI credentials
             target_home = f"/home/{self._agent_user}" if self._agent_user else None
@@ -325,12 +342,17 @@ class SSHExecutionEnvironment:
         dispatch_start_utc = datetime.now(UTC)
         transient_retries = 0
 
-        # Build full prompt (same as local path)
+        # Build full prompt (skip for bash/gate — no agent prompt needed)
         command_name = dispatch.phase.value
-        command_file = handle.worktree_path / config.commands_dir / f"{command_name}.md"
-        prompt_content = assemble_prompt(
-            command_file, dispatch.spec_folder, command_name, dispatch.context
-        )
+        if dispatch.cli == Cli.BASH:
+            prompt_content = ""
+        else:
+            remote_cmd_path = f"{workspace.path}/{config.commands_dir}/{command_name}.md"
+            prompt_content = await conn.download_content(remote_cmd_path) or ""
+            if prompt_content:
+                prompt_content = f"{prompt_content}\n\n---\n\nSpec folder: {dispatch.spec_folder}\n"
+                if dispatch.context:
+                    prompt_content += f"\nAdditional context: {dispatch.context}\n"
 
         while True:
             # Build CLI command
@@ -561,130 +583,6 @@ class SSHExecutionEnvironment:
         raise TimeoutError(
             f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}"
         )
-
-    def _resolve_profile(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentProfile:
-        """Read tanren.yml locally and resolve environment profile.
-
-        Returns:
-            Resolved EnvironmentProfile.
-
-        Raises:
-            ProvisionError: If the requested profile is not found.
-        """
-        tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
-        if tanren_yml.exists():
-            with open(tanren_yml) as f:
-                loaded = yaml.safe_load(f) or {}
-            data = loaded if isinstance(loaded, dict) else {}
-            profiles = parse_environment_profiles(data)
-        else:
-            profiles = parse_environment_profiles({})
-
-        profile = profiles.get(dispatch.environment_profile)
-        if profile is None:
-            available = sorted(profiles.keys())
-            msg = (
-                f"Environment profile '{dispatch.environment_profile}' not found in tanren.yml. "
-                f"Available: {available}"
-            )
-            raise ProvisionError(
-                Result(
-                    workflow_id=dispatch.workflow_id,
-                    phase=dispatch.phase,
-                    outcome=Outcome.ERROR,
-                    exit_code=-1,
-                    duration_secs=0,
-                    tail_output=msg,
-                    spec_modified=False,
-                )
-            )
-
-        return profile
-
-    def _load_project_env(self, dispatch: Dispatch, config: WorkerConfig) -> dict[str, str]:
-        """Load project .env file locally for secret injection.
-
-        Returns:
-            Dict of env var key-value pairs from the project .env file.
-        """
-        env_file = Path(config.github_dir) / dispatch.project / ".env"
-        if not env_file.exists():
-            return {}
-        values = dotenv_values(env_file)
-        return {k: v for k, v in values.items() if v is not None}
-
-    async def _fetch_cloud_secrets(
-        self, dispatch: Dispatch, config: WorkerConfig
-    ) -> dict[str, str] | None:
-        """Fetch cloud secrets for vars with ``source: "secret:X"`` in tanren.yml.
-
-        Returns:
-            Dict of fetched secrets, or None if no provider is configured.
-        """
-        tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
-        if not tanren_yml.exists():
-            return None
-
-        data = await asyncio.to_thread(self._read_yaml, tanren_yml)
-        if not isinstance(data, dict):
-            return None
-
-        from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415 — avoid circular import
-
-        try:
-            tc = TanrenConfig.model_validate(data)
-        except Exception:
-            logger.warning(
-                "Failed to parse tanren.yml for secret resolution in %s",
-                dispatch.project,
-                exc_info=True,
-            )
-            return None
-
-        has_sources = tc.env is not None and any(
-            v.source for v in (*tc.env.required, *tc.env.optional)
-        )
-        if not has_sources:
-            return None
-
-        from tanren_core.env.secret_provider_factory import (  # noqa: PLC0415 — avoid circular import
-            create_secret_provider,
-        )
-
-        secrets_dir = self._secrets_dir()
-        provider = create_secret_provider(tc.secrets, secrets_dir=secrets_dir)
-
-        result: dict[str, str] = {}
-        if tc.env:
-            for var in (*tc.env.required, *tc.env.optional):
-                if var.source and var.source.startswith("secret:"):
-                    secret_name = var.source[len("secret:") :]
-                    value = await provider.get_secret(secret_name)
-                    if value is not None:
-                        result[var.key] = value
-
-        return result or None
-
-    def _secrets_dir(self) -> Path:
-        """Derive the secrets directory from the SecretLoader config.
-
-        Respects the ``developer_secrets_path`` set via remote.yml so the
-        DotenvSecretProvider looks in the same location as SecretLoader.
-
-        Returns:
-            Path to the directory containing secrets files.
-        """
-        return Path(self._secret_loader._config.developer_secrets_path).expanduser().parent
-
-    @staticmethod
-    def _read_yaml(path: Path) -> JsonValue:
-        """Read and parse a YAML file.
-
-        Returns:
-            Parsed YAML data.
-        """
-        with open(path) as f:
-            return yaml.safe_load(f) or {}
 
     def _wrap_for_agent_user(self, command: str) -> str:
         """Wrap a shell command to run as the agent user via ``su -``.

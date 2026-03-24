@@ -15,12 +15,9 @@ from tanren_core.env.environment_schema import (
 
 
 class TestParseEnvironmentProfilesEmptyDict:
-    def test_empty_dict_returns_default(self):
+    def test_empty_dict_returns_empty(self):
         result = parse_environment_profiles({})
-        assert "default" in result
-        assert len(result) == 1
-        assert result["default"].name == "default"
-        assert result["default"].type == EnvironmentProfileType.LOCAL
+        assert len(result) == 0
 
 
 class TestParseEnvironmentProfilesFullConfig:
@@ -93,10 +90,8 @@ class TestMultipleProfiles:
         result = parse_environment_profiles(data)
         assert "local" in result
         assert "staging" in result
-        # "default" key is absent from input, but the function always adds
-        # one if missing
-        assert "default" in result
-        assert len(result) == 3
+        assert "default" not in result
+        assert len(result) == 2
 
         assert result["local"].gate_cmd == "pytest"
         assert result["staging"].resources.cpu == 8

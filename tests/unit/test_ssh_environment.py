@@ -23,7 +23,6 @@ from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
     PhaseResult,
-    ProvisionError,
     RemoteEnvironmentRuntime,
 )
 from tanren_core.env.environment_schema import (
@@ -49,6 +48,7 @@ def _make_config(tmp_path: Path) -> WorkerConfig:
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path),
         data_dir=str(tmp_path / "data"),
+        db_url=str(tmp_path / "events.db"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
         roles_config_path=str(tmp_path / "roles.yml"),
     )
@@ -60,6 +60,9 @@ def _make_dispatch(
     project: str = "myproj",
     branch: str = "feature-1",
     context: str = "Do the work",
+    resolved_profile: EnvironmentProfile | None = None,
+    project_env: dict[str, str] | None = None,
+    cloud_secrets: dict[str, str] | None = None,
 ) -> Dispatch:
     return Dispatch(
         workflow_id="wf-myproj-42-1000",
@@ -73,7 +76,9 @@ def _make_dispatch(
         context=context,
         timeout=300,
         environment_profile="default",
-        resolved_profile=DEFAULT_PROFILE,
+        resolved_profile=resolved_profile or DEFAULT_PROFILE,
+        project_env=project_env or {},
+        cloud_secrets=cloud_secrets or {},
     )
 
 
@@ -107,6 +112,9 @@ def _make_profile() -> EnvironmentProfile:
         setup=("make setup",),
         teardown=("make clean",),
     )
+
+
+_OK_REMOTE_RESULT = RemoteResult(exit_code=0, stdout="", stderr="", timed_out=False)
 
 
 def _make_agent_result(
@@ -312,16 +320,18 @@ class TestProvision:
         """provision() acquires VM, creates SSH conn, bootstraps, sets up
         workspace, injects secrets, records assignment, and returns handle."""
         env = env_kit["env"]
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(
+            resolved_profile=_make_profile(),
+            project_env={"KEY": "val"},
+        )
         config = env_kit["config"]
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
-            patch.object(env, "_load_project_env", return_value={"KEY": "val"}),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
             mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
             MockSSH.return_value = mock_conn
 
             handle = await env.provision(dispatch, config)
@@ -337,8 +347,14 @@ class TestProvision:
         # Bootstrap called
         env_kit["bootstrapper"].bootstrap.assert_awaited_once_with(mock_conn)
 
-        # Workspace setup called
+        # Workspace setup called with empty setup_commands (clone only)
         env_kit["workspace_mgr"].setup.assert_awaited_once()
+        ws_spec = env_kit["workspace_mgr"].setup.call_args.args[1]
+        assert ws_spec.setup_commands == ()
+
+        # Setup commands run via conn.run as su - agent user
+        setup_calls = [c for c in mock_conn.run.call_args_list if "make setup" in str(c)]
+        assert len(setup_calls) == 1
 
         # Secrets injected
         env_kit["workspace_mgr"].inject_secrets.assert_awaited_once()
@@ -357,7 +373,7 @@ class TestProvision:
     async def test_releases_vm_on_cancelled_error(self, env_kit):
         """provision() releases VM when cancelled during provisioning (no orphaned VMs)."""
         env = env_kit["env"]
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
 
         import asyncio
@@ -366,7 +382,6 @@ class TestProvision:
         env_kit["bootstrapper"].bootstrap.side_effect = asyncio.CancelledError()
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
@@ -384,14 +399,13 @@ class TestProvision:
     async def test_releases_vm_on_failure(self, env_kit):
         """provision() releases VM when a step fails (no orphaned VMs)."""
         env = env_kit["env"]
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
 
         # Make bootstrap fail
         env_kit["bootstrapper"].bootstrap.side_effect = RuntimeError("bootstrap boom")
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
@@ -409,7 +423,7 @@ class TestProvision:
     async def test_provision_cleanup_records_release_when_provider_release_fails(self, env_kit):
         """record_release is still called when provider release raises during provision cleanup."""
         env = env_kit["env"]
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
 
         # Make bootstrap fail (triggering cleanup)
@@ -418,7 +432,6 @@ class TestProvision:
         env_kit["vm_provisioner"].release.side_effect = RuntimeError("provider down")
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
@@ -436,11 +449,13 @@ class TestProvision:
     async def test_raises_when_no_repo_url(self, env_kit):
         """provision() raises RuntimeError when no repo URL is configured."""
         env = env_kit["env"]
-        dispatch = _make_dispatch(project="unknown-project")
+        dispatch = _make_dispatch(
+            project="unknown-project",
+            resolved_profile=_make_profile(),
+        )
         config = env_kit["config"]
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
@@ -455,7 +470,7 @@ class TestProvision:
     async def test_waits_for_ssh_before_bootstrap(self, env_kit):
         """provision() calls _await_ssh_ready between SSH creation and bootstrap."""
         env = env_kit["env"]
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
         call_order: list[str] = []
 
@@ -467,12 +482,12 @@ class TestProvision:
             return _make_bootstrap_result()
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
-            patch.object(env, "_load_project_env", return_value={}),
             patch.object(env, "_await_ssh_ready", side_effect=_track_ssh_ready),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
-            MockSSH.return_value = AsyncMock()
+            mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
+            MockSSH.return_value = mock_conn
             env_kit["bootstrapper"].bootstrap.side_effect = _track_bootstrap
             await env.provision(dispatch, config)
 
@@ -481,11 +496,10 @@ class TestProvision:
     async def test_releases_vm_on_ssh_timeout(self, env_kit):
         """provision() releases VM when SSH never becomes reachable."""
         env = env_kit["env"]
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
             patch.object(
                 env,
                 "_await_ssh_ready",
@@ -504,30 +518,25 @@ class TestProvision:
         env_kit["vm_provisioner"].release.assert_awaited_once_with(_make_vm_handle())
         mock_conn.close.assert_awaited_once()
 
-    async def test_unknown_profile_raises_provision_error(self, env_kit, tmp_path):
-        """Missing environment profile raises ProvisionError (not ValueError),
-        so the manager emits a user-facing error instead of an internal failure."""
+    async def test_provision_uses_dispatch_resolved_profile(self, env_kit):
+        """provision() uses resolved_profile from dispatch, not file-based resolution."""
         env = env_kit["env"]
-        config = _make_config(tmp_path)
-        dispatch = _make_dispatch()
-        dispatch = dispatch.model_copy(update={"environment_profile": "nonexistent"})
+        profile = _make_profile()
+        dispatch = _make_dispatch(resolved_profile=profile)
+        config = env_kit["config"]
 
-        # Write a tanren.yml with only the default profile
-        project_dir = tmp_path / dispatch.project
-        project_dir.mkdir(exist_ok=True)
-        (project_dir / "tanren.yml").write_text("environments: {}")
+        with (
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
+        ):
+            mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
+            MockSSH.return_value = mock_conn
+            handle = await env.provision(dispatch, config)
 
-        with pytest.raises(ProvisionError) as exc_info:
-            await env.provision(dispatch, config)
-
-        result = exc_info.value.result
-        assert result.outcome == Outcome.ERROR
-        assert result.workflow_id == dispatch.workflow_id
-        assert result.phase == dispatch.phase
-        assert "nonexistent" in (result.tail_output or "")
-
-        # No VM should have been acquired
-        env_kit["vm_provisioner"].acquire.assert_not_awaited()
+        # The handle's runtime profile should match what was on the dispatch
+        assert handle.runtime.profile == profile
+        assert handle.runtime.teardown_commands == profile.teardown
 
 
 class TestExecute:
@@ -546,7 +555,6 @@ class TestExecute:
         config = env_kit["config"]
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
@@ -588,7 +596,6 @@ class TestExecute:
         ]
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.classify_error") as mock_classify,
             patch("asyncio.sleep", new_callable=AsyncMock),
@@ -628,7 +635,6 @@ class TestExecute:
         )
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
@@ -666,7 +672,6 @@ class TestExecute:
         )
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.classify_error") as mock_classify,
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
@@ -704,7 +709,6 @@ class TestExecute:
         )
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(
                 f"{_SSH_ENV}.collect_token_usage",
@@ -728,7 +732,6 @@ class TestExecute:
         config = env_kit["config"]
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock) as mock_collect,
         ):
@@ -749,7 +752,6 @@ class TestExecute:
         config = env_kit["config"]
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(
                 f"{_SSH_ENV}.collect_token_usage",
@@ -772,7 +774,6 @@ class TestExecute:
         config = env_kit["config"]
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
             patch(f"{_SSH_ENV}.inject_all_cli_credentials", new_callable=AsyncMock) as mock_inject,
@@ -995,7 +996,6 @@ class TestClassifyErrorReceivesStderr:
         env_kit["runner"].run.side_effect = [error_result]
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome") as mock_map,
             patch(f"{_SSH_ENV}.classify_error") as mock_classify,
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
@@ -1012,16 +1012,16 @@ class TestProvisionWorkflowId:
     async def test_handle_contains_workflow_id(self, env_kit):
         """provision() stores workflow_id in the typed runtime context."""
         env = env_kit["env"]
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
-            patch.object(env, "_load_project_env", return_value={}),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
-            MockSSH.return_value = AsyncMock()
+            mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
+            MockSSH.return_value = mock_conn
             handle = await env.provision(dispatch, config)
 
         assert handle.runtime.kind == "remote"
@@ -1033,12 +1033,10 @@ class TestAgentUser:
         """provision() passes agent_user home as target_home to credential injection."""
         env = env_kit["env"]
         env._agent_user = "tanren"
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
-            patch.object(env, "_load_project_env", return_value={}),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
             patch(
@@ -1047,7 +1045,9 @@ class TestAgentUser:
                 return_value=["claude"],
             ) as mock_inject,
         ):
-            MockSSH.return_value = AsyncMock()
+            mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
+            MockSSH.return_value = mock_conn
             await env.provision(dispatch, config)
 
         mock_inject.assert_awaited_once()
@@ -1067,7 +1067,6 @@ class TestAgentUser:
         env_kit["workspace_mgr"].push_command.return_value = "git push origin feature-1"
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
@@ -1090,7 +1089,6 @@ class TestAgentUser:
         env_kit["workspace_mgr"].push_command.return_value = "git push origin feature-1"
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
         ):
@@ -1139,7 +1137,6 @@ class TestAgentUser:
         config = env_kit["config"]
 
         with (
-            patch(f"{_SSH_ENV}.assemble_prompt", return_value="prompt"),
             patch(f"{_SSH_ENV}.map_outcome", return_value=(Outcome.SUCCESS, "success")),
             patch(f"{_SSH_ENV}.RemoteCommandRunner") as MockRunner,
             patch(f"{_SSH_ENV}.collect_token_usage", new_callable=AsyncMock, return_value=None),
@@ -1206,16 +1203,16 @@ class TestSSHReadyTimeoutConfigurable:
         """provision() passes _ssh_ready_timeout_secs to _await_ssh_ready."""
         env = env_kit["env"]
         env._ssh_ready_timeout_secs = 450
-        dispatch = _make_dispatch()
+        dispatch = _make_dispatch(resolved_profile=_make_profile())
         config = env_kit["config"]
 
         with (
-            patch.object(env, "_resolve_profile", return_value=_make_profile()),
-            patch.object(env, "_load_project_env", return_value={}),
             patch.object(env, "_await_ssh_ready", new_callable=AsyncMock) as mock_await,
             patch("tanren_core.adapters.ssh_environment.SSHConnection") as MockSSH,
         ):
-            MockSSH.return_value = AsyncMock()
+            mock_conn = AsyncMock()
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
+            MockSSH.return_value = mock_conn
             await env.provision(dispatch, config)
 
         mock_await.assert_awaited_once()
@@ -1268,42 +1265,37 @@ class TestAwaitSshReady:
 
 
 class TestMcpInjection:
-    async def test_provision_calls_inject_mcp_config(self, env_kit, tmp_path):
+    async def test_provision_calls_inject_mcp_config(self, env_kit):
         """Provision with mcp servers calls inject_mcp_config with servers."""
+        from tanren_core.env.environment_schema import McpServerConfig
+
         env = env_kit["env"]
         config = env_kit["config"]
         workspace_mgr = env_kit["workspace_mgr"]
         workspace_mgr.inject_mcp_config = AsyncMock()
 
-        dispatch = _make_dispatch(cli=Cli.CLAUDE)
-
-        # Write tanren.yml with mcp config
-        proj_dir = tmp_path / dispatch.project
-        proj_dir.mkdir(parents=True, exist_ok=True)
-        tanren_yml = proj_dir / "tanren.yml"
-        import yaml
-
-        tanren_yml.write_text(
-            yaml.dump({
-                "environment": {
-                    "default": {
-                        "type": "remote",
-                        "mcp": {
-                            "context7": {
-                                "url": "https://mcp.context7.com/sse",
-                                "headers": {"Authorization": "MCP_CONTEXT7_KEY"},
-                            }
-                        },
-                    }
-                }
-            })
+        mcp_profile = EnvironmentProfile(
+            name="default",
+            type=EnvironmentProfileType.REMOTE,
+            resources=ResourceRequirements(cpu=2, memory_gb=4, gpu=False),
+            setup=("make setup",),
+            teardown=("make clean",),
+            mcp={
+                "context7": McpServerConfig(
+                    url="https://mcp.context7.com/sse",
+                    headers={"Authorization": "MCP_CONTEXT7_KEY"},
+                )
+            },
         )
+        dispatch = _make_dispatch(cli=Cli.CLAUDE, resolved_profile=mcp_profile)
 
-        with patch(f"{_SSH_ENV}.SSHConnection") as MockSSH:
+        with (
+            patch.object(env, "_await_ssh_ready", new_callable=AsyncMock),
+            patch(f"{_SSH_ENV}.SSHConnection") as MockSSH,
+        ):
             mock_conn = AsyncMock()
-            mock_conn.check_connection.return_value = True
+            mock_conn.run.return_value = _OK_REMOTE_RESULT
             MockSSH.return_value = mock_conn
-
             await env.provision(dispatch, config)
 
         workspace_mgr.inject_mcp_config.assert_awaited_once()

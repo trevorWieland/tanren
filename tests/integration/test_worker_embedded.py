@@ -71,7 +71,7 @@ async def test_process_step_provision_auto_chains(tmp_path):
         event_store=store,
         job_queue=store,
         state_store=store,
-        execution_env=mock_env,
+        env_factory=lambda cfg, prof: (mock_env, None),
     )
 
     dispatch = _make_dispatch()
@@ -165,7 +165,7 @@ async def test_full_auto_chain_provision_execute_teardown(tmp_path):
         event_store=store,
         job_queue=store,
         state_store=store,
-        execution_env=mock_env,
+        env_factory=lambda cfg, prof: (mock_env, None),
     )
 
     dispatch = _make_dispatch()
@@ -246,7 +246,7 @@ async def test_process_step_provision_manual_no_chain(tmp_path):
         event_store=store,
         job_queue=store,
         state_store=store,
-        execution_env=mock_env,
+        env_factory=lambda cfg, prof: (mock_env, None),
     )
 
     dispatch = _make_dispatch()
@@ -337,7 +337,7 @@ async def test_execute_with_token_usage_emits_event(tmp_path):
         event_store=store,
         job_queue=store,
         state_store=store,
-        execution_env=mock_env,
+        env_factory=lambda cfg, prof: (mock_env, None),
     )
 
     dispatch = _make_dispatch()
@@ -425,7 +425,7 @@ async def test_execute_failure_enqueues_cleanup_teardown(tmp_path):
         event_store=store,
         job_queue=store,
         state_store=store,
-        execution_env=mock_env,
+        env_factory=lambda cfg, prof: (mock_env, None),
     )
 
     dispatch = _make_dispatch()

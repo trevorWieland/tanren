@@ -109,3 +109,11 @@ class PersistedEnvironmentHandle(BaseModel):
         default_factory=dict,
         description="Environment variables to inject (local only)",
     )
+    preflight_hashes: dict[str, str] = Field(
+        default_factory=dict,
+        description="File hashes from preflight (local only, for postflight integrity checks)",
+    )
+    preflight_backups: dict[str, str] = Field(
+        default_factory=dict,
+        description="File backups from preflight (local only, for postflight reversion)",
+    )

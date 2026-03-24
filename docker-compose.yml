@@ -24,8 +24,10 @@ services:
       - repos:/repos
       # Mount config files from host
       - ./roles.yml:/config/roles.yml:ro
-      # Optional: mount remote.yml for cloud provisioning
-      # - ./remote.yml:/config/remote.yml:ro
+      # Remote execution config and SSH key (required for cloud provisioning)
+      - ./remote.yml:/config/remote.yml:ro
+      - ~/.ssh/hetzner_tanren:/config/ssh/hetzner_tanren:ro
+      - ~/.config/tanren/secrets.env:/config/secrets.env:ro
       # Optional: mount host CLI binaries for local execution
       # - /usr/local/bin/claude:/usr/local/bin/claude:ro
       # - /usr/local/bin/opencode:/usr/local/bin/opencode:ro

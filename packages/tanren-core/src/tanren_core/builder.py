@@ -1,16 +1,21 @@
-"""Shared builder for SSHExecutionEnvironment used by daemon and CLI."""
+"""Shared builders for execution environments used by daemon and CLI.
+
+``build_execution_environment`` is the profile-driven factory that dispatches
+on ``EnvironmentProfileType``.  ``build_ssh_execution_environment`` is the
+remote-specific builder retained for callers that already know the profile
+is remote.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import asyncpg
 
-    from tanren_core.adapters.protocols import VMStateStore
+    from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
     from tanren_core.worker_config import WorkerConfig
 
 from tanren_core.adapters.credentials import providers_for_clis
@@ -21,13 +26,16 @@ from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
-from tanren_core.remote_config import ProvisionerType, load_remote_config
-from tanren_core.roles_config import load_roles_config
+from tanren_core.env.environment_schema import (
+    EnvironmentProfile,
+    EnvironmentProfileType,
+    RemoteExecutionConfig,
+)
+from tanren_core.remote_config import GitAuthMethod, ProvisionerType
+from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretConfig, SecretLoader
 
 logger = logging.getLogger(__name__)
-
-_AGENT_USER = "tanren"
 
 # ── Adapter requirement registry ─────────────────────────────────────────────
 # Single source of truth for per-adapter env vars and packages.
@@ -48,7 +56,7 @@ _ADAPTER_PACKAGES: dict[ProvisionerType, tuple[str, str]] = {
 }
 
 
-def validate_provisioner_requirements(provisioner_type: ProvisionerType) -> None:
+def validate_provisioner_requirements(provisioner_type: ProvisionerType | str) -> None:
     """Validate env vars and packages for the configured provisioner.
 
     Checks that the required Python package is importable and that all
@@ -56,13 +64,19 @@ def validate_provisioner_requirements(provisioner_type: ProvisionerType) -> None
     constructing the provisioner so the daemon fails fast with a clear
     message listing every missing requirement.
 
+    Args:
+        provisioner_type: Provisioner type as ProvisionerType enum or string.
+
     Raises:
         ValueError: With a message listing all missing requirements.
     """
+    ptype = (
+        ProvisionerType(provisioner_type) if isinstance(provisioner_type, str) else provisioner_type
+    )
     errors: list[str] = []
 
-    if provisioner_type in _ADAPTER_PACKAGES:
-        module_name, extra_name = _ADAPTER_PACKAGES[provisioner_type]
+    if ptype in _ADAPTER_PACKAGES:
+        module_name, extra_name = _ADAPTER_PACKAGES[ptype]
         try:
             __import__(module_name)
         except ImportError:
@@ -70,36 +84,38 @@ def validate_provisioner_requirements(provisioner_type: ProvisionerType) -> None
                 f"Python package '{module_name}' is not installed. Build with: --extra {extra_name}"
             )
 
-    for env_var, description in _ADAPTER_REQUIREMENTS.get(provisioner_type, []):
+    for env_var, description in _ADAPTER_REQUIREMENTS.get(ptype, []):
         if not os.environ.get(env_var, "").strip():
             errors.append(f"Missing env var {env_var} ({description})")
 
     if errors:
         raise ValueError(
-            f"Adapter '{provisioner_type}' configuration errors:\n"
-            + "\n".join(f"  - {e}" for e in errors)
+            f"Adapter '{ptype}' configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
         )
 
 
 def build_ssh_execution_environment(
     config: WorkerConfig,
+    remote_cfg: RemoteExecutionConfig,
     pool: asyncpg.Pool | None = None,
 ) -> tuple[SSHExecutionEnvironment, VMStateStore]:
-    """Construct an SSHExecutionEnvironment from config.
+    """Construct an SSHExecutionEnvironment from dispatch-carried config.
+
+    Args:
+        config: Worker operational config (data_dir, etc.).
+        remote_cfg: Remote execution config carried in the dispatch/profile.
+        pool: Optional asyncpg pool for Postgres-backed VM state.
 
     Returns:
-        Tuple of (SSHExecutionEnvironment, SqliteVMStateStore).
+        Tuple of (SSHExecutionEnvironment, VMStateStore).
 
     Raises:
-        ValueError: If the provisioner type in remote.yml is unsupported.
+        ValueError: If the provisioner type is unsupported.
     """
-    if config.remote_config_path is None:
-        raise ValueError("remote_config_path is required to build SSH execution environment")
-    remote_cfg = load_remote_config(config.remote_config_path)
+    # Convert required_clis strings to Cli enum set
+    required_clis = frozenset(Cli(c) for c in remote_cfg.required_clis)
 
-    # Load roles config to determine required CLIs
-    roles = load_roles_config(config.roles_config_path)
-    required_clis = roles.required_clis()
+    agent_user = remote_cfg.agent_user
 
     ssh_defaults = SSHConfig(
         host="",  # placeholder — overridden per VM
@@ -123,39 +139,29 @@ def build_ssh_execution_environment(
 
         state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
 
-    # Read extra bootstrap script if configured
-    extra_script = None
-    if remote_cfg.bootstrap.extra_script:
-        script_path = Path(remote_cfg.bootstrap.extra_script).expanduser()
-        if not script_path.is_absolute():
-            config_dir = Path(config.remote_config_path).resolve().parent
-            script_path = config_dir / script_path
-        if script_path.exists():
-            extra_script = script_path.read_text()
-        else:
-            logger.warning("Bootstrap extra script not found: %s", script_path)
+    # Bootstrap extra script is carried inline (already resolved by CLI)
+    extra_script = remote_cfg.bootstrap_extra_script
 
-    secret_config = SecretConfig(
-        developer_secrets_path=(
-            remote_cfg.secrets.developer_secrets_path or SecretConfig().developer_secrets_path
-        ),
-    )
+    # Daemon uses its own secrets path (not from dispatch)
+    secret_config = SecretConfig()
     secret_loader = SecretLoader(secret_config, required_clis=required_clis)
     secret_loader.autoload_into_env(override=False)
 
+    # Resolve git token from daemon's own environment
     token = os.environ.get(remote_cfg.git.token_env, "")
     git_auth = GitAuthConfig(
-        auth_method=remote_cfg.git.auth,
+        auth_method=GitAuthMethod(remote_cfg.git.auth_method),
         token=token or None,
     )
 
-    validate_provisioner_requirements(remote_cfg.provisioner.type)
+    provisioner_type = ProvisionerType(remote_cfg.provisioner.type)
+    validate_provisioner_requirements(provisioner_type)
 
-    if remote_cfg.provisioner.type == ProvisionerType.MANUAL:
+    if provisioner_type == ProvisionerType.MANUAL:
         manual_settings = ManualProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         vm_provisioner = ManualVMProvisioner(list(manual_settings.vms), state_store)
         provider = VMProvider.MANUAL
-    elif remote_cfg.provisioner.type == ProvisionerType.HETZNER:
+    elif provisioner_type == ProvisionerType.HETZNER:
         from tanren_core.adapters.hetzner_vm import (  # noqa: PLC0415 — optional dep
             HetznerProvisionerSettings,
             HetznerVMProvisioner,
@@ -164,7 +170,7 @@ def build_ssh_execution_environment(
         hetzner_settings = HetznerProvisionerSettings.from_settings(remote_cfg.provisioner.settings)
         vm_provisioner = HetznerVMProvisioner(hetzner_settings)
         provider = VMProvider.HETZNER
-    elif remote_cfg.provisioner.type == ProvisionerType.GCP:
+    elif provisioner_type == ProvisionerType.GCP:
         from tanren_core.adapters.gcp_vm import (  # noqa: PLC0415 — optional dep
             GCPProvisionerSettings,
             GCPVMProvisioner,
@@ -174,7 +180,7 @@ def build_ssh_execution_environment(
         vm_provisioner = GCPVMProvisioner(gcp_settings)
         provider = VMProvider.GCP
     else:
-        raise ValueError(f"Unsupported provisioner type: {remote_cfg.provisioner.type}")
+        raise ValueError(f"Unsupported provisioner type: {provisioner_type}")
 
     env = SSHExecutionEnvironment(
         vm_provisioner=vm_provisioner,
@@ -183,15 +189,78 @@ def build_ssh_execution_environment(
             extra_script=extra_script,
         ),
         workspace_mgr=GitWorkspaceManager(git_auth),
-        runner=RemoteAgentRunner(run_as_user=_AGENT_USER),
+        runner=RemoteAgentRunner(run_as_user=agent_user),
         state_store=state_store,
         secret_loader=secret_loader,
         ssh_config_defaults=ssh_defaults,
-        repo_urls={binding.project: binding.repo_url for binding in remote_cfg.repos},
+        repo_urls={"__dispatch__": remote_cfg.repo_url},
         provider=provider,
         ssh_ready_timeout_secs=remote_cfg.ssh.ssh_ready_timeout_secs,
         credential_providers=providers_for_clis(required_clis),
-        agent_user=_AGENT_USER,
+        agent_user=agent_user,
     )
 
     return env, state_store
+
+
+# ── Profile-driven factory ───────────────────────────────────────────────
+
+
+def _build_local(
+    config: WorkerConfig,
+) -> tuple[ExecutionEnvironment, None]:
+    """Construct a local execution environment with default adapters.
+
+    Returns:
+        Tuple of (LocalExecutionEnvironment, None) — no VM state store needed.
+    """
+    from tanren_core.adapters.dotenv_validator import DotenvEnvValidator  # noqa: PLC0415
+    from tanren_core.adapters.git_postflight import GitPostflightRunner  # noqa: PLC0415
+    from tanren_core.adapters.git_preflight import GitPreflightRunner  # noqa: PLC0415
+    from tanren_core.adapters.git_worktree import GitWorktreeManager  # noqa: PLC0415
+    from tanren_core.adapters.local_environment import LocalExecutionEnvironment  # noqa: PLC0415
+    from tanren_core.adapters.subprocess_spawner import SubprocessSpawner  # noqa: PLC0415
+
+    env = LocalExecutionEnvironment(
+        env_validator=DotenvEnvValidator(),
+        preflight=GitPreflightRunner(),
+        postflight=GitPostflightRunner(),
+        spawner=SubprocessSpawner(),
+        worktree_mgr=GitWorktreeManager(),
+        config=config,
+    )
+    return env, None
+
+
+def build_execution_environment(
+    config: WorkerConfig,
+    profile: EnvironmentProfile,
+    pool: asyncpg.Pool | None = None,
+) -> tuple[ExecutionEnvironment, VMStateStore | None]:
+    """Build the execution environment for a given profile.
+
+    Dispatches on ``profile.type``. No fallback behaviour — missing
+    configuration raises immediately.
+
+    Args:
+        config: Worker configuration.
+        profile: Resolved environment profile from tanren.yml.
+        pool: Optional asyncpg pool for Postgres-backed VM state (remote only).
+
+    Returns:
+        Tuple of (ExecutionEnvironment, VMStateStore | None).
+
+    Raises:
+        ValueError: If required config for the profile type is missing.
+        NotImplementedError: If the profile type is not yet supported.
+    """
+    if profile.type == EnvironmentProfileType.LOCAL:
+        return _build_local(config)
+    elif profile.type == EnvironmentProfileType.REMOTE:
+        if profile.remote_config is None:
+            raise ValueError(f"remote_config is required for remote profile '{profile.name}'")
+        return build_ssh_execution_environment(config, profile.remote_config, pool=pool)
+    elif profile.type == EnvironmentProfileType.DOCKER:
+        raise NotImplementedError("Docker execution not yet supported")
+    else:
+        raise ValueError(f"Unknown profile type: {profile.type}")

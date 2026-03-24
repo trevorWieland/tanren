@@ -36,6 +36,7 @@ _REQUIRED_ENV = {
     "WM_MAX_GATE": "3",
     "WM_WORKTREE_REGISTRY_PATH": "/tmp/worktrees.json",
     "WM_ROLES_CONFIG_PATH": "/tmp/roles.yml",
+    "WM_EVENTS_DB": "/tmp/events.db",
 }
 
 
@@ -169,6 +170,7 @@ class TestWorkerConfigFromEnv:
 
         config = WorkerConfig.from_env()
 
+        assert config.roles_config_path is not None
         assert "~" not in config.roles_config_path
         assert config.roles_config_path.endswith("/roles.yml")
 

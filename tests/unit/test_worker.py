@@ -110,6 +110,15 @@ def _make_dispatch_view(
     )
 
 
+def _make_env_factory(execution_env):
+    """Create an env_factory that returns the given mock execution_env."""
+
+    def factory(config, profile):
+        return execution_env, None
+
+    return factory
+
+
 class TestWorkerProcessStep:
     async def test_provision_step_calls_execution_env(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
@@ -128,7 +137,7 @@ class TestWorkerProcessStep:
             event_store=event_store,
             job_queue=job_queue,
             state_store=state_store,
-            execution_env=execution_env,
+            env_factory=_make_env_factory(execution_env),
         )
 
         dispatch = _make_dispatch()
@@ -172,7 +181,7 @@ class TestWorkerProcessStep:
             event_store=event_store,
             job_queue=job_queue,
             state_store=state_store,
-            execution_env=execution_env,
+            env_factory=_make_env_factory(execution_env),
         )
 
         dispatch = _make_dispatch()
@@ -236,7 +245,7 @@ class TestWorkerProcessStep:
             event_store=event_store,
             job_queue=job_queue,
             state_store=state_store,
-            execution_env=execution_env,
+            env_factory=_make_env_factory(execution_env),
         )
 
         dispatch = _make_dispatch()
@@ -277,7 +286,7 @@ class TestWorkerProcessStep:
             event_store=event_store,
             job_queue=job_queue,
             state_store=state_store,
-            execution_env=execution_env,
+            env_factory=_make_env_factory(execution_env),
         )
 
         dispatch = _make_dispatch()
@@ -318,7 +327,7 @@ class TestWorkerManualMode:
             event_store=event_store,
             job_queue=job_queue,
             state_store=state_store,
-            execution_env=execution_env,
+            env_factory=_make_env_factory(execution_env),
         )
 
         dispatch = _make_dispatch()
@@ -343,12 +352,13 @@ class TestWorkerManualMode:
 class TestWorkerHandlePersistence:
     def test_persist_local_handle(self, tmp_path: Path) -> None:
         handle = _make_env_handle(tmp_path)
-        persisted = Worker._persist_handle(handle)
+        persisted = Worker._persist_handle(handle, profile_name="default")
 
         assert persisted.env_id == "env-abc"
         assert persisted.project == "test"
         assert persisted.vm is None
         assert persisted.ssh_config is None
+        assert persisted.profile_name == "default"
 
     def test_reconstruct_local_handle(self) -> None:
         persisted = _make_handle()
@@ -360,7 +370,7 @@ class TestWorkerHandlePersistence:
 
     def test_persist_roundtrip(self, tmp_path: Path) -> None:
         original = _make_env_handle(tmp_path)
-        persisted = Worker._persist_handle(original)
+        persisted = Worker._persist_handle(original, profile_name="default")
         reconstructed = Worker._reconstruct_handle(persisted)
 
         assert reconstructed.env_id == original.env_id

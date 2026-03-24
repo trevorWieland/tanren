@@ -51,10 +51,18 @@ from tanren_core.store.payloads import (
 from tanren_core.store.views import QueuedStep
 
 if TYPE_CHECKING:
-    from tanren_core.adapters.protocols import ExecutionEnvironment
+    from collections.abc import Callable
+
+    from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
+    from tanren_core.env.environment_schema import EnvironmentProfile
     from tanren_core.schemas import Dispatch
     from tanren_core.store.protocols import EventStore, JobQueue, StateStore
     from tanren_core.worker_config import WorkerConfig
+
+    ExecutionEnvironmentFactory = Callable[
+        [WorkerConfig, EnvironmentProfile],
+        tuple[ExecutionEnvironment, VMStateStore | None],
+    ]
 
 logger = logging.getLogger(__name__)
 
@@ -89,16 +97,37 @@ class Worker:
         event_store: EventStore,
         job_queue: JobQueue,
         state_store: StateStore,
-        execution_env: ExecutionEnvironment,
+        env_factory: ExecutionEnvironmentFactory,
     ) -> None:
         """Initialise the worker with its dependencies."""
         self._config = config
         self._event_store = event_store
         self._job_queue = job_queue
         self._state_store = state_store
-        self._execution_env = execution_env
+        self._env_factory = env_factory
+        self._env_cache: dict[str, ExecutionEnvironment] = {}
         self._shutdown = asyncio.Event()
         self._worker_id = config.worker_id or f"{os.uname().nodename}-{os.getpid()}"
+
+    def _get_env(self, profile: EnvironmentProfile) -> ExecutionEnvironment:
+        """Return the execution environment for a profile.
+
+        Local profiles are cached (stateless, config-free).
+        Remote/Docker profiles are built per-dispatch since their config
+        (provisioner, SSH, repo URL) varies between dispatches.
+        """
+        from tanren_core.env.environment_schema import EnvironmentProfileType
+
+        if profile.type == EnvironmentProfileType.LOCAL:
+            key = "local"
+            if key not in self._env_cache:
+                env, _vm_store = self._env_factory(self._config, profile)
+                self._env_cache[key] = env
+            return self._env_cache[key]
+
+        # Remote/Docker: build fresh per dispatch (config travels with dispatch)
+        env, _vm_store = self._env_factory(self._config, profile)
+        return env
 
     async def run(self) -> None:
         """Start lane consumers and run until shutdown."""
@@ -299,7 +328,8 @@ class Worker:
         dispatch = payload.dispatch
 
         try:
-            handle = await self._execution_env.provision(dispatch, self._config)
+            env = self._get_env(dispatch.resolved_profile)
+            handle = await env.provision(dispatch, self._config)
         except ProvisionError:
             duration = int(time.monotonic() - start)
             await self._event_store.append(
@@ -313,7 +343,11 @@ class Worker:
             raise
 
         duration = int(time.monotonic() - start)
-        persisted = self._persist_handle(handle, dispatch_id=dispatch.workflow_id)
+        persisted = self._persist_handle(
+            handle,
+            dispatch_id=dispatch.workflow_id,
+            profile_name=dispatch.environment_profile,
+        )
         result = ProvisionResult(handle=persisted)
 
         # Emit VMProvisioned event for remote environments
@@ -397,7 +431,8 @@ class Worker:
         dispatch = payload.dispatch
         handle = self._reconstruct_handle(payload.handle)
 
-        phase_result = await self._execution_env.execute(
+        env = self._get_env(dispatch.resolved_profile)
+        phase_result = await env.execute(
             handle,
             dispatch,
             self._config,
@@ -528,7 +563,8 @@ class Worker:
 
         if not payload.preserve:
             handle = self._reconstruct_handle(payload.handle)
-            await self._execution_env.teardown(handle)
+            env = self._get_env(dispatch.resolved_profile)
+            await env.teardown(handle)
 
         duration = int(time.monotonic() - start)
         result = TeardownResult(
@@ -655,7 +691,8 @@ class Worker:
             server_type=profile.server_type if profile else None,
         )
 
-        info = await self._execution_env.dry_run(requirements)
+        env = self._get_env(dispatch.resolved_profile)
+        info = await env.dry_run(requirements)
 
         result = DryRunResult(
             provider=str(info.provider),
@@ -900,6 +937,7 @@ class Worker:
         handle: EnvironmentHandle,
         *,
         dispatch_id: str | None = None,
+        profile_name: str,
     ) -> PersistedEnvironmentHandle:
         """Convert a live EnvironmentHandle to a serializable form."""
         from tanren_core.adapters.types import RemoteEnvironmentRuntime
@@ -910,7 +948,8 @@ class Worker:
         agent_user = None
         teardown_commands: tuple[str, ...] = ()
         task_env: dict[str, str] = {}
-        profile_name = "default"
+        preflight_hashes: dict[str, str] = {}
+        preflight_backups: dict[str, str] = {}
 
         if handle.runtime.kind == "remote":
             rt = handle.runtime
@@ -948,6 +987,9 @@ class Worker:
 
             if isinstance(handle.runtime, LocalEnvironmentRuntime):
                 task_env = dict(handle.runtime.task_env)
+                if handle.runtime.preflight_result:
+                    preflight_hashes = dict(handle.runtime.preflight_result.file_hashes)
+                    preflight_backups = dict(handle.runtime.preflight_result.file_backups)
 
         return PersistedEnvironmentHandle(
             env_id=handle.env_id,
@@ -963,6 +1005,8 @@ class Worker:
             provision_timestamp=_utc_now(),
             agent_user=agent_user,
             task_env=task_env,
+            preflight_hashes=preflight_hashes,
+            preflight_backups=preflight_backups,
         )
 
     @staticmethod
@@ -1025,9 +1069,21 @@ class Worker:
                 workflow_id=persisted.dispatch_id or f"reconstructed-{persisted.env_id}",
             )
         else:
-            # Local handle
+            # Local handle — rebuild preflight_result from persisted hashes/backups
+            from tanren_core.preflight import PreflightResult
+
+            preflight_result = None
+            if persisted.preflight_hashes:
+                preflight_result = PreflightResult(
+                    passed=True,
+                    repairs=[],
+                    file_hashes=dict(persisted.preflight_hashes),
+                    file_backups=dict(persisted.preflight_backups),
+                )
             runtime = LocalEnvironmentRuntime(
+                workflow_id=persisted.dispatch_id or "",
                 task_env=dict(persisted.task_env),
+                preflight_result=preflight_result,
             )
 
         return EnvironmentHandle(

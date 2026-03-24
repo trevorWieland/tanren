@@ -36,6 +36,7 @@ def _make_config(tmp_path: Path) -> WorkerConfig:
         ipc_dir=str(tmp_path),
         github_dir=str(tmp_path),
         data_dir=str(tmp_path),
+        db_url=str(tmp_path / "events.db"),
         worktree_registry_path=str(tmp_path / "worktrees.json"),
         opencode_path="/usr/local/bin/opencode",
         codex_path="/usr/local/bin/codex",

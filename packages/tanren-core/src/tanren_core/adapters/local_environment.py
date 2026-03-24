@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
         PostflightRunner,
         PreflightRunner,
         ProcessSpawner,
+        WorktreeManager,
     )
     from tanren_core.adapters.remote_types import DryRunInfo, VMHandle, VMRequirements
     from tanren_core.worker_config import WorkerConfig
@@ -49,6 +51,7 @@ class LocalExecutionEnvironment:
         preflight: PreflightRunner,
         postflight: PostflightRunner,
         spawner: ProcessSpawner,
+        worktree_mgr: WorktreeManager,
         config: WorkerConfig,
     ) -> None:
         """Initialize with local subprocess adapters for each lifecycle phase."""
@@ -56,6 +59,7 @@ class LocalExecutionEnvironment:
         self._preflight = preflight
         self._postflight = postflight
         self._spawner = spawner
+        self._worktree_mgr = worktree_mgr
         self._config = config
 
     async def dry_run(
@@ -78,7 +82,7 @@ class LocalExecutionEnvironment:
         )
 
     async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
-        """Env validation -> preflight -> return handle.
+        """Create worktree -> register -> env validation -> preflight -> return handle.
 
         Returns:
             EnvironmentHandle for local execution.
@@ -87,11 +91,47 @@ class LocalExecutionEnvironment:
             ProvisionError: If environment validation or preflight checks fail.
         """
         issue = _parse_issue(dispatch.workflow_id, project=dispatch.project)
-        worktree_path = Path(config.github_dir) / f"{dispatch.project}-wt-{issue}"
+
+        # 1. Create worktree
+        worktree_path = await self._worktree_mgr.create(
+            dispatch.project, issue, dispatch.branch, config.github_dir
+        )
+
+        # 2. Register worktree for isolation enforcement
+        await self._worktree_mgr.register(
+            Path(config.worktree_registry_path),
+            dispatch.workflow_id,
+            dispatch.project,
+            issue,
+            dispatch.branch,
+            worktree_path,
+            config.github_dir,
+        )
+
         spec_folder_path = worktree_path / dispatch.spec_folder
 
-        # 1. Environment validation
-        env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
+        # 3. Inject dispatch-carried project env into os.environ for validation.
+        # Worktrees may not have .env (gitignored), so the CLI reads it from
+        # the source project dir and passes it in the dispatch.
+        restore_env: dict[str, str | None] = {}
+        for k, v in dispatch.project_env.items():
+            restore_env[k] = os.environ.get(k)
+            os.environ[k] = v
+
+        # 4. Environment validation (sees dispatch.project_env via os.environ)
+        try:
+            env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
+        finally:
+            # Restore original env to avoid leaking between dispatches
+            for k, orig in restore_env.items():
+                if orig is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = orig
+
+        # Merge dispatch project_env into task_env (validator may not return all of them)
+        if dispatch.project_env:
+            task_env = {**task_env, **dispatch.project_env}
         if not env_report.passed:
             result = Result(
                 workflow_id=dispatch.workflow_id,
@@ -134,13 +174,14 @@ class LocalExecutionEnvironment:
         if preflight_result.repairs:
             logger.info("Preflight repairs: %s", preflight_result.repairs)
 
-        # 3. Return handle
+        # 5. Return handle
         return EnvironmentHandle(
             env_id=str(uuid.uuid4()),
             worktree_path=worktree_path,
             branch=dispatch.branch,
             project=dispatch.project,
             runtime=LocalEnvironmentRuntime(
+                workflow_id=dispatch.workflow_id,
                 preflight_result=preflight_result,
                 task_env=task_env,
                 env_report=env_report,
@@ -281,11 +322,22 @@ class LocalExecutionEnvironment:
         """No-op for local — no VM to release."""
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
-        """No-op for local (heartbeat already stopped in execute).
+        """Clean up worktree and remove registry entry."""
+        workflow_id = ""
+        if handle.runtime.kind == "local":
+            local_rt = cast("LocalEnvironmentRuntime", handle.runtime)
+            workflow_id = local_rt.workflow_id
 
-        Future Docker/VM envs would destroy containers here.
-        """
-        pass
+        if workflow_id:
+            await self._worktree_mgr.cleanup(
+                workflow_id,
+                Path(self._config.worktree_registry_path),
+                self._config.github_dir,
+            )
+        else:
+            logger.warning(
+                "No workflow_id on local handle %s, skipping registry cleanup", handle.env_id
+            )
 
 
 def _parse_issue(workflow_id: str, *, project: str | None = None) -> str:

@@ -11,7 +11,17 @@ from pydantic import ValidationError
 
 from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
-from tanren_core.builder import build_ssh_execution_environment, validate_provisioner_requirements
+from tanren_core.builder import (
+    build_execution_environment,
+    build_ssh_execution_environment,
+    validate_provisioner_requirements,
+)
+from tanren_core.env.environment_schema import (
+    DispatchProvisionerConfig,
+    EnvironmentProfile,
+    EnvironmentProfileType,
+    RemoteExecutionConfig,
+)
 from tanren_core.remote_config import ProvisionerType
 from tanren_core.worker_config import WorkerConfig
 
@@ -27,147 +37,91 @@ agents:
 """
 
 
-def _make_config(tmp_path: Path, remote_config_path: str | None) -> WorkerConfig:
+def _make_config(tmp_path: Path) -> WorkerConfig:
     roles_path = tmp_path / "roles.yml"
     roles_path.write_text(_ROLES_YML)
     return WorkerConfig(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path / "github"),
         data_dir=str(tmp_path / "data"),
+        db_url=str(tmp_path / "events.db"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
-        remote_config_path=remote_config_path,
         roles_config_path=str(roles_path),
     )
 
 
+_MANUAL_PROVISIONER = DispatchProvisionerConfig(
+    type="manual",
+    settings={"vms": [{"id": "vm-1", "host": "10.0.0.1"}]},
+)
+
+
+def _manual_remote_cfg(**overrides: object) -> RemoteExecutionConfig:
+    """Build a minimal RemoteExecutionConfig with a manual provisioner."""
+    return RemoteExecutionConfig.model_validate({
+        "provisioner": _MANUAL_PROVISIONER,
+        "repo_url": "https://github.com/test/test.git",
+        "required_clis": ("claude",),
+        **overrides,
+    })
+
+
 class TestBuildSSHExecutionEnvironment:
     def test_build_manual_provisioner(self, tmp_path):
-        remote_yml = tmp_path / "remote.yml"
-        remote_yml.write_text("""\
-provisioner:
-  type: manual
-  settings:
-    vms:
-      - id: vm-1
-        host: "10.0.0.1"
-repos:
-  - project: test
-    repo_url: https://github.com/test/test.git
-""")
-        config = _make_config(tmp_path, str(remote_yml))
-        env, state_store = build_ssh_execution_environment(config)
+        config = _make_config(tmp_path)
+        remote_cfg = _manual_remote_cfg()
+        env, state_store = build_ssh_execution_environment(config, remote_cfg)
 
         assert isinstance(env, SSHExecutionEnvironment)
         assert state_store is not None
 
     def test_build_manual_provisioner_sets_provider(self, tmp_path):
-        remote_yml = tmp_path / "remote.yml"
-        remote_yml.write_text("""\
-provisioner:
-  type: manual
-  settings:
-    vms:
-      - id: vm-1
-        host: "10.0.0.1"
-repos:
-  - project: test
-    repo_url: https://github.com/test/test.git
-""")
-        config = _make_config(tmp_path, str(remote_yml))
-        env, _ = build_ssh_execution_environment(config)
+        config = _make_config(tmp_path)
+        remote_cfg = _manual_remote_cfg()
+        env, _ = build_ssh_execution_environment(config, remote_cfg)
 
         assert env._provider == VMProvider.MANUAL
 
     def test_build_unsupported_provisioner_raises(self, tmp_path):
-        remote_yml = tmp_path / "remote.yml"
-        remote_yml.write_text("""\
-provisioner:
-  type: aws
-  settings: {}
-repos: []
-""")
-        config = _make_config(tmp_path, str(remote_yml))
-        with pytest.raises((ValueError, ValidationError)):
-            build_ssh_execution_environment(config)
-
-    def test_build_no_remote_config_path_raises_value_error(self, tmp_path):
-        config = _make_config(tmp_path, remote_config_path=None)
-        with pytest.raises(ValueError, match="remote_config_path is required"):
-            build_ssh_execution_environment(config)
-
-    def test_build_uses_roles_for_credential_providers(self, tmp_path):
-        """Builder uses roles.yml to determine credential providers."""
-        roles_path = tmp_path / "roles.yml"
-        roles_path.write_text("""\
-agents:
-  default:
-    cli: claude
-    auth: subscription
-    model: opus
-  audit:
-    cli: codex
-    auth: subscription
-    model: o3
-""")
-        remote_yml = tmp_path / "remote.yml"
-        remote_yml.write_text("""\
-provisioner:
-  type: manual
-  settings:
-    vms:
-      - id: vm-1
-        host: "10.0.0.1"
-repos:
-  - project: test
-    repo_url: https://github.com/test/test.git
-""")
-        config = WorkerConfig(
-            ipc_dir=str(tmp_path / "ipc"),
-            github_dir=str(tmp_path / "github"),
-            data_dir=str(tmp_path / "data"),
-            worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
-            remote_config_path=str(remote_yml),
-            roles_config_path=str(roles_path),
+        config = _make_config(tmp_path)
+        remote_cfg = RemoteExecutionConfig(
+            provisioner=DispatchProvisionerConfig(type="aws", settings={}),
+            repo_url="https://github.com/test/test.git",
         )
-        env, _ = build_ssh_execution_environment(config)
+        with pytest.raises((ValueError, ValidationError)):
+            build_ssh_execution_environment(config, remote_cfg)
+
+    def test_build_uses_required_clis_for_credential_providers(self, tmp_path):
+        """Builder uses remote_cfg.required_clis to determine credential providers."""
+        config = _make_config(tmp_path)
+        remote_cfg = _manual_remote_cfg(required_clis=("claude", "codex"))
+        env, _ = build_ssh_execution_environment(config, remote_cfg)
 
         provider_names = sorted(p.name for p in env._credential_providers)
         assert provider_names == ["claude", "codex"]
 
     def test_build_sets_agent_user(self, tmp_path):
         """Builder configures agent_user on SSHExecutionEnvironment."""
-        remote_yml = tmp_path / "remote.yml"
-        remote_yml.write_text("""\
-provisioner:
-  type: manual
-  settings:
-    vms:
-      - id: vm-1
-        host: "10.0.0.1"
-repos:
-  - project: test
-    repo_url: https://github.com/test/test.git
-""")
-        config = _make_config(tmp_path, str(remote_yml))
-        env, _ = build_ssh_execution_environment(config)
+        config = _make_config(tmp_path)
+        remote_cfg = _manual_remote_cfg()
+        env, _ = build_ssh_execution_environment(config, remote_cfg)
 
         assert env._agent_user == "tanren"
 
     def test_build_gcp_provisioner(self, tmp_path, monkeypatch):
-        remote_yml = tmp_path / "remote.yml"
-        remote_yml.write_text("""\
-provisioner:
-  type: gcp
-  settings:
-    project_id: my-project
-    zone: us-central1-a
-    default_machine_type: e2-standard-4
-    image_family: ubuntu-2404-lts-amd64
-repos:
-  - project: test
-    repo_url: https://github.com/test/test.git
-""")
-        config = _make_config(tmp_path, str(remote_yml))
+        config = _make_config(tmp_path)
+        remote_cfg = RemoteExecutionConfig(
+            provisioner=DispatchProvisionerConfig(
+                type="gcp",
+                settings={
+                    "project_id": "my-project",
+                    "zone": "us-central1-a",
+                    "default_machine_type": "e2-standard-4",
+                    "image_family": "ubuntu-2404-lts-amd64",
+                },
+            ),
+            repo_url="https://github.com/test/test.git",
+        )
 
         monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA_test_key")
         fake_mod = SimpleNamespace(
@@ -177,7 +131,7 @@ repos:
         )
         monkeypatch.setattr("tanren_core.adapters.gcp_vm._import_compute", lambda: fake_mod)
 
-        env, _ = build_ssh_execution_environment(config)
+        env, _ = build_ssh_execution_environment(config, remote_cfg)
 
         assert isinstance(env, SSHExecutionEnvironment)
         assert env._provider == VMProvider.GCP
@@ -211,3 +165,40 @@ class TestValidateProvisionerRequirements:
         monkeypatch.delenv("GCP_SSH_PUBLIC_KEY", raising=False)
         with pytest.raises(ValueError, match="Adapter 'gcp' configuration errors"):
             validate_provisioner_requirements(ProvisionerType.GCP)
+
+
+class TestBuildExecutionEnvironment:
+    def test_local_profile_builds_local_env(self, tmp_path):
+        from tanren_core.adapters.local_environment import LocalExecutionEnvironment
+
+        config = _make_config(tmp_path)
+        profile = EnvironmentProfile(name="dev", type=EnvironmentProfileType.LOCAL)
+        env, vm_store = build_execution_environment(config, profile)
+
+        assert isinstance(env, LocalExecutionEnvironment)
+        assert vm_store is None
+
+    def test_remote_profile_without_config_raises(self, tmp_path):
+        config = _make_config(tmp_path)
+        profile = EnvironmentProfile(name="prod", type=EnvironmentProfileType.REMOTE)
+        with pytest.raises(ValueError, match="remote_config is required"):
+            build_execution_environment(config, profile)
+
+    def test_remote_profile_with_config_builds_ssh_env(self, tmp_path):
+        config = _make_config(tmp_path)
+        remote_cfg = _manual_remote_cfg()
+        profile = EnvironmentProfile(
+            name="prod",
+            type=EnvironmentProfileType.REMOTE,
+            remote_config=remote_cfg,
+        )
+        env, vm_store = build_execution_environment(config, profile)
+
+        assert isinstance(env, SSHExecutionEnvironment)
+        assert vm_store is not None
+
+    def test_docker_profile_raises_not_implemented(self, tmp_path):
+        config = _make_config(tmp_path)
+        profile = EnvironmentProfile(name="ci", type=EnvironmentProfileType.DOCKER)
+        with pytest.raises(NotImplementedError, match="Docker execution not yet supported"):
+            build_execution_environment(config, profile)

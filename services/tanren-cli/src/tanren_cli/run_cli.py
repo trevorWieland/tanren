@@ -18,9 +18,14 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 import yaml
 
-from tanren_core.builder import build_ssh_execution_environment
+from tanren_core.builder import build_execution_environment
 from tanren_core.env.environment_schema import (
+    DispatchGitConfig,
+    DispatchProvisionerConfig,
     EnvironmentProfile,
+    EnvironmentProfileType,
+    RemoteExecutionConfig,
+    SSHDefaults,
     parse_environment_profiles,
 )
 from tanren_core.env.gates import resolve_gate_cmd
@@ -45,8 +50,6 @@ if TYPE_CHECKING:
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
 
-DEFAULT_PROFILE = EnvironmentProfile(name="default")
-
 
 def _load_config() -> WorkerConfig:
     try:
@@ -54,12 +57,6 @@ def _load_config() -> WorkerConfig:
     except Exception as exc:
         typer.echo(f"Failed to load config from WM_* environment: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-
-
-def _require_remote_config(config: WorkerConfig) -> None:
-    if not config.remote_config_path:
-        typer.echo("WM_REMOTE_CONFIG is required for tanren run commands.", err=True)
-        raise typer.Exit(code=1)
 
 
 def _resolve_profile(
@@ -79,7 +76,127 @@ def _resolve_profile(
             f"Environment profile '{environment_profile}' not found in tanren.yml. "
             f"Available: {available}"
         )
+
+    # For remote profiles, populate remote_config from remote.yml + roles.yml
+    if profile.type == EnvironmentProfileType.REMOTE and profile.remote_config is None:
+        remote_cfg = _resolve_remote_config(config, project)
+        # Rebuild profile with remote_config (frozen model requires reconstruction)
+        profile = profile.model_copy(update={"remote_config": remote_cfg})
+
     return profile
+
+
+def _resolve_remote_config(config: WorkerConfig, project: str) -> RemoteExecutionConfig:
+    """Read remote.yml + roles.yml and build dispatch-carried RemoteExecutionConfig.
+
+    Returns:
+        Fully resolved RemoteExecutionConfig for the dispatch payload.
+
+    Raises:
+        ValueError: If WM_REMOTE_CONFIG is not set.
+    """
+    from tanren_core.remote_config import load_remote_config  # noqa: PLC0415
+
+    if not config.remote_config_path:
+        raise ValueError("WM_REMOTE_CONFIG is required for remote profiles")
+
+    remote = load_remote_config(config.remote_config_path)
+
+    # Read bootstrap extra_script content (if configured)
+    extra_script = None
+    if remote.bootstrap.extra_script:
+        script_path = Path(remote.bootstrap.extra_script).expanduser()
+        if not script_path.is_absolute():
+            config_dir = Path(config.remote_config_path).resolve().parent
+            script_path = config_dir / script_path
+        if script_path.exists():
+            extra_script = script_path.read_text()
+
+    # Resolve required CLIs from roles.yml
+    required_clis: tuple[str, ...] = ()
+    if config.roles_config_path:
+        roles = load_roles_config(config.roles_config_path)
+        required_clis = tuple(str(c) for c in roles.required_clis())
+
+    # Look up repo URL for this project
+    repo_url = remote.repo_url_for(project) or ""
+
+    return RemoteExecutionConfig(
+        ssh=SSHDefaults(
+            user=remote.ssh.user,
+            key_path=remote.ssh.key_path,
+            port=remote.ssh.port,
+            connect_timeout=remote.ssh.connect_timeout,
+            host_key_policy=remote.ssh.host_key_policy,
+            ssh_ready_timeout_secs=remote.ssh.ssh_ready_timeout_secs,
+        ),
+        git=DispatchGitConfig(
+            auth_method=str(remote.git.auth),
+            token_env=remote.git.token_env,
+        ),
+        provisioner=DispatchProvisionerConfig(
+            type=str(remote.provisioner.type),
+            settings=dict(remote.provisioner.settings),
+        ),
+        repo_url=repo_url,
+        required_clis=required_clis,
+        bootstrap_extra_script=extra_script,
+    )
+
+
+def _resolve_project_env(config: WorkerConfig, project: str) -> dict[str, str]:
+    """Read project .env file for dispatch payload.
+
+    Returns:
+        Dict of env var key-value pairs from the project .env file.
+    """
+    from dotenv import dotenv_values  # noqa: PLC0415
+
+    env_file = Path(config.github_dir) / project / ".env"
+    if not env_file.exists():
+        return {}
+    values = dotenv_values(env_file)
+    return {k: v for k, v in values.items() if v is not None}
+
+
+async def _resolve_cloud_secrets(config: WorkerConfig, project: str) -> dict[str, str]:
+    """Fetch cloud secrets for vars with ``source: "secret:X"`` in tanren.yml.
+
+    Returns:
+        Dict of secret name to value for vars with cloud secret sources.
+    """
+    tanren_yml = Path(config.github_dir) / project / "tanren.yml"
+    if not tanren_yml.exists():
+        return {}
+
+    from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415
+
+    data = yaml.safe_load(tanren_yml.read_text()) or {}
+    if not isinstance(data, dict):
+        return {}
+    try:
+        tc = TanrenConfig.model_validate(data)
+    except Exception:
+        return {}
+
+    if tc.env is None:
+        return {}
+
+    has_sources = any(v.source for v in (*tc.env.required, *tc.env.optional))
+    if not has_sources:
+        return {}
+
+    from tanren_core.env.secret_provider_factory import create_secret_provider  # noqa: PLC0415
+
+    provider = create_secret_provider(tc.secrets)
+    result: dict[str, str] = {}
+    for var in (*tc.env.required, *tc.env.optional):
+        if var.source and var.source.startswith("secret:"):
+            secret_name = var.source[len("secret:") :]
+            value = await provider.get_secret(secret_name)
+            if value is not None:
+                result[var.key] = value
+    return result
 
 
 def _resolve_gate_cmd_for_phase(
@@ -124,6 +241,8 @@ def _role_for_phase(phase: Phase) -> RoleName:
 def _resolve_agent_tool(config: WorkerConfig, phase: Phase) -> AgentTool:
     if phase == Phase.GATE:
         return AgentTool(cli=Cli.BASH, auth=AuthMode.API_KEY)
+    if not config.roles_config_path:
+        raise ValueError("WM_ROLES_CONFIG_PATH is required for non-gate phases")
     return load_roles_config(config.roles_config_path).resolve(_role_for_phase(phase))
 
 
@@ -139,6 +258,9 @@ def _build_dispatch(
     context: str | None,
     gate_cmd: str | None,
     tool: AgentTool,
+    resolved_profile: EnvironmentProfile,
+    project_env: dict[str, str] | None = None,
+    cloud_secrets: dict[str, str] | None = None,
 ) -> Dispatch:
     return Dispatch(
         workflow_id=workflow_id,
@@ -153,7 +275,9 @@ def _build_dispatch(
         context=context,
         timeout=timeout,
         environment_profile=environment_profile,
-        resolved_profile=DEFAULT_PROFILE,
+        resolved_profile=resolved_profile,
+        project_env=project_env or {},
+        cloud_secrets=cloud_secrets or {},
     )
 
 
@@ -216,25 +340,46 @@ def _build_tail_output(text: str | None, max_lines: int = 30) -> str:
     return "\n".join(lines[-max_lines:])
 
 
+def _make_env_factory(config: WorkerConfig, profile: EnvironmentProfile) -> tuple:
+    """Create an env_factory closure that returns a pre-built environment.
+
+    Returns:
+        Tuple of (factory, execution_env, vm_store).
+    """
+    env, vm_store = build_execution_environment(config, profile)
+
+    def factory(
+        _cfg: WorkerConfig,
+        _prof: EnvironmentProfile,
+    ) -> tuple:
+        return env, vm_store
+
+    return factory, env, vm_store
+
+
 @run_app.command("provision")
 def run_provision(
     project: Annotated[str, typer.Option(..., "--project")],
     branch: Annotated[str, typer.Option(..., "--branch")],
     environment_profile: Annotated[str, typer.Option("--environment-profile")] = "default",
 ) -> None:
-    """Provision a remote execution environment via embedded worker."""
+    """Provision an execution environment via embedded worker."""
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
+        profile = _resolve_profile(config, project, environment_profile)
 
         db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
-        execution_env, _vm_store = build_ssh_execution_environment(config)
+        env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
 
         try:
-            workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
+            workflow_id = (
+                f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
+            )
             tool = _resolve_agent_tool(config, Phase.DO_TASK)
+            project_env = _resolve_project_env(config, project)
+            cloud_secrets = await _resolve_cloud_secrets(config, project)
             dispatch = _build_dispatch(
                 project=project,
                 phase=Phase.DO_TASK,
@@ -246,6 +391,9 @@ def run_provision(
                 context=None,
                 gate_cmd=None,
                 tool=tool,
+                resolved_profile=profile,
+                project_env=project_env,
+                cloud_secrets=cloud_secrets,
             )
 
             dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.MANUAL)
@@ -255,7 +403,7 @@ def run_provision(
                 event_store=store,
                 job_queue=store,
                 state_store=store,
-                execution_env=execution_env,
+                env_factory=env_factory,
             )
 
             # Run until provision step completes
@@ -280,7 +428,8 @@ def run_provision(
                 typer.echo(f"vm_id: {handle.vm.vm_id}")
                 typer.echo(f"host: {handle.vm.host}")
         finally:
-            await execution_env.close()
+            if hasattr(execution_env, "close"):
+                await execution_env.close()
             await store.close()
 
     asyncio.run(_run())
@@ -300,11 +449,9 @@ def run_execute(
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
 
         db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
-        execution_env, _vm_store = build_ssh_execution_environment(config)
 
         try:
             # Read provision result from store
@@ -331,6 +478,9 @@ def run_execute(
                 raise typer.Exit(code=1)
 
             dispatch_data = view.dispatch
+            profile = dispatch_data.resolved_profile
+            env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+
             tool = _resolve_agent_tool(config, phase)
             resolved_gate_cmd = _resolve_gate_cmd_for_phase(
                 config=config,
@@ -351,6 +501,7 @@ def run_execute(
                 context=context,
                 gate_cmd=resolved_gate_cmd,
                 tool=tool,
+                resolved_profile=profile,
             )
 
             lane = cli_to_lane(exec_dispatch.cli)
@@ -372,7 +523,7 @@ def run_execute(
                 event_store=store,
                 job_queue=store,
                 state_store=store,
-                execution_env=execution_env,
+                env_factory=env_factory,
             )
 
             # Run until execute step completes
@@ -399,7 +550,8 @@ def run_execute(
                 typer.echo(f"token_cost: ${getattr(exec_result.token_usage, 'total_cost', 0):.4f}")
                 typer.echo(f"token_total: {getattr(exec_result.token_usage, 'total_tokens', 0)}")
         finally:
-            await execution_env.close()
+            if hasattr(execution_env, "close"):
+                await execution_env.close()
             await store.close()
 
     asyncio.run(_run())
@@ -413,11 +565,10 @@ def run_teardown(
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
 
         db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
-        execution_env, _vm_store = build_ssh_execution_environment(config)
+        execution_env = None
 
         try:
             steps = await store.get_steps_for_dispatch(dispatch_id)
@@ -443,6 +594,9 @@ def run_teardown(
                 raise typer.Exit(code=1)
 
             dispatch_data = view.dispatch
+            profile = dispatch_data.resolved_profile
+            env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+
             step_id = uuid.uuid4().hex
             payload = TeardownStepPayload(dispatch=dispatch_data, handle=prov_result.handle)
             await store.enqueue_step(
@@ -459,7 +613,7 @@ def run_teardown(
                 event_store=store,
                 job_queue=store,
                 state_store=store,
-                execution_env=execution_env,
+                env_factory=env_factory,
             )
 
             # Run until teardown completes
@@ -467,7 +621,8 @@ def run_teardown(
 
             typer.echo(f"teardown: completed for {dispatch_id}")
         finally:
-            await execution_env.close()
+            if execution_env is not None and hasattr(execution_env, "close"):
+                await execution_env.close()
             await store.close()
 
     asyncio.run(_run())
@@ -488,16 +643,18 @@ def run_full(
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
+        profile = _resolve_profile(config, project, environment_profile)
 
         # Use temp DB for single-invocation full lifecycle
         tmp_dir = Path(tempfile.mkdtemp(prefix="tanren-run-"))
         db_path = str(tmp_dir / "run.db")
         store = await create_sqlite_store(db_path)
-        execution_env, _vm_store = build_ssh_execution_environment(config)
+        env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
 
         try:
-            workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
+            workflow_id = (
+                f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
+            )
             tool = _resolve_agent_tool(config, phase)
             resolved_gate_cmd = _resolve_gate_cmd_for_phase(
                 config=config,
@@ -506,6 +663,8 @@ def run_full(
                 phase=phase,
                 gate_cmd=gate_cmd,
             )
+            project_env = _resolve_project_env(config, project)
+            cloud_secrets = await _resolve_cloud_secrets(config, project)
             dispatch = _build_dispatch(
                 project=project,
                 phase=phase,
@@ -517,6 +676,9 @@ def run_full(
                 context=context,
                 gate_cmd=resolved_gate_cmd,
                 tool=tool,
+                resolved_profile=profile,
+                project_env=project_env,
+                cloud_secrets=cloud_secrets,
             )
 
             dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.AUTO)
@@ -526,7 +688,7 @@ def run_full(
                 event_store=store,
                 job_queue=store,
                 state_store=store,
-                execution_env=execution_env,
+                env_factory=env_factory,
             )
 
             await worker.run_until_dispatch_complete(dispatch_id)
@@ -569,7 +731,8 @@ def run_full(
             if view and view.status.value == "failed":
                 raise typer.Exit(code=1)
         finally:
-            await execution_env.close()
+            if hasattr(execution_env, "close"):
+                await execution_env.close()
             await store.close()
             # Clean up temp DB
             shutil.rmtree(tmp_dir, ignore_errors=True)

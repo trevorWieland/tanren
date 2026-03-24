@@ -59,7 +59,7 @@ class ConfigService:
         Returns:
             ConfigResponse: Non-secret configuration fields.
         """
-        db_url = self._settings.db_url or ""
+        db_url = self._settings.db_url
         db_backend = "postgres" if db_url.startswith(("postgresql", "postgres")) else "sqlite"
 
         store_connected = True

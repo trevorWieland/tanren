@@ -103,6 +103,7 @@ class TestSubprocessSpawner:
             ipc_dir="/tmp/ipc",
             github_dir="/tmp/github",
             data_dir="/tmp/data",
+            db_url="/tmp/events.db",
             worktree_registry_path="/tmp/worktrees.json",
             roles_config_path="/tmp/roles.yml",
         )

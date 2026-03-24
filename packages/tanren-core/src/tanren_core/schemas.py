@@ -215,6 +215,14 @@ class Dispatch(BaseModel):
         default=False,
         description="If True, skip teardown on step failure for debugging",
     )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables (from .env)",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets (from secret:X sources in tanren.yml)",
+    )
 
 
 class Result(BaseModel):

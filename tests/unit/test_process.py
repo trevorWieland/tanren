@@ -104,6 +104,7 @@ class TestSpawnOpencode:
             github_dir=str(tmp_path),
             commands_dir=".claude/commands/tanren",
             data_dir=str(tmp_path / "data"),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )
@@ -252,6 +253,7 @@ class TestSpawnClaude:
             github_dir=str(tmp_path),
             commands_dir=".claude/commands/tanren",
             data_dir=str(tmp_path / "data"),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )

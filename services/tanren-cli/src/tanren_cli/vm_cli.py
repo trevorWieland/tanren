@@ -244,6 +244,9 @@ def vm_dry_run(
         raise typer.Exit(code=1)
 
     # Load roles to determine required CLIs
+    if not config.roles_config_path:
+        typer.echo("WM_ROLES_CONFIG_PATH is required for dry-run", err=True)
+        raise typer.Exit(code=1)
     roles = load_roles_config(config.roles_config_path)
     required_clis = roles.required_clis()
 

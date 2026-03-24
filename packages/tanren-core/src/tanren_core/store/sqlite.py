@@ -7,6 +7,7 @@ implements all three protocols.  It uses WAL mode for concurrent reads and
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
@@ -46,6 +47,7 @@ class SqliteStore:
         """Initialise with path to the SQLite database file."""
         self._db_path = Path(db_path)
         self._conn: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
 
     async def ensure_schema(self) -> None:
         """Initialize the database connection and create tables idempotently."""
@@ -64,17 +66,21 @@ class SqliteStore:
     async def _transaction(self) -> AsyncIterator[aiosqlite.Connection]:
         """Begin an IMMEDIATE transaction, commit on success, rollback on error.
 
+        Serialized via lock to prevent concurrent transactions on the
+        single aiosqlite connection.
+
         Yields:
             The aiosqlite connection inside the active transaction.
         """
-        conn = await self._ensure_conn()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
-            yield conn
-            await conn.commit()
-        except BaseException:
-            await conn.rollback()
-            raise
+        async with self._lock:
+            conn = await self._ensure_conn()
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+                await conn.commit()
+            except BaseException:
+                await conn.rollback()
+                raise
 
     # ── EventStore ────────────────────────────────────────────────────────
 
@@ -211,6 +217,19 @@ class SqliteStore:
         Uses manual transaction control because early-return paths
         require explicit rollback before returning None.
         """
+        async with self._lock:
+            return await self._dequeue_locked(
+                lane=lane, worker_id=worker_id, max_concurrent=max_concurrent
+            )
+
+    async def _dequeue_locked(
+        self,
+        *,
+        lane: Lane | None = None,
+        worker_id: str,
+        max_concurrent: int,
+    ) -> QueuedStep | None:
+        """Dequeue implementation (caller must hold self._lock)."""
         conn = await self._ensure_conn()
         await conn.execute("BEGIN IMMEDIATE")
         try:

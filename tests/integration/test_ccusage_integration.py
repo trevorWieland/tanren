@@ -80,6 +80,7 @@ def _make_config() -> WorkerConfig:
         ipc_dir="/tmp/ipc",
         github_dir="/tmp/gh",
         data_dir="/tmp/data",
+        db_url="/tmp/events.db",
         commands_dir=".claude/commands/tanren",
         worktree_registry_path="/tmp/worktrees.json",
         roles_config_path="/tmp/roles.yml",

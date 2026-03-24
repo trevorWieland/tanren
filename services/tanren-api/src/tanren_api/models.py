@@ -101,11 +101,19 @@ class DispatchRequest(BaseModel):
     )
     resolved_profile: EnvironmentProfile = Field(
         ...,
-        description="Fully resolved environment profile",
+        description="Fully resolved environment profile (with remote_config for remote profiles)",
     )
     preserve_on_failure: bool = Field(
         default=False,
         description="If True, skip teardown on failure for debugging",
+    )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets",
     )
 
 
@@ -119,7 +127,15 @@ class ProvisionRequest(BaseModel):
     environment_profile: str = Field(default="default", description="Environment profile")
     resolved_profile: EnvironmentProfile = Field(
         ...,
-        description="Fully resolved environment profile",
+        description="Fully resolved environment profile (with remote_config for remote profiles)",
+    )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets",
     )
 
 

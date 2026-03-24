@@ -207,6 +207,8 @@ async def run_postflight(
             "-C",
             str(worktree_path),
             "push",
+            "origin",
+            branch,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

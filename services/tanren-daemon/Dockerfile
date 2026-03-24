@@ -37,13 +37,13 @@ RUN uv sync --frozen --no-cache --no-dev --no-editable --package tanren-daemon \
 # ── Runtime stage ────────────────────────────────────────────────────────────
 FROM python:3.14-slim-bookworm
 
-# git: worktree operations; openssh-client: SSH connections to VMs
+# git: worktree operations; openssh-client: SSH connections to VMs; gosu: privilege drop
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git openssh-client \
+ && apt-get install -y --no-install-recommends git openssh-client gosu \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 app \
- && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
+ && useradd --uid 10001 --gid app --create-home --home-dir /app --shell /usr/sbin/nologin app
 
 COPY --from=build /app/.venv /app/.venv
 
@@ -52,12 +52,14 @@ ENV PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 
 # Default data directories for volume mounts
-RUN mkdir -p /data /repos \
+RUN mkdir -p /data /repos /config/ssh \
  && chown -R app:app /app /data /repos
+
+# Entrypoint copies mounted SSH keys with correct ownership, then drops to app user
+COPY services/tanren-daemon/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD kill -0 1 || exit 1
 
-USER app
-
-ENTRYPOINT ["tanren-daemon"]
+ENTRYPOINT ["/app/entrypoint.sh"]

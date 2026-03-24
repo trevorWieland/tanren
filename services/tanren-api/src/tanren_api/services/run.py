@@ -67,7 +67,7 @@ class RunService:
         """
         req = body
         epoch = time.time_ns()
-        workflow_id = f"wf-{req.project}-{epoch}"
+        workflow_id = f"wf-{req.project}-run-{epoch}"
 
         dispatch = Dispatch(
             workflow_id=workflow_id,
@@ -79,6 +79,8 @@ class RunService:
             timeout=1800,
             environment_profile=req.resolved_profile.name,
             resolved_profile=req.resolved_profile,
+            project_env=req.project_env,
+            cloud_secrets=req.cloud_secrets,
         )
 
         lane = cli_to_lane(dispatch.cli)

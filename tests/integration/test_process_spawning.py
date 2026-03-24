@@ -83,6 +83,7 @@ class TestSpawnBashGate:
             ipc_dir=str(tmp_path),
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )
@@ -109,6 +110,7 @@ class TestSpawnBashGate:
             ipc_dir=str(tmp_path),
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )
@@ -134,6 +136,7 @@ class TestSpawnBashGate:
             ipc_dir=str(tmp_path),
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )

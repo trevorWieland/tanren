@@ -35,6 +35,7 @@ _ALL_REQUIRED_ENV = {
     "WM_MAX_GATE": "3",
     "WM_WORKTREE_REGISTRY_PATH": "/tmp/data/worktrees.json",
     "WM_ROLES_CONFIG_PATH": "/tmp/roles.yml",
+    "WM_EVENTS_DB": "/tmp/events.db",
 }
 
 
@@ -127,7 +128,7 @@ class TestWorkerConfigFromEnvWithSources:
     @pytest.fixture(autouse=True)
     def _clear_wm_env(self, monkeypatch):
         """Ensure no WM_* env vars leak into source-based tests."""
-        for key in (*_REQUIRED_KEYS, "WM_ROLES_CONFIG_PATH", "WM_EVENTS_DB", "WM_REMOTE_CONFIG"):
+        for key in (*_REQUIRED_KEYS, "WM_ROLES_CONFIG_PATH", "WM_REMOTE_CONFIG"):
             monkeypatch.delenv(key, raising=False)
 
     def test_resolves_all_required_from_source(self):
@@ -156,7 +157,7 @@ class TestWorkerConfigFromEnvWithSources:
         source = _DictSource(_ALL_REQUIRED_ENV)
         load_config_env(source)
         config = WorkerConfig.from_env()
-        assert config.db_url is None
+        assert config.db_url == "/tmp/events.db"
         assert config.remote_config_path is None
 
 
@@ -248,11 +249,11 @@ class TestWorkerConfig:
         config = WorkerConfig.from_env()
         assert config.remote_config_path is None
 
-    def test_whitespace_optional_value_treated_as_none(self, monkeypatch):
+    def test_whitespace_events_db_raises(self, monkeypatch):
         _set_all_required(monkeypatch)
         monkeypatch.setenv("WM_EVENTS_DB", "   ")
-        config = WorkerConfig.from_env()
-        assert config.db_url is None
+        with pytest.raises(ValueError, match="WM_EVENTS_DB"):
+            WorkerConfig.from_env()
 
     def test_postgres_url_not_path_expanded(self, monkeypatch):
         _set_all_required(monkeypatch)

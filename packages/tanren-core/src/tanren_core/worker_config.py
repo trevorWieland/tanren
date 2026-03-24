@@ -48,11 +48,11 @@ _WC_REQUIRED_KEYS = (
     "WM_MAX_CODEX",
     "WM_MAX_GATE",
     "WM_WORKTREE_REGISTRY_PATH",
-    "WM_ROLES_CONFIG_PATH",
+    "WM_EVENTS_DB",
 )
 
 _WC_OPTIONAL_KEYS = (
-    "WM_EVENTS_DB",
+    "WM_ROLES_CONFIG_PATH",
     "WM_REMOTE_CONFIG",
     "WM_CCUSAGE_CLAUDE_CMD",
     "WM_CCUSAGE_CODEX_CMD",
@@ -71,8 +71,7 @@ class WorkerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # Storage
-    db_url: str | None = Field(
-        default=None,
+    db_url: str = Field(
         description="SQLite path or postgresql:// URL for the unified store",
     )
 
@@ -90,9 +89,9 @@ class WorkerConfig(BaseModel):
         default=".claude/commands/tanren",
         description="Relative path to tanren commands within a project",
     )
-    roles_config_path: str = Field(
-        ...,
-        description="Path to roles YAML config",
+    roles_config_path: str | None = Field(
+        default=None,
+        description="Path to roles YAML config (CLI-only, not used by daemon)",
     )
     remote_config_path: str | None = Field(
         default=None,
@@ -200,6 +199,11 @@ class WorkerConfig(BaseModel):
                 "Set them in tanren.env or as environment variables."
             )
 
+        # Guaranteed non-None by the required-key check above
+        db_url = _pg_or_expand(resolved["WM_EVENTS_DB"])
+        if db_url is None:  # pragma: no cover — can't happen after required-key validation
+            raise ValueError("WM_EVENTS_DB resolved to empty after expansion")
+
         return cls(
             ipc_dir=_expand(resolved["WM_IPC_DIR"]),
             github_dir=_expand(resolved["WM_GITHUB_DIR"]),
@@ -210,13 +214,13 @@ class WorkerConfig(BaseModel):
             opencode_path=resolved["WM_OPENCODE_PATH"],
             codex_path=resolved["WM_CODEX_PATH"],
             claude_path=resolved["WM_CLAUDE_PATH"],
-            roles_config_path=_expand(resolved["WM_ROLES_CONFIG_PATH"]),
+            roles_config_path=_expand_optional(resolved.get("WM_ROLES_CONFIG_PATH")),
             worktree_registry_path=_expand(resolved["WM_WORKTREE_REGISTRY_PATH"]),
             max_impl=int(resolved["WM_MAX_OPENCODE"]),
             max_audit=int(resolved["WM_MAX_CODEX"]),
             max_gate=int(resolved["WM_MAX_GATE"]),
             poll_interval_secs=float(resolved["WM_POLL_INTERVAL"]),
-            db_url=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
+            db_url=db_url,
             remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
             ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),
             ccusage_codex_cmd=resolved.get("WM_CCUSAGE_CODEX_CMD", "npx @ccusage/codex"),
