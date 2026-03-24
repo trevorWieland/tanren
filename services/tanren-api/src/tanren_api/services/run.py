@@ -154,6 +154,24 @@ class RunService:
 
         dispatch = dispatch_view.dispatch
 
+        # Resolve cli/auth from roles.yml when not explicitly provided
+        cli = body.cli
+        auth = body.auth
+        model = body.model
+        if cli is None:
+            from tanren_core.dispatch_resolver import resolve_agent_tool
+            from tanren_core.worker_config import WorkerConfig
+
+            config = WorkerConfig.from_env()
+            tool = resolve_agent_tool(config, body.phase)
+            cli = tool.cli
+            auth = auth or tool.auth
+            model = model or tool.model
+        if auth is None:
+            from tanren_core.roles import AuthMode
+
+            auth = AuthMode.API_KEY
+
         # Build a new Dispatch from the execute request body, preserving
         # project/branch/profile metadata from the provision-time dispatch.
         exec_dispatch = Dispatch(
@@ -164,9 +182,9 @@ class RunService:
             resolved_profile=dispatch.resolved_profile,
             phase=body.phase,
             spec_folder=body.spec_path,
-            cli=body.cli,
-            auth=body.auth,
-            model=body.model,
+            cli=cli,
+            auth=auth,
+            model=model,
             timeout=body.timeout,
             context=body.context,
             gate_cmd=body.gate_cmd,
@@ -332,11 +350,22 @@ class RunService:
         if is_cancelled or (has_error_outcome and env_status != RunEnvironmentStatus.FAILED):
             env_status = RunEnvironmentStatus.FAILED
 
+        # Derive outcome from execute steps when dispatch-level outcome is
+        # not set (MANUAL mode dispatches never auto-complete).
+        outcome = dispatch_view.outcome
+        if outcome is None:
+            exec_steps = [s for s in steps if s.step_type == StepType.EXECUTE and s.result_json]
+            if exec_steps and exec_steps[-1].result_json is not None:
+                from tanren_core.store.payloads import ExecuteResult
+
+                last = ExecuteResult.model_validate_json(exec_steps[-1].result_json)
+                outcome = last.outcome
+
         return RunStatus(
             env_id=env_id,
             dispatch_id=dispatch_view.dispatch_id,
             status=env_status,
-            outcome=dispatch_view.outcome,
+            outcome=outcome,
         )
 
     async def _find_dispatch_for_env(self, env_id: str) -> DispatchView | None:

@@ -86,8 +86,12 @@ class DispatchRequest(BaseModel):
     phase: Phase = Field(..., description="Dispatch phase type")
     branch: str = Field(..., description="Git branch name")
     spec_folder: str = Field(..., description="Relative path to spec folder")
-    cli: Cli = Field(..., description="CLI tool to use")
-    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
+    cli: Cli | None = Field(
+        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
+    )
+    auth: AuthMode | None = Field(
+        default=None, description="Authentication mode (auto-resolved if omitted)"
+    )
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution time in seconds")
     environment_profile: str = Field(default="default", description="Environment profile name")
@@ -155,12 +159,17 @@ class ExecuteRequest(BaseModel):
     project: str = Field(..., description="Project name")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
-    cli: Cli = Field(..., description="CLI tool")
-    auth: AuthMode = Field(..., description="Authentication mode")
+    cli: Cli | None = Field(
+        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
+    )
+    auth: AuthMode | None = Field(
+        default=None, description="Authentication mode (auto-resolved if omitted)"
+    )
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
     gate_cmd: str | None = Field(default=None, description="Gate command")
+    environment_profile: str = Field(default="default", description="Environment profile name")
 
 
 class RunFullRequest(BaseModel):
@@ -172,8 +181,12 @@ class RunFullRequest(BaseModel):
     branch: str = Field(..., description="Git branch")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
-    cli: Cli = Field(..., description="CLI tool")
-    auth: AuthMode = Field(..., description="Authentication mode")
+    cli: Cli | None = Field(
+        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
+    )
+    auth: AuthMode | None = Field(
+        default=None, description="Authentication mode (auto-resolved if omitted)"
+    )
     environment_profile: str = Field(default="default", description="Environment profile")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")

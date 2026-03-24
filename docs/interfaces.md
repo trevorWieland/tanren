@@ -51,9 +51,18 @@ OpenAPI spec: `services/tanren-api/openapi.json`
 
 ## MCP Server
 
-The MCP (Model Context Protocol) server exposes tanren operations as tools
-that LLM-based agents can invoke directly. It shares the same store backend
+The MCP server exposes tanren operations as tools that LLM-based agents
+(e.g. Claude Code) can invoke directly. It shares the same store backend
 as the HTTP API.
+
+- **Endpoint**: `/mcp/sse` on the same port as the API (default 8000)
+- **Authentication**: `X-API-Key` header (same key as the HTTP API)
+- **Tools**: 17 tools across dispatch, run, VM, events, and metrics domains
+- **CLI auto-resolution**: `cli`/`auth` parameters are optional — resolved
+  from `roles.yml` when omitted
+
+See [mcp-setup.md](mcp-setup.md) for full setup instructions including
+Claude Code `.mcp.json` configuration and required environment variables.
 
 ## Store Protocols
 

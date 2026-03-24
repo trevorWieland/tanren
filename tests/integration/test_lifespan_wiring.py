@@ -655,3 +655,351 @@ async def test_metrics_summary_with_time_filter(wired_client):
         headers=AUTH,
     )
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Run status outcome derivation (MANUAL mode)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_status_derives_outcome_from_execute_steps(tmp_path):
+    """RunStatus.outcome is derived from execute step result in MANUAL mode."""
+    from tanren_core.env.environment_schema import EnvironmentProfile
+    from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+    from tanren_core.store.enums import DispatchMode, cli_to_lane
+    from tanren_core.store.events import DispatchCreated
+    from tanren_core.store.handle import PersistedEnvironmentHandle
+    from tanren_core.store.payloads import ExecuteResult, ExecuteStepPayload, ProvisionResult
+
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "outcome-derivation.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        store = app.state.state_store
+        queue = app.state.job_queue
+        event_store = app.state.event_store
+        dispatch_id = "wf-derive-test-1"
+
+        # Create MANUAL dispatch (outcome stays None at dispatch level)
+        dispatch = Dispatch(
+            workflow_id=dispatch_id,
+            project="derive-test",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+            resolved_profile=EnvironmentProfile(name="default"),
+        )
+        lane = cli_to_lane(dispatch.cli)
+        await store.create_dispatch_projection(
+            dispatch_id=dispatch_id,
+            mode=DispatchMode.MANUAL,
+            lane=lane,
+            preserve_on_failure=False,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+        from datetime import UTC, datetime
+
+        await event_store.append(
+            DispatchCreated(
+                timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                workflow_id=dispatch_id,
+                dispatch=dispatch,
+                mode=DispatchMode.MANUAL,
+                lane=lane,
+            )
+        )
+
+        # Create and complete provision step
+        handle = PersistedEnvironmentHandle(
+            env_id=dispatch_id,
+            worktree_path="/tmp/test",
+            branch="main",
+            project="derive-test",
+            profile_name="default",
+            provision_timestamp=datetime.now(UTC).isoformat(),
+        )
+        prov_result = ProvisionResult(handle=handle)
+        import uuid
+
+        prov_step_id = uuid.uuid4().hex
+        from tanren_core.store.payloads import ProvisionStepPayload
+
+        await queue.enqueue_step(
+            step_id=prov_step_id,
+            dispatch_id=dispatch_id,
+            step_type="provision",
+            step_sequence=0,
+            lane=None,
+            payload_json=ProvisionStepPayload(dispatch=dispatch).model_dump_json(),
+        )
+        await queue.ack(prov_step_id, result_json=prov_result.model_dump_json())
+
+        # Create and complete execute step with outcome=success
+        exec_step_id = uuid.uuid4().hex
+        exec_payload = ExecuteStepPayload(dispatch=dispatch, handle=handle)
+        await queue.enqueue_step(
+            step_id=exec_step_id,
+            dispatch_id=dispatch_id,
+            step_type="execute",
+            step_sequence=1,
+            lane=str(lane),
+            payload_json=exec_payload.model_dump_json(),
+        )
+        exec_result = ExecuteResult(
+            outcome=Outcome.SUCCESS,
+            signal="all-done",
+            exit_code=0,
+            duration_secs=10,
+        )
+        await queue.ack(exec_step_id, result_json=exec_result.model_dump_json())
+
+        # Status should derive outcome from execute step
+        resp = await client.get(
+            f"/api/v1/run/{dispatch_id}/status",
+            headers=AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["outcome"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_run_provision_status_flow(wired_client):
+    """Provision a run env and verify status polling returns expected shape."""
+    resp = await wired_client.post(
+        "/api/v1/run/provision",
+        json={
+            "project": "status-flow",
+            "branch": "main",
+            "resolved_profile": {"name": "default"},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    env_id = resp.json()["env_id"]
+
+    # Verify status polling returns consistent data
+    status_resp = await wired_client.get(
+        f"/api/v1/run/{env_id}/status",
+        headers=AUTH,
+    )
+    assert status_resp.status_code == 200
+    data = status_resp.json()
+    assert data["env_id"] == env_id
+    assert data["dispatch_id"]
+    assert data["status"] in ("provisioning", "provisioned", "failed")
+    # Outcome should be None before completion
+    assert data["outcome"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_full_without_cli(wired_client):
+    """Run full without explicit cli should still accept (cli=None defaults in model)."""
+    resp = await wired_client.post(
+        "/api/v1/run/full",
+        json={
+            "project": "no-cli-test",
+            "branch": "main",
+            "spec_path": "specs/test",
+            "phase": "gate",
+            "resolved_profile": {"name": "default"},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "dispatch_id" in data
+
+
+@pytest.mark.asyncio
+async def test_dispatch_create_without_cli(wired_client):
+    """Dispatch create without cli should accept (auto-resolved for gate)."""
+    resp = await wired_client.post(
+        "/api/v1/dispatch",
+        json={
+            "project": "no-cli-dispatch",
+            "phase": "gate",
+            "branch": "main",
+            "spec_folder": "specs/test",
+            "resolved_profile": {"name": "default"},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "dispatch_id" in data
+
+
+@pytest.mark.asyncio
+async def test_metrics_summary_after_phase_events(tmp_path):
+    """Metrics summary counts events correctly."""
+
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "metrics-events.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        store = app.state.event_store
+        from datetime import UTC, datetime
+
+        from tanren_core.adapters.events import PhaseCompleted
+
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        await store.append(
+            PhaseCompleted(
+                timestamp=now,
+                workflow_id="wf-metrics-test-1",
+                phase="do-task",
+                project="metrics-proj",
+                outcome="success",
+                signal="all-done",
+                duration_secs=120,
+                exit_code=0,
+            )
+        )
+        await store.append(
+            PhaseCompleted(
+                timestamp=now,
+                workflow_id="wf-metrics-test-2",
+                phase="gate",
+                project="metrics-proj",
+                outcome="fail",
+                signal=None,
+                duration_secs=30,
+                exit_code=1,
+            )
+        )
+
+        resp = await client.get("/api/v1/metrics/summary", headers=AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_phases"] == 2
+        assert data["succeeded"] == 1
+        assert data["failed"] == 1
+        assert data["success_rate"] == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_metrics_costs_with_token_events(tmp_path):
+    """Metrics costs returns cost buckets when token events exist."""
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "metrics-costs.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        store = app.state.event_store
+        from datetime import UTC, datetime
+
+        from tanren_core.adapters.events import TokenUsageRecorded
+
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        await store.append(
+            TokenUsageRecorded(
+                timestamp=now,
+                workflow_id="wf-cost-test-1",
+                phase="do-task",
+                project="cost-proj",
+                cli="claude",
+                input_tokens=1000,
+                output_tokens=500,
+                total_tokens=1500,
+                total_cost=0.05,
+                models_used=["claude-4-sonnet"],
+            )
+        )
+
+        resp = await client.get("/api/v1/metrics/costs", headers=AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["buckets"]) > 0
+        assert data["total_cost"] > 0
+        assert data["total_tokens"] == 1500
+
+        # Test group_by=day
+        resp = await client.get("/api/v1/metrics/costs?group_by=day", headers=AUTH)
+        assert resp.status_code == 200
+        assert resp.json()["group_by"] == "day"
+
+        # Test group_by=workflow
+        resp = await client.get("/api/v1/metrics/costs?group_by=workflow", headers=AUTH)
+        assert resp.status_code == 200
+        assert resp.json()["group_by"] == "workflow"
+
+
+@pytest.mark.asyncio
+async def test_metrics_vms_with_events(tmp_path):
+    """Metrics VMs returns counts when VM events exist."""
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "metrics-vms.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        store = app.state.event_store
+        from datetime import UTC, datetime
+
+        from tanren_core.adapters.events import VMProvisioned, VMReleased
+        from tanren_core.adapters.remote_types import VMProvider
+
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        await store.append(
+            VMProvisioned(
+                timestamp=now,
+                workflow_id="wf-vm-test-1",
+                vm_id="vm-123",
+                host="1.2.3.4",
+                provider=VMProvider.HETZNER,
+                project="vm-proj",
+                profile="default",
+                hourly_cost=0.05,
+            )
+        )
+        await store.append(
+            VMReleased(
+                timestamp=now,
+                workflow_id="wf-vm-test-1",
+                vm_id="vm-123",
+                project="vm-proj",
+                duration_secs=3600,
+                estimated_cost=0.05,
+            )
+        )
+
+        resp = await client.get("/api/v1/metrics/vms", headers=AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_provisioned"] == 1
+        assert data["total_released"] == 1
+        assert data["currently_active"] == 0
+        assert data["by_provider"]["hetzner"] == 1

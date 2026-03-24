@@ -64,7 +64,7 @@ uv run tanren run full --project rentl --branch tanren-test-validation \
 
 Expected: `outcome: success`, `exit_code: 0`
 
-### T1-remote: Provision + execute + teardown
+### T1-remote (CLI): Provision + execute + teardown
 
 ```bash
 # Provision
@@ -104,6 +104,61 @@ git log origin/tanren-test-validation -1
 # T1e: Teardown
 uv run tanren run teardown --dispatch-id $DISPATCH_ID
 # Expected: teardown: completed, VM unreachable
+```
+
+### T1-remote (API): Same tests via HTTP
+
+Start API and daemon first:
+
+```bash
+# In terminal 1: start API
+TANREN_API_PORT=8199 TANREN_API_API_KEY=test-key uv run tanren-api
+
+# In terminal 2: start daemon
+uv run tanren-daemon
+```
+
+```bash
+API=http://localhost:8199/api/v1
+KEY="X-API-Key: test-key"
+
+# T1-provision: Provision VM
+curl -s -X POST "$API/run/provision" -H "$KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"project":"rentl","branch":"tanren-test-validation","resolved_profile":{"name":"default"}}' \
+  | jq .
+# → Note env_id
+
+# T1a-remote: Secret injection via API
+curl -s -X POST "$API/run/$ENV_ID/execute" -H "$KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"project":"rentl","spec_path":"tanren/specs/tanren-validation-test","phase":"gate","gate_cmd":"printenv RENTL_OPENROUTER_API_KEY | head -c 10","timeout":60}'
+# Expected: status 200
+
+# T1a-neg-remote: Missing var via API
+curl -s -X POST "$API/run/$ENV_ID/execute" -H "$KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"project":"rentl","spec_path":"tanren/specs/tanren-validation-test","phase":"gate","gate_cmd":"printenv FAKE_VAR_XYZ","timeout":60}'
+# Expected: status 200, outcome=fail via events
+
+# T1b-remote: Gate make check via API
+curl -s -X POST "$API/run/$ENV_ID/execute" -H "$KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"project":"rentl","spec_path":"tanren/specs/tanren-validation-test","phase":"gate","gate_cmd":"make check","timeout":300}'
+
+# T1c-remote: Claude auth exec via API
+curl -s -X POST "$API/run/$ENV_ID/execute" -H "$KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"project":"rentl","spec_path":"tanren/specs/tanren-validation-test","phase":"do-task","timeout":300}'
+
+# Poll status
+curl -s "$API/run/$ENV_ID/status" -H "$KEY" | jq .
+
+# Query events for the dispatch
+curl -s "$API/events?workflow_id=$ENV_ID" -H "$KEY" | jq '.events[] | {type: .type, timestamp}'
+
+# T1e-remote: Teardown via API
+curl -s -X POST "$API/run/$ENV_ID/teardown" -H "$KEY" | jq .
 ```
 
 ### T1-db-audit: No secrets in payload

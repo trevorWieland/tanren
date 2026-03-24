@@ -393,33 +393,31 @@ class SqliteStore:
 
         Teardown steps are excluded so resource cleanup still runs.
         """
-        conn = await self._ensure_conn()
         now = _now()
-        cursor = await conn.execute(
-            "UPDATE step_projection "
-            "SET status = 'cancelled', updated_at = ? "
-            "WHERE dispatch_id = ? AND status = 'pending' "
-            "AND step_type != 'teardown'",
-            (now, dispatch_id),
-        )
-        await conn.commit()
-        return cursor.rowcount
+        async with self._transaction() as conn:
+            cursor = await conn.execute(
+                "UPDATE step_projection "
+                "SET status = 'cancelled', updated_at = ? "
+                "WHERE dispatch_id = ? AND status = 'pending' "
+                "AND step_type != 'teardown'",
+                (now, dispatch_id),
+            )
+            return cursor.rowcount
 
     async def recover_stale_steps(self, *, timeout_secs: int = 300) -> int:
         """Reset running steps older than timeout_secs back to pending."""
-        conn = await self._ensure_conn()
         now = _now()
         cutoff = (
             (datetime.now(UTC) - timedelta(seconds=timeout_secs)).isoformat().replace("+00:00", "Z")
         )
-        cursor = await conn.execute(
-            "UPDATE step_projection "
-            "SET status = 'pending', worker_id = NULL, updated_at = ? "
-            "WHERE status = 'running' AND updated_at < ?",
-            (now, cutoff),
-        )
-        await conn.commit()
-        return cursor.rowcount
+        async with self._transaction() as conn:
+            cursor = await conn.execute(
+                "UPDATE step_projection "
+                "SET status = 'pending', worker_id = NULL, updated_at = ? "
+                "WHERE status = 'running' AND updated_at < ?",
+                (now, cutoff),
+            )
+            return cursor.rowcount
 
     async def nack(
         self,

@@ -129,32 +129,54 @@ class Worker:
         env, _vm_store = self._env_factory(self._config, profile)
         return env
 
-    async def run(self) -> None:
-        """Start lane consumers and run until shutdown."""
-        tasks = [
+    def _build_consumer_tasks(self) -> list[asyncio.Task[None]]:
+        """Build lane consumer tasks, spawning multiple per lane for parallelism.
+
+        The DB-level ``max_concurrent`` check in ``dequeue()`` prevents
+        over-dequeuing, so multiple consumers safely compete.
+        """
+        tasks: list[asyncio.Task[None]] = [
             asyncio.create_task(
                 self._lane_consumer(None, self._config.max_provision),
-                name="infra-consumer",
-            ),
+                name=f"infra-consumer-{i}",
+            )
+            for i in range(self._config.max_provision)
+        ]
+        tasks.extend(
             asyncio.create_task(
                 self._lane_consumer(Lane.IMPL, self._config.max_impl),
-                name="impl-consumer",
-            ),
+                name=f"impl-consumer-{i}",
+            )
+            for i in range(self._config.max_impl)
+        )
+        tasks.extend(
             asyncio.create_task(
                 self._lane_consumer(Lane.AUDIT, self._config.max_audit),
-                name="audit-consumer",
-            ),
+                name=f"audit-consumer-{i}",
+            )
+            for i in range(self._config.max_audit)
+        )
+        tasks.extend(
             asyncio.create_task(
                 self._lane_consumer(Lane.GATE, self._config.max_gate),
-                name="gate-consumer",
-            ),
-        ]
+                name=f"gate-consumer-{i}",
+            )
+            for i in range(self._config.max_gate)
+        )
+        return tasks
+
+    async def run(self) -> None:
+        """Start lane consumers and run until shutdown."""
+        tasks = self._build_consumer_tasks()
         try:
             await asyncio.gather(*tasks)
         except asyncio.CancelledError:
             pass
         finally:
-            for t in tasks:
+            self._shutdown.set()
+            # Let in-flight steps finish (consumers check _shutdown at loop top)
+            _done, pending = await asyncio.wait(tasks, timeout=60)
+            for t in pending:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -163,24 +185,7 @@ class Worker:
 
         Used by the CLI's embedded worker.
         """
-        tasks = [
-            asyncio.create_task(
-                self._lane_consumer(None, self._config.max_provision),
-                name="infra-consumer",
-            ),
-            asyncio.create_task(
-                self._lane_consumer(Lane.IMPL, self._config.max_impl),
-                name="impl-consumer",
-            ),
-            asyncio.create_task(
-                self._lane_consumer(Lane.AUDIT, self._config.max_audit),
-                name="audit-consumer",
-            ),
-            asyncio.create_task(
-                self._lane_consumer(Lane.GATE, self._config.max_gate),
-                name="gate-consumer",
-            ),
-        ]
+        tasks = self._build_consumer_tasks()
 
         try:
             while not self._shutdown.is_set():
@@ -194,7 +199,10 @@ class Worker:
                     break
                 await asyncio.sleep(0.5)
         finally:
-            for t in tasks:
+            self._shutdown.set()
+            # Let in-flight steps finish (consumers check _shutdown at loop top)
+            _done, pending = await asyncio.wait(tasks, timeout=60)
+            for t in pending:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -204,24 +212,7 @@ class Worker:
         Used by the CLI's embedded worker for individual lifecycle steps
         (provision, execute, teardown).
         """
-        tasks = [
-            asyncio.create_task(
-                self._lane_consumer(None, self._config.max_provision),
-                name="infra-consumer",
-            ),
-            asyncio.create_task(
-                self._lane_consumer(Lane.IMPL, self._config.max_impl),
-                name="impl-consumer",
-            ),
-            asyncio.create_task(
-                self._lane_consumer(Lane.AUDIT, self._config.max_audit),
-                name="audit-consumer",
-            ),
-            asyncio.create_task(
-                self._lane_consumer(Lane.GATE, self._config.max_gate),
-                name="gate-consumer",
-            ),
-        ]
+        tasks = self._build_consumer_tasks()
 
         try:
             while not self._shutdown.is_set():
@@ -237,7 +228,10 @@ class Worker:
                     break
                 await asyncio.sleep(0.5)
         finally:
-            for t in tasks:
+            self._shutdown.set()
+            # Let in-flight steps finish (consumers check _shutdown at loop top)
+            _done, pending = await asyncio.wait(tasks, timeout=60)
+            for t in pending:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 

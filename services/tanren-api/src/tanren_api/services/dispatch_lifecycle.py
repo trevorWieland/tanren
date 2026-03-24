@@ -7,11 +7,35 @@ import uuid
 from datetime import UTC, datetime
 
 from tanren_api.models import DispatchAccepted, DispatchRequest
-from tanren_core.schemas import Dispatch
+from tanren_core.roles import AuthMode
+from tanren_core.schemas import Cli, Dispatch
 from tanren_core.store.enums import DispatchMode, cli_to_lane
 from tanren_core.store.events import DispatchCreated
 from tanren_core.store.payloads import ProvisionStepPayload
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+
+
+def _resolve_cli_auth(body: DispatchRequest) -> tuple[Cli, AuthMode, str | None]:
+    """Resolve cli/auth/model from roles.yml when not explicitly provided.
+
+    Returns:
+        Tuple of (cli, auth, model).
+    """
+    cli = body.cli
+    auth = body.auth
+    model = body.model
+    if cli is None:
+        from tanren_core.dispatch_resolver import resolve_agent_tool
+        from tanren_core.worker_config import WorkerConfig
+
+        config = WorkerConfig.from_env()
+        tool = resolve_agent_tool(config, body.phase)
+        cli = tool.cli
+        auth = auth or tool.auth
+        model = model or tool.model
+    if auth is None:
+        auth = AuthMode.API_KEY
+    return cli, auth, model
 
 
 async def create_dispatch_from_request(
@@ -30,15 +54,17 @@ async def create_dispatch_from_request(
     issue = body.issue if body.issue != "0" else str(epoch)
     workflow_id = f"wf-{body.project}-{issue}-{epoch}"
 
+    cli, auth, model = _resolve_cli_auth(body)
+
     dispatch = Dispatch(
         workflow_id=workflow_id,
         project=body.project,
         phase=body.phase,
         branch=body.branch,
         spec_folder=body.spec_folder,
-        cli=body.cli,
-        auth=body.auth,
-        model=body.model,
+        cli=cli,
+        auth=auth,
+        model=model,
         timeout=body.timeout,
         environment_profile=body.resolved_profile.name,
         context=body.context,
@@ -50,7 +76,7 @@ async def create_dispatch_from_request(
         required_secrets=body.required_secrets,
     )
 
-    lane = cli_to_lane(body.cli)
+    lane = cli_to_lane(cli)
 
     await state_store.create_dispatch_projection(
         dispatch_id=workflow_id,

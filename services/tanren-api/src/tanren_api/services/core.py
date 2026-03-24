@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
+import os
 import time
 from typing import TYPE_CHECKING
 
@@ -75,11 +76,13 @@ class ConfigService:
         except importlib.metadata.PackageNotFoundError:
             version = "unknown"
 
+        remote_enabled = bool(os.environ.get("WM_REMOTE_CONFIG", "").strip())
+
         return ConfigResponse(
             db_backend=db_backend,
             store_connected=store_connected,
             worker_lanes={"impl": 1, "audit": 1, "gate": 3, "provision": 10},
-            remote_enabled=False,
+            remote_enabled=remote_enabled,
             version=version,
         )
 

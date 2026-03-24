@@ -34,6 +34,7 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_core.dispatch_resolver import (
+    resolve_agent_tool,
     resolve_cloud_secrets,
     resolve_profile,
     resolve_project_env,
@@ -165,9 +166,10 @@ async def readiness_check() -> ReadinessResponse:
         "Submit a new dispatch — a request to run a coding agent against a "
         "project spec. Returns a dispatch_id for status polling via "
         "dispatch_get_status. The dispatch is executed asynchronously.\n\n"
-        "Required fields: project, phase, branch, spec_folder, cli.\n"
-        "Phases: do-task, review, gate, sweep.\n"
-        "CLIs: claude, codex, opencode."
+        "Required fields: project, phase, branch, spec_folder.\n"
+        "Phases: do-task, audit-task, run-demo, audit-spec, investigate, gate.\n"
+        "CLIs: claude, opencode, codex, bash. "
+        "If cli is omitted, auto-resolved from roles.yml for the given phase.\n"
     ),
 )
 async def dispatch_create(
@@ -175,7 +177,8 @@ async def dispatch_create(
     phase: Phase,
     branch: str,
     spec_folder: str,
-    cli: Cli,
+    cli: Cli | None = None,
+    auth: AuthMode | None = None,
     model: str | None = None,
     timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
@@ -192,13 +195,27 @@ async def dispatch_create(
 
     config = _config()
     profile = resolve_profile(config, project, environment_profile)
+
+    # Auto-resolve cli/auth from roles.yml when not provided
+    resolved_cli = cli
+    resolved_auth = auth
+    resolved_model = model
+    if resolved_cli is None:
+        tool = resolve_agent_tool(config, phase)
+        resolved_cli = tool.cli
+        resolved_auth = resolved_auth or tool.auth
+        resolved_model = resolved_model or tool.model
+    if resolved_auth is None:
+        resolved_auth = AuthMode.API_KEY
+
     body = DispatchRequest(
         project=project,
         phase=phase,
         branch=branch,
         spec_folder=spec_folder,
-        cli=cli,
-        model=model,
+        cli=resolved_cli,
+        auth=resolved_auth,
+        model=resolved_model,
         timeout=timeout,
         context=context,
         gate_cmd=gate_cmd,
@@ -348,6 +365,9 @@ async def vm_dry_run(
         branch=branch,
         environment_profile=environment_profile,
         resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
     )
     return await _svc().vm.dry_run(body)
 
@@ -402,7 +422,9 @@ async def run_provision(
     description=(
         "Execute a phase against an already-provisioned environment. "
         "The environment must be in 'provisioned' or 'completed' status. "
-        "Returns a dispatch_id for tracking."
+        "Returns a dispatch_id for tracking.\n\n"
+        "Required fields: env_id, project, spec_path, phase. "
+        "If cli is omitted, auto-resolved from roles.yml."
     ),
 )
 async def run_execute(
@@ -410,8 +432,8 @@ async def run_execute(
     project: str,
     spec_path: str,
     phase: Phase,
-    cli: Cli,
-    auth: AuthMode = AuthMode.API_KEY,
+    cli: Cli | None = None,
+    auth: AuthMode | None = None,
     model: str | None = None,
     timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
@@ -460,7 +482,9 @@ async def run_teardown(env_id: str) -> RunTeardownAccepted:
         "teardown — all in one call. This is the recommended tool for "
         "most use cases. Returns a dispatch_id for status polling via "
         "dispatch_get_status.\n\n"
-        "Required fields: project, branch, spec_path, phase, cli, auth."
+        "Required fields: project, branch, spec_path, phase. "
+        "cli/auth are auto-resolved from roles.yml when omitted. "
+        "environment_profile defaults to 'default'."
     ),
 )
 async def run_full(
@@ -468,8 +492,8 @@ async def run_full(
     branch: str,
     spec_path: str,
     phase: Phase,
-    cli: Cli,
-    auth: AuthMode = AuthMode.API_KEY,
+    cli: Cli | None = None,
+    auth: AuthMode | None = None,
     environment_profile: str = "default",
     timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
@@ -484,13 +508,24 @@ async def run_full(
 
     config = _config()
     profile = resolve_profile(config, project, environment_profile)
+
+    # Auto-resolve cli/auth from roles.yml when not provided
+    resolved_cli = cli
+    resolved_auth = auth
+    if resolved_cli is None:
+        tool = resolve_agent_tool(config, phase)
+        resolved_cli = tool.cli
+        resolved_auth = resolved_auth or tool.auth
+    if resolved_auth is None:
+        resolved_auth = AuthMode.API_KEY
+
     body = RunFullRequest(
         project=project,
         branch=branch,
         spec_path=spec_path,
         phase=phase,
-        cli=cli,
-        auth=auth,
+        cli=resolved_cli,
+        auth=resolved_auth,
         environment_profile=environment_profile,
         timeout=timeout,
         context=context,

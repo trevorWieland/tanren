@@ -6,6 +6,7 @@ services:
       dockerfile: services/tanren-api/Dockerfile
     ports:
       - "${TANREN_API_PORT:-8000}:8000"
+    # MCP server available at /mcp/sse on the same port
     env_file:
       - api.env
     volumes:

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from tanren_api.auth import verify_api_key
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
 from tanren_api.mcp_auth import MCPApiKeyAuth
-from tanren_api.mcp_server import mcp, set_services
+from tanren_api.mcp_server import mcp, set_services, set_worker_config
 from tanren_api.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 from tanren_api.routers import config as config_router_mod
 from tanren_api.routers import dispatch as dispatch_router_mod
@@ -33,6 +33,7 @@ from tanren_api.services import (
 )
 from tanren_api.settings import APISettings
 from tanren_core.store.factory import create_store
+from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,16 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             events=events_svc,
             metrics=metrics_svc,
         )
+
+        try:
+            wc = WorkerConfig.from_env()
+            set_worker_config(wc)
+            logger.info("MCP dispatch resolution configured from WM_* env vars")
+        except ValueError:
+            logger.warning(
+                "WM_* env vars not set — MCP dispatch resolution will fail. "
+                "Set WM_GITHUB_DIR, WM_REMOTE_CONFIG, etc. in the API environment."
+            )
 
         # NOTE: FastMCP's http_app() has its own lifespan, but we don't
         # invoke it here because it uses anyio cancel scopes that conflict

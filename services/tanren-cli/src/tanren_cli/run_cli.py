@@ -291,6 +291,7 @@ def run_execute(
 
         db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
+        execution_env = None
 
         try:
             # Read provision result from store
