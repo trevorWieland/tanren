@@ -61,6 +61,32 @@ _SSH_READY_TIMEOUT_SECS = 300
 _SSH_READY_POLL_SECS = 3
 
 
+# Per-CLI auth secrets: at least one key in each group must be resolved.
+# Bash/gate dispatches have no auth requirements.
+_CLI_AUTH_GROUPS: dict[Cli, tuple[tuple[str, ...], ...]] = {
+    Cli.CLAUDE: (("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CREDENTIALS_JSON"),),
+    Cli.OPENCODE: (("OPENCODE_ZAI_API_KEY",),),
+    Cli.CODEX: (("CODEX_AUTH_JSON",),),
+}
+
+
+def _validate_cli_auth(cli: Cli, resolved: dict[str, str]) -> None:
+    """Ensure at least one auth secret was resolved for the dispatch CLI.
+
+    Raises:
+        RuntimeError: If no auth secret is available for the CLI.
+    """
+    groups = _CLI_AUTH_GROUPS.get(cli)
+    if groups is None:
+        return  # bash/gate — no auth needed
+    for group in groups:
+        if not any(name in resolved for name in group):
+            names = " or ".join(group)
+            raise RuntimeError(
+                f"No auth secret resolved for {cli.value}: need {names} in daemon environment"
+            )
+
+
 def _extract_signal_token(
     command_name: str,
     signal_content: str,
@@ -252,12 +278,21 @@ class SSHExecutionEnvironment:
             developer_overrides: dict[str, str] | None = None
             if dispatch.required_secrets:
                 resolved: dict[str, str] = {}
+                missing: list[str] = []
                 for name in dispatch.required_secrets:
                     value = os.environ.get(name, "")
                     if value:
                         resolved[name] = value
                     else:
-                        logger.warning("Required secret %s not found in daemon environment", name)
+                        missing.append(name)
+                if missing:
+                    logger.warning(
+                        "Secrets not found in daemon environment: %s",
+                        ", ".join(missing),
+                    )
+                # Validate CLI auth: at least one secret must be
+                # resolvable for the dispatch's CLI.
+                _validate_cli_auth(dispatch.cli, resolved)
                 developer_overrides = resolved
 
             project_env = dispatch.project_env

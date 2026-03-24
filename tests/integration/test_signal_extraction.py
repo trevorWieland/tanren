@@ -1,6 +1,9 @@
-"""Integration tests for remote signal extraction helper."""
+"""Integration tests for remote signal extraction and auth validation."""
 
-from tanren_core.adapters.ssh_environment import _extract_signal_token
+import pytest
+
+from tanren_core.adapters.ssh_environment import _extract_signal_token, _validate_cli_auth
+from tanren_core.schemas import Cli
 
 
 class TestExtractSignalTokenIntegration:
@@ -31,3 +34,26 @@ class TestExtractSignalTokenIntegration:
             "do-task", "do-task-status: blocked", "do-task-status: complete"
         )
         assert token == "blocked"
+
+
+class TestValidateCliAuthIntegration:
+    """Verify CLI auth validation for all supported CLIs."""
+
+    def test_claude_requires_at_least_one_auth(self):
+        _validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CODE_OAUTH_TOKEN": "tok"})
+        _validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CREDENTIALS_JSON": "{}"})
+        with pytest.raises(RuntimeError):
+            _validate_cli_auth(Cli.CLAUDE, {})
+
+    def test_opencode_requires_api_key(self):
+        _validate_cli_auth(Cli.OPENCODE, {"OPENCODE_ZAI_API_KEY": "key"})
+        with pytest.raises(RuntimeError):
+            _validate_cli_auth(Cli.OPENCODE, {})
+
+    def test_codex_requires_auth_json(self):
+        _validate_cli_auth(Cli.CODEX, {"CODEX_AUTH_JSON": "{}"})
+        with pytest.raises(RuntimeError):
+            _validate_cli_auth(Cli.CODEX, {})
+
+    def test_bash_needs_no_auth(self):
+        _validate_cli_auth(Cli.BASH, {})

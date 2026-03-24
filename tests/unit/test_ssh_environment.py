@@ -21,6 +21,7 @@ from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.ssh_environment import (
     SSHExecutionEnvironment,
     _extract_signal_token,
+    _validate_cli_auth,
 )
 from tanren_core.adapters.types import (
     AccessInfo,
@@ -877,6 +878,42 @@ class TestExtractSignalToken:
 
     def test_empty_everything(self):
         assert _extract_signal_token("do-task", "", "") is None
+
+
+class TestValidateCliAuth:
+    def test_claude_oauth_token_sufficient(self):
+        _validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CODE_OAUTH_TOKEN": "tok"})
+
+    def test_claude_credentials_json_sufficient(self):
+        _validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CREDENTIALS_JSON": "{}"})
+
+    def test_claude_both_present(self):
+        _validate_cli_auth(
+            Cli.CLAUDE,
+            {"CLAUDE_CODE_OAUTH_TOKEN": "tok", "CLAUDE_CREDENTIALS_JSON": "{}"},
+        )
+
+    def test_claude_neither_raises(self):
+        with pytest.raises(RuntimeError, match="No auth secret resolved for claude"):
+            _validate_cli_auth(Cli.CLAUDE, {})
+
+    def test_opencode_present(self):
+        _validate_cli_auth(Cli.OPENCODE, {"OPENCODE_ZAI_API_KEY": "key"})
+
+    def test_opencode_missing_raises(self):
+        with pytest.raises(RuntimeError, match="No auth secret resolved for opencode"):
+            _validate_cli_auth(Cli.OPENCODE, {})
+
+    def test_codex_missing_raises(self):
+        with pytest.raises(RuntimeError, match="No auth secret resolved for codex"):
+            _validate_cli_auth(Cli.CODEX, {})
+
+    def test_bash_no_auth_needed(self):
+        _validate_cli_auth(Cli.BASH, {})
+
+    def test_unrelated_secrets_dont_satisfy(self):
+        with pytest.raises(RuntimeError, match="No auth secret resolved for claude"):
+            _validate_cli_auth(Cli.CLAUDE, {"SOME_OTHER_KEY": "val"})
 
 
 class TestSignalExtraction:
