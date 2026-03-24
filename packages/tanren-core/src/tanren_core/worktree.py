@@ -11,15 +11,23 @@ from tanren_core.schemas import WorktreeEntry, WorktreeRegistry
 
 
 async def atomic_write(path: Path, content: str) -> None:
-    """Write content atomically: write .tmp, fsync, rename."""
+    """Write content atomically: write unique tmp, fsync, rename."""
 
     def _write() -> None:
-        tmp_path = path.with_suffix(".tmp")
-        with open(tmp_path, "w") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        tmp_path.rename(path)
+        import tempfile  # noqa: PLC0415
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(path.parent), prefix=f".{path.stem}_", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            Path(tmp_name).rename(path)
+        except BaseException:
+            Path(tmp_name).unlink(missing_ok=True)
+            raise
 
     await asyncio.to_thread(_write)
 
