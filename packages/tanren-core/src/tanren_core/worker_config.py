@@ -215,6 +215,7 @@ class WorkerConfig(BaseModel):
             max_impl=int(resolved["WM_MAX_OPENCODE"]),
             max_audit=int(resolved["WM_MAX_CODEX"]),
             max_gate=int(resolved["WM_MAX_GATE"]),
+            poll_interval_secs=float(resolved["WM_POLL_INTERVAL"]),
             db_url=_pg_or_expand(resolved.get("WM_EVENTS_DB")),
             remote_config_path=_expand_optional(resolved.get("WM_REMOTE_CONFIG")),
             ccusage_claude_cmd=resolved.get("WM_CCUSAGE_CLAUDE_CMD", "npx ccusage"),

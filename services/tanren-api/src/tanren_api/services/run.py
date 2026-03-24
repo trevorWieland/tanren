@@ -67,7 +67,7 @@ class RunService:
         """
         req = body
         epoch = time.time_ns()
-        workflow_id = f"wf-{req.project}-run-{epoch}"
+        workflow_id = f"wf-{req.project}-{epoch}"
 
         dispatch = Dispatch(
             workflow_id=workflow_id,
@@ -179,13 +179,15 @@ class RunService:
 
         lane = cli_to_lane(exec_dispatch.cli)
 
+        # Compute next sequence number for multi-phase support
+        max_seq = max((s.step_sequence for s in steps), default=0)
         step_id = uuid.uuid4().hex
         payload = ExecuteStepPayload(dispatch=exec_dispatch, handle=prov_result.handle)
         await self._job_queue.enqueue_step(
             step_id=step_id,
             dispatch_id=dispatch_view.dispatch_id,
             step_type="execute",
-            step_sequence=1,
+            step_sequence=max_seq + 1,
             lane=str(lane),
             payload_json=payload.model_dump_json(),
         )
@@ -215,6 +217,13 @@ class RunService:
         )
         if provision_step is None or provision_step.result_json is None:
             raise ServiceError("Provision step not completed — cannot teardown")
+
+        # Guard: block teardown while execute is still active
+        if any(
+            s.step_type == StepType.EXECUTE and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
+            for s in steps
+        ):
+            raise ServiceError("Cannot teardown while execute is in progress")
 
         # Guard: prevent concurrent teardown steps (allow retry after failure)
         if any(

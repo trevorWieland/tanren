@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from tanren_api.errors import ConflictError, NotFoundError
 from tanren_api.models import (
@@ -13,8 +14,9 @@ from tanren_api.models import (
     DispatchRunStatus,
 )
 from tanren_api.services.dispatch_lifecycle import create_dispatch_from_request
-from tanren_core.store.enums import DispatchStatus
+from tanren_core.store.enums import DispatchStatus, StepStatus, StepType
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.views import DispatchView
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +111,40 @@ class DispatchService:
         await self._state_store.update_dispatch_status(dispatch_id, DispatchStatus.CANCELLED)
 
         # Cancel pending forward-progress steps (teardowns preserved).
-        # Not atomic with status update, but safe: if this fails, the
-        # CANCELLED status + worker auto-chain guards prevent new steps
-        # from being chained.
         await self._job_queue.cancel_pending_steps(dispatch_id)
 
+        # If provision already completed, enqueue cleanup teardown so
+        # remote VMs/workspaces are released
+        await self._enqueue_cancel_teardown(dispatch_id, view)
+
         return DispatchCancelled(dispatch_id=dispatch_id)
+
+    async def _enqueue_cancel_teardown(self, dispatch_id: str, view: DispatchView) -> None:
+        """Enqueue cleanup teardown if provision completed but no teardown exists."""
+        from tanren_core.store.payloads import ProvisionResult, TeardownStepPayload
+
+        steps = await self._state_store.get_steps_for_dispatch(dispatch_id)
+        prov = next(
+            (
+                s
+                for s in steps
+                if s.step_type == StepType.PROVISION
+                and s.status == StepStatus.COMPLETED
+                and s.result_json
+            ),
+            None,
+        )
+        if prov is None or any(s.step_type == StepType.TEARDOWN for s in steps):
+            return
+        assert prov.result_json is not None
+        prov_result = ProvisionResult.model_validate_json(prov.result_json)
+        await self._job_queue.enqueue_step(
+            step_id=uuid.uuid4().hex,
+            dispatch_id=dispatch_id,
+            step_type="teardown",
+            step_sequence=2,
+            lane=None,
+            payload_json=TeardownStepPayload(
+                dispatch=view.dispatch, handle=prov_result.handle
+            ).model_dump_json(),
+        )
