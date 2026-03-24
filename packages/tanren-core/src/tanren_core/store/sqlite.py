@@ -231,12 +231,13 @@ class SqliteStore:
                 await conn.rollback()
                 return None
 
-            # Exclude steps from cancelled dispatches to prevent race
-            # between cancel() and dequeue()
+            # Exclude forward-progress steps from cancelled dispatches but
+            # still allow teardown through (cleanup must always run)
             cols = "s.step_id, s.dispatch_id, s.step_type, s.step_sequence, s.lane, s.payload_json"
             cancelled_filter = (
                 "JOIN dispatch_projection d ON s.dispatch_id = d.dispatch_id "
-                "WHERE s.status = 'pending' AND d.status != 'cancelled'"
+                "WHERE s.status = 'pending' "
+                "AND (d.status != 'cancelled' OR s.step_type = 'teardown')"
             )
             if lane is not None:
                 cursor = await conn.execute(

@@ -231,11 +231,13 @@ class PostgresStore:
             if running >= max_concurrent:
                 return None
 
-            # Select pending step, excluding cancelled dispatches
+            # Exclude forward-progress steps from cancelled dispatches but
+            # still allow teardown through (cleanup must always run)
             cols = "s.step_id, s.dispatch_id, s.step_type, s.step_sequence, s.lane, s.payload_json"
             cancelled_filter = (
                 "JOIN dispatch_projection d ON s.dispatch_id = d.dispatch_id "
-                "WHERE s.status = 'pending' AND d.status != 'cancelled'"
+                "WHERE s.status = 'pending' "
+                "AND (d.status != 'cancelled' OR s.step_type = 'teardown')"
             )
             if lane is not None:
                 row = await conn.fetchrow(

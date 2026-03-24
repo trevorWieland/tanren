@@ -197,11 +197,10 @@ class Worker:
         try:
             while not self._shutdown.is_set():
                 steps = await self._state_store.get_steps_for_dispatch(dispatch_id)
-                matching = next(
-                    (s for s in steps if s.step_type == step_type),
-                    None,
-                )
-                if matching and matching.status in (
+                # Find the latest step of the requested type (highest sequence/creation)
+                matching = [s for s in steps if s.step_type == step_type]
+                latest = matching[-1] if matching else None
+                if latest and latest.status in (
                     StepStatus.COMPLETED,
                     StepStatus.FAILED,
                 ):
@@ -571,12 +570,10 @@ class Worker:
         )
         await self._job_queue.ack(step.step_id, result_json=result.model_dump_json())
 
-        # Determine final outcome from the execute step
+        # Determine final outcome from the latest execute step
         steps = await self._state_store.get_steps_for_dispatch(dispatch.workflow_id)
-        execute_step = next(
-            (s for s in steps if s.step_type == StepType.EXECUTE),
-            None,
-        )
+        exec_steps = [s for s in steps if s.step_type == StepType.EXECUTE]
+        execute_step = exec_steps[-1] if exec_steps else None
         if execute_step and execute_step.result_json:
             exec_result = ExecuteResult.model_validate_json(execute_step.result_json)
             final_outcome = exec_result.outcome
@@ -886,6 +883,7 @@ class Worker:
             DispatchFailed(
                 timestamp=_utc_now(),
                 workflow_id=dispatch_id,
+                outcome=outcome,
                 failed_step_id=failed_step_id,
                 failed_step_type=failed_step_type,
                 error=error,
