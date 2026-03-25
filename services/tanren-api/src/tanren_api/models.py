@@ -23,8 +23,18 @@ from tanren_core.adapters.events import (
     VMReleased,
 )
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
+from tanren_core.store.events import (
+    DispatchCompleted,
+    DispatchCreated,
+    DispatchFailed,
+    StepCompleted,
+    StepEnqueued,
+    StepFailed,
+    StepStarted,
+)
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -76,8 +86,12 @@ class DispatchRequest(BaseModel):
     phase: Phase = Field(..., description="Dispatch phase type")
     branch: str = Field(..., description="Git branch name")
     spec_folder: str = Field(..., description="Relative path to spec folder")
-    cli: Cli = Field(..., description="CLI tool to use")
-    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
+    cli: Cli | None = Field(
+        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
+    )
+    auth: AuthMode | None = Field(
+        default=None, description="Authentication mode (auto-resolved if omitted)"
+    )
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution time in seconds")
     environment_profile: str = Field(default="default", description="Environment profile name")
@@ -89,6 +103,26 @@ class DispatchRequest(BaseModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
         description="Issue identifier ('0' = API-originated)",
     )
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
+        description="Fully resolved environment profile (with remote_config for remote profiles)",
+    )
+    preserve_on_failure: bool = Field(
+        default=False,
+        description="If True, skip teardown on failure for debugging",
+    )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets",
+    )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
+    )
 
 
 class ProvisionRequest(BaseModel):
@@ -99,6 +133,22 @@ class ProvisionRequest(BaseModel):
     project: str = Field(..., description="Project name")
     branch: str = Field(..., description="Git branch")
     environment_profile: str = Field(default="default", description="Environment profile")
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
+        description="Fully resolved environment profile (with remote_config for remote profiles)",
+    )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets",
+    )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
+    )
 
 
 class ExecuteRequest(BaseModel):
@@ -109,12 +159,17 @@ class ExecuteRequest(BaseModel):
     project: str = Field(..., description="Project name")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
-    cli: Cli = Field(..., description="CLI tool")
-    auth: AuthMode = Field(..., description="Authentication mode")
+    cli: Cli | None = Field(
+        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
+    )
+    auth: AuthMode | None = Field(
+        default=None, description="Authentication mode (auto-resolved if omitted)"
+    )
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
     gate_cmd: str | None = Field(default=None, description="Gate command")
+    environment_profile: str = Field(default="default", description="Environment profile name")
 
 
 class RunFullRequest(BaseModel):
@@ -126,12 +181,33 @@ class RunFullRequest(BaseModel):
     branch: str = Field(..., description="Git branch")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
-    cli: Cli = Field(..., description="CLI tool")
-    auth: AuthMode = Field(..., description="Authentication mode")
+    cli: Cli | None = Field(
+        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
+    )
+    auth: AuthMode | None = Field(
+        default=None, description="Authentication mode (auto-resolved if omitted)"
+    )
+    model: str | None = Field(default=None, description="Model identifier")
     environment_profile: str = Field(default="default", description="Environment profile")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
     gate_cmd: str | None = Field(default=None, description="Gate command")
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
+        description="Fully resolved environment profile",
+    )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets",
+    )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -169,19 +245,15 @@ class ReadinessResponse(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    """Non-secret config projection."""
+    """Non-secret config projection (V2)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    ipc_dir: str = Field(..., description="IPC directory path")
-    github_dir: str = Field(..., description="Root directory for git repos")
-    poll_interval: float = Field(..., description="Seconds between polls")
-    heartbeat_interval: float = Field(..., description="Seconds between heartbeats")
-    max_opencode: int = Field(..., description="Max concurrent opencode processes")
-    max_codex: int = Field(..., description="Max concurrent codex processes")
-    max_gate: int = Field(..., description="Max concurrent gate processes")
-    events_enabled: bool = Field(..., description="Whether event emission is active")
+    db_backend: str = Field(..., description="Store backend: sqlite or postgres")
+    store_connected: bool = Field(..., description="Whether the store is reachable")
+    worker_lanes: dict[str, int] = Field(..., description="Lane concurrency limits")
     remote_enabled: bool = Field(..., description="Whether remote execution is configured")
+    version: str = Field(..., description="API version")
 
 
 class DispatchAccepted(BaseModel):
@@ -266,7 +338,7 @@ class VMProvisionAccepted(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env_id: str = Field(..., description="Provisioning tracking identifier")
+    env_id: str = Field(..., description="Dispatch identifier for status polling")
     status: VMStatus = Field(default=VMStatus.PROVISIONING, description="Provisioning status")
 
 
@@ -281,6 +353,15 @@ class VMProvisionStatus(BaseModel):
     host: str | None = Field(default=None, description="VM hostname or IP (set once provisioned)")
     provider: VMProvider | None = Field(default=None, description="VM provider")
     created_at: str | None = Field(default=None, description="ISO 8601 creation timestamp")
+    server_type: str | None = Field(
+        default=None, description="Server type (set for dry-run results)"
+    )
+    estimated_cost_hourly: float | None = Field(
+        default=None, description="Estimated hourly cost (set for dry-run results)"
+    )
+    would_provision: bool | None = Field(
+        default=None, description="Whether provisioning would proceed (set for dry-run results)"
+    )
 
 
 class VMDryRunResult(BaseModel):
@@ -307,9 +388,10 @@ class RunEnvironment(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env_id: str = Field(..., description="Environment identifier")
-    vm_id: str = Field(..., description="Backing VM identifier")
-    host: str = Field(..., description="VM hostname or IP")
+    env_id: str = Field(..., description="Environment/dispatch identifier (same as dispatch_id)")
+    dispatch_id: str = Field(default="", description="Dispatch workflow identifier")
+    vm_id: str = Field(default="", description="Backing VM identifier")
+    host: str = Field(default="", description="VM hostname or IP")
     status: RunEnvironmentStatus = Field(
         default=RunEnvironmentStatus.PROVISIONED, description="Environment status"
     )
@@ -332,7 +414,8 @@ class RunTeardownAccepted(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env_id: str = Field(..., description="Environment identifier")
+    env_id: str = Field(default="", description="Environment identifier")
+    dispatch_id: str = Field(default="", description="Dispatch workflow identifier")
     status: RunEnvironmentStatus = Field(
         default=RunEnvironmentStatus.TEARING_DOWN, description="Teardown status"
     )
@@ -344,6 +427,7 @@ class RunStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     env_id: str = Field(..., description="Environment identifier")
+    dispatch_id: str = Field(default="", description="Dispatch workflow identifier")
     status: RunEnvironmentStatus = Field(..., description="Current environment status")
     phase: Phase | None = Field(default=None, description="Current phase if executing")
     outcome: Outcome | None = Field(default=None, description="Final outcome if completed")
@@ -435,6 +519,7 @@ class MetricsVMsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 EventPayload = Annotated[
+    # Adapter events
     DispatchReceived
     | PhaseStarted
     | PhaseCompleted
@@ -445,7 +530,15 @@ EventPayload = Annotated[
     | VMProvisioned
     | VMReleased
     | BootstrapCompleted
-    | TokenUsageRecorded,
+    | TokenUsageRecorded
+    # Store lifecycle events
+    | DispatchCreated
+    | DispatchCompleted
+    | DispatchFailed
+    | StepEnqueued
+    | StepStarted
+    | StepCompleted
+    | StepFailed,
     Field(discriminator="type"),
 ]
 
@@ -462,54 +555,3 @@ class PaginatedEvents(BaseModel):
     skipped: int = Field(
         default=0, ge=0, description="Events skipped due to parse errors in this page"
     )
-
-
-# ---------------------------------------------------------------------------
-# Response models — checkpoint
-# ---------------------------------------------------------------------------
-
-
-class CheckpointSummary(BaseModel):
-    """Summary of an active dispatch checkpoint."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    workflow_id: str = Field(..., description="Workflow identifier")
-    stage: str = Field(..., description="Last completed checkpoint stage")
-    retry_count: int = Field(..., ge=0, description="Resume attempts so far")
-    vm_id: str | None = Field(default=None, description="VM identifier if remote")
-    last_error: str | None = Field(default=None, description="Last failure reason")
-    failure_count: int = Field(..., ge=0, description="Total failure count")
-    created_at: str = Field(..., description="ISO 8601 creation timestamp")
-    updated_at: str = Field(..., description="ISO 8601 last update timestamp")
-
-
-class CheckpointDetail(BaseModel):
-    """Detailed checkpoint information including dispatch and state data."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    workflow_id: str = Field(..., description="Workflow identifier")
-    stage: str = Field(..., description="Last completed checkpoint stage")
-    dispatch_json: str = Field(..., description="Serialized Dispatch JSON")
-    worktree_path: str = Field(..., description="Absolute path to the worktree")
-    dispatch_stem: str = Field(default="", description="Original dispatch filename stem")
-    vm_id: str | None = Field(default=None, description="VM identifier if remote")
-    environment_profile: str | None = Field(default=None, description="Environment profile name")
-    workspace_remote_path: str | None = Field(default=None, description="Remote workspace path")
-    phase_result_json: str | None = Field(default=None, description="Serialized PhaseResult JSON")
-    dispatch_start_utc: str | None = Field(default=None, description="Execution start timestamp")
-    retry_count: int = Field(..., ge=0, description="Resume attempts so far")
-    last_error: str | None = Field(default=None, description="Last failure reason")
-    failure_count: int = Field(..., ge=0, description="Total failure count")
-    created_at: str = Field(..., description="ISO 8601 creation timestamp")
-    updated_at: str = Field(..., description="ISO 8601 last update timestamp")
-
-
-class ResumeAccepted(BaseModel):
-    """Confirmation that a checkpoint resume has been initiated."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    workflow_id: str = Field(..., description="Workflow being resumed")
-    status: str = Field(default="resuming", description="Current resume status")

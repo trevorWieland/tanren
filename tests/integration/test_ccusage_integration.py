@@ -4,25 +4,19 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
-import aiosqlite
 import pytest
 from pydantic import TypeAdapter
 
 from tanren_api.models import EventPayload
 from tanren_core.adapters.events import TokenUsageRecorded
-from tanren_core.adapters.sqlite_emitter import SqliteEventEmitter
 from tanren_core.ccusage import (
     TokenUsage,
     collect_token_usage,
 )
-from tanren_core.config import Config
 from tanren_core.schemas import Cli, Outcome, Phase, Result
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from tanren_core.worker_config import WorkerConfig
 
 # ---------------------------------------------------------------------------
 # Fixtures — real-shaped JSON from ccusage tools
@@ -81,11 +75,12 @@ OPENCODE_FIXTURE = {
 }
 
 
-def _make_config() -> Config:
-    return Config(
+def _make_config() -> WorkerConfig:
+    return WorkerConfig(
         ipc_dir="/tmp/ipc",
         github_dir="/tmp/gh",
         data_dir="/tmp/data",
+        db_url="/tmp/events.db",
         commands_dir=".claude/commands/tanren",
         worktree_registry_path="/tmp/worktrees.json",
         roles_config_path="/tmp/roles.yml",
@@ -157,46 +152,6 @@ class TestCollectTokenUsageIntegration:
         assert result.provider == "opencode"
         assert result.session_id == "ses_41448dad"
         assert result.total_cost == pytest.approx(0.0614)
-
-
-# ---------------------------------------------------------------------------
-# Event round-trip through SqliteEventEmitter
-# ---------------------------------------------------------------------------
-
-
-class TestTokenUsageEventRoundTrip:
-    @pytest.mark.asyncio
-    async def test_emit_and_read_back(self, tmp_path: Path):
-        db_path = tmp_path / "events.db"
-        emitter = SqliteEventEmitter(db_path)
-
-        event = TokenUsageRecorded(
-            timestamp="2026-03-14T10:00:00Z",
-            workflow_id="wf-proj-1-1234",
-            phase="do-task",
-            project="proj",
-            cli="claude",
-            input_tokens=33653,
-            output_tokens=193856,
-            cache_creation_tokens=5336560,
-            cache_read_tokens=177649313,
-            total_tokens=183213382,
-            total_cost=127.19,
-            models_used=["claude-opus-4-6"],
-            session_id="-workspace-proj",
-        )
-
-        await emitter.emit(event)
-        await emitter.close()
-
-        async with aiosqlite.connect(str(db_path)) as conn:
-            cursor = await conn.execute("SELECT event_type, payload FROM events")
-            row = await cursor.fetchone()
-            assert row is not None
-            assert row[0] == "TokenUsageRecorded"
-            payload = json.loads(row[1])
-            assert payload["total_cost"] == pytest.approx(127.19)
-            assert payload["type"] == "token_usage_recorded"
 
 
 # ---------------------------------------------------------------------------

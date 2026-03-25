@@ -158,18 +158,18 @@ mutation($issueId: String!, $body: String!) {
 }
 """
 
-type _JsonDict = dict[str, object]
+type _JsonDict = dict[str, JsonValue]
 
 
 def _as_dict(
-    val: object,
-) -> _JsonDict:  # Receives parsed JSON of unknown shape; object is intentional
-    """Cast a JSON value known to be a dict to ``dict[str, object]``.
+    val: JsonValue,
+) -> _JsonDict:
+    """Cast a JSON value known to be a dict to ``_JsonDict``.
 
     Call only after confirming ``isinstance(val, dict)``.
 
     Returns:
-        The value cast to ``dict[str, object]``.
+        The value cast to ``_JsonDict``.
     """
     return cast("_JsonDict", val)
 
@@ -201,7 +201,7 @@ class LinearIssueSource:
         self._state_cache: dict[str, str] = {}
         self._team_id: str | None = None
 
-    def _execute(self, query: str, variables: dict[str, object]) -> dict[str, object]:
+    def _execute(self, query: str, variables: dict[str, JsonValue]) -> dict[str, JsonValue]:
         """Execute a GraphQL query/mutation.
 
         Args:
@@ -215,7 +215,7 @@ class LinearIssueSource:
             TypeError: If the response format is invalid.
             RuntimeError: If the response contains GraphQL errors.
         """
-        payload: dict[str, object] = {"query": query, "variables": variables}
+        payload: dict[str, JsonValue] = {"query": query, "variables": variables}
         response = self._client.post(self._api_url, json=payload)
         response.raise_for_status()
         body = response.json()
@@ -230,7 +230,7 @@ class LinearIssueSource:
         return data
 
     @staticmethod
-    def _build_issue(data: dict[str, object]) -> Issue:
+    def _build_issue(data: dict[str, JsonValue]) -> Issue:
         """Map a GraphQL issue node to an Issue model.
 
         Args:
@@ -290,7 +290,7 @@ class LinearIssueSource:
         )
 
     @staticmethod
-    def _build_summary(data: dict[str, object]) -> IssueSummary:
+    def _build_summary(data: dict[str, JsonValue]) -> IssueSummary:
         """Map a GraphQL issue node to an IssueSummary model.
 
         Args:
@@ -320,7 +320,7 @@ class LinearIssueSource:
         Raises:
             TypeError: If the issue is not found in the response.
         """
-        variables: dict[str, object] = {"id": issue_id}
+        variables: dict[str, JsonValue] = {"id": issue_id}
         data = await asyncio.to_thread(self._execute, _GET_ISSUE_QUERY, variables)
         issue_data = data.get("issue")
         if not isinstance(issue_data, dict):
@@ -347,7 +347,7 @@ class LinearIssueSource:
         """
         team_key = project if project is not None else self._settings.team_key
         if status is not None:
-            variables: dict[str, object] = {"teamKey": team_key, "stateName": status}
+            variables: dict[str, JsonValue] = {"teamKey": team_key, "stateName": status}
             data = await asyncio.to_thread(self._execute, _LIST_ISSUES_QUERY, variables)
         else:
             variables = {"teamKey": team_key}
@@ -395,7 +395,7 @@ class LinearIssueSource:
             )
             return
 
-        variables: dict[str, object] = {"id": issue_id, "stateId": state_id}
+        variables: dict[str, JsonValue] = {"id": issue_id, "stateId": state_id}
         await asyncio.to_thread(self._execute, _UPDATE_ISSUE_MUTATION, variables)
 
     async def add_comment(self, issue_id: str, body: str) -> None:
@@ -410,7 +410,7 @@ class LinearIssueSource:
         """
         issue = await self.get_issue(issue_id)
         linear_id = issue.metadata.get("linear_id", "")
-        variables: dict[str, object] = {"issueId": linear_id, "body": body}
+        variables: dict[str, JsonValue] = {"issueId": linear_id, "body": body}
         await asyncio.to_thread(self._execute, _CREATE_COMMENT_MUTATION, variables)
 
     def _resolve_state_id(self, state_name: str) -> str | None:
@@ -431,7 +431,7 @@ class LinearIssueSource:
                     state_name,
                 )
                 return None
-            variables: dict[str, object] = {"teamId": self._team_id}
+            variables: dict[str, JsonValue] = {"teamId": self._team_id}
             data = self._execute(_GET_TEAM_STATES_QUERY, variables)
             team_data = data.get("team")
             if isinstance(team_data, dict):

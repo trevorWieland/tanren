@@ -15,12 +15,9 @@ from tanren_core.env.environment_schema import (
 
 
 class TestParseEnvironmentProfilesEmptyDict:
-    def test_empty_dict_returns_default(self):
+    def test_empty_dict_returns_empty(self):
         result = parse_environment_profiles({})
-        assert "default" in result
-        assert len(result) == 1
-        assert result["default"].name == "default"
-        assert result["default"].type == EnvironmentProfileType.LOCAL
+        assert len(result) == 0
 
 
 class TestParseEnvironmentProfilesFullConfig:
@@ -93,10 +90,8 @@ class TestMultipleProfiles:
         result = parse_environment_profiles(data)
         assert "local" in result
         assert "staging" in result
-        # "default" key is absent from input, but the function always adds
-        # one if missing
-        assert "default" in result
-        assert len(result) == 3
+        assert "default" not in result
+        assert len(result) == 2
 
         assert result["local"].gate_cmd == "pytest"
         assert result["staging"].resources.cpu == 8
@@ -166,7 +161,7 @@ class TestMcpServerConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            McpServerConfig(url="https://example.com/sse", bogus="x")  # type: ignore[unknown-argument] — intentionally passing invalid kwarg to test extra-fields rejection
+            McpServerConfig.model_validate({"url": "https://example.com/sse", "bogus": "x"})
 
     def test_frozen(self):
         cfg = McpServerConfig(url="https://example.com/sse")
@@ -268,7 +263,7 @@ class TestIssueSourceConfig:
 
     def test_extra_forbidden(self):
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            IssueSourceConfig(type=IssueSourceType.GITHUB, bogus="x")  # type: ignore[unknown-argument] — intentionally passing invalid kwarg to test extra-fields rejection
+            IssueSourceConfig.model_validate({"type": "github", "bogus": "x"})
 
 
 class TestParseIssueSource:

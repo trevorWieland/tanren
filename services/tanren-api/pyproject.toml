@@ -3,6 +3,7 @@ name = "tanren-api"
 version = "0.2.5"
 description = "FastAPI HTTP API for tanren"
 requires-python = ">=3.14"
+license = "Apache-2.0"
 dependencies = [
     "tanren-core",
     "fastapi>=0.128.0, <1",

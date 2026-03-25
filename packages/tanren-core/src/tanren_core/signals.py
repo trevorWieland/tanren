@@ -1,4 +1,4 @@
-"""Signal extraction and outcome mapping per PROTOCOL.md Section 3."""
+"""Signal extraction and outcome mapping."""
 
 import json
 import re
@@ -96,7 +96,7 @@ def map_outcome(
     exit_code: int,
     timed_out: bool,
 ) -> tuple[Outcome, str | None]:
-    """Map raw signal, exit code, and timeout to (outcome, signal) per PROTOCOL.md Section 3.
+    """Map raw signal, exit code, and timeout to (outcome, signal).
 
     Returns:
         The mapped (outcome, signal) tuple.

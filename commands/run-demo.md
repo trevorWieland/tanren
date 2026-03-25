@@ -156,7 +156,13 @@ Only include files that were actually modified.
 
 ### Step 8: Exit
 
-Print one of these exit signals (machine-readable):
+Write your exit signal to the status file **and** print it to stdout.
+
+First, write the status file (the orchestrator reads this):
+
+    echo "run-demo-status: {token}" > {spec_folder}/.agent-status
+
+Then print the same signal to stdout (machine-readable fallback):
 
 - `run-demo-status: pass` — all [RUN] steps passed ([SKIP] steps excluded)
 - `run-demo-status: fail` — one or more [RUN] steps failed, tasks added to plan.md

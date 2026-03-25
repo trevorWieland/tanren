@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import logging
+import os
 import time
 from typing import TYPE_CHECKING
 
@@ -13,8 +15,8 @@ if TYPE_CHECKING:
 
     from tanren_api.models import EventPayload
     from tanren_api.settings import APISettings
-    from tanren_core.adapters.event_reader import EventReader
-    from tanren_core.config import Config
+    from tanren_core.store.protocols import EventStore, StateStore
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -46,45 +48,68 @@ class HealthService:
 
 
 class ConfigService:
-    """Service for non-secret config projection."""
-
-    def __init__(self, config: Config) -> None:
-        """Initialize with core config."""
-        self._config = config
-
-    async def get(self) -> ConfigResponse:
-        """Return non-secret config fields.
-
-        Returns:
-            ConfigResponse: Non-secret configuration fields.
-        """
-        c = self._config
-        return ConfigResponse(
-            ipc_dir=c.ipc_dir,
-            github_dir=c.github_dir,
-            poll_interval=c.poll_interval,
-            heartbeat_interval=c.heartbeat_interval,
-            max_opencode=c.max_opencode,
-            max_codex=c.max_codex,
-            max_gate=c.max_gate,
-            events_enabled=c.events_db is not None,
-            remote_enabled=c.remote_config_path is not None,
-        )
-
-
-class EventsService:
-    """Service for querying structured events."""
+    """Service for non-secret config projection (V2 fields)."""
 
     def __init__(
         self,
         settings: APISettings,
-        config: Config | None = None,
-        event_reader: EventReader | None = None,
+        state_store: StateStore,
+        worker_config: WorkerConfig | None = None,
     ) -> None:
-        """Initialize with settings, optional config, and optional event reader."""
+        """Initialize with API settings and state store."""
         self._settings = settings
-        self._config = config
-        self._event_reader = event_reader
+        self._state_store = state_store
+        self._worker_config = worker_config
+
+    async def get(self) -> ConfigResponse:
+        """Return V2 config fields.
+
+        Returns:
+            ConfigResponse: Non-secret configuration fields.
+        """
+        db_url = self._settings.db_url
+        db_backend = "postgres" if db_url.startswith(("postgresql", "postgres")) else "sqlite"
+
+        store_connected = True
+        try:
+            from tanren_core.store.views import DispatchListFilter
+
+            await self._state_store.query_dispatches(DispatchListFilter(limit=1))
+        except Exception:
+            store_connected = False
+
+        try:
+            version = importlib.metadata.version("tanren-api")
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown"
+
+        remote_enabled = bool(os.environ.get("WM_REMOTE_CONFIG", "").strip())
+
+        if self._worker_config is not None:
+            worker_lanes = {
+                "impl": self._worker_config.max_impl,
+                "audit": self._worker_config.max_audit,
+                "gate": self._worker_config.max_gate,
+                "provision": self._worker_config.max_provision,
+            }
+        else:
+            worker_lanes = {"impl": 1, "audit": 1, "gate": 3, "provision": 10}
+
+        return ConfigResponse(
+            db_backend=db_backend,
+            store_connected=store_connected,
+            worker_lanes=worker_lanes,
+            remote_enabled=remote_enabled,
+            version=version,
+        )
+
+
+class EventsService:
+    """Service for querying structured events via EventStore."""
+
+    def __init__(self, event_store: EventStore) -> None:
+        """Initialize with the unified event store."""
+        self._event_store = event_store
 
     async def query(
         self,
@@ -99,32 +124,12 @@ class EventsService:
         Returns:
             PaginatedEvents: Paginated list of matching events.
         """
-        if self._event_reader is not None:
-            result = await self._event_reader.query_events(
-                workflow_id=workflow_id,
-                event_type=event_type,
-                limit=limit,
-                offset=offset,
-            )
-        else:
-            from tanren_core.adapters.event_reader import (  # noqa: PLC0415 — conditional import based on configuration
-                query_events,
-            )
-
-            db_path = self._settings.events_db
-            if db_path is None and self._config is not None:
-                db_path = self._config.events_db
-
-            if not db_path:
-                return PaginatedEvents(events=[], total=0, limit=limit, offset=offset)
-
-            result = await query_events(
-                db_path,
-                workflow_id=workflow_id,
-                event_type=event_type,
-                limit=limit,
-                offset=offset,
-            )
+        result = await self._event_store.query_events(
+            dispatch_id=workflow_id,
+            event_type=event_type,
+            limit=limit,
+            offset=offset,
+        )
 
         events: list[EventPayload] = []
         skipped = 0
@@ -154,9 +159,9 @@ def _get_event_adapter() -> TypeAdapter[EventPayload]:
     Returns:
         TypeAdapter[EventPayload]: Cached Pydantic type adapter for event payloads.
     """
-    from pydantic import TypeAdapter as TA  # noqa: PLC0415 — lazy init
+    from pydantic import TypeAdapter as TA
 
-    from tanren_api.models import EventPayload as EP  # noqa: PLC0415 — lazy init
+    from tanren_api.models import EventPayload as EP
 
     global _event_adapter
     if _event_adapter is None:

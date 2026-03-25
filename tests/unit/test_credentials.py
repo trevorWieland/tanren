@@ -1,6 +1,7 @@
 """Tests for credential providers."""
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,7 +29,7 @@ def _ok(stdout: str = "") -> RemoteResult:
 def _make_conn(home: str = "/root") -> AsyncMock:
     conn = AsyncMock()
 
-    def _side_effect(cmd: str, **_kwargs: object) -> RemoteResult:
+    def _side_effect(cmd: str, **_kwargs: Any) -> RemoteResult:
         if cmd == "echo $HOME":
             return _ok(f"{home}\n")
         return _ok()

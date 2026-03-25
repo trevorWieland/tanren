@@ -235,7 +235,13 @@ Tell the user what to do next:
 
 ### Step 10: Exit
 
-Print one of these exit signals (machine-readable):
+Write your exit signal to the status file **and** print it to stdout.
+
+First, write the status file (the orchestrator reads this):
+
+    echo "triage-audits-status: {token}" > {spec_folder}/.agent-status
+
+Then print the same signal to stdout (machine-readable fallback):
 
 - `triage-audits-status: complete` — triage done, issues created
 - `triage-audits-status: no-reports` — no audit reports found

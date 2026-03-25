@@ -13,22 +13,26 @@ from tanren_core.adapters.types import (
     PhaseResult,
     ProvisionError,
 )
-from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.env.validator import EnvReport
 from tanren_core.postflight import PostflightResult
 from tanren_core.preflight import PreflightResult
 from tanren_core.process import ProcessResult
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.worker_config import WorkerConfig
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _make_config(tmp_path: Path) -> Config:
-    return Config(
+def _make_config(tmp_path: Path) -> WorkerConfig:
+    return WorkerConfig(
         ipc_dir=str(tmp_path / "ipc"),
         github_dir=str(tmp_path),
         data_dir=str(tmp_path / "data"),
+        db_url=str(tmp_path / "events.db"),
         worktree_registry_path=str(tmp_path / "data" / "worktrees.json"),
         roles_config_path=str(tmp_path / "roles.yml"),
     )
@@ -46,6 +50,7 @@ def _make_dispatch(phase: Phase = Phase.DO_TASK, cli: Cli = Cli.OPENCODE) -> Dis
         gate_cmd="make check" if cli == Cli.BASH else None,
         context=None,
         timeout=300,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 
@@ -62,7 +67,8 @@ def _make_env(tmp_path: Path):
     preflight = AsyncMock()
     postflight = AsyncMock()
     spawner = AsyncMock()
-    heartbeat = AsyncMock()
+    worktree_mgr = AsyncMock()
+    worktree_mgr.create = AsyncMock(return_value=wt_path)
     config = _make_config(tmp_path)
 
     env = LocalExecutionEnvironment(
@@ -70,11 +76,11 @@ def _make_env(tmp_path: Path):
         preflight=preflight,
         postflight=postflight,
         spawner=spawner,
-        heartbeat=heartbeat,
+        worktree_mgr=worktree_mgr,
         config=config,
     )
 
-    return env, env_validator, preflight, postflight, spawner, heartbeat, config
+    return env, env_validator, preflight, postflight, spawner, config
 
 
 class TestProvision:
@@ -194,7 +200,7 @@ class TestExecute:
         mock_plan_hash,
         tmp_path: Path,
     ):
-        env, _, _, postflight, spawner, heartbeat, config = _make_env(tmp_path)
+        env, _, _, postflight, spawner, config = _make_env(tmp_path)
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         handle = self._make_handle(tmp_path)
 
@@ -221,8 +227,6 @@ class TestExecute:
         assert result.plan_hash == "abcd1234"
         assert result.retries == 0
 
-        heartbeat.start.assert_awaited_once_with("test-stem")
-        heartbeat.stop.assert_awaited_once_with("test-stem")
         spawner.spawn.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -241,7 +245,7 @@ class TestExecute:
         mock_plan_hash,
         tmp_path: Path,
     ):
-        env, _, _, postflight, spawner, _heartbeat, config = _make_env(tmp_path)
+        env, _, _, postflight, spawner, config = _make_env(tmp_path)
         dispatch = _make_dispatch(phase=Phase.DO_TASK)
         handle = self._make_handle(tmp_path)
 
@@ -288,7 +292,7 @@ class TestExecute:
         mock_plan_hash,
         tmp_path: Path,
     ):
-        env, _, _, postflight, spawner, _heartbeat, config = _make_env(tmp_path)
+        env, _, _, postflight, spawner, config = _make_env(tmp_path)
         dispatch = _make_dispatch(phase=Phase.GATE, cli=Cli.BASH)
         handle = self._make_handle(tmp_path)
 

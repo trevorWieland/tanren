@@ -7,17 +7,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi import Path as PathParam
 
-from tanren_api.dependencies import get_api_store, get_config, get_emitter, get_execution_env
+from tanren_api.dependencies import get_event_store, get_job_queue, get_state_store
 from tanren_api.models import (
     DispatchAccepted,
     DispatchCancelled,
     DispatchDetail,
     DispatchRequest,
 )
-from tanren_api.services import DispatchService
-from tanren_api.state import APIStateStore
-from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment
-from tanren_core.config import Config
+from tanren_api.services.dispatch import DispatchService
+from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 router = APIRouter(tags=["dispatch"])
 
@@ -25,41 +23,46 @@ router = APIRouter(tags=["dispatch"])
 @router.post("/dispatch")
 async def create_dispatch(
     body: DispatchRequest,
-    store: Annotated[APIStateStore, Depends(get_api_store)],
-    config: Annotated[Config, Depends(get_config)],
-    emitter: Annotated[EventEmitter, Depends(get_emitter)],
-    execution_env: Annotated[ExecutionEnvironment | None, Depends(get_execution_env)],
+    event_store: Annotated[EventStore, Depends(get_event_store)],
+    job_queue: Annotated[JobQueue, Depends(get_job_queue)],
+    state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> DispatchAccepted:
     """Accept a new dispatch request.
 
     Returns:
         DispatchAccepted: Accepted response with workflow ID.
     """
-    return await DispatchService(store, config, emitter, execution_env).create(body)
+    service = DispatchService(event_store=event_store, job_queue=job_queue, state_store=state_store)
+    return await service.create(body)
 
 
 @router.get("/dispatch/{dispatch_id}")
 async def get_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
-    store: Annotated[APIStateStore, Depends(get_api_store)],
-    config: Annotated[Config, Depends(get_config)],
+    event_store: Annotated[EventStore, Depends(get_event_store)],
+    job_queue: Annotated[JobQueue, Depends(get_job_queue)],
+    state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> DispatchDetail:
     """Query dispatch status by workflow ID.
 
     Returns:
         DispatchDetail: Dispatch details including current status.
     """
-    return await DispatchService(store, config).get(dispatch_id)
+    service = DispatchService(event_store=event_store, job_queue=job_queue, state_store=state_store)
+    return await service.get(dispatch_id)
 
 
 @router.delete("/dispatch/{dispatch_id}")
 async def cancel_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
-    store: Annotated[APIStateStore, Depends(get_api_store)],
+    event_store: Annotated[EventStore, Depends(get_event_store)],
+    job_queue: Annotated[JobQueue, Depends(get_job_queue)],
+    state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> DispatchCancelled:
     """Cancel a pending dispatch.
 
     Returns:
         DispatchCancelled: Confirmation of the cancelled dispatch.
     """
-    return await DispatchService(store).cancel(dispatch_id)
+    service = DispatchService(event_store=event_store, job_queue=job_queue, state_store=state_store)
+    return await service.cancel(dispatch_id)

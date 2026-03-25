@@ -163,7 +163,13 @@ git commit -m "Audit: Task N — PASS|FAIL"
 
 ### Step 10: Exit
 
-Print one of these exit signals (machine-readable):
+Write your exit signal to the status file **and** print it to stdout.
+
+First, write the status file (the orchestrator reads this):
+
+    echo "audit-task-status: {token}" > {spec_folder}/.agent-status
+
+Then print the same signal to stdout (machine-readable fallback):
 
 - `audit-task-status: pass` — task is clean, no issues
 - `audit-task-status: fail` — task unchecked, fix items added to plan.md

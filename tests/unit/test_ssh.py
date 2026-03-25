@@ -197,6 +197,29 @@ class TestEnsureConnected:
         with pytest.raises(ConnectionError, match="SSH connection failed"):
             conn._ensure_connected()
 
+    def test_client_closed_on_auth_failure(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        mock_paramiko.AuthenticationException = type("AuthenticationException", (Exception,), {})
+        mock_client.connect.side_effect = mock_paramiko.AuthenticationException("bad key")
+
+        conn = _make_conn()
+        with pytest.raises(ConnectionError):
+            conn._ensure_connected()
+        mock_client.close.assert_called_once()
+
+    def test_client_closed_on_os_error(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        mock_paramiko.AuthenticationException = type("AuthenticationException", (Exception,), {})
+        mock_paramiko.SSHException = type("SSHException", (Exception,), {})
+        mock_client.connect.side_effect = ConnectionRefusedError("refused")
+
+        conn = _make_conn()
+        with pytest.raises(ConnectionError):
+            conn._ensure_connected()
+        mock_client.close.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # SSHConnection._run_sync / run

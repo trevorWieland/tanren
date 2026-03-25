@@ -20,38 +20,38 @@ from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
-from tanren_core.config import Config
 from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.remote_config import ProvisionerType, RemoteSSHConfig, load_remote_config
 from tanren_core.roles_config import load_roles_config
 from tanren_core.secrets import SecretConfig, SecretLoader
+from tanren_core.worker_config import WorkerConfig
 
 vm_app = typer.Typer(help="Manage remote VM assignments.")
 
 
-def _load_config() -> Config:
-    """Load worker-manager Config, exiting on failure.
+def _load_config() -> WorkerConfig:
+    """Load WorkerConfig from environment, exiting on failure.
 
     Returns:
-        Loaded Config instance.
+        Loaded WorkerConfig instance.
 
     Raises:
         Exit: If the configuration cannot be loaded.
     """
     try:
-        return Config.from_env()
+        return WorkerConfig.from_env()
     except Exception as exc:
         typer.echo(f"Failed to load config: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
 
-async def _get_state_store(config: Config) -> tuple[VMStateStore, asyncpg.Pool | None]:
-    """Create a VMStateStore from Config, returning (store, pool_or_none).
+async def _get_state_store(config: WorkerConfig) -> tuple[VMStateStore, asyncpg.Pool | None]:
+    """Create a VMStateStore from WorkerConfig, returning (store, pool_or_none).
 
     Returns:
         Tuple of (VMStateStore, asyncpg.Pool | None).
     """
-    if config.events_db and is_postgres_url(config.events_db):
+    if config.db_url and is_postgres_url(config.db_url):
         from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — conditional import based on configuration
             create_postgres_pool,
         )
@@ -59,7 +59,7 @@ async def _get_state_store(config: Config) -> tuple[VMStateStore, asyncpg.Pool |
             PostgresVMStateStore,
         )
 
-        pool = await create_postgres_pool(config.events_db)
+        pool = await create_postgres_pool(config.db_url)
         return PostgresVMStateStore(pool), pool
 
     db_path = f"{config.data_dir}/vm-state.db"
@@ -244,6 +244,9 @@ def vm_dry_run(
         raise typer.Exit(code=1)
 
     # Load roles to determine required CLIs
+    if not config.roles_config_path:
+        typer.echo("WM_ROLES_CONFIG_PATH is required for dry-run", err=True)
+        raise typer.Exit(code=1)
     roles = load_roles_config(config.roles_config_path)
     required_clis = roles.required_clis()
 

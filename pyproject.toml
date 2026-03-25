@@ -3,6 +3,7 @@ name = "tanren-workspace"
 version = "0.2.5"
 description = "Development lifecycle framework"
 requires-python = ">=3.14"
+license = "Apache-2.0"
 
 [project.optional-dependencies]
 hetzner = ["tanren-core[hetzner]"]
@@ -71,9 +72,14 @@ convention = "google"
 "packages/tanren-core/src/tanren_core/schemas.py" = ["TCH"]
 "packages/tanren-core/src/tanren_core/adapters/events.py" = ["TCH"]
 "packages/tanren-core/src/tanren_core/adapters/types.py" = ["TCH"]
+# Store subpackage: Pydantic models, re-exports, event types need runtime imports;
+# store methods return typed objects (DOC201); SQL built from safe clauses (S608)
+"packages/tanren-core/src/tanren_core/store/**" = ["TCH", "DOC201", "S608"]
+# Worker uses deferred imports to break circular deps and handle reconstructions
+"packages/tanren-core/src/tanren_core/worker.py" = ["TCH", "DOC201", "DOC501", "PLC0415", "SIM105", "S110"]
 # FastAPI evaluates type annotations at runtime for DI, validation, and OpenAPI.
-# S101 asserts guard service-not-None in MCP tools (fast-fail, not security).
-"services/tanren-api/**" = ["TCH", "S101"]
+# S101 asserts, PLC0415 deferred imports, DOC201/DOC501 docstring issues.
+"services/tanren-api/**" = ["TCH", "S101", "PLC0415", "DOC201", "DOC501"]
 
 # ===== TY =====
 [tool.ty.rules]
@@ -103,7 +109,7 @@ markers = [
 # ===== COVERAGE =====
 [tool.coverage.run]
 source = ["packages", "services"]
-omit = ["*/tests/*", "*/__pycache__/*", "*/adapters/hetzner_vm.py", "*/adapters/gcp_vm.py", "*/adapters/github_issue.py", "*/adapters/linear_issue.py"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/adapters/hetzner_vm.py", "*/adapters/gcp_vm.py", "*/adapters/github_issue.py", "*/adapters/linear_issue.py", "*/store/postgres.py"]
 
 [tool.coverage.report]
 fail_under = 80

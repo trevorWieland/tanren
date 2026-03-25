@@ -1,15 +1,12 @@
-"""Dispatch service — create, query, and cancel dispatch requests."""
+"""Dispatch service — enqueue-only, reads from StateStore."""
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
-import time
-from datetime import UTC, datetime
-from pathlib import Path
+import uuid
+from typing import TYPE_CHECKING
 
-from tanren_api.errors import ConflictError, NotFoundError, ServiceError
+from tanren_api.errors import ConflictError, NotFoundError
 from tanren_api.models import (
     DispatchAccepted,
     DispatchCancelled,
@@ -17,148 +14,66 @@ from tanren_api.models import (
     DispatchRequest,
     DispatchRunStatus,
 )
-from tanren_api.state import APIStateStore, DispatchRecord
-from tanren_core.adapters.events import DispatchReceived
-from tanren_core.adapters.protocols import EventEmitter, ExecutionEnvironment
-from tanren_core.config import Config
-from tanren_core.ipc import atomic_write, generate_filename
-from tanren_core.schemas import Dispatch, Outcome, Result
+from tanren_api.services.dispatch_lifecycle import create_dispatch_from_request
+from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType
+from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.views import DispatchView
+
+if TYPE_CHECKING:
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
-_COMPLETED_OUTCOMES = frozenset({Outcome.SUCCESS, Outcome.FAIL, Outcome.BLOCKED})
-
-
-def _status_for_outcome(outcome: Outcome) -> DispatchRunStatus:
-    """Map execution outcome to terminal dispatch status.
-
-    Returns:
-        DispatchRunStatus: The terminal dispatch status for the given outcome.
-    """
-    if outcome in _COMPLETED_OUTCOMES:
-        return DispatchRunStatus.COMPLETED
-    return DispatchRunStatus.FAILED
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
 
 class DispatchService:
-    """Service for dispatch lifecycle management."""
+    """Stateless dispatch service — enqueues to job queue, reads from state store."""
 
     def __init__(
         self,
-        store: APIStateStore,
-        config: Config | None = None,
-        emitter: EventEmitter | None = None,
-        execution_env: ExecutionEnvironment | None = None,
+        *,
+        event_store: EventStore,
+        job_queue: JobQueue,
+        state_store: StateStore,
+        config: WorkerConfig | None = None,
     ) -> None:
-        """Initialize with dependencies."""
-        self._store = store
+        """Initialize with store dependencies only — no filesystem access."""
+        self._event_store = event_store
+        self._job_queue = job_queue
+        self._state_store = state_store
         self._config = config
-        self._emitter = emitter
-        self._execution_env = execution_env
-
-    def _require_config(self) -> Config:
-        """Return config or raise if unavailable.
-
-        Returns:
-            Config: The application configuration.
-
-        Raises:
-            ServiceError: If configuration is not set.
-        """
-        if self._config is None:
-            raise ServiceError("Configuration unavailable — WM_* environment variables not set")
-        return self._config
 
     async def create(self, body: DispatchRequest) -> DispatchAccepted:
-        """Accept a new dispatch request.
+        """Accept a new dispatch request by enqueuing a provision step.
+
+        The caller must provide ``resolved_profile`` in the request body.
+        The API validates the schema but does not resolve profiles from
+        the filesystem.
 
         Returns:
-            DispatchAccepted: Accepted response with workflow ID.
+            DispatchAccepted with the workflow ID.
         """
-        config = self._require_config()
-        epoch = time.time_ns()
-        issue = body.issue if body.issue != "0" else str(epoch)
-        workflow_id = f"wf-{body.project}-{issue}-{epoch}"
-
-        dispatch = Dispatch(
-            workflow_id=workflow_id,
-            project=body.project,
-            phase=body.phase,
-            branch=body.branch,
-            spec_folder=body.spec_folder,
-            cli=body.cli,
-            auth=body.auth,
-            model=body.model,
-            timeout=body.timeout,
-            environment_profile=body.environment_profile,
-            context=body.context,
-            gate_cmd=body.gate_cmd,
+        return await create_dispatch_from_request(
+            body=body,
+            event_store=self._event_store,
+            job_queue=self._job_queue,
+            state_store=self._state_store,
+            config=self._config,
         )
-
-        # Write dispatch to IPC only when delegating to daemon (no local execution env)
-        dispatch_path = None
-        if self._execution_env is None:
-            dispatch_dir = Path(config.ipc_dir) / "dispatch"
-            dispatch_dir.mkdir(parents=True, exist_ok=True)
-            dispatch_path = dispatch_dir / generate_filename()
-            await atomic_write(dispatch_path, dispatch.model_dump_json(indent=2))
-
-        record = DispatchRecord(
-            dispatch_id=workflow_id,
-            dispatch=dispatch,
-            status=DispatchRunStatus.PENDING,
-            created_at=_now(),
-        )
-        record.dispatch_path = dispatch_path
-        await self._store.add_dispatch(record)
-
-        # Launch background task if execution env available
-        if self._execution_env is not None:
-            assert self._emitter is not None
-            await self._emitter.emit(
-                DispatchReceived(
-                    timestamp=_now(),
-                    workflow_id=workflow_id,
-                    phase=body.phase.value,
-                    project=body.project,
-                    cli=body.cli.value,
-                )
-            )
-            task = asyncio.create_task(self._dispatch_background(dispatch, workflow_id))
-            await self._store.update_dispatch(workflow_id, task=task)
-
-        return DispatchAccepted(dispatch_id=workflow_id)
 
     async def get(self, dispatch_id: str) -> DispatchDetail:
-        """Query dispatch status by workflow ID.
+        """Query dispatch status from the state store.
 
         Returns:
-            DispatchDetail: Dispatch details including current status.
+            DispatchDetail with current status from projections.
 
         Raises:
-            NotFoundError: If the dispatch ID is not found.
+            NotFoundError: If not found.
         """
-        config = self._require_config()
-        record = await self._store.get_dispatch(dispatch_id)
-        if record is None:
+        view = await self._state_store.get_dispatch(dispatch_id)
+        if view is None:
             raise NotFoundError(f"Dispatch {dispatch_id} not found")
 
-        # Lazy-check daemon results for IPC-delegated dispatches still pending
-        if (
-            record.status == DispatchRunStatus.PENDING
-            and record.dispatch_path is not None
-            and record.task is None
-        ):
-            await self._check_daemon_result(config, dispatch_id, record.created_at)
-            record = await self._store.get_dispatch(dispatch_id)
-            if record is None:
-                raise NotFoundError(f"Dispatch {dispatch_id} not found")
-
-        d = record.dispatch
+        d = view.dispatch
         return DispatchDetail(
             workflow_id=d.workflow_id,
             phase=d.phase,
@@ -172,168 +87,80 @@ class DispatchService:
             environment_profile=d.environment_profile,
             context=d.context,
             gate_cmd=d.gate_cmd,
-            status=record.status,
-            outcome=record.outcome,
-            created_at=record.created_at,
-            started_at=record.started_at,
-            completed_at=record.completed_at,
+            status=DispatchRunStatus(str(view.status)),
+            outcome=view.outcome,
+            created_at=view.created_at,
+            started_at=None,
+            completed_at=None,
         )
 
     async def cancel(self, dispatch_id: str) -> DispatchCancelled:
-        """Cancel a pending or running dispatch.
+        """Cancel a dispatch by updating the state store.
 
         Returns:
-            DispatchCancelled: Confirmation of the cancelled dispatch.
+            DispatchCancelled confirmation.
 
         Raises:
-            NotFoundError: If the dispatch ID is not found.
-            ConflictError: If the dispatch is already terminal or cannot be cancelled.
+            NotFoundError: If not found.
+            ConflictError: If already terminal.
         """
-        record = await self._store.get_dispatch(dispatch_id)
-        if record is None:
+        view = await self._state_store.get_dispatch(dispatch_id)
+        if view is None:
             raise NotFoundError(f"Dispatch {dispatch_id} not found")
 
-        if record.status in (
-            DispatchRunStatus.COMPLETED,
-            DispatchRunStatus.FAILED,
-            DispatchRunStatus.CANCELLED,
+        if view.status in (
+            DispatchStatus.COMPLETED,
+            DispatchStatus.FAILED,
+            DispatchStatus.CANCELLED,
         ):
-            raise ConflictError(f"Dispatch {dispatch_id} is already {record.status}")
+            raise ConflictError(f"Dispatch {dispatch_id} is already {view.status}")
 
-        if record.status == DispatchRunStatus.PENDING:
-            # For daemon-delegated: reclaim IPC file before marking cancelled.
-            if record.dispatch_path is not None and record.task is None:
-                try:
-                    record.dispatch_path.unlink()
-                except FileNotFoundError:
-                    raise ConflictError(
-                        f"Dispatch {dispatch_id} has been picked up by the daemon "
-                        "and cannot be cancelled"
-                    ) from None
-                except OSError:
-                    raise ConflictError(
-                        f"Dispatch {dispatch_id} could not be cancelled: "
-                        "failed to remove dispatch file. Please retry."
-                    ) from None
-            transitioned = await self._store.try_transition_dispatch(
-                dispatch_id,
-                from_statuses=frozenset({DispatchRunStatus.PENDING}),
-                to_status=DispatchRunStatus.CANCELLED,
-                completed_at=_now(),
-            )
-            if transitioned is None:
-                raise ConflictError(f"Dispatch {dispatch_id} status has changed; cannot cancel")
-            if record.task is not None and not record.task.done():
-                record.task.cancel()
-        elif record.status == DispatchRunStatus.RUNNING:
-            logger.warning("Cancelling running dispatch %s — best effort", dispatch_id)
-            transitioned = await self._store.try_transition_dispatch(
-                dispatch_id,
-                from_statuses=frozenset({DispatchRunStatus.RUNNING}),
-                to_status=DispatchRunStatus.CANCELLED,
-                completed_at=_now(),
-            )
-            if transitioned is None:
-                raise ConflictError(f"Dispatch {dispatch_id} status has changed; cannot cancel")
-            if record.task is not None and not record.task.done():
-                record.task.cancel()
+        await self._state_store.update_dispatch_status(dispatch_id, DispatchStatus.CANCELLED)
+
+        # Cancel pending forward-progress steps (teardowns preserved).
+        await self._job_queue.cancel_pending_steps(dispatch_id)
+
+        # If provision already completed, enqueue cleanup teardown so
+        # remote VMs/workspaces are released
+        await self._enqueue_cancel_teardown(dispatch_id, view)
 
         return DispatchCancelled(dispatch_id=dispatch_id)
 
-    # -- Background tasks --
+    async def _enqueue_cancel_teardown(self, dispatch_id: str, view: DispatchView) -> None:
+        """Enqueue cleanup teardown if provision completed but no teardown exists."""
+        from tanren_core.store.payloads import ProvisionResult, TeardownStepPayload
 
-    async def _dispatch_background(self, dispatch: Dispatch, dispatch_id: str) -> None:
-        """Background task: provision -> execute -> teardown.
-
-        Raises:
-            CancelledError: If the task is cancelled externally.
-        """
-        assert self._execution_env is not None
-        assert self._config is not None
-        execution_env = self._execution_env
-        config = self._config
-
-        transitioned = await self._store.try_transition_dispatch(
-            dispatch_id,
-            from_statuses=frozenset({DispatchRunStatus.PENDING}),
-            to_status=DispatchRunStatus.RUNNING,
-            started_at=_now(),
+        steps = await self._state_store.get_steps_for_dispatch(dispatch_id)
+        prov = next(
+            (
+                s
+                for s in steps
+                if s.step_type == StepType.PROVISION
+                and s.status == StepStatus.COMPLETED
+                and s.result_json
+            ),
+            None,
         )
-        if transitioned is None:
-            return  # Cancelled (or otherwise transitioned) before we started
-        handle = None
-        try:
-            handle = await execution_env.provision(dispatch, config)
-            result = await execution_env.execute(handle, dispatch, config)
-            await self._store.try_transition_dispatch(
-                dispatch_id,
-                from_statuses=frozenset({DispatchRunStatus.RUNNING}),
-                to_status=_status_for_outcome(result.outcome),
-                outcome=result.outcome,
-                completed_at=_now(),
-            )
-        except asyncio.CancelledError:
-            logger.info("Dispatch %s cancelled", dispatch_id)
-            raise
-        except Exception:
-            logger.exception("Dispatch %s failed", dispatch_id)
-            await self._store.try_transition_dispatch(
-                dispatch_id,
-                from_statuses=frozenset({DispatchRunStatus.RUNNING}),
-                to_status=DispatchRunStatus.FAILED,
-                outcome=Outcome.ERROR,
-                completed_at=_now(),
-            )
-        finally:
-            if handle is not None:
-                inner = asyncio.ensure_future(execution_env.teardown(handle))
-                try:
-                    await asyncio.shield(inner)
-                except asyncio.CancelledError, Exception:
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await inner
-                    logger.warning("Teardown failed for dispatch %s", dispatch_id)
-
-    async def _check_daemon_result(self, config: Config, workflow_id: str, created_at: str) -> None:
-        """Scan IPC results directory for a daemon-produced result."""
-        results_dir = Path(config.ipc_dir) / "results"
-        if not results_dir.exists():
+        if prov is None or any(s.step_type == StepType.TEARDOWN for s in steps):
             return
-
-        try:
-            created_dt = datetime.fromisoformat(created_at)
-            created_ms = int(created_dt.timestamp() * 1000)
-        except ValueError, TypeError:
-            created_ms = 0
-
-        def _scan() -> Result | None:
-            entries = sorted(results_dir.iterdir(), reverse=True)
-            for entry in entries:
-                if entry.suffix != ".json":
-                    continue
-                stem = entry.stem.split("-")[0]
-                try:
-                    file_ts = int(stem)
-                    if file_ts < created_ms:
-                        break  # Sorted newest-first — all remaining are older
-                except ValueError, IndexError:
-                    pass
-                try:
-                    content = entry.read_text()
-                    result = Result.model_validate_json(content)
-                    if result.workflow_id == workflow_id:
-                        return result
-                except Exception:  # noqa: S112 — intentional continue on transient error
-                    continue
-            return None
-
-        result = await asyncio.to_thread(_scan)
-        if result is None:
+        # For AUTO dispatches, skip teardown enqueue while execute is active —
+        # the worker's auto-chain will handle teardown after execute completes.
+        # For MANUAL dispatches, always enqueue teardown since auto-chain won't run.
+        if view.mode == DispatchMode.AUTO and any(
+            s.step_type == StepType.EXECUTE and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
+            for s in steps
+        ):
             return
-
-        await self._store.update_dispatch(
-            workflow_id,
-            status=_status_for_outcome(result.outcome),
-            outcome=result.outcome,
-            completed_at=_now(),
+        assert prov.result_json is not None
+        prov_result = ProvisionResult.model_validate_json(prov.result_json)
+        max_seq = max((s.step_sequence for s in steps), default=0)
+        await self._job_queue.enqueue_step(
+            step_id=uuid.uuid4().hex,
+            dispatch_id=dispatch_id,
+            step_type="teardown",
+            step_sequence=max_seq + 1,
+            lane=None,
+            payload_json=TeardownStepPayload(
+                dispatch=view.dispatch, handle=prov_result.handle
+            ).model_dump_json(),
         )

@@ -1,13 +1,36 @@
-"""Worktree management: create/validate/remove/registry per PROTOCOL.md Section 8."""
+"""Worktree management: create/validate/remove/registry."""
 
 import asyncio
 import logging
+import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tanren_core.ipc import atomic_write
 from tanren_core.schemas import WorktreeEntry, WorktreeRegistry
+
+
+async def atomic_write(path: Path, content: str) -> None:
+    """Write content atomically: write unique tmp, fsync, rename."""
+
+    def _write() -> None:
+        import tempfile  # noqa: PLC0415
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(path.parent), prefix=f".{path.stem}_", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            Path(tmp_name).rename(path)
+        except BaseException:
+            Path(tmp_name).unlink(missing_ok=True)
+            raise
+
+    await asyncio.to_thread(_write)
+
 
 logger = logging.getLogger(__name__)
 
@@ -258,9 +281,12 @@ async def check_isolation(  # noqa: RUF029 — kept async for consistency with c
     branch: str,
     worktree_path: Path,
     github_dir: str,  # noqa: ARG001 — required by interface
+    project: str = "",
 ) -> None:
     """Enforce isolation invariants: no shared branches, paths, or main copies.
 
+    Branch conflicts are scoped to the same project — different projects
+    can use the same branch name simultaneously (they have separate git repos).
     Skips entries for the same workflow_id (allows re-registration on resume).
 
     Raises:
@@ -272,7 +298,7 @@ async def check_isolation(  # noqa: RUF029 — kept async for consistency with c
     for wf_id, entry in registry.worktrees.items():
         if wf_id == workflow_id:
             continue
-        if entry.branch == branch:
+        if entry.branch == branch and (not project or entry.project == project):
             raise RuntimeError(f"Branch {branch} already in use by workflow {wf_id}")
         if entry.path == wt_str:
             raise RuntimeError(f"Worktree path {wt_str} already in use by workflow {wf_id}")
@@ -295,7 +321,7 @@ async def register_worktree(
     """Register a worktree in the registry with isolation checks. Thread-safe."""
     async with _registry_lock:
         registry = await load_registry(registry_path)
-        await check_isolation(registry, workflow_id, branch, worktree_path, github_dir)
+        await check_isolation(registry, workflow_id, branch, worktree_path, github_dir, project)
         registry.worktrees[workflow_id] = WorktreeEntry(
             project=project,
             issue=issue,
@@ -322,7 +348,18 @@ async def cleanup_worktree(
         worktree_path = Path(entry.path)
         project_dir = Path(github_dir) / entry.project
 
-        await remove_worktree(worktree_path, project_dir)
+        try:
+            await remove_worktree(worktree_path, project_dir)
+        except Exception:
+            logger.warning(
+                "remove_worktree failed for %s, clearing registry entry anyway",
+                workflow_id,
+                exc_info=True,
+            )
 
+        # Always clear the registry entry — even if filesystem cleanup
+        # was incomplete.  A stale registry entry blocks all future
+        # dispatches on the same branch; a stale directory is harmless
+        # (git worktree add handles it idempotently).
         del registry.worktrees[workflow_id]
         await save_registry(registry_path, registry)

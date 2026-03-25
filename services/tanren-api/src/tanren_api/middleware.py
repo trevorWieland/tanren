@@ -5,15 +5,10 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import MutableMapping
-from typing import Any
 
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
-
-# ASGI message type — no typed alternative in starlette.types
-Message = MutableMapping[str, Any]
 
 
 class RequestIDMiddleware:

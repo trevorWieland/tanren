@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -26,10 +27,10 @@ if TYPE_CHECKING:
         PostflightRunner,
         PreflightRunner,
         ProcessSpawner,
+        WorktreeManager,
     )
-    from tanren_core.adapters.remote_types import VMHandle
-    from tanren_core.config import Config
-    from tanren_core.heartbeat import HeartbeatWriter
+    from tanren_core.adapters.remote_types import DryRunInfo, VMHandle, VMRequirements
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,8 @@ _PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase
 class LocalExecutionEnvironment:
     """ExecutionEnvironment backed by local subprocess adapters.
 
-    Wraps EnvValidator, PreflightRunner, PostflightRunner, ProcessSpawner,
-    and HeartbeatWriter into the provision/execute/teardown lifecycle.
+    Wraps EnvValidator, PreflightRunner, PostflightRunner, and ProcessSpawner
+    into the provision/execute/teardown lifecycle.
     """
 
     def __init__(
@@ -50,19 +51,38 @@ class LocalExecutionEnvironment:
         preflight: PreflightRunner,
         postflight: PostflightRunner,
         spawner: ProcessSpawner,
-        heartbeat: HeartbeatWriter,
-        config: Config,
+        worktree_mgr: WorktreeManager,
+        config: WorkerConfig,
     ) -> None:
         """Initialize with local subprocess adapters for each lifecycle phase."""
         self._env_validator = env_validator
         self._preflight = preflight
         self._postflight = postflight
         self._spawner = spawner
-        self._heartbeat = heartbeat
+        self._worktree_mgr = worktree_mgr
         self._config = config
 
-    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
-        """Env validation -> preflight -> return handle.
+    async def dry_run(
+        self,
+        requirements: VMRequirements,  # noqa: ARG002 — requirements reserved for future local environment sizing
+    ) -> DryRunInfo:
+        """Dry-run provision — return what would happen without creating resources.
+
+        Returns:
+            DryRunInfo indicating no provisioning (local environment).
+        """
+        from tanren_core.adapters.remote_types import (  # noqa: PLC0415 — deferred import to avoid circular dependency at module level
+            DryRunInfo,
+            VMProvider,
+        )
+
+        return DryRunInfo(
+            provider=VMProvider.MANUAL,
+            would_provision=False,
+        )
+
+    async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
+        """Create worktree -> register -> env validation -> preflight -> return handle.
 
         Returns:
             EnvironmentHandle for local execution.
@@ -71,11 +91,77 @@ class LocalExecutionEnvironment:
             ProvisionError: If environment validation or preflight checks fail.
         """
         issue = _parse_issue(dispatch.workflow_id, project=dispatch.project)
-        worktree_path = Path(config.github_dir) / f"{dispatch.project}-wt-{issue}"
+
+        # 1. Create worktree
+        worktree_path = await self._worktree_mgr.create(
+            dispatch.project, issue, dispatch.branch, config.github_dir
+        )
+
+        # 2. Register worktree for isolation enforcement
+        await self._worktree_mgr.register(
+            Path(config.worktree_registry_path),
+            dispatch.workflow_id,
+            dispatch.project,
+            issue,
+            dispatch.branch,
+            worktree_path,
+            config.github_dir,
+        )
+
         spec_folder_path = worktree_path / dispatch.spec_folder
 
-        # 1. Environment validation
-        env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
+        # 3. Run profile setup commands (e.g. make install) so the worktree
+        #    has the same dependencies as a fresh remote VM.
+        if dispatch.resolved_profile.setup:
+            for cmd in dispatch.resolved_profile.setup:
+                logger.info("Running setup command in worktree: %s", cmd)
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    cwd=str(worktree_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _stdout_bytes, stderr_bytes = await proc.communicate()
+                if proc.returncode != 0:
+                    stderr_text = stderr_bytes.decode(errors="replace")
+                    raise ProvisionError(
+                        Result(
+                            workflow_id=dispatch.workflow_id,
+                            phase=dispatch.phase,
+                            outcome=Outcome.ERROR,
+                            signal=None,
+                            exit_code=proc.returncode or -1,
+                            duration_secs=0,
+                            gate_output=None,
+                            tail_output=f"Setup command failed ({cmd}): {stderr_text[-500:]}",
+                            unchecked_tasks=0,
+                            plan_hash="00000000",
+                            spec_modified=False,
+                        )
+                    )
+
+        # 4. Inject dispatch-carried project env into os.environ for validation.
+        # Worktrees may not have .env (gitignored), so the CLI reads it from
+        # the source project dir and passes it in the dispatch.
+        restore_env: dict[str, str | None] = {}
+        for k, v in dispatch.project_env.items():
+            restore_env[k] = os.environ.get(k)
+            os.environ[k] = v
+
+        # 5. Environment validation (sees dispatch.project_env via os.environ)
+        try:
+            env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
+        finally:
+            # Restore original env to avoid leaking between dispatches
+            for k, orig in restore_env.items():
+                if orig is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = orig
+
+        # Merge dispatch project_env into task_env (validator may not return all of them)
+        if dispatch.project_env:
+            task_env = {**task_env, **dispatch.project_env}
         if not env_report.passed:
             result = Result(
                 workflow_id=dispatch.workflow_id,
@@ -94,7 +180,7 @@ class LocalExecutionEnvironment:
             )
             raise ProvisionError(result)
 
-        # 2. Preflight checks
+        # 6. Preflight checks
         preflight_result = await self._preflight.run(
             worktree_path, dispatch.branch, spec_folder_path, dispatch.phase.value
         )
@@ -118,13 +204,14 @@ class LocalExecutionEnvironment:
         if preflight_result.repairs:
             logger.info("Preflight repairs: %s", preflight_result.repairs)
 
-        # 3. Return handle
+        # 7. Return handle
         return EnvironmentHandle(
             env_id=str(uuid.uuid4()),
             worktree_path=worktree_path,
             branch=dispatch.branch,
             project=dispatch.project,
             runtime=LocalEnvironmentRuntime(
+                workflow_id=dispatch.workflow_id,
                 preflight_result=preflight_result,
                 task_env=task_env,
                 env_report=env_report,
@@ -135,9 +222,9 @@ class LocalExecutionEnvironment:
         self,
         handle: EnvironmentHandle,
         dispatch: Dispatch,
-        config: Config,
+        config: WorkerConfig,
         *,
-        dispatch_stem: str = "",
+        dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:
         """Heartbeat start -> retry loop -> plan metrics -> postflight -> heartbeat stop.
 
@@ -151,9 +238,6 @@ class LocalExecutionEnvironment:
         if handle.runtime.kind != "local":
             raise RuntimeError("LocalExecutionEnvironment requires local runtime handle")
         local_runtime = cast("LocalEnvironmentRuntime", handle.runtime)
-
-        # Start heartbeat
-        await self._heartbeat.start(dispatch_stem)
 
         start = time.monotonic()
         transient_retries = 0
@@ -258,8 +342,7 @@ class LocalExecutionEnvironment:
             )
 
         finally:
-            # Stop heartbeat
-            await self._heartbeat.stop(dispatch_stem)
+            pass
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
         """Return local worktree path. No SSH/VSCode for local."""
@@ -269,11 +352,22 @@ class LocalExecutionEnvironment:
         """No-op for local — no VM to release."""
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
-        """No-op for local (heartbeat already stopped in execute).
+        """Clean up worktree and remove registry entry."""
+        workflow_id = ""
+        if handle.runtime.kind == "local":
+            local_rt = cast("LocalEnvironmentRuntime", handle.runtime)
+            workflow_id = local_rt.workflow_id
 
-        Future Docker/VM envs would destroy containers here.
-        """
-        pass
+        if workflow_id:
+            await self._worktree_mgr.cleanup(
+                workflow_id,
+                Path(self._config.worktree_registry_path),
+                self._config.github_dir,
+            )
+        else:
+            logger.warning(
+                "No workflow_id on local handle %s, skipping registry cleanup", handle.env_id
+            )
 
 
 def _parse_issue(workflow_id: str, *, project: str | None = None) -> str:

@@ -3,10 +3,10 @@
 The tanren-core library uses protocol-based dependency injection to keep its core
 orchestration logic decoupled from concrete infrastructure. Every external
 concern -- git operations, process spawning, environment validation, event
-storage -- is accessed through a `typing.Protocol` interface. The
-`WorkerManager` constructor accepts optional adapter arguments; when omitted,
-it falls back to built-in defaults that cover the common case (local
-subprocess execution against a git repository with dotenv-based secrets).
+storage -- is accessed through a `typing.Protocol` interface. The `Worker`
+class accepts injected adapters; when omitted, it falls back to built-in
+defaults that cover the common case (local subprocess execution against a
+git repository with dotenv-based secrets).
 
 This design follows the principle of **opinionated defaults, pluggable
 internals**: the built-in adapters handle the 90% case out of the box, while
@@ -40,8 +40,7 @@ Interface) are handled by other components but listed here for completeness.
 ## Current Protocol Interfaces
 
 The tanren-core library defines eight protocols. Each one covers a single
-responsibility and has exactly one built-in concrete implementation (two in
-the case of `EventEmitter`).
+responsibility and has exactly one built-in concrete implementation.
 
 ### WorktreeManager
 
@@ -172,27 +171,31 @@ caller wraps it in `asyncio.to_thread()`.
 **Default:** `DotenvEnvProvisioner` -- copies `.env` from project root into
 the worktree.
 
-### EventEmitter
+### EventStore
 
-Emit structured events for observability and debugging.
+Append structured events and query the event log for observability and
+debugging. Defined in `store/protocols.py`.
 
 ```python
-class EventEmitter(Protocol):
-    async def emit(self, event: Event) -> None: ...
+class EventStore(Protocol):
+    async def append(self, event: Event) -> None: ...
+    async def query_events(
+        self, *, dispatch_id=None, event_type=None, since=None, until=None, limit=50, offset=0
+    ) -> EventQueryResult: ...
     async def close(self) -> None: ...
 ```
 
-**Lifecycle:** `emit` is called at key points throughout dispatch handling
+**Lifecycle:** `append` is called at key points throughout dispatch handling
 (DispatchReceived, PhaseStarted, PhaseCompleted, PreflightCompleted,
-PostflightCompleted, RetryScheduled, ErrorOccurred). `close` is called during
+PostflightCompleted, RetryScheduled, ErrorOccurred). `query_events` supports
+paginated, filterable reads over the event log. `close` is called during
 graceful shutdown.
 
-**Defaults:**
-- `NullEventEmitter` -- silently discards all events (used when no
-  `events_db` is configured).
-- `SqliteEventEmitter` -- writes events to a SQLite database with indexed
-  columns for workflow_id, event_type, and timestamp. Lazily opens the
-  connection on first `emit()`.
+**Implementations:**
+- `SqliteStore` -- writes events to a SQLite database with WAL mode and
+  indexed columns for workflow_id, event_type, and timestamp.
+- `PostgresStore` -- writes events to a Postgres database using an
+  externally-owned `asyncpg` connection pool.
 
 ### ExecutionEnvironment
 
@@ -321,7 +324,7 @@ bootstrapping, workspace management, agent execution, and state persistence:
 ```python
 class SSHExecutionEnvironment:
     def __init__(self, *, vm_provisioner, bootstrapper, workspace_mgr,
-                 runner, state_store, secret_loader, emitter,
+                 runner, state_store, secret_loader,
                  ssh_config_defaults, repo_urls): ...
 
     async def provision(self, dispatch, config) -> EnvironmentHandle:
@@ -405,7 +408,7 @@ during remote environment initialization (no global startup autoload).
 
 The tanren-core `ExecutionEnvironment` protocol takes `Dispatch` and
 `Config` arguments, making it dispatch-aware. This is intentional: the
-worker manager always has a dispatch context when it provisions and executes
+worker always has a dispatch context when it provisions and executes
 environments.
 
 The tanren architecture document defines a more generic version intended for
@@ -458,7 +461,7 @@ from tanren_core.adapters.types import (
     PhaseResult,
     ProvisionError,
 )
-from tanren_core.config import Config
+from tanren_core.worker_config import WorkerConfig
 from tanren_core.schemas import Dispatch, Outcome
 
 
@@ -533,36 +536,36 @@ The typed `runtime` field on `EnvironmentHandle` is the extension point for
 carrying environment-specific state (for example local preflight context or
 remote VM connection/workspace state) through the lifecycle.
 
-For simpler adapters (e.g., a custom `EventEmitter` that posts to a webhook),
-the pattern is the same: implement the protocol methods and inject via the
-`WorkerManager` constructor.
+For simpler adapters (e.g., a custom `EventStore` that forwards to an
+external system), the pattern is the same: implement the protocol methods
+and inject via the `Worker` constructor.
 
 
 ## Injecting Custom Adapters
 
-All adapters are injected through the `WorkerManager` constructor. Any
+All adapters are injected through the `Worker` constructor. Any
 parameter left as `None` gets its built-in default:
 
 ```python
-from tanren_core.manager import WorkerManager
-from tanren_core.config import Config
+from tanren_core.worker import Worker
+from tanren_core.worker_config import WorkerConfig
 
 # Use all defaults
-manager = WorkerManager()
+worker = Worker()
 
 # Inject a custom execution environment
-manager = WorkerManager(
+worker = Worker(
     execution_env=DockerExecutionEnvironment(image="my-image:v2"),
 )
 
-# Inject a custom event emitter alongside the default everything else
-manager = WorkerManager(
-    emitter=PostgresEventEmitter(dsn="postgresql://..."),
+# Inject a custom event store alongside the default everything else
+worker = Worker(
+    event_store=PostgresStore(pool=my_pg_pool),
 )
 
 # Override fine-grained adapters (these feed into LocalExecutionEnvironment
 # when no execution_env is provided)
-manager = WorkerManager(
+worker = Worker(
     preflight=CustomPreflightRunner(),
     postflight=CustomPostflightRunner(),
     env_validator=VaultEnvValidator(vault_addr="https://vault.internal"),
@@ -572,30 +575,19 @@ manager = WorkerManager(
 The constructor signature:
 
 ```python
-class WorkerManager:
+class Worker:
     def __init__(
         self,
-        config: Config | None = None,
         *,
-        execution_env: ExecutionEnvironment | None = None,
-        worktree_mgr: WorktreeManager | None = None,
-        preflight: PreflightRunner | None = None,
-        postflight: PostflightRunner | None = None,
-        spawner: ProcessSpawner | None = None,
-        env_validator: EnvValidator | None = None,
-        env_provisioner: EnvProvisioner | None = None,
-        emitter: EventEmitter | None = None,
+        config: WorkerConfig,
+        event_store: EventStore,
+        job_queue: JobQueue,
+        state_store: StateStore,
+        execution_env: ExecutionEnvironment,
     ) -> None: ...
 ```
 
-When `execution_env` is not provided, the manager constructs a
-`LocalExecutionEnvironment` from the fine-grained adapters (env_validator,
-preflight, postflight, spawner). This means you can customize individual
-steps without writing a full `ExecutionEnvironment` implementation. If you
-do provide `execution_env`, it takes full control of the provision/execute
-lifecycle and the fine-grained adapters are only used for SETUP/CLEANUP
-phases (worktree creation and env provisioning).
-
-The event emitter has its own auto-configuration: if `emitter` is not
-injected and `config.events_db` is set, the manager uses
-`SqliteEventEmitter`; otherwise it falls back to `NullEventEmitter`.
+The `Worker` requires explicit store and execution environment injection.
+Use the store factory (`tanren_core.store.factory`) to construct the
+appropriate store backend (SQLite or Postgres) and pass the three store
+protocols along with an `ExecutionEnvironment` implementation.

@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 _EVENTS_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS events (
     id BIGSERIAL PRIMARY KEY,
+    event_id TEXT NOT NULL UNIQUE,
     timestamp TEXT NOT NULL,
     workflow_id TEXT NOT NULL,
     event_type TEXT NOT NULL,

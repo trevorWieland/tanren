@@ -6,7 +6,7 @@ Last updated: March 12, 2026
 
 Tanren combines two first-class systems:
 
-1. **Execution framework**: the worker manager provisions environments, routes
+1. **Execution framework**: the worker daemon provisions environments, routes
    dispatches, runs phases, handles retries, and records outcomes.
 2. **Methodology system**: command files, standards profiles, and product
    templates define how agents shape specs, implement, audit, and validate work.
@@ -43,6 +43,6 @@ systems are adapter-backed and replaceable:
 ## Where To Read Next
 
 - Lifecycle details: [spec-lifecycle](../workflow/spec-lifecycle.md)
-- Runtime implementation details: [worker-manager-README](../worker-manager-README.md)
+- Runtime implementation details: [worker-README](../worker-README.md)
 - Adapter interfaces: [ADAPTERS](../ADAPTERS.md)
 - HTTP API: [interfaces](../interfaces.md#http-api)

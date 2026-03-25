@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,8 +18,8 @@ from tanren_core.ccusage import (
     _normalize_opencode,
     collect_token_usage,
 )
-from tanren_core.config import Config
 from tanren_core.schemas import Cli
+from tanren_core.worker_config import WorkerConfig
 
 # ---------------------------------------------------------------------------
 # Fixtures — real-shaped ccusage JSON
@@ -71,12 +71,13 @@ OPENCODE_SESSION = {
 # ---------------------------------------------------------------------------
 
 
-def _make_config() -> Config:
-    """Build a minimal Config with ccusage command defaults."""
-    return Config(
+def _make_config() -> WorkerConfig:
+    """Build a minimal WorkerConfig with ccusage command defaults."""
+    return WorkerConfig(
         ipc_dir="/tmp/ipc",
         github_dir="/tmp/gh",
         data_dir="/tmp/data",
+        db_url="/tmp/events.db",
         commands_dir=".claude/commands/tanren",
         worktree_registry_path="/tmp/worktrees.json",
         roles_config_path="/tmp/roles.yml",
@@ -362,7 +363,7 @@ class TestLocalCommandRunnerTimeout:
         """LocalCommandRunner kills the subprocess when timeout fires."""
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(side_effect=TimeoutError)
-        mock_proc.kill = AsyncMock()
+        mock_proc.kill = MagicMock()  # kill() is sync on asyncio.Process
         mock_proc.wait = AsyncMock()
 
         with patch("tanren_core.ccusage.asyncio.create_subprocess_exec", return_value=mock_proc):

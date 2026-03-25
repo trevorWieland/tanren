@@ -1,9 +1,4 @@
-"""Protocol interfaces for worker manager adapters.
-
-Reference docs:
-- worker-manager/ADAPTERS.md
-- docs/architecture/overview.md
-"""
+"""Protocol interfaces for execution environment adapters."""
 
 from __future__ import annotations
 
@@ -12,10 +7,10 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from tanren_core.adapters.events import Event
     from tanren_core.adapters.issue_types import Issue, IssueSummary
     from tanren_core.adapters.remote_types import (
         BootstrapResult,
+        DryRunInfo,
         RemoteResult,
         SecretBundle,
         VMAssignment,
@@ -25,13 +20,13 @@ if TYPE_CHECKING:
         WorkspaceSpec,
     )
     from tanren_core.adapters.types import AccessInfo, EnvironmentHandle, PhaseResult
-    from tanren_core.config import Config
     from tanren_core.env.environment_schema import McpServerConfig
     from tanren_core.env.validator import EnvReport
     from tanren_core.postflight import PostflightResult
     from tanren_core.preflight import PreflightResult
     from tanren_core.process import ProcessResult
     from tanren_core.schemas import Dispatch
+    from tanren_core.worker_config import WorkerConfig
 
 
 @runtime_checkable
@@ -153,7 +148,7 @@ class ProcessSpawner(Protocol):
         self,
         dispatch: Dispatch,
         worktree_path: Path,
-        config: Config,
+        config: WorkerConfig,
         *,
         task_env: dict[str, str] | None = None,
     ) -> ProcessResult:
@@ -190,26 +185,6 @@ class EnvProvisioner(Protocol):
 
 
 @runtime_checkable
-class EventEmitter(Protocol):
-    """Emit structured events for observability.
-
-    Events include DispatchReceived, PhaseStarted, PhaseCompleted,
-    PreflightCompleted, PostflightCompleted, ErrorOccurred, and
-    RetryScheduled. Used for metering, auditing, and dashboard display.
-
-    Default implementations: NullEventEmitter (no-op), SqliteEventEmitter.
-    """
-
-    async def emit(self, event: Event) -> None:
-        """Emit a structured event."""
-        ...
-
-    async def close(self) -> None:
-        """Close any resources held by the emitter."""
-        ...
-
-
-@runtime_checkable
 class ExecutionEnvironment(Protocol):
     """Where work runs. Local subprocess, Docker container, remote VM.
 
@@ -219,7 +194,7 @@ class ExecutionEnvironment(Protocol):
     clean up. get_access_info() provides debug connection details.
     """
 
-    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
+    async def provision(self, dispatch: Dispatch, config: WorkerConfig) -> EnvironmentHandle:
         """Validate and prepare the execution environment."""
         ...
 
@@ -227,7 +202,7 @@ class ExecutionEnvironment(Protocol):
         self,
         handle: EnvironmentHandle,
         dispatch: Dispatch,
-        config: Config,
+        config: WorkerConfig,
         *,
         dispatch_stem: str = "",
     ) -> PhaseResult:
@@ -240,6 +215,10 @@ class ExecutionEnvironment(Protocol):
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
         """Clean up the execution environment and release resources."""
+        ...
+
+    async def dry_run(self, requirements: VMRequirements) -> DryRunInfo:
+        """Dry-run provision — return what would happen without creating resources."""
         ...
 
     async def release_vm(self, vm_handle: VMHandle) -> None:

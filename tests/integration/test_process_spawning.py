@@ -4,12 +4,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.process import (
     _run_with_timeout,
     spawn_process,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.worker_config import WorkerConfig
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -76,10 +79,11 @@ class TestRunWithTimeout:
 class TestSpawnBashGate:
     @pytest.mark.asyncio
     async def test_gate_success(self, tmp_path: Path):
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path),
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )
@@ -94,6 +98,7 @@ class TestSpawnBashGate:
             gate_cmd="echo 'all tests passed'",
             context=None,
             timeout=10,
+            resolved_profile=DEFAULT_PROFILE,
         )
         result = await spawn_process(dispatch, tmp_path, config)
         assert result.exit_code == 0
@@ -101,10 +106,11 @@ class TestSpawnBashGate:
 
     @pytest.mark.asyncio
     async def test_gate_failure(self, tmp_path: Path):
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path),
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )
@@ -119,16 +125,18 @@ class TestSpawnBashGate:
             gate_cmd="exit 1",
             context=None,
             timeout=10,
+            resolved_profile=DEFAULT_PROFILE,
         )
         result = await spawn_process(dispatch, tmp_path, config)
         assert result.exit_code == 1
 
     @pytest.mark.asyncio
     async def test_no_gate_cmd(self, tmp_path: Path):
-        config = Config(
+        config = WorkerConfig(
             ipc_dir=str(tmp_path),
             github_dir=str(tmp_path),
             data_dir=str(tmp_path),
+            db_url=str(tmp_path / "events.db"),
             worktree_registry_path=str(tmp_path / "worktrees.json"),
             roles_config_path=str(tmp_path / "roles.yml"),
         )
@@ -143,6 +151,7 @@ class TestSpawnBashGate:
             gate_cmd=None,
             context=None,
             timeout=10,
+            resolved_profile=DEFAULT_PROFILE,
         )
         result = await spawn_process(dispatch, tmp_path, config)
         assert result.exit_code == 1

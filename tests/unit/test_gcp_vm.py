@@ -210,6 +210,8 @@ async def test_list_active_filters_by_managed_label(monkeypatch):
 
 
 def test_missing_gcp_dependency_error_is_clear(monkeypatch):
+    monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA_test")
+
     def _raise():
         raise ImportError(
             "google-cloud-compute is required for GCP provisioning. "

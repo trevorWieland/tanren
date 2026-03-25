@@ -1,4 +1,4 @@
-"""Tests for signals module — covers every outcome mapping row from PROTOCOL.md."""
+"""Tests for signals module — covers every outcome mapping row."""
 
 from typing import TYPE_CHECKING
 
@@ -110,7 +110,7 @@ class TestExtractSignal:
 
 
 class TestMapOutcome:
-    """Tests every row of the outcome mapping table from PROTOCOL.md Section 3."""
+    """Tests every row of the outcome mapping table."""
 
     def test_complete_maps_to_success(self):
         assert map_outcome(Phase.DO_TASK, "complete", 0, False) == (Outcome.SUCCESS, "complete")

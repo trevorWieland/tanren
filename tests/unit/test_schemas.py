@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.postflight import IntegrityRepairs
 from tanren_core.schemas import (
     AuditResult,
@@ -79,6 +80,7 @@ class TestDispatch:
             gate_cmd=None,
             context=None,
             timeout=1800,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
         assert d.workflow_id == "wf-rentl-144-1741359600"
         assert d.phase == Phase.DO_TASK
@@ -96,6 +98,7 @@ class TestDispatch:
             gate_cmd="make check",
             context=None,
             timeout=300,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
         assert d.gate_cmd == "make check"
         assert d.model is None
@@ -143,6 +146,7 @@ class TestDispatch:
             gate_cmd=None,
             context=None,
             timeout=1800,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
         json_str = d.model_dump_json()
         d2 = Dispatch.model_validate_json(json_str)

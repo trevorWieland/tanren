@@ -8,307 +8,75 @@ Reference docs:
 from __future__ import annotations
 
 import asyncio
-import json
-import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal, cast
-
-if TYPE_CHECKING:
-    import asyncpg
-
-    from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
+from typing import TYPE_CHECKING, Annotated
 
 import typer
-import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from tanren_core.adapters.null_emitter import NullEventEmitter
-from tanren_core.adapters.postgres_pool import is_postgres_url
-from tanren_core.adapters.remote_types import VMHandle, WorkspacePath
-from tanren_core.adapters.ssh import SSHConfig, SSHConnection
-from tanren_core.adapters.types import EnvironmentHandle, RemoteEnvironmentRuntime
-from tanren_core.config import Config
-from tanren_core.env.environment_schema import (
-    EnvironmentProfile,
-    EnvironmentProfileType,
-    parse_environment_profiles,
+from tanren_core.builder import build_execution_environment
+from tanren_core.dispatch_resolver import (
+    resolve_agent_tool,
+    resolve_cloud_secrets,
+    resolve_gate_cmd,
+    resolve_profile,
+    resolve_project_env,
+    resolve_required_secrets,
 )
-from tanren_core.env.gates import resolve_gate_cmd
-from tanren_core.ipc import list_checkpoints as list_checkpoints_io
-from tanren_core.manager import build_tail_output
-from tanren_core.roles import AgentTool, AuthMode, RoleName
-from tanren_core.roles_config import load_roles_config
-from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.schemas import Dispatch, Phase
+from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
+from tanren_core.store.events import DispatchCreated
+from tanren_core.store.factory import create_sqlite_store
+from tanren_core.store.payloads import (
+    ExecuteResult,
+    ExecuteStepPayload,
+    ProvisionResult,
+    ProvisionStepPayload,
+    TeardownStepPayload,
+)
+from tanren_core.worker import Worker
+from tanren_core.worker_config import WorkerConfig
+
+if TYPE_CHECKING:
+    from tanren_core.env.environment_schema import EnvironmentProfile
+    from tanren_core.roles import AgentTool
+    from tanren_core.store.sqlite import SqliteStore
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
 
 
-class PersistedSSHDefaults(BaseModel):
-    """Persisted SSH defaults for handle reconstruction."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    user: str = Field(...)
-    key_path: str = Field(...)
-    port: int = Field(...)
-    connect_timeout: int = Field(...)
-    host_key_policy: Literal["auto_add", "warn", "reject"] = Field(default="auto_add")
-
-
-class PersistedRunHandle(BaseModel):
-    """Serialized remote environment handle used by tanren run commands."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    env_id: str = Field(...)
-    vm_id: str = Field(...)
-    project: str = Field(...)
-    branch: str = Field(...)
-    workflow_id: str = Field(...)
-    environment_profile: str = Field(...)
-    local_worktree_path: str = Field(...)
-    workspace_path: str = Field(...)
-    teardown_commands: tuple[str, ...] = Field(default_factory=tuple)
-    provisioned_at_utc: str = Field(...)
-    vm_handle: VMHandle = Field(...)
-    ssh_defaults: PersistedSSHDefaults = Field(...)
-
-
-def _load_config() -> Config:
+def _load_config() -> WorkerConfig:
     try:
-        return Config.from_env()
+        return WorkerConfig.from_env()
     except Exception as exc:
         typer.echo(f"Failed to load config from WM_* environment: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
 
-def _require_remote_config(config: Config) -> None:
-    if not config.remote_config_path:
-        typer.echo("WM_REMOTE_CONFIG is required for tanren run commands.", err=True)
-        raise typer.Exit(code=1)
-
-
-async def _build_remote_execution_env(
-    config: Config,
-) -> tuple[SSHExecutionEnvironment, asyncpg.Pool | None]:
-    """Build SSH execution environment, returning (env, pg_pool_or_none).
-
-    Returns:
-        Tuple of (SSHExecutionEnvironment, asyncpg.Pool | None).
-    """
-    from tanren_core.builder import (  # noqa: PLC0415 — avoid circular import
-        build_ssh_execution_environment,
-    )
-
-    pool = None
-    if config.events_db and is_postgres_url(config.events_db):
-        from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — optional dep
-            create_postgres_pool,
-        )
-
-        pool = await create_postgres_pool(config.events_db)
-
-    env, _store = build_ssh_execution_environment(config, NullEventEmitter(), pool=pool)
-    return env, pool
-
-
-def _handle_dir(config: Config) -> Path:
-    path = Path(config.data_dir) / "run-handles"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _handle_path(config: Config, env_id: str) -> Path:
-    return _handle_dir(config) / f"{env_id}.json"
-
-
-def _save_handle(config: Config, persisted: PersistedRunHandle) -> Path:
-    path = _handle_path(config, persisted.env_id)
-    path.write_text(persisted.model_dump_json(indent=2))
-    return path
-
-
-def _is_managed_handle(config: Config, handle_path: Path) -> bool:
-    """Return True if handle_path lives inside the managed run-handles directory."""
-    try:
-        handle_path.resolve().relative_to(_handle_dir(config).resolve())
-    except ValueError:
-        return False
-    else:
-        return True
-
-
-def _is_explicit_path(identifier: str) -> bool:
-    """True if identifier contains a path separator, indicating an explicit file path.
-
-    Returns:
-        True if the identifier looks like a file path.
-    """
-    return "/" in identifier or "\\" in identifier
-
-
-def _load_handle(config: Config, identifier: str) -> tuple[PersistedRunHandle, Path]:
-    def _parse(path: Path) -> PersistedRunHandle:
-        try:
-            parsed = PersistedRunHandle.model_validate_json(path.read_text())
-        except ValidationError as exc:
-            typer.echo(f"Invalid run handle schema in {path}: {exc}", err=True)
-            typer.echo(
-                "Run handle schema has changed. Re-provision with `tanren run provision`.",
-                err=True,
-            )
-            raise typer.Exit(code=1) from exc
-        try:
-            _parse_provisioned_at_utc(parsed.provisioned_at_utc)
-        except ValueError as exc:
-            typer.echo(f"Invalid run handle timestamp in {path}: {exc}", err=True)
-            raise typer.Exit(code=1) from exc
-        return parsed
-
-    # 1. Registry lookup by env_id
-    direct = _handle_path(config, identifier)
-    if direct.exists():
-        return _parse(direct), direct
-
-    # 2. Registry lookup by vm_id
-    for candidate in _handle_dir(config).glob("*.json"):
-        loaded = _parse(candidate)
-        if loaded.vm_id == identifier:
-            return loaded, candidate
-
-    # 3. Explicit file path (only for path-like identifiers)
-    if _is_explicit_path(identifier):
-        file_path = Path(identifier)
-        if file_path.is_file():
-            return _parse(file_path), file_path
-
-    typer.echo(f"No run handle found for identifier: {identifier}", err=True)
-    raise typer.Exit(code=1)
-
-
-def _profile_for_runtime(name: str) -> EnvironmentProfile:
-    return EnvironmentProfile(name=name, type=EnvironmentProfileType.REMOTE)
-
-
-def _resolve_profile(config: Config, project: str, environment_profile: str) -> EnvironmentProfile:
-    tanren_yml = Path(config.github_dir) / project / "tanren.yml"
-    if tanren_yml.exists():
-        loaded = yaml.safe_load(tanren_yml.read_text()) or {}
-        data = loaded if isinstance(loaded, dict) else {}
-        profiles = parse_environment_profiles(data)
-    else:
-        profiles = parse_environment_profiles({})
-    profile = profiles.get(environment_profile)
-    if profile is None:
-        available = sorted(profiles.keys())
-        raise ValueError(
-            f"Environment profile '{environment_profile}' not found in tanren.yml. "
-            f"Available: {available}"
-        )
-    return profile
-
-
-def _resolve_gate_cmd(
+def _resolve_gate_cmd_for_phase(
     *,
-    config: Config,
+    config: WorkerConfig,
     project: str,
     environment_profile: str,
     phase: Phase,
     gate_cmd: str | None,
 ) -> str | None:
-    if phase != Phase.GATE:
-        return gate_cmd
+    """CLI wrapper around ``resolve_gate_cmd``.
 
-    resolved = gate_cmd
-    if resolved is None:
-        profile = _resolve_profile(config, project, environment_profile)
-        resolved = resolve_gate_cmd(profile, phase)
+    Converts ValueError to typer.Exit for CLI error handling.
 
-    normalized = resolved.strip() if resolved is not None else ""
-    if not normalized:
-        typer.echo(
-            "Gate phase requires a non-empty gate command. "
-            "Provide --gate-cmd or configure environment.<profile>.gate_cmd in tanren.yml.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    return normalized
+    Returns:
+        Resolved gate command string, or the original gate_cmd for non-gate phases.
 
-
-def _reconstruct_handle(persisted: PersistedRunHandle) -> EnvironmentHandle:
-    ssh_cfg = SSHConfig(
-        host=persisted.vm_handle.host,
-        user=persisted.ssh_defaults.user,
-        key_path=persisted.ssh_defaults.key_path,
-        port=persisted.ssh_defaults.port,
-        connect_timeout=persisted.ssh_defaults.connect_timeout,
-        host_key_policy=persisted.ssh_defaults.host_key_policy,
-    )
-    conn = SSHConnection(ssh_cfg)
-
-    return EnvironmentHandle(
-        env_id=persisted.env_id,
-        worktree_path=Path(persisted.local_worktree_path),
-        branch=persisted.branch,
-        project=persisted.project,
-        runtime=RemoteEnvironmentRuntime(
-            vm_handle=persisted.vm_handle,
-            connection=conn,
-            workspace_path=WorkspacePath(
-                path=persisted.workspace_path,
-                project=persisted.project,
-                branch=persisted.branch,
-            ),
-            profile=_profile_for_runtime(persisted.environment_profile),
-            teardown_commands=persisted.teardown_commands,
-            provision_start=_provision_start_monotonic(persisted.provisioned_at_utc),
-            workflow_id=persisted.workflow_id,
-        ),
-    )
-
-
-def _now_utc_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def _parse_provisioned_at_utc(value: str) -> datetime:
+    Raises:
+        typer.Exit: If the gate command is missing or empty.
+    """
     try:
-        parsed = datetime.fromisoformat(value)
+        return resolve_gate_cmd(config, project, environment_profile, phase, gate_cmd)
     except ValueError as exc:
-        raise ValueError(f"Invalid provisioned_at_utc timestamp: {value}") from exc
-    if parsed.tzinfo is None:
-        raise ValueError(f"provisioned_at_utc must include timezone offset: {value}")
-    return parsed.astimezone(UTC)
-
-
-def _elapsed_seconds(provisioned_at_utc: str) -> float:
-    provisioned_at = _parse_provisioned_at_utc(provisioned_at_utc)
-    return max(0.0, (datetime.now(UTC) - provisioned_at).total_seconds())
-
-
-def _provision_start_monotonic(provisioned_at_utc: str) -> float:
-    # Reconstruct a process-local monotonic baseline from persisted wall-clock start.
-    return time.monotonic() - _elapsed_seconds(provisioned_at_utc)
-
-
-def _role_for_phase(phase: Phase) -> RoleName:
-    if phase in (Phase.AUDIT_TASK, Phase.AUDIT_SPEC):
-        return RoleName.AUDIT
-    if phase == Phase.RUN_DEMO:
-        return RoleName.FEEDBACK
-    if phase == Phase.DO_TASK:
-        return RoleName.IMPLEMENTATION
-    if phase == Phase.INVESTIGATE:
-        return RoleName.CONVERSATION
-    return RoleName.DEFAULT
-
-
-def _resolve_agent_tool(config: Config, phase: Phase) -> AgentTool:
-    if phase == Phase.GATE:
-        return AgentTool(cli=Cli.BASH, auth=AuthMode.API_KEY)
-    return load_roles_config(config.roles_config_path).resolve(_role_for_phase(phase))
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def _build_dispatch(
@@ -323,6 +91,10 @@ def _build_dispatch(
     context: str | None,
     gate_cmd: str | None,
     tool: AgentTool,
+    resolved_profile: EnvironmentProfile,
+    project_env: dict[str, str] | None = None,
+    cloud_secrets: dict[str, str] | None = None,
+    required_secrets: tuple[str, ...] = (),
 ) -> Dispatch:
     return Dispatch(
         workflow_id=workflow_id,
@@ -337,7 +109,87 @@ def _build_dispatch(
         context=context,
         timeout=timeout,
         environment_profile=environment_profile,
+        resolved_profile=resolved_profile,
+        project_env=project_env or {},
+        cloud_secrets=cloud_secrets or {},
+        required_secrets=required_secrets,
     )
+
+
+def _store_path(config: WorkerConfig) -> str:
+    """Return the persistent store path for multi-step CLI workflows."""
+    return str(Path(config.data_dir) / "run.db")
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+async def _enqueue_dispatch(
+    store: SqliteStore,
+    dispatch: Dispatch,
+    mode: DispatchMode,
+) -> str:
+    """Create dispatch projection, append event, enqueue provision step.
+
+    Returns:
+        The dispatch_id.
+    """
+    dispatch_id = dispatch.workflow_id
+    lane = cli_to_lane(dispatch.cli)
+
+    await store.create_dispatch_projection(
+        dispatch_id=dispatch_id,
+        mode=mode,
+        lane=lane,
+        preserve_on_failure=dispatch.preserve_on_failure,
+        dispatch_json=dispatch.model_dump_json(),
+    )
+    await store.append(
+        DispatchCreated(
+            timestamp=_now(),
+            workflow_id=dispatch_id,
+            dispatch=dispatch,
+            mode=mode,
+            lane=lane,
+        )
+    )
+    step_id = uuid.uuid4().hex
+    payload = ProvisionStepPayload(dispatch=dispatch)
+    await store.enqueue_step(
+        step_id=step_id,
+        dispatch_id=dispatch_id,
+        step_type="provision",
+        step_sequence=0,
+        lane=None,
+        payload_json=payload.model_dump_json(),
+    )
+    return dispatch_id
+
+
+def _build_tail_output(text: str | None, max_lines: int = 30) -> str:
+    """Return the last max_lines of text, or empty string."""
+    if not text:
+        return ""
+    lines = text.strip().splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+def _make_env_factory(config: WorkerConfig, profile: EnvironmentProfile) -> tuple:
+    """Create an env_factory closure that returns a pre-built environment.
+
+    Returns:
+        Tuple of (factory, execution_env, vm_store).
+    """
+    env, vm_store = build_execution_environment(config, profile)
+
+    def factory(
+        _cfg: WorkerConfig,
+        _prof: EnvironmentProfile,
+    ) -> tuple:
+        return env, vm_store
+
+    return factory, env, vm_store
 
 
 @run_app.command("provision")
@@ -346,81 +198,83 @@ def run_provision(
     branch: Annotated[str, typer.Option(..., "--branch")],
     environment_profile: Annotated[str, typer.Option("--environment-profile")] = "default",
 ) -> None:
-    """Provision a remote execution environment and persist its handle."""
+    """Provision an execution environment via embedded worker."""
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
-        env, pg_pool = await _build_remote_execution_env(config)
+        profile = resolve_profile(config, project, environment_profile)
+
+        db_path = _store_path(config)
+        store = await create_sqlite_store(db_path)
+        env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+
         try:
-            workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
-            tool = _resolve_agent_tool(config, Phase.DO_TASK)
-            dispatch = Dispatch(
-                workflow_id=workflow_id,
+            workflow_id = (
+                f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
+            )
+            tool = resolve_agent_tool(config, Phase.DO_TASK)
+            project_env = resolve_project_env(config, project)
+            cloud_secrets = await resolve_cloud_secrets(config, project)
+            required_secrets = resolve_required_secrets(profile)
+            dispatch = _build_dispatch(
+                project=project,
                 phase=Phase.DO_TASK,
-                project=project,
-                spec_folder=".",
+                spec_path=".",
                 branch=branch,
-                cli=tool.cli,
-                auth=tool.auth,
-                model=None,
-                gate_cmd=None,
-                context=None,
-                timeout=1800,
                 environment_profile=environment_profile,
-            )
-            handle = await env.provision(dispatch, config)
-            runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
-            vm = runtime.vm_handle
-
-            # Close the SSH connection from provision (not needed after handle save)
-            conn = cast("SSHConnection", runtime.connection)
-            await conn.close()
-
-            persisted = PersistedRunHandle(
-                env_id=handle.env_id,
-                vm_id=vm.vm_id,
-                project=project,
-                branch=branch,
                 workflow_id=workflow_id,
-                environment_profile=environment_profile,
-                local_worktree_path=str(Path(config.github_dir) / project),
-                workspace_path=runtime.workspace_path.path,
-                teardown_commands=runtime.teardown_commands,
-                provisioned_at_utc=_now_utc_iso(),
-                vm_handle=runtime.vm_handle,
-                ssh_defaults=PersistedSSHDefaults(
-                    user=env.ssh_defaults.user,
-                    key_path=env.ssh_defaults.key_path,
-                    port=env.ssh_defaults.port,
-                    connect_timeout=env.ssh_defaults.connect_timeout,
-                    host_key_policy=env.ssh_defaults.host_key_policy,
-                ),
+                timeout=1800,
+                context=None,
+                gate_cmd=None,
+                tool=tool,
+                resolved_profile=profile,
+                project_env=project_env,
+                cloud_secrets=cloud_secrets,
+                required_secrets=required_secrets,
             )
-            path = _save_handle(config, persisted)
 
-            typer.echo(f"env_id: {persisted.env_id}")
-            typer.echo(f"vm_id: {persisted.vm_id}")
-            typer.echo(f"host: {vm.host}")
-            typer.echo(f"ssh: ssh {persisted.ssh_defaults.user}@{vm.host}")
-            typer.echo(
-                "vscode: "
-                f"code --folder-uri vscode-remote://ssh-remote+"
-                f"{persisted.ssh_defaults.user}@{vm.host}"
-                f"{runtime.workspace_path.path}"
+            dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.MANUAL)
+
+            worker = Worker(
+                config=config,
+                event_store=store,
+                job_queue=store,
+                state_store=store,
+                env_factory=env_factory,
             )
-            typer.echo(f"handle_file: {path}")
+
+            # Run until provision step completes
+            await worker.run_until_step_complete(dispatch_id, StepType.PROVISION)
+
+            # Read result
+            steps = await store.get_steps_for_dispatch(dispatch_id)
+            provision_step = next(s for s in steps if s.step_type == StepType.PROVISION)
+            if provision_step.status == StepStatus.FAILED:
+                typer.echo("Provision failed.", err=True)
+                raise typer.Exit(code=1)
+
+            if not provision_step.result_json:
+                typer.echo("Provision step has no result.", err=True)
+                raise typer.Exit(code=1)
+            prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
+            handle = prov_result.handle
+
+            typer.echo(f"dispatch_id: {dispatch_id}")
+            typer.echo(f"env_id: {handle.env_id}")
+            if handle.vm:
+                typer.echo(f"vm_id: {handle.vm.vm_id}")
+                typer.echo(f"host: {handle.vm.host}")
         finally:
-            await env.close()
-            if pg_pool is not None:
-                await pg_pool.close()
+            if hasattr(execution_env, "close"):
+                await execution_env.close()
+            await store.close()
 
     asyncio.run(_run())
 
 
 @run_app.command("execute")
 def run_execute(
-    handle: Annotated[str, typer.Option(..., "--handle")],
+    dispatch_id: Annotated[str, typer.Option(..., "--dispatch-id")],
     project: Annotated[str, typer.Option(..., "--project")],
     spec_path: Annotated[str, typer.Option(..., "--spec-path")],
     phase: Annotated[Phase, typer.Option(..., "--phase")],
@@ -432,104 +286,219 @@ def run_execute(
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
-        env, pg_pool = await _build_remote_execution_env(config)
+
+        db_path = _store_path(config)
+        store = await create_sqlite_store(db_path)
+        execution_env = None
+
         try:
-            persisted, _ = _load_handle(config, handle)
-            if persisted.project != project:
+            # Read provision result from store
+            steps = await store.get_steps_for_dispatch(dispatch_id)
+            provision_step = next(
+                (
+                    s
+                    for s in steps
+                    if s.step_type == StepType.PROVISION and s.status == StepStatus.COMPLETED
+                ),
+                None,
+            )
+            if provision_step is None or provision_step.result_json is None:
                 typer.echo(
-                    f"Handle project mismatch: expected {persisted.project}, got {project}",
+                    f"No completed provision found for dispatch {dispatch_id}",
                     err=True,
                 )
                 raise typer.Exit(code=1)
 
-            tool = _resolve_agent_tool(config, phase)
-            resolved_gate_cmd = _resolve_gate_cmd(
+            prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
+            view = await store.get_dispatch(dispatch_id)
+            if view is None:
+                typer.echo(f"Dispatch {dispatch_id} not found", err=True)
+                raise typer.Exit(code=1)
+
+            # Guard: block concurrent execute
+            if any(
+                s.step_type == StepType.EXECUTE
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
+                for s in steps
+            ):
+                typer.echo("Execute step already in progress", err=True)
+                raise typer.Exit(code=1)
+
+            # Guard: block execute after teardown
+            if any(
+                s.step_type == StepType.TEARDOWN
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
+                for s in steps
+            ):
+                typer.echo("Cannot execute after teardown", err=True)
+                raise typer.Exit(code=1)
+
+            dispatch_data = view.dispatch
+            profile = dispatch_data.resolved_profile
+            env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+
+            tool = resolve_agent_tool(config, phase)
+            resolved_gate_cmd = _resolve_gate_cmd_for_phase(
                 config=config,
                 project=project,
-                environment_profile=persisted.environment_profile,
+                environment_profile=dispatch_data.environment_profile,
                 phase=phase,
                 gate_cmd=gate_cmd,
             )
-            dispatch = _build_dispatch(
+
+            exec_dispatch = _build_dispatch(
                 project=project,
                 phase=phase,
                 spec_path=spec_path,
-                branch=persisted.branch,
-                environment_profile=persisted.environment_profile,
-                workflow_id=persisted.workflow_id,
+                branch=dispatch_data.branch,
+                environment_profile=dispatch_data.environment_profile,
+                workflow_id=dispatch_id,
                 timeout=timeout,
                 context=context,
                 gate_cmd=resolved_gate_cmd,
                 tool=tool,
+                resolved_profile=profile,
             )
-            env_handle = _reconstruct_handle(persisted)
-            runtime = cast("RemoteEnvironmentRuntime", env_handle.runtime)
-            conn = cast("SSHConnection", runtime.connection)
 
-            try:
-                result = await env.execute(env_handle, dispatch, config)
-            finally:
-                await conn.close()
+            lane = cli_to_lane(exec_dispatch.cli)
+            existing_steps = await store.get_steps_for_dispatch(dispatch_id)
+            max_seq = max((s.step_sequence for s in existing_steps), default=0)
+            step_id = uuid.uuid4().hex
+            payload = ExecuteStepPayload(dispatch=exec_dispatch, handle=prov_result.handle)
+            await store.enqueue_step(
+                step_id=step_id,
+                dispatch_id=dispatch_id,
+                step_type="execute",
+                step_sequence=max_seq + 1,
+                lane=str(lane),
+                payload_json=payload.model_dump_json(),
+            )
 
-            typer.echo(f"outcome: {result.outcome.value}")
-            typer.echo(f"signal: {result.signal}")
-            typer.echo(f"exit_code: {result.exit_code}")
-            typer.echo(f"duration_secs: {result.duration_secs}")
-            if result.token_usage:
-                typer.echo(f"token_cost: ${getattr(result.token_usage, 'total_cost', 0):.4f}")
-                typer.echo(f"token_total: {getattr(result.token_usage, 'total_tokens', 0)}")
-            tail = build_tail_output(result.stdout)
-            if tail:
-                typer.echo("stdout_tail:")
-                typer.echo(tail)
-            if result.stderr:
-                stderr_tail = build_tail_output(result.stderr)
-                if stderr_tail:
-                    typer.echo("stderr_tail:")
-                    typer.echo(stderr_tail)
+            worker = Worker(
+                config=config,
+                event_store=store,
+                job_queue=store,
+                state_store=store,
+                env_factory=env_factory,
+            )
+
+            # Run until execute step completes
+            await worker.run_until_step_complete(dispatch_id, StepType.EXECUTE)
+
+            # Read result from the latest execute step
+            steps = await store.get_steps_for_dispatch(dispatch_id)
+            exec_steps = [s for s in steps if s.step_type == StepType.EXECUTE]
+            exec_step = exec_steps[-1]
+
+            if exec_step.status == StepStatus.FAILED:
+                typer.echo("Execute failed.", err=True)
+                raise typer.Exit(code=1)
+
+            if not exec_step.result_json:
+                typer.echo("Execute step has no result.", err=True)
+                raise typer.Exit(code=1)
+            exec_result = ExecuteResult.model_validate_json(exec_step.result_json)
+            typer.echo(f"outcome: {exec_result.outcome.value}")
+            typer.echo(f"signal: {exec_result.signal}")
+            typer.echo(f"exit_code: {exec_result.exit_code}")
+            typer.echo(f"duration_secs: {exec_result.duration_secs}")
+            if exec_result.token_usage:
+                typer.echo(f"token_cost: ${getattr(exec_result.token_usage, 'total_cost', 0):.4f}")
+                typer.echo(f"token_total: {getattr(exec_result.token_usage, 'total_tokens', 0)}")
         finally:
-            await env.close()
-            if pg_pool is not None:
-                await pg_pool.close()
+            if hasattr(execution_env, "close"):
+                await execution_env.close()
+            await store.close()
 
     asyncio.run(_run())
 
 
 @run_app.command("teardown")
 def run_teardown(
-    handle: Annotated[str, typer.Option(..., "--handle")],
+    dispatch_id: Annotated[str, typer.Option(..., "--dispatch-id")],
 ) -> None:
     """Teardown a previously provisioned environment."""
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
-        env, pg_pool = await _build_remote_execution_env(config)
+
+        db_path = _store_path(config)
+        store = await create_sqlite_store(db_path)
+        execution_env = None
+
         try:
-            persisted, handle_path = _load_handle(config, handle)
+            steps = await store.get_steps_for_dispatch(dispatch_id)
+            provision_step = next(
+                (
+                    s
+                    for s in steps
+                    if s.step_type == StepType.PROVISION and s.status == StepStatus.COMPLETED
+                ),
+                None,
+            )
+            if provision_step is None or provision_step.result_json is None:
+                typer.echo(
+                    f"No completed provision found for dispatch {dispatch_id}",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
 
-            env_handle = _reconstruct_handle(persisted)
-            await env.teardown(env_handle)
+            prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
+            view = await store.get_dispatch(dispatch_id)
+            if view is None:
+                typer.echo(f"Dispatch {dispatch_id} not found", err=True)
+                raise typer.Exit(code=1)
 
-            duration = _elapsed_seconds(persisted.provisioned_at_utc)
-            estimated_cost: float | None = None
-            vm_hourly_cost = persisted.vm_handle.hourly_cost
-            if vm_hourly_cost is not None:
-                estimated_cost = vm_hourly_cost * (duration / 3600.0)
+            # Guard: block teardown while execute active
+            if any(
+                s.step_type == StepType.EXECUTE
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
+                for s in steps
+            ):
+                typer.echo("Cannot teardown while execute is in progress", err=True)
+                raise typer.Exit(code=1)
 
-            typer.echo(f"released_vm_id: {persisted.vm_id}")
-            if _is_managed_handle(config, handle_path):
-                handle_path.unlink(missing_ok=True)
-                typer.echo(f"removed_handle: {handle_path}")
-            else:
-                typer.echo(f"handle_retained: {handle_path} (external file)")
-            if estimated_cost is not None:
-                typer.echo(f"estimated_cost: {estimated_cost:.4f}")
+            # Guard: block duplicate teardown
+            if any(
+                s.step_type == StepType.TEARDOWN
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
+                for s in steps
+            ):
+                typer.echo("Teardown already enqueued or completed", err=True)
+                raise typer.Exit(code=1)
+
+            dispatch_data = view.dispatch
+            profile = dispatch_data.resolved_profile
+            env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+
+            max_seq = max((s.step_sequence for s in steps), default=0)
+            step_id = uuid.uuid4().hex
+            payload = TeardownStepPayload(dispatch=dispatch_data, handle=prov_result.handle)
+            await store.enqueue_step(
+                step_id=step_id,
+                dispatch_id=dispatch_id,
+                step_type="teardown",
+                step_sequence=max_seq + 1,
+                lane=None,
+                payload_json=payload.model_dump_json(),
+            )
+
+            worker = Worker(
+                config=config,
+                event_store=store,
+                job_queue=store,
+                state_store=store,
+                env_factory=env_factory,
+            )
+
+            # Run until teardown completes
+            await worker.run_until_step_complete(dispatch_id, StepType.TEARDOWN)
+
+            typer.echo(f"teardown: completed for {dispatch_id}")
         finally:
-            await env.close()
-            if pg_pool is not None:
-                await pg_pool.close()
+            if execution_env is not None and hasattr(execution_env, "close"):
+                await execution_env.close()
+            await store.close()
 
     asyncio.run(_run())
 
@@ -549,161 +518,98 @@ def run_full(
 
     async def _run() -> None:
         config = _load_config()
-        _require_remote_config(config)
-        env, pg_pool = await _build_remote_execution_env(config)
+        profile = resolve_profile(config, project, environment_profile)
+
+        # Use persistent store so dispatches are auditable
+        db_path = _store_path(config)
+        store = await create_sqlite_store(db_path)
+        env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+
         try:
-            workflow_id = f"run-{project}-{uuid.uuid4().hex[:10]}"
-            provision_tool = _resolve_agent_tool(config, Phase.DO_TASK)
-            provision_dispatch = Dispatch(
-                workflow_id=workflow_id,
-                phase=Phase.DO_TASK,
+            workflow_id = (
+                f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
+            )
+            tool = resolve_agent_tool(config, phase)
+            resolved_gate_cmd = _resolve_gate_cmd_for_phase(
+                config=config,
                 project=project,
-                spec_folder=spec_path,
+                environment_profile=environment_profile,
+                phase=phase,
+                gate_cmd=gate_cmd,
+            )
+            project_env = resolve_project_env(config, project)
+            cloud_secrets = await resolve_cloud_secrets(config, project)
+            required_secrets = resolve_required_secrets(profile)
+            dispatch = _build_dispatch(
+                project=project,
+                phase=phase,
+                spec_path=spec_path,
                 branch=branch,
-                cli=provision_tool.cli,
-                auth=provision_tool.auth,
-                model=None,
-                gate_cmd=None,
-                context=None,
+                environment_profile=environment_profile,
+                workflow_id=workflow_id,
                 timeout=timeout,
-                environment_profile=environment_profile,
+                context=context,
+                gate_cmd=resolved_gate_cmd,
+                tool=tool,
+                resolved_profile=profile,
+                project_env=project_env,
+                cloud_secrets=cloud_secrets,
+                required_secrets=required_secrets,
             )
-            handle = await env.provision(provision_dispatch, config)
-            runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
-            vm = runtime.vm_handle
 
-            # Close the SSH connection from provision (not needed after handle save)
-            conn = cast("SSHConnection", runtime.connection)
-            await conn.close()
+            dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.AUTO)
 
-            persisted = PersistedRunHandle(
-                env_id=handle.env_id,
-                vm_id=vm.vm_id,
-                project=project,
-                branch=branch,
-                workflow_id=workflow_id,
-                environment_profile=environment_profile,
-                local_worktree_path=str(Path(config.github_dir) / project),
-                workspace_path=runtime.workspace_path.path,
-                teardown_commands=runtime.teardown_commands,
-                provisioned_at_utc=_now_utc_iso(),
-                vm_handle=runtime.vm_handle,
-                ssh_defaults=PersistedSSHDefaults(
-                    user=env.ssh_defaults.user,
-                    key_path=env.ssh_defaults.key_path,
-                    port=env.ssh_defaults.port,
-                    connect_timeout=env.ssh_defaults.connect_timeout,
-                    host_key_policy=env.ssh_defaults.host_key_policy,
-                ),
+            worker = Worker(
+                config=config,
+                event_store=store,
+                job_queue=store,
+                state_store=store,
+                env_factory=env_factory,
             )
-            handle_path: Path | None = None
-            execute_failed = False
-            try:
-                handle_path = _save_handle(config, persisted)
-                tool = _resolve_agent_tool(config, phase)
-                resolved_gate_cmd = _resolve_gate_cmd(
-                    config=config,
-                    project=project,
-                    environment_profile=environment_profile,
-                    phase=phase,
-                    gate_cmd=gate_cmd,
-                )
-                dispatch = _build_dispatch(
-                    project=project,
-                    phase=phase,
-                    spec_path=spec_path,
-                    branch=branch,
-                    environment_profile=environment_profile,
-                    workflow_id=workflow_id,
-                    timeout=timeout,
-                    context=context,
-                    gate_cmd=resolved_gate_cmd,
-                    tool=tool,
-                )
-                exec_handle = _reconstruct_handle(persisted)
-                exec_runtime = cast("RemoteEnvironmentRuntime", exec_handle.runtime)
-                exec_conn = cast("SSHConnection", exec_runtime.connection)
-                try:
-                    result = await env.execute(exec_handle, dispatch, config)
-                finally:
-                    await exec_conn.close()
 
-                typer.echo(f"outcome: {result.outcome.value}")
-                typer.echo(f"signal: {result.signal}")
-                typer.echo(f"exit_code: {result.exit_code}")
-                typer.echo(f"duration_secs: {result.duration_secs}")
-                if result.token_usage:
-                    typer.echo(f"token_cost: ${getattr(result.token_usage, 'total_cost', 0):.4f}")
-                    typer.echo(f"token_total: {getattr(result.token_usage, 'total_tokens', 0)}")
-                if result.stderr:
-                    stderr_tail = build_tail_output(result.stderr)
-                    if stderr_tail:
-                        typer.echo("stderr_tail:")
-                        typer.echo(stderr_tail)
-                if result.outcome != Outcome.SUCCESS:
-                    execute_failed = True
-            finally:
-                teardown_handle = _reconstruct_handle(persisted)
-                await env.teardown(teardown_handle)
-                if handle_path is not None and _is_managed_handle(config, handle_path):
-                    handle_path.unlink(missing_ok=True)
+            await worker.run_until_dispatch_complete(dispatch_id)
 
-            typer.echo(f"provisioned_vm_id: {persisted.vm_id}")
+            # Read final state
+            view = await store.get_dispatch(dispatch_id)
+            steps = await store.get_steps_for_dispatch(dispatch_id)
+
+            # Extract execute result
+            exec_step = next(
+                (s for s in steps if s.step_type == StepType.EXECUTE and s.result_json),
+                None,
+            )
+            if exec_step and exec_step.result_json:
+                exec_result = ExecuteResult.model_validate_json(exec_step.result_json)
+                typer.echo(f"outcome: {exec_result.outcome.value}")
+                typer.echo(f"signal: {exec_result.signal}")
+                typer.echo(f"exit_code: {exec_result.exit_code}")
+                typer.echo(f"duration_secs: {exec_result.duration_secs}")
+                if exec_result.token_usage:
+                    typer.echo(
+                        f"token_cost: ${getattr(exec_result.token_usage, 'total_cost', 0):.4f}"
+                    )
+                    typer.echo(
+                        f"token_total: {getattr(exec_result.token_usage, 'total_tokens', 0)}"
+                    )
+
+            # Extract provision result for VM info
+            prov_step = next(
+                (s for s in steps if s.step_type == StepType.PROVISION and s.result_json),
+                None,
+            )
+            if prov_step and prov_step.result_json:
+                prov_result = ProvisionResult.model_validate_json(prov_step.result_json)
+                if prov_result.handle.vm:
+                    typer.echo(f"provisioned_vm_id: {prov_result.handle.vm.vm_id}")
+
             typer.echo("teardown: completed")
-            if execute_failed:
+
+            if view and view.status.value == "failed":
                 raise typer.Exit(code=1)
         finally:
-            await env.close()
-            if pg_pool is not None:
-                await pg_pool.close()
-
-    asyncio.run(_run())
-
-
-@run_app.command("resume")
-def run_resume(
-    workflow_id: Annotated[str, typer.Argument(help="Workflow ID to resume from checkpoint")],
-) -> None:
-    """Resume a dispatch from its most recent checkpoint."""
-
-    async def _run() -> None:
-        config = _load_config()
-        from tanren_core.manager import WorkerManager  # noqa: PLC0415 — heavy import
-
-        manager = WorkerManager(config)
-        result = await manager.resume_dispatch(workflow_id)
-        if result is None:
-            typer.echo(f"No checkpoint found for {workflow_id}", err=True)
-            raise typer.Exit(code=1)
-        typer.echo(f"outcome: {result.outcome.value}")
-        typer.echo(f"signal: {result.signal}")
-        typer.echo(f"exit_code: {result.exit_code}")
-        typer.echo(f"duration_secs: {result.duration_secs}")
-
-    asyncio.run(_run())
-
-
-@run_app.command("checkpoints")
-def run_checkpoints(
-    as_json: Annotated[bool, typer.Option("--json", help="Output as JSON")] = False,
-) -> None:
-    """List all active checkpoints."""
-
-    async def _run() -> None:
-        config = _load_config()
-        checkpoints_dir = Path(config.checkpoints_dir)
-        entries = await list_checkpoints_io(checkpoints_dir)
-        if as_json:
-            typer.echo(json.dumps([e.model_dump(mode="json") for e in entries], indent=2))
-        else:
-            if not entries:
-                typer.echo("No active checkpoints.")
-                return
-            for entry in entries:
-                typer.echo(
-                    f"{entry.workflow_id}  stage={entry.stage}  "
-                    f"retries={entry.retry_count}  updated={entry.updated_at}"
-                )
+            if hasattr(execution_env, "close"):
+                await execution_env.close()
+            await store.close()
 
     asyncio.run(_run())
 

@@ -1,15 +1,18 @@
-"""Pydantic models matching PROTOCOL.md Sections 2-4."""
+"""Core dispatch/result domain models."""
+
+from __future__ import annotations
 
 import re
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.postflight import IntegrityRepairs
 
 
 class Phase(StrEnum):
-    """Dispatch phase types from PROTOCOL.md Section 2."""
+    """Dispatch phase types."""
 
     DO_TASK = "do-task"
     AUDIT_TASK = "audit-task"
@@ -22,7 +25,7 @@ class Phase(StrEnum):
 
 
 class Cli(StrEnum):
-    """CLI tool types from PROTOCOL.md Section 2."""
+    """CLI tool types."""
 
     OPENCODE = "opencode"
     CODEX = "codex"
@@ -39,22 +42,13 @@ class AuthMode(StrEnum):
 
 
 class Outcome(StrEnum):
-    """Result outcomes from PROTOCOL.md Section 3."""
+    """Result outcomes."""
 
     SUCCESS = "success"
     FAIL = "fail"
     BLOCKED = "blocked"
     ERROR = "error"
     TIMEOUT = "timeout"
-
-
-class CheckpointStage(StrEnum):
-    """Stage within the dispatch lifecycle for crash-resilient checkpointing."""
-
-    DISPATCHED = "dispatched"
-    PROVISIONED = "provisioned"
-    EXECUTED = "executed"
-    POST_PROCESSED = "post_processed"
 
 
 class TaskStatus(StrEnum):
@@ -191,7 +185,7 @@ class InvestigationReport(BaseModel):
 
 
 class Dispatch(BaseModel):
-    """Dispatch schema from PROTOCOL.md Section 2."""
+    """Dispatch schema."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -213,10 +207,30 @@ class Dispatch(BaseModel):
         default="default",
         description="Environment profile from tanren.yml",
     )
+    resolved_profile: EnvironmentProfile = Field(
+        ...,
+        description="Fully resolved environment profile",
+    )
+    preserve_on_failure: bool = Field(
+        default=False,
+        description="If True, skip teardown on step failure for debugging",
+    )
+    project_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved project environment variables (from .env)",
+    )
+    cloud_secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-resolved cloud secrets (from secret:X sources in tanren.yml)",
+    )
+    required_secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Secret names the daemon must resolve and inject",
+    )
 
 
 class Result(BaseModel):
-    """Result schema from PROTOCOL.md Section 3."""
+    """Result schema."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -305,42 +319,6 @@ class WorktreeRegistry(BaseModel):
         default_factory=dict,
         description="Map of workflow_id to worktree entry",
     )
-
-
-class Checkpoint(BaseModel):
-    """Persistent snapshot of dispatch progress for crash-resilient resumption.
-
-    One checkpoint file per workflow, overwritten progressively as stages advance.
-    Deleted after successful result write.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    workflow_id: str = Field(..., description="Matches the dispatch's workflow_id")
-    stage: CheckpointStage = Field(..., description="Last completed stage")
-    dispatch_json: str = Field(..., description="Serialized Dispatch JSON for replay")
-    worktree_path: str = Field(..., description="Absolute path to the worktree")
-    dispatch_stem: str = Field(default="", description="Original dispatch filename stem")
-    created_at: str = Field(..., description="ISO 8601 timestamp of first creation")
-    updated_at: str = Field(..., description="ISO 8601 timestamp of last update")
-
-    # Provision state (populated after PROVISIONED)
-    vm_id: str | None = Field(default=None, description="VM identifier for remote environments")
-    environment_profile: str | None = Field(default=None, description="Environment profile name")
-    workspace_remote_path: str | None = Field(
-        default=None, description="Remote workspace path on the VM"
-    )
-
-    # Execution state (populated after EXECUTED)
-    phase_result_json: str | None = Field(default=None, description="Serialized PhaseResult JSON")
-    dispatch_start_utc: str | None = Field(
-        default=None, description="ISO 8601 timestamp of execution start"
-    )
-
-    # Failure tracking
-    retry_count: int = Field(default=0, ge=0, description="Resume attempts so far")
-    last_error: str | None = Field(default=None, description="Last failure reason")
-    failure_count: int = Field(default=0, ge=0, description="Total failures across resume attempts")
 
 
 def parse_issue_from_workflow_id(workflow_id: str, *, project: str | None = None) -> str:

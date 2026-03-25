@@ -12,3 +12,9 @@ __pycache__/
 .coverage
 .venv/
 *.egg-info/
+
+# Docker deployment config (contains secrets)
+api.env
+daemon.env
+roles.yml
+remote.yml

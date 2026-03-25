@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tanren_core.config import Config
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.process import (
     ProcessResult,
     _run_with_timeout,
@@ -19,6 +19,9 @@ from tanren_core.process import (
     spawn_process,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.worker_config import WorkerConfig
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,11 +31,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _make_config(tmp_path: Path) -> Config:
-    return Config(
+def _make_config(tmp_path: Path) -> WorkerConfig:
+    return WorkerConfig(
         ipc_dir=str(tmp_path),
         github_dir=str(tmp_path),
         data_dir=str(tmp_path),
+        db_url=str(tmp_path / "events.db"),
         worktree_registry_path=str(tmp_path / "worktrees.json"),
         opencode_path="/usr/local/bin/opencode",
         codex_path="/usr/local/bin/codex",
@@ -61,10 +65,11 @@ def _make_dispatch(
         gate_cmd=gate_cmd,
         context=context,
         timeout=timeout,
+        resolved_profile=DEFAULT_PROFILE,
     )
 
 
-def _setup_command_file(tmp_path: Path, config: Config, phase: Phase) -> Path:
+def _setup_command_file(tmp_path: Path, config: WorkerConfig, phase: Phase) -> Path:
     """Create the command file that _spawn_opencode/codex/claude reads."""
     cmd_dir = tmp_path / config.commands_dir
     cmd_dir.mkdir(parents=True, exist_ok=True)

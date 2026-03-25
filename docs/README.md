@@ -12,11 +12,11 @@ workflow, operations, and roadmap material.
 - `getting-started/bootstrap.md` - installation and first-run bootstrap sequence.
 - `operations/security-secrets.md` - secret tiers, configuration scopes, and security controls.
 - `operations/observability.md` - event model, metrics, and operational queries.
-- `interfaces.md` - CLI, library, and IPC interaction surfaces.
+- `interfaces.md` - CLI, library, and store interaction surfaces.
 - `design-principles.md` - core design rules used for architectural decisions.
 - `roadmap.md` - date-stamped delivery status and priorities.
 - `hld-migration-map.md` - source-to-destination mapping for the retired HLD.
-- `worker-manager-README.md` - runtime behavior, configuration, and operations reference.
+- `worker-README.md` - worker architecture and operations reference.
 - `ADAPTERS.md` - adapter architecture, decomposition, and extension points.
 
 ## Source of Truth Policy

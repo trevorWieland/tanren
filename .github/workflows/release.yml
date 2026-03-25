@@ -5,9 +5,9 @@ on:
     branches: [master]
     paths:
       - "services/tanren-api/**"
+      - "services/tanren-daemon/**"
       - "packages/tanren-core/**"
       - "services/tanren-cli/pyproject.toml"
-      - "services/tanren-daemon/pyproject.toml"
       - "pyproject.toml"
       - "uv.lock"
       - ".dockerignore"
@@ -16,9 +16,9 @@ on:
     branches: [master]
     paths:
       - "services/tanren-api/**"
+      - "services/tanren-daemon/**"
       - "packages/tanren-core/**"
       - "services/tanren-cli/pyproject.toml"
-      - "services/tanren-daemon/pyproject.toml"
       - "pyproject.toml"
       - "uv.lock"
       - ".dockerignore"
@@ -87,7 +87,7 @@ jobs:
           echo "sha_short=${SHA:0:7}" >> "$GITHUB_OUTPUT"
 
   build-and-push:
-    name: Build & Push
+    name: Build & Push (${{ matrix.service }})
     needs: version
     if: needs.version.outputs.version
     runs-on: ubuntu-latest
@@ -95,6 +95,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - service: tanren-api
+            dockerfile: services/tanren-api/Dockerfile
+          - service: tanren-daemon
+            dockerfile: services/tanren-daemon/Dockerfile
 
     steps:
       - uses: actions/checkout@v6
@@ -115,7 +122,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/tanren-api
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}
           tags: |
             type=raw,value=latest
             type=raw,value=${{ needs.version.outputs.version }}
@@ -125,20 +132,27 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: services/tanren-api/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
 
   pr-build:
-    name: PR Build Check
+    name: PR Build Check (${{ matrix.service }})
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    strategy:
+      matrix:
+        include:
+          - service: tanren-api
+            dockerfile: services/tanren-api/Dockerfile
+          - service: tanren-daemon
+            dockerfile: services/tanren-daemon/Dockerfile
 
     steps:
       - uses: actions/checkout@v6
@@ -150,7 +164,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: services/tanren-api/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -142,3 +143,13 @@ class RemoteAgentResult(BaseModel):
     duration_secs: int = Field(..., ge=0, description="Agent execution duration in seconds")
     stderr: str = Field(default="", description="Standard error content")
     signal_content: str = Field(default="", description="Content of the signal file if present")
+
+
+@dataclass(frozen=True)
+class DryRunInfo:
+    """Result of a dry-run provisioning check."""
+
+    provider: VMProvider
+    server_type: str | None = None
+    estimated_cost_hourly: float | None = None
+    would_provision: bool = True

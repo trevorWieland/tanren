@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tanren_core.adapters.remote_types import SecretBundle
-from tanren_core.config import Config, DotenvConfigSource, load_config_env
+from tanren_core.config import DotenvConfigSource, load_config_env
 from tanren_core.schemas import Cli
 from tanren_core.secrets import SecretConfig, SecretLoader
+from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -19,7 +20,7 @@ _ALL_CLIS = frozenset({Cli.CLAUDE, Cli.CODEX, Cli.OPENCODE})
 # Helpers
 # ---------------------------------------------------------------------------
 
-# All required WM_* environment variable values for a valid Config.
+# All required WM_* environment variable values for a valid WorkerConfig.
 _REQUIRED_ENV = {
     "WM_IPC_DIR": "/tmp/ipc",
     "WM_GITHUB_DIR": "/tmp/github",
@@ -35,6 +36,7 @@ _REQUIRED_ENV = {
     "WM_MAX_GATE": "3",
     "WM_WORKTREE_REGISTRY_PATH": "/tmp/worktrees.json",
     "WM_ROLES_CONFIG_PATH": "/tmp/roles.yml",
+    "WM_EVENTS_DB": "/tmp/events.db",
 }
 
 
@@ -105,16 +107,16 @@ class TestLoadConfigEnv:
 
 
 # ---------------------------------------------------------------------------
-# Config - Config.from_env
+# WorkerConfig.from_env
 # ---------------------------------------------------------------------------
 
 
-class TestConfigFromEnv:
+class TestWorkerConfigFromEnv:
     def test_all_required(self, monkeypatch: pytest.MonkeyPatch):
         for key, value in _REQUIRED_ENV.items():
             monkeypatch.setenv(key, value)
 
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
 
         assert config.ipc_dir == "/tmp/ipc"
         assert config.github_dir == "/tmp/github"
@@ -125,8 +127,8 @@ class TestConfigFromEnv:
         assert config.opencode_path == "opencode"
         assert config.codex_path == "codex"
         assert config.claude_path == "claude"
-        assert config.max_opencode == 1
-        assert config.max_codex == 1
+        assert config.max_impl == 1
+        assert config.max_audit == 1
         assert config.max_gate == 3
         assert config.worktree_registry_path == "/tmp/worktrees.json"
 
@@ -136,14 +138,14 @@ class TestConfigFromEnv:
             monkeypatch.delenv(key, raising=False)
 
         with pytest.raises(ValueError, match="Missing required config"):
-            Config.from_env()
+            WorkerConfig.from_env()
 
     def test_tilde_expansion(self, monkeypatch: pytest.MonkeyPatch):
         env_with_tilde = {**_REQUIRED_ENV, "WM_IPC_DIR": "~/ipc"}
         for key, value in env_with_tilde.items():
             monkeypatch.setenv(key, value)
 
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
 
         assert "~" not in config.ipc_dir
         assert config.ipc_dir.endswith("/ipc")
@@ -154,7 +156,9 @@ class TestConfigFromEnv:
             monkeypatch.delenv(key, raising=False)
 
         source = DictConfigSource(_REQUIRED_ENV)
-        config = Config.from_env(sources=[source])
+        load_config_env(source)
+
+        config = WorkerConfig.from_env()
 
         assert config.ipc_dir == "/tmp/ipc"
         assert config.github_dir == "/tmp/github"
@@ -164,8 +168,9 @@ class TestConfigFromEnv:
             monkeypatch.setenv(key, value)
         monkeypatch.setenv("WM_ROLES_CONFIG_PATH", "~/roles.yml")
 
-        config = Config.from_env()
+        config = WorkerConfig.from_env()
 
+        assert config.roles_config_path is not None
         assert "~" not in config.roles_config_path
         assert config.roles_config_path.endswith("/roles.yml")
 

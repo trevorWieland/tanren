@@ -8,12 +8,12 @@ you need step-by-step control over provision → execute → teardown.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
 
 from tanren_api.models import (
-    CheckpointSummary,
     ConfigResponse,
     DispatchAccepted,
     DispatchCancelled,
@@ -24,18 +24,24 @@ from tanren_api.models import (
     MetricsVMsResponse,
     PaginatedEvents,
     ReadinessResponse,
-    ResumeAccepted,
     RunEnvironment,
     RunExecuteAccepted,
     RunStatus,
     RunTeardownAccepted,
-    VMDryRunResult,
     VMProvisionAccepted,
     VMProvisionStatus,
     VMReleaseConfirmed,
     VMSummary,
 )
+from tanren_core.dispatch_resolver import (
+    resolve_agent_tool,
+    resolve_cloud_secrets,
+    resolve_profile,
+    resolve_project_env,
+    resolve_required_secrets,
+)
 from tanren_core.schemas import AuthMode, Cli, Phase
+from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from tanren_api.services import (
@@ -52,16 +58,25 @@ mcp = FastMCP("tanren")
 
 
 # ---------------------------------------------------------------------------
-# Service accessors — set during lifespan via set_services()
+# Service registry — set once during lifespan via set_services()
 # ---------------------------------------------------------------------------
 
-_health_svc: HealthService | None = None
-_dispatch_svc: DispatchService | None = None
-_vm_svc: VMService | None = None
-_run_svc: RunService | None = None
-_config_svc: ConfigService | None = None
-_events_svc: EventsService | None = None
-_metrics_svc: MetricsService | None = None
+
+@dataclass
+class _MCPServiceRegistry:
+    """Concrete service registry — set once during lifespan."""
+
+    health: HealthService
+    dispatch: DispatchService
+    vm: VMService
+    run: RunService
+    config: ConfigService
+    events: EventsService
+    metrics: MetricsService
+
+
+_registry: _MCPServiceRegistry | None = None
+_worker_config: WorkerConfig | None = None
 
 
 def set_services(
@@ -70,19 +85,42 @@ def set_services(
     dispatch: DispatchService,
     vm: VMService,
     run: RunService,
-    config: ConfigService | None = None,
+    config: ConfigService,
     events: EventsService,
-    metrics: MetricsService | None = None,
+    metrics: MetricsService,
 ) -> None:
-    """Wire service instances into the MCP tool layer (called during app lifespan)."""
-    global _health_svc, _dispatch_svc, _vm_svc, _run_svc, _config_svc, _events_svc, _metrics_svc
-    _health_svc = health
-    _dispatch_svc = dispatch
-    _vm_svc = vm
-    _run_svc = run
-    _config_svc = config
-    _events_svc = events
-    _metrics_svc = metrics
+    """Wire service instances into the MCP tool layer."""
+    global _registry
+    _registry = _MCPServiceRegistry(
+        health=health,
+        dispatch=dispatch,
+        vm=vm,
+        run=run,
+        config=config,
+        events=events,
+        metrics=metrics,
+    )
+
+
+def _svc() -> _MCPServiceRegistry:
+    """Get the service registry. Raises AssertionError if not initialized."""
+    assert _registry is not None, "MCP services not initialized — call set_services() first"
+    return _registry
+
+
+def set_worker_config(config: WorkerConfig) -> None:
+    """Wire the WorkerConfig for dispatch resolution."""
+    global _worker_config
+    _worker_config = config
+
+
+def _config() -> WorkerConfig:
+    """Get the worker config. Raises if not wired during lifespan."""
+    if _worker_config is None:
+        raise RuntimeError(
+            "WorkerConfig not wired — ensure WM_* env vars are set in the API environment"
+        )
+    return _worker_config
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +140,7 @@ async def health_check() -> HealthResponse:
     Returns:
         HealthResponse with status, version, and uptime_seconds.
     """
-    assert _health_svc is not None
-    return await _health_svc.health()
+    return await _svc().health.health()
 
 
 @mcp.tool(
@@ -118,8 +155,7 @@ async def readiness_check() -> ReadinessResponse:
     Returns:
         ReadinessResponse with status field.
     """
-    assert _health_svc is not None
-    return await _health_svc.readiness()
+    return await _svc().health.readiness()
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +168,10 @@ async def readiness_check() -> ReadinessResponse:
         "Submit a new dispatch — a request to run a coding agent against a "
         "project spec. Returns a dispatch_id for status polling via "
         "dispatch_get_status. The dispatch is executed asynchronously.\n\n"
-        "Required fields: project, phase, branch, spec_folder, cli.\n"
-        "Phases: do-task, review, gate, sweep.\n"
-        "CLIs: claude, codex, opencode."
+        "Required fields: project, phase, branch, spec_folder.\n"
+        "Phases: do-task, audit-task, run-demo, audit-spec, investigate, gate.\n"
+        "CLIs: claude, opencode, codex, bash. "
+        "If cli is omitted, auto-resolved from roles.yml for the given phase.\n"
     ),
 )
 async def dispatch_create(
@@ -142,34 +179,56 @@ async def dispatch_create(
     phase: Phase,
     branch: str,
     spec_folder: str,
-    cli: Cli,
+    cli: Cli | None = None,
+    auth: AuthMode | None = None,
     model: str | None = None,
     timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
     gate_cmd: str | None = None,
     issue: str = "0",
+    environment_profile: str = "default",
 ) -> DispatchAccepted:
     """Create a new dispatch.
 
     Returns:
         DispatchAccepted with dispatch_id and status.
     """
-    from tanren_api.models import DispatchRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import DispatchRequest
 
-    assert _dispatch_svc is not None
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
+
+    # Auto-resolve cli/auth from roles.yml when not provided
+    resolved_cli = cli
+    resolved_auth = auth
+    resolved_model = model
+    if resolved_cli is None:
+        tool = resolve_agent_tool(config, phase)
+        resolved_cli = tool.cli
+        resolved_auth = resolved_auth or tool.auth
+        resolved_model = resolved_model or tool.model
+    if resolved_auth is None:
+        resolved_auth = AuthMode.API_KEY
+
     body = DispatchRequest(
         project=project,
         phase=phase,
         branch=branch,
         spec_folder=spec_folder,
-        cli=cli,
-        model=model,
+        cli=resolved_cli,
+        auth=resolved_auth,
+        model=resolved_model,
         timeout=timeout,
         context=context,
         gate_cmd=gate_cmd,
         issue=issue,
+        environment_profile=environment_profile,
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
     )
-    return await _dispatch_svc.create(body)
+    return await _svc().dispatch.create(body)
 
 
 @mcp.tool(
@@ -185,8 +244,7 @@ async def dispatch_get_status(dispatch_id: str) -> DispatchDetail:
     Returns:
         DispatchDetail with full dispatch state including timestamps.
     """
-    assert _dispatch_svc is not None
-    return await _dispatch_svc.get(dispatch_id)
+    return await _svc().dispatch.get(dispatch_id)
 
 
 @mcp.tool(
@@ -201,8 +259,7 @@ async def dispatch_cancel(dispatch_id: str) -> DispatchCancelled:
     Returns:
         DispatchCancelled with dispatch_id and status.
     """
-    assert _dispatch_svc is not None
-    return await _dispatch_svc.cancel(dispatch_id)
+    return await _svc().dispatch.cancel(dispatch_id)
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +279,7 @@ async def vm_list() -> list[VMSummary]:
     Returns:
         List of VMSummary records for each active VM assignment.
     """
-    assert _vm_svc is not None
-    return await _vm_svc.list_vms()
+    return await _svc().vm.list_vms()
 
 
 @mcp.tool(
@@ -243,11 +299,20 @@ async def vm_provision(
     Returns:
         VMProvisionAccepted with env_id and status.
     """
-    from tanren_api.models import ProvisionRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ProvisionRequest
 
-    assert _vm_svc is not None
-    body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
-    return await _vm_svc.provision(body)
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
+    body = ProvisionRequest(
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
+    )
+    return await _svc().vm.provision(body)
 
 
 @mcp.tool(
@@ -262,8 +327,7 @@ async def vm_provision_status(env_id: str) -> VMProvisionStatus:
     Returns:
         VMProvisionStatus with current status, vm_id, and host.
     """
-    assert _vm_svc is not None
-    return await _vm_svc.get_provision_status(env_id)
+    return await _svc().vm.get_provision_status(env_id)
 
 
 @mcp.tool(
@@ -275,8 +339,7 @@ async def vm_release(vm_id: str) -> VMReleaseConfirmed:
     Returns:
         VMReleaseConfirmed with vm_id and status.
     """
-    assert _vm_svc is not None
-    return await _vm_svc.release(vm_id)
+    return await _svc().vm.release(vm_id)
 
 
 @mcp.tool(
@@ -289,17 +352,26 @@ async def vm_dry_run(
     project: str,
     branch: str,
     environment_profile: str = "default",
-) -> VMDryRunResult:
-    """Dry-run VM provision.
+) -> VMProvisionAccepted:
+    """Dry-run VM provision — enqueue a DRY_RUN step and return dispatch_id for polling.
 
     Returns:
-        VMDryRunResult with provider, server_type, and estimated_cost_hourly.
+        VMProvisionAccepted with env_id for polling.
     """
-    from tanren_api.models import ProvisionRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ProvisionRequest
 
-    assert _vm_svc is not None
-    body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
-    return await _vm_svc.dry_run(body)
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
+    body = ProvisionRequest(
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
+    )
+    return await _svc().vm.dry_run(body)
 
 
 # ---------------------------------------------------------------------------
@@ -332,18 +404,29 @@ async def run_provision(
     Returns:
         RunEnvironment with env_id, vm_id, host, and status.
     """
-    from tanren_api.models import ProvisionRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ProvisionRequest
 
-    assert _run_svc is not None
-    body = ProvisionRequest(project=project, branch=branch, environment_profile=environment_profile)
-    return await _run_svc.provision(body)
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
+    body = ProvisionRequest(
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
+    )
+    return await _svc().run.provision(body)
 
 
 @mcp.tool(
     description=(
         "Execute a phase against an already-provisioned environment. "
         "The environment must be in 'provisioned' or 'completed' status. "
-        "Returns a dispatch_id for tracking."
+        "Returns a dispatch_id for tracking.\n\n"
+        "Required fields: env_id, project, spec_path, phase. "
+        "If cli is omitted, auto-resolved from roles.yml."
     ),
 )
 async def run_execute(
@@ -351,8 +434,8 @@ async def run_execute(
     project: str,
     spec_path: str,
     phase: Phase,
-    cli: Cli,
-    auth: AuthMode = AuthMode.API_KEY,
+    cli: Cli | None = None,
+    auth: AuthMode | None = None,
     model: str | None = None,
     timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
@@ -363,9 +446,8 @@ async def run_execute(
     Returns:
         RunExecuteAccepted with env_id, dispatch_id, and status.
     """
-    from tanren_api.models import ExecuteRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import ExecuteRequest
 
-    assert _run_svc is not None
     body = ExecuteRequest(
         project=project,
         spec_path=spec_path,
@@ -377,7 +459,7 @@ async def run_execute(
         context=context,
         gate_cmd=gate_cmd,
     )
-    return await _run_svc.execute(env_id, body)
+    return await _svc().run.execute(env_id, body)
 
 
 @mcp.tool(
@@ -393,8 +475,7 @@ async def run_teardown(env_id: str) -> RunTeardownAccepted:
     Returns:
         RunTeardownAccepted with env_id and status.
     """
-    assert _run_svc is not None
-    return await _run_svc.teardown(env_id)
+    return await _svc().run.teardown(env_id)
 
 
 @mcp.tool(
@@ -403,7 +484,9 @@ async def run_teardown(env_id: str) -> RunTeardownAccepted:
         "teardown — all in one call. This is the recommended tool for "
         "most use cases. Returns a dispatch_id for status polling via "
         "dispatch_get_status.\n\n"
-        "Required fields: project, branch, spec_path, phase, cli, auth."
+        "Required fields: project, branch, spec_path, phase. "
+        "cli/auth are auto-resolved from roles.yml when omitted. "
+        "environment_profile defaults to 'default'."
     ),
 )
 async def run_full(
@@ -411,8 +494,8 @@ async def run_full(
     branch: str,
     spec_path: str,
     phase: Phase,
-    cli: Cli,
-    auth: AuthMode = AuthMode.API_KEY,
+    cli: Cli | None = None,
+    auth: AuthMode | None = None,
     environment_profile: str = "default",
     timeout: int = 1800,  # noqa: ASYNC109 — MCP tool param passed to Pydantic model, not asyncio
     context: str | None = None,
@@ -423,22 +506,41 @@ async def run_full(
     Returns:
         DispatchAccepted with dispatch_id and status.
     """
-    from tanren_api.models import RunFullRequest  # noqa: PLC0415 — avoid circular import
+    from tanren_api.models import RunFullRequest
 
-    assert _run_svc is not None
+    config = _config()
+    profile = resolve_profile(config, project, environment_profile)
+
+    # Auto-resolve cli/auth/model from roles.yml when not provided
+    resolved_cli = cli
+    resolved_auth = auth
+    resolved_model: str | None = None
+    if resolved_cli is None:
+        tool = resolve_agent_tool(config, phase)
+        resolved_cli = tool.cli
+        resolved_auth = resolved_auth or tool.auth
+        resolved_model = tool.model
+    if resolved_auth is None:
+        resolved_auth = AuthMode.API_KEY
+
     body = RunFullRequest(
         project=project,
         branch=branch,
         spec_path=spec_path,
         phase=phase,
-        cli=cli,
-        auth=auth,
+        cli=resolved_cli,
+        auth=resolved_auth,
+        model=resolved_model,
         environment_profile=environment_profile,
         timeout=timeout,
         context=context,
         gate_cmd=gate_cmd,
+        resolved_profile=profile,
+        project_env=resolve_project_env(config, project),
+        cloud_secrets=await resolve_cloud_secrets(config, project),
+        required_secrets=resolve_required_secrets(profile),
     )
-    return await _run_svc.full(body)
+    return await _svc().run.full(body)
 
 
 @mcp.tool(
@@ -454,8 +556,7 @@ async def run_status(env_id: str) -> RunStatus:
     Returns:
         RunStatus with env_id, status, phase, outcome, and duration.
     """
-    assert _run_svc is not None
-    return await _run_svc.status(env_id)
+    return await _svc().run.status(env_id)
 
 
 # ---------------------------------------------------------------------------
@@ -466,19 +567,16 @@ async def run_status(env_id: str) -> RunStatus:
 @mcp.tool(
     description=(
         "Get the current tanren configuration (non-secret fields only). "
-        "Shows IPC directory, poll intervals, concurrency limits, and "
-        "whether events and remote execution are enabled."
+        "Shows store backend, connection status, worker lanes, and version."
     ),
 )
-async def config_get() -> ConfigResponse | dict[str, str]:
+async def config_get() -> ConfigResponse:
     """Get non-secret configuration.
 
     Returns:
-        ConfigResponse with configuration details, or error dict if unavailable.
+        ConfigResponse with configuration details.
     """
-    if _config_svc is None:
-        return {"error": "Configuration unavailable — WM_* environment variables not set"}
-    return await _config_svc.get()
+    return await _svc().config.get()
 
 
 # ---------------------------------------------------------------------------
@@ -504,10 +602,9 @@ async def events_query(
     Returns:
         PaginatedEvents with events list, total count, and pagination info.
     """
-    assert _events_svc is not None
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
-    return await _events_svc.query(
+    return await _svc().events.query(
         workflow_id=workflow_id,
         event_type=event_type,
         limit=limit,
@@ -536,8 +633,7 @@ async def metrics_summary(
     Returns:
         MetricsSummaryResponse with success rate, duration percentiles, and counts.
     """
-    assert _metrics_svc is not None
-    return await _metrics_svc.summary(since=since, until=until, project=project)
+    return await _svc().metrics.summary(since=since, until=until, project=project)
 
 
 @mcp.tool(
@@ -551,17 +647,13 @@ async def metrics_costs(
     until: str | None = None,
     project: str | None = None,
     group_by: str = "model",
-) -> MetricsCostsResponse | dict[str, str]:
+) -> MetricsCostsResponse:
     """Get cost metrics.
 
     Returns:
-        MetricsCostsResponse with cost buckets, or error dict for invalid group_by.
+        MetricsCostsResponse with cost buckets.
     """
-    assert _metrics_svc is not None
-    valid = {"model", "day", "workflow"}
-    if group_by not in valid:
-        return {"error": f"Invalid group_by '{group_by}'. Must be: model, day, workflow"}
-    return await _metrics_svc.costs(since=since, until=until, project=project, group_by=group_by)
+    return await _svc().metrics.costs(since=since, until=until, project=project, group_by=group_by)
 
 
 @mcp.tool(
@@ -580,39 +672,4 @@ async def metrics_vms(
     Returns:
         MetricsVMsResponse with VM counts, duration, and estimated cost.
     """
-    assert _metrics_svc is not None
-    return await _metrics_svc.vms(since=since, until=until, project=project)
-
-
-# ---------------------------------------------------------------------------
-# Checkpoint / resume tools
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool(
-    description=(
-        "Resume a checkpointed dispatch that was interrupted. "
-        "The dispatch picks up from the last completed phase."
-    ),
-)
-async def resume_dispatch(workflow_id: str) -> ResumeAccepted:
-    """Resume a checkpointed dispatch.
-
-    Returns:
-        ResumeAccepted confirmation.
-    """
-    assert _run_svc is not None
-    return await _run_svc.resume(workflow_id)
-
-
-@mcp.tool(
-    description="List all active dispatch checkpoints with their stage and retry count.",
-)
-async def list_checkpoints() -> list[CheckpointSummary]:
-    """List active checkpoints.
-
-    Returns:
-        List of CheckpointSummary instances.
-    """
-    assert _run_svc is not None
-    return await _run_svc.get_checkpoints()
+    return await _svc().metrics.vms(since=since, until=until, project=project)

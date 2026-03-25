@@ -53,7 +53,7 @@ class TestMcpSchemaRoundTrip:
 
     def test_empty_mcp_default(self):
         profiles = parse_environment_profiles({})
-        assert profiles["default"].mcp == {}
+        assert len(profiles) == 0
 
 
 # ---------------------------------------------------------------------------

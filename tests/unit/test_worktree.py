@@ -2,12 +2,14 @@
 
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tanren_core.schemas import WorktreeEntry, WorktreeRegistry
 from tanren_core.worktree import (
     check_isolation,
+    cleanup_worktree,
     get_default_branch,
     load_registry,
     save_registry,
@@ -138,7 +140,7 @@ class TestCheckIsolation:
         await check_isolation(reg, "wf-new-1-1000", "feature-branch", wt_path, str(tmp_path))
 
     @pytest.mark.asyncio
-    async def test_duplicate_branch(self, tmp_path: Path):
+    async def test_duplicate_branch_same_project(self, tmp_path: Path):
         reg = WorktreeRegistry(
             worktrees={
                 "wf-existing-1-1000": WorktreeEntry(
@@ -152,7 +154,29 @@ class TestCheckIsolation:
         )
         wt_path = tmp_path / "project-wt-2"
         with pytest.raises(RuntimeError, match="Branch shared-branch already in use"):
-            await check_isolation(reg, "wf-other-2-2000", "shared-branch", wt_path, str(tmp_path))
+            await check_isolation(
+                reg, "wf-other-2-2000", "shared-branch", wt_path, str(tmp_path), project="test"
+            )
+
+    @pytest.mark.asyncio
+    async def test_same_branch_different_project_allowed(self, tmp_path: Path):
+        """Different projects can use the same branch name simultaneously."""
+        reg = WorktreeRegistry(
+            worktrees={
+                "wf-existing-1-1000": WorktreeEntry(
+                    project="project-a",
+                    issue="1",
+                    branch="shared-branch",
+                    path="/tmp/test-wt-1",
+                    created_at="2026-01-01T00:00:00Z",
+                )
+            }
+        )
+        wt_path = tmp_path / "project-wt-2"
+        # Different project — should NOT raise
+        await check_isolation(
+            reg, "wf-other-2-2000", "shared-branch", wt_path, str(tmp_path), project="project-b"
+        )
 
     @pytest.mark.asyncio
     async def test_duplicate_path(self, tmp_path: Path):
@@ -197,8 +221,8 @@ class TestCheckIsolation:
         await check_isolation(reg, "wf-test-1-1000", "feat-1", wt_path, str(tmp_path))
 
     @pytest.mark.asyncio
-    async def test_different_workflow_same_branch_rejected(self, tmp_path: Path):
-        """Different workflow using same branch should raise."""
+    async def test_different_workflow_same_branch_same_project_rejected(self, tmp_path: Path):
+        """Different workflow using same branch in same project should raise."""
         reg = WorktreeRegistry(
             worktrees={
                 "wf-test-1-1000": WorktreeEntry(
@@ -212,4 +236,46 @@ class TestCheckIsolation:
         )
         wt_path = tmp_path / "project-wt-2"
         with pytest.raises(RuntimeError, match="Branch feat-1 already in use"):
-            await check_isolation(reg, "wf-test-2-2000", "feat-1", wt_path, str(tmp_path))
+            await check_isolation(
+                reg, "wf-test-2-2000", "feat-1", wt_path, str(tmp_path), project="test"
+            )
+
+
+class TestCleanupWorktree:
+    @pytest.mark.asyncio
+    async def test_clears_registry_even_when_remove_fails(self, tmp_path: Path):
+        """Registry entry is deleted even if remove_worktree raises."""
+        registry_path = tmp_path / "worktrees.json"
+        reg = WorktreeRegistry(
+            worktrees={
+                "wf-test-1-1000": WorktreeEntry(
+                    project="test",
+                    issue="1",
+                    branch="feat-1",
+                    path="/tmp/test-wt-1",
+                    created_at="2026-01-01T00:00:00Z",
+                )
+            }
+        )
+        await save_registry(registry_path, reg)
+
+        with patch(
+            "tanren_core.worktree.remove_worktree",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("git broke"),
+        ):
+            await cleanup_worktree("wf-test-1-1000", registry_path, str(tmp_path))
+
+        loaded = await load_registry(registry_path)
+        assert "wf-test-1-1000" not in loaded.worktrees
+
+    @pytest.mark.asyncio
+    async def test_noop_for_missing_entry(self, tmp_path: Path):
+        """Cleanup of unknown workflow_id is a no-op."""
+        registry_path = tmp_path / "worktrees.json"
+        await save_registry(registry_path, WorktreeRegistry())
+
+        await cleanup_worktree("wf-nonexistent-1-9999", registry_path, str(tmp_path))
+
+        loaded = await load_registry(registry_path)
+        assert loaded.worktrees == {}

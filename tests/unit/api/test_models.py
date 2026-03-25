@@ -28,8 +28,11 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_core.adapters.remote_types import VMProvider, VMRequirements
+from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
+
+DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 @pytest.mark.api
@@ -41,6 +44,7 @@ class TestModels:
             branch="main",
             spec_folder="specs/feature",
             cli=Cli.CLAUDE,
+            resolved_profile=DEFAULT_PROFILE,
         )
         assert req.project == "my-project"
         assert req.timeout == 1800
@@ -53,6 +57,7 @@ class TestModels:
                 "branch": "main",
                 "spec_folder": "s",
                 "cli": Cli.CLAUDE,
+                "resolved_profile": DEFAULT_PROFILE.model_dump(),
                 "unknown_field": "x",
             })
 
@@ -64,11 +69,12 @@ class TestModels:
                 branch="main",
                 spec_folder="s",
                 cli=Cli.CLAUDE,
+                resolved_profile=DEFAULT_PROFILE,
                 timeout=0,
             )
 
     def test_provision_request_validates(self):
-        req = ProvisionRequest(project="proj", branch="dev")
+        req = ProvisionRequest(project="proj", branch="dev", resolved_profile=DEFAULT_PROFILE)
         assert req.environment_profile == "default"
 
     def test_execute_request_validates(self):
@@ -105,6 +111,8 @@ class TestModels:
             )
 
     def test_run_full_request_validates(self):
+        from tanren_core.env.environment_schema import EnvironmentProfile
+
         req = RunFullRequest(
             project="proj",
             branch="main",
@@ -112,6 +120,7 @@ class TestModels:
             phase=Phase.GATE,
             cli=Cli.CLAUDE,
             auth=AuthMode.API_KEY,
+            resolved_profile=EnvironmentProfile(name="default"),
         )
         assert req.timeout == 1800
 
@@ -139,17 +148,13 @@ class TestModels:
 
     def test_config_response_validates(self):
         resp = ConfigResponse(
-            ipc_dir="/tmp/ipc",
-            github_dir="/tmp/github",
-            poll_interval=5.0,
-            heartbeat_interval=30.0,
-            max_opencode=2,
-            max_codex=2,
-            max_gate=1,
-            events_enabled=True,
-            remote_enabled=False,
+            db_backend="sqlite",
+            store_connected=True,
+            worker_lanes={"impl": 1, "audit": 1, "gate": 3, "provision": 10},
+            remote_enabled=True,
+            version="0.1.0",
         )
-        assert resp.events_enabled is True
+        assert resp.store_connected is True
 
     def test_paginated_events_validates(self):
         resp = PaginatedEvents(events=[], total=0, limit=50, offset=0)

@@ -142,8 +142,8 @@ class RemoteConfig(BaseModel):
 
 
 def _coerce_repos(
-    raw: object,
-) -> list[RemoteRepoBinding]:  # YAML parser returns untyped values; object is correct
+    raw: JsonValue,
+) -> list[RemoteRepoBinding]:
     """Coerce repos section into a typed list of bindings.
 
     Returns:
@@ -168,8 +168,8 @@ def _coerce_repos(
 
 
 def _coerce_provisioner(
-    raw: object,
-) -> dict[str, JsonValue]:  # YAML parser returns untyped values; object is correct
+    raw: JsonValue,
+) -> dict[str, JsonValue]:
     """Coerce provisioner section to a plain dict for Pydantic validation.
 
     Returns:
@@ -209,7 +209,7 @@ def load_remote_config(path: str | Path) -> RemoteConfig:
     if not isinstance(data_raw, Mapping):
         data_raw = {}
 
-    data: dict[str, object] = dict(data_raw)
+    data: dict[str, JsonValue] = dict(data_raw)
     data["repos"] = _coerce_repos(data.get("repos", []))
     data["provisioner"] = _coerce_provisioner(data.get("provisioner", {}))
     return RemoteConfig.model_validate(data)

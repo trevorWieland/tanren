@@ -114,7 +114,13 @@ Include signposts.md (if modified) in the commit.
 
 ### Step 8: Exit
 
-Print one of these exit signals (machine-readable):
+Write your exit signal to the status file **and** print it to stdout.
+
+First, write the status file (the orchestrator reads this):
+
+    echo "do-task-status: {token}" > {spec_folder}/.agent-status
+
+Then print the same signal to stdout (machine-readable fallback):
 
 - `do-task-status: complete` — task done, committed
 - `do-task-status: blocked` — stuck, signpost written with evidence

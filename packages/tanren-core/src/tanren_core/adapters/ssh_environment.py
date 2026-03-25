@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 import shlex
 import time
 import uuid
@@ -11,17 +13,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import yaml
-from dotenv import dotenv_values
-
 from tanren_core.adapters.credentials import (
     DEFAULT_CREDENTIAL_PROVIDERS,
     CredentialProvider,
     all_credential_cleanup_paths,
     inject_all_cli_credentials,
 )
-from tanren_core.adapters.events import BootstrapCompleted, VMProvisioned, VMReleased
 from tanren_core.adapters.remote_types import (
+    DryRunInfo,
     VMHandle,
     VMProvider,
     VMRequirements,
@@ -32,20 +31,17 @@ from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
     PhaseResult,
-    ProvisionError,
     RemoteEnvironmentRuntime,
 )
 from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
-from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
-from tanren_core.process import assemble_prompt
-from tanren_core.schemas import Cli, Dispatch, Outcome, Phase, Result
+from tanren_core.postflight import PostflightResult
+from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.signals import map_outcome, parse_signal_token
 
 if TYPE_CHECKING:
     from tanren_core.adapters.protocols import (
         EnvironmentBootstrapper,
-        EventEmitter,
         VMStateStore,
     )
     from tanren_core.adapters.protocols import (
@@ -55,8 +51,8 @@ if TYPE_CHECKING:
         WorkspaceManager as WorkspaceManagerProtocol,
     )
     from tanren_core.adapters.remote_runner import RemoteAgentRunner
-    from tanren_core.config import Config
     from tanren_core.secrets import SecretLoader
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +60,60 @@ _PUSH_PHASES = frozenset({Phase.DO_TASK, Phase.AUDIT_TASK, Phase.RUN_DEMO, Phase
 
 _SSH_READY_TIMEOUT_SECS = 300
 _SSH_READY_POLL_SECS = 3
+
+
+# Per-CLI auth secrets: at least one key in each group must be resolved.
+# Bash/gate dispatches have no auth requirements.
+_CLI_AUTH_GROUPS: dict[Cli, tuple[tuple[str, ...], ...]] = {
+    Cli.CLAUDE: (("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CREDENTIALS_JSON"),),
+    Cli.OPENCODE: (("OPENCODE_ZAI_API_KEY",),),
+    Cli.CODEX: (("CODEX_AUTH_JSON",),),
+}
+
+
+def _validate_cli_auth(cli: Cli, resolved: dict[str, str], *, phase: str = "") -> None:
+    """Ensure at least one auth secret was resolved for the dispatch CLI.
+
+    Raises:
+        RuntimeError: If no auth secret is available for the CLI.
+    """
+    groups = _CLI_AUTH_GROUPS.get(cli)
+    if groups is None:
+        return  # bash/gate — no auth needed
+    for group in groups:
+        if not any(name in resolved for name in group):
+            names = " or ".join(group)
+            context = f" (phase {phase} uses {cli.value})" if phase else ""
+            raise RuntimeError(
+                f"No auth secret resolved for {cli.value}{context}: "
+                f"need {names} in daemon environment"
+            )
+
+
+def _extract_signal_token(
+    command_name: str,
+    signal_content: str,
+    stdout: str,
+) -> str | None:
+    """Extract signal token from file content, falling back to stdout.
+
+    Mirrors the two-step resolution in ``signals.extract_signal``:
+    1. Parse the ``.agent-status`` file content
+    2. Grep stdout for ``{command}-status: {token}`` (last match)
+
+    Returns:
+        Signal token string or ``None``.
+    """
+    if signal_content.strip():
+        token = parse_signal_token(command_name, signal_content)
+        if token:
+            return token
+    if stdout:
+        pattern = rf"{re.escape(command_name)}-status:\s*(\w[\w-]*)"
+        matches = re.findall(pattern, stdout)
+        if matches:
+            return matches[-1]
+    return None
 
 
 class SSHExecutionEnvironment:
@@ -83,7 +133,6 @@ class SSHExecutionEnvironment:
         runner: RemoteAgentRunner,
         state_store: VMStateStore,
         secret_loader: SecretLoader,
-        emitter: EventEmitter,
         ssh_config_defaults: SSHConfig,
         repo_urls: dict[str, str],
         provider: VMProvider = VMProvider.MANUAL,
@@ -98,7 +147,6 @@ class SSHExecutionEnvironment:
         self._runner = runner
         self._state_store = state_store
         self._secret_loader = secret_loader
-        self._emitter = emitter
         self._ssh_defaults = ssh_config_defaults
         self._repo_urls = repo_urls
         self._provider = provider
@@ -149,7 +197,25 @@ class SSHExecutionEnvironment:
 
         return len(assignments)
 
-    async def provision(self, dispatch: Dispatch, config: Config) -> EnvironmentHandle:
+    async def dry_run(
+        self,
+        requirements: VMRequirements,  # noqa: ARG002 — requirements used by provisioner internally via self._vm_provisioner
+    ) -> DryRunInfo:
+        """Dry-run provision — return what would happen without creating resources.
+
+        Returns:
+            DryRunInfo with provider info from this environment.
+        """
+        return DryRunInfo(
+            provider=self._provider,
+            would_provision=True,
+        )
+
+    async def provision(
+        self,
+        dispatch: Dispatch,
+        config: WorkerConfig,  # noqa: ARG002 — required by protocol; config no longer read here
+    ) -> EnvironmentHandle:
         """Acquire VM, bootstrap, setup workspace, inject secrets.
 
         Returns:
@@ -158,8 +224,8 @@ class SSHExecutionEnvironment:
         Raises:
             RuntimeError: If no repo URL is configured for the project.
         """
-        # 1. Read tanren.yml LOCALLY to get environment profile
-        profile = self._resolve_profile(dispatch, config)
+        # 1. Use dispatch-carried profile (resolved by CLI/API before dispatch)
+        profile = dispatch.resolved_profile
 
         # 2. Build VM requirements from profile
         requirements = VMRequirements(
@@ -190,43 +256,76 @@ class SSHExecutionEnvironment:
             await self._await_ssh_ready(conn, timeout_secs=self._ssh_ready_timeout_secs)
 
             # 5. Bootstrap VM (idempotent)
-            bootstrap_result = await self._bootstrapper.bootstrap(conn)
+            await self._bootstrapper.bootstrap(conn)
 
-            await self._emitter.emit(
-                BootstrapCompleted(
-                    timestamp=_now(),
-                    workflow_id=dispatch.workflow_id,
-                    vm_id=vm_handle.vm_id,
-                    installed=list(bootstrap_result.installed),
-                    skipped=list(bootstrap_result.skipped),
-                    duration_secs=bootstrap_result.duration_secs,
-                )
-            )
-
-            # 6. Setup workspace
-            repo_url = self._repo_urls.get(dispatch.project, "")
+            # 6. Setup workspace — repo URL from dispatch profile or instance mapping
+            repo_url = ""
+            if profile.remote_config is not None:
+                repo_url = profile.remote_config.repo_url
+            if not repo_url:
+                repo_url = self._repo_urls.get(dispatch.project, "")
             if not repo_url:
                 raise RuntimeError(f"No repo URL configured for project: {dispatch.project}")
 
+            # Clone only (setup commands run later as agent user)
             workspace_spec = WorkspaceSpec(
                 project=dispatch.project,
                 repo_url=repo_url,
                 branch=dispatch.branch,
-                setup_commands=profile.setup,
+                setup_commands=(),  # deferred to after chown
             )
             workspace_path = await self._workspace_mgr.setup(conn, workspace_spec)
 
-            # 7a. Inject secrets (including cloud-fetched secrets)
-            project_env = self._load_project_env(dispatch, config)
-            cloud_secrets = await self._fetch_cloud_secrets(dispatch, config)
-            bundle = self._secret_loader.build_bundle(project_env, cloud_secrets=cloud_secrets)
+            # 7a. Inject secrets
+            # Resolve required_secrets from daemon's os.environ (reference-based)
+            developer_overrides: dict[str, str] | None = None
+            if dispatch.required_secrets:
+                resolved: dict[str, str] = {}
+                missing: list[str] = []
+                for name in dispatch.required_secrets:
+                    value = os.environ.get(name, "")
+                    if value:
+                        resolved[name] = value
+                    else:
+                        missing.append(name)
+                if missing:
+                    # Determine which missing secrets are non-auth (truly required)
+                    # vs auth alternatives (handled by _validate_cli_auth's group logic)
+                    auth_names: set[str] = set()
+                    for groups in _CLI_AUTH_GROUPS.values():
+                        for group in groups:
+                            auth_names.update(group)
+                    non_auth_missing = [n for n in missing if n not in auth_names]
+                    if non_auth_missing:
+                        raise RuntimeError(
+                            f"Required secrets not found in daemon environment: "
+                            f"{', '.join(non_auth_missing)}. "
+                            f"Set these in the daemon's environment or secrets.env."
+                        )
+                    if missing:
+                        logger.info(
+                            "Auth secrets not in daemon env (alternative may suffice): %s",
+                            ", ".join(n for n in missing if n in auth_names),
+                        )
+                # Validate CLI auth: at least one secret in each auth
+                # group must be resolvable for the dispatch's CLI.
+                _validate_cli_auth(dispatch.cli, resolved, phase=dispatch.phase.value)
+                developer_overrides = resolved
+
+            project_env = dispatch.project_env
+            cloud_secrets = dispatch.cloud_secrets or None
+            bundle = self._secret_loader.build_bundle(
+                project_env,
+                cloud_secrets=cloud_secrets,
+                developer_overrides=developer_overrides,
+            )
             await self._workspace_mgr.inject_secrets(conn, workspace_path, bundle)
 
             # 7b. Inject MCP config
             if profile.mcp:
                 await self._workspace_mgr.inject_mcp_config(conn, workspace_path, profile.mcp)
 
-            # 7c. Make workspace secrets readable by agent user
+            # 7c. Transfer workspace ownership to agent user BEFORE setup
             if self._agent_user:
                 quoted_user = shlex.quote(self._agent_user)
                 quoted_ws = shlex.quote(workspace_path.path)
@@ -234,8 +333,24 @@ class SSHExecutionEnvironment:
                     f"chown {quoted_user}:{quoted_user}"
                     f" /workspace/.developer-secrets /workspace/.git-askpass 2>/dev/null;"
                     f" chown -R {quoted_user}:{quoted_user} {quoted_ws}",
-                    timeout_secs=10,
+                    timeout_secs=30,
                 )
+
+            # 7d. Run setup commands AS agent user (so uv/pip create venvs with correct ownership)
+            if profile.setup:
+                quoted_ws = shlex.quote(workspace_path.path)
+                for cmd in profile.setup:
+                    logger.info(
+                        "Running setup command (as %s): %s", self._agent_user or "root", cmd
+                    )
+                    setup_cmd = f"cd {quoted_ws} && {cmd}"
+                    if self._agent_user:
+                        setup_cmd = (
+                            f"su - {shlex.quote(self._agent_user)} -c {shlex.quote(setup_cmd)}"
+                        )
+                    result = await conn.run(setup_cmd, timeout_secs=300)
+                    if result.exit_code != 0:
+                        raise RuntimeError(f"Setup command failed ({cmd}): {result.stderr}")
 
             # 8. Inject all CLI credentials
             target_home = f"/home/{self._agent_user}" if self._agent_user else None
@@ -259,19 +374,6 @@ class SSHExecutionEnvironment:
                 project=dispatch.project,
                 spec=dispatch.spec_folder,
                 host=vm_handle.host,
-            )
-
-            await self._emitter.emit(
-                VMProvisioned(
-                    timestamp=_now(),
-                    workflow_id=dispatch.workflow_id,
-                    vm_id=vm_handle.vm_id,
-                    host=vm_handle.host,
-                    provider=vm_handle.provider,
-                    project=dispatch.project,
-                    profile=dispatch.environment_profile,
-                    hourly_cost=vm_handle.hourly_cost,
-                )
             )
 
             # 10. Return handle
@@ -314,7 +416,7 @@ class SSHExecutionEnvironment:
         self,
         handle: EnvironmentHandle,
         dispatch: Dispatch,
-        config: Config,
+        config: WorkerConfig,
         *,
         dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:
@@ -336,12 +438,17 @@ class SSHExecutionEnvironment:
         dispatch_start_utc = datetime.now(UTC)
         transient_retries = 0
 
-        # Build full prompt (same as local path)
+        # Build full prompt (skip for bash/gate — no agent prompt needed)
         command_name = dispatch.phase.value
-        command_file = handle.worktree_path / config.commands_dir / f"{command_name}.md"
-        prompt_content = assemble_prompt(
-            command_file, dispatch.spec_folder, command_name, dispatch.context
-        )
+        if dispatch.cli == Cli.BASH:
+            prompt_content = ""
+        else:
+            remote_cmd_path = f"{workspace.path}/{config.commands_dir}/{command_name}.md"
+            prompt_content = await conn.download_content(remote_cmd_path) or ""
+            if prompt_content:
+                prompt_content = f"{prompt_content}\n\n---\n\nSpec folder: {dispatch.spec_folder}\n"
+                if dispatch.context:
+                    prompt_content += f"\nAdditional context: {dispatch.context}\n"
 
         while True:
             # Build CLI command
@@ -358,10 +465,11 @@ class SSHExecutionEnvironment:
                 timeout_secs=dispatch.timeout,
             )
 
-            # Parse signal token from raw file content
-            raw_signal = agent_result.signal_content or ""
-            signal_token = (
-                parse_signal_token(command_name, raw_signal) if raw_signal.strip() else None
+            # Extract signal: .agent-status file first, stdout fallback
+            signal_token = _extract_signal_token(
+                command_name,
+                agent_result.signal_content or "",
+                agent_result.stdout or "",
             )
 
             # Map outcome
@@ -396,6 +504,50 @@ class SSHExecutionEnvironment:
                     continue
                 if error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
                     transient_retries += 1
+
+                    # Signal recovery nudge: agent likely finished but
+                    # forgot to write the status file.  Re-invoke with a
+                    # short prompt asking it to emit the signal instead of
+                    # blindly re-running the entire task.
+                    if agent_result.exit_code == 0 and dispatch.cli != Cli.BASH:
+                        logger.warning(
+                            "No signal detected (exit 0), nudging agent to write status file"
+                        )
+                        nudge_prompt = (
+                            "You completed your task but did not write "
+                            "the status file.\n\n"
+                            "Write your exit signal to the status file "
+                            "AND print it to stdout:\n\n"
+                            f'    echo "{command_name}-status: complete"'
+                            f" > {dispatch.spec_folder}/.agent-status\n\n"
+                            f"Then print: {command_name}-status: complete\n\n"
+                            "If you did not complete successfully, use the "
+                            "appropriate signal (blocked, error, all-done, "
+                            "fail) instead."
+                        )
+                        nudge_result = await self._runner.run(
+                            conn,
+                            workspace,
+                            prompt_content=nudge_prompt,
+                            cli_command=cli_command,
+                            signal_path=signal_path,
+                            timeout_secs=120,
+                        )
+                        nudge_token = _extract_signal_token(
+                            command_name,
+                            nudge_result.signal_content or "",
+                            nudge_result.stdout or "",
+                        )
+                        if nudge_token is not None:
+                            outcome, signal_val = map_outcome(
+                                dispatch.phase,
+                                nudge_token,
+                                nudge_result.exit_code,
+                                nudge_result.timed_out,
+                            )
+                            agent_result = nudge_result
+                            break
+
                     logger.warning(
                         "Ambiguous error, retrying once in 10s. "
                         "exit_code=%d stderr=%.500s stdout=%.500s",
@@ -412,6 +564,7 @@ class SSHExecutionEnvironment:
 
         # Remote postflight: push on push phases
         final_stdout = agent_result.stdout
+        remote_postflight = None
         if dispatch.phase in _PUSH_PHASES and outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
             push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
             push_result = await conn.run(self._wrap_for_agent_user(push_cmd), timeout_secs=120)
@@ -429,6 +582,9 @@ class SSHExecutionEnvironment:
                     f"[worker] stderr: {push_result.stderr}\n"
                 )
                 final_stdout = (final_stdout or "") + push_diag
+                remote_postflight = PostflightResult(pushed=False, push_error=push_result.stderr)
+            else:
+                remote_postflight = PostflightResult(pushed=True)
 
         # Collect token usage (best-effort, 30s timeout)
         token_usage_data = None
@@ -446,6 +602,13 @@ class SSHExecutionEnvironment:
             if usage is not None:
                 token_usage_data = usage
 
+        # Capture gate output for gate phases so it's visible in results
+        captured_gate_output = None
+        if dispatch.phase == Phase.GATE:
+            combined = (final_stdout or "") + (agent_result.stderr or "")
+            if combined.strip():
+                captured_gate_output = combined
+
         return PhaseResult(
             outcome=outcome,
             signal=signal_val,
@@ -454,9 +617,9 @@ class SSHExecutionEnvironment:
             stderr=agent_result.stderr,
             duration_secs=duration,
             preflight_passed=True,
-            postflight_result=None,
+            postflight_result=remote_postflight,
             env_report=None,
-            gate_output=None,
+            gate_output=captured_gate_output,
             unchecked_tasks=0,
             plan_hash="00000000",
             retries=transient_retries,
@@ -503,7 +666,6 @@ class SSHExecutionEnvironment:
         workspace = remote_runtime.workspace_path
         teardown_cmds = remote_runtime.teardown_commands
         vm_handle = remote_runtime.vm_handle
-        provision_start = remote_runtime.provision_start
 
         try:
             for cmd in teardown_cmds:
@@ -546,22 +708,6 @@ class SSHExecutionEnvironment:
                         )
                     await self._state_store.record_release(vm_handle.vm_id)
 
-                    duration = int(time.monotonic() - provision_start)
-                    cost = None
-                    if vm_handle.hourly_cost is not None:
-                        cost = vm_handle.hourly_cost * (duration / 3600)
-
-                    await self._emitter.emit(
-                        VMReleased(
-                            timestamp=_now(),
-                            workflow_id=remote_runtime.workflow_id,
-                            vm_id=vm_handle.vm_id,
-                            project=handle.project,
-                            duration_secs=duration,
-                            estimated_cost=cost,
-                        )
-                    )
-
     async def _await_ssh_ready(
         self,
         conn: SSHConnection,
@@ -590,130 +736,6 @@ class SSHExecutionEnvironment:
             f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}"
         )
 
-    def _resolve_profile(self, dispatch: Dispatch, config: Config) -> EnvironmentProfile:
-        """Read tanren.yml locally and resolve environment profile.
-
-        Returns:
-            Resolved EnvironmentProfile.
-
-        Raises:
-            ProvisionError: If the requested profile is not found.
-        """
-        tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
-        if tanren_yml.exists():
-            with open(tanren_yml) as f:
-                loaded = yaml.safe_load(f) or {}
-            data = loaded if isinstance(loaded, dict) else {}
-            profiles = parse_environment_profiles(data)
-        else:
-            profiles = parse_environment_profiles({})
-
-        profile = profiles.get(dispatch.environment_profile)
-        if profile is None:
-            available = sorted(profiles.keys())
-            msg = (
-                f"Environment profile '{dispatch.environment_profile}' not found in tanren.yml. "
-                f"Available: {available}"
-            )
-            raise ProvisionError(
-                Result(
-                    workflow_id=dispatch.workflow_id,
-                    phase=dispatch.phase,
-                    outcome=Outcome.ERROR,
-                    exit_code=-1,
-                    duration_secs=0,
-                    tail_output=msg,
-                    spec_modified=False,
-                )
-            )
-
-        return profile
-
-    def _load_project_env(self, dispatch: Dispatch, config: Config) -> dict[str, str]:
-        """Load project .env file locally for secret injection.
-
-        Returns:
-            Dict of env var key-value pairs from the project .env file.
-        """
-        env_file = Path(config.github_dir) / dispatch.project / ".env"
-        if not env_file.exists():
-            return {}
-        values = dotenv_values(env_file)
-        return {k: v for k, v in values.items() if v is not None}
-
-    async def _fetch_cloud_secrets(
-        self, dispatch: Dispatch, config: Config
-    ) -> dict[str, str] | None:
-        """Fetch cloud secrets for vars with ``source: "secret:X"`` in tanren.yml.
-
-        Returns:
-            Dict of fetched secrets, or None if no provider is configured.
-        """
-        tanren_yml = Path(config.github_dir) / dispatch.project / "tanren.yml"
-        if not tanren_yml.exists():
-            return None
-
-        data = await asyncio.to_thread(self._read_yaml, tanren_yml)
-        if not isinstance(data, dict):
-            return None
-
-        from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415 — avoid circular import
-
-        try:
-            tc = TanrenConfig.model_validate(data)
-        except Exception:
-            logger.warning(
-                "Failed to parse tanren.yml for secret resolution in %s",
-                dispatch.project,
-                exc_info=True,
-            )
-            return None
-
-        has_sources = tc.env is not None and any(
-            v.source for v in (*tc.env.required, *tc.env.optional)
-        )
-        if not has_sources:
-            return None
-
-        from tanren_core.env.secret_provider_factory import (  # noqa: PLC0415 — avoid circular import
-            create_secret_provider,
-        )
-
-        secrets_dir = self._secrets_dir()
-        provider = create_secret_provider(tc.secrets, secrets_dir=secrets_dir)
-
-        result: dict[str, str] = {}
-        if tc.env:
-            for var in (*tc.env.required, *tc.env.optional):
-                if var.source and var.source.startswith("secret:"):
-                    secret_name = var.source[len("secret:") :]
-                    value = await provider.get_secret(secret_name)
-                    if value is not None:
-                        result[var.key] = value
-
-        return result or None
-
-    def _secrets_dir(self) -> Path:
-        """Derive the secrets directory from the SecretLoader config.
-
-        Respects the ``developer_secrets_path`` set via remote.yml so the
-        DotenvSecretProvider looks in the same location as SecretLoader.
-
-        Returns:
-            Path to the directory containing secrets files.
-        """
-        return Path(self._secret_loader._config.developer_secrets_path).expanduser().parent
-
-    @staticmethod
-    def _read_yaml(path: Path) -> object:
-        """Read and parse a YAML file.
-
-        Returns:
-            Parsed YAML data.
-        """
-        with open(path) as f:
-            return yaml.safe_load(f) or {}
-
     def _wrap_for_agent_user(self, command: str) -> str:
         """Wrap a shell command to run as the agent user via ``su -``.
 
@@ -724,7 +746,7 @@ class SSHExecutionEnvironment:
             return f"su - {shlex.quote(self._agent_user)} -c {shlex.quote(command)}"
         return command
 
-    def _build_cli_command(self, dispatch: Dispatch, config: Config) -> str:
+    def _build_cli_command(self, dispatch: Dispatch, config: WorkerConfig) -> str:
         """Build the CLI command string for remote execution.
 
         Returns:

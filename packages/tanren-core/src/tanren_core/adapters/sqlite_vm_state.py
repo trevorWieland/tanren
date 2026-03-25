@@ -31,7 +31,7 @@ class SqliteVMStateStore:
     """Persists VM assignment state to SQLite.
 
     Implements the VMStateStore protocol. Same lazy-connect pattern
-    as SqliteEventEmitter.
+    as SqliteStore.
     """
 
     def __init__(self, db_path: str | Path) -> None:

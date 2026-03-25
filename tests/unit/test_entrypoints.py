@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from tanren_cli import main as cli_mod
 from tanren_daemon import main as main_mod
 
@@ -24,26 +26,15 @@ def test_cli_main_invokes_typer_app(monkeypatch):
     assert called["load_config_env"] is True
 
 
-def test_worker_main_builds_manager_and_runs(monkeypatch):
-    class _FakeManager:
-        def run(self):
-            return "manager-run-coro"
-
-    seen: dict[str, object] = {}
-    called = {"load_config_env": False}
-
-    monkeypatch.setattr(main_mod, "WorkerManager", _FakeManager)
-
-    def _fake_load_config_env(*_a, **_kw) -> None:
-        called["load_config_env"] = True
-
-    monkeypatch.setattr(main_mod, "load_config_env", _fake_load_config_env)
+def test_worker_main_calls_asyncio_run(monkeypatch):
+    seen: dict[str, Any] = {}
 
     def _fake_asyncio_run(coro):
         seen["coro"] = coro
+        coro.close()  # Close the coroutine to prevent ResourceWarning
 
     monkeypatch.setattr(main_mod.asyncio, "run", _fake_asyncio_run)
     main_mod.main()
 
-    assert seen["coro"] == "manager-run-coro"
-    assert called["load_config_env"] is True
+    # _run() is called via asyncio.run — verify it was invoked
+    assert "coro" in seen
