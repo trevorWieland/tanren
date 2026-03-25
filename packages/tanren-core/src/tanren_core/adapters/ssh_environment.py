@@ -35,6 +35,7 @@ from tanren_core.adapters.types import (
 )
 from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
+from tanren_core.postflight import PostflightResult
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.signals import map_outcome, parse_signal_token
 
@@ -288,9 +289,10 @@ class SSHExecutionEnvironment:
                     else:
                         missing.append(name)
                 if missing:
-                    logger.warning(
-                        "Secrets not found in daemon environment: %s",
-                        ", ".join(missing),
+                    raise RuntimeError(
+                        f"Required secrets not found in daemon environment: "
+                        f"{', '.join(missing)}. "
+                        f"Set these in the daemon's environment or secrets.env."
                     )
                 # Validate CLI auth: at least one secret must be
                 # resolvable for the dispatch's CLI.
@@ -549,6 +551,7 @@ class SSHExecutionEnvironment:
 
         # Remote postflight: push on push phases
         final_stdout = agent_result.stdout
+        remote_postflight = None
         if dispatch.phase in _PUSH_PHASES and outcome not in (Outcome.ERROR, Outcome.TIMEOUT):
             push_cmd = self._workspace_mgr.push_command(workspace.path, dispatch.branch)
             push_result = await conn.run(self._wrap_for_agent_user(push_cmd), timeout_secs=120)
@@ -566,6 +569,9 @@ class SSHExecutionEnvironment:
                     f"[worker] stderr: {push_result.stderr}\n"
                 )
                 final_stdout = (final_stdout or "") + push_diag
+                remote_postflight = PostflightResult(pushed=False, push_error=push_result.stderr)
+            else:
+                remote_postflight = PostflightResult(pushed=True)
 
         # Collect token usage (best-effort, 30s timeout)
         token_usage_data = None
@@ -598,7 +604,7 @@ class SSHExecutionEnvironment:
             stderr=agent_result.stderr,
             duration_secs=duration,
             preflight_passed=True,
-            postflight_result=None,
+            postflight_result=remote_postflight,
             env_report=None,
             gate_output=captured_gate_output,
             unchecked_tasks=0,
