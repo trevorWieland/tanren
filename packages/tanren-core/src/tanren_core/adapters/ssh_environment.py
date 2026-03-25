@@ -289,13 +289,26 @@ class SSHExecutionEnvironment:
                     else:
                         missing.append(name)
                 if missing:
-                    raise RuntimeError(
-                        f"Required secrets not found in daemon environment: "
-                        f"{', '.join(missing)}. "
-                        f"Set these in the daemon's environment or secrets.env."
-                    )
-                # Validate CLI auth: at least one secret must be
-                # resolvable for the dispatch's CLI.
+                    # Determine which missing secrets are non-auth (truly required)
+                    # vs auth alternatives (handled by _validate_cli_auth's group logic)
+                    auth_names: set[str] = set()
+                    for groups in _CLI_AUTH_GROUPS.values():
+                        for group in groups:
+                            auth_names.update(group)
+                    non_auth_missing = [n for n in missing if n not in auth_names]
+                    if non_auth_missing:
+                        raise RuntimeError(
+                            f"Required secrets not found in daemon environment: "
+                            f"{', '.join(non_auth_missing)}. "
+                            f"Set these in the daemon's environment or secrets.env."
+                        )
+                    if missing:
+                        logger.info(
+                            "Auth secrets not in daemon env (alternative may suffice): %s",
+                            ", ".join(n for n in missing if n in auth_names),
+                        )
+                # Validate CLI auth: at least one secret in each auth
+                # group must be resolvable for the dispatch's CLI.
                 _validate_cli_auth(dispatch.cli, resolved, phase=dispatch.phase.value)
                 developer_overrides = resolved
 

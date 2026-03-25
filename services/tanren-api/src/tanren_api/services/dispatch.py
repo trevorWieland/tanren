@@ -14,7 +14,7 @@ from tanren_api.models import (
     DispatchRunStatus,
 )
 from tanren_api.services.dispatch_lifecycle import create_dispatch_from_request
-from tanren_core.store.enums import DispatchStatus, StepStatus, StepType
+from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import DispatchView
 
@@ -136,9 +136,10 @@ class DispatchService:
         )
         if prov is None or any(s.step_type == StepType.TEARDOWN for s in steps):
             return
-        # Don't enqueue teardown while execute is active — the worker's
-        # auto-chain will handle teardown after execute completes
-        if any(
+        # For AUTO dispatches, skip teardown enqueue while execute is active —
+        # the worker's auto-chain will handle teardown after execute completes.
+        # For MANUAL dispatches, always enqueue teardown since auto-chain won't run.
+        if view.mode == DispatchMode.AUTO and any(
             s.step_type == StepType.EXECUTE and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
             for s in steps
         ):

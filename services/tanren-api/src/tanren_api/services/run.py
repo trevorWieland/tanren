@@ -361,6 +361,14 @@ class RunService:
                 last = ExecuteResult.model_validate_json(exec_steps[-1].result_json)
                 outcome = last.outcome
 
+        # Reclassify env_status based on derived outcome — a "completed" step
+        # with an error/timeout outcome should show as FAILED, not COMPLETED.
+        if outcome in (Outcome.ERROR, Outcome.TIMEOUT) and env_status not in (
+            RunEnvironmentStatus.FAILED,
+            RunEnvironmentStatus.TEARING_DOWN,
+        ):
+            env_status = RunEnvironmentStatus.FAILED
+
         return RunStatus(
             env_id=env_id,
             dispatch_id=dispatch_view.dispatch_id,

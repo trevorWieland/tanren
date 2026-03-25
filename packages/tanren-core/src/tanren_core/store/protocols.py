@@ -25,19 +25,17 @@ from tanren_core.store.views import (
 
 @runtime_checkable
 class EventStore(Protocol):
-    """Append-only event store with transactional projection maintenance.
+    """Append-only structured event log.
 
-    On each ``append()``, the implementation MUST transactionally:
-
-    1. INSERT the event into the ``events`` table.
-    2. UPDATE the ``dispatch_projection`` row (status, outcome, updated_at).
-    3. UPDATE the ``step_projection`` row (status, worker_id, result_json).
-
-    This ensures projections are always consistent with the event log.
+    ``append()`` inserts events into the event log. Projection updates
+    (dispatch_projection, step_projection) are handled by ``JobQueue``
+    and ``StateStore`` methods (``enqueue_step``, ``ack``,
+    ``ack_and_enqueue``, ``update_dispatch_status``) which bundle
+    event inserts with projection writes in the same transaction.
     """
 
     async def append(self, event: Event) -> None:
-        """Append an event and update projections transactionally.
+        """Append an event to the log.
 
         For SQLite: wraps in ``BEGIN IMMEDIATE``.
         For Postgres: wraps in a transaction.
