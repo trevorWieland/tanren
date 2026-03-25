@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tanren_core.adapters.remote_shared import extract_signal_token, validate_cli_auth
 from tanren_core.adapters.remote_types import (
     BootstrapResult,
     RemoteAgentResult,
@@ -18,11 +19,7 @@ from tanren_core.adapters.remote_types import (
     WorkspacePath,
 )
 from tanren_core.adapters.ssh import SSHConfig
-from tanren_core.adapters.ssh_environment import (
-    SSHExecutionEnvironment,
-    _extract_signal_token,
-    _validate_cli_auth,
-)
+from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.types import (
     AccessInfo,
     EnvironmentHandle,
@@ -839,81 +836,81 @@ class TestExecute:
 
 class TestExtractSignalToken:
     def test_extracts_from_file_content(self):
-        token = _extract_signal_token("do-task", "do-task-status: complete", "")
+        token = extract_signal_token("do-task", "do-task-status: complete", "")
         assert token == "complete"
 
     def test_falls_back_to_stdout(self):
-        token = _extract_signal_token("do-task", "", "output\ndo-task-status: all-done\n")
+        token = extract_signal_token("do-task", "", "output\ndo-task-status: all-done\n")
         assert token == "all-done"
 
     def test_file_takes_precedence(self):
-        token = _extract_signal_token(
+        token = extract_signal_token(
             "do-task", "do-task-status: complete", "do-task-status: blocked"
         )
         assert token == "complete"
 
     def test_returns_none_when_no_signal(self):
-        token = _extract_signal_token("do-task", "", "no signal here")
+        token = extract_signal_token("do-task", "", "no signal here")
         assert token is None
 
     def test_last_stdout_match_wins(self):
-        token = _extract_signal_token(
+        token = extract_signal_token(
             "do-task", "", "do-task-status: error\ndo-task-status: complete"
         )
         assert token == "complete"
 
     def test_works_with_audit_task(self):
-        token = _extract_signal_token("audit-task", "audit-task-status: pass", "")
+        token = extract_signal_token("audit-task", "audit-task-status: pass", "")
         assert token == "pass"
 
     def test_whitespace_only_file_falls_through(self):
-        token = _extract_signal_token("do-task", "  \n  ", "do-task-status: blocked")
+        token = extract_signal_token("do-task", "  \n  ", "do-task-status: blocked")
         assert token == "blocked"
 
     def test_file_has_wrong_command_name(self):
-        token = _extract_signal_token(
+        token = extract_signal_token(
             "do-task", "audit-task-status: pass", "do-task-status: complete"
         )
         assert token == "complete"
 
     def test_empty_everything(self):
-        assert _extract_signal_token("do-task", "", "") is None
+        assert extract_signal_token("do-task", "", "") is None
 
 
 class TestValidateCliAuth:
     def test_claude_oauth_token_sufficient(self):
-        _validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CODE_OAUTH_TOKEN": "tok"})
+        validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CODE_OAUTH_TOKEN": "tok"})
 
     def test_claude_credentials_json_sufficient(self):
-        _validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CREDENTIALS_JSON": "{}"})
+        validate_cli_auth(Cli.CLAUDE, {"CLAUDE_CREDENTIALS_JSON": "{}"})
 
     def test_claude_both_present(self):
-        _validate_cli_auth(
+        validate_cli_auth(
             Cli.CLAUDE,
             {"CLAUDE_CODE_OAUTH_TOKEN": "tok", "CLAUDE_CREDENTIALS_JSON": "{}"},
         )
 
     def test_claude_neither_raises(self):
         with pytest.raises(RuntimeError, match="No auth secret resolved for claude"):
-            _validate_cli_auth(Cli.CLAUDE, {})
+            validate_cli_auth(Cli.CLAUDE, {})
 
     def test_opencode_present(self):
-        _validate_cli_auth(Cli.OPENCODE, {"OPENCODE_ZAI_API_KEY": "key"})
+        validate_cli_auth(Cli.OPENCODE, {"OPENCODE_ZAI_API_KEY": "key"})
 
     def test_opencode_missing_raises(self):
         with pytest.raises(RuntimeError, match="No auth secret resolved for opencode"):
-            _validate_cli_auth(Cli.OPENCODE, {})
+            validate_cli_auth(Cli.OPENCODE, {})
 
     def test_codex_missing_raises(self):
         with pytest.raises(RuntimeError, match="No auth secret resolved for codex"):
-            _validate_cli_auth(Cli.CODEX, {})
+            validate_cli_auth(Cli.CODEX, {})
 
     def test_bash_no_auth_needed(self):
-        _validate_cli_auth(Cli.BASH, {})
+        validate_cli_auth(Cli.BASH, {})
 
     def test_unrelated_secrets_dont_satisfy(self):
         with pytest.raises(RuntimeError, match="No auth secret resolved for claude"):
-            _validate_cli_auth(Cli.CLAUDE, {"SOME_OTHER_KEY": "val"})
+            validate_cli_auth(Cli.CLAUDE, {"SOME_OTHER_KEY": "val"})
 
 
 class TestSignalExtraction:
@@ -1174,10 +1171,11 @@ class TestTeardown:
 
 
 class TestBuildCliCommand:
-    """Test _build_cli_command for each CLI type."""
+    """Test build_cli_command for each CLI type."""
 
     def _build(self, env_kit, cli: Cli, model: str = "sonnet", gate_cmd: str | None = None):
-        env = env_kit["env"]
+        from tanren_core.adapters.remote_shared import build_cli_command
+
         dispatch = _make_dispatch(cli=cli)
         dispatch = Dispatch(
             workflow_id=dispatch.workflow_id,
@@ -1194,7 +1192,7 @@ class TestBuildCliCommand:
             resolved_profile=DEFAULT_PROFILE,
         )
         config = env_kit["config"]
-        return env._build_cli_command(dispatch, config)
+        return build_cli_command(dispatch, config)
 
     def test_claude_command(self, env_kit):
         cmd = self._build(env_kit, Cli.CLAUDE)

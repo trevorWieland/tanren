@@ -27,6 +27,7 @@ from tanren_core.adapters.ssh import SSHConfig
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
 from tanren_core.env.environment_schema import (
+    DockerExecutionConfig,
     EnvironmentProfile,
     EnvironmentProfileType,
     RemoteExecutionConfig,
@@ -232,6 +233,79 @@ def _build_local(
     return env, None
 
 
+def _build_docker(
+    config: WorkerConfig,
+    docker_cfg: DockerExecutionConfig,
+    pool: asyncpg.Pool | None = None,
+) -> tuple[ExecutionEnvironment, VMStateStore]:
+    """Construct a DockerExecutionEnvironment from dispatch-carried config.
+
+    Args:
+        config: Worker operational config (data_dir, etc.).
+        docker_cfg: Docker execution config carried in the dispatch/profile.
+        pool: Optional asyncpg pool for Postgres-backed VM state.
+
+    Returns:
+        Tuple of (DockerExecutionEnvironment, VMStateStore).
+    """
+    from tanren_core.adapters.docker_connection import DockerConfig  # noqa: PLC0415 — optional dep
+    from tanren_core.adapters.docker_environment import (  # noqa: PLC0415 — optional dep
+        DockerExecutionEnvironment,
+    )
+
+    required_clis = frozenset(Cli(c) for c in docker_cfg.required_clis)
+    agent_user = docker_cfg.agent_user
+
+    if pool is not None:
+        from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional
+            PostgresVMStateStore,
+        )
+
+        state_store: VMStateStore = PostgresVMStateStore(pool)
+    else:
+        from tanren_core.adapters.sqlite_vm_state import (  # noqa: PLC0415 — conditional
+            SqliteVMStateStore,
+        )
+
+        state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
+
+    secret_config = SecretConfig()
+    secret_loader = SecretLoader(secret_config, required_clis=required_clis)
+    secret_loader.autoload_into_env(override=False)
+
+    token = os.environ.get(docker_cfg.git.token_env, "")
+    git_auth = GitAuthConfig(
+        auth_method=GitAuthMethod(docker_cfg.git.auth_method),
+        token=token or None,
+    )
+
+    docker_config = DockerConfig(
+        image=docker_cfg.image,
+        socket_url=docker_cfg.socket_url,
+        network=docker_cfg.network,
+        extra_volumes=docker_cfg.extra_volumes,
+        extra_env=docker_cfg.extra_env,
+    )
+
+    env = DockerExecutionEnvironment(
+        bootstrapper=UbuntuBootstrapper(
+            required_clis=required_clis,
+            extra_script=docker_cfg.bootstrap_extra_script,
+            skip_infra_tools=frozenset({"docker"}),
+        ),
+        workspace_mgr=GitWorkspaceManager(git_auth),
+        runner=RemoteAgentRunner(run_as_user=agent_user),
+        state_store=state_store,
+        secret_loader=secret_loader,
+        docker_config=docker_config,
+        repo_urls={"__dispatch__": docker_cfg.repo_url},
+        credential_providers=providers_for_clis(required_clis),
+        agent_user=agent_user,
+    )
+
+    return env, state_store
+
+
 def build_execution_environment(
     config: WorkerConfig,
     profile: EnvironmentProfile,
@@ -252,7 +326,6 @@ def build_execution_environment(
 
     Raises:
         ValueError: If required config for the profile type is missing.
-        NotImplementedError: If the profile type is not yet supported.
     """
     if profile.type == EnvironmentProfileType.LOCAL:
         return _build_local(config)
@@ -261,6 +334,8 @@ def build_execution_environment(
             raise ValueError(f"remote_config is required for remote profile '{profile.name}'")
         return build_ssh_execution_environment(config, profile.remote_config, pool=pool)
     elif profile.type == EnvironmentProfileType.DOCKER:
-        raise NotImplementedError("Docker execution not yet supported")
+        if profile.docker_config is None:
+            raise ValueError(f"docker_config is required for docker profile '{profile.name}'")
+        return _build_docker(config, profile.docker_config, pool=pool)
     else:
         raise ValueError(f"Unknown profile type: {profile.type}")

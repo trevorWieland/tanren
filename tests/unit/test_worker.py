@@ -376,3 +376,94 @@ class TestWorkerHandlePersistence:
         assert reconstructed.env_id == original.env_id
         assert reconstructed.project == original.project
         assert reconstructed.branch == original.branch
+
+    def test_persist_docker_handle(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock as _MM
+
+        from tanren_core.adapters.remote_types import WorkspacePath
+        from tanren_core.adapters.types import DockerEnvironmentRuntime
+
+        conn = _MM()
+        workspace = WorkspacePath(path="/workspace/proj", project="proj", branch="main")
+        handle = EnvironmentHandle(
+            env_id="env-docker",
+            worktree_path=tmp_path / "workspace",
+            branch="main",
+            project="proj",
+            runtime=DockerEnvironmentRuntime(
+                container_id="abc123def456",
+                connection=conn,
+                workspace_path=workspace,
+                profile=EnvironmentProfile(name="docker-ci"),
+                provision_start=100.0,
+                workflow_id="wf-1",
+                docker_socket_url="unix:///var/run/docker.sock",
+            ),
+        )
+        persisted = Worker._persist_handle(handle, profile_name="docker-ci")
+
+        assert persisted.docker_config is not None
+        assert persisted.docker_config.container_id == "abc123def456"
+        assert persisted.docker_config.socket_url == "unix:///var/run/docker.sock"
+        assert persisted.workspace_remote_path == "/workspace/proj"
+        assert persisted.profile_name == "docker-ci"
+        assert persisted.vm is None
+        assert persisted.ssh_config is None
+
+    def test_reconstruct_docker_handle(self) -> None:
+        from tanren_core.store.handle import PersistedDockerConfig
+
+        persisted = PersistedEnvironmentHandle(
+            env_id="env-docker",
+            worktree_path="/workspace/proj",
+            branch="main",
+            project="proj",
+            provision_timestamp="2026-01-01T00:00:00Z",
+            workspace_remote_path="/workspace/proj",
+            profile_name="docker-ci",
+            docker_config=PersistedDockerConfig(
+                container_id="abc123def456",
+                socket_url=None,
+            ),
+        )
+        handle = Worker._reconstruct_handle(persisted)
+
+        from tanren_core.adapters.types import DockerEnvironmentRuntime
+
+        assert handle.env_id == "env-docker"
+        assert handle.runtime.kind == "docker"
+        assert isinstance(handle.runtime, DockerEnvironmentRuntime)
+        assert handle.runtime.container_id == "abc123def456"
+        assert handle.runtime.workspace_path.path == "/workspace/proj"
+        assert handle.runtime.profile.name == "docker-ci"
+
+    def test_docker_persist_roundtrip(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock as _MM
+
+        from tanren_core.adapters.remote_types import WorkspacePath
+        from tanren_core.adapters.types import DockerEnvironmentRuntime
+
+        conn = _MM()
+        workspace = WorkspacePath(path="/workspace/proj", project="proj", branch="feat")
+        original = EnvironmentHandle(
+            env_id="env-rt",
+            worktree_path=tmp_path / "ws",
+            branch="feat",
+            project="proj",
+            runtime=DockerEnvironmentRuntime(
+                container_id="deadbeef1234",
+                connection=conn,
+                workspace_path=workspace,
+                profile=EnvironmentProfile(name="ci"),
+                provision_start=50.0,
+                workflow_id="wf-rt",
+            ),
+        )
+        persisted = Worker._persist_handle(original, profile_name="ci")
+        reconstructed = Worker._reconstruct_handle(persisted)
+
+        assert reconstructed.env_id == original.env_id
+        assert reconstructed.project == original.project
+        assert reconstructed.runtime.kind == "docker"
+        assert isinstance(reconstructed.runtime, DockerEnvironmentRuntime)
+        assert reconstructed.runtime.container_id == "deadbeef1234"

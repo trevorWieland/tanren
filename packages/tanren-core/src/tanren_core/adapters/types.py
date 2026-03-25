@@ -56,6 +56,32 @@ class RemoteEnvironmentRuntime(BaseModel):
     workflow_id: str = Field(..., description="Workflow that owns this environment")
 
 
+class DockerEnvironmentRuntime(BaseModel):
+    """Runtime state for Docker container execution environments."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    kind: Literal["docker"] = Field(default="docker", description="Runtime kind discriminator")
+    container_id: str = Field(..., description="Docker container ID")
+    connection: SkipValidation[RemoteConnection] = Field(
+        ..., description="Active DockerConnection to the container"
+    )
+    workspace_path: WorkspacePath = Field(..., description="Workspace path inside the container")
+    profile: EnvironmentProfile = Field(
+        ..., description="Environment profile used for provisioning"
+    )
+    teardown_commands: tuple[str, ...] = Field(
+        default_factory=tuple, description="Commands to run during teardown"
+    )
+    provision_start: float = Field(
+        ..., ge=0.0, description="Monotonic timestamp when provisioning started"
+    )
+    workflow_id: str = Field(..., description="Workflow that owns this environment")
+    docker_socket_url: str | None = Field(
+        default=None, description="Docker socket URL for handle reconstruction"
+    )
+
+
 class CustomEnvironmentRuntime(BaseModel):
     """Generic runtime state for custom execution environments."""
 
@@ -77,8 +103,15 @@ class EnvironmentHandle(BaseModel):
     worktree_path: Path = Field(..., description="Local or remote path to the git worktree")
     branch: str = Field(..., description="Git branch checked out in this environment")
     project: str = Field(..., description="Target project name")
-    runtime: LocalEnvironmentRuntime | RemoteEnvironmentRuntime | CustomEnvironmentRuntime = Field(
-        ..., discriminator="kind", description="Typed runtime context (local, remote, or custom)"
+    runtime: (
+        LocalEnvironmentRuntime
+        | RemoteEnvironmentRuntime
+        | DockerEnvironmentRuntime
+        | CustomEnvironmentRuntime
+    ) = Field(
+        ...,
+        discriminator="kind",
+        description="Typed runtime context (local, remote, docker, or custom)",
     )
 
 
