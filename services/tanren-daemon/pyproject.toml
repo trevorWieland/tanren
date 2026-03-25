@@ -1,6 +1,6 @@
 [project]
 name = "tanren-daemon"
-version = "0.2.5"
+version = "0.2.6"
 description = "Queue-consuming worker daemon for tanren"
 requires-python = ">=3.14"
 license = "Apache-2.0"
