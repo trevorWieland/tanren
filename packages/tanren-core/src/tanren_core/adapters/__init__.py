@@ -57,11 +57,8 @@ try:  # noqa: SIM105, RUF067 — optional dependency try/except
     from tanren_core.adapters.hetzner_vm import HetznerProvisionerSettings, HetznerVMProvisioner
 except ImportError:  # hcloud not installed
     pass
-try:  # noqa: RUF067 — optional dependency try/except
-    from tanren_core.adapters.docker_connection import DockerConfig, DockerConnection
-    from tanren_core.adapters.docker_environment import DockerExecutionEnvironment
-except ImportError:  # aiodocker not installed
-    pass
+from tanren_core.adapters.docker_connection import DockerConfig, DockerConnection
+from tanren_core.adapters.docker_environment import DockerExecutionEnvironment
 from tanren_core.adapters.local_environment import LocalExecutionEnvironment
 from tanren_core.adapters.manual_vm import (
     ManualProvisionerSettings,

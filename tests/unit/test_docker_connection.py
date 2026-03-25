@@ -23,21 +23,39 @@ def _make_conn(
     return DockerConnection(container_id=container_id, socket_url=socket_url)
 
 
-def _mock_exec_instance(output: bytes = b"", exit_code: int = 0) -> MagicMock:
-    """Return a mock aiodocker exec instance with an async-iterable start().
+def _mock_exec_instance(
+    output: bytes = b"",
+    exit_code: int = 0,
+    *,
+    stderr_output: bytes = b"",
+) -> MagicMock:
+    """Return a mock aiodocker exec instance with a Stream-like start().
 
-    ``start(detach=False)`` is called *without* await in the implementation,
-    so it must be a regular callable that returns an async iterable.
-    ``inspect()`` *is* awaited, so it stays as an AsyncMock.
+    ``start(detach=False)`` is called *without* await in the implementation
+    and returns a Stream object whose ``read_out()`` yields ``Message``
+    namedtuples.  ``inspect()`` *is* awaited.
     """
+    from collections import namedtuple
+
+    Message = namedtuple("Message", ["stream", "data"])
     exec_inst = MagicMock()
 
-    async def _stream():  # noqa: RUF029 — async generator for exec stream
-        yield output
+    # Build the message sequence: stdout messages then stderr messages.
+    messages: list[Message | None] = []
+    if output:
+        messages.append(Message(stream=1, data=output))
+    if stderr_output:
+        messages.append(Message(stream=2, data=stderr_output))
+    messages.append(None)  # sentinel for end-of-stream
 
-    # start() is called synchronously, returns an async iterator
-    exec_inst.start = MagicMock(side_effect=lambda detach=False: _stream())
-    # inspect() is awaited
+    def _make_stream(detach: bool = False) -> MagicMock:
+        it = iter(messages)
+        stream = AsyncMock()
+        stream.read_out = AsyncMock(side_effect=lambda: next(it))
+        stream.close = AsyncMock()
+        return stream
+
+    exec_inst.start = MagicMock(side_effect=_make_stream)
     exec_inst.inspect = AsyncMock(return_value={"ExitCode": exit_code})
     return exec_inst
 

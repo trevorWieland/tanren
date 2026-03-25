@@ -7,15 +7,13 @@ import base64
 import contextlib
 import logging
 import shlex
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tanren_core.adapters.remote_types import RemoteResult
 
 if TYPE_CHECKING:
-    import collections.abc
-
     import aiodocker
     from aiodocker.types import JSONObject
 
@@ -123,7 +121,13 @@ class DockerConnection:
         Raises:
             ConnectionError: If the Docker client cannot be created.
         """
-        import aiodocker as _aiodocker  # noqa: PLC0415 — optional dep
+        try:
+            import aiodocker as _aiodocker  # noqa: PLC0415 — optional dep
+        except ModuleNotFoundError:
+            raise ConnectionError(
+                "aiodocker is required for Docker execution. "
+                "Install it with: uv sync --extra docker"
+            ) from None
 
         try:
             docker = _aiodocker.Docker(url=config.socket_url)
@@ -163,8 +167,19 @@ class DockerConnection:
         if config.extra_env:
             container_config["Env"] = [f"{k}={v}" for k, v in config.extra_env.items()]
 
-        container = await docker.containers.create_or_replace(name, container_config)
-        await container.start()
+        container = None
+        try:
+            container = await docker.containers.create_or_replace(name, container_config)
+            await container.start()
+        except BaseException:
+            # Clean up partially-created container and docker client so
+            # callers don't need to know about partial state.
+            if container is not None:
+                with contextlib.suppress(Exception):
+                    await container.delete(force=True)
+            with contextlib.suppress(Exception):
+                await docker.close()
+            raise
 
         conn = cls(container_id=container.id, socket_url=config.socket_url)
         # Re-use the client we already created instead of making a new one.
@@ -198,14 +213,18 @@ class DockerConnection:
     ) -> tuple[int, str, str]:
         """Run a command inside the container and collect output.
 
+        Uses ``Stream.read_out()`` to read ``Message`` objects from the
+        exec stream.  When *tty* is ``False`` each message carries a
+        *stream* field (1 = stdout, 2 = stderr) so we can separate them.
+        When *tty* is ``True`` the Docker daemon merges both into stream 1.
+
         Args:
             command: Shell command string to execute via ``/bin/bash -c``.
             tty: Whether to allocate a pseudo-TTY for the exec session.
             timeout_secs: Wall-clock timeout in seconds, ``None`` for unlimited.
 
         Returns:
-            Tuple of ``(exit_code, stdout, stderr)``.  When *tty* is ``True``
-            stdout and stderr are merged into *stdout* and *stderr* is empty.
+            Tuple of ``(exit_code, stdout, stderr)``.
         """
         docker = self._ensure_client()
         container = docker.containers.container(self._container_id)
@@ -217,39 +236,42 @@ class DockerConnection:
             tty=tty,
         )
 
-        async def _collect() -> bytes:
-            raw_stream = exec_instance.start(detach=False)
-            stream = cast("collections.abc.AsyncIterator[bytes | str]", raw_stream)
-            chunks: list[bytes] = []
-            async for chunk in stream:
-                if isinstance(chunk, bytes):
-                    chunks.append(chunk)
-                elif isinstance(chunk, str):
-                    chunks.append(chunk.encode())
+        stream = exec_instance.start(detach=False)
+
+        async def _collect() -> tuple[bytes, bytes]:
+            stdout_chunks: list[bytes] = []
+            stderr_chunks: list[bytes] = []
+            while True:
+                msg = await stream.read_out()
+                if msg is None:
+                    break
+                if msg.stream == 2:
+                    stderr_chunks.append(msg.data)
                 else:
-                    # aiodocker may yield Message namedtuples with a .data attr
-                    data = getattr(chunk, "data", b"")
-                    chunks.append(data if isinstance(data, bytes) else str(data).encode())
-            return b"".join(chunks)
+                    # stream 1 (stdout) or any other value → stdout
+                    stdout_chunks.append(msg.data)
+            return b"".join(stdout_chunks), b"".join(stderr_chunks)
 
         try:
             if timeout_secs is not None:
-                raw = await asyncio.wait_for(_collect(), timeout=float(timeout_secs))
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    _collect(), timeout=float(timeout_secs)
+                )
             else:
-                raw = await _collect()
+                stdout_bytes, stderr_bytes = await _collect()
         except TimeoutError:
+            with contextlib.suppress(Exception):
+                await stream.close()
             return -1, "", "Command timed out"
 
         inspect = await exec_instance.inspect()
         exit_code: int = inspect["ExitCode"]
 
-        decoded = raw.decode(errors="replace")
-        # With tty=True the streams are merged; report everything as stdout.
-        # With tty=False aiodocker still merges the multiplexed frames into a
-        # single byte stream for the async-for interface, so we cannot reliably
-        # separate stdout from stderr here.  This matches the PTY behaviour of
-        # SSHConnection where stderr is empty when a PTY is requested.
-        return exit_code, decoded, ""
+        return (
+            exit_code,
+            stdout_bytes.decode(errors="replace"),
+            stderr_bytes.decode(errors="replace"),
+        )
 
     # ------------------------------------------------------------------
     # RemoteConnection protocol methods

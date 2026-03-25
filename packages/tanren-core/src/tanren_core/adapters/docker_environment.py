@@ -111,9 +111,10 @@ class DockerExecutionEnvironment:
 
         for a in assignments:
             try:
-                conn = DockerConnection.from_existing(
-                    a.vm_id, socket_url=self._docker_config.socket_url
-                )
+                # Use the socket URL recorded at assignment time so recovery
+                # targets the same daemon that created the container.
+                socket_url = None if a.host == "local" else a.host
+                conn = DockerConnection.from_existing(a.vm_id, socket_url=socket_url)
                 try:
                     await conn.stop_container()
                 except Exception:
@@ -591,9 +592,11 @@ class DockerExecutionEnvironment:
 
     async def release_vm(self, vm_handle: VMHandle) -> None:
         """Release a container by stopping and removing it."""
-        conn = DockerConnection.from_existing(
-            vm_handle.vm_id, socket_url=self._docker_config.socket_url
-        )
+        # Prefer the socket URL encoded in the handle's host field so we
+        # target the same Docker daemon the container was created on.
+        host = vm_handle.host
+        socket_url = None if host in ("", "local") else host
+        conn = DockerConnection.from_existing(vm_handle.vm_id, socket_url=socket_url)
         try:
             await conn.stop_container()
         finally:
