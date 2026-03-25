@@ -110,7 +110,37 @@ class LocalExecutionEnvironment:
 
         spec_folder_path = worktree_path / dispatch.spec_folder
 
-        # 3. Inject dispatch-carried project env into os.environ for validation.
+        # 3. Run profile setup commands (e.g. make install) so the worktree
+        #    has the same dependencies as a fresh remote VM.
+        if dispatch.resolved_profile.setup:
+            for cmd in dispatch.resolved_profile.setup:
+                logger.info("Running setup command in worktree: %s", cmd)
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    cwd=str(worktree_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _stdout_bytes, stderr_bytes = await proc.communicate()
+                if proc.returncode != 0:
+                    stderr_text = stderr_bytes.decode(errors="replace")
+                    raise ProvisionError(
+                        Result(
+                            workflow_id=dispatch.workflow_id,
+                            phase=dispatch.phase,
+                            outcome=Outcome.ERROR,
+                            signal=None,
+                            exit_code=proc.returncode or -1,
+                            duration_secs=0,
+                            gate_output=None,
+                            tail_output=f"Setup command failed ({cmd}): {stderr_text[-500:]}",
+                            unchecked_tasks=0,
+                            plan_hash="00000000",
+                            spec_modified=False,
+                        )
+                    )
+
+        # 4. Inject dispatch-carried project env into os.environ for validation.
         # Worktrees may not have .env (gitignored), so the CLI reads it from
         # the source project dir and passes it in the dispatch.
         restore_env: dict[str, str | None] = {}
@@ -118,7 +148,7 @@ class LocalExecutionEnvironment:
             restore_env[k] = os.environ.get(k)
             os.environ[k] = v
 
-        # 4. Environment validation (sees dispatch.project_env via os.environ)
+        # 5. Environment validation (sees dispatch.project_env via os.environ)
         try:
             env_report, task_env = await self._env_validator.load_and_validate(worktree_path)
         finally:
@@ -150,7 +180,7 @@ class LocalExecutionEnvironment:
             )
             raise ProvisionError(result)
 
-        # 2. Preflight checks
+        # 6. Preflight checks
         preflight_result = await self._preflight.run(
             worktree_path, dispatch.branch, spec_folder_path, dispatch.phase.value
         )
@@ -174,7 +204,7 @@ class LocalExecutionEnvironment:
         if preflight_result.repairs:
             logger.info("Preflight repairs: %s", preflight_result.repairs)
 
-        # 5. Return handle
+        # 7. Return handle
         return EnvironmentHandle(
             env_id=str(uuid.uuid4()),
             worktree_path=worktree_path,
