@@ -940,6 +940,7 @@ class Worker:
 
         vm = None
         ssh_config = None
+        docker_config = None
         workspace_remote_path = None
         agent_user = None
         teardown_commands: tuple[str, ...] = ()
@@ -978,6 +979,19 @@ class Worker:
                 workspace_remote_path = rt.workspace_path.path
                 teardown_commands = rt.teardown_commands
                 profile_name = rt.profile.name
+        elif handle.runtime.kind == "docker":
+            from tanren_core.adapters.types import DockerEnvironmentRuntime
+
+            if isinstance(handle.runtime, DockerEnvironmentRuntime):
+                from tanren_core.store.handle import PersistedDockerConfig
+
+                docker_config = PersistedDockerConfig(
+                    container_id=handle.runtime.container_id,
+                    socket_url=handle.runtime.docker_socket_url,
+                )
+                workspace_remote_path = handle.runtime.workspace_path.path
+                teardown_commands = handle.runtime.teardown_commands
+                profile_name = handle.runtime.profile.name
         elif handle.runtime.kind == "local":
             from tanren_core.adapters.types import LocalEnvironmentRuntime
 
@@ -1000,6 +1014,7 @@ class Worker:
             dispatch_id=dispatch_id,
             provision_timestamp=_utc_now(),
             agent_user=agent_user,
+            docker_config=docker_config,
             task_env=task_env,
             preflight_hashes=preflight_hashes,
             preflight_backups=preflight_backups,
@@ -1063,6 +1078,42 @@ class Worker:
                 teardown_commands=persisted.teardown_commands,
                 provision_start=provision_start,
                 workflow_id=persisted.dispatch_id or f"reconstructed-{persisted.env_id}",
+            )
+        elif persisted.docker_config is not None:
+            # Docker handle — create fresh DockerConnection
+            from tanren_core.adapters.docker_connection import DockerConnection
+            from tanren_core.adapters.remote_types import WorkspacePath as _WP
+            from tanren_core.adapters.types import DockerEnvironmentRuntime
+            from tanren_core.env.environment_schema import (
+                EnvironmentProfile as _EP,
+            )
+
+            docker_conn = DockerConnection.from_existing(
+                persisted.docker_config.container_id,
+                socket_url=persisted.docker_config.socket_url,
+            )
+            docker_workspace = _WP(
+                path=persisted.workspace_remote_path or persisted.worktree_path,
+                project=persisted.project,
+                branch=persisted.branch,
+            )
+            docker_prov_start = time.monotonic()
+            try:
+                prov_dt = datetime.fromisoformat(persisted.provision_timestamp)
+                elapsed = (datetime.now(UTC) - prov_dt).total_seconds()
+                docker_prov_start = max(0.0, time.monotonic() - elapsed)
+            except ValueError, TypeError:
+                pass
+
+            runtime = DockerEnvironmentRuntime(
+                container_id=persisted.docker_config.container_id,
+                connection=docker_conn,
+                workspace_path=docker_workspace,
+                profile=_EP(name=persisted.profile_name),
+                teardown_commands=persisted.teardown_commands,
+                provision_start=docker_prov_start,
+                workflow_id=persisted.dispatch_id or f"reconstructed-{persisted.env_id}",
+                docker_socket_url=persisted.docker_config.socket_url,
             )
         else:
             # Local handle — rebuild preflight_result from persisted hashes/backups

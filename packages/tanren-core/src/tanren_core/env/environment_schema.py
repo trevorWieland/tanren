@@ -85,6 +85,33 @@ class DispatchProvisionerConfig(BaseModel):
     )
 
 
+class DockerExecutionConfig(BaseModel):
+    """Docker execution config carried in the dispatch — everything the daemon needs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    image: str = Field(default="ubuntu:24.04", description="Docker image to use")
+    socket_url: str | None = Field(
+        default=None, description="Docker socket URL (None = default /var/run/docker.sock)"
+    )
+    network: str | None = Field(default=None, description="Docker network to attach container to")
+    extra_volumes: tuple[str, ...] = Field(
+        default_factory=tuple, description="Additional volume mounts (host:container format)"
+    )
+    extra_env: dict[str, str] = Field(
+        default_factory=dict, description="Additional environment variables for the container"
+    )
+    repo_url: str = Field(..., description="Git clone URL for this project")
+    required_clis: tuple[str, ...] = Field(
+        default_factory=tuple, description="CLIs needed for bootstrap"
+    )
+    bootstrap_extra_script: str | None = Field(
+        default=None, description="Inline bootstrap script content"
+    )
+    agent_user: str = Field(default="tanren", description="Unprivileged user in the container")
+    git: DispatchGitConfig = Field(default_factory=DispatchGitConfig, description="Git auth config")
+
+
 class RemoteExecutionConfig(BaseModel):
     """Remote execution config carried in the dispatch — everything the daemon needs."""
 
@@ -142,6 +169,9 @@ class EnvironmentProfile(BaseModel):
     )
     remote_config: RemoteExecutionConfig | None = Field(
         default=None, description="Remote execution config (required when type is remote)"
+    )
+    docker_config: DockerExecutionConfig | None = Field(
+        default=None, description="Docker execution config (required when type is docker)"
     )
 
     @field_validator("mcp")

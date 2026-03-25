@@ -18,6 +18,7 @@ from tanren_core.builder import (
 )
 from tanren_core.env.environment_schema import (
     DispatchProvisionerConfig,
+    DockerExecutionConfig,
     EnvironmentProfile,
     EnvironmentProfileType,
     RemoteExecutionConfig,
@@ -197,8 +198,25 @@ class TestBuildExecutionEnvironment:
         assert isinstance(env, SSHExecutionEnvironment)
         assert vm_store is not None
 
-    def test_docker_profile_raises_not_implemented(self, tmp_path):
+    def test_docker_profile_raises_without_docker_config(self, tmp_path):
         config = _make_config(tmp_path)
         profile = EnvironmentProfile(name="ci", type=EnvironmentProfileType.DOCKER)
-        with pytest.raises(NotImplementedError, match="Docker execution not yet supported"):
+        with pytest.raises(ValueError, match="docker_config is required"):
             build_execution_environment(config, profile)
+
+    def test_docker_profile_builds_docker_environment(self, tmp_path):
+        from tanren_core.adapters.docker_environment import DockerExecutionEnvironment
+
+        config = _make_config(tmp_path)
+        docker_cfg = DockerExecutionConfig(
+            repo_url="https://github.com/test/repo.git",
+            required_clis=("claude",),
+        )
+        profile = EnvironmentProfile(
+            name="ci-docker",
+            type=EnvironmentProfileType.DOCKER,
+            docker_config=docker_cfg,
+        )
+        env, vm_store = build_execution_environment(config, profile)
+        assert isinstance(env, DockerExecutionEnvironment)
+        assert vm_store is not None

@@ -1,4 +1,4 @@
-"""SSHExecutionEnvironment — remote VM execution via SSH."""
+"""DockerExecutionEnvironment — execution via Docker containers."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from tanren_core.adapters.credentials import (
     all_credential_cleanup_paths,
     inject_all_cli_credentials,
 )
+from tanren_core.adapters.docker_connection import DockerConfig, DockerConnection
 from tanren_core.adapters.remote_shared import (
     CLI_AUTH_GROUPS,
     PUSH_PHASES,
@@ -33,12 +34,11 @@ from tanren_core.adapters.remote_types import (
     VMRequirements,
     WorkspaceSpec,
 )
-from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.types import (
     AccessInfo,
+    DockerEnvironmentRuntime,
     EnvironmentHandle,
     PhaseResult,
-    RemoteEnvironmentRuntime,
 )
 from tanren_core.ccusage import RemoteCommandRunner, collect_token_usage
 from tanren_core.errors import TRANSIENT_BACKOFF, ErrorClass, classify_error
@@ -52,9 +52,6 @@ if TYPE_CHECKING:
         VMStateStore,
     )
     from tanren_core.adapters.protocols import (
-        VMProvisioner as VMProvisionerProtocol,
-    )
-    from tanren_core.adapters.protocols import (
         WorkspaceManager as WorkspaceManagerProtocol,
     )
     from tanren_core.adapters.remote_runner import RemoteAgentRunner
@@ -63,59 +60,45 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SSH_READY_TIMEOUT_SECS = 300
-_SSH_READY_POLL_SECS = 3
 
+class DockerExecutionEnvironment:
+    """ExecutionEnvironment backed by Docker container execution.
 
-class SSHExecutionEnvironment:
-    """ExecutionEnvironment backed by remote VM execution over SSH.
-
-    Composes VMProvisioner, SSHConnection, EnvironmentBootstrapper,
-    WorkspaceManager, RemoteAgentRunner, and VMStateStore into the
-    provision/execute/teardown lifecycle.
+    Composes DockerConnection, EnvironmentBootstrapper, WorkspaceManager,
+    RemoteAgentRunner, and VMStateStore into the provision/execute/teardown
+    lifecycle.
     """
 
     def __init__(
         self,
         *,
-        vm_provisioner: VMProvisionerProtocol,
         bootstrapper: EnvironmentBootstrapper,
         workspace_mgr: WorkspaceManagerProtocol,
         runner: RemoteAgentRunner,
         state_store: VMStateStore,
         secret_loader: SecretLoader,
-        ssh_config_defaults: SSHConfig,
+        docker_config: DockerConfig,
         repo_urls: dict[str, str],
-        provider: VMProvider = VMProvider.MANUAL,
-        ssh_ready_timeout_secs: int = _SSH_READY_TIMEOUT_SECS,
         credential_providers: tuple[CredentialProvider, ...] = DEFAULT_CREDENTIAL_PROVIDERS,
         agent_user: str | None = None,
     ) -> None:
-        """Initialize with remote execution adapters and configuration."""
-        self._vm_provisioner = vm_provisioner
+        """Initialize with Docker execution adapters and configuration."""
         self._bootstrapper = bootstrapper
         self._workspace_mgr = workspace_mgr
         self._runner = runner
         self._state_store = state_store
         self._secret_loader = secret_loader
-        self._ssh_defaults = ssh_config_defaults
+        self._docker_config = docker_config
         self._repo_urls = repo_urls
-        self._provider = provider
-        self._ssh_ready_timeout_secs = ssh_ready_timeout_secs
         self._credential_providers = credential_providers
         self._agent_user = agent_user
-
-    @property
-    def ssh_defaults(self) -> SSHConfig:
-        """Return default SSH settings used for remote connections."""
-        return self._ssh_defaults
 
     async def close(self) -> None:
         """Release resources held by the environment (DB connections)."""
         await self._state_store.close()
 
     async def recover_stale_assignments(self) -> int:
-        """Release any unreleased VM assignments left by a prior crash.
+        """Release any unreleased container assignments left by a prior crash.
 
         Returns:
             Number of recovered assignments.
@@ -124,33 +107,44 @@ class SSHExecutionEnvironment:
         if not assignments:
             return 0
 
-        logger.info("Recovering %d stale VM assignment(s)...", len(assignments))
+        logger.info("Recovering %d stale container assignment(s)...", len(assignments))
 
         for a in assignments:
-            stale_handle = VMHandle(
-                vm_id=a.vm_id,
-                host=a.host,
-                provider=self._provider,
-                created_at=a.assigned_at,
-            )
             try:
-                await self._vm_provisioner.release(stale_handle)
-            except Exception:
-                logger.warning(
-                    "Failed provider release for stale VM %s (%s)",
-                    a.vm_id,
-                    a.host,
-                    exc_info=True,
-                )
+                # Use the socket URL recorded at assignment time so recovery
+                # targets the same daemon that created the container.
+                socket_url = None if a.host == "local" else a.host
+                conn = DockerConnection.from_existing(a.vm_id, socket_url=socket_url)
+                try:
+                    await conn.stop_container()
+                except Exception:
+                    logger.warning(
+                        "Failed to stop stale container %s (%s)",
+                        a.vm_id,
+                        a.host,
+                        exc_info=True,
+                    )
+                finally:
+                    try:
+                        await conn.remove_container()
+                    except Exception:
+                        logger.warning(
+                            "Failed to remove stale container %s (%s)",
+                            a.vm_id,
+                            a.host,
+                            exc_info=True,
+                        )
+                    finally:
+                        await conn.close()
             finally:
                 await self._state_store.record_release(a.vm_id)
-                logger.info("Recovered stale VM %s (%s)", a.vm_id, a.host)
+                logger.info("Recovered stale container %s (%s)", a.vm_id, a.host)
 
         return len(assignments)
 
     async def dry_run(
         self,
-        requirements: VMRequirements,  # noqa: ARG002 — requirements used by provisioner internally via self._vm_provisioner
+        requirements: VMRequirements,  # noqa: ARG002 — required by protocol interface
     ) -> DryRunInfo:
         """Dry-run provision — return what would happen without creating resources.
 
@@ -158,7 +152,7 @@ class SSHExecutionEnvironment:
             DryRunInfo with provider info from this environment.
         """
         return DryRunInfo(
-            provider=self._provider,
+            provider=VMProvider.MANUAL,
             would_provision=True,
         )
 
@@ -167,52 +161,51 @@ class SSHExecutionEnvironment:
         dispatch: Dispatch,
         config: WorkerConfig,  # noqa: ARG002 — required by protocol; config no longer read here
     ) -> EnvironmentHandle:
-        """Acquire VM, bootstrap, setup workspace, inject secrets.
+        """Create container, bootstrap, setup workspace, inject secrets.
 
         Returns:
-            EnvironmentHandle for remote execution.
+            EnvironmentHandle for Docker execution.
 
         Raises:
-            RuntimeError: If no repo URL is configured for the project.
+            RuntimeError: If no repo URL is configured for the project or
+                container fails to start.
         """
         # 1. Use dispatch-carried profile (resolved by CLI/API before dispatch)
         profile = dispatch.resolved_profile
 
-        # 2. Build VM requirements from profile
-        requirements = VMRequirements(
-            profile=dispatch.environment_profile,
-            cpu=profile.resources.cpu,
-            memory_gb=profile.resources.memory_gb,
-            gpu=profile.resources.gpu,
-            server_type=profile.server_type,
+        # 2. Build resource limits from profile
+        cpu_limit = float(profile.resources.cpu)
+        memory_limit_bytes = profile.resources.memory_gb * 1024**3
+
+        # 3. Generate container name
+        name = f"tanren-{dispatch.workflow_id[:20]}-{uuid.uuid4().hex[:8]}"
+        labels = {
+            "tanren.workflow": dispatch.workflow_id,
+            "tanren.project": dispatch.project,
+        }
+
+        # 4. Create and start container
+        conn = await DockerConnection.create_and_start(
+            self._docker_config,
+            name=name,
+            labels=labels,
+            cpu_limit=cpu_limit,
+            memory_limit_bytes=memory_limit_bytes,
         )
 
-        # 3. Acquire VM
-        vm_handle = await self._vm_provisioner.acquire(requirements)
-        conn: SSHConnection | None = None
-
         try:
-            # 4. Create SSH connection
-            ssh_config = SSHConfig(
-                host=vm_handle.host,
-                user=self._ssh_defaults.user,
-                key_path=self._ssh_defaults.key_path,
-                port=self._ssh_defaults.port,
-                connect_timeout=self._ssh_defaults.connect_timeout,
-                host_key_policy=self._ssh_defaults.host_key_policy,
-            )
-            conn = SSHConnection(ssh_config)
+            # 4b. Verify container is reachable
+            ok = await conn.check_connection()
+            if not ok:
+                raise RuntimeError(f"Docker container {name} failed connectivity check")
 
-            # 4b. Wait for SSH to accept connections (sshd lags behind API status)
-            await self._await_ssh_ready(conn, timeout_secs=self._ssh_ready_timeout_secs)
-
-            # 5. Bootstrap VM (idempotent)
+            # 5. Bootstrap container (idempotent)
             await self._bootstrapper.bootstrap(conn)
 
             # 6. Setup workspace — repo URL from dispatch profile or instance mapping
             repo_url = ""
-            if profile.remote_config is not None:
-                repo_url = profile.remote_config.repo_url
+            if profile.docker_config is not None:
+                repo_url = profile.docker_config.repo_url
             if not repo_url:
                 repo_url = self._repo_urls.get(dispatch.project, "")
             if not repo_url:
@@ -233,12 +226,12 @@ class SSHExecutionEnvironment:
             if dispatch.required_secrets:
                 resolved: dict[str, str] = {}
                 missing: list[str] = []
-                for name in dispatch.required_secrets:
-                    value = os.environ.get(name, "")
+                for secret_name in dispatch.required_secrets:
+                    value = os.environ.get(secret_name, "")
                     if value:
-                        resolved[name] = value
+                        resolved[secret_name] = value
                     else:
-                        missing.append(name)
+                        missing.append(secret_name)
                 if missing:
                     # Determine which missing secrets are non-auth (truly required)
                     # vs auth alternatives (handled by validate_cli_auth's group logic)
@@ -320,11 +313,11 @@ class SSHExecutionEnvironment:
 
             # 9. Record assignment
             await self._state_store.record_assignment(
-                vm_id=vm_handle.vm_id,
+                vm_id=conn.container_id,
                 workflow_id=dispatch.workflow_id,
                 project=dispatch.project,
                 spec=dispatch.spec_folder,
-                host=vm_handle.host,
+                host=self._docker_config.socket_url or "local",
             )
 
             # 10. Return handle
@@ -333,34 +326,39 @@ class SSHExecutionEnvironment:
                 worktree_path=Path(workspace_path.path),
                 branch=dispatch.branch,
                 project=dispatch.project,
-                runtime=RemoteEnvironmentRuntime(
-                    vm_handle=vm_handle,
+                runtime=DockerEnvironmentRuntime(
+                    container_id=conn.container_id,
                     connection=conn,
                     workspace_path=workspace_path,
                     profile=profile,
                     teardown_commands=profile.teardown,
                     provision_start=time.monotonic(),
                     workflow_id=dispatch.workflow_id,
+                    docker_socket_url=self._docker_config.socket_url,
                 ),
             )
 
         except BaseException:
-            # Clean up on failure — no orphaned VMs (including CancelledError)
-            if conn is not None:
-                try:
-                    await conn.close()
-                except Exception:
-                    logger.warning("SSH close failed during provision cleanup", exc_info=True)
+            # Clean up on failure — no orphaned containers (including CancelledError)
             try:
-                await self._vm_provisioner.release(vm_handle)
+                await conn.stop_container()
             except Exception:
-                logger.warning(
-                    "Provider release failed for VM %s during provision cleanup",
-                    vm_handle.vm_id,
-                    exc_info=True,
-                )
+                logger.warning("Container stop failed during provision cleanup", exc_info=True)
             finally:
-                await self._state_store.record_release(vm_handle.vm_id)
+                try:
+                    await conn.remove_container()
+                except Exception:
+                    logger.warning(
+                        "Container remove failed during provision cleanup", exc_info=True
+                    )
+                finally:
+                    try:
+                        await conn.close()
+                    except Exception:
+                        logger.warning(
+                            "Connection close failed during provision cleanup", exc_info=True
+                        )
+                    await self._state_store.record_release(conn.container_id)
             raise
 
     async def execute(
@@ -371,19 +369,19 @@ class SSHExecutionEnvironment:
         *,
         dispatch_stem: str = "",  # noqa: ARG002 — required by protocol interface
     ) -> PhaseResult:
-        """Run agent on remote VM with retry logic.
+        """Run agent in Docker container with retry logic.
 
         Returns:
             PhaseResult with outcome, signal, and metrics.
 
         Raises:
-            RuntimeError: If the handle does not contain a remote runtime.
+            RuntimeError: If the handle does not contain a Docker runtime.
         """
-        if handle.runtime.kind != "remote":
-            raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
-        conn = cast("SSHConnection", remote_runtime.connection)
-        workspace = remote_runtime.workspace_path
+        if handle.runtime.kind != "docker":
+            raise RuntimeError("DockerExecutionEnvironment requires docker runtime handle")
+        docker_runtime = cast("DockerEnvironmentRuntime", handle.runtime)
+        conn = cast("DockerConnection", docker_runtime.connection)
+        workspace = docker_runtime.workspace_path
 
         start = time.monotonic()
         dispatch_start_utc = datetime.now(UTC)
@@ -580,45 +578,46 @@ class SSHExecutionEnvironment:
         )
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
-        """Return SSH and VS Code connection info.
+        """Return container connection info.
 
         Raises:
-            RuntimeError: If the handle does not contain a remote runtime.
+            RuntimeError: If the handle does not contain a Docker runtime.
         """
-        if handle.runtime.kind != "remote":
-            raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
-        vm_handle = remote_runtime.vm_handle
-        ssh_str = f"ssh {self._ssh_defaults.user}@{vm_handle.host}"
-        vscode_str = (
-            f"vscode://vscode-remote/ssh-remote+"
-            f"{self._ssh_defaults.user}@{vm_handle.host}"
-            f"{handle.worktree_path}"
-        )
+        if handle.runtime.kind != "docker":
+            raise RuntimeError("DockerExecutionEnvironment requires docker runtime handle")
         return AccessInfo(
-            ssh=ssh_str,
-            vscode=vscode_str,
             working_dir=str(handle.worktree_path),
             status="running",
         )
 
     async def release_vm(self, vm_handle: VMHandle) -> None:
-        """Release a VM through the provisioner without full teardown."""
-        await self._vm_provisioner.release(vm_handle)
+        """Release a container by stopping and removing it."""
+        # Prefer the socket URL encoded in the handle's host field so we
+        # target the same Docker daemon the container was created on.
+        host = vm_handle.host
+        socket_url = None if host in ("", "local") else host
+        conn = DockerConnection.from_existing(vm_handle.vm_id, socket_url=socket_url)
+        try:
+            await conn.stop_container()
+        finally:
+            try:
+                await conn.remove_container()
+            finally:
+                await conn.close()
 
     async def teardown(self, handle: EnvironmentHandle) -> None:
-        """Guaranteed VM release with try/finally at every step.
+        """Guaranteed container cleanup with try/finally at every step.
 
         Raises:
-            RuntimeError: If the handle does not contain a remote runtime.
+            RuntimeError: If the handle does not contain a Docker runtime.
         """
-        if handle.runtime.kind != "remote":
-            raise RuntimeError("SSHExecutionEnvironment requires remote runtime handle")
-        remote_runtime = cast("RemoteEnvironmentRuntime", handle.runtime)
-        conn = cast("SSHConnection", remote_runtime.connection)
-        workspace = remote_runtime.workspace_path
-        teardown_cmds = remote_runtime.teardown_commands
-        vm_handle = remote_runtime.vm_handle
+        if handle.runtime.kind != "docker":
+            raise RuntimeError("DockerExecutionEnvironment requires docker runtime handle")
+        docker_runtime = cast("DockerEnvironmentRuntime", handle.runtime)
+        conn = cast("DockerConnection", docker_runtime.connection)
+        workspace = docker_runtime.workspace_path
+        teardown_cmds = docker_runtime.teardown_commands
+        container_id = docker_runtime.container_id
 
         try:
             for cmd in teardown_cmds:
@@ -646,49 +645,27 @@ class SSHExecutionEnvironment:
                 logger.warning("Workspace cleanup failed", exc_info=True)
             finally:
                 try:
-                    await conn.close()
+                    await conn.stop_container()
                 except Exception:
-                    logger.warning("SSH close failed", exc_info=True)
+                    logger.warning(
+                        "Container stop failed for %s during teardown",
+                        container_id,
+                        exc_info=True,
+                    )
                 finally:
-                    # MUST happen — no orphaned VMs
                     try:
-                        await self._vm_provisioner.release(vm_handle)
+                        await conn.remove_container()
                     except Exception:
                         logger.warning(
-                            "Provider release failed for VM %s during teardown",
-                            vm_handle.vm_id,
+                            "Container remove failed for %s during teardown",
+                            container_id,
                             exc_info=True,
                         )
-                    await self._state_store.record_release(vm_handle.vm_id)
-
-    async def _await_ssh_ready(
-        self,
-        conn: SSHConnection,
-        *,
-        timeout_secs: int = _SSH_READY_TIMEOUT_SECS,
-    ) -> None:
-        """Poll SSH until the host accepts connections or deadline expires.
-
-        Raises:
-            TimeoutError: If SSH is not reachable within the timeout.
-        """
-        deadline = time.monotonic() + timeout_secs
-        attempt = 0
-        while time.monotonic() < deadline:
-            attempt += 1
-            if await conn.check_connection():
-                logger.info("SSH ready after %d attempt(s)", attempt)
-                return
-            logger.debug(
-                "SSH not ready (attempt %d), retrying in %ds",
-                attempt,
-                _SSH_READY_POLL_SECS,
-            )
-            await asyncio.sleep(_SSH_READY_POLL_SECS)
-        raise TimeoutError(
-            f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}"
-        )
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
+                    finally:
+                        try:
+                            await conn.close()
+                        except Exception:
+                            logger.warning("Connection close failed", exc_info=True)
+                        finally:
+                            # MUST happen — no orphaned containers
+                            await self._state_store.record_release(container_id)

@@ -18,11 +18,13 @@ gcp = ["google-cloud-compute>=1.20.0, <2", "google-cloud-secret-manager>=2.20.0,
 github = ["httpx>=0.27, <1"]
 hetzner = ["hcloud>=2.4.0, <3"]
 linear = ["httpx>=0.27, <1"]
+docker = ["aiodocker>=0.23, <1"]
 all = [
     "google-cloud-compute>=1.20.0, <2",
     "google-cloud-secret-manager>=2.20.0, <3",
     "httpx>=0.27, <1",
     "hcloud>=2.4.0, <3",
+    "aiodocker>=0.23, <1",
 ]
 
 [build-system]

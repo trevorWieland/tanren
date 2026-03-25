@@ -52,6 +52,19 @@ class PersistedVMInfo(BaseModel):
     )
 
 
+class PersistedDockerConfig(BaseModel):
+    """Serializable Docker connection configuration.
+
+    Contains everything needed to reconnect to a previously provisioned
+    container without holding a live connection object.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    container_id: str = Field(..., description="Docker container ID")
+    socket_url: str | None = Field(default=None, description="Docker socket URL (None = default)")
+
+
 class PersistedEnvironmentHandle(BaseModel):
     """Serializable environment handle persisted in ``StepCompleted`` events.
 
@@ -102,6 +115,12 @@ class PersistedEnvironmentHandle(BaseModel):
     agent_user: str | None = Field(
         default=None,
         description="Agent user for su - wrapping on remote VMs",
+    )
+
+    # Docker fields (all None for non-Docker environments)
+    docker_config: PersistedDockerConfig | None = Field(
+        default=None,
+        description="Docker connection config (None for non-Docker environments)",
     )
 
     # Local fields

@@ -119,10 +119,19 @@ class UbuntuBootstrapper:
         *,
         required_clis: frozenset[Cli],
         extra_script: str | None = None,
+        skip_infra_tools: frozenset[str] = frozenset(),
     ) -> None:
-        """Initialize with required CLIs and an optional extra bootstrap script."""
+        """Initialize with required CLIs and an optional extra bootstrap script.
+
+        Args:
+            required_clis: CLIs to install (claude, opencode, codex).
+            extra_script: Optional bash script to run after standard bootstrap.
+            skip_infra_tools: Infrastructure tool names to skip (e.g. {"docker"}
+                when bootstrapping inside a Docker container).
+        """
         self._required_clis = required_clis
         self._extra_script = extra_script
+        self._skip_infra_tools = skip_infra_tools
 
     def _build_steps(self) -> tuple[tuple[str, str, str], ...]:
         """Build the full step list from infra + required CLI steps + ccusage.
@@ -130,13 +139,14 @@ class UbuntuBootstrapper:
         Returns:
             Tuple of (name, check_command, install_command) for each step.
         """
+        infra = tuple(s for s in _INFRA_STEPS if s[0] not in self._skip_infra_tools)
         cli_steps = tuple(
             _CLI_STEPS[cli]
             for cli in sorted(self._required_clis, key=lambda c: c.value)
             if cli in _CLI_STEPS
         )
         ccusage_step = _build_ccusage_step(self._required_clis)
-        return (*_INFRA_STEPS, *cli_steps, ccusage_step)
+        return (*infra, *cli_steps, ccusage_step)
 
     def plan(self) -> BootstrapPlan:
         """Return the bootstrap plan used by this bootstrapper."""
