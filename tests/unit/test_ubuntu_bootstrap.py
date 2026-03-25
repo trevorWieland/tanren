@@ -279,6 +279,32 @@ class TestAgentUserCreation:
         assert any(f"chown {_AGENT_USER}:{_AGENT_USER} /workspace" in c for c in run_cmds)
 
 
+class TestClaudeOnboardingFlag:
+    @pytest.mark.asyncio
+    async def test_creates_claude_json_when_claude_required(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert any(".claude.json" in c and "hasCompletedOnboarding" in c for c in run_cmds)
+        assert any(
+            f"/home/{_AGENT_USER}/.claude.json" in c and "hasCompletedOnboarding" in c
+            for c in run_cmds
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_claude_json_when_claude_not_required(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CODEX}))
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert not any(".claude.json" in c for c in run_cmds)
+
+
 class TestPlan:
     def test_plan_returns_only_configured_clis(self):
         bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))

@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastmcp.utilities.lifespan import combine_lifespans
+from starlette.applications import Starlette
 
 from tanren_api.auth import verify_api_key
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
@@ -55,7 +57,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     mcp_app = mcp.http_app(path="/")
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
         app.state.settings = settings
 
         # Register MCP auth middleware (clear any stale instances first)
@@ -112,11 +114,6 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             metrics=metrics_svc,
         )
 
-        # NOTE: FastMCP's http_app() has its own lifespan, but we don't
-        # invoke it here because it uses anyio cancel scopes that conflict
-        # with httpx-based test clients. Our MCP setup works without it:
-        # set_services() injects service instances directly and
-        # MCPApiKeyAuth is registered as middleware above.
         try:
             yield
         finally:
@@ -126,7 +123,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         title="tanren",
         description="Tanren HTTP API",
         version="0.1.0",
-        lifespan=lifespan,
+        lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan),
     )
 
     # Middleware: outermost first (add_middleware wraps each layer around the app)

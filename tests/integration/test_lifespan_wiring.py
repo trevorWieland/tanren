@@ -1,5 +1,7 @@
 """Integration test: API lifespan store wiring."""
 
+import asyncio
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -9,20 +11,45 @@ from tanren_api.settings import APISettings
 
 @pytest.fixture
 async def wired_client(tmp_path):
-    """Create a fully lifespan-wired app and yield an async client."""
+    """Create a fully lifespan-wired app and yield an async client.
+
+    The lifespan runs in a dedicated asyncio Task so that anyio cancel
+    scopes (used by FastMCP's StreamableHTTPSessionManager) are entered
+    and exited in the same task — matching how real ASGI servers work.
+    """
     settings = APISettings(
         api_key="test-key",
         db_url=str(tmp_path / "wired.db"),
     )
     app = create_app(settings)
-    async with (
-        app.router.lifespan_context(app),
-        AsyncClient(
+
+    startup_complete = asyncio.Event()
+    shutdown_trigger = asyncio.Event()
+    exc_holder: list[BaseException] = []
+
+    async def _run_lifespan() -> None:
+        try:
+            async with app.router.lifespan_context(app):
+                startup_complete.set()
+                await shutdown_trigger.wait()
+        except BaseException as exc:
+            exc_holder.append(exc)
+            startup_complete.set()
+
+    task = asyncio.create_task(_run_lifespan())
+    await startup_complete.wait()
+    if exc_holder:
+        raise exc_holder[0]
+
+    try:
+        async with AsyncClient(
             transport=ASGITransport(app=app),
             base_url="http://test",
-        ) as client,
-    ):
-        yield client
+        ) as client:
+            yield client
+    finally:
+        shutdown_trigger.set()
+        await task
 
 
 AUTH = {"X-API-Key": "test-key"}

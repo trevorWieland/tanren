@@ -145,6 +145,13 @@ class TestBootstrapRunsExpectedSteps:
         # Verify workspace dir created with chown
         assert any(f"chown {_AGENT_USER}:{_AGENT_USER} /workspace" in c for c in run_cmds)
 
+        # Verify Claude onboarding flag created (claude is in _DEFAULT_CLIS)
+        assert any(".claude.json" in c and "hasCompletedOnboarding" in c for c in run_cmds)
+        assert any(
+            f"/home/{_AGENT_USER}/.claude.json" in c and "hasCompletedOnboarding" in c
+            for c in run_cmds
+        )
+
         # Verify marker written
         marker_calls = [c for c in conn.run.call_args_list if f"touch {_MARKER_PATH}" in c[0][0]]
         assert len(marker_calls) == 1
