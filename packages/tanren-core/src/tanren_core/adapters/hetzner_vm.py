@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -148,7 +149,7 @@ class HetznerVMProvisioner:
         labels["tanren-profile"] = requirements.profile
 
         server_name = (
-            f"{self._settings.name_prefix}-{requirements.profile}-{int(time.time())}"
+            f"{self._settings.name_prefix}-{requirements.profile}-{uuid.uuid4().hex[:8]}"
         ).replace("_", "-")
 
         create = self._client.servers.create(

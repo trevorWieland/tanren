@@ -281,9 +281,12 @@ async def check_isolation(  # noqa: RUF029 — kept async for consistency with c
     branch: str,
     worktree_path: Path,
     github_dir: str,  # noqa: ARG001 — required by interface
+    project: str = "",
 ) -> None:
     """Enforce isolation invariants: no shared branches, paths, or main copies.
 
+    Branch conflicts are scoped to the same project — different projects
+    can use the same branch name simultaneously (they have separate git repos).
     Skips entries for the same workflow_id (allows re-registration on resume).
 
     Raises:
@@ -295,7 +298,7 @@ async def check_isolation(  # noqa: RUF029 — kept async for consistency with c
     for wf_id, entry in registry.worktrees.items():
         if wf_id == workflow_id:
             continue
-        if entry.branch == branch:
+        if entry.branch == branch and (not project or entry.project == project):
             raise RuntimeError(f"Branch {branch} already in use by workflow {wf_id}")
         if entry.path == wt_str:
             raise RuntimeError(f"Worktree path {wt_str} already in use by workflow {wf_id}")
@@ -318,7 +321,7 @@ async def register_worktree(
     """Register a worktree in the registry with isolation checks. Thread-safe."""
     async with _registry_lock:
         registry = await load_registry(registry_path)
-        await check_isolation(registry, workflow_id, branch, worktree_path, github_dir)
+        await check_isolation(registry, workflow_id, branch, worktree_path, github_dir, project)
         registry.worktrees[workflow_id] = WorktreeEntry(
             project=project,
             issue=issue,
