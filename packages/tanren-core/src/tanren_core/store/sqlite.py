@@ -594,13 +594,20 @@ class SqliteStore:
         status: DispatchStatus,
         outcome: Outcome | None = None,
     ) -> None:
-        """Update dispatch projection status."""
+        """Update dispatch projection status.
+
+        Terminal states (completed, failed, cancelled) are protected:
+        once a dispatch reaches any terminal state, further status
+        updates are silently ignored to prevent race conditions
+        (e.g. cancel overwriting completed, or teardown overwriting cancelled).
+        """
         now = _now()
         async with self._transaction() as conn:
             await conn.execute(
                 "UPDATE dispatch_projection "
                 "SET status = ?, outcome = ?, updated_at = ? "
-                "WHERE dispatch_id = ?",
+                "WHERE dispatch_id = ? "
+                "AND status NOT IN ('completed', 'failed', 'cancelled')",
                 (str(status), str(outcome) if outcome else None, now, dispatch_id),
             )
 

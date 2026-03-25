@@ -115,10 +115,12 @@ def set_worker_config(config: WorkerConfig) -> None:
 
 
 def _config() -> WorkerConfig:
-    """Get the worker config, falling back to env vars."""
-    if _worker_config is not None:
-        return _worker_config
-    return WorkerConfig.from_env()
+    """Get the worker config. Raises if not wired during lifespan."""
+    if _worker_config is None:
+        raise RuntimeError(
+            "WorkerConfig not wired — ensure WM_* env vars are set in the API environment"
+        )
+    return _worker_config
 
 
 # ---------------------------------------------------------------------------
@@ -509,13 +511,15 @@ async def run_full(
     config = _config()
     profile = resolve_profile(config, project, environment_profile)
 
-    # Auto-resolve cli/auth from roles.yml when not provided
+    # Auto-resolve cli/auth/model from roles.yml when not provided
     resolved_cli = cli
     resolved_auth = auth
+    resolved_model: str | None = None
     if resolved_cli is None:
         tool = resolve_agent_tool(config, phase)
         resolved_cli = tool.cli
         resolved_auth = resolved_auth or tool.auth
+        resolved_model = tool.model
     if resolved_auth is None:
         resolved_auth = AuthMode.API_KEY
 
@@ -526,6 +530,7 @@ async def run_full(
         phase=phase,
         cli=resolved_cli,
         auth=resolved_auth,
+        model=resolved_model,
         environment_profile=environment_profile,
         timeout=timeout,
         context=context,

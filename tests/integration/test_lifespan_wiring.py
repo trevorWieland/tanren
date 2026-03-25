@@ -1003,3 +1003,379 @@ async def test_metrics_vms_with_events(tmp_path):
         assert data["total_released"] == 1
         assert data["currently_active"] == 0
         assert data["by_provider"]["hetzner"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Store-level cancel safety
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancel_does_not_overwrite_completed(tmp_path):
+    """Cancel after a dispatch is completed should return 409 — store protects terminal states."""
+    from tanren_core.schemas import Outcome
+    from tanren_core.store.enums import DispatchStatus
+
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "cancel-completed.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        # Create dispatch
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "cancel-completed",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+                "resolved_profile": {"name": "default"},
+            },
+            headers=AUTH,
+        )
+        assert resp.status_code == 200
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # Manually set to completed via store
+        store = app.state.state_store
+        await store.update_dispatch_status(dispatch_id, DispatchStatus.COMPLETED, Outcome.SUCCESS)
+
+        # Cancel should fail with 409 conflict
+        del_resp = await client.delete(
+            f"/api/v1/dispatch/{dispatch_id}",
+            headers=AUTH,
+        )
+        assert del_resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Phase 6d: VM provision status after cancel
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_vm_provision_status_after_cancel(tmp_path):
+    """VM provision status returns FAILED when dispatch is cancelled."""
+    from tanren_core.store.enums import DispatchStatus
+
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "vm-cancel.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        # Provision a VM
+        resp = await client.post(
+            "/api/v1/vm/provision",
+            json={
+                "project": "vm-cancel-test",
+                "branch": "main",
+                "resolved_profile": {"name": "default"},
+            },
+            headers=AUTH,
+        )
+        assert resp.status_code == 200
+        env_id = resp.json()["env_id"]
+
+        # Manually set dispatch to cancelled
+        store = app.state.state_store
+        await store.update_dispatch_status(env_id, DispatchStatus.CANCELLED)
+
+        # Provision status should show failed
+        status_resp = await client.get(
+            f"/api/v1/vm/provision/{env_id}",
+            headers=AUTH,
+        )
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Worker wait loop CANCELLED terminal (unit-style integration)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_cancel_flow_with_steps(tmp_path):
+    """Cancel a dispatch that has pending steps — steps get cancelled."""
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "cancel-steps.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        # Create dispatch
+        resp = await client.post(
+            "/api/v1/dispatch",
+            json={
+                "project": "cancel-steps",
+                "phase": "do-task",
+                "branch": "main",
+                "spec_folder": "specs/test",
+                "cli": "claude",
+                "resolved_profile": {"name": "default"},
+            },
+            headers=AUTH,
+        )
+        assert resp.status_code == 200
+        dispatch_id = resp.json()["dispatch_id"]
+
+        # Cancel
+        del_resp = await client.delete(
+            f"/api/v1/dispatch/{dispatch_id}",
+            headers=AUTH,
+        )
+        assert del_resp.status_code == 200
+
+        # Verify steps are cancelled
+        store = app.state.state_store
+        steps = await store.get_steps_for_dispatch(dispatch_id)
+        for step in steps:
+            if step.step_type.value != "teardown":
+                assert step.status.value in ("cancelled", "completed", "failed")
+
+
+# ---------------------------------------------------------------------------
+# Phase 5c: Cancel with teardown — exercises _enqueue_cancel_teardown
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_completed_provision_enqueues_teardown(tmp_path):
+    """Cancel after provision completed enqueues a teardown step with dynamic sequence."""
+    import uuid
+
+    from tanren_core.env.environment_schema import EnvironmentProfile
+    from tanren_core.schemas import Cli, Dispatch, Phase
+    from tanren_core.store.enums import DispatchMode, StepType, cli_to_lane
+    from tanren_core.store.events import DispatchCreated
+    from tanren_core.store.handle import PersistedEnvironmentHandle
+    from tanren_core.store.payloads import ProvisionResult, ProvisionStepPayload
+
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "cancel-teardown.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        store = app.state.state_store
+        queue = app.state.job_queue
+        event_store = app.state.event_store
+
+        dispatch_id = "wf-cancel-td-test-1"
+        dispatch = Dispatch(
+            workflow_id=dispatch_id,
+            project="cancel-td",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+            resolved_profile=EnvironmentProfile(name="default"),
+        )
+        lane = cli_to_lane(dispatch.cli)
+        await store.create_dispatch_projection(
+            dispatch_id=dispatch_id,
+            mode=DispatchMode.AUTO,
+            lane=lane,
+            preserve_on_failure=False,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+        from datetime import UTC, datetime
+
+        await event_store.append(
+            DispatchCreated(
+                timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                workflow_id=dispatch_id,
+                dispatch=dispatch,
+                mode=DispatchMode.AUTO,
+                lane=lane,
+            )
+        )
+
+        # Create and complete provision step
+        handle = PersistedEnvironmentHandle(
+            env_id=dispatch_id,
+            worktree_path="/tmp/test",
+            branch="main",
+            project="cancel-td",
+            profile_name="default",
+            provision_timestamp=datetime.now(UTC).isoformat(),
+        )
+        prov_result = ProvisionResult(handle=handle)
+        prov_step_id = uuid.uuid4().hex
+        await queue.enqueue_step(
+            step_id=prov_step_id,
+            dispatch_id=dispatch_id,
+            step_type="provision",
+            step_sequence=0,
+            lane=None,
+            payload_json=ProvisionStepPayload(dispatch=dispatch).model_dump_json(),
+        )
+        await queue.ack(prov_step_id, result_json=prov_result.model_dump_json())
+
+        # Cancel via API — should enqueue teardown
+        del_resp = await client.delete(
+            f"/api/v1/dispatch/{dispatch_id}",
+            headers=AUTH,
+        )
+        assert del_resp.status_code == 200
+
+        # Verify teardown was enqueued
+        steps = await store.get_steps_for_dispatch(dispatch_id)
+        teardown_steps = [s for s in steps if s.step_type == StepType.TEARDOWN]
+        assert len(teardown_steps) == 1
+        # Step sequence should be max_existing + 1 (not hardcoded 2)
+        assert teardown_steps[0].step_sequence == 1  # provision is 0, so max+1 = 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 6e: Config returns dynamic worker_lanes from WorkerConfig
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_config_returns_default_lanes_without_worker_config(wired_client):
+    """Config endpoint returns default lanes when WM_* env not set."""
+    resp = await wired_client.get("/api/v1/config", headers=AUTH)
+    assert resp.status_code == 200
+    data = resp.json()
+    # Without WorkerConfig wired, we get defaults
+    assert data["worker_lanes"]["impl"] >= 1
+    assert data["worker_lanes"]["gate"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# VM list with completed provisions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_vm_list_with_completed_provision(tmp_path):
+    """VM list returns entries when provision steps have completed with VM info."""
+    import uuid
+
+    from tanren_core.adapters.remote_types import VMProvider
+    from tanren_core.env.environment_schema import EnvironmentProfile
+    from tanren_core.schemas import Cli, Dispatch, Phase
+    from tanren_core.store.enums import DispatchMode, cli_to_lane
+    from tanren_core.store.events import DispatchCreated
+    from tanren_core.store.handle import PersistedEnvironmentHandle, PersistedVMInfo
+    from tanren_core.store.payloads import ProvisionResult, ProvisionStepPayload
+
+    settings = APISettings(
+        api_key="test-key",
+        db_url=str(tmp_path / "vm-list.db"),
+    )
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client,
+    ):
+        store = app.state.state_store
+        queue = app.state.job_queue
+        event_store = app.state.event_store
+
+        dispatch_id = "wf-vm-list-test-1"
+        dispatch = Dispatch(
+            workflow_id=dispatch_id,
+            project="vm-list-project",
+            phase=Phase.DO_TASK,
+            branch="main",
+            spec_folder="specs/test",
+            cli=Cli.CLAUDE,
+            timeout=1800,
+            resolved_profile=EnvironmentProfile(name="default"),
+        )
+        lane = cli_to_lane(dispatch.cli)
+        await store.create_dispatch_projection(
+            dispatch_id=dispatch_id,
+            mode=DispatchMode.MANUAL,
+            lane=lane,
+            preserve_on_failure=True,
+            dispatch_json=dispatch.model_dump_json(),
+        )
+        from datetime import UTC, datetime
+
+        await event_store.append(
+            DispatchCreated(
+                timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                workflow_id=dispatch_id,
+                dispatch=dispatch,
+                mode=DispatchMode.MANUAL,
+                lane=lane,
+            )
+        )
+
+        # Create and complete provision step with VM info
+        handle = PersistedEnvironmentHandle(
+            env_id=dispatch_id,
+            worktree_path="/tmp/test",
+            branch="main",
+            project="vm-list-project",
+            profile_name="default",
+            provision_timestamp=datetime.now(UTC).isoformat(),
+            vm=PersistedVMInfo(
+                vm_id="vm-test-123",
+                host="10.0.0.1",
+                provider=VMProvider.HETZNER,
+                created_at=datetime.now(UTC).isoformat(),
+            ),
+        )
+        prov_result = ProvisionResult(handle=handle)
+        prov_step_id = uuid.uuid4().hex
+        await queue.enqueue_step(
+            step_id=prov_step_id,
+            dispatch_id=dispatch_id,
+            step_type="provision",
+            step_sequence=0,
+            lane=None,
+            payload_json=ProvisionStepPayload(dispatch=dispatch).model_dump_json(),
+        )
+        await queue.ack(prov_step_id, result_json=prov_result.model_dump_json())
+
+        # VM list should include this VM
+        resp = await client.get("/api/v1/vm", headers=AUTH)
+        assert resp.status_code == 200
+        vms = resp.json()
+        assert len(vms) >= 1
+        vm_ids = [v["vm_id"] for v in vms]
+        assert "vm-test-123" in vm_ids
+
+        # Provision status should show active
+        status_resp = await client.get(
+            f"/api/v1/vm/provision/{dispatch_id}",
+            headers=AUTH,
+        )
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "active"
+        assert status_resp.json()["vm_id"] == "vm-test-123"

@@ -594,13 +594,20 @@ class PostgresStore:
         status: DispatchStatus,
         outcome: Outcome | None = None,
     ) -> None:
-        """Update dispatch projection status."""
+        """Update dispatch projection status.
+
+        Terminal states (completed, failed, cancelled) are protected:
+        once a dispatch reaches any terminal state, further status
+        updates are silently ignored to prevent race conditions
+        (e.g. cancel overwriting completed, or teardown overwriting cancelled).
+        """
         now = _now()
         async with self._pool.acquire() as conn, conn.transaction():
             await conn.execute(
                 "UPDATE dispatch_projection "
                 "SET status = $1, outcome = $2, updated_at = $3 "
-                "WHERE dispatch_id = $4",
+                "WHERE dispatch_id = $4 "
+                "AND status NOT IN ('completed', 'failed', 'cancelled')",
                 str(status),
                 str(outcome) if outcome else None,
                 now,

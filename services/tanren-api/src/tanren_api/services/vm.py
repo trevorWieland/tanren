@@ -17,7 +17,7 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_core.schemas import Cli, Dispatch, Phase
-from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
+from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType, cli_to_lane
 from tanren_core.store.events import DispatchCreated
 from tanren_core.store.payloads import (
     DryRunResult,
@@ -179,6 +179,9 @@ class VMService:
         if view is None:
             raise NotFoundError(f"Provision {env_id} not found")
 
+        if view.status == DispatchStatus.CANCELLED:
+            return VMProvisionStatus(env_id=env_id, status=VMStatus.FAILED)
+
         steps = await self._state_store.get_steps_for_dispatch(env_id)
         prov = next((s for s in steps if s.step_type == StepType.PROVISION), None)
 
@@ -248,13 +251,14 @@ class VMService:
                     for s in steps
                 ):
                     continue
+                max_seq = max((s.step_sequence for s in steps), default=0)
                 step_id = uuid.uuid4().hex
                 payload = TeardownStepPayload(dispatch=d.dispatch, handle=result.handle)
                 await self._job_queue.enqueue_step(
                     step_id=step_id,
                     dispatch_id=d.dispatch_id,
                     step_type="teardown",
-                    step_sequence=2,
+                    step_sequence=max_seq + 1,
                     lane=None,
                     payload_json=payload.model_dump_json(),
                 )

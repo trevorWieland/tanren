@@ -68,16 +68,30 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         app.state.job_queue = store
         app.state.state_store = store
 
+        # ── WorkerConfig (optional — needed for dispatch/resolve) ──
+        wc: WorkerConfig | None = None
+        try:
+            wc = WorkerConfig.from_env()
+            set_worker_config(wc)
+            logger.info("MCP dispatch resolution configured from WM_* env vars")
+        except ValueError:
+            logger.warning(
+                "WM_* env vars not set — dispatch/resolve operations will fail. "
+                "Set WM_GITHUB_DIR, WM_REMOTE_CONFIG, etc. in the API environment."
+            )
+
         # ── Wire services ──
         dispatch_svc = DispatchService(
             event_store=store,
             job_queue=store,
             state_store=store,
+            config=wc,
         )
         run_svc = RunService(
             event_store=store,
             job_queue=store,
             state_store=store,
+            config=wc,
         )
         vm_svc = VMService(
             event_store=store,
@@ -85,7 +99,7 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             state_store=store,
         )
         events_svc = EventsService(store)
-        config_svc = ConfigService(settings, store)
+        config_svc = ConfigService(settings, store, worker_config=wc)
         metrics_svc = MetricsService(store)
 
         set_services(
@@ -97,16 +111,6 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             events=events_svc,
             metrics=metrics_svc,
         )
-
-        try:
-            wc = WorkerConfig.from_env()
-            set_worker_config(wc)
-            logger.info("MCP dispatch resolution configured from WM_* env vars")
-        except ValueError:
-            logger.warning(
-                "WM_* env vars not set — MCP dispatch resolution will fail. "
-                "Set WM_GITHUB_DIR, WM_REMOTE_CONFIG, etc. in the API environment."
-            )
 
         # NOTE: FastMCP's http_app() has its own lifespan, but we don't
         # invoke it here because it uses anyio cancel scopes that conflict

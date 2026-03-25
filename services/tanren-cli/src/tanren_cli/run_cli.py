@@ -315,6 +315,24 @@ def run_execute(
                 typer.echo(f"Dispatch {dispatch_id} not found", err=True)
                 raise typer.Exit(code=1)
 
+            # Guard: block concurrent execute
+            if any(
+                s.step_type == StepType.EXECUTE
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
+                for s in steps
+            ):
+                typer.echo("Execute step already in progress", err=True)
+                raise typer.Exit(code=1)
+
+            # Guard: block execute after teardown
+            if any(
+                s.step_type == StepType.TEARDOWN
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
+                for s in steps
+            ):
+                typer.echo("Cannot execute after teardown", err=True)
+                raise typer.Exit(code=1)
+
             dispatch_data = view.dispatch
             profile = dispatch_data.resolved_profile
             env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
@@ -431,17 +449,36 @@ def run_teardown(
                 typer.echo(f"Dispatch {dispatch_id} not found", err=True)
                 raise typer.Exit(code=1)
 
+            # Guard: block teardown while execute active
+            if any(
+                s.step_type == StepType.EXECUTE
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
+                for s in steps
+            ):
+                typer.echo("Cannot teardown while execute is in progress", err=True)
+                raise typer.Exit(code=1)
+
+            # Guard: block duplicate teardown
+            if any(
+                s.step_type == StepType.TEARDOWN
+                and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
+                for s in steps
+            ):
+                typer.echo("Teardown already enqueued or completed", err=True)
+                raise typer.Exit(code=1)
+
             dispatch_data = view.dispatch
             profile = dispatch_data.resolved_profile
             env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
 
+            max_seq = max((s.step_sequence for s in steps), default=0)
             step_id = uuid.uuid4().hex
             payload = TeardownStepPayload(dispatch=dispatch_data, handle=prov_result.handle)
             await store.enqueue_step(
                 step_id=step_id,
                 dispatch_id=dispatch_id,
                 step_type="teardown",
-                step_sequence=2,
+                step_sequence=max_seq + 1,
                 lane=None,
                 payload_json=payload.model_dump_json(),
             )

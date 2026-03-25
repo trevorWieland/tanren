@@ -187,6 +187,7 @@ class RunFullRequest(BaseModel):
     auth: AuthMode | None = Field(
         default=None, description="Authentication mode (auto-resolved if omitted)"
     )
+    model: str | None = Field(default=None, description="Model identifier")
     environment_profile: str = Field(default="default", description="Environment profile")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")

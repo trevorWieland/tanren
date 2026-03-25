@@ -223,6 +223,7 @@ class Worker:
                 if latest and latest.status in (
                     StepStatus.COMPLETED,
                     StepStatus.FAILED,
+                    StepStatus.CANCELLED,
                 ):
                     self._shutdown.set()
                     break
@@ -842,11 +843,12 @@ class Worker:
             td_payload = TeardownStepPayload(
                 dispatch=dispatch_view.dispatch, handle=prov_result.handle
             )
+            max_seq = max((s.step_sequence for s in steps), default=0)
             await self._job_queue.enqueue_step(
                 step_id=uuid.uuid4().hex,
                 dispatch_id=step.dispatch_id,
                 step_type="teardown",
-                step_sequence=2,
+                step_sequence=max_seq + 1,
                 lane=None,
                 payload_json=td_payload.model_dump_json(),
             )

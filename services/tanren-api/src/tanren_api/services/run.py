@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from tanren_api.errors import NotFoundError, ServiceError
 from tanren_api.models import (
@@ -36,6 +37,9 @@ from tanren_core.store.payloads import (
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import DispatchView
 
+if TYPE_CHECKING:
+    from tanren_core.worker_config import WorkerConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,11 +56,13 @@ class RunService:
         event_store: EventStore,
         job_queue: JobQueue,
         state_store: StateStore,
+        config: WorkerConfig | None = None,
     ) -> None:
         """Initialize with store dependencies only."""
         self._event_store = event_store
         self._job_queue = job_queue
         self._state_store = state_store
+        self._config = config
 
     async def provision(self, body: ProvisionRequest) -> RunEnvironment:
         """Enqueue a provision step (manual mode — user drives each step).
@@ -159,18 +165,34 @@ class RunService:
         auth = body.auth
         model = body.model
         if cli is None:
-            from tanren_core.dispatch_resolver import resolve_agent_tool
-            from tanren_core.worker_config import WorkerConfig
+            if body.phase == Phase.GATE:
+                # Gate always uses bash — no roles.yml lookup needed
+                cli = Cli.BASH
+                from tanren_core.roles import AuthMode as _AM
 
-            config = WorkerConfig.from_env()
-            tool = resolve_agent_tool(config, body.phase)
-            cli = tool.cli
-            auth = auth or tool.auth
-            model = model or tool.model
+                auth = auth or _AM.API_KEY
+            else:
+                if self._config is None:
+                    raise ServiceError("WorkerConfig required for CLI auto-resolution")
+                from tanren_core.dispatch_resolver import resolve_agent_tool
+
+                tool = resolve_agent_tool(self._config, body.phase)
+                cli = tool.cli
+                auth = auth or tool.auth
+                model = model or tool.model
         if auth is None:
             from tanren_core.roles import AuthMode
 
             auth = AuthMode.API_KEY
+
+        # Resolve gate_cmd from profile defaults when not explicitly provided
+        gate_cmd = body.gate_cmd
+        if body.phase == Phase.GATE and not gate_cmd and self._config is not None:
+            from tanren_core.dispatch_resolver import resolve_gate_cmd
+
+            gate_cmd = resolve_gate_cmd(
+                self._config, body.project, dispatch.environment_profile, body.phase, gate_cmd
+            )
 
         # Build a new Dispatch from the execute request body, preserving
         # project/branch/profile metadata from the provision-time dispatch.
@@ -187,7 +209,7 @@ class RunService:
             model=model,
             timeout=body.timeout,
             context=body.context,
-            gate_cmd=body.gate_cmd,
+            gate_cmd=gate_cmd,
         )
 
         # Guard: prevent concurrent execute steps (allow sequential phases)
@@ -298,6 +320,7 @@ class RunService:
             spec_folder=body.spec_path,
             cli=body.cli,
             auth=body.auth,
+            model=body.model,
             timeout=body.timeout,
             context=body.context,
             gate_cmd=body.gate_cmd,
@@ -313,6 +336,7 @@ class RunService:
             event_store=self._event_store,
             job_queue=self._job_queue,
             state_store=self._state_store,
+            config=self._config,
         )
 
     async def status(self, env_id: str) -> RunStatus:

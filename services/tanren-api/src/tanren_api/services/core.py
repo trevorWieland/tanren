@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from tanren_api.models import EventPayload
     from tanren_api.settings import APISettings
     from tanren_core.store.protocols import EventStore, StateStore
+    from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,16 @@ class HealthService:
 class ConfigService:
     """Service for non-secret config projection (V2 fields)."""
 
-    def __init__(self, settings: APISettings, state_store: StateStore) -> None:
+    def __init__(
+        self,
+        settings: APISettings,
+        state_store: StateStore,
+        worker_config: WorkerConfig | None = None,
+    ) -> None:
         """Initialize with API settings and state store."""
         self._settings = settings
         self._state_store = state_store
+        self._worker_config = worker_config
 
     async def get(self) -> ConfigResponse:
         """Return V2 config fields.
@@ -78,10 +85,20 @@ class ConfigService:
 
         remote_enabled = bool(os.environ.get("WM_REMOTE_CONFIG", "").strip())
 
+        if self._worker_config is not None:
+            worker_lanes = {
+                "impl": self._worker_config.max_impl,
+                "audit": self._worker_config.max_audit,
+                "gate": self._worker_config.max_gate,
+                "provision": self._worker_config.max_provision,
+            }
+        else:
+            worker_lanes = {"impl": 1, "audit": 1, "gate": 3, "provision": 10}
+
         return ConfigResponse(
             db_backend=db_backend,
             store_connected=store_connected,
-            worker_lanes={"impl": 1, "audit": 1, "gate": 3, "provision": 10},
+            worker_lanes=worker_lanes,
             remote_enabled=remote_enabled,
             version=version,
         )

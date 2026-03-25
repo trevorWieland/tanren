@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import TYPE_CHECKING
 
 from tanren_api.errors import ConflictError, NotFoundError
 from tanren_api.models import (
@@ -18,6 +19,9 @@ from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, St
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import DispatchView
 
+if TYPE_CHECKING:
+    from tanren_core.worker_config import WorkerConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,11 +34,13 @@ class DispatchService:
         event_store: EventStore,
         job_queue: JobQueue,
         state_store: StateStore,
+        config: WorkerConfig | None = None,
     ) -> None:
         """Initialize with store dependencies only — no filesystem access."""
         self._event_store = event_store
         self._job_queue = job_queue
         self._state_store = state_store
+        self._config = config
 
     async def create(self, body: DispatchRequest) -> DispatchAccepted:
         """Accept a new dispatch request by enqueuing a provision step.
@@ -51,6 +57,7 @@ class DispatchService:
             event_store=self._event_store,
             job_queue=self._job_queue,
             state_store=self._state_store,
+            config=self._config,
         )
 
     async def get(self, dispatch_id: str) -> DispatchDetail:
@@ -146,11 +153,12 @@ class DispatchService:
             return
         assert prov.result_json is not None
         prov_result = ProvisionResult.model_validate_json(prov.result_json)
+        max_seq = max((s.step_sequence for s in steps), default=0)
         await self._job_queue.enqueue_step(
             step_id=uuid.uuid4().hex,
             dispatch_id=dispatch_id,
             step_type="teardown",
-            step_sequence=2,
+            step_sequence=max_seq + 1,
             lane=None,
             payload_json=TeardownStepPayload(
                 dispatch=view.dispatch, handle=prov_result.handle
