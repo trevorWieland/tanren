@@ -78,7 +78,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml packages/tanren-core/pyproject.toml services/*/pyproject.toml uv.lock
+          git add pyproject.toml packages/tanren-core/pyproject.toml services/*/pyproject.toml uv.lock README.md
           git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
           git pull --rebase https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git master
           git push https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git HEAD:master
@@ -118,11 +118,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}
+          images: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}
           tags: |
             type=raw,value=latest
             type=raw,value=${{ needs.version.outputs.version }}
