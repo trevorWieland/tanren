@@ -1379,3 +1379,19 @@ async def test_vm_list_with_completed_provision(tmp_path):
         assert status_resp.status_code == 200
         assert status_resp.json()["status"] == "active"
         assert status_resp.json()["vm_id"] == "vm-test-123"
+
+        # VM release should enqueue teardown with dynamic step_sequence
+        release_resp = await client.delete(
+            "/api/v1/vm/vm-test-123",
+            headers=AUTH,
+        )
+        assert release_resp.status_code == 200
+        assert release_resp.json()["vm_id"] == "vm-test-123"
+
+        # Verify teardown step was enqueued
+        from tanren_core.store.enums import StepType
+
+        steps = await store.get_steps_for_dispatch(dispatch_id)
+        td = [s for s in steps if s.step_type == StepType.TEARDOWN]
+        assert len(td) == 1
+        assert td[0].step_sequence == 1  # max(0) + 1

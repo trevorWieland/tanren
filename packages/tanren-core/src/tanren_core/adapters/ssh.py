@@ -89,12 +89,18 @@ class SSHConnection:
                 timeout=self._config.connect_timeout,
             )
         except paramiko.AuthenticationException as e:
+            with contextlib.suppress(Exception):
+                client.close()
             raise ConnectionError(
                 f"SSH auth failed for {self._config.user}@{self._config.host}: {e}"
             ) from e
         except paramiko.SSHException as e:
+            with contextlib.suppress(Exception):
+                client.close()
             raise ConnectionError(f"SSH connection failed to {self._config.host}: {e}") from e
         except OSError as e:
+            with contextlib.suppress(Exception):
+                client.close()
             raise ConnectionError(f"SSH connection failed to {self._config.host}: {e}") from e
 
         self._client = client
