@@ -830,7 +830,10 @@ class PostgresStore:
             params.append(user_id)
             idx += 1
         if not include_revoked:
-            clauses.append("revoked_at IS NULL")
+            # Include keys in grace period (revoked_at set to a future timestamp)
+            clauses.append(f"(revoked_at IS NULL OR revoked_at > ${idx})")
+            params.append(_now())
+            idx += 1
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         params.extend([limit, offset])
         async with self._pool.acquire() as conn:

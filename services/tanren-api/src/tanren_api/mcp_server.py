@@ -228,7 +228,9 @@ async def dispatch_create(
         cloud_secrets=await resolve_cloud_secrets(config, project),
         required_secrets=resolve_required_secrets(profile),
     )
-    return await _svc().dispatch.create(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    return await _svc().dispatch.create(body, user_id=mcp_user_id_var.get())
 
 
 @mcp.tool(
@@ -312,7 +314,9 @@ async def vm_provision(
         cloud_secrets=await resolve_cloud_secrets(config, project),
         required_secrets=resolve_required_secrets(profile),
     )
-    return await _svc().vm.provision(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    return await _svc().vm.provision(body, user_id=mcp_user_id_var.get())
 
 
 @mcp.tool(
@@ -371,7 +375,9 @@ async def vm_dry_run(
         cloud_secrets=await resolve_cloud_secrets(config, project),
         required_secrets=resolve_required_secrets(profile),
     )
-    return await _svc().vm.dry_run(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    return await _svc().vm.dry_run(body, user_id=mcp_user_id_var.get())
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +423,9 @@ async def run_provision(
         cloud_secrets=await resolve_cloud_secrets(config, project),
         required_secrets=resolve_required_secrets(profile),
     )
-    return await _svc().run.provision(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    return await _svc().run.provision(body, user_id=mcp_user_id_var.get())
 
 
 @mcp.tool(
@@ -540,7 +548,9 @@ async def run_full(
         cloud_secrets=await resolve_cloud_secrets(config, project),
         required_secrets=resolve_required_secrets(profile),
     )
-    return await _svc().run.full(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    return await _svc().run.full(body, user_id=mcp_user_id_var.get())
 
 
 @mcp.tool(

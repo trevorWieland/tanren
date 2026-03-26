@@ -55,6 +55,11 @@ class KeyService:
         """
         validate_scopes(scopes)
 
+        # Verify target user exists
+        user = await self._auth_store.get_user(user_id)
+        if user is None:
+            raise NotFoundError(f"User {user_id} not found")
+
         # Verify caller has all requested scopes
         for scope in scopes:
             if not has_scope(caller_scopes, scope):

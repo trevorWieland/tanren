@@ -7,7 +7,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path
 
 from tanren_api.auth import require_scope
-from tanren_api.dependencies import get_event_store, get_job_queue, get_state_store
+from tanren_api.dependencies import get_auth_store, get_event_store, get_job_queue, get_state_store
+from tanren_api.limits import check_resource_limits
 from tanren_api.models import (
     DispatchAccepted,
     ExecuteRequest,
@@ -19,6 +20,7 @@ from tanren_api.models import (
     RunTeardownAccepted,
 )
 from tanren_api.services.run import RunService
+from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
@@ -38,12 +40,14 @@ async def run_provision(
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
+    auth_store: Annotated[AuthStore, Depends(get_auth_store)],
 ) -> RunEnvironment:
     """Provision a remote execution environment (non-blocking).
 
     Returns:
         RunEnvironment: Provisioning environment with tracking env_id.
     """
+    await check_resource_limits(auth, auth_store, "dispatch")
     return await _run_service(event_store, job_queue, state_store).provision(
         body, user_id=auth.user.user_id
     )
@@ -89,12 +93,14 @@ async def run_full(
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
+    auth_store: Annotated[AuthStore, Depends(get_auth_store)],
 ) -> DispatchAccepted:
     """Full lifecycle: provision, execute, teardown. Returns ID for polling.
 
     Returns:
         DispatchAccepted: Accepted response with dispatch_id for polling.
     """
+    await check_resource_limits(auth, auth_store, "dispatch")
     return await _run_service(event_store, job_queue, state_store).full(
         body, user_id=auth.user.user_id
     )

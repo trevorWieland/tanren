@@ -833,7 +833,9 @@ class SqliteStore:
             clauses.append("user_id = ?")
             params.append(user_id)
         if not include_revoked:
-            clauses.append("revoked_at IS NULL")
+            # Include keys in grace period (revoked_at set to a future timestamp)
+            clauses.append("(revoked_at IS NULL OR revoked_at > ?)")
+            params.append(_now())
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         params.extend([limit, offset])
         conn = await self._ensure_conn()

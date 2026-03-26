@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
+from datetime import UTC, datetime
 
 import mcp.types as mt
 from fastmcp.server.dependencies import get_http_headers
@@ -17,6 +19,19 @@ from tanren_api.scopes import has_scope
 from tanren_core.store.auth_protocols import AuthStore
 
 logger = logging.getLogger(__name__)
+
+# ContextVar set by MCP auth middleware so tool handlers can read the resolved user_id.
+mcp_user_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("mcp_user_id", default="")
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def _parse_iso(ts: str) -> datetime:
+    """Parse an ISO 8601 timestamp to an aware datetime."""
+    return datetime.fromisoformat(ts)
+
 
 # Tools that bypass authentication (matching REST health endpoints).
 _PUBLIC_TOOLS = frozenset({"health_check", "readiness_check"})
@@ -81,19 +96,11 @@ class MCPApiKeyAuth(Middleware):
         if key_view is None:
             raise McpError(error=ErrorData(code=-32001, message="Invalid API key"))
 
-        if key_view.revoked_at is not None:
-            from datetime import UTC, datetime
+        if key_view.revoked_at is not None and _parse_iso(key_view.revoked_at) <= _utcnow():
+            raise McpError(error=ErrorData(code=-32001, message="API key has been revoked"))
 
-            now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-            if key_view.revoked_at <= now:
-                raise McpError(error=ErrorData(code=-32001, message="API key has been revoked"))
-
-        if key_view.expires_at is not None:
-            from datetime import UTC, datetime
-
-            now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-            if key_view.expires_at <= now:
-                raise McpError(error=ErrorData(code=-32001, message="API key has expired"))
+        if key_view.expires_at is not None and _parse_iso(key_view.expires_at) <= _utcnow():
+            raise McpError(error=ErrorData(code=-32001, message="API key has expired"))
 
         user = await self._auth_store.get_user(key_view.user_id)
         if user is None or not user.is_active:
@@ -110,5 +117,8 @@ class MCPApiKeyAuth(Middleware):
                         message=f"Missing required scope: {required_scope}",
                     )
                 )
+
+        # Propagate resolved user identity to tool handlers via ContextVar
+        mcp_user_id_var.set(user.user_id)
 
         return await call_next(context)

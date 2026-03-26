@@ -15,8 +15,13 @@ from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
 
 
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def _parse_iso(ts: str) -> datetime:
+    """Parse an ISO 8601 timestamp to an aware datetime."""
+    return datetime.fromisoformat(ts)
 
 
 async def resolve_auth(
@@ -39,17 +44,15 @@ async def resolve_auth(
     if key_view is None:
         raise AuthenticationError("Invalid API key")
 
+    now = _utcnow()
+
     # Check revocation (respecting grace period)
-    if key_view.revoked_at is not None:
-        now = _now_iso()
-        if key_view.revoked_at <= now:
-            raise AuthenticationError("API key has been revoked")
+    if key_view.revoked_at is not None and _parse_iso(key_view.revoked_at) <= now:
+        raise AuthenticationError("API key has been revoked")
 
     # Check expiry
-    if key_view.expires_at is not None:
-        now = _now_iso()
-        if key_view.expires_at <= now:
-            raise AuthenticationError("API key has expired")
+    if key_view.expires_at is not None and _parse_iso(key_view.expires_at) <= now:
+        raise AuthenticationError("API key has expired")
 
     # Resolve user
     user = await auth_store.get_user(key_view.user_id)

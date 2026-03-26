@@ -72,8 +72,11 @@ class VMService:
             offset += page_size
         return all_dispatches
 
-    async def list_vms(self) -> list[VMSummary]:
+    async def list_vms(self, user_id: str | None = None) -> list[VMSummary]:
         """List active VMs by scanning provision steps without matching teardowns.
+
+        Args:
+            user_id: If set, filter to VMs owned by this user. None returns all.
 
         Returns:
             list[VMSummary]: Active VM summaries.
@@ -81,6 +84,8 @@ class VMService:
         dispatches = await self._fetch_all_dispatches()
         vms: list[VMSummary] = []
         for d in dispatches:
+            if user_id is not None and d.user_id != user_id:
+                continue
             steps = await self._state_store.get_steps_for_dispatch(d.dispatch_id)
             prov = next(
                 (

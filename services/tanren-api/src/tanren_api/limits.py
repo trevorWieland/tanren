@@ -9,17 +9,19 @@ from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
 
 
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+def _fmt(dt: datetime) -> str:
+    """Format a datetime as ISO 8601 with consistent microsecond precision."""
+    # Always include 6-digit microseconds for safe lexicographic TEXT comparison in the DB
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _one_hour_ago() -> str:
-    return (datetime.now(UTC) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    return _fmt(datetime.now(UTC) - timedelta(hours=1))
 
 
 def _start_of_day() -> str:
     now = datetime.now(UTC)
-    return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
+    return _fmt(now.replace(hour=0, minute=0, second=0, microsecond=0))
 
 
 async def check_resource_limits(

@@ -30,13 +30,16 @@ def _vm_service(event_store: EventStore, job_queue: JobQueue, state_store: State
 
 @router.get("/vm")
 async def list_vms(
-    _auth: Annotated[AuthContext, Depends(require_scope("vm:read"))],
+    auth: Annotated[AuthContext, Depends(require_scope("vm:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> list[VMSummary]:
-    """List active VM assignments."""
-    return await _vm_service(event_store, job_queue, state_store).list_vms()
+    """List active VM assignments (filtered by user unless admin)."""
+    from tanren_api.scopes import has_scope
+
+    user_id = None if has_scope(auth.scopes, "admin:*") else auth.user.user_id
+    return await _vm_service(event_store, job_queue, state_store).list_vms(user_id=user_id)
 
 
 @router.post("/vm/provision")
