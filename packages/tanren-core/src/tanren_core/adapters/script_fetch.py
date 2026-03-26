@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 if TYPE_CHECKING:
     import types
@@ -25,7 +25,7 @@ def _import_httpx() -> types.ModuleType:
         import httpx as _httpx  # noqa: PLC0415 — deferred import for optional dependency
     except ImportError:
         raise ImportError(
-            "httpx is required for HTTPS script fetching. Install it with: uv sync --extra github"
+            "httpx is required for HTTPS script fetching. Install it with: uv sync --extra all"
         ) from None
     else:
         return _httpx
@@ -75,6 +75,16 @@ def fetch_script(url: str) -> str:
     )
 
 
+def _redact_url(url: str) -> str:
+    """Strip query parameters and fragment from a URL for safe logging.
+
+    Returns:
+        URL with only scheme, host, and path.
+    """
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
 def _fetch_https(url: str) -> str:
     """Fetch script content via HTTPS.
 
@@ -85,7 +95,7 @@ def _fetch_https(url: str) -> str:
         RuntimeError: If the HTTP request fails.
     """
     httpx = _import_httpx()
-    logger.info("Fetching bootstrap script from %s", url)
+    logger.info("Fetching bootstrap script from %s", _redact_url(url))
     response = httpx.get(url, timeout=60, follow_redirects=True)
     if response.status_code != 200:
         raise RuntimeError(
