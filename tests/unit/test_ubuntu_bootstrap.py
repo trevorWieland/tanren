@@ -340,6 +340,19 @@ class TestDockerDaemonSetup:
         run_cmds = [call.args[0] for call in conn.run.call_args_list]
         assert any(f"usermod -aG docker {_AGENT_USER}" in c for c in run_cmds)
 
+    @pytest.mark.asyncio
+    async def test_docker_group_skipped_when_docker_infra_skipped(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(
+            required_clis=frozenset({Cli.CLAUDE}),
+            skip_infra_tools=frozenset({"docker"}),
+        )
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert not any("usermod -aG docker" in c for c in run_cmds)
+
 
 class TestPlan:
     def test_plan_returns_only_configured_clis(self):

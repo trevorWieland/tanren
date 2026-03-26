@@ -223,12 +223,13 @@ class UbuntuBootstrapper:
         useradd_result = await conn.run(useradd_cmd, timeout_secs=30)
         if useradd_result.exit_code != 0:
             raise RuntimeError(f"Agent user setup failed: {useradd_result.stderr}")
-        docker_group_result = await conn.run(
-            f"usermod -aG docker {_AGENT_USER}",
-            timeout_secs=10,
-        )
-        if docker_group_result.exit_code != 0:
-            raise RuntimeError(f"Docker group setup failed: {docker_group_result.stderr}")
+        if "docker" not in self._skip_infra_tools:
+            docker_group_result = await conn.run(
+                f"usermod -aG docker {_AGENT_USER}",
+                timeout_secs=10,
+            )
+            if docker_group_result.exit_code != 0:
+                raise RuntimeError(f"Docker group setup failed: {docker_group_result.stderr}")
         workspace_result = await conn.run(
             f"mkdir -p /workspace && chown {_AGENT_USER}:{_AGENT_USER} /workspace",
             timeout_secs=10,
