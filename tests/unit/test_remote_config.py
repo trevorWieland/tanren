@@ -23,6 +23,7 @@ execution_mode: remote
 ssh:
   user: deploy
   key_path: ~/.ssh/my_key
+  key_content_env: WM_SSH_KEY
   connect_timeout: 30
 git:
   auth: ssh
@@ -63,6 +64,7 @@ class TestLoadRemoteConfig:
         assert cfg.execution_mode == "remote"
         assert cfg.ssh.user == "deploy"
         assert cfg.ssh.key_path == "~/.ssh/my_key"
+        assert cfg.ssh.key_content_env == "WM_SSH_KEY"
         assert cfg.ssh.connect_timeout == 30
         assert cfg.git.auth == "ssh"
         assert cfg.git.token_env == "MY_GIT_TOKEN"
@@ -82,6 +84,7 @@ class TestLoadRemoteConfig:
         assert cfg.execution_mode == "remote"
         assert cfg.ssh.user == "root"
         assert cfg.ssh.key_path == "~/.ssh/tanren_vm"
+        assert cfg.ssh.key_content_env is None
         assert cfg.ssh.port == 22
         assert cfg.ssh.connect_timeout == 10
         assert cfg.git.auth == "token"

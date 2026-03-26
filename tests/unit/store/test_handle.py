@@ -43,6 +43,7 @@ class TestPersistedSSHConfig:
         cfg = _make_ssh_config()
         assert cfg.user == "root"
         assert cfg.key_path == "~/.ssh/tanren_vm"
+        assert cfg.key_content_env is None
         assert cfg.port == 22
         assert cfg.connect_timeout == 10
         assert cfg.host_key_policy == "auto_add"
@@ -55,6 +56,12 @@ class TestPersistedSSHConfig:
     def test_roundtrip(self) -> None:
         cfg = _make_ssh_config(port=2222, user="tanren")
         restored = PersistedSSHConfig.model_validate_json(cfg.model_dump_json())
+        assert restored == cfg
+
+    def test_key_content_env_roundtrip(self) -> None:
+        cfg = _make_ssh_config(key_content_env="WM_SSH_KEY")
+        restored = PersistedSSHConfig.model_validate_json(cfg.model_dump_json())
+        assert restored.key_content_env == "WM_SSH_KEY"
         assert restored == cfg
 
 

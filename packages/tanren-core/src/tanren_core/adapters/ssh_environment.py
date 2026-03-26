@@ -197,6 +197,7 @@ class SSHExecutionEnvironment:
                 host=vm_handle.host,
                 user=self._ssh_defaults.user,
                 key_path=self._ssh_defaults.key_path,
+                key_content_env=self._ssh_defaults.key_content_env,
                 port=self._ssh_defaults.port,
                 connect_timeout=self._ssh_defaults.connect_timeout,
                 host_key_policy=self._ssh_defaults.host_key_policy,
