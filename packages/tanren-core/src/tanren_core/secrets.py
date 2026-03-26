@@ -135,8 +135,8 @@ class SecretLoader:
         else:
             developer = self.load_developer()
             developer.update(self.load_credential_files())
-            if cloud_secrets:
-                developer.update(cloud_secrets)
+        if cloud_secrets:
+            developer.update(cloud_secrets)
         return SecretBundle(
             developer=developer,
             project=project_secrets or {},

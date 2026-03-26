@@ -24,7 +24,11 @@ _NODE_INSTALL = (
 
 # Infrastructure steps — always installed regardless of required CLIs.
 _INFRA_STEPS: tuple[tuple[str, str, str], ...] = (
-    ("docker", "command -v docker", "curl -fsSL https://get.docker.com | sh"),
+    (
+        "docker",
+        "command -v docker",
+        "curl -fsSL https://get.docker.com | sh && systemctl enable --now docker && docker info",
+    ),
     ("node", "command -v node", _NODE_INSTALL),
     (
         "uv",
@@ -219,6 +223,13 @@ class UbuntuBootstrapper:
         useradd_result = await conn.run(useradd_cmd, timeout_secs=30)
         if useradd_result.exit_code != 0:
             raise RuntimeError(f"Agent user setup failed: {useradd_result.stderr}")
+        if "docker" not in self._skip_infra_tools:
+            docker_group_result = await conn.run(
+                f"usermod -aG docker {_AGENT_USER}",
+                timeout_secs=10,
+            )
+            if docker_group_result.exit_code != 0:
+                raise RuntimeError(f"Docker group setup failed: {docker_group_result.stderr}")
         workspace_result = await conn.run(
             f"mkdir -p /workspace && chown {_AGENT_USER}:{_AGENT_USER} /workspace",
             timeout_secs=10,

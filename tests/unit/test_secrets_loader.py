@@ -176,6 +176,50 @@ class TestBuildBundle:
         assert bundle.project == {"PROJ_KEY": "proj_val"}
         assert bundle.infrastructure == {"GIT_TOKEN": "ghp_xyz"}
 
+    def test_cloud_secrets_merged_with_developer_overrides(self, tmp_path: Path, monkeypatch):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        monkeypatch.setenv("GIT_TOKEN", "ghp_xyz")
+        config = SecretConfig(
+            developer_secrets_path=str(secrets_file),
+            infrastructure_env_vars=("GIT_TOKEN",),
+        )
+        loader = SecretLoader(config, required_clis=frozenset({Cli.CLAUDE}))
+
+        overrides = {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        bundle = loader.build_bundle(
+            developer_overrides=overrides,
+            cloud_secrets={"CLOUD_SECRET": "cloud_val"},
+        )
+
+        assert bundle.developer["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-test"
+        assert bundle.developer["CLOUD_SECRET"] == "cloud_val"
+
+    def test_cloud_secrets_override_developer_overrides_on_conflict(
+        self, tmp_path: Path, monkeypatch
+    ):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        config = SecretConfig(developer_secrets_path=str(secrets_file))
+        loader = SecretLoader(config, required_clis=frozenset({Cli.CLAUDE}))
+
+        bundle = loader.build_bundle(
+            developer_overrides={"SHARED_KEY": "from_overrides"},
+            cloud_secrets={"SHARED_KEY": "from_cloud"},
+        )
+
+        assert bundle.developer["SHARED_KEY"] == "from_cloud"
+
+    def test_cloud_secrets_alone_without_overrides(self, tmp_path: Path, monkeypatch):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text("")
+        config = SecretConfig(developer_secrets_path=str(secrets_file))
+        loader = SecretLoader(config, required_clis=frozenset({Cli.CLAUDE}))
+
+        bundle = loader.build_bundle(cloud_secrets={"CLOUD_ONLY": "val"})
+
+        assert bundle.developer["CLOUD_ONLY"] == "val"
+
     def test_developer_overrides_skip_filesystem(self, tmp_path: Path, monkeypatch):
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text("SHOULD_NOT_APPEAR=filesystem_val\n")

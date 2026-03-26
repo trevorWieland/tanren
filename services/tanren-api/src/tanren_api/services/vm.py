@@ -133,6 +133,9 @@ class VMService:
             timeout=1800,
             environment_profile=body.resolved_profile.name,
             resolved_profile=body.resolved_profile,
+            project_env=body.project_env,
+            cloud_secrets=body.cloud_secrets,
+            required_secrets=body.required_secrets,
         )
 
         lane = cli_to_lane(dispatch.cli)

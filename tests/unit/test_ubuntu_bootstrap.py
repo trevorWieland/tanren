@@ -305,6 +305,55 @@ class TestClaudeOnboardingFlag:
         assert not any(".claude.json" in c for c in run_cmds)
 
 
+class TestDockerDaemonSetup:
+    @pytest.mark.asyncio
+    async def test_docker_install_enables_and_starts_daemon(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        docker_install = [c for c in run_cmds if "get.docker.com" in c]
+        assert len(docker_install) == 1
+        assert "systemctl enable --now docker" in docker_install[0]
+
+    @pytest.mark.asyncio
+    async def test_docker_install_verifies_responsiveness(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        docker_install = [c for c in run_cmds if "get.docker.com" in c]
+        assert len(docker_install) == 1
+        assert "docker info" in docker_install[0]
+
+    @pytest.mark.asyncio
+    async def test_agent_user_added_to_docker_group(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert any(f"usermod -aG docker {_AGENT_USER}" in c for c in run_cmds)
+
+    @pytest.mark.asyncio
+    async def test_docker_group_skipped_when_docker_infra_skipped(self):
+        conn = _make_conn()
+        bs = UbuntuBootstrapper(
+            required_clis=frozenset({Cli.CLAUDE}),
+            skip_infra_tools=frozenset({"docker"}),
+        )
+
+        await bs.bootstrap(conn)
+
+        run_cmds = [call.args[0] for call in conn.run.call_args_list]
+        assert not any("usermod -aG docker" in c for c in run_cmds)
+
+
 class TestPlan:
     def test_plan_returns_only_configured_clis(self):
         bs = UbuntuBootstrapper(required_clis=frozenset({Cli.CLAUDE}))
