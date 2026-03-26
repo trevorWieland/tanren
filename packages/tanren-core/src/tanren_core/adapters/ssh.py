@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import socket
 import time
+from io import StringIO
 from pathlib import Path
 from typing import Literal
 
@@ -28,11 +30,41 @@ class SSHConfig(BaseModel):
     key_path: str = Field(
         default="~/.ssh/tanren_vm", description="Path to the SSH private key file"
     )
+    key_content_env: str | None = Field(
+        default=None,
+        description="Env var holding the SSH private key; overrides key_path.",
+    )
     port: int = Field(default=22, ge=1, le=65535, description="SSH port number")
     connect_timeout: int = Field(default=10, ge=1, description="Connection timeout in seconds")
     host_key_policy: Literal["auto_add", "warn", "reject"] = Field(
         default="auto_add", description="Host key verification policy"
     )
+
+
+def _parse_private_key(content: str) -> paramiko.PKey:
+    """Parse a private key from string content, trying key types in order.
+
+    Tries Ed25519, RSA, then ECDSA.
+
+    Returns:
+        Parsed paramiko key object.
+
+    Raises:
+        paramiko.SSHException: If the content is not a valid private key
+            of any supported type.
+    """
+    key_types = (
+        ("Ed25519", paramiko.Ed25519Key),
+        ("RSA", paramiko.RSAKey),
+        ("ECDSA", paramiko.ECDSAKey),
+    )
+    errors: list[str] = []
+    for name, key_class in key_types:
+        try:
+            return key_class.from_private_key(StringIO(content))
+        except paramiko.SSHException as exc:
+            errors.append(f"{name}: {exc}")
+    raise paramiko.SSHException(f"Failed to parse private key: {'; '.join(errors)}")
 
 
 class SSHConnection:
@@ -79,13 +111,30 @@ class SSHConnection:
             # and stale entries cause BadHostKeyException
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # noqa: S507 — intentional AutoAddPolicy for ephemeral VMs
 
-        key_path = str(Path(self._config.key_path).expanduser())
         try:
+            # Resolve key: env var content takes precedence over file path
+            pkey: paramiko.PKey | None = None
+            key_filename: str | None = None
+
+            if self._config.key_content_env:
+                key_content = os.environ.get(self._config.key_content_env, "").strip()
+                if key_content:
+                    pkey = _parse_private_key(key_content)
+                    logger.debug(
+                        "Using SSH key from env var %s (%s)",
+                        self._config.key_content_env,
+                        type(pkey).__name__,
+                    )
+
+            if pkey is None:
+                key_filename = str(Path(self._config.key_path).expanduser())
+
             client.connect(
                 hostname=self._config.host,
                 port=self._config.port,
                 username=self._config.user,
-                key_filename=key_path,
+                pkey=pkey,
+                key_filename=key_filename,
                 timeout=self._config.connect_timeout,
             )
         except paramiko.AuthenticationException as e:

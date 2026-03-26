@@ -107,6 +107,7 @@ def resolve_remote_config(config: WorkerConfig, project: str) -> RemoteExecution
         ssh=SSHDefaults(
             user=remote.ssh.user,
             key_path=remote.ssh.key_path,
+            key_content_env=remote.ssh.key_content_env,
             port=remote.ssh.port,
             connect_timeout=remote.ssh.connect_timeout,
             host_key_policy=remote.ssh.host_key_policy,

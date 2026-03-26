@@ -97,6 +97,10 @@ class GCPProvisionerSettings(BaseModel):
         default="pd-balanced",
         description="Boot disk type short name (e.g. pd-balanced, pd-ssd, pd-standard).",
     )
+    network_tags: list[str] = Field(
+        default_factory=list,
+        description="GCP network tags for firewall rule targeting.",
+    )
     readiness_timeout_secs: int = Field(
         default=300, ge=10, description="Maximum seconds to wait for VM readiness"
     )
@@ -336,15 +340,19 @@ class GCPVMProvisioner:
                 )
             )
 
-        return compute.Instance(
-            name=name,
-            machine_type=f"zones/{zone}/machineTypes/{machine_type}",
-            disks=[boot_disk],
-            network_interfaces=[network_interface],
-            metadata=metadata,
-            labels=labels,
-            service_accounts=service_accounts,
-        )
+        instance_kwargs: dict[str, object] = {
+            "name": name,
+            "machine_type": f"zones/{zone}/machineTypes/{machine_type}",
+            "disks": [boot_disk],
+            "network_interfaces": [network_interface],
+            "metadata": metadata,
+            "labels": labels,
+            "service_accounts": service_accounts,
+        }
+        if self._settings.network_tags:
+            instance_kwargs["tags"] = compute.Tags(items=self._settings.network_tags)
+
+        return compute.Instance(**instance_kwargs)
 
     @staticmethod
     def _extract_ip(instance: compute_v1.Instance, *, prefer_external: bool = True) -> str | None:

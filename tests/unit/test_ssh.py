@@ -25,11 +25,89 @@ class TestSSHConfig:
         assert cfg.port == 22
         assert cfg.connect_timeout == 10
         assert cfg.host_key_policy == "auto_add"
+        assert cfg.key_content_env is None
+
+    def test_key_content_env_accepted(self):
+        cfg = SSHConfig(host="10.0.0.1", key_content_env="MY_SSH_KEY")
+        assert cfg.key_content_env == "MY_SSH_KEY"
 
     def test_frozen(self):
         cfg = SSHConfig(host="10.0.0.1")
         with pytest.raises(ValidationError, match="Instance is frozen"):
             cfg.host = "other"
+
+
+# ---------------------------------------------------------------------------
+# _parse_private_key
+# ---------------------------------------------------------------------------
+
+
+class TestParsePrivateKey:
+    def test_ed25519_parsed_first(self):
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        mock_key = MagicMock()
+        with (
+            patch("tanren_core.adapters.ssh.paramiko.Ed25519Key") as ed_cls,
+            patch("tanren_core.adapters.ssh.paramiko.RSAKey") as rsa_cls,
+            patch("tanren_core.adapters.ssh.paramiko.ECDSAKey") as ec_cls,
+        ):
+            ed_cls.from_private_key.return_value = mock_key
+            result = _parse_private_key("key-data")
+            assert result is mock_key
+            ed_cls.from_private_key.assert_called_once()
+            rsa_cls.from_private_key.assert_not_called()
+            ec_cls.from_private_key.assert_not_called()
+
+    def test_rsa_fallback(self):
+        import paramiko as real_paramiko
+
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        mock_key = MagicMock()
+        with (
+            patch("tanren_core.adapters.ssh.paramiko.Ed25519Key") as ed_cls,
+            patch("tanren_core.adapters.ssh.paramiko.RSAKey") as rsa_cls,
+            patch("tanren_core.adapters.ssh.paramiko.ECDSAKey") as ec_cls,
+        ):
+            ed_cls.from_private_key.side_effect = real_paramiko.SSHException("not ed25519")
+            rsa_cls.from_private_key.return_value = mock_key
+            result = _parse_private_key("key-data")
+            assert result is mock_key
+            ec_cls.from_private_key.assert_not_called()
+
+    def test_ecdsa_fallback(self):
+        import paramiko as real_paramiko
+
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        mock_key = MagicMock()
+        with (
+            patch("tanren_core.adapters.ssh.paramiko.Ed25519Key") as ed_cls,
+            patch("tanren_core.adapters.ssh.paramiko.RSAKey") as rsa_cls,
+            patch("tanren_core.adapters.ssh.paramiko.ECDSAKey") as ec_cls,
+        ):
+            ed_cls.from_private_key.side_effect = real_paramiko.SSHException("not ed25519")
+            rsa_cls.from_private_key.side_effect = real_paramiko.SSHException("not rsa")
+            ec_cls.from_private_key.return_value = mock_key
+            result = _parse_private_key("key-data")
+            assert result is mock_key
+
+    def test_all_fail_raises(self):
+        import paramiko as real_paramiko
+
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        with (
+            patch("tanren_core.adapters.ssh.paramiko.Ed25519Key") as ed_cls,
+            patch("tanren_core.adapters.ssh.paramiko.RSAKey") as rsa_cls,
+            patch("tanren_core.adapters.ssh.paramiko.ECDSAKey") as ec_cls,
+        ):
+            ed_cls.from_private_key.side_effect = real_paramiko.SSHException("bad ed25519")
+            rsa_cls.from_private_key.side_effect = real_paramiko.SSHException("bad rsa")
+            ec_cls.from_private_key.side_effect = real_paramiko.SSHException("bad ecdsa")
+            with pytest.raises(real_paramiko.SSHException, match="Failed to parse private key"):
+                _parse_private_key("bad-key")
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +297,81 @@ class TestEnsureConnected:
         with pytest.raises(ConnectionError):
             conn._ensure_connected()
         mock_client.close.assert_called_once()
+
+    def test_key_content_env_uses_pkey(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        mock_paramiko.SSHException = type("SSHException", (Exception,), {})
+        mock_key = MagicMock()
+        mock_paramiko.Ed25519Key.from_private_key.return_value = mock_key
+
+        import os
+
+        with patch.dict(os.environ, {"MY_SSH_KEY": "fake-key-content"}):
+            conn = _make_conn(key_content_env="MY_SSH_KEY")
+            conn._ensure_connected()
+
+        call_kwargs = mock_client.connect.call_args.kwargs
+        assert call_kwargs["pkey"] is mock_key
+        assert call_kwargs["key_filename"] is None
+
+    def test_key_content_env_empty_falls_back_to_key_path(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+
+        import os
+
+        with patch.dict(os.environ, {"MY_SSH_KEY": ""}):
+            conn = _make_conn(key_content_env="MY_SSH_KEY")
+            conn._ensure_connected()
+
+        call_kwargs = mock_client.connect.call_args.kwargs
+        assert call_kwargs["pkey"] is None
+        assert call_kwargs["key_filename"] is not None
+
+    def test_key_content_env_missing_falls_back_to_key_path(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+
+        import os
+
+        with patch.dict(os.environ, {}, clear=False):
+            # Ensure the key is not set
+            os.environ.pop("NONEXISTENT_SSH_KEY", None)
+            conn = _make_conn(key_content_env="NONEXISTENT_SSH_KEY")
+            conn._ensure_connected()
+
+        call_kwargs = mock_client.connect.call_args.kwargs
+        assert call_kwargs["pkey"] is None
+        assert call_kwargs["key_filename"] is not None
+
+    def test_key_content_env_none_uses_key_path(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+
+        conn = _make_conn()  # key_content_env defaults to None
+        conn._ensure_connected()
+
+        call_kwargs = mock_client.connect.call_args.kwargs
+        assert call_kwargs["pkey"] is None
+        assert call_kwargs["key_filename"] is not None
+
+    def test_key_content_env_malformed_raises(self, mock_paramiko):
+        mock_client = MagicMock()
+        mock_paramiko.SSHClient.return_value = mock_client
+        ssh_exc = type("SSHException", (Exception,), {})
+        mock_paramiko.SSHException = ssh_exc
+        mock_paramiko.AuthenticationException = type("AuthenticationException", (ssh_exc,), {})
+        mock_paramiko.Ed25519Key.from_private_key.side_effect = ssh_exc("bad")
+        mock_paramiko.RSAKey.from_private_key.side_effect = ssh_exc("bad")
+        mock_paramiko.ECDSAKey.from_private_key.side_effect = ssh_exc("bad")
+
+        import os
+
+        with patch.dict(os.environ, {"MY_SSH_KEY": "bad-key-material"}):
+            conn = _make_conn(key_content_env="MY_SSH_KEY")
+            with pytest.raises(ConnectionError, match="SSH connection failed"):
+                conn._ensure_connected()
 
 
 # ---------------------------------------------------------------------------

@@ -122,6 +122,7 @@ def build_ssh_execution_environment(
         host="",  # placeholder — overridden per VM
         user=remote_cfg.ssh.user,
         key_path=remote_cfg.ssh.key_path,
+        key_content_env=remote_cfg.ssh.key_content_env,
         port=remote_cfg.ssh.port,
         connect_timeout=remote_cfg.ssh.connect_timeout,
         host_key_policy=remote_cfg.ssh.host_key_policy,

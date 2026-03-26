@@ -143,6 +143,7 @@ def vm_recover() -> None:
                         host=assignment.host,
                         user=ssh_defaults.user,
                         key_path=ssh_defaults.key_path,
+                        key_content_env=ssh_defaults.key_content_env,
                         port=ssh_defaults.port,
                         connect_timeout=ssh_defaults.connect_timeout,
                         host_key_policy=ssh_defaults.host_key_policy,

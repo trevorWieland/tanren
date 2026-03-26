@@ -40,6 +40,10 @@ class RemoteSSHConfig(BaseModel):
 
     user: str = Field(default="root", description="SSH login user")
     key_path: str = Field(default="~/.ssh/tanren_vm", description="Path to SSH private key")
+    key_content_env: str | None = Field(
+        default=None,
+        description="Env var holding the SSH private key; overrides key_path.",
+    )
     port: int = Field(default=22, ge=1, le=65535, description="SSH port number")
     connect_timeout: int = Field(default=10, ge=1, description="SSH connection timeout in seconds")
     host_key_policy: Literal["auto_add", "warn", "reject"] = Field(

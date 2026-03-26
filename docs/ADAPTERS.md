@@ -376,13 +376,14 @@ execution_mode: remote
 ssh:
   user: root
   key_path: ~/.ssh/tanren_vm
+  key_content_env: WM_SSH_PRIVATE_KEY  # optional; env var holding the SSH private key
   port: 22
   connect_timeout: 10
 git:
   auth: token
   token_env: GIT_TOKEN
 provisioner:
-  type: manual  # manual | hetzner
+  type: manual  # manual | hetzner | gcp
   settings:
     vms:
       - vm_id: vm-1
@@ -399,8 +400,29 @@ repos:
     metadata: {}
 ```
 
+When `ssh.key_content_env` is set and the named environment variable is non-empty,
+the private key is loaded from the variable (supporting Ed25519, RSA, and ECDSA).
+This takes precedence over `ssh.key_path` and avoids writing key files in
+containerized deployments. If the env var is absent or empty, `key_path` is used.
+
+GCP provisioner settings accept a `network_tags` list for firewall rule scoping:
+
+```yaml
+provisioner:
+  type: gcp
+  settings:
+    project_id: my-project
+    zone: us-central1-a
+    default_machine_type: e2-standard-4
+    image_family: ubuntu-2404-lts-amd64
+    network_tags:
+      - allow-iap-ssh
+      - allow-http
+```
+
 Set `WM_REMOTE_CONFIG=/path/to/remote.yml` to enable remote execution.
 For Hetzner support, install optional dependency: `uv sync --extra hetzner`.
+For GCP support: `uv sync --extra gcp`.
 Secrets are loaded explicitly from `remote.yml.secrets.developer_secrets_path`
 during remote environment initialization (no global startup autoload).
 
