@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
@@ -51,8 +52,13 @@ def _import_storage() -> types.ModuleType:
         return _storage
 
 
+@functools.lru_cache(maxsize=4)
 def fetch_script(url: str) -> str:
     """Fetch bootstrap script content from an HTTPS or GCS URL.
+
+    Results are cached by URL so that repeated builder invocations within a
+    single dispatch lifecycle (provision, execute, teardown) do not issue
+    redundant network requests.
 
     Args:
         url: The URL to fetch from. Supported schemes: ``https://``, ``gs://``.
@@ -95,11 +101,17 @@ def _fetch_https(url: str) -> str:
         RuntimeError: If the HTTP request fails.
     """
     httpx = _import_httpx()
-    logger.info("Fetching bootstrap script from %s", _redact_url(url))
+    safe_url = _redact_url(url)
+    logger.info("Fetching bootstrap script from %s", safe_url)
     response = httpx.get(url, timeout=60, follow_redirects=True)
+    if response.url.scheme != "https":
+        raise RuntimeError(
+            f"Refusing bootstrap script from {safe_url}: "
+            f"redirected to non-HTTPS URL ({response.url.scheme}://)"
+        )
     if response.status_code != 200:
         raise RuntimeError(
-            f"Failed to fetch bootstrap script from {url}: HTTP {response.status_code}"
+            f"Failed to fetch bootstrap script from {safe_url}: HTTP {response.status_code}"
         )
     return response.text
 

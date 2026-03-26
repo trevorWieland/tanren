@@ -3,10 +3,25 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
 from tanren_core.adapters.script_fetch import fetch_script
+
+
+@pytest.fixture(autouse=True)
+def _clear_fetch_cache() -> None:
+    """Clear the LRU cache between tests so each test gets a fresh fetch."""
+    fetch_script.cache_clear()
+
+
+def _mock_url(url: str) -> MagicMock:
+    """Create a mock httpx.URL with a working .scheme attribute."""
+    parsed = urlparse(url)
+    mock = MagicMock()
+    mock.scheme = parsed.scheme
+    return mock
 
 
 class TestFetchHttps:
@@ -14,6 +29,7 @@ class TestFetchHttps:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.text = "#!/bin/bash\necho hello"
+        mock_response.url = _mock_url("https://example.com/setup.sh")
 
         mock_httpx = MagicMock()
         mock_httpx.get.return_value = mock_response
@@ -29,6 +45,7 @@ class TestFetchHttps:
     def test_http_error_raises(self) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 404
+        mock_response.url = _mock_url("https://example.com/missing.sh")
 
         mock_httpx = MagicMock()
         mock_httpx.get.return_value = mock_response
@@ -38,6 +55,20 @@ class TestFetchHttps:
             pytest.raises(RuntimeError, match="HTTP 404"),
         ):
             fetch_script("https://example.com/missing.sh")
+
+    def test_redirect_to_http_rejected(self) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.url = _mock_url("http://evil.com/setup.sh")
+
+        mock_httpx = MagicMock()
+        mock_httpx.get.return_value = mock_response
+
+        with (
+            patch("tanren_core.adapters.script_fetch._import_httpx", return_value=mock_httpx),
+            pytest.raises(RuntimeError, match="non-HTTPS"),
+        ):
+            fetch_script("https://example.com/redirected.sh")
 
 
 class TestFetchGcs:

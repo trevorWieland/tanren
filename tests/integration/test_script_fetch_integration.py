@@ -12,6 +12,12 @@ from tanren_core.adapters.script_fetch import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_fetch_cache() -> None:
+    """Clear the LRU cache between tests."""
+    fetch_script.cache_clear()
+
+
 class TestImportHttpx:
     def test_real_import_succeeds(self) -> None:
         """httpx is installed in dev deps — import should succeed."""
@@ -29,9 +35,13 @@ class TestImportHttpx:
 class TestFetchHttpsIntegration:
     def test_round_trip_with_real_httpx(self) -> None:
         """Use real httpx module but mock the network call."""
+        mock_url = MagicMock()
+        mock_url.scheme = "https"
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.text = "#!/bin/bash\necho integration"
+        mock_response.url = mock_url
 
         with patch("tanren_core.adapters.script_fetch._import_httpx") as mock_import:
             mock_httpx = MagicMock()

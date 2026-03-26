@@ -24,12 +24,18 @@ if [ -f "$SECRETS_FILE" ]; then
     set +a
 fi
 
-# Grant app user access to Docker socket (DooD)
+# Grant app user access to Docker socket (DooD).
+# Resolve the group that owns the socket GID (or create one), then add app.
 DOCKER_SOCK="/var/run/docker.sock"
 if [ -S "$DOCKER_SOCK" ]; then
     SOCK_GID=$(stat -c '%g' "$DOCKER_SOCK")
-    addgroup --gid "$SOCK_GID" docker 2>/dev/null || true
-    addgroup app docker 2>/dev/null || true
+    # Look up existing group for this GID; create "docker" if none exists.
+    SOCK_GROUP=$(getent group "$SOCK_GID" 2>/dev/null | cut -d: -f1 || true)
+    if [ -z "$SOCK_GROUP" ]; then
+        addgroup --gid "$SOCK_GID" docker >/dev/null 2>&1
+        SOCK_GROUP="docker"
+    fi
+    adduser app "$SOCK_GROUP" >/dev/null 2>&1 || true
 fi
 
 # Drop privileges and run the daemon
