@@ -8,7 +8,7 @@ Opinionated orchestration engine for agentic software development.
 [![CI](https://github.com/trevorWieland/tanren/actions/workflows/ci.yml/badge.svg)](https://github.com/trevorWieland/tanren/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.14-blue)](https://python.org)
-[![Version](https://img.shields.io/badge/version-0.2.9-green)](https://github.com/trevorWieland/tanren/releases)
+[![Version](https://img.shields.io/badge/version-0.2.10-green)](https://github.com/trevorWieland/tanren/releases)
 
 ## What is tanren?
 
