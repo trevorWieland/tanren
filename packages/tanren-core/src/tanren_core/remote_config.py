@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 
 class ExecutionMode(StrEnum):
@@ -86,6 +86,21 @@ class RemoteBootstrapConfig(BaseModel):
     extra_script: str | None = Field(
         default=None, description="Optional shell script to run during VM bootstrap"
     )
+    extra_script_url: str | None = Field(
+        default=None,
+        description="URL (https:// or gs://) to fetch bootstrap script at provision time",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _check_script_mutual_exclusivity(cls, values: object) -> object:
+        if isinstance(values, dict):
+            d = cast("dict[str, object]", values)
+            if d.get("extra_script") and d.get("extra_script_url"):
+                raise ValueError(
+                    "extra_script and extra_script_url are mutually exclusive; set only one"
+                )
+        return values
 
 
 class RemoteSecretsConfig(BaseModel):

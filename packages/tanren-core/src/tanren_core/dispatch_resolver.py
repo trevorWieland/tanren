@@ -86,6 +86,7 @@ def resolve_remote_config(config: WorkerConfig, project: str) -> RemoteExecution
 
     # Read bootstrap extra_script content (if configured)
     extra_script = None
+    extra_script_url = remote.bootstrap.extra_script_url
     if remote.bootstrap.extra_script:
         script_path = Path(remote.bootstrap.extra_script).expanduser()
         if not script_path.is_absolute():
@@ -124,6 +125,7 @@ def resolve_remote_config(config: WorkerConfig, project: str) -> RemoteExecution
         repo_url=repo_url,
         required_clis=required_clis,
         bootstrap_extra_script=extra_script,
+        bootstrap_extra_script_url=extra_script_url,
     )
 
 

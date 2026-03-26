@@ -24,5 +24,13 @@ if [ -f "$SECRETS_FILE" ]; then
     set +a
 fi
 
+# Grant app user access to Docker socket (DooD)
+DOCKER_SOCK="/var/run/docker.sock"
+if [ -S "$DOCKER_SOCK" ]; then
+    SOCK_GID=$(stat -c '%g' "$DOCKER_SOCK")
+    addgroup --gid "$SOCK_GID" docker 2>/dev/null || true
+    addgroup app docker 2>/dev/null || true
+fi
+
 # Drop privileges and run the daemon
 exec gosu app tanren-daemon "$@"

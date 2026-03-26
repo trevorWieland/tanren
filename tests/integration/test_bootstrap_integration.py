@@ -323,3 +323,39 @@ class TestBootstrapSkipsInstalledTools:
         assert "codex" in result.skipped
         # Only apt-packages should be in installed
         assert result.installed == ("apt-packages",)
+
+
+class TestBootstrapUrlScriptFlowThrough:
+    """Verify that URL-fetched scripts flow through to bootstrapper execution."""
+
+    async def test_url_fetched_script_uploaded_and_executed(self) -> None:
+        """When fetch_script resolves a URL, the content should be uploaded and run."""
+        from unittest.mock import patch
+
+        conn = _make_conn()
+        url = "https://example.com/bootstrap.sh"
+        script_content = "#!/bin/bash\napt-get install -y nginx"
+
+        with patch(
+            "tanren_core.adapters.script_fetch.fetch_script",
+            return_value=script_content,
+        ) as mock_fetch:
+            # Simulate what builder does: resolve URL then pass to bootstrapper
+            extra_script = mock_fetch(url)
+
+            bootstrapper = UbuntuBootstrapper(
+                required_clis=_DEFAULT_CLIS,
+                extra_script=extra_script,
+            )
+
+            result = await bootstrapper.bootstrap(conn)
+
+        conn.upload_content.assert_awaited_once_with(
+            script_content, "/tmp/tanren-extra-bootstrap.sh"
+        )
+
+        script_run_calls = [
+            c for c in conn.run.call_args_list if "tanren-extra-bootstrap.sh" in c[0][0]
+        ]
+        assert len(script_run_calls) == 1
+        assert "extra-script" in result.installed
