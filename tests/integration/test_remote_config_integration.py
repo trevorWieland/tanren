@@ -40,6 +40,7 @@ execution_mode: remote
 ssh:
   user: deploy
   key_path: ~/.ssh/id_rsa
+  key_content_env: WM_SSH_PRIVATE_KEY
   port: 22
 git:
   auth: token
@@ -67,6 +68,7 @@ repos:
         assert config.execution_mode == ExecutionMode.REMOTE
         assert config.ssh.user == "deploy"
         assert config.ssh.key_path == "~/.ssh/id_rsa"
+        assert config.ssh.key_content_env == "WM_SSH_PRIVATE_KEY"
         assert config.ssh.port == 22
         assert config.git.auth == GitAuthMethod.TOKEN
         assert config.git.token_env == "GIT_TOKEN"
@@ -99,6 +101,7 @@ provisioner:
         assert config.execution_mode == ExecutionMode.REMOTE
         assert config.ssh.user == "root"
         assert config.ssh.key_path == "~/.ssh/tanren_vm"
+        assert config.ssh.key_content_env is None
         assert config.ssh.port == 22
         assert config.git.auth == GitAuthMethod.TOKEN
         assert config.git.token_env == "GIT_TOKEN"
@@ -306,3 +309,100 @@ provisioner:
         assert settings["location"] == "ash"
         assert settings["image"] == "ubuntu-24.04"
         assert settings["ssh_key_name"] == "default"
+
+
+# ---------------------------------------------------------------------------
+# GCP provisioner with network_tags
+# ---------------------------------------------------------------------------
+
+
+class TestGCPProvisionerNetworkTags:
+    def test_network_tags_round_trip_through_settings(self, tmp_path: Path) -> None:
+        path = _write_yaml(
+            tmp_path,
+            """\
+provisioner:
+  type: gcp
+  settings:
+    project_id: my-project
+    zone: us-central1-a
+    default_machine_type: e2-standard-4
+    image_family: ubuntu-2404-lts-amd64
+    network_tags:
+      - allow-iap-ssh
+      - allow-http
+""",
+        )
+
+        config = load_remote_config(path)
+
+        assert config.provisioner.type == ProvisionerType.GCP
+        assert config.provisioner.settings["network_tags"] == [
+            "allow-iap-ssh",
+            "allow-http",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# SSH key parsing integration (real paramiko, no mocks)
+# ---------------------------------------------------------------------------
+
+
+class TestParsePrivateKeyIntegration:
+    """Test _parse_private_key with real paramiko key classes."""
+
+    def test_parse_real_ed25519_key(self) -> None:
+        import paramiko
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        pk = Ed25519PrivateKey.generate()
+        pem = pk.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.OpenSSH,
+            serialization.NoEncryption(),
+        ).decode()
+
+        result = _parse_private_key(pem)
+        assert isinstance(result, paramiko.Ed25519Key)
+
+    def test_parse_real_rsa_key(self) -> None:
+        import paramiko
+
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        key = paramiko.RSAKey.generate(2048)
+        from io import StringIO
+
+        buf = StringIO()
+        key.write_private_key(buf)
+        pem = buf.getvalue()
+
+        result = _parse_private_key(pem)
+        # Ed25519 will fail first, then RSA succeeds
+        assert isinstance(result, paramiko.RSAKey)
+
+    def test_parse_real_ecdsa_key(self) -> None:
+        import paramiko
+
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        key = paramiko.ECDSAKey.generate()
+        from io import StringIO
+
+        buf = StringIO()
+        key.write_private_key(buf)
+        pem = buf.getvalue()
+
+        result = _parse_private_key(pem)
+        assert isinstance(result, paramiko.ECDSAKey)
+
+    def test_invalid_content_raises(self) -> None:
+        import paramiko
+
+        from tanren_core.adapters.ssh import _parse_private_key
+
+        with pytest.raises(paramiko.SSHException, match="Failed to parse private key"):
+            _parse_private_key("not-a-real-key")
