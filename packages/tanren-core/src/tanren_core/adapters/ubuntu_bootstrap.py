@@ -123,18 +123,23 @@ class UbuntuBootstrapper:
         *,
         required_clis: frozenset[Cli],
         extra_script: str | None = None,
+        extra_script_url: str | None = None,
         skip_infra_tools: frozenset[str] = frozenset(),
     ) -> None:
         """Initialize with required CLIs and an optional extra bootstrap script.
 
         Args:
             required_clis: CLIs to install (claude, opencode, codex).
-            extra_script: Optional bash script to run after standard bootstrap.
+            extra_script: Optional inline bash script content to run after
+                standard bootstrap.
+            extra_script_url: Optional URL (https:// or gs://) to fetch script
+                from at bootstrap time.  Mutually exclusive with extra_script.
             skip_infra_tools: Infrastructure tool names to skip (e.g. {"docker"}
                 when bootstrapping inside a Docker container).
         """
         self._required_clis = required_clis
         self._extra_script = extra_script
+        self._extra_script_url = extra_script_url
         self._skip_infra_tools = skip_infra_tools
 
     def _build_steps(self) -> tuple[tuple[str, str, str], ...]:
@@ -258,10 +263,15 @@ class UbuntuBootstrapper:
             if onboard_agent.exit_code != 0:
                 raise RuntimeError(f"Claude onboarding flag (agent) failed: {onboard_agent.stderr}")
 
-        # Extra script (if configured)
-        if self._extra_script is not None:
+        # Extra script (inline content or URL fetch at bootstrap time)
+        extra_script = self._extra_script
+        if extra_script is None and self._extra_script_url is not None:
+            from tanren_core.adapters.script_fetch import fetch_script  # noqa: PLC0415
+
+            extra_script = fetch_script(self._extra_script_url)
+        if extra_script is not None:
             logger.info("Running extra bootstrap script...")
-            await conn.upload_content(self._extra_script, "/tmp/tanren-extra-bootstrap.sh")  # noqa: S108 — fixed temp path for bootstrap script
+            await conn.upload_content(extra_script, "/tmp/tanren-extra-bootstrap.sh")  # noqa: S108 — fixed temp path for bootstrap script
             extra_result = await conn.run("bash /tmp/tanren-extra-bootstrap.sh", timeout_secs=600)
             if extra_result.exit_code != 0:
                 raise RuntimeError(f"Extra bootstrap script failed: {extra_result.stderr}")

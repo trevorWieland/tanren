@@ -146,14 +146,6 @@ def build_ssh_execution_environment(
     secret_loader = SecretLoader(secret_config, required_clis=required_clis)
     secret_loader.autoload_into_env(override=False)
 
-    # Bootstrap extra script: inline content or URL fetch at provision time
-    # (after secret autoload so GCS credentials are available)
-    extra_script = remote_cfg.bootstrap_extra_script
-    if extra_script is None and remote_cfg.bootstrap_extra_script_url:
-        from tanren_core.adapters.script_fetch import fetch_script  # noqa: PLC0415
-
-        extra_script = fetch_script(remote_cfg.bootstrap_extra_script_url)
-
     # Resolve git token from daemon's own environment
     token = os.environ.get(remote_cfg.git.token_env, "")
     git_auth = GitAuthConfig(
@@ -193,7 +185,8 @@ def build_ssh_execution_environment(
         vm_provisioner=vm_provisioner,
         bootstrapper=UbuntuBootstrapper(
             required_clis=required_clis,
-            extra_script=extra_script,
+            extra_script=remote_cfg.bootstrap_extra_script,
+            extra_script_url=remote_cfg.bootstrap_extra_script_url,
         ),
         workspace_mgr=GitWorkspaceManager(git_auth),
         runner=RemoteAgentRunner(run_as_user=agent_user),
@@ -293,16 +286,11 @@ def _build_docker(
         extra_env=docker_cfg.extra_env,
     )
 
-    extra_script = docker_cfg.bootstrap_extra_script
-    if extra_script is None and docker_cfg.bootstrap_extra_script_url:
-        from tanren_core.adapters.script_fetch import fetch_script  # noqa: PLC0415
-
-        extra_script = fetch_script(docker_cfg.bootstrap_extra_script_url)
-
     env = DockerExecutionEnvironment(
         bootstrapper=UbuntuBootstrapper(
             required_clis=required_clis,
-            extra_script=extra_script,
+            extra_script=docker_cfg.bootstrap_extra_script,
+            extra_script_url=docker_cfg.bootstrap_extra_script_url,
             skip_infra_tools=frozenset({"docker"}),
         ),
         workspace_mgr=GitWorkspaceManager(git_auth),

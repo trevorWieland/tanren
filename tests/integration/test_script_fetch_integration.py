@@ -12,12 +12,6 @@ from tanren_core.adapters.script_fetch import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _clear_fetch_cache() -> None:
-    """Clear the LRU cache between tests."""
-    fetch_script.cache_clear()
-
-
 class TestImportHttpx:
     def test_real_import_succeeds(self) -> None:
         """httpx is installed in dev deps — import should succeed."""

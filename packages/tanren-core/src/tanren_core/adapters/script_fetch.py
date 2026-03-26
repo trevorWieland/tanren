@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import functools
 import logging
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
@@ -52,13 +51,12 @@ def _import_storage() -> types.ModuleType:
         return _storage
 
 
-@functools.lru_cache(maxsize=4)
 def fetch_script(url: str) -> str:
     """Fetch bootstrap script content from an HTTPS or GCS URL.
 
-    Results are cached by URL so that repeated builder invocations within a
-    single dispatch lifecycle (provision, execute, teardown) do not issue
-    redundant network requests.
+    Called from ``UbuntuBootstrapper.bootstrap()`` which only runs during the
+    provision phase, so no caching is needed — the fetch happens exactly once
+    per dispatch.
 
     Args:
         url: The URL to fetch from. Supported schemes: ``https://``, ``gs://``.

@@ -10,12 +10,6 @@ import pytest
 from tanren_core.adapters.script_fetch import fetch_script
 
 
-@pytest.fixture(autouse=True)
-def _clear_fetch_cache() -> None:
-    """Clear the LRU cache between tests so each test gets a fresh fetch."""
-    fetch_script.cache_clear()
-
-
 def _mock_url(url: str) -> MagicMock:
     """Create a mock httpx.URL with a working .scheme attribute."""
     parsed = urlparse(url)
