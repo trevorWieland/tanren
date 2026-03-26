@@ -226,6 +226,27 @@ class UbuntuBootstrapper:
         if workspace_result.exit_code != 0:
             raise RuntimeError(f"Workspace directory setup failed: {workspace_result.stderr}")
 
+        # Create Claude onboarding flag — required for CLAUDE_CODE_OAUTH_TOKEN to work
+        # (workaround for anthropics/claude-code#8938)
+        if Cli.CLAUDE in self._required_clis:
+            onboard_root = await conn.run(
+                "echo '{\"hasCompletedOnboarding\": true}' > ~/.claude.json"
+                " && chmod 644 ~/.claude.json",
+                timeout_secs=10,
+            )
+            if onboard_root.exit_code != 0:
+                raise RuntimeError(f"Claude onboarding flag (root) failed: {onboard_root.stderr}")
+            onboard_agent = await conn.run(
+                f"echo '{{\"hasCompletedOnboarding\": true}}'"
+                f" > /home/{_AGENT_USER}/.claude.json"
+                f" && chmod 644 /home/{_AGENT_USER}/.claude.json"
+                f" && chown {_AGENT_USER}:{_AGENT_USER}"
+                f" /home/{_AGENT_USER}/.claude.json",
+                timeout_secs=10,
+            )
+            if onboard_agent.exit_code != 0:
+                raise RuntimeError(f"Claude onboarding flag (agent) failed: {onboard_agent.stderr}")
+
         # Extra script (if configured)
         if self._extra_script is not None:
             logger.info("Running extra bootstrap script...")
