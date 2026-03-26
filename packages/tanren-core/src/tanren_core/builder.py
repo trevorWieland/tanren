@@ -141,9 +141,6 @@ def build_ssh_execution_environment(
 
         state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
 
-    # Bootstrap extra script is carried inline (already resolved by CLI)
-    extra_script = remote_cfg.bootstrap_extra_script
-
     # Daemon uses its own secrets path (not from dispatch)
     secret_config = SecretConfig()
     secret_loader = SecretLoader(secret_config, required_clis=required_clis)
@@ -188,7 +185,8 @@ def build_ssh_execution_environment(
         vm_provisioner=vm_provisioner,
         bootstrapper=UbuntuBootstrapper(
             required_clis=required_clis,
-            extra_script=extra_script,
+            extra_script=remote_cfg.bootstrap_extra_script,
+            extra_script_url=remote_cfg.bootstrap_extra_script_url,
         ),
         workspace_mgr=GitWorkspaceManager(git_auth),
         runner=RemoteAgentRunner(run_as_user=agent_user),
@@ -292,6 +290,7 @@ def _build_docker(
         bootstrapper=UbuntuBootstrapper(
             required_clis=required_clis,
             extra_script=docker_cfg.bootstrap_extra_script,
+            extra_script_url=docker_cfg.bootstrap_extra_script_url,
             skip_infra_tools=frozenset({"docker"}),
         ),
         workspace_mgr=GitWorkspaceManager(git_auth),

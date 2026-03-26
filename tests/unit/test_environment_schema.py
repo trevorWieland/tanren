@@ -1,13 +1,17 @@
 """Tests for environment_schema module."""
 
 import pytest
+from pydantic import ValidationError
 
 from tanren_core.env.environment_schema import (
+    DispatchProvisionerConfig,
+    DockerExecutionConfig,
     EnvironmentProfile,
     EnvironmentProfileType,
     IssueSourceConfig,
     IssueSourceType,
     McpServerConfig,
+    RemoteExecutionConfig,
     ResourceRequirements,
     parse_environment_profiles,
     parse_issue_source,
@@ -284,3 +288,51 @@ class TestParseIssueSource:
 
     def test_returns_none_for_non_dict(self):
         assert parse_issue_source({"issue_source": "invalid"}) is None
+
+
+class TestBootstrapExtraScriptUrl:
+    """Tests for bootstrap_extra_script_url on execution configs."""
+
+    def test_remote_config_url_default_none(self):
+        cfg = RemoteExecutionConfig(
+            provisioner=DispatchProvisionerConfig(type="manual"),
+            repo_url="https://github.com/org/repo.git",
+        )
+        assert cfg.bootstrap_extra_script_url is None
+        assert cfg.bootstrap_extra_script is None
+
+    def test_remote_config_url_set(self):
+        cfg = RemoteExecutionConfig(
+            provisioner=DispatchProvisionerConfig(type="manual"),
+            repo_url="https://github.com/org/repo.git",
+            bootstrap_extra_script_url="https://example.com/setup.sh",
+        )
+        assert cfg.bootstrap_extra_script_url == "https://example.com/setup.sh"
+
+    def test_remote_config_mutual_exclusivity(self):
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            RemoteExecutionConfig(
+                provisioner=DispatchProvisionerConfig(type="manual"),
+                repo_url="https://github.com/org/repo.git",
+                bootstrap_extra_script="#!/bin/bash\necho hi",
+                bootstrap_extra_script_url="https://example.com/setup.sh",
+            )
+
+    def test_docker_config_url_default_none(self):
+        cfg = DockerExecutionConfig(repo_url="https://github.com/org/repo.git")
+        assert cfg.bootstrap_extra_script_url is None
+
+    def test_docker_config_url_set(self):
+        cfg = DockerExecutionConfig(
+            repo_url="https://github.com/org/repo.git",
+            bootstrap_extra_script_url="gs://bucket/script.sh",
+        )
+        assert cfg.bootstrap_extra_script_url == "gs://bucket/script.sh"
+
+    def test_docker_config_mutual_exclusivity(self):
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            DockerExecutionConfig(
+                repo_url="https://github.com/org/repo.git",
+                bootstrap_extra_script="#!/bin/bash\necho hi",
+                bootstrap_extra_script_url="https://example.com/setup.sh",
+            )

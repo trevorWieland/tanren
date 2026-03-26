@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from tanren_core.remote_config import (
     ProvisionerType,
+    RemoteBootstrapConfig,
     RemoteConfig,
     RemoteGitConfig,
     RemoteProvisionerConfig,
@@ -166,6 +167,42 @@ class TestSSHReadyTimeoutSecs:
         cfg_file.write_text(MINIMAL_YAML)
         cfg = load_remote_config(cfg_file)
         assert cfg.ssh.ssh_ready_timeout_secs == 300
+
+
+class TestBootstrapExtraScriptUrl:
+    def test_url_parsed_from_yaml(self, tmp_path: Path):
+        cfg_file = tmp_path / "remote.yml"
+        cfg_file.write_text(
+            "provisioner:\n"
+            "  type: manual\n"
+            "  settings: {}\n"
+            "bootstrap:\n"
+            "  extra_script_url: https://example.com/setup.sh\n"
+        )
+        cfg = load_remote_config(cfg_file)
+        assert cfg.bootstrap.extra_script_url == "https://example.com/setup.sh"
+        assert cfg.bootstrap.extra_script is None
+
+    def test_url_default_is_none(self):
+        cfg = RemoteBootstrapConfig()
+        assert cfg.extra_script_url is None
+
+    def test_mutual_exclusivity_rejects_both(self):
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            RemoteBootstrapConfig(
+                extra_script="setup.sh",
+                extra_script_url="https://example.com/setup.sh",
+            )
+
+    def test_script_only_allowed(self):
+        cfg = RemoteBootstrapConfig(extra_script="setup.sh")
+        assert cfg.extra_script == "setup.sh"
+        assert cfg.extra_script_url is None
+
+    def test_url_only_allowed(self):
+        cfg = RemoteBootstrapConfig(extra_script_url="gs://bucket/script.sh")
+        assert cfg.extra_script_url == "gs://bucket/script.sh"
+        assert cfg.extra_script is None
 
 
 class TestRepoBindings:

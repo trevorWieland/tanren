@@ -391,7 +391,9 @@ provisioner:
       - vm_id: vm-2
         host: 203.0.113.11
 bootstrap:
-  extra_script: ./scripts/vm-setup.sh  # optional
+  extra_script: ./scripts/vm-setup.sh  # optional — file path (resolved by CLI)
+  # extra_script_url: https://example.com/setup.sh  # alternative: fetch from URL at provision time
+  # extra_script_url: gs://my-bucket/scripts/setup.sh  # also supports GCS
 secrets:
   developer_secrets_path: ~/.config/tanren/secrets.env
 repos:
@@ -419,6 +421,12 @@ provisioner:
       - allow-iap-ssh
       - allow-http
 ```
+
+`bootstrap.extra_script` (file path) and `bootstrap.extra_script_url` (HTTPS or GCS URL)
+are mutually exclusive — set only one. When `extra_script_url` is set, the script is fetched
+at provision time by the daemon, making it suitable for containerized deployments (Cloud Run,
+Docker) where no project filesystem is available. Supported URL schemes: `https://`, `gs://`
+(requires `uv sync --extra gcp`).
 
 Set `WM_REMOTE_CONFIG=/path/to/remote.yml` to enable remote execution.
 For Hetzner support, install optional dependency: `uv sync --extra hetzner`.

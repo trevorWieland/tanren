@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -112,8 +112,23 @@ class DockerExecutionConfig(BaseModel):
     bootstrap_extra_script: str | None = Field(
         default=None, description="Inline bootstrap script content"
     )
+    bootstrap_extra_script_url: str | None = Field(
+        default=None,
+        description="URL (https:// or gs://) to fetch bootstrap script at provision time",
+    )
     agent_user: str = Field(default="tanren", description="Unprivileged user in the container")
     git: DispatchGitConfig = Field(default_factory=DispatchGitConfig, description="Git auth config")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _check_script_mutual_exclusivity(cls, values: object) -> object:
+        if isinstance(values, dict):
+            d = cast("dict[str, object]", values)
+            if d.get("bootstrap_extra_script") and d.get("bootstrap_extra_script_url"):
+                raise ValueError(
+                    "bootstrap_extra_script and bootstrap_extra_script_url are mutually exclusive"
+                )
+        return values
 
 
 class RemoteExecutionConfig(BaseModel):
@@ -131,7 +146,22 @@ class RemoteExecutionConfig(BaseModel):
     bootstrap_extra_script: str | None = Field(
         default=None, description="Inline bootstrap script content"
     )
+    bootstrap_extra_script_url: str | None = Field(
+        default=None,
+        description="URL (https:// or gs://) to fetch bootstrap script at provision time",
+    )
     agent_user: str = Field(default="tanren", description="Unprivileged user on remote VM")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _check_script_mutual_exclusivity(cls, values: object) -> object:
+        if isinstance(values, dict):
+            d = cast("dict[str, object]", values)
+            if d.get("bootstrap_extra_script") and d.get("bootstrap_extra_script_url"):
+                raise ValueError(
+                    "bootstrap_extra_script and bootstrap_extra_script_url are mutually exclusive"
+                )
+        return values
 
 
 class EnvironmentProfile(BaseModel):

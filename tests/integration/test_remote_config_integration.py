@@ -316,6 +316,54 @@ provisioner:
 # ---------------------------------------------------------------------------
 
 
+class TestBootstrapExtraScriptUrl:
+    def test_url_round_trip_through_yaml(self, tmp_path: Path) -> None:
+        path = _write_yaml(
+            tmp_path,
+            """\
+provisioner:
+  type: manual
+bootstrap:
+  extra_script_url: https://example.com/bootstrap.sh
+""",
+        )
+
+        config = load_remote_config(path)
+
+        assert config.bootstrap.extra_script is None
+        assert config.bootstrap.extra_script_url == "https://example.com/bootstrap.sh"
+
+    def test_gs_url_round_trip(self, tmp_path: Path) -> None:
+        path = _write_yaml(
+            tmp_path,
+            """\
+provisioner:
+  type: manual
+bootstrap:
+  extra_script_url: gs://my-bucket/scripts/setup.sh
+""",
+        )
+
+        config = load_remote_config(path)
+
+        assert config.bootstrap.extra_script_url == "gs://my-bucket/scripts/setup.sh"
+
+    def test_both_set_rejected(self, tmp_path: Path) -> None:
+        path = _write_yaml(
+            tmp_path,
+            """\
+provisioner:
+  type: manual
+bootstrap:
+  extra_script: setup.sh
+  extra_script_url: https://example.com/setup.sh
+""",
+        )
+
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            load_remote_config(path)
+
+
 class TestGCPProvisionerNetworkTags:
     def test_network_tags_round_trip_through_settings(self, tmp_path: Path) -> None:
         path = _write_yaml(
