@@ -48,6 +48,7 @@ def _build_compute_module(instances_client):
         Metadata=lambda **kw: SimpleNamespace(**kw),
         Items=lambda **kw: SimpleNamespace(**kw),
         ServiceAccount=lambda **kw: SimpleNamespace(**kw),
+        Tags=lambda **kw: SimpleNamespace(**kw),
         ListInstancesRequest=lambda **kw: SimpleNamespace(**kw),
     )
     return mod
@@ -62,6 +63,7 @@ def _settings(**overrides):
         enable_external_ip=overrides.get("enable_external_ip", True),
         boot_disk_size_gb=overrides.get("boot_disk_size_gb", 50),
         boot_disk_type=overrides.get("boot_disk_type", "pd-balanced"),
+        network_tags=overrides.get("network_tags", []),
         readiness_timeout_secs=overrides.get("readiness_timeout_secs", 300),
         poll_interval_secs=overrides.get("poll_interval_secs", 5),
     )
@@ -237,6 +239,7 @@ def test_settings_from_remote_yml():
         "enable_external_ip": False,
         "boot_disk_size_gb": 100,
         "boot_disk_type": "pd-ssd",
+        "network_tags": ["allow-ssh"],
     }
     settings = GCPProvisionerSettings.from_settings(raw)
     assert settings.project_id == "my-project"
@@ -247,6 +250,7 @@ def test_settings_from_remote_yml():
     assert settings.enable_external_ip is False
     assert settings.boot_disk_size_gb == 100
     assert settings.boot_disk_type == "pd-ssd"
+    assert settings.network_tags == ["allow-ssh"]
 
 
 def test_default_settings_match_expected_values():
@@ -254,6 +258,7 @@ def test_default_settings_match_expected_values():
     assert settings.enable_external_ip is True
     assert settings.boot_disk_size_gb == 50
     assert settings.boot_disk_type == "pd-balanced"
+    assert settings.network_tags == []
 
 
 @pytest.mark.asyncio
@@ -335,6 +340,40 @@ def test_boot_disk_size_and_type_in_instance_resource(monkeypatch):
     boot_disk = resource.disks[0]
     assert boot_disk.initialize_params.disk_size_gb == 200
     assert "pd-ssd" in boot_disk.initialize_params.disk_type
+
+
+def test_network_tags_in_instance_resource(monkeypatch):
+    monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
+    client = Mock()
+    provisioner = _make_provisioner(
+        monkeypatch, client, network_tags=["allow-iap-ssh", "allow-http"]
+    )
+
+    resource = provisioner._build_instance_resource(
+        name="test-vm",
+        machine_type="e2-standard-4",
+        labels={},
+        ssh_user="tanren",
+        ssh_pub_key="ssh-ed25519 AAAA testkey",
+    )
+
+    assert resource.tags.items == ["allow-iap-ssh", "allow-http"]
+
+
+def test_network_tags_omitted_when_empty(monkeypatch):
+    monkeypatch.setenv("GCP_SSH_PUBLIC_KEY", "ssh-ed25519 AAAA testkey")
+    client = Mock()
+    provisioner = _make_provisioner(monkeypatch, client)
+
+    resource = provisioner._build_instance_resource(
+        name="test-vm",
+        machine_type="e2-standard-4",
+        labels={},
+        ssh_user="tanren",
+        ssh_pub_key="ssh-ed25519 AAAA testkey",
+    )
+
+    assert not hasattr(resource, "tags")
 
 
 def _make_handle(vm_id):
