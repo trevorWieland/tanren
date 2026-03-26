@@ -190,8 +190,10 @@ async def test_config_endpoint(wired_client):
 
 @pytest.mark.asyncio
 async def test_events_endpoint_empty(wired_client):
-    """Events endpoint returns empty list when no events."""
-    resp = await wired_client.get("/api/v1/events", headers=AUTH)
+    """Events endpoint returns empty dispatch events when no dispatches created."""
+    resp = await wired_client.get(
+        "/api/v1/events", headers=AUTH, params={"entity_type": "dispatch"}
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] == 0
@@ -740,7 +742,7 @@ async def test_run_status_derives_outcome_from_execute_steps(tmp_path):
         await event_store.append(
             DispatchCreated(
                 timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                workflow_id=dispatch_id,
+                entity_id=dispatch_id,
                 dispatch=dispatch,
                 mode=DispatchMode.MANUAL,
                 lane=lane,
@@ -893,7 +895,7 @@ async def test_metrics_summary_after_phase_events(tmp_path):
         await store.append(
             PhaseCompleted(
                 timestamp=now,
-                workflow_id="wf-metrics-test-1",
+                entity_id="wf-metrics-test-1",
                 phase="do-task",
                 project="metrics-proj",
                 outcome="success",
@@ -905,7 +907,7 @@ async def test_metrics_summary_after_phase_events(tmp_path):
         await store.append(
             PhaseCompleted(
                 timestamp=now,
-                workflow_id="wf-metrics-test-2",
+                entity_id="wf-metrics-test-2",
                 phase="gate",
                 project="metrics-proj",
                 outcome="fail",
@@ -948,7 +950,7 @@ async def test_metrics_costs_with_token_events(tmp_path):
         await store.append(
             TokenUsageRecorded(
                 timestamp=now,
-                workflow_id="wf-cost-test-1",
+                entity_id="wf-cost-test-1",
                 phase="do-task",
                 project="cost-proj",
                 cli="claude",
@@ -1003,7 +1005,7 @@ async def test_metrics_vms_with_events(tmp_path):
         await store.append(
             VMProvisioned(
                 timestamp=now,
-                workflow_id="wf-vm-test-1",
+                entity_id="wf-vm-test-1",
                 vm_id="vm-123",
                 host="1.2.3.4",
                 provider=VMProvider.HETZNER,
@@ -1015,7 +1017,7 @@ async def test_metrics_vms_with_events(tmp_path):
         await store.append(
             VMReleased(
                 timestamp=now,
-                workflow_id="wf-vm-test-1",
+                entity_id="wf-vm-test-1",
                 vm_id="vm-123",
                 project="vm-proj",
                 duration_secs=3600,
@@ -1239,7 +1241,7 @@ async def test_cancel_after_completed_provision_enqueues_teardown(tmp_path):
         await event_store.append(
             DispatchCreated(
                 timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                workflow_id=dispatch_id,
+                entity_id=dispatch_id,
                 dispatch=dispatch,
                 mode=DispatchMode.AUTO,
                 lane=lane,
@@ -1356,7 +1358,7 @@ async def test_vm_list_with_completed_provision(tmp_path):
         await event_store.append(
             DispatchCreated(
                 timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                workflow_id=dispatch_id,
+                entity_id=dispatch_id,
                 dispatch=dispatch,
                 mode=DispatchMode.MANUAL,
                 lane=lane,
@@ -1422,3 +1424,136 @@ async def test_vm_list_with_completed_provision(tmp_path):
         td = [s for s in steps if s.step_type == StepType.TEARDOWN]
         assert len(td) == 1
         assert td[0].step_sequence == 1  # max(0) + 1
+
+
+# ── Auth lifecycle integration tests ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_user_crud_lifecycle(wired_client):
+    """User creation, listing, retrieval, and deactivation via endpoints."""
+    client = wired_client
+
+    # Create user
+    resp = await client.post(
+        "/api/v1/users",
+        headers=AUTH,
+        json={"name": "Test User", "email": "test@example.com", "role": "developer"},
+    )
+    assert resp.status_code == 200
+    user = resp.json()
+    user_id = user["user_id"]
+    assert user["name"] == "Test User"
+    assert user["is_active"] is True
+
+    # List users — should include admin + test user
+    resp = await client.get("/api/v1/users", headers=AUTH)
+    assert resp.status_code == 200
+    users = resp.json()
+    assert len(users) >= 2
+
+    # Get specific user
+    resp = await client.get(f"/api/v1/users/{user_id}", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "test@example.com"
+
+    # Deactivate user
+    resp = await client.delete(f"/api/v1/users/{user_id}", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "deactivated"
+
+
+@pytest.mark.asyncio
+async def test_key_lifecycle(wired_client):
+    """Key creation, listing, revocation, and rotation via endpoints."""
+    client = wired_client
+
+    # Create user first
+    resp = await client.post("/api/v1/users", headers=AUTH, json={"name": "Key User"})
+    user_id = resp.json()["user_id"]
+
+    # Create key
+    resp = await client.post(
+        "/api/v1/keys",
+        headers=AUTH,
+        json={"user_id": user_id, "name": "Test Key", "scopes": ["dispatch:*", "vm:read"]},
+    )
+    assert resp.status_code == 200
+    key_data = resp.json()
+    assert key_data["key"].startswith("tnrn_")
+    key_id = key_data["key_id"]
+
+    # List keys
+    resp = await client.get("/api/v1/keys", headers=AUTH)
+    assert resp.status_code == 200
+    keys = resp.json()
+    assert any(k["key_id"] == key_id for k in keys)
+
+    # Rotate key
+    resp = await client.post(
+        f"/api/v1/keys/{key_id}/rotate",
+        headers=AUTH,
+        json={"grace_period_hours": 1},
+    )
+    assert resp.status_code == 200
+    new_key = resp.json()
+    assert new_key["key_id"] != key_id
+    assert new_key["key"].startswith("tnrn_")
+
+    # Revoke the new key
+    resp = await client.delete(f"/api/v1/keys/{new_key['key_id']}", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_scoped_key_enforcement(wired_client):
+    """A scoped key can only access endpoints matching its scopes."""
+    client = wired_client
+
+    # Create user
+    resp = await client.post("/api/v1/users", headers=AUTH, json={"name": "Scoped User"})
+    user_id = resp.json()["user_id"]
+
+    # Create a key with only config:read scope
+    resp = await client.post(
+        "/api/v1/keys",
+        headers=AUTH,
+        json={"user_id": user_id, "name": "ReadOnly", "scopes": ["config:read"]},
+    )
+    scoped_key = resp.json()["key"]
+    scoped_headers = {"X-API-Key": scoped_key}
+
+    # config:read should work
+    resp = await client.get("/api/v1/config", headers=scoped_headers)
+    assert resp.status_code == 200
+
+    # dispatch:create should be forbidden
+    resp = await client.post(
+        "/api/v1/dispatch",
+        headers=scoped_headers,
+        json={"project": "test", "phase": "do-task", "spec_folder": "s", "branch": "main"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_legacy_admin_seed(wired_client):
+    """Legacy API key seed creates admin user and key on startup."""
+    client = wired_client
+
+    # List users — admin should exist
+    resp = await client.get("/api/v1/users", headers=AUTH)
+    assert resp.status_code == 200
+    users = resp.json()
+    admin = [u for u in users if u["name"] == "Admin (legacy)"]
+    assert len(admin) == 1
+    assert admin[0]["is_active"] is True
+
+    # List keys — legacy key should exist
+    resp = await client.get("/api/v1/keys", headers=AUTH)
+    assert resp.status_code == 200
+    keys = resp.json()
+    legacy = [k for k in keys if k["name"] == "Legacy admin key"]
+    assert len(legacy) == 1
+    assert legacy[0]["scopes"] == ["*"]

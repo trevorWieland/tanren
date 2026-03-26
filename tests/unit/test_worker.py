@@ -105,6 +105,7 @@ def _make_dispatch_view(
         lane=Lane.IMPL,
         preserve_on_failure=False,
         dispatch=_make_dispatch(dispatch_id),
+        user_id="",
         created_at="2026-01-01T00:00:00Z",
         updated_at="2026-01-01T00:00:00Z",
     )

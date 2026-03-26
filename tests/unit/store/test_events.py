@@ -49,7 +49,7 @@ class TestDispatchCreated:
     def test_roundtrip(self) -> None:
         event = DispatchCreated(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             dispatch=_make_dispatch(),
             mode=DispatchMode.AUTO,
             lane=Lane.IMPL,
@@ -65,7 +65,7 @@ class TestDispatchCompleted:
     def test_roundtrip(self) -> None:
         event = DispatchCompleted(
             timestamp="2026-01-01T00:01:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             outcome=Outcome.SUCCESS,
             total_duration_secs=60,
         )
@@ -78,7 +78,7 @@ class TestDispatchFailed:
     def test_roundtrip(self) -> None:
         event = DispatchFailed(
             timestamp="2026-01-01T00:01:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             failed_step_id="step-123",
             failed_step_type=StepType.EXECUTE,
             error="timeout exceeded",
@@ -92,7 +92,7 @@ class TestStepEnqueued:
     def test_with_lane(self) -> None:
         event = StepEnqueued(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-001",
             step_type=StepType.EXECUTE,
             step_sequence=1,
@@ -103,7 +103,7 @@ class TestStepEnqueued:
     def test_without_lane(self) -> None:
         event = StepEnqueued(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-000",
             step_type=StepType.PROVISION,
             step_sequence=0,
@@ -113,7 +113,7 @@ class TestStepEnqueued:
     def test_roundtrip(self) -> None:
         event = StepEnqueued(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-002",
             step_type=StepType.TEARDOWN,
             step_sequence=2,
@@ -126,7 +126,7 @@ class TestStepDequeued:
     def test_roundtrip(self) -> None:
         event = StepDequeued(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-001",
             worker_id="worker-alpha",
         )
@@ -138,7 +138,7 @@ class TestStepStarted:
     def test_roundtrip(self) -> None:
         event = StepStarted(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-001",
             worker_id="worker-alpha",
             step_type=StepType.PROVISION,
@@ -151,7 +151,7 @@ class TestStepCompleted:
     def test_provision_result_roundtrip(self) -> None:
         event = StepCompleted(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-000",
             step_type=StepType.PROVISION,
             duration_secs=30,
@@ -165,7 +165,7 @@ class TestStepCompleted:
     def test_execute_result_roundtrip(self) -> None:
         event = StepCompleted(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-001",
             step_type=StepType.EXECUTE,
             duration_secs=120,
@@ -183,7 +183,7 @@ class TestStepCompleted:
     def test_teardown_result_roundtrip(self) -> None:
         event = StepCompleted(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-002",
             step_type=StepType.TEARDOWN,
             duration_secs=5,
@@ -199,7 +199,7 @@ class TestStepFailed:
     def test_roundtrip(self) -> None:
         event = StepFailed(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-001",
             step_type=StepType.EXECUTE,
             error="SSH connection refused",
@@ -214,7 +214,7 @@ class TestStepFailed:
     def test_defaults(self) -> None:
         event = StepFailed(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             step_id="step-001",
             step_type=StepType.PROVISION,
             error="out of VMs",

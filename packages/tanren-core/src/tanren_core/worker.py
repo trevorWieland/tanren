@@ -287,7 +287,7 @@ class Worker:
             await self._event_store.append(
                 StepStarted(
                     timestamp=now,
-                    workflow_id=step.dispatch_id,
+                    entity_id=step.dispatch_id,
                     step_id=step.step_id,
                     worker_id=self._worker_id,
                     step_type=step.step_type,
@@ -330,7 +330,7 @@ class Worker:
             await self._event_store.append(
                 PreflightCompleted(
                     timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    entity_id=dispatch.workflow_id,
                     passed=False,
                     repairs=[],
                 )
@@ -350,7 +350,7 @@ class Worker:
             await self._event_store.append(
                 VMProvisioned(
                     timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    entity_id=dispatch.workflow_id,
                     vm_id=persisted.vm.vm_id,
                     host=persisted.vm.host,
                     provider=persisted.vm.provider,
@@ -362,7 +362,7 @@ class Worker:
 
         step_completed_event = StepCompleted(
             timestamp=_utc_now(),
-            workflow_id=dispatch.workflow_id,
+            entity_id=dispatch.workflow_id,
             step_id=step.step_id,
             step_type=StepType.PROVISION,
             duration_secs=duration,
@@ -457,7 +457,7 @@ class Worker:
             await self._event_store.append(
                 TokenUsageRecorded(
                     timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    entity_id=dispatch.workflow_id,
                     phase=str(dispatch.phase),
                     project=dispatch.project,
                     cli=str(dispatch.cli),
@@ -476,7 +476,7 @@ class Worker:
 
         step_completed_event = StepCompleted(
             timestamp=_utc_now(),
-            workflow_id=dispatch.workflow_id,
+            entity_id=dispatch.workflow_id,
             step_id=step.step_id,
             step_type=StepType.EXECUTE,
             duration_secs=duration,
@@ -484,7 +484,7 @@ class Worker:
         )
         phase_completed_event = PhaseCompleted(
             timestamp=_utc_now(),
-            workflow_id=dispatch.workflow_id,
+            entity_id=dispatch.workflow_id,
             phase=str(dispatch.phase),
             project=dispatch.project,
             outcome=str(phase_result.outcome),
@@ -581,7 +581,7 @@ class Worker:
             await self._event_store.append(
                 VMReleased(
                     timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    entity_id=dispatch.workflow_id,
                     vm_id=payload.handle.vm.vm_id,
                     project=dispatch.project,
                     duration_secs=vm_duration,
@@ -592,7 +592,7 @@ class Worker:
         await self._event_store.append(
             StepCompleted(
                 timestamp=_utc_now(),
-                workflow_id=dispatch.workflow_id,
+                entity_id=dispatch.workflow_id,
                 step_id=step.step_id,
                 step_type=StepType.TEARDOWN,
                 duration_secs=duration,
@@ -629,7 +629,7 @@ class Worker:
             await self._event_store.append(
                 DispatchCompleted(
                     timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    entity_id=dispatch.workflow_id,
                     outcome=final_outcome,
                     total_duration_secs=total_duration,
                 )
@@ -638,7 +638,7 @@ class Worker:
             await self._event_store.append(
                 DispatchFailed(
                     timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    entity_id=dispatch.workflow_id,
                     failed_step_id=execute_step.step_id if execute_step else step.step_id,
                     failed_step_type=StepType.EXECUTE,
                     error=f"Execution outcome: {final_outcome}",
@@ -653,7 +653,7 @@ class Worker:
             await self._event_store.append(
                 DispatchCompleted(
                     timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    entity_id=dispatch.workflow_id,
                     outcome=final_outcome,
                     total_duration_secs=total_duration,
                 )
@@ -699,7 +699,7 @@ class Worker:
         await self._event_store.append(
             StepCompleted(
                 timestamp=_utc_now(),
-                workflow_id=dispatch.workflow_id,
+                entity_id=dispatch.workflow_id,
                 step_id=step.step_id,
                 step_type=StepType.DRY_RUN,
                 duration_secs=0,
@@ -748,7 +748,7 @@ class Worker:
             await self._event_store.append(
                 StepFailed(
                     timestamp=now,
-                    workflow_id=step.dispatch_id,
+                    entity_id=step.dispatch_id,
                     step_id=step.step_id,
                     step_type=step.step_type,
                     error=error_msg,
@@ -760,7 +760,7 @@ class Worker:
             await self._event_store.append(
                 ErrorOccurred(
                     timestamp=now,
-                    workflow_id=step.dispatch_id,
+                    entity_id=step.dispatch_id,
                     phase=str(step.step_type),
                     error=error_msg,
                     error_class=str(error_class.value),
@@ -915,7 +915,7 @@ class Worker:
         await self._event_store.append(
             DispatchFailed(
                 timestamp=_utc_now(),
-                workflow_id=dispatch_id,
+                entity_id=dispatch_id,
                 outcome=outcome,
                 failed_step_id=failed_step_id,
                 failed_step_type=failed_step_type,

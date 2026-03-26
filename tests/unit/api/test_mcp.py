@@ -97,9 +97,12 @@ def _seed_mcp_services(mcp_store, tmp_path: Path):
 
 
 @pytest.fixture
-def _mcp_auth():
-    """Add auth middleware to the MCP server for this test scope."""
-    mcp.add_middleware(MCPApiKeyAuth(TEST_API_KEY))
+async def _mcp_auth(mcp_store):
+    """Add auth middleware with seeded store to the MCP server for this test scope."""
+    from tanren_api.auth_seed import seed_legacy_admin_key
+
+    await seed_legacy_admin_key(mcp_store, mcp_store, TEST_API_KEY)
+    mcp.add_middleware(MCPApiKeyAuth(mcp_store))
 
 
 @pytest.mark.api
@@ -169,7 +172,7 @@ class TestMCPAuth:
     async def test_non_health_tool_rejected_without_auth(self):
         """Non-health tools should fail without API key (stdio has no headers)."""
         async with Client(mcp) as client:
-            with pytest.raises(ToolError, match="Invalid or missing API key"):
+            with pytest.raises(ToolError, match="Missing API key"):
                 await client.call_tool("config_get", {})
 
 
@@ -297,6 +300,11 @@ class TestMCPMiddlewareStacking:
 
     async def test_no_duplicate_auth_middleware(self):
         """Adding auth middleware twice should replace, not stack."""
+        from unittest.mock import MagicMock
+
+        from tanren_core.store.auth_protocols import AuthStore
+
+        mock_store = MagicMock(spec=AuthStore)
         saved = list(mcp.middleware)
         try:
             mcp.middleware.clear()
@@ -304,7 +312,7 @@ class TestMCPMiddlewareStacking:
             # Simulate two lifespan entries (same pattern as main.py)
             for _ in range(3):
                 mcp.middleware[:] = [m for m in mcp.middleware if not isinstance(m, MCPApiKeyAuth)]
-                mcp.add_middleware(MCPApiKeyAuth("test-key"))
+                mcp.add_middleware(MCPApiKeyAuth(mock_store))
 
             auth_count = sum(1 for m in mcp.middleware if isinstance(m, MCPApiKeyAuth))
             assert auth_count == 1, f"Expected 1 auth middleware, got {auth_count}"

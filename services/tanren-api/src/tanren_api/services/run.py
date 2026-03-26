@@ -64,7 +64,7 @@ class RunService:
         self._state_store = state_store
         self._config = config
 
-    async def provision(self, body: ProvisionRequest) -> RunEnvironment:
+    async def provision(self, body: ProvisionRequest, user_id: str = "") -> RunEnvironment:
         """Enqueue a provision step (manual mode — user drives each step).
 
         Returns:
@@ -98,12 +98,13 @@ class RunService:
             lane=lane,
             preserve_on_failure=True,
             dispatch_json=dispatch.model_dump_json(),
+            user_id=user_id,
         )
 
         await self._event_store.append(
             DispatchCreated(
                 timestamp=_now(),
-                workflow_id=workflow_id,
+                entity_id=workflow_id,
                 dispatch=dispatch,
                 mode=DispatchMode.MANUAL,
                 lane=lane,
@@ -304,7 +305,7 @@ class RunService:
             env_id=dispatch_view.dispatch_id, dispatch_id=dispatch_view.dispatch_id
         )
 
-    async def full(self, body: RunFullRequest) -> DispatchAccepted:
+    async def full(self, body: RunFullRequest, user_id: str = "") -> DispatchAccepted:
         """Enqueue a full dispatch lifecycle (auto-chained provision → execute → teardown).
 
         Returns:
@@ -337,6 +338,7 @@ class RunService:
             job_queue=self._job_queue,
             state_store=self._state_store,
             config=self._config,
+            user_id=user_id,
         )
 
     async def status(self, env_id: str) -> RunStatus:

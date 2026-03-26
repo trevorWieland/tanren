@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from tanren_api.settings import APISettings
+from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 
@@ -26,3 +27,8 @@ def get_job_queue(request: Request) -> JobQueue:
 def get_state_store(request: Request) -> StateStore:
     """Return the state store."""
     return request.app.state.state_store
+
+
+def get_auth_store(request: Request) -> AuthStore:
+    """Return the auth store."""
+    return request.app.state.auth_store

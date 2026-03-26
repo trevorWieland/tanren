@@ -20,6 +20,8 @@ import aiosqlite
 
 from tanren_core.adapters.events import Event
 from tanren_core.schemas import Dispatch, Outcome
+from tanren_core.store.auth_events import ResourceLimits
+from tanren_core.store.auth_views import ApiKeyView, UserView
 from tanren_core.store.enums import DispatchMode, DispatchStatus, Lane, StepStatus, StepType
 from tanren_core.store.events import StepEnqueued
 from tanren_core.store.schema import SQLITE_ALL
@@ -92,15 +94,23 @@ class SqliteStore:
         async with self._transaction() as conn:
             await conn.execute(
                 "INSERT INTO events "
-                "(event_id, timestamp, workflow_id, event_type, payload) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (event_id, event.timestamp, event.workflow_id, event_type, payload),
+                "(event_id, timestamp, entity_id, entity_type, event_type, payload) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    event.timestamp,
+                    event.entity_id,
+                    str(event.entity_type),
+                    event_type,
+                    payload,
+                ),
             )
 
     async def query_events(
         self,
         *,
-        dispatch_id: str | None = None,
+        entity_id: str | None = None,
+        entity_type: str | None = None,
         event_type: str | None = None,
         since: str | None = None,
         until: str | None = None,
@@ -112,9 +122,12 @@ class SqliteStore:
         clauses: list[str] = []
         params: list[str | int] = []
 
-        if dispatch_id is not None:
-            clauses.append("workflow_id = ?")
-            params.append(dispatch_id)
+        if entity_id is not None:
+            clauses.append("entity_id = ?")
+            params.append(entity_id)
+        if entity_type is not None:
+            clauses.append("entity_type = ?")
+            params.append(entity_type)
         if event_type is not None:
             clauses.append("event_type = ?")
             params.append(event_type)
@@ -133,7 +146,7 @@ class SqliteStore:
         total = row[0] if row else 0
 
         select_sql = (
-            "SELECT id, event_id, timestamp, workflow_id, "
+            "SELECT id, event_id, timestamp, entity_id, entity_type, "
             f"event_type, payload FROM events{where} "
             "ORDER BY id LIMIT ? OFFSET ?"
         )
@@ -145,7 +158,7 @@ class SqliteStore:
         skipped = 0
         for r in rows:
             try:
-                payload_data = json.loads(r[5])
+                payload_data = json.loads(r[6])
             except json.JSONDecodeError, TypeError:
                 skipped += 1
                 continue
@@ -153,8 +166,9 @@ class SqliteStore:
                 EventRow(
                     id=r[0],
                     timestamp=r[2],
-                    workflow_id=r[3],
-                    event_type=r[4],
+                    entity_id=r[3],
+                    entity_type=r[4],
+                    event_type=r[5],
                     payload=payload_data,
                 )
             )
@@ -185,7 +199,7 @@ class SqliteStore:
             )
             event = StepEnqueued(
                 timestamp=now,
-                workflow_id=dispatch_id,
+                entity_id=dispatch_id,
                 step_id=step_id,
                 step_type=StepType(step_type),
                 step_sequence=step_sequence,
@@ -194,9 +208,16 @@ class SqliteStore:
             event_payload = json.dumps(event.model_dump(mode="json"))
             await conn.execute(
                 "INSERT INTO events "
-                "(event_id, timestamp, workflow_id, event_type, payload) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, now, dispatch_id, "StepEnqueued", event_payload),
+                "(event_id, timestamp, entity_id, entity_type, event_type, payload) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    now,
+                    dispatch_id,
+                    str(event.entity_type),
+                    "StepEnqueued",
+                    event_payload,
+                ),
             )
             await conn.execute(
                 "UPDATE dispatch_projection "
@@ -343,9 +364,16 @@ class SqliteStore:
                     evt_payload = json.dumps(evt.model_dump(mode="json"))
                     await conn.execute(
                         "INSERT INTO events "
-                        "(event_id, timestamp, workflow_id, event_type, payload) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (evt_id, evt.timestamp, evt.workflow_id, evt_type, evt_payload),
+                        "(event_id, timestamp, entity_id, entity_type, event_type, payload) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            evt_id,
+                            evt.timestamp,
+                            evt.entity_id,
+                            str(evt.entity_type),
+                            evt_type,
+                            evt_payload,
+                        ),
                     )
             # 3. Enqueue: insert next step
             await conn.execute(
@@ -367,7 +395,7 @@ class SqliteStore:
             # 4. Append StepEnqueued event
             event = StepEnqueued(
                 timestamp=now,
-                workflow_id=next_dispatch_id,
+                entity_id=next_dispatch_id,
                 step_id=next_step_id,
                 step_type=StepType(next_step_type),
                 step_sequence=next_step_sequence,
@@ -376,9 +404,16 @@ class SqliteStore:
             event_payload = json.dumps(event.model_dump(mode="json"))
             await conn.execute(
                 "INSERT INTO events "
-                "(event_id, timestamp, workflow_id, event_type, payload) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, now, next_dispatch_id, "StepEnqueued", event_payload),
+                "(event_id, timestamp, entity_id, entity_type, event_type, payload) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    now,
+                    next_dispatch_id,
+                    str(event.entity_type),
+                    "StepEnqueued",
+                    event_payload,
+                ),
             )
             # 5. Update dispatch status to running (if still pending)
             await conn.execute(
@@ -457,7 +492,7 @@ class SqliteStore:
         conn = await self._ensure_conn()
         cursor = await conn.execute(
             "SELECT dispatch_id, mode, status, outcome, lane, "
-            "preserve_on_failure, dispatch_json, created_at, updated_at "
+            "preserve_on_failure, dispatch_json, user_id, created_at, updated_at "
             "FROM dispatch_projection WHERE dispatch_id = ?",
             (dispatch_id,),
         )
@@ -484,6 +519,9 @@ class SqliteStore:
         if filters.project is not None:
             clauses.append("json_extract(dispatch_json, '$.project') = ?")
             params.append(filters.project)
+        if filters.user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(filters.user_id)
         if filters.since is not None:
             clauses.append("created_at >= ?")
             params.append(filters.since)
@@ -494,7 +532,7 @@ class SqliteStore:
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         query = (
             "SELECT dispatch_id, mode, status, outcome, lane, "
-            "preserve_on_failure, dispatch_json, created_at, updated_at "
+            "preserve_on_failure, dispatch_json, user_id, created_at, updated_at "
             f"FROM dispatch_projection{where} "
             "ORDER BY created_at DESC LIMIT ? OFFSET ?"
         )
@@ -567,6 +605,7 @@ class SqliteStore:
         lane: Lane,
         preserve_on_failure: bool,
         dispatch_json: str,
+        user_id: str = "",
     ) -> None:
         """Insert a new dispatch projection row."""
         now = _now()
@@ -574,15 +613,16 @@ class SqliteStore:
             await conn.execute(
                 "INSERT INTO dispatch_projection "
                 "(dispatch_id, mode, status, lane, "
-                "preserve_on_failure, dispatch_json, "
+                "preserve_on_failure, dispatch_json, user_id, "
                 "created_at, updated_at) "
-                "VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
                 (
                     dispatch_id,
                     str(mode),
                     str(lane),
                     int(preserve_on_failure),
                     dispatch_json,
+                    user_id,
                     now,
                     now,
                 ),
@@ -611,6 +651,270 @@ class SqliteStore:
                 (str(status), str(outcome) if outcome else None, now, dispatch_id),
             )
 
+    # ── AuthStore: Users ──────────────────────────────────────────────────
+
+    async def create_user(
+        self,
+        *,
+        user_id: str,
+        name: str,
+        email: str | None,
+        role: str,
+    ) -> None:
+        """Insert a new user projection row."""
+        now = _now()
+        async with self._transaction() as conn:
+            await conn.execute(
+                "INSERT INTO user_projection "
+                "(user_id, name, email, role, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 1, ?, ?)",
+                (user_id, name, email, role, now, now),
+            )
+
+    async def get_user(self, user_id: str) -> UserView | None:
+        """Look up a user by ID."""
+        conn = await self._ensure_conn()
+        row = list(
+            await conn.execute_fetchall(
+                "SELECT user_id, name, email, role, is_active, created_at, updated_at "
+                "FROM user_projection WHERE user_id = ?",
+                (user_id,),
+            )
+        )
+        if not row:
+            return None
+        r = row[0]
+        return UserView(
+            user_id=str(r[0]),
+            name=str(r[1]),
+            email=str(r[2]) if r[2] else None,
+            role=str(r[3]),
+            is_active=bool(r[4]),
+            created_at=str(r[5]),
+            updated_at=str(r[6]),
+        )
+
+    async def list_users(self, *, limit: int = 50, offset: int = 0) -> list[UserView]:
+        """List users with pagination."""
+        conn = await self._ensure_conn()
+        rows = await conn.execute_fetchall(
+            "SELECT user_id, name, email, role, is_active, created_at, updated_at "
+            "FROM user_projection ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        return [
+            UserView(
+                user_id=str(r[0]),
+                name=str(r[1]),
+                email=str(r[2]) if r[2] else None,
+                role=str(r[3]),
+                is_active=bool(r[4]),
+                created_at=str(r[5]),
+                updated_at=str(r[6]),
+            )
+            for r in rows
+        ]
+
+    async def update_user(
+        self,
+        user_id: str,
+        *,
+        name: str | None = None,
+        email: str | None = None,
+        role: str | None = None,
+    ) -> None:
+        """Update mutable user fields."""
+        sets: list[str] = []
+        params: list[str | None] = []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
+        if email is not None:
+            sets.append("email = ?")
+            params.append(email)
+        if role is not None:
+            sets.append("role = ?")
+            params.append(role)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        params.extend((_now(), user_id))
+        async with self._transaction() as conn:
+            await conn.execute(
+                f"UPDATE user_projection SET {', '.join(sets)} WHERE user_id = ?",
+                tuple(params),
+            )
+
+    async def deactivate_user(self, user_id: str) -> None:
+        """Set is_active = 0 on a user."""
+        async with self._transaction() as conn:
+            await conn.execute(
+                "UPDATE user_projection SET is_active = 0, updated_at = ? WHERE user_id = ?",
+                (_now(), user_id),
+            )
+
+    # ── AuthStore: API keys ──────────────────────────────────────────────
+
+    async def create_api_key(
+        self,
+        *,
+        key_id: str,
+        user_id: str,
+        name: str,
+        key_prefix: str,
+        key_hash: str,
+        scopes_json: str,
+        resource_limits_json: str | None,
+        expires_at: str | None,
+    ) -> None:
+        """Insert a new API key projection row."""
+        now = _now()
+        async with self._transaction() as conn:
+            await conn.execute(
+                "INSERT INTO api_key_projection "
+                "(key_id, user_id, name, key_prefix, key_hash, scopes, "
+                "resource_limits, created_at, expires_at, revoked_at, grace_replaced_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                (
+                    key_id,
+                    user_id,
+                    name,
+                    key_prefix,
+                    key_hash,
+                    scopes_json,
+                    resource_limits_json,
+                    now,
+                    expires_at,
+                ),
+            )
+
+    async def get_api_key_by_hash(self, key_hash: str) -> ApiKeyView | None:
+        """Look up an API key by its SHA-256 hash."""
+        conn = await self._ensure_conn()
+        rows = list(
+            await conn.execute_fetchall(
+                "SELECT key_id, user_id, name, key_prefix, key_hash, scopes, "
+                "resource_limits, created_at, expires_at, revoked_at, grace_replaced_by "
+                "FROM api_key_projection WHERE key_hash = ?",
+                (key_hash,),
+            )
+        )
+        if not rows:
+            return None
+        return self._row_to_api_key_view(rows[0])
+
+    async def get_api_key(self, key_id: str) -> ApiKeyView | None:
+        """Look up an API key by ID."""
+        conn = await self._ensure_conn()
+        rows = list(
+            await conn.execute_fetchall(
+                "SELECT key_id, user_id, name, key_prefix, key_hash, scopes, "
+                "resource_limits, created_at, expires_at, revoked_at, grace_replaced_by "
+                "FROM api_key_projection WHERE key_id = ?",
+                (key_id,),
+            )
+        )
+        if not rows:
+            return None
+        return self._row_to_api_key_view(rows[0])
+
+    async def list_api_keys(
+        self,
+        *,
+        user_id: str | None = None,
+        include_revoked: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[ApiKeyView]:
+        """List API keys, optionally filtered by user."""
+        clauses: list[str] = []
+        params: list[str | int] = []
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if not include_revoked:
+            clauses.append("revoked_at IS NULL")
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend([limit, offset])
+        conn = await self._ensure_conn()
+        rows = await conn.execute_fetchall(
+            "SELECT key_id, user_id, name, key_prefix, key_hash, scopes, "
+            "resource_limits, created_at, expires_at, revoked_at, grace_replaced_by "
+            f"FROM api_key_projection{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            tuple(params),
+        )
+        return [self._row_to_api_key_view(r) for r in rows]
+
+    async def revoke_api_key(self, key_id: str) -> None:
+        """Set revoked_at to now on an API key."""
+        async with self._transaction() as conn:
+            await conn.execute(
+                "UPDATE api_key_projection SET revoked_at = ? WHERE key_id = ?",
+                (_now(), key_id),
+            )
+
+    async def set_grace_replacement(
+        self, key_id: str, *, replaced_by: str, revoked_at: str
+    ) -> None:
+        """Mark old key as replaced during rotation."""
+        async with self._transaction() as conn:
+            await conn.execute(
+                "UPDATE api_key_projection "
+                "SET grace_replaced_by = ?, revoked_at = ? WHERE key_id = ?",
+                (replaced_by, revoked_at, key_id),
+            )
+
+    # ── AuthStore: Resource limit queries ────────────────────────────────
+
+    async def count_dispatches_since(self, user_id: str, since: str) -> int:
+        """Count dispatches created by user since timestamp."""
+        conn = await self._ensure_conn()
+        rows = list(
+            await conn.execute_fetchall(
+                "SELECT COUNT(*) FROM dispatch_projection WHERE user_id = ? AND created_at >= ?",
+                (user_id, since),
+            )
+        )
+        return int(str(rows[0][0]))
+
+    async def count_active_vms(self, user_id: str) -> int:
+        """Count VMs currently active for user.
+
+        A VM is active when its dispatch has a completed provision step
+        but no completed teardown step.
+        """
+        conn = await self._ensure_conn()
+        rows = list(
+            await conn.execute_fetchall(
+                "SELECT COUNT(DISTINCT sp1.dispatch_id) FROM step_projection sp1 "
+                "JOIN dispatch_projection dp ON sp1.dispatch_id = dp.dispatch_id "
+                "WHERE dp.user_id = ? "
+                "AND sp1.step_type = 'provision' AND sp1.status = 'completed' "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM step_projection sp2 "
+                "  WHERE sp2.dispatch_id = sp1.dispatch_id "
+                "  AND sp2.step_type = 'teardown' AND sp2.status = 'completed'"
+                ")",
+                (user_id,),
+            )
+        )
+        return int(str(rows[0][0]))
+
+    async def sum_cost_since(self, user_id: str, since: str) -> float:
+        """Sum USD cost from TokenUsageRecorded events for user since timestamp."""
+        conn = await self._ensure_conn()
+        rows = list(
+            await conn.execute_fetchall(
+                "SELECT COALESCE(SUM(CAST(json_extract(payload, '$.total_cost') AS REAL)), 0.0) "
+                "FROM events "
+                "WHERE entity_type = 'dispatch' AND event_type = 'TokenUsageRecorded' "
+                "AND entity_id IN (SELECT dispatch_id FROM dispatch_projection WHERE user_id = ?) "
+                "AND timestamp >= ?",
+                (user_id, since),
+            )
+        )
+        return float(str(rows[0][0]))
+
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
     async def close(self) -> None:
@@ -632,8 +936,35 @@ class SqliteStore:
             lane=Lane(str(row[4])),
             preserve_on_failure=bool(row[5]),
             dispatch=Dispatch.model_validate_json(dispatch_str),
+            user_id=str(row[7]) if row[7] else "",
+            created_at=str(row[8]),
+            updated_at=str(row[9]),
+        )
+
+    @staticmethod
+    def _row_to_api_key_view(row: aiosqlite.Row) -> ApiKeyView:  # type is tuple at runtime
+        scopes_raw = row[5]
+        if isinstance(scopes_raw, str):
+            scopes = json.loads(scopes_raw)
+        else:
+            scopes = list(scopes_raw) if scopes_raw else []
+        rl_raw = row[6]
+        resource_limits = None
+        if rl_raw:
+            rl_str = rl_raw if isinstance(rl_raw, str) else json.dumps(rl_raw)
+            resource_limits = ResourceLimits.model_validate_json(rl_str)
+        return ApiKeyView(
+            key_id=str(row[0]),
+            user_id=str(row[1]),
+            name=str(row[2]),
+            key_prefix=str(row[3]),
+            key_hash=str(row[4]),
+            scopes=scopes,
+            resource_limits=resource_limits,
             created_at=str(row[7]),
-            updated_at=str(row[8]),
+            expires_at=str(row[8]) if row[8] else None,
+            revoked_at=str(row[9]) if row[9] else None,
+            grace_replaced_by=str(row[10]) if row[10] else None,
         )
 
     @staticmethod

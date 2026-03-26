@@ -45,7 +45,8 @@ class EventStore(Protocol):
     async def query_events(
         self,
         *,
-        dispatch_id: str | None = None,
+        entity_id: str | None = None,
+        entity_type: str | None = None,
         event_type: str | None = None,
         since: str | None = None,
         until: str | None = None,
@@ -208,6 +209,7 @@ class StateStore(Protocol):
         lane: Lane,
         preserve_on_failure: bool,
         dispatch_json: str,
+        user_id: str = "",
     ) -> None:
         """Insert a new dispatch projection row."""
         ...

@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
 
+from tanren_api.auth import require_scope
 from tanren_api.dependencies import get_event_store, get_job_queue, get_state_store
 from tanren_api.models import (
     DispatchAccepted,
@@ -18,6 +19,7 @@ from tanren_api.models import (
     RunTeardownAccepted,
 )
 from tanren_api.services.run import RunService
+from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 router = APIRouter(tags=["run"])
@@ -32,6 +34,7 @@ def _run_service(
 @router.post("/run/provision")
 async def run_provision(
     body: ProvisionRequest,
+    auth: Annotated[AuthContext, Depends(require_scope("run:provision"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -41,13 +44,16 @@ async def run_provision(
     Returns:
         RunEnvironment: Provisioning environment with tracking env_id.
     """
-    return await _run_service(event_store, job_queue, state_store).provision(body)
+    return await _run_service(event_store, job_queue, state_store).provision(
+        body, user_id=auth.user.user_id
+    )
 
 
 @router.post("/run/{env_id}/execute")
 async def run_execute(
     env_id: Annotated[str, Path(description="Environment identifier")],
     body: ExecuteRequest,
+    _auth: Annotated[AuthContext, Depends(require_scope("run:execute"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -63,6 +69,7 @@ async def run_execute(
 @router.post("/run/{env_id}/teardown")
 async def run_teardown(
     env_id: Annotated[str, Path(description="Environment identifier")],
+    _auth: Annotated[AuthContext, Depends(require_scope("run:teardown"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -78,6 +85,7 @@ async def run_teardown(
 @router.post("/run/full")
 async def run_full(
     body: RunFullRequest,
+    auth: Annotated[AuthContext, Depends(require_scope("run:full"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -87,12 +95,15 @@ async def run_full(
     Returns:
         DispatchAccepted: Accepted response with dispatch_id for polling.
     """
-    return await _run_service(event_store, job_queue, state_store).full(body)
+    return await _run_service(event_store, job_queue, state_store).full(
+        body, user_id=auth.user.user_id
+    )
 
 
 @router.get("/run/{env_id}/status")
 async def run_status(
     env_id: Annotated[str, Path(description="Environment identifier")],
+    _auth: Annotated[AuthContext, Depends(require_scope("run:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],

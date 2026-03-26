@@ -63,7 +63,7 @@ class TestFullDispatchLifecycle:
         # 2. Append DispatchCreated event
         event = DispatchCreated(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=Lane.IMPL,
@@ -138,7 +138,7 @@ class TestFullDispatchLifecycle:
         await store.append(
             DispatchCompleted(
                 timestamp="2026-01-01T00:01:00Z",
-                workflow_id="wf-test-1-100",
+                entity_id="wf-test-1-100",
                 outcome=Outcome.SUCCESS,
                 total_duration_secs=60,
             )
@@ -158,7 +158,7 @@ class TestFullDispatchLifecycle:
         assert all(s.status == StepStatus.COMPLETED for s in steps)
 
         # 13. Verify event trail
-        events = await store.query_events(dispatch_id="wf-test-1-100")
+        events = await store.query_events(entity_id="wf-test-1-100")
         assert events.total >= 5  # DispatchCreated + 3 StepEnqueued + DispatchCompleted
 
     async def test_concurrent_lane_isolation(self, store: SqliteStore) -> None:

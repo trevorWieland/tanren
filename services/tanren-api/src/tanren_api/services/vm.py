@@ -115,7 +115,7 @@ class VMService:
                     )
         return vms
 
-    async def provision(self, body: ProvisionRequest) -> VMProvisionAccepted:
+    async def provision(self, body: ProvisionRequest, user_id: str = "") -> VMProvisionAccepted:
         """Enqueue a provision step for a new VM.
 
         Returns:
@@ -145,11 +145,12 @@ class VMService:
             lane=lane,
             preserve_on_failure=True,
             dispatch_json=dispatch.model_dump_json(),
+            user_id=user_id,
         )
         await self._event_store.append(
             DispatchCreated(
                 timestamp=_now(),
-                workflow_id=workflow_id,
+                entity_id=workflow_id,
                 dispatch=dispatch,
                 mode=DispatchMode.MANUAL,
                 lane=lane,
@@ -269,7 +270,7 @@ class VMService:
 
         raise NotFoundError(f"VM {vm_id} not found")
 
-    async def dry_run(self, body: ProvisionRequest) -> VMProvisionAccepted:
+    async def dry_run(self, body: ProvisionRequest, user_id: str = "") -> VMProvisionAccepted:
         """Enqueue a DRY_RUN step and return the dispatch_id for polling.
 
         Returns:
@@ -296,11 +297,12 @@ class VMService:
             lane=lane,
             preserve_on_failure=False,
             dispatch_json=dispatch.model_dump_json(),
+            user_id=user_id,
         )
         await self._event_store.append(
             DispatchCreated(
                 timestamp=_now(),
-                workflow_id=workflow_id,
+                entity_id=workflow_id,
                 dispatch=dispatch,
                 mode=DispatchMode.MANUAL,
                 lane=lane,

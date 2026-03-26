@@ -54,23 +54,23 @@ class TestEventStoreAppend:
         dispatch = _make_dispatch()
         event = DispatchCreated(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=Lane.IMPL,
         )
         await store.append(event)
 
-        result = await store.query_events(dispatch_id="wf-test-1-100")
+        result = await store.query_events(entity_id="wf-test-1-100")
         assert result.total == 1
         assert len(result.events) == 1
         assert result.events[0].event_type == "DispatchCreated"
-        assert result.events[0].workflow_id == "wf-test-1-100"
+        assert result.events[0].entity_id == "wf-test-1-100"
 
     async def test_query_by_event_type(self, store: SqliteStore) -> None:
         event = DispatchCreated(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             dispatch=_make_dispatch(),
             mode=DispatchMode.AUTO,
             lane=Lane.IMPL,
@@ -87,7 +87,7 @@ class TestEventStoreAppend:
         for i in range(3):
             event = DispatchCreated(
                 timestamp=f"2026-01-0{i + 1}T00:00:00Z",
-                workflow_id=f"wf-test-{i}-100",
+                entity_id=f"wf-test-{i}-100",
                 dispatch=_make_dispatch(workflow_id=f"wf-test-{i}-100"),
                 mode=DispatchMode.AUTO,
                 lane=Lane.IMPL,
@@ -101,7 +101,7 @@ class TestEventStoreAppend:
         for i in range(5):
             event = DispatchCreated(
                 timestamp=f"2026-01-01T00:0{i}:00Z",
-                workflow_id=f"wf-test-{i}-100",
+                entity_id=f"wf-test-{i}-100",
                 dispatch=_make_dispatch(workflow_id=f"wf-test-{i}-100"),
                 mode=DispatchMode.AUTO,
                 lane=Lane.IMPL,
@@ -116,7 +116,7 @@ class TestEventStoreAppend:
         assert len(result.events) == 2
 
     async def test_query_empty(self, store: SqliteStore) -> None:
-        result = await store.query_events(dispatch_id="nonexistent")
+        result = await store.query_events(entity_id="nonexistent")
         assert result.total == 0
         assert result.events == []
 
@@ -457,7 +457,7 @@ class TestStoreLifecycle:
         # Append DispatchCreated event
         event = DispatchCreated(
             timestamp="2026-01-01T00:00:00Z",
-            workflow_id="wf-test-1-100",
+            entity_id="wf-test-1-100",
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=Lane.IMPL,
@@ -493,5 +493,5 @@ class TestStoreLifecycle:
         assert dispatch_view.status == DispatchStatus.RUNNING  # enqueue_step set it
 
         # Verify events
-        events = await store.query_events(dispatch_id="wf-test-1-100")
+        events = await store.query_events(entity_id="wf-test-1-100")
         assert events.total >= 2  # DispatchCreated + StepEnqueued

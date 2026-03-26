@@ -89,7 +89,7 @@ async def test_process_step_provision_auto_chains(tmp_path):
     await store.append(
         DispatchCreated(
             timestamp=datetime.now(UTC).isoformat(),
-            workflow_id=dispatch_id,
+            entity_id=dispatch_id,
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=lane,
@@ -182,7 +182,7 @@ async def test_full_auto_chain_provision_execute_teardown(tmp_path):
     await store.append(
         DispatchCreated(
             timestamp=datetime.now(UTC).isoformat(),
-            workflow_id=dispatch_id,
+            entity_id=dispatch_id,
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=lane,
@@ -263,7 +263,7 @@ async def test_process_step_provision_manual_no_chain(tmp_path):
     await store.append(
         DispatchCreated(
             timestamp=datetime.now(UTC).isoformat(),
-            workflow_id=dispatch_id,
+            entity_id=dispatch_id,
             dispatch=dispatch,
             mode=DispatchMode.MANUAL,
             lane=lane,
@@ -354,7 +354,7 @@ async def test_execute_with_token_usage_emits_event(tmp_path):
     await store.append(
         DispatchCreated(
             timestamp=datetime.now(UTC).isoformat(),
-            workflow_id=dispatch_id,
+            entity_id=dispatch_id,
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=lane,
@@ -380,7 +380,7 @@ async def test_execute_with_token_usage_emits_event(tmp_path):
     await worker.process_step(step)
 
     # Verify TokenUsageRecorded event was emitted
-    events = await store.query_events(dispatch_id=dispatch_id)
+    events = await store.query_events(entity_id=dispatch_id)
     event_types = [e.event_type for e in events.events]
     assert "TokenUsageRecorded" in event_types
 
@@ -395,7 +395,7 @@ async def test_execute_with_token_usage_emits_event(tmp_path):
     assert view is not None
     assert view.status == DispatchStatus.COMPLETED
 
-    all_events = await store.query_events(dispatch_id=dispatch_id)
+    all_events = await store.query_events(entity_id=dispatch_id)
     all_types = [e.event_type for e in all_events.events]
     assert "DispatchCompleted" in all_types
 
@@ -442,7 +442,7 @@ async def test_execute_failure_enqueues_cleanup_teardown(tmp_path):
     await store.append(
         DispatchCreated(
             timestamp=datetime.now(UTC).isoformat(),
-            workflow_id=dispatch_id,
+            entity_id=dispatch_id,
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=lane,

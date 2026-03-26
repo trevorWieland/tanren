@@ -148,7 +148,7 @@ async def _enqueue_dispatch(
     await store.append(
         DispatchCreated(
             timestamp=_now(),
-            workflow_id=dispatch_id,
+            entity_id=dispatch_id,
             dispatch=dispatch,
             mode=mode,
             lane=lane,

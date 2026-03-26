@@ -115,6 +115,7 @@ class EventsService:
         self,
         *,
         workflow_id: str | None = None,
+        entity_type: str | None = None,
         event_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -125,7 +126,8 @@ class EventsService:
             PaginatedEvents: Paginated list of matching events.
         """
         result = await self._event_store.query_events(
-            dispatch_id=workflow_id,
+            entity_id=workflow_id,
+            entity_type=entity_type,
             event_type=event_type,
             limit=limit,
             offset=offset,

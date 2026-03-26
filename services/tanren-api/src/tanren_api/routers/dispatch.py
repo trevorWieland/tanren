@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi import Path as PathParam
 
+from tanren_api.auth import require_scope
 from tanren_api.dependencies import get_event_store, get_job_queue, get_state_store
 from tanren_api.models import (
     DispatchAccepted,
@@ -15,6 +16,7 @@ from tanren_api.models import (
     DispatchRequest,
 )
 from tanren_api.services.dispatch import DispatchService
+from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
 router = APIRouter(tags=["dispatch"])
@@ -23,6 +25,7 @@ router = APIRouter(tags=["dispatch"])
 @router.post("/dispatch")
 async def create_dispatch(
     body: DispatchRequest,
+    auth: Annotated[AuthContext, Depends(require_scope("dispatch:create"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -33,12 +36,13 @@ async def create_dispatch(
         DispatchAccepted: Accepted response with workflow ID.
     """
     service = DispatchService(event_store=event_store, job_queue=job_queue, state_store=state_store)
-    return await service.create(body)
+    return await service.create(body, user_id=auth.user.user_id)
 
 
 @router.get("/dispatch/{dispatch_id}")
 async def get_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
+    _auth: Annotated[AuthContext, Depends(require_scope("dispatch:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -55,6 +59,7 @@ async def get_dispatch(
 @router.delete("/dispatch/{dispatch_id}")
 async def cancel_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
+    _auth: Annotated[AuthContext, Depends(require_scope("dispatch:cancel"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],

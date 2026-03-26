@@ -67,7 +67,7 @@ class TestDispatchServiceCreate:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
         accepted = await svc.create(_make_request())
 
-        events = await store.query_events(dispatch_id=accepted.dispatch_id)
+        events = await store.query_events(entity_id=accepted.dispatch_id)
         types = [e.event_type for e in events.events]
         assert "DispatchCreated" in types
         assert "StepEnqueued" in types

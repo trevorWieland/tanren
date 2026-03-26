@@ -42,7 +42,7 @@ class DispatchService:
         self._state_store = state_store
         self._config = config
 
-    async def create(self, body: DispatchRequest) -> DispatchAccepted:
+    async def create(self, body: DispatchRequest, user_id: str = "") -> DispatchAccepted:
         """Accept a new dispatch request by enqueuing a provision step.
 
         The caller must provide ``resolved_profile`` in the request body.
@@ -58,6 +58,7 @@ class DispatchService:
             job_queue=self._job_queue,
             state_store=self._state_store,
             config=self._config,
+            user_id=user_id,
         )
 
     async def get(self, dispatch_id: str) -> DispatchDetail:

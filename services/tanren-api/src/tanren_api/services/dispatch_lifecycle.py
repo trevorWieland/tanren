@@ -61,6 +61,7 @@ async def create_dispatch_from_request(
     job_queue: JobQueue,
     state_store: StateStore,
     config: WorkerConfig | None = None,
+    user_id: str = "",
 ) -> DispatchAccepted:
     """Create a dispatch by appending events and enqueuing the first step.
 
@@ -116,12 +117,13 @@ async def create_dispatch_from_request(
         lane=lane,
         preserve_on_failure=dispatch.preserve_on_failure,
         dispatch_json=dispatch.model_dump_json(),
+        user_id=user_id,
     )
 
     await event_store.append(
         DispatchCreated(
             timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            workflow_id=workflow_id,
+            entity_id=workflow_id,
             dispatch=dispatch,
             mode=DispatchMode.AUTO,
             lane=lane,

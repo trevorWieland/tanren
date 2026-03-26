@@ -23,6 +23,7 @@ class DispatchView:
     lane: Lane
     preserve_on_failure: bool
     dispatch: Dispatch
+    user_id: str
     created_at: str
     updated_at: str
 
@@ -64,6 +65,7 @@ class DispatchListFilter:
     status: DispatchStatus | None = None
     lane: Lane | None = None
     project: str | None = None
+    user_id: str | None = None
     since: str | None = None
     until: str | None = None
     limit: int = field(default=50)
@@ -76,7 +78,8 @@ class EventRow:
 
     id: int
     timestamp: str
-    workflow_id: str
+    entity_id: str
+    entity_type: str
     event_type: str
     payload: dict[str, JsonValue]
 

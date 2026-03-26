@@ -43,6 +43,14 @@ class NotImplementedAPIError(TanrenAPIError):
         super().__init__(501, "not_implemented", detail)
 
 
+class ForbiddenError(TanrenAPIError):
+    """Insufficient permissions (403)."""
+
+    def __init__(self, detail: str = "Forbidden") -> None:
+        """Initialize with optional detail message."""
+        super().__init__(403, "forbidden", detail)
+
+
 class ConflictError(TanrenAPIError):
     """Conflict (409)."""
 
