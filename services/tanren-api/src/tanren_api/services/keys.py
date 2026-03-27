@@ -53,7 +53,12 @@ class KeyService:
         Raises:
             ForbiddenError: If the caller lacks a requested scope.
         """
-        validate_scopes(scopes)
+        try:
+            validate_scopes(scopes)
+        except ValueError as e:
+            from tanren_api.errors import ValidationError
+
+            raise ValidationError(str(e)) from e
 
         # Verify target user exists
         user = await self._auth_store.get_user(user_id)

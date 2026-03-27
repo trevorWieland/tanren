@@ -15,7 +15,7 @@ from starlette.applications import Starlette
 from tanren_api.auth import resolve_auth
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
 from tanren_api.mcp_auth import MCPApiKeyAuth
-from tanren_api.mcp_server import mcp, set_services, set_worker_config
+from tanren_api.mcp_server import mcp, set_auth_store, set_services, set_worker_config
 from tanren_api.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 from tanren_api.routers import config as config_router_mod
 from tanren_api.routers import dispatch as dispatch_router_mod
@@ -74,6 +74,9 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
             from tanren_api.auth_seed import seed_legacy_admin_key
 
             await seed_legacy_admin_key(store, store, settings.api_key)
+
+        # Wire auth store for MCP resource limit checks
+        set_auth_store(store)
 
         # Register MCP auth middleware (clear any stale instances first)
         mcp.middleware[:] = [m for m in mcp.middleware if not isinstance(m, MCPApiKeyAuth)]

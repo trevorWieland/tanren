@@ -7,7 +7,7 @@ from tanren_core. Only models that are genuinely API-specific live here.
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tanren_core.adapters.events import (
     BootstrapCompleted,
@@ -590,6 +590,18 @@ class CreateKeyRequest(BaseModel):
         default=None, description="Optional resource ceilings"
     )
     expires_at: str | None = Field(default=None, description="ISO 8601 expiry (optional)")
+
+    @model_validator(mode="after")
+    def _validate_expires_at(self) -> CreateKeyRequest:
+        if self.expires_at is not None:
+            from datetime import datetime
+
+            try:
+                datetime.fromisoformat(self.expires_at)
+            except ValueError as e:
+                msg = f"expires_at must be a valid ISO 8601 timestamp: {e}"
+                raise ValueError(msg) from e
+        return self
 
 
 class CreateKeyResponse(BaseModel):

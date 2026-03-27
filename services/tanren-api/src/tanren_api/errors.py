@@ -43,6 +43,14 @@ class NotImplementedAPIError(TanrenAPIError):
         super().__init__(501, "not_implemented", detail)
 
 
+class ValidationError(TanrenAPIError):
+    """Client input validation error (400)."""
+
+    def __init__(self, detail: str = "Validation error") -> None:
+        """Initialize with optional detail message."""
+        super().__init__(400, "validation_error", detail)
+
+
 class ForbiddenError(TanrenAPIError):
     """Insufficient permissions (403)."""
 

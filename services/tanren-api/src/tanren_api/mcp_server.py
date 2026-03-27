@@ -77,6 +77,7 @@ class _MCPServiceRegistry:
 
 _registry: _MCPServiceRegistry | None = None
 _worker_config: WorkerConfig | None = None
+_auth_store_ref: object | None = None
 
 
 def set_services(
@@ -106,6 +107,43 @@ def _svc() -> _MCPServiceRegistry:
     """Get the service registry. Raises AssertionError if not initialized."""
     assert _registry is not None, "MCP services not initialized — call set_services() first"
     return _registry
+
+
+def set_auth_store(store: object) -> None:
+    """Wire the auth store for resource limit checks in MCP tools."""
+    global _auth_store_ref
+    _auth_store_ref = store
+
+
+async def _check_mcp_resource_limits(user_id: str, action: str) -> None:
+    """Check resource limits for MCP tool calls (no-op if auth store not wired)."""
+    store = _auth_store_ref
+    if store is None or not user_id:
+        return
+    from tanren_core.store.auth_protocols import AuthStore
+    from tanren_core.store.auth_views import AuthContext
+
+    assert isinstance(store, AuthStore)
+    auth_store: AuthStore = store
+    user = await auth_store.get_user(user_id)
+    if user is None:
+        return
+    # Look up the key to get resource limits
+
+    # Build a minimal AuthContext for limit checking
+    keys = await auth_store.list_api_keys(user_id=user_id, limit=1)
+    if not keys:
+        return
+    key = keys[0]
+    auth = AuthContext(
+        user=user,
+        key=key,
+        scopes=frozenset(key.scopes),
+        resource_limits=key.resource_limits,
+    )
+    from tanren_api.limits import check_resource_limits
+
+    await check_resource_limits(auth, auth_store, action)
 
 
 def set_worker_config(config: WorkerConfig) -> None:
@@ -230,7 +268,9 @@ async def dispatch_create(
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
-    return await _svc().dispatch.create(body, user_id=mcp_user_id_var.get())
+    user_id = mcp_user_id_var.get()
+    await _check_mcp_resource_limits(user_id, "dispatch")
+    return await _svc().dispatch.create(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -316,7 +356,9 @@ async def vm_provision(
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
-    return await _svc().vm.provision(body, user_id=mcp_user_id_var.get())
+    user_id = mcp_user_id_var.get()
+    await _check_mcp_resource_limits(user_id, "vm_provision")
+    return await _svc().vm.provision(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -425,7 +467,9 @@ async def run_provision(
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
-    return await _svc().run.provision(body, user_id=mcp_user_id_var.get())
+    user_id = mcp_user_id_var.get()
+    await _check_mcp_resource_limits(user_id, "dispatch")
+    return await _svc().run.provision(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -550,7 +594,9 @@ async def run_full(
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
-    return await _svc().run.full(body, user_id=mcp_user_id_var.get())
+    user_id = mcp_user_id_var.get()
+    await _check_mcp_resource_limits(user_id, "dispatch")
+    return await _svc().run.full(body, user_id=user_id)
 
 
 @mcp.tool(
