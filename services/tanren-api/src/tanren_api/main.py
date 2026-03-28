@@ -15,7 +15,13 @@ from starlette.applications import Starlette
 from tanren_api.auth import resolve_auth
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
 from tanren_api.mcp_auth import MCPApiKeyAuth
-from tanren_api.mcp_server import mcp, set_auth_store, set_services, set_worker_config
+from tanren_api.mcp_server import (
+    mcp,
+    set_auth_store,
+    set_config_resolver,
+    set_services,
+    set_worker_config,
+)
 from tanren_api.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 from tanren_api.routers import config as config_router_mod
 from tanren_api.routers import dispatch as dispatch_router_mod
@@ -87,6 +93,10 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
         try:
             wc = WorkerConfig.from_env()
             set_worker_config(wc)
+
+            from tanren_core.config_resolver import DiskConfigResolver
+
+            set_config_resolver(DiskConfigResolver(wc.github_dir))
             logger.info("MCP dispatch resolution configured from WM_* env vars")
         except ValueError:
             logger.warning(

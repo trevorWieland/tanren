@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from tanren_api.models import DispatchAccepted, DispatchRequest
 from tanren_core.roles import AuthMode
@@ -15,44 +14,6 @@ from tanren_core.store.events import DispatchCreated
 from tanren_core.store.payloads import ProvisionStepPayload
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
-if TYPE_CHECKING:
-    from tanren_core.worker_config import WorkerConfig
-
-
-def _resolve_cli_auth(
-    body: DispatchRequest,
-    config: WorkerConfig | None = None,
-) -> tuple[Cli, AuthMode, str | None]:
-    """Resolve cli/auth/model from roles.yml when not explicitly provided.
-
-    Args:
-        body: The dispatch request.
-        config: WorkerConfig for agent tool resolution. Required when cli is None.
-
-    Returns:
-        Tuple of (cli, auth, model).
-    """
-    cli = body.cli
-    auth = body.auth
-    model = body.model
-    if cli is None:
-        if body.phase == Phase.GATE:
-            # Gate always uses bash — no roles.yml lookup needed
-            cli = Cli.BASH
-            auth = auth or AuthMode.API_KEY
-        else:
-            if config is None:
-                raise RuntimeError("WorkerConfig required for CLI auto-resolution")
-            from tanren_core.dispatch_resolver import resolve_agent_tool
-
-            tool = resolve_agent_tool(config, body.phase)
-            cli = tool.cli
-            auth = auth or tool.auth
-            model = model or tool.model
-    if auth is None:
-        auth = AuthMode.API_KEY
-    return cli, auth, model
-
 
 async def create_dispatch_from_request(
     *,
@@ -60,13 +21,14 @@ async def create_dispatch_from_request(
     event_store: EventStore,
     job_queue: JobQueue,
     state_store: StateStore,
-    config: WorkerConfig | None = None,
     user_id: str = "",
 ) -> DispatchAccepted:
     """Create a dispatch by appending events and enqueuing the first step.
 
-    This is the core dispatch-creation logic shared by DispatchService.create()
-    and RunService.full().
+    Expects a fully-resolved ``DispatchRequest`` — cli, auth, model, and
+    gate_cmd must already be set (by the dispatch builder or the caller).
+    Profile, project_env, cloud_secrets, and required_secrets must also
+    be pre-resolved.
 
     NOTE: These three operations (create_dispatch_projection, append
     DispatchCreated, enqueue_step) each run in separate transactions.
@@ -78,16 +40,13 @@ async def create_dispatch_from_request(
     issue = body.issue if body.issue != "0" else str(epoch)
     workflow_id = f"wf-{body.project}-{issue}-{epoch}"
 
-    cli, auth, model = _resolve_cli_auth(body, config)
-
-    # Resolve gate_cmd from profile defaults when not explicitly provided
-    gate_cmd = body.gate_cmd
-    if body.phase == Phase.GATE and not gate_cmd and config is not None:
-        from tanren_core.dispatch_resolver import resolve_gate_cmd
-
-        gate_cmd = resolve_gate_cmd(
-            config, body.project, body.resolved_profile.name, body.phase, gate_cmd
-        )
+    # Fallback CLI/auth resolution for REST API callers that don't use the builder
+    cli = body.cli
+    auth = body.auth
+    if cli is None:
+        cli = Cli.BASH if body.phase == Phase.GATE else Cli.CLAUDE
+    if auth is None:
+        auth = AuthMode.API_KEY
 
     dispatch = Dispatch(
         workflow_id=workflow_id,
@@ -97,11 +56,11 @@ async def create_dispatch_from_request(
         spec_folder=body.spec_folder,
         cli=cli,
         auth=auth,
-        model=model,
+        model=body.model,
         timeout=body.timeout,
         environment_profile=body.resolved_profile.name,
         context=body.context,
-        gate_cmd=gate_cmd,
+        gate_cmd=body.gate_cmd,
         resolved_profile=body.resolved_profile,
         preserve_on_failure=body.preserve_on_failure,
         project_env=body.project_env,

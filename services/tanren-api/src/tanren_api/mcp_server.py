@@ -33,13 +33,7 @@ from tanren_api.models import (
     VMReleaseConfirmed,
     VMSummary,
 )
-from tanren_core.dispatch_resolver import (
-    resolve_agent_tool,
-    resolve_cloud_secrets,
-    resolve_profile,
-    resolve_project_env,
-    resolve_required_secrets,
-)
+from tanren_core.dispatch_builder import resolve_dispatch_inputs, resolve_provision_inputs
 from tanren_core.schemas import AuthMode, Cli, Phase
 from tanren_core.worker_config import WorkerConfig
 
@@ -53,6 +47,7 @@ if TYPE_CHECKING:
         RunService,
         VMService,
     )
+    from tanren_core.config_resolver import ConfigResolver
 
 mcp = FastMCP("tanren")
 
@@ -77,6 +72,7 @@ class _MCPServiceRegistry:
 
 _registry: _MCPServiceRegistry | None = None
 _worker_config: WorkerConfig | None = None
+_resolver: ConfigResolver | None = None
 _auth_store_ref: object | None = None
 
 
@@ -161,6 +157,21 @@ def _config() -> WorkerConfig:
     return _worker_config
 
 
+def set_config_resolver(resolver: ConfigResolver) -> None:
+    """Wire the ConfigResolver for dispatch/provision resolution."""
+    global _resolver
+    _resolver = resolver
+
+
+def _get_resolver() -> ConfigResolver:
+    """Get the config resolver. Raises if not wired during lifespan."""
+    if _resolver is None:
+        raise RuntimeError(
+            "ConfigResolver not wired — ensure set_config_resolver() is called during lifespan"
+        )
+    return _resolver
+
+
 # ---------------------------------------------------------------------------
 # Health tools (no auth required)
 # ---------------------------------------------------------------------------
@@ -233,38 +244,35 @@ async def dispatch_create(
     """
     from tanren_api.models import DispatchRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
-
-    # Auto-resolve cli/auth from roles.yml when not provided
-    resolved_cli = cli
-    resolved_auth = auth
-    resolved_model = model
-    if resolved_cli is None:
-        tool = resolve_agent_tool(config, phase)
-        resolved_cli = tool.cli
-        resolved_auth = resolved_auth or tool.auth
-        resolved_model = resolved_model or tool.model
-    if resolved_auth is None:
-        resolved_auth = AuthMode.API_KEY
-
+    resolved = await resolve_dispatch_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        phase=phase,
+        branch=branch,
+        environment_profile=environment_profile,
+        cli=cli,
+        auth=auth,
+        model=model,
+        gate_cmd=gate_cmd,
+    )
     body = DispatchRequest(
         project=project,
         phase=phase,
         branch=branch,
         spec_folder=spec_folder,
-        cli=resolved_cli,
-        auth=resolved_auth,
-        model=resolved_model,
+        cli=resolved.cli,
+        auth=resolved.auth,
+        model=resolved.model,
         timeout=timeout,
         context=context,
-        gate_cmd=gate_cmd,
+        gate_cmd=resolved.gate_cmd,
         issue=issue,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
@@ -343,16 +351,21 @@ async def vm_provision(
     """
     from tanren_api.models import ProvisionRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
+    resolved = await resolve_provision_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+    )
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
@@ -406,16 +419,21 @@ async def vm_dry_run(
     """
     from tanren_api.models import ProvisionRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
+    resolved = await resolve_provision_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+    )
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
@@ -454,16 +472,21 @@ async def run_provision(
     """
     from tanren_api.models import ProvisionRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
+    resolved = await resolve_provision_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+    )
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
@@ -560,37 +583,33 @@ async def run_full(
     """
     from tanren_api.models import RunFullRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
-
-    # Auto-resolve cli/auth/model from roles.yml when not provided
-    resolved_cli = cli
-    resolved_auth = auth
-    resolved_model: str | None = None
-    if resolved_cli is None:
-        tool = resolve_agent_tool(config, phase)
-        resolved_cli = tool.cli
-        resolved_auth = resolved_auth or tool.auth
-        resolved_model = tool.model
-    if resolved_auth is None:
-        resolved_auth = AuthMode.API_KEY
-
+    resolved = await resolve_dispatch_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        phase=phase,
+        branch=branch,
+        environment_profile=environment_profile,
+        cli=cli,
+        auth=auth,
+        gate_cmd=gate_cmd,
+    )
     body = RunFullRequest(
         project=project,
         branch=branch,
         spec_path=spec_path,
         phase=phase,
-        cli=resolved_cli,
-        auth=resolved_auth,
-        model=resolved_model,
+        cli=resolved.cli,
+        auth=resolved.auth,
+        model=resolved.model,
         environment_profile=environment_profile,
         timeout=timeout,
         context=context,
-        gate_cmd=gate_cmd,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        gate_cmd=resolved.gate_cmd,
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 

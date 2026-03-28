@@ -10,7 +10,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from tanren_api.mcp_auth import MCPApiKeyAuth
-from tanren_api.mcp_server import mcp, set_services, set_worker_config
+from tanren_api.mcp_server import mcp, set_config_resolver, set_services, set_worker_config
 from tanren_api.services import (
     ConfigService,
     DispatchService,
@@ -70,6 +70,10 @@ def _seed_mcp_services(mcp_store, tmp_path: Path):
         worktree_registry_path=str(tmp_path / "worktrees.json"),
     )
     set_worker_config(config)
+
+    from tanren_core.config_resolver import DiskConfigResolver
+
+    set_config_resolver(DiskConfigResolver(str(github_dir)))
 
     settings = APISettings(api_key=TEST_API_KEY)
 

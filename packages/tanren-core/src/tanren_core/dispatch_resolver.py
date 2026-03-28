@@ -145,20 +145,36 @@ def resolve_project_env(config: WorkerConfig, project: str) -> dict[str, str]:
 async def resolve_cloud_secrets(config: WorkerConfig, project: str) -> dict[str, str]:
     """Fetch cloud secrets for vars with ``source: "secret:X"`` in tanren.yml.
 
+    Compatibility wrapper — reads tanren.yml from disk then delegates to
+    :func:`resolve_cloud_secrets_from_config`.
+
     Returns:
         Dict of secret name to value for vars with cloud secret sources.
     """
     tanren_yml = Path(config.github_dir) / project / "tanren.yml"
     if not tanren_yml.exists():
         return {}
-
-    from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415
-
     data = yaml.safe_load(tanren_yml.read_text()) or {}
     if not isinstance(data, dict):
         return {}
+    return await resolve_cloud_secrets_from_config(data)
+
+
+async def resolve_cloud_secrets_from_config(tanren_config: dict) -> dict[str, str]:
+    """Fetch cloud secrets given pre-loaded tanren.yml data.
+
+    Looks for env vars with ``source: "secret:X"`` declarations and fetches
+    their values from the configured secret provider.
+
+    Returns:
+        Dict of secret name to value for vars with cloud secret sources.
+    """
+    from tanren_core.env.schema import TanrenConfig  # noqa: PLC0415
+
+    if not isinstance(tanren_config, dict):
+        return {}
     try:
-        tc = TanrenConfig.model_validate(data)
+        tc = TanrenConfig.model_validate(tanren_config)
     except Exception:
         return {}
 

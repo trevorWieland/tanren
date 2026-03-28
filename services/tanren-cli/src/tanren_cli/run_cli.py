@@ -16,13 +16,11 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from tanren_core.builder import build_execution_environment
-from tanren_core.dispatch_resolver import (
-    resolve_agent_tool,
-    resolve_cloud_secrets,
-    resolve_gate_cmd,
-    resolve_profile,
-    resolve_project_env,
-    resolve_required_secrets,
+from tanren_core.config_resolver import DiskConfigResolver
+from tanren_core.dispatch_builder import (
+    ResolvedInputs,
+    resolve_dispatch_inputs,
+    resolve_provision_inputs,
 )
 from tanren_core.schemas import Dispatch, Phase
 from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
@@ -40,7 +38,6 @@ from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from tanren_core.env.environment_schema import EnvironmentProfile
-    from tanren_core.roles import AgentTool
     from tanren_core.store.sqlite import SqliteStore
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
@@ -54,31 +51,6 @@ def _load_config() -> WorkerConfig:
         raise typer.Exit(code=1) from exc
 
 
-def _resolve_gate_cmd_for_phase(
-    *,
-    config: WorkerConfig,
-    project: str,
-    environment_profile: str,
-    phase: Phase,
-    gate_cmd: str | None,
-) -> str | None:
-    """CLI wrapper around ``resolve_gate_cmd``.
-
-    Converts ValueError to typer.Exit for CLI error handling.
-
-    Returns:
-        Resolved gate command string, or the original gate_cmd for non-gate phases.
-
-    Raises:
-        typer.Exit: If the gate command is missing or empty.
-    """
-    try:
-        return resolve_gate_cmd(config, project, environment_profile, phase, gate_cmd)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-
-
 def _build_dispatch(
     *,
     project: str,
@@ -89,12 +61,7 @@ def _build_dispatch(
     workflow_id: str,
     timeout: int,
     context: str | None,
-    gate_cmd: str | None,
-    tool: AgentTool,
-    resolved_profile: EnvironmentProfile,
-    project_env: dict[str, str] | None = None,
-    cloud_secrets: dict[str, str] | None = None,
-    required_secrets: tuple[str, ...] = (),
+    resolved: ResolvedInputs,
 ) -> Dispatch:
     return Dispatch(
         workflow_id=workflow_id,
@@ -102,17 +69,17 @@ def _build_dispatch(
         project=project,
         spec_folder=spec_path,
         branch=branch,
-        cli=tool.cli,
-        auth=tool.auth,
-        model=tool.model,
-        gate_cmd=gate_cmd,
+        cli=resolved.cli,
+        auth=resolved.auth,
+        model=resolved.model,
+        gate_cmd=resolved.gate_cmd,
         context=context,
         timeout=timeout,
         environment_profile=environment_profile,
-        resolved_profile=resolved_profile,
-        project_env=project_env or {},
-        cloud_secrets=cloud_secrets or {},
-        required_secrets=required_secrets,
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
 
 
@@ -202,20 +169,28 @@ def run_provision(
 
     async def _run() -> None:
         config = _load_config()
-        profile = resolve_profile(config, project, environment_profile)
+        resolver = DiskConfigResolver(config.github_dir)
+
+        try:
+            resolved = await resolve_provision_inputs(
+                resolver=resolver,
+                config=config,
+                project=project,
+                branch=branch,
+                environment_profile=environment_profile,
+            )
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
 
         db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
-        env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+        env_factory, execution_env, _vm_store = _make_env_factory(config, resolved.profile)
 
         try:
             workflow_id = (
                 f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
             )
-            tool = resolve_agent_tool(config, Phase.DO_TASK)
-            project_env = resolve_project_env(config, project)
-            cloud_secrets = await resolve_cloud_secrets(config, project)
-            required_secrets = resolve_required_secrets(profile)
             dispatch = _build_dispatch(
                 project=project,
                 phase=Phase.DO_TASK,
@@ -225,12 +200,7 @@ def run_provision(
                 workflow_id=workflow_id,
                 timeout=1800,
                 context=None,
-                gate_cmd=None,
-                tool=tool,
-                resolved_profile=profile,
-                project_env=project_env,
-                cloud_secrets=cloud_secrets,
-                required_secrets=required_secrets,
+                resolved=resolved,
             )
 
             dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.MANUAL)
@@ -337,14 +307,25 @@ def run_execute(
             profile = dispatch_data.resolved_profile
             env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
 
-            tool = resolve_agent_tool(config, phase)
-            resolved_gate_cmd = _resolve_gate_cmd_for_phase(
-                config=config,
-                project=project,
-                environment_profile=dispatch_data.environment_profile,
-                phase=phase,
-                gate_cmd=gate_cmd,
-            )
+            resolver = DiskConfigResolver(config.github_dir)
+            try:
+                resolved = await resolve_dispatch_inputs(
+                    resolver=resolver,
+                    config=config,
+                    project=project,
+                    phase=phase,
+                    branch=dispatch_data.branch,
+                    environment_profile=dispatch_data.environment_profile,
+                    gate_cmd=gate_cmd,
+                    # Profile already resolved from stored dispatch
+                    resolved_profile=profile,
+                    # Env/secrets already in stored dispatch — skip re-resolution
+                    project_env={},
+                    cloud_secrets={},
+                )
+            except ValueError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=1) from exc
 
             exec_dispatch = _build_dispatch(
                 project=project,
@@ -355,9 +336,7 @@ def run_execute(
                 workflow_id=dispatch_id,
                 timeout=timeout,
                 context=context,
-                gate_cmd=resolved_gate_cmd,
-                tool=tool,
-                resolved_profile=profile,
+                resolved=resolved,
             )
 
             lane = cli_to_lane(exec_dispatch.cli)
@@ -518,28 +497,31 @@ def run_full(
 
     async def _run() -> None:
         config = _load_config()
-        profile = resolve_profile(config, project, environment_profile)
+        resolver = DiskConfigResolver(config.github_dir)
+
+        try:
+            resolved = await resolve_dispatch_inputs(
+                resolver=resolver,
+                config=config,
+                project=project,
+                phase=phase,
+                branch=branch,
+                environment_profile=environment_profile,
+                gate_cmd=gate_cmd,
+            )
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
 
         # Use persistent store so dispatches are auditable
         db_path = _store_path(config)
         store = await create_sqlite_store(db_path)
-        env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
+        env_factory, execution_env, _vm_store = _make_env_factory(config, resolved.profile)
 
         try:
             workflow_id = (
                 f"wf-{project}-cli-{uuid.uuid4().hex[:6]}-{int(datetime.now(UTC).timestamp())}"
             )
-            tool = resolve_agent_tool(config, phase)
-            resolved_gate_cmd = _resolve_gate_cmd_for_phase(
-                config=config,
-                project=project,
-                environment_profile=environment_profile,
-                phase=phase,
-                gate_cmd=gate_cmd,
-            )
-            project_env = resolve_project_env(config, project)
-            cloud_secrets = await resolve_cloud_secrets(config, project)
-            required_secrets = resolve_required_secrets(profile)
             dispatch = _build_dispatch(
                 project=project,
                 phase=phase,
@@ -549,12 +531,7 @@ def run_full(
                 workflow_id=workflow_id,
                 timeout=timeout,
                 context=context,
-                gate_cmd=resolved_gate_cmd,
-                tool=tool,
-                resolved_profile=profile,
-                project_env=project_env,
-                cloud_secrets=cloud_secrets,
-                required_secrets=required_secrets,
+                resolved=resolved,
             )
 
             dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.AUTO)

@@ -1538,6 +1538,72 @@ async def test_scoped_key_enforcement(wired_client):
 
 
 @pytest.mark.asyncio
+async def test_config_resolver_disk(tmp_path):
+    """DiskConfigResolver reads tanren.yml and .env from disk."""
+    from tanren_core.config_resolver import DiskConfigResolver
+
+    project_dir = tmp_path / "test-project"
+    project_dir.mkdir()
+    (project_dir / "tanren.yml").write_text("environment:\n  default:\n    type: local\n")
+    (project_dir / ".env").write_text("MY_VAR=hello\n")
+
+    resolver = DiskConfigResolver(str(tmp_path))
+    config = await resolver.load_tanren_config("test-project")
+    assert config["environment"]["default"]["type"] == "local"
+
+    env = await resolver.load_project_env("test-project")
+    assert env["MY_VAR"] == "hello"
+
+    # Missing project returns empty
+    assert await resolver.load_tanren_config("nonexistent") == {}
+    assert await resolver.load_project_env("nonexistent") == {}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_builder_resolve(tmp_path):
+    """Dispatch builder resolves inputs via ConfigResolver."""
+    from tanren_core.config_resolver import DiskConfigResolver
+    from tanren_core.dispatch_builder import resolve_dispatch_inputs, resolve_provision_inputs
+    from tanren_core.worker_config import WorkerConfig
+
+    project_dir = tmp_path / "github" / "test-project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "tanren.yml").write_text(
+        "environment:\n  default:\n    type: local\n    gate_cmd: make test\n"
+    )
+
+    config = WorkerConfig(
+        ipc_dir=str(tmp_path / "ipc"),
+        github_dir=str(tmp_path / "github"),
+        data_dir=str(tmp_path / "data"),
+        db_url=str(tmp_path / "test.db"),
+        worktree_registry_path=str(tmp_path / "worktrees.json"),
+    )
+    resolver = DiskConfigResolver(config.github_dir)
+
+    # Test dispatch inputs
+    from tanren_core.schemas import Phase
+
+    result = await resolve_dispatch_inputs(
+        resolver=resolver,
+        config=config,
+        project="test-project",
+        phase=Phase.GATE,
+        branch="main",
+    )
+    assert result.profile.name == "default"
+    assert result.gate_cmd == "make test"
+
+    # Test provision inputs
+    result = await resolve_provision_inputs(
+        resolver=resolver,
+        config=config,
+        project="test-project",
+    )
+    assert result.profile.name == "default"
+
+
+@pytest.mark.asyncio
 async def test_legacy_admin_seed(wired_client):
     """Legacy API key seed creates admin user and key on startup."""
     client = wired_client

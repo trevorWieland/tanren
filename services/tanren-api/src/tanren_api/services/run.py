@@ -337,7 +337,6 @@ class RunService:
             event_store=self._event_store,
             job_queue=self._job_queue,
             state_store=self._state_store,
-            config=self._config,
             user_id=user_id,
         )
 
