@@ -19,6 +19,7 @@ from tanren_api.models import (
     RunStatus,
     RunTeardownAccepted,
 )
+from tanren_api.scopes import has_scope
 from tanren_api.services.run import RunService
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
@@ -57,7 +58,7 @@ async def run_provision(
 async def run_execute(
     env_id: Annotated[str, Path(description="Environment identifier")],
     body: ExecuteRequest,
-    _auth: Annotated[AuthContext, Depends(require_scope("run:execute"))],
+    auth: Annotated[AuthContext, Depends(require_scope("run:execute"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -67,13 +68,15 @@ async def run_execute(
     Returns:
         RunExecuteAccepted: Accepted response with env_id and dispatch_id.
     """
-    return await _run_service(event_store, job_queue, state_store).execute(env_id, body)
+    return await _run_service(event_store, job_queue, state_store).execute(
+        env_id, body, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )
 
 
 @router.post("/run/{env_id}/teardown")
 async def run_teardown(
     env_id: Annotated[str, Path(description="Environment identifier")],
-    _auth: Annotated[AuthContext, Depends(require_scope("run:teardown"))],
+    auth: Annotated[AuthContext, Depends(require_scope("run:teardown"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -83,7 +86,9 @@ async def run_teardown(
     Returns:
         RunTeardownAccepted: Confirmation that teardown has been initiated.
     """
-    return await _run_service(event_store, job_queue, state_store).teardown(env_id)
+    return await _run_service(event_store, job_queue, state_store).teardown(
+        env_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )
 
 
 @router.post("/run/full")
@@ -109,7 +114,7 @@ async def run_full(
 @router.get("/run/{env_id}/status")
 async def run_status(
     env_id: Annotated[str, Path(description="Environment identifier")],
-    _auth: Annotated[AuthContext, Depends(require_scope("run:read"))],
+    auth: Annotated[AuthContext, Depends(require_scope("run:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -119,4 +124,6 @@ async def run_status(
     Returns:
         RunStatus: Current status of the environment.
     """
-    return await _run_service(event_store, job_queue, state_store).status(env_id)
+    return await _run_service(event_store, job_queue, state_store).status(
+        env_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )

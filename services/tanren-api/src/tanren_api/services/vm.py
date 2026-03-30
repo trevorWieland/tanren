@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
 
 from tanren_api.errors import NotFoundError
 from tanren_api.models import (
@@ -16,24 +15,21 @@ from tanren_api.models import (
     VMStatus,
     VMSummary,
 )
+from tanren_core.dispatch_orchestrator import (
+    create_dispatch,
+    enqueue_dry_run_step,
+    enqueue_teardown_step,
+)
 from tanren_core.schemas import Cli, Dispatch, Phase
-from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType, cli_to_lane
-from tanren_core.store.events import DispatchCreated
+from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType
 from tanren_core.store.payloads import (
     DryRunResult,
-    DryRunStepPayload,
     ProvisionResult,
-    ProvisionStepPayload,
-    TeardownStepPayload,
 )
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import DispatchView
 
 logger = logging.getLogger(__name__)
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class VMService:
@@ -143,49 +139,38 @@ class VMService:
             required_secrets=body.required_secrets,
         )
 
-        lane = cli_to_lane(dispatch.cli)
-        await self._state_store.create_dispatch_projection(
-            dispatch_id=workflow_id,
+        result = await create_dispatch(
+            dispatch=dispatch,
             mode=DispatchMode.MANUAL,
-            lane=lane,
-            preserve_on_failure=True,
-            dispatch_json=dispatch.model_dump_json(),
+            event_store=self._event_store,
+            job_queue=self._job_queue,
+            state_store=self._state_store,
             user_id=user_id,
-        )
-        await self._event_store.append(
-            DispatchCreated(
-                timestamp=_now(),
-                entity_id=workflow_id,
-                dispatch=dispatch,
-                mode=DispatchMode.MANUAL,
-                lane=lane,
-            )
+            preserve_on_failure=True,
         )
 
-        step_id = uuid.uuid4().hex
-        payload = ProvisionStepPayload(dispatch=dispatch)
-        await self._job_queue.enqueue_step(
-            step_id=step_id,
-            dispatch_id=workflow_id,
-            step_type="provision",
-            step_sequence=0,
-            lane=None,
-            payload_json=payload.model_dump_json(),
-        )
+        return VMProvisionAccepted(env_id=result.dispatch_id)
 
-        return VMProvisionAccepted(env_id=workflow_id)
-
-    async def get_provision_status(self, env_id: str) -> VMProvisionStatus:
+    async def get_provision_status(
+        self, env_id: str, *, user_id: str = "", is_admin: bool = False
+    ) -> VMProvisionStatus:
         """Poll provision status.
+
+        Args:
+            env_id: The dispatch/env ID.
+            user_id: Caller's user ID for ownership check.
+            is_admin: If True, bypass ownership check.
 
         Returns:
             VMProvisionStatus with current state.
 
         Raises:
-            NotFoundError: If not found.
+            NotFoundError: If not found or not owned by caller.
         """
         view = await self._state_store.get_dispatch(env_id)
         if view is None:
+            raise NotFoundError(f"Provision {env_id} not found")
+        if not is_admin and user_id and view.user_id != user_id:
             raise NotFoundError(f"Provision {env_id} not found")
 
         if view.status == DispatchStatus.CANCELLED:
@@ -226,18 +211,27 @@ class VMService:
 
         return VMProvisionStatus(env_id=env_id, status=VMStatus.PROVISIONING)
 
-    async def release(self, vm_id: str) -> VMReleaseConfirmed:
+    async def release(
+        self, vm_id: str, *, user_id: str = "", is_admin: bool = False
+    ) -> VMReleaseConfirmed:
         """Enqueue a teardown step for the VM.
+
+        Args:
+            vm_id: The VM to release.
+            user_id: Caller's user ID for ownership check.
+            is_admin: If True, bypass ownership check.
 
         Returns:
             VMReleaseConfirmed.
 
         Raises:
-            NotFoundError: If VM not found.
+            NotFoundError: If VM not found or not owned by caller.
         """
         # Find the dispatch that provisioned this VM
         dispatches = await self._fetch_all_dispatches()
         for d in dispatches:
+            if not is_admin and user_id and d.user_id != user_id:
+                continue
             steps = await self._state_store.get_steps_for_dispatch(d.dispatch_id)
             prov = next(
                 (
@@ -260,16 +254,14 @@ class VMService:
                     for s in steps
                 ):
                     continue
-                max_seq = max((s.step_sequence for s in steps), default=0)
-                step_id = uuid.uuid4().hex
-                payload = TeardownStepPayload(dispatch=d.dispatch, handle=result.handle)
-                await self._job_queue.enqueue_step(
-                    step_id=step_id,
+
+                await enqueue_teardown_step(
                     dispatch_id=d.dispatch_id,
-                    step_type="teardown",
-                    step_sequence=max_seq + 1,
-                    lane=None,
-                    payload_json=payload.model_dump_json(),
+                    dispatch=d.dispatch,
+                    handle=result.handle,
+                    job_queue=self._job_queue,
+                    state_store=self._state_store,
+                    check_guards=False,
                 )
                 return VMReleaseConfirmed(vm_id=vm_id)
 
@@ -295,34 +287,13 @@ class VMService:
             resolved_profile=body.resolved_profile,
         )
 
-        lane = cli_to_lane(dispatch.cli)
-        await self._state_store.create_dispatch_projection(
-            dispatch_id=workflow_id,
+        result = await enqueue_dry_run_step(
+            dispatch=dispatch,
             mode=DispatchMode.MANUAL,
-            lane=lane,
-            preserve_on_failure=False,
-            dispatch_json=dispatch.model_dump_json(),
+            event_store=self._event_store,
+            job_queue=self._job_queue,
+            state_store=self._state_store,
             user_id=user_id,
         )
-        await self._event_store.append(
-            DispatchCreated(
-                timestamp=_now(),
-                entity_id=workflow_id,
-                dispatch=dispatch,
-                mode=DispatchMode.MANUAL,
-                lane=lane,
-            )
-        )
 
-        step_id = uuid.uuid4().hex
-        payload = DryRunStepPayload(dispatch=dispatch)
-        await self._job_queue.enqueue_step(
-            step_id=step_id,
-            dispatch_id=workflow_id,
-            step_type="dry_run",
-            step_sequence=0,
-            lane=None,
-            payload_json=payload.model_dump_json(),
-        )
-
-        return VMProvisionAccepted(env_id=workflow_id)
+        return VMProvisionAccepted(env_id=result.dispatch_id)

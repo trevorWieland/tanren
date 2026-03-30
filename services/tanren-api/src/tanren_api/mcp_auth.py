@@ -17,11 +17,17 @@ from mcp.types import ErrorData
 from tanren_api.key_utils import hash_api_key
 from tanren_api.scopes import has_scope
 from tanren_core.store.auth_protocols import AuthStore
+from tanren_core.store.auth_views import AuthContext
 
 logger = logging.getLogger(__name__)
 
 # ContextVar set by MCP auth middleware so tool handlers can read the resolved user_id.
 mcp_user_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("mcp_user_id", default="")
+
+# Full auth context — used by resource limit checks and ownership enforcement.
+mcp_auth_context_var: contextvars.ContextVar[AuthContext | None] = contextvars.ContextVar(
+    "mcp_auth_context", default=None
+)
 
 
 def _utcnow() -> datetime:
@@ -118,7 +124,15 @@ class MCPApiKeyAuth(Middleware):
                     )
                 )
 
-        # Propagate resolved user identity to tool handlers via ContextVar
+        # Propagate resolved user identity and full auth context to tool handlers
         mcp_user_id_var.set(user.user_id)
+        mcp_auth_context_var.set(
+            AuthContext(
+                user=user,
+                key=key_view,
+                scopes=frozenset(key_view.scopes),
+                resource_limits=key_view.resource_limits,
+            )
+        )
 
         return await call_next(context)

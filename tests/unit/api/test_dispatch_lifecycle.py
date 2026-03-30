@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tanren_core.dispatch_builder import _resolve_cli_auth
+from tanren_core.dispatch_builder import resolve_cli_auth
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Phase
 from tanren_core.worker_config import WorkerConfig
@@ -24,7 +24,7 @@ def _minimal_config(tmp_path) -> WorkerConfig:
 class TestResolveCLIAuth:
     def test_gate_phase_resolves_to_bash(self, tmp_path) -> None:
         config = _minimal_config(tmp_path)
-        cli, auth, model = _resolve_cli_auth(
+        cli, auth, model = resolve_cli_auth(
             config=config, phase=Phase.GATE, cli=None, auth=None, model=None
         )
         assert cli == Cli.BASH
@@ -33,7 +33,7 @@ class TestResolveCLIAuth:
 
     def test_explicit_cli_passes_through(self, tmp_path) -> None:
         config = _minimal_config(tmp_path)
-        cli, auth, _model = _resolve_cli_auth(
+        cli, auth, _model = resolve_cli_auth(
             config=config,
             phase=Phase.DO_TASK,
             cli=Cli.CLAUDE,
@@ -46,7 +46,7 @@ class TestResolveCLIAuth:
     def test_non_gate_without_roles_config_raises(self, tmp_path) -> None:
         config = _minimal_config(tmp_path)
         with pytest.raises(ValueError, match="WM_ROLES_CONFIG_PATH"):
-            _resolve_cli_auth(
+            resolve_cli_auth(
                 config=config,
                 phase=Phase.DO_TASK,
                 cli=None,

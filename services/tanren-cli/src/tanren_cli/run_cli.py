@@ -22,23 +22,25 @@ from tanren_core.dispatch_builder import (
     resolve_dispatch_inputs,
     resolve_provision_inputs,
 )
+from tanren_core.dispatch_orchestrator import (
+    DispatchGuardError,
+    create_dispatch,
+    enqueue_execute_step,
+    enqueue_teardown_step,
+    get_provision_result,
+)
 from tanren_core.schemas import Dispatch, Phase
-from tanren_core.store.enums import DispatchMode, StepStatus, StepType, cli_to_lane
-from tanren_core.store.events import DispatchCreated
+from tanren_core.store.enums import DispatchMode, StepStatus, StepType
 from tanren_core.store.factory import create_sqlite_store
 from tanren_core.store.payloads import (
     ExecuteResult,
-    ExecuteStepPayload,
     ProvisionResult,
-    ProvisionStepPayload,
-    TeardownStepPayload,
 )
 from tanren_core.worker import Worker
 from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
     from tanren_core.env.environment_schema import EnvironmentProfile
-    from tanren_core.store.sqlite import SqliteStore
 
 run_app = typer.Typer(help="Run provision/execute/teardown lifecycle without coordinator.")
 
@@ -86,52 +88,6 @@ def _build_dispatch(
 def _store_path(config: WorkerConfig) -> str:
     """Return the persistent store path for multi-step CLI workflows."""
     return str(Path(config.data_dir) / "run.db")
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-async def _enqueue_dispatch(
-    store: SqliteStore,
-    dispatch: Dispatch,
-    mode: DispatchMode,
-) -> str:
-    """Create dispatch projection, append event, enqueue provision step.
-
-    Returns:
-        The dispatch_id.
-    """
-    dispatch_id = dispatch.workflow_id
-    lane = cli_to_lane(dispatch.cli)
-
-    await store.create_dispatch_projection(
-        dispatch_id=dispatch_id,
-        mode=mode,
-        lane=lane,
-        preserve_on_failure=dispatch.preserve_on_failure,
-        dispatch_json=dispatch.model_dump_json(),
-    )
-    await store.append(
-        DispatchCreated(
-            timestamp=_now(),
-            entity_id=dispatch_id,
-            dispatch=dispatch,
-            mode=mode,
-            lane=lane,
-        )
-    )
-    step_id = uuid.uuid4().hex
-    payload = ProvisionStepPayload(dispatch=dispatch)
-    await store.enqueue_step(
-        step_id=step_id,
-        dispatch_id=dispatch_id,
-        step_type="provision",
-        step_sequence=0,
-        lane=None,
-        payload_json=payload.model_dump_json(),
-    )
-    return dispatch_id
 
 
 def _build_tail_output(text: str | None, max_lines: int = 30) -> str:
@@ -203,7 +159,14 @@ def run_provision(
                 resolved=resolved,
             )
 
-            dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.MANUAL)
+            result = await create_dispatch(
+                dispatch=dispatch,
+                mode=DispatchMode.MANUAL,
+                event_store=store,
+                job_queue=store,
+                state_store=store,
+            )
+            dispatch_id = result.dispatch_id
 
             worker = Worker(
                 config=config,
@@ -262,45 +225,16 @@ def run_execute(
         execution_env = None
 
         try:
-            # Read provision result from store
-            steps = await store.get_steps_for_dispatch(dispatch_id)
-            provision_step = next(
-                (
-                    s
-                    for s in steps
-                    if s.step_type == StepType.PROVISION and s.status == StepStatus.COMPLETED
-                ),
-                None,
-            )
-            if provision_step is None or provision_step.result_json is None:
-                typer.echo(
-                    f"No completed provision found for dispatch {dispatch_id}",
-                    err=True,
-                )
-                raise typer.Exit(code=1)
+            # Get provision result via orchestrator helper
+            try:
+                prov_result = await get_provision_result(store, dispatch_id)
+            except ValueError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=1) from exc
 
-            prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
             view = await store.get_dispatch(dispatch_id)
             if view is None:
                 typer.echo(f"Dispatch {dispatch_id} not found", err=True)
-                raise typer.Exit(code=1)
-
-            # Guard: block concurrent execute
-            if any(
-                s.step_type == StepType.EXECUTE
-                and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
-                for s in steps
-            ):
-                typer.echo("Execute step already in progress", err=True)
-                raise typer.Exit(code=1)
-
-            # Guard: block execute after teardown
-            if any(
-                s.step_type == StepType.TEARDOWN
-                and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
-                for s in steps
-            ):
-                typer.echo("Cannot execute after teardown", err=True)
                 raise typer.Exit(code=1)
 
             dispatch_data = view.dispatch
@@ -339,19 +273,17 @@ def run_execute(
                 resolved=resolved,
             )
 
-            lane = cli_to_lane(exec_dispatch.cli)
-            existing_steps = await store.get_steps_for_dispatch(dispatch_id)
-            max_seq = max((s.step_sequence for s in existing_steps), default=0)
-            step_id = uuid.uuid4().hex
-            payload = ExecuteStepPayload(dispatch=exec_dispatch, handle=prov_result.handle)
-            await store.enqueue_step(
-                step_id=step_id,
-                dispatch_id=dispatch_id,
-                step_type="execute",
-                step_sequence=max_seq + 1,
-                lane=str(lane),
-                payload_json=payload.model_dump_json(),
-            )
+            try:
+                await enqueue_execute_step(
+                    dispatch_id=dispatch_id,
+                    exec_dispatch=exec_dispatch,
+                    handle=prov_result.handle,
+                    job_queue=store,
+                    state_store=store,
+                )
+            except DispatchGuardError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=1) from exc
 
             worker = Worker(
                 config=config,
@@ -406,61 +338,33 @@ def run_teardown(
         execution_env = None
 
         try:
-            steps = await store.get_steps_for_dispatch(dispatch_id)
-            provision_step = next(
-                (
-                    s
-                    for s in steps
-                    if s.step_type == StepType.PROVISION and s.status == StepStatus.COMPLETED
-                ),
-                None,
-            )
-            if provision_step is None or provision_step.result_json is None:
-                typer.echo(
-                    f"No completed provision found for dispatch {dispatch_id}",
-                    err=True,
-                )
-                raise typer.Exit(code=1)
+            # Get provision result via orchestrator helper
+            try:
+                prov_result = await get_provision_result(store, dispatch_id)
+            except ValueError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=1) from exc
 
-            prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
             view = await store.get_dispatch(dispatch_id)
             if view is None:
                 typer.echo(f"Dispatch {dispatch_id} not found", err=True)
-                raise typer.Exit(code=1)
-
-            # Guard: block teardown while execute active
-            if any(
-                s.step_type == StepType.EXECUTE
-                and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
-                for s in steps
-            ):
-                typer.echo("Cannot teardown while execute is in progress", err=True)
-                raise typer.Exit(code=1)
-
-            # Guard: block duplicate teardown
-            if any(
-                s.step_type == StepType.TEARDOWN
-                and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
-                for s in steps
-            ):
-                typer.echo("Teardown already enqueued or completed", err=True)
                 raise typer.Exit(code=1)
 
             dispatch_data = view.dispatch
             profile = dispatch_data.resolved_profile
             env_factory, execution_env, _vm_store = _make_env_factory(config, profile)
 
-            max_seq = max((s.step_sequence for s in steps), default=0)
-            step_id = uuid.uuid4().hex
-            payload = TeardownStepPayload(dispatch=dispatch_data, handle=prov_result.handle)
-            await store.enqueue_step(
-                step_id=step_id,
-                dispatch_id=dispatch_id,
-                step_type="teardown",
-                step_sequence=max_seq + 1,
-                lane=None,
-                payload_json=payload.model_dump_json(),
-            )
+            try:
+                await enqueue_teardown_step(
+                    dispatch_id=dispatch_id,
+                    dispatch=dispatch_data,
+                    handle=prov_result.handle,
+                    job_queue=store,
+                    state_store=store,
+                )
+            except DispatchGuardError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=1) from exc
 
             worker = Worker(
                 config=config,
@@ -534,7 +438,14 @@ def run_full(
                 resolved=resolved,
             )
 
-            dispatch_id = await _enqueue_dispatch(store, dispatch, DispatchMode.AUTO)
+            result = await create_dispatch(
+                dispatch=dispatch,
+                mode=DispatchMode.AUTO,
+                event_store=store,
+                job_queue=store,
+                state_store=store,
+            )
+            dispatch_id = result.dispatch_id
 
             worker = Worker(
                 config=config,

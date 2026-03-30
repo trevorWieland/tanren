@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import TYPE_CHECKING
 
 from tanren_api.errors import ConflictError, NotFoundError
@@ -15,6 +14,7 @@ from tanren_api.models import (
     DispatchRunStatus,
 )
 from tanren_api.services.dispatch_lifecycle import create_dispatch_from_request
+from tanren_core.dispatch_orchestrator import enqueue_teardown_step
 from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import DispatchView
@@ -60,17 +60,26 @@ class DispatchService:
             user_id=user_id,
         )
 
-    async def get(self, dispatch_id: str) -> DispatchDetail:
+    async def get(
+        self, dispatch_id: str, *, user_id: str = "", is_admin: bool = False
+    ) -> DispatchDetail:
         """Query dispatch status from the state store.
+
+        Args:
+            dispatch_id: The dispatch to query.
+            user_id: Caller's user ID for ownership check.
+            is_admin: If True, bypass ownership check.
 
         Returns:
             DispatchDetail with current status from projections.
 
         Raises:
-            NotFoundError: If not found.
+            NotFoundError: If not found or not owned by caller.
         """
         view = await self._state_store.get_dispatch(dispatch_id)
         if view is None:
+            raise NotFoundError(f"Dispatch {dispatch_id} not found")
+        if not is_admin and user_id and view.user_id != user_id:
             raise NotFoundError(f"Dispatch {dispatch_id} not found")
 
         d = view.dispatch
@@ -94,18 +103,27 @@ class DispatchService:
             completed_at=None,
         )
 
-    async def cancel(self, dispatch_id: str) -> DispatchCancelled:
+    async def cancel(
+        self, dispatch_id: str, *, user_id: str = "", is_admin: bool = False
+    ) -> DispatchCancelled:
         """Cancel a dispatch by updating the state store.
+
+        Args:
+            dispatch_id: The dispatch to cancel.
+            user_id: Caller's user ID for ownership check.
+            is_admin: If True, bypass ownership check.
 
         Returns:
             DispatchCancelled confirmation.
 
         Raises:
-            NotFoundError: If not found.
+            NotFoundError: If not found or not owned by caller.
             ConflictError: If already terminal.
         """
         view = await self._state_store.get_dispatch(dispatch_id)
         if view is None:
+            raise NotFoundError(f"Dispatch {dispatch_id} not found")
+        if not is_admin and user_id and view.user_id != user_id:
             raise NotFoundError(f"Dispatch {dispatch_id} not found")
 
         if view.status in (
@@ -128,7 +146,7 @@ class DispatchService:
 
     async def _enqueue_cancel_teardown(self, dispatch_id: str, view: DispatchView) -> None:
         """Enqueue cleanup teardown if provision completed but no teardown exists."""
-        from tanren_core.store.payloads import ProvisionResult, TeardownStepPayload
+        from tanren_core.store.payloads import ProvisionResult
 
         steps = await self._state_store.get_steps_for_dispatch(dispatch_id)
         prov = next(
@@ -153,14 +171,11 @@ class DispatchService:
             return
         assert prov.result_json is not None
         prov_result = ProvisionResult.model_validate_json(prov.result_json)
-        max_seq = max((s.step_sequence for s in steps), default=0)
-        await self._job_queue.enqueue_step(
-            step_id=uuid.uuid4().hex,
+        await enqueue_teardown_step(
             dispatch_id=dispatch_id,
-            step_type="teardown",
-            step_sequence=max_seq + 1,
-            lane=None,
-            payload_json=TeardownStepPayload(
-                dispatch=view.dispatch, handle=prov_result.handle
-            ).model_dump_json(),
+            dispatch=view.dispatch,
+            handle=prov_result.handle,
+            job_queue=self._job_queue,
+            state_store=self._state_store,
+            check_guards=False,
         )

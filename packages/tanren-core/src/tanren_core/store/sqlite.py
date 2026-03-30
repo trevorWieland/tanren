@@ -110,6 +110,7 @@ class SqliteStore:
         self,
         *,
         entity_id: str | None = None,
+        entity_ids: list[str] | None = None,
         entity_type: str | None = None,
         event_type: str | None = None,
         since: str | None = None,
@@ -125,6 +126,10 @@ class SqliteStore:
         if entity_id is not None:
             clauses.append("entity_id = ?")
             params.append(entity_id)
+        if entity_ids is not None:
+            placeholders = ",".join("?" for _ in entity_ids)
+            clauses.append(f"entity_id IN ({placeholders})")
+            params.extend(entity_ids)
         if entity_type is not None:
             clauses.append("entity_type = ?")
             params.append(entity_type)

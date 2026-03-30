@@ -111,35 +111,42 @@ def set_auth_store(store: object) -> None:
     _auth_store_ref = store
 
 
-async def _check_mcp_resource_limits(user_id: str, action: str) -> None:
-    """Check resource limits for MCP tool calls (no-op if auth store not wired)."""
+async def _check_mcp_resource_limits(action: str) -> None:
+    """Check resource limits for MCP tool calls using the authenticated key.
+
+    Reads the actual authenticated key's limits from the MCP auth context,
+    rather than looking up an arbitrary key for the user.
+    No-op if auth store not wired or no auth context available.
+    """
+    from tanren_api.mcp_auth import mcp_auth_context_var
+
+    auth = mcp_auth_context_var.get()
+    if auth is None:
+        return
     store = _auth_store_ref
-    if store is None or not user_id:
+    if store is None:
         return
     from tanren_core.store.auth_protocols import AuthStore
-    from tanren_core.store.auth_views import AuthContext
 
     assert isinstance(store, AuthStore)
-    auth_store: AuthStore = store
-    user = await auth_store.get_user(user_id)
-    if user is None:
-        return
-    # Look up the key to get resource limits
-
-    # Build a minimal AuthContext for limit checking
-    keys = await auth_store.list_api_keys(user_id=user_id, limit=1)
-    if not keys:
-        return
-    key = keys[0]
-    auth = AuthContext(
-        user=user,
-        key=key,
-        scopes=frozenset(key.scopes),
-        resource_limits=key.resource_limits,
-    )
     from tanren_api.limits import check_resource_limits
 
-    await check_resource_limits(auth, auth_store, action)
+    await check_resource_limits(auth, store, action)
+
+
+def _mcp_ownership() -> tuple[str, bool]:
+    """Return (user_id, is_admin) from the MCP auth context.
+
+    Returns:
+        Tuple of (user_id, is_admin).
+    """
+    from tanren_api.mcp_auth import mcp_auth_context_var
+    from tanren_api.scopes import has_scope
+
+    auth = mcp_auth_context_var.get()
+    if auth is None:
+        return ("", False)
+    return (auth.user.user_id, has_scope(auth.scopes, "admin:*"))
 
 
 def set_worker_config(config: WorkerConfig) -> None:
@@ -277,7 +284,7 @@ async def dispatch_create(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits(user_id, "dispatch")
+    await _check_mcp_resource_limits("dispatch")
     return await _svc().dispatch.create(body, user_id=user_id)
 
 
@@ -294,7 +301,8 @@ async def dispatch_get_status(dispatch_id: str) -> DispatchDetail:
     Returns:
         DispatchDetail with full dispatch state including timestamps.
     """
-    return await _svc().dispatch.get(dispatch_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().dispatch.get(dispatch_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -309,7 +317,8 @@ async def dispatch_cancel(dispatch_id: str) -> DispatchCancelled:
     Returns:
         DispatchCancelled with dispatch_id and status.
     """
-    return await _svc().dispatch.cancel(dispatch_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().dispatch.cancel(dispatch_id, user_id=user_id, is_admin=is_admin)
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +338,8 @@ async def vm_list() -> list[VMSummary]:
     Returns:
         List of VMSummary records for each active VM assignment.
     """
-    return await _svc().vm.list_vms()
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().vm.list_vms(user_id=None if is_admin else user_id)
 
 
 @mcp.tool(
@@ -370,7 +380,7 @@ async def vm_provision(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits(user_id, "vm_provision")
+    await _check_mcp_resource_limits("vm_provision")
     return await _svc().vm.provision(body, user_id=user_id)
 
 
@@ -386,7 +396,8 @@ async def vm_provision_status(env_id: str) -> VMProvisionStatus:
     Returns:
         VMProvisionStatus with current status, vm_id, and host.
     """
-    return await _svc().vm.get_provision_status(env_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().vm.get_provision_status(env_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -398,7 +409,8 @@ async def vm_release(vm_id: str) -> VMReleaseConfirmed:
     Returns:
         VMReleaseConfirmed with vm_id and status.
     """
-    return await _svc().vm.release(vm_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().vm.release(vm_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -437,6 +449,7 @@ async def vm_dry_run(
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
+    await _check_mcp_resource_limits("vm_provision")
     return await _svc().vm.dry_run(body, user_id=mcp_user_id_var.get())
 
 
@@ -491,7 +504,7 @@ async def run_provision(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits(user_id, "dispatch")
+    await _check_mcp_resource_limits("dispatch")
     return await _svc().run.provision(body, user_id=user_id)
 
 
@@ -534,7 +547,8 @@ async def run_execute(
         context=context,
         gate_cmd=gate_cmd,
     )
-    return await _svc().run.execute(env_id, body)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().run.execute(env_id, body, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -550,7 +564,8 @@ async def run_teardown(env_id: str) -> RunTeardownAccepted:
     Returns:
         RunTeardownAccepted with env_id and status.
     """
-    return await _svc().run.teardown(env_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().run.teardown(env_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -614,7 +629,7 @@ async def run_full(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits(user_id, "dispatch")
+    await _check_mcp_resource_limits("dispatch")
     return await _svc().run.full(body, user_id=user_id)
 
 
@@ -631,7 +646,8 @@ async def run_status(env_id: str) -> RunStatus:
     Returns:
         RunStatus with env_id, status, phase, outcome, and duration.
     """
-    return await _svc().run.status(env_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().run.status(env_id, user_id=user_id, is_admin=is_admin)
 
 
 # ---------------------------------------------------------------------------

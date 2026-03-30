@@ -46,6 +46,7 @@ class EventStore(Protocol):
         self,
         *,
         entity_id: str | None = None,
+        entity_ids: list[str] | None = None,
         entity_type: str | None = None,
         event_type: str | None = None,
         since: str | None = None,

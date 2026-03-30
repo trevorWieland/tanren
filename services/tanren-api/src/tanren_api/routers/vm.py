@@ -61,25 +61,33 @@ async def provision_vm(
 @router.get("/vm/provision/{env_id}")
 async def get_provision_status(
     env_id: Annotated[str, Path(description="Provisioning tracking identifier")],
-    _auth: Annotated[AuthContext, Depends(require_scope("vm:read"))],
+    auth: Annotated[AuthContext, Depends(require_scope("vm:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> VMProvisionStatus:
     """Poll status of an in-progress or completed VM provisioning."""
-    return await _vm_service(event_store, job_queue, state_store).get_provision_status(env_id)
+    from tanren_api.scopes import has_scope
+
+    return await _vm_service(event_store, job_queue, state_store).get_provision_status(
+        env_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )
 
 
 @router.delete("/vm/{vm_id}")
 async def release_vm(
     vm_id: Annotated[str, Path(description="VM identifier")],
-    _auth: Annotated[AuthContext, Depends(require_scope("vm:release"))],
+    auth: Annotated[AuthContext, Depends(require_scope("vm:release"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> VMReleaseConfirmed:
     """Release a VM assignment."""
-    return await _vm_service(event_store, job_queue, state_store).release(vm_id)
+    from tanren_api.scopes import has_scope
+
+    return await _vm_service(event_store, job_queue, state_store).release(
+        vm_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )
 
 
 @router.post("/vm/dry-run")

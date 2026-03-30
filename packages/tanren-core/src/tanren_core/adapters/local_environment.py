@@ -241,108 +241,103 @@ class LocalExecutionEnvironment:
 
         start = time.monotonic()
         transient_retries = 0
-        try:
-            while True:
-                # Spawn process
-                proc_result = await self._spawner.spawn(
-                    dispatch,
-                    handle.worktree_path,
-                    config,
-                    task_env=local_runtime.task_env or None,
-                )
-
-                # Log process result for agent phases
-                if dispatch.phase not in (Phase.GATE, Phase.SETUP, Phase.CLEANUP):
-                    stdout_preview = (proc_result.stdout or "")[:500]
-                    logger.info(
-                        "Process result: exit=%d duration=%ds "
-                        "timed_out=%s stdout_len=%d stdout=%.200s",
-                        proc_result.exit_code,
-                        proc_result.duration_secs,
-                        proc_result.timed_out,
-                        len(proc_result.stdout or ""),
-                        stdout_preview,
-                    )
-
-                # Extract signal
-                command_name = dispatch.phase.value
-                raw_signal = extract_signal(
-                    dispatch.phase, command_name, spec_folder_path, proc_result.stdout
-                )
-
-                # Map outcome
-                outcome, signal_val = map_outcome(
-                    dispatch.phase,
-                    raw_signal,
-                    proc_result.exit_code,
-                    proc_result.timed_out,
-                )
-
-                # Transient error retry
-                if outcome in (Outcome.ERROR, Outcome.TIMEOUT):
-                    stderr_text = ""
-                    error_class = classify_error(
-                        proc_result.exit_code,
-                        proc_result.stdout or "",
-                        stderr_text,
-                        signal_val,
-                    )
-                    if error_class == ErrorClass.TRANSIENT and transient_retries < 3:
-                        transient_retries += 1
-                        backoff = TRANSIENT_BACKOFF[transient_retries - 1]
-                        logger.warning(
-                            "Transient error (attempt %d/3), retrying in %ds",
-                            transient_retries,
-                            backoff,
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
-                    elif error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
-                        transient_retries += 1
-                        logger.warning("Ambiguous error, retrying once in 10s")
-                        await asyncio.sleep(10)
-                        continue
-
-                # Not retrying — break out of loop
-                break
-
-            duration = int(time.monotonic() - start)
-
-            # Compute plan.md metrics
-            plan_path = spec_folder_path / "plan.md"
-            unchecked = await count_unchecked_tasks(plan_path)
-            plan_hash = await compute_plan_hash(plan_path)
-
-            # Post-flight integrity checks
-            postflight_result = None
-            if dispatch.phase in _PUSH_PHASES:
-                preflight = local_runtime.preflight_result
-                postflight_result = await self._postflight.run(
-                    handle.worktree_path,
-                    dispatch.branch,
-                    dispatch.phase.value,
-                    preflight.file_hashes if preflight else {},
-                    preflight.file_backups if preflight else {},
-                    skip_push=(outcome in (Outcome.ERROR, Outcome.TIMEOUT)),
-                )
-
-            return PhaseResult(
-                outcome=outcome,
-                signal=signal_val,
-                exit_code=proc_result.exit_code,
-                stdout=proc_result.stdout,
-                duration_secs=duration,
-                preflight_passed=True,
-                postflight_result=postflight_result,
-                env_report=local_runtime.env_report,
-                gate_output=None,  # Manager builds this
-                unchecked_tasks=unchecked,
-                plan_hash=plan_hash,
-                retries=transient_retries,
+        while True:
+            # Spawn process
+            proc_result = await self._spawner.spawn(
+                dispatch,
+                handle.worktree_path,
+                config,
+                task_env=local_runtime.task_env or None,
             )
 
-        finally:
-            pass
+            # Log process result for agent phases
+            if dispatch.phase not in (Phase.GATE, Phase.SETUP, Phase.CLEANUP):
+                stdout_preview = (proc_result.stdout or "")[:500]
+                logger.info(
+                    "Process result: exit=%d duration=%ds timed_out=%s stdout_len=%d stdout=%.200s",
+                    proc_result.exit_code,
+                    proc_result.duration_secs,
+                    proc_result.timed_out,
+                    len(proc_result.stdout or ""),
+                    stdout_preview,
+                )
+
+            # Extract signal
+            command_name = dispatch.phase.value
+            raw_signal = extract_signal(
+                dispatch.phase, command_name, spec_folder_path, proc_result.stdout
+            )
+
+            # Map outcome
+            outcome, signal_val = map_outcome(
+                dispatch.phase,
+                raw_signal,
+                proc_result.exit_code,
+                proc_result.timed_out,
+            )
+
+            # Transient error retry
+            if outcome in (Outcome.ERROR, Outcome.TIMEOUT):
+                stderr_text = ""
+                error_class = classify_error(
+                    proc_result.exit_code,
+                    proc_result.stdout or "",
+                    stderr_text,
+                    signal_val,
+                )
+                if error_class == ErrorClass.TRANSIENT and transient_retries < 3:
+                    transient_retries += 1
+                    backoff = TRANSIENT_BACKOFF[transient_retries - 1]
+                    logger.warning(
+                        "Transient error (attempt %d/3), retrying in %ds",
+                        transient_retries,
+                        backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                elif error_class == ErrorClass.AMBIGUOUS and transient_retries < 1:
+                    transient_retries += 1
+                    logger.warning("Ambiguous error, retrying once in 10s")
+                    await asyncio.sleep(10)
+                    continue
+
+            # Not retrying — break out of loop
+            break
+
+        duration = int(time.monotonic() - start)
+
+        # Compute plan.md metrics
+        plan_path = spec_folder_path / "plan.md"
+        unchecked = await count_unchecked_tasks(plan_path)
+        plan_hash = await compute_plan_hash(plan_path)
+
+        # Post-flight integrity checks
+        postflight_result = None
+        if dispatch.phase in _PUSH_PHASES:
+            preflight = local_runtime.preflight_result
+            postflight_result = await self._postflight.run(
+                handle.worktree_path,
+                dispatch.branch,
+                dispatch.phase.value,
+                preflight.file_hashes if preflight else {},
+                preflight.file_backups if preflight else {},
+                skip_push=(outcome in (Outcome.ERROR, Outcome.TIMEOUT)),
+            )
+
+        return PhaseResult(
+            outcome=outcome,
+            signal=signal_val,
+            exit_code=proc_result.exit_code,
+            stdout=proc_result.stdout,
+            duration_secs=duration,
+            preflight_passed=True,
+            postflight_result=postflight_result,
+            env_report=local_runtime.env_report,
+            gate_output=None,  # Manager builds this
+            unchecked_tasks=unchecked,
+            plan_hash=plan_hash,
+            retries=transient_retries,
+        )
 
     async def get_access_info(self, handle: EnvironmentHandle) -> AccessInfo:
         """Return local worktree path. No SSH/VSCode for local."""

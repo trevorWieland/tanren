@@ -92,7 +92,7 @@ async def resolve_dispatch_inputs(
     )
 
     # CLI/auth/model resolution
-    resolved_cli, resolved_auth, resolved_model = _resolve_cli_auth(
+    resolved_cli, resolved_auth, resolved_model = resolve_cli_auth(
         config=config, phase=phase, cli=cli, auth=auth, model=model
     )
 
@@ -222,7 +222,7 @@ async def _resolve_common(
     return profile, p_env, c_secrets, req_secrets, tanren_data
 
 
-def _resolve_cli_auth(
+def resolve_cli_auth(
     *,
     config: WorkerConfig,
     phase: Phase,

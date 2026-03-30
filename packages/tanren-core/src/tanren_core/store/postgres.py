@@ -86,6 +86,7 @@ class PostgresStore:
         self,
         *,
         entity_id: str | None = None,
+        entity_ids: list[str] | None = None,
         entity_type: str | None = None,
         event_type: str | None = None,
         since: str | None = None,
@@ -95,12 +96,16 @@ class PostgresStore:
     ) -> EventQueryResult:
         """Query events with optional filters and pagination."""
         clauses: list[str] = []
-        params: list[str | int] = []
+        params: list[str | int | list[str]] = []
         idx = 1
 
         if entity_id is not None:
             clauses.append(f"entity_id = ${idx}")
             params.append(entity_id)
+            idx += 1
+        if entity_ids is not None:
+            clauses.append(f"entity_id = ANY(${idx})")
+            params.append(entity_ids)
             idx += 1
         if entity_type is not None:
             clauses.append(f"entity_type = ${idx}")

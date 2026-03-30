@@ -16,6 +16,7 @@ from tanren_api.models import (
     DispatchDetail,
     DispatchRequest,
 )
+from tanren_api.scopes import has_scope
 from tanren_api.services.dispatch import DispatchService
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
@@ -46,7 +47,7 @@ async def create_dispatch(
 @router.get("/dispatch/{dispatch_id}")
 async def get_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
-    _auth: Annotated[AuthContext, Depends(require_scope("dispatch:read"))],
+    auth: Annotated[AuthContext, Depends(require_scope("dispatch:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -57,13 +58,15 @@ async def get_dispatch(
         DispatchDetail: Dispatch details including current status.
     """
     service = DispatchService(event_store=event_store, job_queue=job_queue, state_store=state_store)
-    return await service.get(dispatch_id)
+    return await service.get(
+        dispatch_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )
 
 
 @router.delete("/dispatch/{dispatch_id}")
 async def cancel_dispatch(
     dispatch_id: Annotated[str, PathParam(description="Workflow ID")],
-    _auth: Annotated[AuthContext, Depends(require_scope("dispatch:cancel"))],
+    auth: Annotated[AuthContext, Depends(require_scope("dispatch:cancel"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
@@ -74,4 +77,6 @@ async def cancel_dispatch(
         DispatchCancelled: Confirmation of the cancelled dispatch.
     """
     service = DispatchService(event_store=event_store, job_queue=job_queue, state_store=state_store)
-    return await service.cancel(dispatch_id)
+    return await service.cancel(
+        dispatch_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )

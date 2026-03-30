@@ -115,6 +115,7 @@ class EventsService:
         self,
         *,
         workflow_id: str | None = None,
+        entity_ids: list[str] | None = None,
         entity_type: str | None = None,
         event_type: str | None = None,
         limit: int = 50,
@@ -122,11 +123,20 @@ class EventsService:
     ) -> PaginatedEvents:
         """Query structured events with optional filters.
 
+        Args:
+            workflow_id: Filter to a single entity/workflow ID.
+            entity_ids: Restrict to a set of entity IDs (user scoping).
+            entity_type: Filter by entity type (dispatch, user, api_key).
+            event_type: Filter by event type.
+            limit: Page size.
+            offset: Pagination offset.
+
         Returns:
             PaginatedEvents: Paginated list of matching events.
         """
         result = await self._event_store.query_events(
             entity_id=workflow_id,
+            entity_ids=entity_ids,
             entity_type=entity_type,
             event_type=event_type,
             limit=limit,

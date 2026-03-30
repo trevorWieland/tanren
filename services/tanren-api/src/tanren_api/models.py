@@ -597,10 +597,13 @@ class CreateKeyRequest(BaseModel):
             from datetime import datetime
 
             try:
-                datetime.fromisoformat(self.expires_at)
+                dt = datetime.fromisoformat(self.expires_at)
             except ValueError as e:
                 msg = f"expires_at must be a valid ISO 8601 timestamp: {e}"
                 raise ValueError(msg) from e
+            if dt.tzinfo is None:
+                msg = "expires_at must be timezone-aware (e.g., '2026-12-31T23:59:59Z')"
+                raise ValueError(msg)
         return self
 
 
