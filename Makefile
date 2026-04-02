@@ -36,7 +36,7 @@ import-check:
 	uv run lint-imports
 
 alembic-check:
-	cd packages/tanren-core && uv run alembic check
+	cd packages/tanren-core && uv run alembic upgrade head && uv run alembic check
 
 arch-check: import-check alembic-check
 	uv run python scripts/check_store_bypass.py
