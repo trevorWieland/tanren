@@ -7,6 +7,8 @@ and pool configuration.  All store access goes through the
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -49,6 +51,12 @@ def create_engine_from_url(db_url: str) -> tuple[AsyncEngine, bool]:
 
     # SQLite — single connection, WAL mode, foreign keys
     sa_url = db_url if db_url.startswith("sqlite") else f"sqlite+aiosqlite:///{db_url}"
+
+    # Ensure parent directories exist for filesystem paths (matches old SqliteStore behaviour)
+    if not sa_url.endswith(":memory:") and ":///" in sa_url:
+        db_file = sa_url.split(":///", maxsplit=1)[1]
+        if db_file:
+            Path(db_file).parent.mkdir(parents=True, exist_ok=True)
 
     engine = create_async_engine(
         sa_url,
