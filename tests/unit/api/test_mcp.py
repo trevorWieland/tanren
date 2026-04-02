@@ -21,7 +21,7 @@ from tanren_api.services import (
     VMService,
 )
 from tanren_api.settings import APISettings
-from tanren_core.store.sqlite import SqliteStore
+from tanren_core.store.factory import create_store
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,8 +46,7 @@ def _clear_mcp_middleware():
 
 @pytest.fixture
 async def mcp_store(tmp_path: Path):
-    store = SqliteStore(tmp_path / "mcp-test.db")
-    await store._ensure_conn()
+    store = await create_store(str(tmp_path / "mcp-test.db"))
     yield store
     await store.close()
 

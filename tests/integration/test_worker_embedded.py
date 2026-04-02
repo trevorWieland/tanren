@@ -13,7 +13,7 @@ from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.store.enums import DispatchMode, DispatchStatus, StepStatus, StepType, cli_to_lane
 from tanren_core.store.events import DispatchCreated
-from tanren_core.store.factory import create_sqlite_store
+from tanren_core.store.factory import create_store
 from tanren_core.store.payloads import ProvisionStepPayload
 from tanren_core.worker import Worker
 from tanren_core.worker_config import WorkerConfig
@@ -54,7 +54,7 @@ def _make_dispatch():
 async def test_process_step_provision_auto_chains(tmp_path):
     """Worker.process_step() provision in AUTO mode auto-chains to execute."""
     config = _make_config(tmp_path)
-    store = await create_sqlite_store(str(tmp_path / "test.db"))
+    store = await create_store(str(tmp_path / "test.db"))
 
     mock_env = AsyncMock()
     handle = EnvironmentHandle(
@@ -137,7 +137,7 @@ async def test_process_step_provision_auto_chains(tmp_path):
 async def test_full_auto_chain_provision_execute_teardown(tmp_path):
     """Worker processes provision -> execute -> teardown via sequential process_step."""
     config = _make_config(tmp_path)
-    store = await create_sqlite_store(str(tmp_path / "chain.db"))
+    store = await create_store(str(tmp_path / "chain.db"))
 
     mock_env = AsyncMock()
     handle = EnvironmentHandle(
@@ -229,7 +229,7 @@ async def test_full_auto_chain_provision_execute_teardown(tmp_path):
 async def test_process_step_provision_manual_no_chain(tmp_path):
     """Worker.process_step() provision in MANUAL mode does NOT auto-chain."""
     config = _make_config(tmp_path)
-    store = await create_sqlite_store(str(tmp_path / "manual.db"))
+    store = await create_store(str(tmp_path / "manual.db"))
 
     mock_env = AsyncMock()
     handle = EnvironmentHandle(
@@ -302,7 +302,7 @@ async def test_process_step_provision_manual_no_chain(tmp_path):
 async def test_execute_with_token_usage_emits_event(tmp_path):
     """Worker emits TokenUsageRecorded event when execute captures usage."""
     config = _make_config(tmp_path)
-    store = await create_sqlite_store(str(tmp_path / "token.db"))
+    store = await create_store(str(tmp_path / "token.db"))
 
     mock_env = AsyncMock()
     handle = EnvironmentHandle(
@@ -406,7 +406,7 @@ async def test_execute_with_token_usage_emits_event(tmp_path):
 async def test_execute_failure_enqueues_cleanup_teardown(tmp_path):
     """When execute raises unexpectedly in AUTO mode, a teardown step is enqueued."""
     config = _make_config(tmp_path)
-    store = await create_sqlite_store(str(tmp_path / "fail.db"))
+    store = await create_store(str(tmp_path / "fail.db"))
 
     mock_env = AsyncMock()
     handle = EnvironmentHandle(

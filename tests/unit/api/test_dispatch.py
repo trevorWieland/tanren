@@ -11,18 +11,19 @@ from tanren_api.services.dispatch import DispatchService
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import AuthMode, Cli, Phase
 from tanren_core.store.enums import DispatchStatus, StepStatus
-from tanren_core.store.sqlite import SqliteStore
+from tanren_core.store.factory import create_store
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from tanren_core.store.repository import Store
 
 DEFAULT_PROFILE = EnvironmentProfile(name="default")
 
 
 @pytest.fixture
 async def store(tmp_path: Path):
-    s = SqliteStore(tmp_path / "test.db")
-    await s._ensure_conn()
+    s = await create_store(str(tmp_path / "test.db"))
     yield s
     await s.close()
 
@@ -42,12 +43,12 @@ def _make_request(**overrides: Any) -> DispatchRequest:
 
 
 class TestDispatchServiceCreate:
-    async def test_create_returns_dispatch_id(self, store: SqliteStore) -> None:
+    async def test_create_returns_dispatch_id(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
         result = await svc.create(_make_request())
         assert result.dispatch_id.startswith("wf-test-")
 
-    async def test_create_enqueues_provision_step(self, store: SqliteStore) -> None:
+    async def test_create_enqueues_provision_step(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
         accepted = await svc.create(_make_request())
 
@@ -55,7 +56,7 @@ class TestDispatchServiceCreate:
         assert len(steps) == 1
         assert steps[0].step_type.value == "provision"
 
-    async def test_create_sets_dispatch_to_running(self, store: SqliteStore) -> None:
+    async def test_create_sets_dispatch_to_running(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
         accepted = await svc.create(_make_request())
 
@@ -63,7 +64,7 @@ class TestDispatchServiceCreate:
         assert view is not None
         assert view.status == DispatchStatus.RUNNING
 
-    async def test_create_appends_dispatch_created_event(self, store: SqliteStore) -> None:
+    async def test_create_appends_dispatch_created_event(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
         accepted = await svc.create(_make_request())
 
@@ -74,7 +75,7 @@ class TestDispatchServiceCreate:
 
 
 class TestDispatchServiceGet:
-    async def test_get_returns_dispatch_detail(self, store: SqliteStore) -> None:
+    async def test_get_returns_dispatch_detail(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
         accepted = await svc.create(_make_request())
 
@@ -83,7 +84,7 @@ class TestDispatchServiceGet:
         assert detail.project == "test"
         assert detail.status == DispatchRunStatus.RUNNING
 
-    async def test_get_not_found(self, store: SqliteStore) -> None:
+    async def test_get_not_found(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
         from tanren_api.errors import NotFoundError
 
@@ -92,7 +93,7 @@ class TestDispatchServiceGet:
 
 
 class TestDispatchServiceCancel:
-    async def test_cancel_pending_dispatch(self, store: SqliteStore) -> None:
+    async def test_cancel_pending_dispatch(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
 
         # Create a dispatch and manually set it back to pending
@@ -106,7 +107,7 @@ class TestDispatchServiceCancel:
         assert view is not None
         assert view.status == DispatchStatus.CANCELLED
 
-    async def test_cancel_also_cancels_pending_steps(self, store: SqliteStore) -> None:
+    async def test_cancel_also_cancels_pending_steps(self, store: Store) -> None:
         svc = DispatchService(event_store=store, job_queue=store, state_store=store)
 
         accepted = await svc.create(_make_request())
@@ -124,7 +125,7 @@ class TestDispatchServiceCancel:
         still_pending = [s for s in steps_after if s.status == StepStatus.PENDING]
         assert still_pending == []
 
-    async def test_cancel_completed_dispatch_raises_conflict(self, store: SqliteStore) -> None:
+    async def test_cancel_completed_dispatch_raises_conflict(self, store: Store) -> None:
         from tanren_api.errors import ConflictError
         from tanren_core.schemas import Outcome
 

@@ -75,5 +75,7 @@ The internal queue contract is defined by three store protocols in
 | `JobQueue` | Step-based job queue (enqueue, dequeue, ack, nack) |
 | `StateStore` | Read-only queries against dispatch and step projections |
 
-Backed by SQLite (default) or Postgres. See [protocol/README.md](../protocol/README.md)
-for the full dispatch lifecycle and lane definitions.
+Backed by a unified `Store` class (`tanren_core.store.repository`) that
+supports both SQLite and Postgres via SQLAlchemy 2.0 ORM.
+See [protocol/README.md](../protocol/README.md) for the full dispatch
+lifecycle and lane definitions.

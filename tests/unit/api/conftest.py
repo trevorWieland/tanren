@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from tanren_api.auth_seed import seed_legacy_admin_key
 from tanren_api.main import create_app
 from tanren_api.settings import APISettings
-from tanren_core.store.sqlite import SqliteStore
+from tanren_core.store.factory import create_store
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,8 +25,7 @@ def api_settings():
 
 @pytest.fixture
 async def sqlite_store(tmp_path: Path):
-    store = SqliteStore(tmp_path / "test.db")
-    await store._ensure_conn()
+    store = await create_store(str(tmp_path / "test.db"))
     yield store
     await store.close()
 

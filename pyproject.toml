@@ -76,6 +76,8 @@ convention = "google"
 # Store subpackage: Pydantic models, re-exports, event types need runtime imports;
 # store methods return typed objects (DOC201); SQL built from safe clauses (S608)
 "packages/tanren-core/src/tanren_core/store/**" = ["TCH", "DOC201", "S608"]
+# Alembic auto-generated files have their own style conventions
+"packages/tanren-core/alembic/**" = ["D", "TCH", "TC", "ANN", "INP001"]
 # Orchestrator uses Pydantic models and Protocol types at runtime in function signatures
 "packages/tanren-core/src/tanren_core/dispatch_orchestrator.py" = ["TCH"]
 # Worker uses deferred imports to break circular deps and handle reconstructions

@@ -20,10 +20,11 @@ Common emitted events:
 
 ## Storage Backends
 
-Events are stored via the unified store layer (`SqliteStore` or
-`PostgresStore`), configured via `db_url`.  Both backends implement the
-`EventStore` protocol (append + query) defined in
-`tanren_core/store/protocols.py`.
+Events are stored via the unified `Store` class
+(`tanren_core.store.repository`), configured via `db_url`.  The store
+implements the `EventStore` protocol (append + query) defined in
+`tanren_core/store/protocols.py` and supports both SQLite and Postgres
+through SQLAlchemy 2.0 ORM.
 
 ## Typical Queries
 

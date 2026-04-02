@@ -1,7 +1,8 @@
 # Worker
 
 The Worker is a queue-consuming daemon that processes dispatch steps from the
-store, backed by SQLite or Postgres.
+unified `Store` (`tanren_core.store.repository`), backed by SQLite or Postgres
+via SQLAlchemy 2.0 ORM.
 
 ## Architecture
 
@@ -55,7 +56,7 @@ to block until the work is done.
 Worker configuration is managed via `WorkerConfig` (see
 `packages/tanren-core/src/tanren_core/worker_config.py`). Key settings:
 
-- **Store backend** -- SQLite (file path) or Postgres (connection string)
+- **Store backend** -- SQLite or Postgres (configured via SQLAlchemy database URL)
 - **Poll interval** -- Seconds between queue polls
 - **Lane concurrency** -- Max concurrent steps per lane
 - **CLI paths** -- Paths to agent CLI binaries (opencode, codex, claude)
