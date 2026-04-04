@@ -1,9 +1,8 @@
 """Unified async store — single implementation for SQLite and Postgres.
 
-Replaces the parallel ``SqliteStore`` and ``PostgresStore`` with a single
-class that uses SQLAlchemy 2.0 ORM queries.  The engine/dialect handles
-backend differences automatically; only ``dequeue()`` and JSON extraction
-have small dialect-specific code paths.
+Uses SQLAlchemy 2.0 ORM queries with the engine/dialect handling backend
+differences automatically.  Only ``dequeue()`` and JSON extraction have
+small dialect-specific code paths.
 
 Implements all four protocols: ``EventStore``, ``JobQueue``, ``StateStore``,
 and ``AuthStore``.

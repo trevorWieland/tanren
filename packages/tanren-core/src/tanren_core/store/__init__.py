@@ -1,5 +1,6 @@
 """Event-sourced store: protocols, types, and backends for dispatch lifecycle."""
 
+from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.enums import (
     CLI_LANE_MAP,
     DispatchMode,
@@ -45,6 +46,7 @@ from tanren_core.store.views import (
 
 __all__ = [
     "CLI_LANE_MAP",
+    "AuthStore",
     "DispatchCompleted",
     "DispatchCreated",
     "DispatchFailed",
