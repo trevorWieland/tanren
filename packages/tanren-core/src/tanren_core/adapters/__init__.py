@@ -66,7 +66,7 @@ from tanren_core.adapters.manual_vm import (
     ManualVMProvisioner,
     NoVMAvailableError,
 )
-from tanren_core.adapters.postgres_pool import create_postgres_pool, is_postgres_url
+from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.protocols import (
     EnvironmentBootstrapper,
     EnvProvisioner,
@@ -200,7 +200,6 @@ __all__ = [
     "WorkspaceSpec",
     "WorktreeManager",
     "all_credential_cleanup_paths",
-    "create_postgres_pool",
     "inject_all_cli_credentials",
     "is_postgres_url",
     "providers_for_clis",
