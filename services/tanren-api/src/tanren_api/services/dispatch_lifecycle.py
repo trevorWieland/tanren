@@ -11,8 +11,7 @@ import time
 
 from tanren_api.models import DispatchAccepted, DispatchRequest
 from tanren_core.dispatch_orchestrator import create_dispatch
-from tanren_core.roles import AuthMode
-from tanren_core.schemas import Cli, Dispatch, Phase
+from tanren_core.schemas import Dispatch
 from tanren_core.store.enums import DispatchMode
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 
@@ -47,18 +46,14 @@ async def create_dispatch_from_request(
 
 
 def _to_dispatch(body: DispatchRequest) -> Dispatch:
-    """Map an API ``DispatchRequest`` to a core ``Dispatch`` model."""
+    """Map an API ``DispatchRequest`` to a core ``Dispatch`` model.
+
+    All fields must be pre-resolved — cli, auth, gate_cmd are required
+    by the DispatchRequest schema (enforced via Pydantic validation).
+    """
     epoch = time.time_ns()
     issue = body.issue if body.issue != "0" else str(epoch)
     workflow_id = f"wf-{body.project}-{issue}-{epoch}"
-
-    # Fallback CLI/auth resolution for REST API callers that don't use the builder
-    cli = body.cli
-    auth = body.auth
-    if cli is None:
-        cli = Cli.BASH if body.phase == Phase.GATE else Cli.CLAUDE
-    if auth is None:
-        auth = AuthMode.API_KEY
 
     return Dispatch(
         workflow_id=workflow_id,
@@ -66,8 +61,8 @@ def _to_dispatch(body: DispatchRequest) -> Dispatch:
         phase=body.phase,
         branch=body.branch,
         spec_folder=body.spec_folder,
-        cli=cli,
-        auth=auth,
+        cli=body.cli,
+        auth=body.auth,
         model=body.model,
         timeout=body.timeout,
         environment_profile=body.resolved_profile.name,

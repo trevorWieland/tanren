@@ -86,7 +86,12 @@ class RunEnvironmentStatus(StrEnum):
 
 
 class DispatchRequest(BaseModel):
-    """Submit a dispatch — omits workflow_id (auto-generated server-side)."""
+    """Submit a dispatch — all fields must be pre-resolved before submission.
+
+    Use the dispatch builder (``resolve_dispatch_inputs``) to resolve
+    cli, auth, model, gate_cmd, and profile before constructing this
+    request.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -94,17 +99,15 @@ class DispatchRequest(BaseModel):
     phase: Phase = Field(..., description="Dispatch phase type")
     branch: str = Field(..., description="Git branch name")
     spec_folder: str = Field(..., description="Relative path to spec folder")
-    cli: Cli | None = Field(
-        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
-    )
-    auth: AuthMode | None = Field(
-        default=None, description="Authentication mode (auto-resolved if omitted)"
-    )
+    cli: Cli = Field(..., description="CLI tool (must be pre-resolved via dispatch builder)")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution time in seconds")
     environment_profile: str = Field(default="default", description="Environment profile name")
     context: str | None = Field(default=None, description="Extra context for the agent")
-    gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
+    gate_cmd: str | None = Field(
+        default=None, description="Shell command (required for gate phases)"
+    )
     issue: str = Field(
         default="0",
         min_length=1,
@@ -131,6 +134,13 @@ class DispatchRequest(BaseModel):
         default_factory=tuple,
         description="Secret names the daemon must resolve and inject",
     )
+
+    @model_validator(mode="after")
+    def _validate_gate_cmd(self) -> DispatchRequest:
+        if self.phase == Phase.GATE and not self.gate_cmd:
+            msg = "gate_cmd is required when phase is GATE"
+            raise ValueError(msg)
+        return self
 
 
 class ProvisionRequest(BaseModel):
@@ -181,7 +191,7 @@ class ExecuteRequest(BaseModel):
 
 
 class RunFullRequest(BaseModel):
-    """Full lifecycle request — combines provision + execute fields."""
+    """Full lifecycle request — all fields must be pre-resolved before submission."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -189,17 +199,15 @@ class RunFullRequest(BaseModel):
     branch: str = Field(..., description="Git branch")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
-    cli: Cli | None = Field(
-        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
-    )
-    auth: AuthMode | None = Field(
-        default=None, description="Authentication mode (auto-resolved if omitted)"
-    )
+    cli: Cli = Field(..., description="CLI tool (must be pre-resolved via dispatch builder)")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
     model: str | None = Field(default=None, description="Model identifier")
     environment_profile: str = Field(default="default", description="Environment profile")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
-    gate_cmd: str | None = Field(default=None, description="Gate command")
+    gate_cmd: str | None = Field(
+        default=None, description="Gate command (required for gate phases)"
+    )
     resolved_profile: EnvironmentProfile = Field(
         ...,
         description="Fully resolved environment profile",

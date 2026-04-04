@@ -833,8 +833,8 @@ async def test_run_provision_status_flow(wired_client):
 
 
 @pytest.mark.asyncio
-async def test_run_full_without_cli(wired_client):
-    """Run full without explicit cli should still accept (cli=None defaults in model)."""
+async def test_run_full_requires_cli(wired_client):
+    """Run full without cli should reject with 422 (cli is required)."""
     resp = await wired_client.post(
         "/api/v1/run/full",
         json={
@@ -846,14 +846,12 @@ async def test_run_full_without_cli(wired_client):
         },
         headers=AUTH,
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "dispatch_id" in data
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_dispatch_create_without_cli(wired_client):
-    """Dispatch create without cli should accept (auto-resolved for gate)."""
+async def test_dispatch_create_requires_cli(wired_client):
+    """Dispatch create without cli should reject with 422 (cli is required)."""
     resp = await wired_client.post(
         "/api/v1/dispatch",
         json={
@@ -865,9 +863,25 @@ async def test_dispatch_create_without_cli(wired_client):
         },
         headers=AUTH,
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "dispatch_id" in data
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_dispatch_gate_requires_gate_cmd(wired_client):
+    """Dispatch with gate phase but no gate_cmd should reject with 422."""
+    resp = await wired_client.post(
+        "/api/v1/dispatch",
+        json={
+            "project": "gate-no-cmd",
+            "phase": "gate",
+            "branch": "main",
+            "spec_folder": "specs/test",
+            "cli": "bash",
+            "resolved_profile": {"name": "default"},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
