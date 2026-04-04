@@ -6,13 +6,13 @@ implementation that works with any SQLAlchemy async engine.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
 
 from tanren_core.adapters.remote_types import VMAssignment
 from tanren_core.store.models import VMAssignment as VMAssignmentModel
+from tanren_core.timestamps import utc_now_iso
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -37,7 +37,7 @@ class VMStateRepository:
         host: str,
     ) -> None:
         """Record a new VM assignment."""
-        now = datetime.now(UTC).isoformat()
+        now = utc_now_iso()
         async with self._sf.begin() as session:
             # Use merge for INSERT OR REPLACE semantics
             await session.merge(
@@ -53,7 +53,7 @@ class VMStateRepository:
 
     async def record_release(self, vm_id: str) -> None:
         """Mark a VM assignment as released."""
-        now = datetime.now(UTC).isoformat()
+        now = utc_now_iso()
         async with self._sf.begin() as session:
             await session.execute(
                 update(VMAssignmentModel)

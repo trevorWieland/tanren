@@ -5,20 +5,15 @@ from __future__ import annotations
 import builtins
 import logging
 import uuid
-from datetime import UTC, datetime
 
 from tanren_api.errors import NotFoundError
 from tanren_core.store.auth_events import UserCreated, UserDeactivated
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import UserView
 from tanren_core.store.protocols import EventStore
+from tanren_core.timestamps import utc_now_iso
 
 logger = logging.getLogger(__name__)
-
-
-def _now() -> str:
-    """Return an ISO 8601 UTC timestamp."""
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class UserService:
@@ -38,7 +33,7 @@ class UserService:
             The newly created UserView.
         """
         user_id = uuid.uuid4().hex
-        now = _now()
+        now = utc_now_iso()
 
         event = UserCreated(
             timestamp=now,
@@ -103,7 +98,7 @@ class UserService:
             raise NotFoundError(f"User {user_id} not found")
 
         event = UserDeactivated(
-            timestamp=_now(),
+            timestamp=utc_now_iso(),
             entity_id=user_id,
             entity_type="user",
         )

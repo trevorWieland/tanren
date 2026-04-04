@@ -12,38 +12,6 @@ from tanren_core.store.models import Base
 from tanren_core.store.repository import Store
 
 
-async def create_sqlite_store(db_path: str) -> Store:
-    """Create a SQLite-backed store.
-
-    Args:
-        db_path: Filesystem path for the SQLite database.
-
-    Returns:
-        A ``Store`` instance implementing EventStore, JobQueue, StateStore, AuthStore.
-    """
-    engine, is_sqlite = create_engine_from_url(db_path)
-    sf = create_session_factory(engine)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    return Store(sf, is_sqlite=is_sqlite, engine=engine)
-
-
-async def create_postgres_store(dsn: str) -> Store:
-    """Create a Postgres-backed store.
-
-    Args:
-        dsn: PostgreSQL connection string (``postgresql://...``).
-
-    Returns:
-        A ``Store`` instance implementing EventStore, JobQueue, StateStore, AuthStore.
-    """
-    engine, is_sqlite = create_engine_from_url(dsn)
-    sf = create_session_factory(engine)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    return Store(sf, is_sqlite=is_sqlite, engine=engine)
-
-
 async def create_store(db_url: str) -> Store:
     """Create a store from a database URL.
 
@@ -64,3 +32,18 @@ async def create_store(db_url: str) -> Store:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     return Store(sf, is_sqlite=is_sqlite, engine=engine)
+
+
+async def create_sqlite_store(db_path: str) -> Store:
+    """Create a SQLite-backed store.
+
+    Convenience wrapper for CLI usage.  Equivalent to
+    ``create_store(db_path)`` for filesystem paths.
+
+    Args:
+        db_path: Filesystem path for the SQLite database.
+
+    Returns:
+        A ``Store`` instance.
+    """
+    return await create_store(db_path)

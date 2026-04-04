@@ -1,11 +1,10 @@
 """API error types and global exception handler."""
 
-from datetime import UTC, datetime
-
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from tanren_api.models import ErrorResponse
+from tanren_core.timestamps import utc_now_iso
 
 
 class TanrenAPIError(Exception):
@@ -86,7 +85,7 @@ async def tanren_error_handler(request: Request, exc: Exception) -> JSONResponse
     body = ErrorResponse(
         detail=exc.detail,
         error_code=exc.error_code,
-        timestamp=datetime.now(UTC).isoformat(),
+        timestamp=utc_now_iso(),
         request_id=request_id,
     )
     return JSONResponse(status_code=exc.status_code, content=body.model_dump())

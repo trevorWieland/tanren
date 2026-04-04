@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from tanren_core.adapters.remote_types import VMAssignment
+from tanren_core.timestamps import utc_now_iso
 
 if TYPE_CHECKING:
     import asyncpg
@@ -34,7 +34,7 @@ class PostgresVMStateStore:
         host: str,
     ) -> None:
         """Record a new VM assignment."""
-        now = datetime.now(UTC).isoformat()
+        now = utc_now_iso()
         await self._pool.execute(
             "INSERT INTO vm_assignments "
             "(vm_id, workflow_id, project, spec, host, assigned_at) "
@@ -56,7 +56,7 @@ class PostgresVMStateStore:
 
     async def record_release(self, vm_id: str) -> None:
         """Mark a VM assignment as released."""
-        now = datetime.now(UTC).isoformat()
+        now = utc_now_iso()
         await self._pool.execute(
             "UPDATE vm_assignments SET released_at = $1 WHERE vm_id = $2 AND released_at IS NULL",
             now,

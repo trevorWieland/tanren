@@ -13,8 +13,6 @@ import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import asyncpg
-
     from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
     from tanren_core.worker_config import WorkerConfig
 
@@ -95,17 +93,39 @@ def validate_provisioner_requirements(provisioner_type: ProvisionerType | str) -
         )
 
 
+def _create_vm_state_store(config: WorkerConfig, db_url: str | None) -> VMStateStore:
+    """Create a VMStateStore using the SQLAlchemy-backed repository.
+
+    Args:
+        config: Worker config (provides data_dir for SQLite fallback).
+        db_url: Database URL. If None, uses SQLite at data_dir/vm-state.db.
+
+    Returns:
+        VMStateStore implementation.
+    """
+    from tanren_core.adapters.vm_state_repository import VMStateRepository  # noqa: PLC0415
+    from tanren_core.store.engine import (  # noqa: PLC0415
+        create_engine_from_url,
+        create_session_factory,
+    )
+
+    url = db_url or f"{config.data_dir}/vm-state.db"
+    engine, _is_sqlite = create_engine_from_url(url)
+    sf = create_session_factory(engine)
+    return VMStateRepository(sf)
+
+
 def build_ssh_execution_environment(
     config: WorkerConfig,
     remote_cfg: RemoteExecutionConfig,
-    pool: asyncpg.Pool | None = None,
+    db_url: str | None = None,
 ) -> tuple[SSHExecutionEnvironment, VMStateStore]:
     """Construct an SSHExecutionEnvironment from dispatch-carried config.
 
     Args:
         config: Worker operational config (data_dir, etc.).
         remote_cfg: Remote execution config carried in the dispatch/profile.
-        pool: Optional asyncpg pool for Postgres-backed VM state.
+        db_url: Database URL for VM state persistence.
 
     Returns:
         Tuple of (SSHExecutionEnvironment, VMStateStore).
@@ -128,18 +148,7 @@ def build_ssh_execution_environment(
         host_key_policy=remote_cfg.ssh.host_key_policy,
     )
 
-    if pool is not None:
-        from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
-            PostgresVMStateStore,
-        )
-
-        state_store: VMStateStore = PostgresVMStateStore(pool)
-    else:
-        from tanren_core.adapters.sqlite_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
-            SqliteVMStateStore,
-        )
-
-        state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
+    state_store = _create_vm_state_store(config, db_url)
 
     # Daemon uses its own secrets path (not from dispatch)
     secret_config = SecretConfig()
@@ -235,14 +244,14 @@ def _build_local(
 def _build_docker(
     config: WorkerConfig,
     docker_cfg: DockerExecutionConfig,
-    pool: asyncpg.Pool | None = None,
+    db_url: str | None = None,
 ) -> tuple[ExecutionEnvironment, VMStateStore]:
     """Construct a DockerExecutionEnvironment from dispatch-carried config.
 
     Args:
         config: Worker operational config (data_dir, etc.).
         docker_cfg: Docker execution config carried in the dispatch/profile.
-        pool: Optional asyncpg pool for Postgres-backed VM state.
+        db_url: Database URL for VM state persistence.
 
     Returns:
         Tuple of (DockerExecutionEnvironment, VMStateStore).
@@ -255,18 +264,7 @@ def _build_docker(
     required_clis = frozenset(Cli(c) for c in docker_cfg.required_clis)
     agent_user = docker_cfg.agent_user
 
-    if pool is not None:
-        from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional
-            PostgresVMStateStore,
-        )
-
-        state_store: VMStateStore = PostgresVMStateStore(pool)
-    else:
-        from tanren_core.adapters.sqlite_vm_state import (  # noqa: PLC0415 — conditional
-            SqliteVMStateStore,
-        )
-
-        state_store = SqliteVMStateStore(f"{config.data_dir}/vm-state.db")
+    state_store = _create_vm_state_store(config, db_url)
 
     secret_config = SecretConfig()
     secret_loader = SecretLoader(secret_config, required_clis=required_clis)
@@ -309,7 +307,7 @@ def _build_docker(
 def build_execution_environment(
     config: WorkerConfig,
     profile: EnvironmentProfile,
-    pool: asyncpg.Pool | None = None,
+    db_url: str | None = None,
 ) -> tuple[ExecutionEnvironment, VMStateStore | None]:
     """Build the execution environment for a given profile.
 
@@ -319,7 +317,7 @@ def build_execution_environment(
     Args:
         config: Worker configuration.
         profile: Resolved environment profile from tanren.yml.
-        pool: Optional asyncpg pool for Postgres-backed VM state (remote only).
+        db_url: Database URL for VM state persistence (remote/docker only).
 
     Returns:
         Tuple of (ExecutionEnvironment, VMStateStore | None).
@@ -332,10 +330,10 @@ def build_execution_environment(
     elif profile.type == EnvironmentProfileType.REMOTE:
         if profile.remote_config is None:
             raise ValueError(f"remote_config is required for remote profile '{profile.name}'")
-        return build_ssh_execution_environment(config, profile.remote_config, pool=pool)
+        return build_ssh_execution_environment(config, profile.remote_config, db_url=db_url)
     elif profile.type == EnvironmentProfileType.DOCKER:
         if profile.docker_config is None:
             raise ValueError(f"docker_config is required for docker profile '{profile.name}'")
-        return _build_docker(config, profile.docker_config, pool=pool)
+        return _build_docker(config, profile.docker_config, db_url=db_url)
     else:
         raise ValueError(f"Unknown profile type: {profile.type}")

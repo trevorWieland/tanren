@@ -15,13 +15,9 @@ from tanren_core.store.auth_events import KeyCreated, KeyRevoked, KeyRotated, Re
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import ApiKeyView
 from tanren_core.store.protocols import EventStore
+from tanren_core.timestamps import utc_now_iso
 
 logger = logging.getLogger(__name__)
-
-
-def _now() -> str:
-    """Return an ISO 8601 UTC timestamp."""
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class KeyService:
@@ -72,7 +68,7 @@ class KeyService:
 
         key_id = uuid.uuid4().hex
         raw_key, prefix, key_hash = generate_api_key()
-        now = _now()
+        now = utc_now_iso()
 
         # Parse resource limits for the event
         resource_limits: ResourceLimits | None = None
@@ -161,7 +157,7 @@ class KeyService:
             raise NotFoundError(f"API key {key_id} not found")
 
         event = KeyRevoked(
-            timestamp=_now(),
+            timestamp=utc_now_iso(),
             entity_id=key_id,
             entity_type="api_key",
         )
@@ -221,7 +217,7 @@ class KeyService:
 
         # Append rotation event on the old key
         event = KeyRotated(
-            timestamp=_now(),
+            timestamp=utc_now_iso(),
             entity_id=key_id,
             entity_type="api_key",
             new_key_id=new_key_view.key_id,

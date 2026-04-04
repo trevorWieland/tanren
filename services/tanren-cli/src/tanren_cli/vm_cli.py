@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import asyncpg
-
     from tanren_core.adapters.protocols import VMStateStore
 
 import typer
@@ -16,8 +14,6 @@ import yaml
 from dotenv import dotenv_values
 
 from tanren_core.adapters.manual_vm import ManualProvisionerSettings
-from tanren_core.adapters.postgres_pool import is_postgres_url
-from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
 from tanren_core.env.environment_schema import EnvironmentProfile, parse_environment_profiles
@@ -45,25 +41,22 @@ def _load_config() -> WorkerConfig:
         raise typer.Exit(code=1) from exc
 
 
-async def _get_state_store(config: WorkerConfig) -> tuple[VMStateStore, asyncpg.Pool | None]:
-    """Create a VMStateStore from WorkerConfig, returning (store, pool_or_none).
+def _get_state_store(config: WorkerConfig) -> VMStateStore:
+    """Create a VMStateStore from WorkerConfig.
 
     Returns:
-        Tuple of (VMStateStore, asyncpg.Pool | None).
+        VMStateStore backed by the same database as the main store.
     """
-    if config.db_url and is_postgres_url(config.db_url):
-        from tanren_core.adapters.postgres_pool import (  # noqa: PLC0415 — conditional import based on configuration
-            create_postgres_pool,
-        )
-        from tanren_core.adapters.postgres_vm_state import (  # noqa: PLC0415 — conditional import based on configuration
-            PostgresVMStateStore,
-        )
+    from tanren_core.adapters.vm_state_repository import VMStateRepository  # noqa: PLC0415
+    from tanren_core.store.engine import (  # noqa: PLC0415
+        create_engine_from_url,
+        create_session_factory,
+    )
 
-        pool = await create_postgres_pool(config.db_url)
-        return PostgresVMStateStore(pool), pool
-
-    db_path = f"{config.data_dir}/vm-state.db"
-    return SqliteVMStateStore(db_path), None
+    url = config.db_url or f"{config.data_dir}/vm-state.db"
+    engine, _is_sqlite = create_engine_from_url(url)
+    sf = create_session_factory(engine)
+    return VMStateRepository(sf)
 
 
 @vm_app.command("list")
@@ -72,7 +65,7 @@ def vm_list() -> None:
 
     async def _run() -> None:
         config = _load_config()
-        store, pool = await _get_state_store(config)
+        store = _get_state_store(config)
         try:
             assignments = await store.get_active_assignments()
             if not assignments:
@@ -90,8 +83,6 @@ def vm_list() -> None:
                 )
         finally:
             await store.close()
-            if pool is not None:
-                await pool.close()
 
     asyncio.run(_run())
 
@@ -102,7 +93,7 @@ def vm_release(vm_id: str = typer.Argument(...)) -> None:
 
     async def _run() -> None:
         config = _load_config()
-        store, pool = await _get_state_store(config)
+        store = _get_state_store(config)
         try:
             assignment = await store.get_assignment(vm_id)
             if assignment is None:
@@ -112,8 +103,6 @@ def vm_release(vm_id: str = typer.Argument(...)) -> None:
             typer.echo(f"Released VM {vm_id} (was assigned to {assignment.workflow_id})")
         finally:
             await store.close()
-            if pool is not None:
-                await pool.close()
 
     asyncio.run(_run())
 
@@ -124,7 +113,7 @@ def vm_recover() -> None:
 
     async def _run() -> None:
         config = _load_config()
-        store, pool = await _get_state_store(config)
+        store = _get_state_store(config)
         try:
             assignments = await store.get_active_assignments()
             if not assignments:
@@ -167,8 +156,6 @@ def vm_recover() -> None:
                     await conn.close()
         finally:
             await store.close()
-            if pool is not None:
-                await pool.close()
 
     asyncio.run(_run())
 

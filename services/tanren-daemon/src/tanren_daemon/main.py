@@ -17,8 +17,6 @@ from tanren_core.worker import Worker
 from tanren_core.worker_config import WorkerConfig
 
 if TYPE_CHECKING:
-    import asyncpg
-
     from tanren_core.adapters.protocols import ExecutionEnvironment, VMStateStore
     from tanren_core.env.environment_schema import EnvironmentProfile
 
@@ -30,8 +28,6 @@ async def _run() -> None:
     config = WorkerConfig.from_env()
     store = await create_store(config.db_url)
 
-    pg_pool: asyncpg.Pool | None = getattr(store, "_pool", None)
-
     def env_factory(
         cfg: WorkerConfig,
         profile: EnvironmentProfile,
@@ -41,7 +37,7 @@ async def _run() -> None:
         Returns:
             Tuple of (ExecutionEnvironment, VMStateStore | None).
         """
-        return build_execution_environment(cfg, profile, pool=pg_pool)
+        return build_execution_environment(cfg, profile, db_url=config.db_url)
 
     # Recover stale state from prior crashes before processing new work
     stale_steps = await store.recover_stale_steps()

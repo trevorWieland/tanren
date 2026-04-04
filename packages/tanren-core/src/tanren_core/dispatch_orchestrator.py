@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from tanren_core.schemas import Dispatch
 from tanren_core.store.enums import (
@@ -38,6 +37,7 @@ from tanren_core.store.payloads import (
 )
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import StepView
+from tanren_core.timestamps import utc_now_iso
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -90,10 +90,6 @@ class DuplicateTeardownError(DispatchGuardError):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _next_sequence(steps: list[StepView]) -> int:
@@ -221,7 +217,7 @@ async def create_dispatch(
 
     await event_store.append(
         DispatchCreated(
-            timestamp=_now(),
+            timestamp=utc_now_iso(),
             entity_id=dispatch_id,
             dispatch=dispatch,
             mode=mode,
@@ -376,7 +372,7 @@ async def enqueue_dry_run_step(
 
     await event_store.append(
         DispatchCreated(
-            timestamp=_now(),
+            timestamp=utc_now_iso(),
             entity_id=dispatch_id,
             dispatch=dispatch,
             mode=mode,

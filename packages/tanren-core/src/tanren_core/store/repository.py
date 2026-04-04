@@ -49,12 +49,9 @@ from tanren_core.store.views import (
     QueuedStep,
     StepView,
 )
+from tanren_core.timestamps import utc_now_iso
 
 logger = logging.getLogger(__name__)
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class Store:
@@ -159,7 +156,7 @@ class Store:
         payload_json: str,
     ) -> None:
         """Insert a new step into the queue."""
-        now = _now()
+        now = utc_now_iso()
         payload_dict = json.loads(payload_json)
 
         async with self._write_session() as session:
@@ -224,7 +221,7 @@ class Store:
 
     async def ack(self, step_id: str, *, result_json: str) -> None:
         """Mark a step as completed and store its result."""
-        now = _now()
+        now = utc_now_iso()
         result_dict = json.loads(result_json)
         async with self._write_session() as session:
             await session.execute(
@@ -247,7 +244,7 @@ class Store:
         completion_events: list[Event] | None = None,
     ) -> None:
         """Atomically ack a step and enqueue the next step."""
-        now = _now()
+        now = utc_now_iso()
         result_dict = json.loads(result_json)
         next_payload_dict = json.loads(next_payload_json)
 
@@ -320,7 +317,7 @@ class Store:
 
     async def cancel_pending_steps(self, dispatch_id: str) -> int:
         """Cancel pending forward-progress steps (teardowns preserved)."""
-        now = _now()
+        now = utc_now_iso()
         async with self._write_session() as session:
             result = await session.execute(
                 update(StepProjection)
@@ -340,7 +337,7 @@ class Store:
         retry: bool = False,
     ) -> None:
         """Mark a step as failed, optionally re-enqueuing for retry."""
-        now = _now()
+        now = utc_now_iso()
         async with self._write_session() as session:
             if retry:
                 await session.execute(
@@ -363,7 +360,7 @@ class Store:
 
     async def recover_stale_steps(self, *, timeout_secs: int = 300) -> int:
         """Reset running steps older than timeout back to pending."""
-        now = _now()
+        now = utc_now_iso()
         cutoff = (
             (datetime.now(UTC) - timedelta(seconds=timeout_secs)).isoformat().replace("+00:00", "Z")
         )
@@ -458,7 +455,7 @@ class Store:
         user_id: str = "",
     ) -> None:
         """Insert a new dispatch projection row."""
-        now = _now()
+        now = utc_now_iso()
         dispatch_dict = json.loads(dispatch_json)
         async with self._write_session() as session:
             session.add(
@@ -482,7 +479,7 @@ class Store:
         outcome: Outcome | None = None,
     ) -> None:
         """Update dispatch status (silently ignores terminal states)."""
-        now = _now()
+        now = utc_now_iso()
         terminal = {"completed", "failed", "cancelled"}
         async with self._write_session() as session:
             values: dict = {"status": str(status), "updated_at": now}
@@ -506,7 +503,7 @@ class Store:
         role: str,
     ) -> None:
         """Create a user projection."""
-        now = _now()
+        now = utc_now_iso()
         async with self._write_session() as session:
             session.add(
                 UserProjection(
@@ -552,7 +549,7 @@ class Store:
         role: str | None = None,
     ) -> None:
         """Update user fields."""
-        now = _now()
+        now = utc_now_iso()
         values: dict = {"updated_at": now}
         if name is not None:
             values["name"] = name
@@ -567,7 +564,7 @@ class Store:
 
     async def deactivate_user(self, user_id: str) -> None:
         """Deactivate a user."""
-        now = _now()
+        now = utc_now_iso()
         async with self._write_session() as session:
             await session.execute(
                 update(UserProjection)
@@ -588,7 +585,7 @@ class Store:
         expires_at: str | None = None,
     ) -> None:
         """Create an API key projection."""
-        now = _now()
+        now = utc_now_iso()
         scopes_list = json.loads(scopes_json)
         rl_dict = json.loads(resource_limits_json) if resource_limits_json else None
         async with self._write_session() as session:
@@ -635,7 +632,7 @@ class Store:
         offset: int = 0,
     ) -> list[ApiKeyView]:
         """List API keys with optional filtering."""
-        now = _now()
+        now = utc_now_iso()
         async with self._sf() as session:
             stmt = select(ApiKeyProjection)
             if user_id is not None:
@@ -651,7 +648,7 @@ class Store:
 
     async def revoke_api_key(self, key_id: str) -> None:
         """Revoke an API key by setting revoked_at to now."""
-        now = _now()
+        now = utc_now_iso()
         async with self._write_session() as session:
             await session.execute(
                 update(ApiKeyProjection)
@@ -858,7 +855,7 @@ class Store:
             return None
 
         # 3. Claim the step
-        now = _now()
+        now = utc_now_iso()
         await session.execute(
             update(StepProjection)
             .where(StepProjection.step_id == row.step_id)

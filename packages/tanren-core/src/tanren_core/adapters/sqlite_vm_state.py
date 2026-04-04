@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
 
 from tanren_core.adapters.remote_types import VMAssignment
+from tanren_core.timestamps import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class SqliteVMStateStore:
     ) -> None:
         """Record a new VM assignment."""
         conn = await self._ensure_conn()
-        now = datetime.now(UTC).isoformat()
+        now = utc_now_iso()
         await conn.execute(
             "INSERT OR REPLACE INTO vm_assignments "
             "(vm_id, workflow_id, project, spec, host, assigned_at) "
@@ -68,7 +68,7 @@ class SqliteVMStateStore:
     async def record_release(self, vm_id: str) -> None:
         """Mark a VM assignment as released."""
         conn = await self._ensure_conn()
-        now = datetime.now(UTC).isoformat()
+        now = utc_now_iso()
         await conn.execute(
             "UPDATE vm_assignments SET released_at = ? WHERE vm_id = ? AND released_at IS NULL",
             (now, vm_id),

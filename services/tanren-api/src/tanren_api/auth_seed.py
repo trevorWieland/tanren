@@ -10,16 +10,11 @@ from tanren_api.key_utils import hash_api_key
 from tanren_core.store.auth_events import KeyCreated, UserCreated
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.protocols import EventStore
+from tanren_core.timestamps import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
 LEGACY_ADMIN_USER_ID = "admin-00000000"
-
-
-def _now() -> str:
-    from datetime import UTC, datetime
-
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 async def seed_legacy_admin_key(
@@ -38,7 +33,7 @@ async def seed_legacy_admin_key(
         logger.debug("Legacy admin key already seeded — skipping")
         return
 
-    now = _now()
+    now = utc_now_iso()
 
     # Ensure admin user exists
     user = await auth_store.get_user(LEGACY_ADMIN_USER_ID)
