@@ -96,6 +96,9 @@ def validate_provisioner_requirements(provisioner_type: ProvisionerType | str) -
 def _create_vm_state_store(config: WorkerConfig, db_url: str | None) -> VMStateStore:
     """Create a VMStateStore using the SQLAlchemy-backed repository.
 
+    Creates the backing tables if they don't exist (using the sync engine
+    for compatibility with sync builder callers).
+
     Args:
         config: Worker config (provides data_dir for SQLite fallback).
         db_url: Database URL. If None, uses SQLite at data_dir/vm-state.db.
@@ -108,10 +111,22 @@ def _create_vm_state_store(config: WorkerConfig, db_url: str | None) -> VMStateS
         create_engine_from_url,
         create_session_factory,
     )
+    from tanren_core.store.models import Base  # noqa: PLC0415
 
     url = db_url or f"{config.data_dir}/vm-state.db"
-    engine, _is_sqlite = create_engine_from_url(url)
+    engine, is_sqlite = create_engine_from_url(url)
     sf = create_session_factory(engine)
+
+    # Ensure tables exist — for SQLite, use a temporary sync engine since
+    # async aiosqlite requires a greenlet context that builder callers lack.
+    if is_sqlite:
+        from sqlalchemy import create_engine as create_sync_engine  # noqa: PLC0415
+
+        sync_url = str(engine.url).replace("+aiosqlite", "")
+        sync_eng = create_sync_engine(sync_url)
+        Base.metadata.create_all(sync_eng)
+        sync_eng.dispose()
+
     return VMStateRepository(sf)
 
 

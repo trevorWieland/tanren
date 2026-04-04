@@ -52,10 +52,22 @@ def _get_state_store(config: WorkerConfig) -> VMStateStore:
         create_engine_from_url,
         create_session_factory,
     )
+    from tanren_core.store.models import Base  # noqa: PLC0415
 
     url = config.db_url or f"{config.data_dir}/vm-state.db"
-    engine, _is_sqlite = create_engine_from_url(url)
+    engine, is_sqlite = create_engine_from_url(url)
     sf = create_session_factory(engine)
+
+    # Ensure tables exist — for SQLite, use a temporary sync engine since
+    # async aiosqlite requires a greenlet context that sync callers lack.
+    if is_sqlite:
+        from sqlalchemy import create_engine as create_sync_engine  # noqa: PLC0415
+
+        sync_url = str(engine.url).replace("+aiosqlite", "")
+        sync_eng = create_sync_engine(sync_url)
+        Base.metadata.create_all(sync_eng)
+        sync_eng.dispose()
+
     return VMStateRepository(sf)
 
 

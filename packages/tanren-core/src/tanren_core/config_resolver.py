@@ -80,10 +80,10 @@ class DiskConfigResolver:
         return {k: v for k, v in values.items() if v is not None}
 
 
-# Regex to parse GitHub repo URLs
+# Regex to parse GitHub repo URLs (supports dotted repo names like my.repo.git)
 _GITHUB_URL_RE = re.compile(
     r"(?:https?://github\.com/|git@github\.com:)"
-    r"(?P<owner>[^/]+)/(?P<repo>[^/.]+)"
+    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$"
 )
 
 
