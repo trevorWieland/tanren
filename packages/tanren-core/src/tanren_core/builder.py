@@ -93,11 +93,17 @@ def validate_provisioner_requirements(provisioner_type: ProvisionerType | str) -
         )
 
 
-def _create_vm_state_store(config: WorkerConfig, db_url: str | None) -> VMStateStore:
-    """Create a VMStateStore using the SQLAlchemy-backed repository.
+# Cache for VM state engine/session factory — avoids creating a new engine
+# per environment build (the daemon calls env_factory for every dispatch step).
+_vm_state_cache: dict[str, tuple] = {}
 
-    Creates the backing tables if they don't exist (using the sync engine
-    for compatibility with sync builder callers).
+
+def _create_vm_state_store(config: WorkerConfig, db_url: str | None) -> VMStateStore:
+    """Create or reuse a VMStateStore for the given database URL.
+
+    Caches the engine and session factory by resolved URL so repeated
+    calls (e.g. from the daemon's per-dispatch env_factory) share a
+    single connection pool instead of creating a new engine each time.
 
     Args:
         config: Worker config (provides data_dir for SQLite fallback).
@@ -107,26 +113,32 @@ def _create_vm_state_store(config: WorkerConfig, db_url: str | None) -> VMStateS
         VMStateStore implementation.
     """
     from tanren_core.adapters.vm_state_repository import VMStateRepository  # noqa: PLC0415
-    from tanren_core.store.engine import (  # noqa: PLC0415
-        create_engine_from_url,
-        create_session_factory,
-    )
-    from tanren_core.store.models import Base  # noqa: PLC0415
 
     url = db_url or f"{config.data_dir}/vm-state.db"
-    engine, is_sqlite = create_engine_from_url(url)
-    sf = create_session_factory(engine)
 
-    # Ensure tables exist — for SQLite, use a temporary sync engine since
-    # async aiosqlite requires a greenlet context that builder callers lack.
-    if is_sqlite:
-        from sqlalchemy import create_engine as create_sync_engine  # noqa: PLC0415
+    if url not in _vm_state_cache:
+        from tanren_core.store.engine import (  # noqa: PLC0415
+            create_engine_from_url,
+            create_session_factory,
+        )
+        from tanren_core.store.models import Base  # noqa: PLC0415
 
-        sync_url = str(engine.url).replace("+aiosqlite", "")
-        sync_eng = create_sync_engine(sync_url)
-        Base.metadata.create_all(sync_eng)
-        sync_eng.dispose()
+        engine, is_sqlite = create_engine_from_url(url)
+        sf = create_session_factory(engine)
 
+        # Ensure tables exist on first use. For SQLite, use a temporary sync
+        # engine since async aiosqlite requires a greenlet context.
+        if is_sqlite:
+            from sqlalchemy import create_engine as create_sync_engine  # noqa: PLC0415
+
+            sync_url = str(engine.url).replace("+aiosqlite", "")
+            sync_eng = create_sync_engine(sync_url)
+            Base.metadata.create_all(sync_eng)
+            sync_eng.dispose()
+
+        _vm_state_cache[url] = (engine, sf)
+
+    _engine, sf = _vm_state_cache[url]
     return VMStateRepository(sf)
 
 
