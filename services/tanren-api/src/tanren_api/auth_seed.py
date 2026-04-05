@@ -1,4 +1,12 @@
-"""Idempotent seeding of the legacy admin user and API key."""
+"""Idempotent seeding of the legacy admin user and API key.
+
+On startup, if ``TANREN_API_API_KEY`` is set, creates an admin user and
+API key with ``*`` scope.  If the key hash changes (operator rotated
+the env var), the old key is revoked and a new one is seeded.
+
+Safe for concurrent startup: IntegrityError on duplicate key hash is
+treated as a successful no-op (another worker won the race).
+"""
 
 from __future__ import annotations
 
@@ -25,6 +33,9 @@ async def seed_legacy_admin_key(
     """Create admin user + API key from the legacy ``TANREN_API_API_KEY`` env var.
 
     Idempotent: skips if a key with the same hash already exists.
+    If a different legacy key was previously seeded, the old key is
+    revoked before the new one is created, ensuring rotated env vars
+    invalidate prior credentials.
     """
     key_hash = hash_api_key(raw_key)
 
@@ -55,6 +66,16 @@ async def seed_legacy_admin_key(
             role="admin",
         )
 
+    # Revoke any previously seeded legacy keys for this admin user.
+    # This handles env var rotation: old key becomes invalid immediately.
+    existing_keys = await auth_store.list_api_keys(
+        user_id=LEGACY_ADMIN_USER_ID, include_revoked=False
+    )
+    for old_key in existing_keys:
+        if old_key.name == "Legacy admin key":
+            await auth_store.revoke_api_key(old_key.key_id)
+            logger.info("Revoked old legacy admin key %s (env var rotated)", old_key.key_prefix)
+
     # Derive prefix from key format or hash
     prefix = key_hash[:8]
     if raw_key.startswith("tnrn_") and raw_key.count("_") >= 2:
@@ -76,15 +97,24 @@ async def seed_legacy_admin_key(
             expires_at=None,
         )
     )
-    await auth_store.create_api_key(
-        key_id=key_id,
-        user_id=LEGACY_ADMIN_USER_ID,
-        name="Legacy admin key",
-        key_prefix=prefix,
-        key_hash=key_hash,
-        scopes_json=json.dumps(scopes),
-        resource_limits_json=None,
-        expires_at=None,
-    )
+
+    try:
+        await auth_store.create_api_key(
+            key_id=key_id,
+            user_id=LEGACY_ADMIN_USER_ID,
+            name="Legacy admin key",
+            key_prefix=prefix,
+            key_hash=key_hash,
+            scopes_json=json.dumps(scopes),
+            resource_limits_json=None,
+            expires_at=None,
+        )
+    except Exception:
+        # Concurrent startup: another worker may have inserted first.
+        # Verify the key now exists (race was harmless).
+        if await auth_store.get_api_key_by_hash(key_hash) is not None:
+            logger.debug("Legacy admin key seeded by concurrent worker — skipping")
+            return
+        raise
 
     logger.info("Seeded legacy admin user and API key")

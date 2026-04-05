@@ -688,15 +688,32 @@ async def events_query(
     limit: int = 50,
     offset: int = 0,
 ) -> PaginatedEvents:
-    """Query events.
+    """Query events (scoped to caller's own dispatches unless admin).
 
     Returns:
         PaginatedEvents with events list, total count, and pagination info.
     """
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
+
+    # Build ownership filter for non-admin users (matches REST /events)
+    entity_ids: list[str] | None = None
+    user_id, is_admin = _mcp_ownership()
+    if not is_admin and user_id:
+        from tanren_core.store.protocols import StateStore
+        from tanren_core.store.views import DispatchListFilter
+
+        store = _auth_store_ref
+        if store is not None and isinstance(store, StateStore):
+            dispatches = await store.query_dispatches(
+                DispatchListFilter(user_id=user_id, limit=10000)
+            )
+            entity_ids = [d.dispatch_id for d in dispatches]
+            entity_ids.extend([user_id])
+
     return await _svc().events.query(
         workflow_id=workflow_id,
+        entity_ids=entity_ids,
         event_type=event_type,
         limit=limit,
         offset=offset,

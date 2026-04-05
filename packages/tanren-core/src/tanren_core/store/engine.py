@@ -50,7 +50,13 @@ def create_engine_from_url(db_url: str) -> tuple[AsyncEngine, bool]:
         raise ValueError(msg)
 
     # SQLite — single connection, WAL mode, foreign keys
-    sa_url = db_url if db_url.startswith("sqlite") else f"sqlite+aiosqlite:///{db_url}"
+    # Normalize to async dialect: sqlite:// → sqlite+aiosqlite://
+    if db_url.startswith("sqlite://") and "+aiosqlite" not in db_url:
+        sa_url = db_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    elif db_url.startswith("sqlite"):
+        sa_url = db_url
+    else:
+        sa_url = f"sqlite+aiosqlite:///{db_url}"
 
     # Ensure parent directories exist for filesystem paths
     if not sa_url.endswith(":memory:") and ":///" in sa_url:
