@@ -7,7 +7,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path
 
 from tanren_api.auth import require_scope
-from tanren_api.dependencies import get_auth_store, get_event_store, get_job_queue, get_state_store
+from tanren_api.dependencies import (
+    get_auth_store,
+    get_event_store,
+    get_job_queue,
+    get_state_store,
+    get_store,
+)
 from tanren_api.limits import check_resource_limits
 from tanren_api.models import (
     ProvisionRequest,
@@ -20,6 +26,7 @@ from tanren_api.services.vm import VMService
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.repository import Store
 
 router = APIRouter(tags=["vm"])
 
@@ -50,12 +57,14 @@ async def provision_vm(
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
     auth_store: Annotated[AuthStore, Depends(get_auth_store)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> VMProvisionAccepted:
     """Provision a new VM (non-blocking)."""
-    await check_resource_limits(auth, auth_store, "vm_provision")
-    return await _vm_service(event_store, job_queue, state_store).provision(
-        body, user_id=auth.user.user_id
-    )
+    async with store.user_quota_lock(auth.user.user_id):
+        await check_resource_limits(auth, auth_store, "vm_provision")
+        return await _vm_service(event_store, job_queue, state_store).provision(
+            body, user_id=auth.user.user_id
+        )
 
 
 @router.get("/vm/provision/{env_id}")
@@ -98,9 +107,11 @@ async def dry_run_provision(
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
     auth_store: Annotated[AuthStore, Depends(get_auth_store)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> VMProvisionAccepted:
     """Dry-run provision — enqueue a DRY_RUN step and return dispatch_id for polling."""
-    await check_resource_limits(auth, auth_store, "vm_provision")
-    return await _vm_service(event_store, job_queue, state_store).dry_run(
-        body, user_id=auth.user.user_id
-    )
+    async with store.user_quota_lock(auth.user.user_id):
+        await check_resource_limits(auth, auth_store, "vm_provision")
+        return await _vm_service(event_store, job_queue, state_store).dry_run(
+            body, user_id=auth.user.user_id
+        )

@@ -7,6 +7,7 @@ from fastapi import Request
 from tanren_api.settings import APISettings
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.repository import Store
 from tanren_core.worker_config import WorkerConfig
 
 
@@ -33,6 +34,15 @@ def get_state_store(request: Request) -> StateStore:
 def get_auth_store(request: Request) -> AuthStore:
     """Return the auth store."""
     return request.app.state.auth_store
+
+
+def get_store(request: Request) -> Store:
+    """Return the unified Store (for quota locking).
+
+    Returns:
+        The Store instance from app state.
+    """
+    return request.app.state.event_store
 
 
 def get_worker_config(request: Request) -> WorkerConfig | None:

@@ -134,6 +134,31 @@ async def _check_mcp_resource_limits(action: str) -> None:
     await check_resource_limits(auth, store, action)
 
 
+def _mcp_quota_lock():  # noqa: ANN202 — returns AsyncContextManager
+    """Return an async context manager for per-user quota serialization.
+
+    Falls back to a no-op context manager if the store doesn't support
+    quota locking (e.g., in tests with mocked stores).
+    """
+    from contextlib import asynccontextmanager
+
+    from tanren_api.mcp_auth import mcp_auth_context_var
+
+    auth = mcp_auth_context_var.get()
+    store = _auth_store_ref
+    if auth is not None and store is not None:
+        from tanren_core.store.repository import Store
+
+        if isinstance(store, Store):
+            return store.user_quota_lock(auth.user.user_id)
+
+    @asynccontextmanager
+    async def _noop():  # noqa: ANN202, RUF029 — async context manager requires async def
+        yield
+
+    return _noop()
+
+
 def _mcp_ownership() -> tuple[str, bool]:
     """Return (user_id, is_admin) from the MCP auth context.
 
@@ -284,8 +309,9 @@ async def dispatch_create(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits("dispatch")
-    return await _svc().dispatch.create(body, user_id=user_id)
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("dispatch")
+        return await _svc().dispatch.create(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -380,8 +406,9 @@ async def vm_provision(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits("vm_provision")
-    return await _svc().vm.provision(body, user_id=user_id)
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("vm_provision")
+        return await _svc().vm.provision(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -449,8 +476,9 @@ async def vm_dry_run(
     )
     from tanren_api.mcp_auth import mcp_user_id_var
 
-    await _check_mcp_resource_limits("vm_provision")
-    return await _svc().vm.dry_run(body, user_id=mcp_user_id_var.get())
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("vm_provision")
+        return await _svc().vm.dry_run(body, user_id=mcp_user_id_var.get())
 
 
 # ---------------------------------------------------------------------------
@@ -504,8 +532,9 @@ async def run_provision(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits("dispatch")
-    return await _svc().run.provision(body, user_id=user_id)
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("dispatch")
+        return await _svc().run.provision(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -629,8 +658,9 @@ async def run_full(
     from tanren_api.mcp_auth import mcp_user_id_var
 
     user_id = mcp_user_id_var.get()
-    await _check_mcp_resource_limits("dispatch")
-    return await _svc().run.full(body, user_id=user_id)
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("dispatch")
+        return await _svc().run.full(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -697,31 +727,24 @@ async def events_query(
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
 
-    # Build ownership filter for non-admin users (matches REST /events)
-    entity_ids: list[str] | None = None
+    # DB-level ownership filter for non-admin users (matches REST /events)
     user_id, is_admin = _mcp_ownership()
+    owner_user_id: str | None = None
+    owner_key_id: str | None = None
     if not is_admin and user_id:
+        owner_user_id = user_id
         from tanren_api.mcp_auth import mcp_auth_context_var
-        from tanren_core.store.protocols import StateStore
-        from tanren_core.store.views import DispatchListFilter
 
-        store = _auth_store_ref
-        if store is not None and isinstance(store, StateStore):
-            dispatches = await store.query_dispatches(
-                DispatchListFilter(user_id=user_id, limit=10000)
-            )
-            entity_ids = [d.dispatch_id for d in dispatches]
-            entity_ids.extend([user_id])
-            # Include key entity ID (matches REST /events)
-            auth_ctx = mcp_auth_context_var.get()
-            if auth_ctx is not None:
-                entity_ids.append(auth_ctx.key.key_id)
+        auth_ctx = mcp_auth_context_var.get()
+        if auth_ctx is not None:
+            owner_key_id = auth_ctx.key.key_id
 
     return await _svc().events.query(
         workflow_id=workflow_id,
-        entity_ids=entity_ids,
         entity_type=entity_type,
         event_type=event_type,
+        owner_user_id=owner_user_id,
+        owner_key_id=owner_key_id,
         limit=limit,
         offset=offset,
     )

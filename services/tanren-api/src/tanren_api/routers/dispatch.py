@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends
 from fastapi import Path as PathParam
 
 from tanren_api.auth import require_scope
-from tanren_api.dependencies import get_auth_store, get_event_store, get_job_queue, get_state_store
+from tanren_api.dependencies import (
+    get_auth_store,
+    get_event_store,
+    get_job_queue,
+    get_state_store,
+    get_store,
+)
 from tanren_api.limits import check_resource_limits
 from tanren_api.models import (
     DispatchAccepted,
@@ -21,6 +27,7 @@ from tanren_api.services.dispatch import DispatchService
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.repository import Store
 
 router = APIRouter(tags=["dispatch"])
 
@@ -33,15 +40,19 @@ async def create_dispatch(
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
     auth_store: Annotated[AuthStore, Depends(get_auth_store)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> DispatchAccepted:
     """Accept a new dispatch request.
 
     Returns:
         DispatchAccepted: Accepted response with workflow ID.
     """
-    await check_resource_limits(auth, auth_store, "dispatch")
-    service = DispatchService(event_store=event_store, job_queue=job_queue, state_store=state_store)
-    return await service.create(body, user_id=auth.user.user_id)
+    async with store.user_quota_lock(auth.user.user_id):
+        await check_resource_limits(auth, auth_store, "dispatch")
+        service = DispatchService(
+            event_store=event_store, job_queue=job_queue, state_store=state_store
+        )
+        return await service.create(body, user_id=auth.user.user_id)
 
 
 @router.get("/dispatch/{dispatch_id}")

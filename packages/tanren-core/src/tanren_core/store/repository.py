@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Float, Numeric, func, select, text, update
+from sqlalchemy import Float, Numeric, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tanren_core.adapters.events import Event
@@ -100,6 +100,8 @@ class Store:
         event_type: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        owner_user_id: str | None = None,
+        owner_key_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> EventQueryResult:
@@ -113,6 +115,23 @@ class Store:
                 conditions.append(EventModel.entity_id == entity_id)
             if entity_ids is not None:
                 conditions.append(EventModel.entity_id.in_(entity_ids))
+
+            # DB-level ownership filter: events for the user's dispatches,
+            # or events where entity_id is the user/key ID directly.
+            if owner_user_id is not None:
+                user_dispatches = select(DispatchProjection.dispatch_id).where(
+                    DispatchProjection.user_id == owner_user_id
+                )
+                ownership_clauses = [
+                    EventModel.entity_id.in_(user_dispatches),
+                    EventModel.entity_id == owner_user_id,
+                ]
+                if owner_key_id is not None:
+                    ownership_clauses = [
+                        *ownership_clauses,
+                        EventModel.entity_id == owner_key_id,
+                    ]
+                conditions.append(or_(*ownership_clauses))
             if entity_type is not None:
                 conditions.append(EventModel.entity_type == entity_type)
             if event_type is not None:
@@ -692,7 +711,7 @@ class Store:
                     )
                     .where(DispatchProjection.user_id == user_id)
                     .where(StepProjection.step_type == "provision")
-                    .where(StepProjection.status == "completed")
+                    .where(StepProjection.status.in_(["pending", "running", "completed"]))
                     .where(
                         ~StepProjection.dispatch_id.in_(
                             select(StepProjection.dispatch_id)
@@ -727,6 +746,39 @@ class Store:
                 )
             ).scalar_one()
             return float(result)
+
+    # ── Quota locking ─────────────────────────────────────────────────────
+
+    @asynccontextmanager
+    async def user_quota_lock(self, user_id: str) -> AsyncIterator[None]:
+        """Serialize limit-checked operations for a user.
+
+        Prevents TOCTOU races where concurrent requests both pass the
+        quota check before either creates.  Uses ``pg_advisory_xact_lock``
+        on Postgres (per-user, released on session close).  On SQLite,
+        this is a no-op because the single-writer ``_sqlite_lock`` already
+        serializes all write operations.
+
+        Yields:
+            None — use as ``async with store.user_quota_lock(uid): ...``.
+        """
+        if self._is_sqlite:
+            # SQLite: single writer serialized by _write_session lock — no-op here
+            yield
+        else:
+            # Postgres: per-user session-scoped advisory lock
+            async with self._sf() as session:
+                await session.execute(
+                    text("SELECT pg_advisory_lock(hashtext(:key))"),
+                    {"key": f"quota-{user_id}"},
+                )
+                try:
+                    yield
+                finally:
+                    await session.execute(
+                        text("SELECT pg_advisory_unlock(hashtext(:key))"),
+                        {"key": f"quota-{user_id}"},
+                    )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ from tanren_api.dependencies import (
     get_event_store,
     get_job_queue,
     get_state_store,
+    get_store,
     get_worker_config,
 )
 from tanren_api.limits import check_resource_limits
@@ -30,6 +31,7 @@ from tanren_api.services.run import RunService
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.repository import Store
 from tanren_core.worker_config import WorkerConfig
 
 router = APIRouter(tags=["run"])
@@ -54,16 +56,18 @@ async def run_provision(
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
     auth_store: Annotated[AuthStore, Depends(get_auth_store)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> RunEnvironment:
     """Provision a remote execution environment (non-blocking).
 
     Returns:
         RunEnvironment: Provisioning environment with tracking env_id.
     """
-    await check_resource_limits(auth, auth_store, "dispatch")
-    return await _run_service(event_store, job_queue, state_store).provision(
-        body, user_id=auth.user.user_id
-    )
+    async with store.user_quota_lock(auth.user.user_id):
+        await check_resource_limits(auth, auth_store, "dispatch")
+        return await _run_service(event_store, job_queue, state_store).provision(
+            body, user_id=auth.user.user_id
+        )
 
 
 @router.post("/run/{env_id}/execute")
@@ -112,16 +116,18 @@ async def run_full(
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
     auth_store: Annotated[AuthStore, Depends(get_auth_store)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> DispatchAccepted:
     """Full lifecycle: provision, execute, teardown. Returns ID for polling.
 
     Returns:
         DispatchAccepted: Accepted response with dispatch_id for polling.
     """
-    await check_resource_limits(auth, auth_store, "dispatch")
-    return await _run_service(event_store, job_queue, state_store).full(
-        body, user_id=auth.user.user_id
-    )
+    async with store.user_quota_lock(auth.user.user_id):
+        await check_resource_limits(auth, auth_store, "dispatch")
+        return await _run_service(event_store, job_queue, state_store).full(
+            body, user_id=auth.user.user_id
+        )
 
 
 @router.get("/run/{env_id}/status")

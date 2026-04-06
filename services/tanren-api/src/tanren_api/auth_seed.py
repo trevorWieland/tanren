@@ -4,8 +4,10 @@ On startup, if ``TANREN_API_API_KEY`` is set, creates an admin user and
 API key with ``*`` scope.  If the key hash changes (operator rotated
 the env var), the old key is revoked and a new one is seeded.
 
-Safe for concurrent startup: IntegrityError on duplicate key hash is
-treated as a successful no-op (another worker won the race).
+Safe for concurrent startup: IntegrityError on duplicate user/key is
+treated as a successful no-op (another worker won the race).  Revoked
+key hashes are treated as not-seeded so re-setting a previously rotated
+key value works correctly.
 """
 
 from __future__ import annotations
@@ -32,39 +34,47 @@ async def seed_legacy_admin_key(
 ) -> None:
     """Create admin user + API key from the legacy ``TANREN_API_API_KEY`` env var.
 
-    Idempotent: skips if a key with the same hash already exists.
-    If a different legacy key was previously seeded, the old key is
-    revoked before the new one is created, ensuring rotated env vars
+    Idempotent: skips if a non-revoked key with the same hash already
+    exists.  If a different legacy key was previously seeded, the old key
+    is revoked before the new one is created, ensuring rotated env vars
     invalidate prior credentials.
     """
     key_hash = hash_api_key(raw_key)
 
+    # Skip only if the key exists AND is not revoked
     existing = await auth_store.get_api_key_by_hash(key_hash)
-    if existing is not None:
+    if existing is not None and existing.revoked_at is None:
         logger.debug("Legacy admin key already seeded — skipping")
         return
 
     now = utc_now_iso()
 
-    # Ensure admin user exists
+    # Ensure admin user exists (race-safe: catch duplicate insert)
     user = await auth_store.get_user(LEGACY_ADMIN_USER_ID)
     if user is None:
-        await event_store.append(
-            UserCreated(
-                timestamp=now,
-                entity_id=LEGACY_ADMIN_USER_ID,
+        try:
+            await event_store.append(
+                UserCreated(
+                    timestamp=now,
+                    entity_id=LEGACY_ADMIN_USER_ID,
+                    user_id=LEGACY_ADMIN_USER_ID,
+                    name="Admin (legacy)",
+                    email=None,
+                    role="admin",
+                )
+            )
+            await auth_store.create_user(
                 user_id=LEGACY_ADMIN_USER_ID,
                 name="Admin (legacy)",
                 email=None,
                 role="admin",
             )
-        )
-        await auth_store.create_user(
-            user_id=LEGACY_ADMIN_USER_ID,
-            name="Admin (legacy)",
-            email=None,
-            role="admin",
-        )
+        except Exception:
+            # Concurrent startup: another worker may have created the user.
+            if await auth_store.get_user(LEGACY_ADMIN_USER_ID) is not None:
+                logger.debug("Legacy admin user created by concurrent worker")
+            else:
+                raise
 
     # Revoke any previously seeded legacy keys for this admin user.
     # This handles env var rotation: old key becomes invalid immediately.
@@ -111,7 +121,6 @@ async def seed_legacy_admin_key(
         )
     except Exception:
         # Concurrent startup: another worker may have inserted first.
-        # Verify the key now exists (race was harmless).
         if await auth_store.get_api_key_by_hash(key_hash) is not None:
             logger.debug("Legacy admin key seeded by concurrent worker — skipping")
             return

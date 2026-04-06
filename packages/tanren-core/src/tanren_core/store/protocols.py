@@ -51,6 +51,8 @@ class EventStore(Protocol):
         event_type: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        owner_user_id: str | None = None,
+        owner_key_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> EventQueryResult:
