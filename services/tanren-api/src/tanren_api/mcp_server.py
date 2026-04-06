@@ -684,6 +684,7 @@ async def config_get() -> ConfigResponse:
 )
 async def events_query(
     workflow_id: str | None = None,
+    entity_type: str | None = None,
     event_type: str | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -700,6 +701,7 @@ async def events_query(
     entity_ids: list[str] | None = None
     user_id, is_admin = _mcp_ownership()
     if not is_admin and user_id:
+        from tanren_api.mcp_auth import mcp_auth_context_var
         from tanren_core.store.protocols import StateStore
         from tanren_core.store.views import DispatchListFilter
 
@@ -710,10 +712,15 @@ async def events_query(
             )
             entity_ids = [d.dispatch_id for d in dispatches]
             entity_ids.extend([user_id])
+            # Include key entity ID (matches REST /events)
+            auth_ctx = mcp_auth_context_var.get()
+            if auth_ctx is not None:
+                entity_ids.append(auth_ctx.key.key_id)
 
     return await _svc().events.query(
         workflow_id=workflow_id,
         entity_ids=entity_ids,
+        entity_type=entity_type,
         event_type=event_type,
         limit=limit,
         offset=offset,
@@ -761,6 +768,11 @@ async def metrics_costs(
     Returns:
         MetricsCostsResponse with cost buckets.
     """
+    valid_groups = {"model", "day", "workflow"}
+    if group_by not in valid_groups:
+        from tanren_api.errors import ValidationError
+
+        raise ValidationError(f"group_by must be one of {sorted(valid_groups)}, got '{group_by}'")
     return await _svc().metrics.costs(since=since, until=until, project=project, group_by=group_by)
 
 

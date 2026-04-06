@@ -478,7 +478,7 @@ async def test_vm_dry_run_lifecycle(tmp_path):
         )
         assert status_resp.status_code == 200
         status_data = status_resp.json()
-        assert status_data["status"] == "active"
+        assert status_data["status"] == "dry_run_complete"
         assert status_data["provider"] == "hetzner"
         assert status_data["server_type"] == "cx22"
         assert status_data["would_provision"] is True

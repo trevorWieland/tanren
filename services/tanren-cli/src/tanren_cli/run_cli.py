@@ -461,11 +461,9 @@ def run_full(
             view = await store.get_dispatch(dispatch_id)
             steps = await store.get_steps_for_dispatch(dispatch_id)
 
-            # Extract execute result
-            exec_step = next(
-                (s for s in steps if s.step_type == StepType.EXECUTE and s.result_json),
-                None,
-            )
+            # Extract result from the latest execute step (not first)
+            exec_steps = [s for s in steps if s.step_type == StepType.EXECUTE and s.result_json]
+            exec_step = exec_steps[-1] if exec_steps else None
             if exec_step and exec_step.result_json:
                 exec_result = ExecuteResult.model_validate_json(exec_step.result_json)
                 typer.echo(f"outcome: {exec_result.outcome.value}")

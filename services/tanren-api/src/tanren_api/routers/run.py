@@ -7,7 +7,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path
 
 from tanren_api.auth import require_scope
-from tanren_api.dependencies import get_auth_store, get_event_store, get_job_queue, get_state_store
+from tanren_api.dependencies import (
+    get_auth_store,
+    get_event_store,
+    get_job_queue,
+    get_state_store,
+    get_worker_config,
+)
 from tanren_api.limits import check_resource_limits
 from tanren_api.models import (
     DispatchAccepted,
@@ -24,14 +30,20 @@ from tanren_api.services.run import RunService
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.worker_config import WorkerConfig
 
 router = APIRouter(tags=["run"])
 
 
 def _run_service(
-    event_store: EventStore, job_queue: JobQueue, state_store: StateStore
+    event_store: EventStore,
+    job_queue: JobQueue,
+    state_store: StateStore,
+    config: WorkerConfig | None = None,
 ) -> RunService:
-    return RunService(event_store=event_store, job_queue=job_queue, state_store=state_store)
+    return RunService(
+        event_store=event_store, job_queue=job_queue, state_store=state_store, config=config
+    )
 
 
 @router.post("/run/provision")
@@ -62,13 +74,14 @@ async def run_execute(
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
+    worker_config: Annotated[WorkerConfig | None, Depends(get_worker_config)] = None,
 ) -> RunExecuteAccepted:
     """Execute a phase against a provisioned environment.
 
     Returns:
         RunExecuteAccepted: Accepted response with env_id and dispatch_id.
     """
-    return await _run_service(event_store, job_queue, state_store).execute(
+    return await _run_service(event_store, job_queue, state_store, config=worker_config).execute(
         env_id, body, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
     )
 

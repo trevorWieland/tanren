@@ -65,6 +65,7 @@ class VMStatus(StrEnum):
     ACTIVE = "active"
     PROVISIONING = "provisioning"
     FAILED = "failed"
+    DRY_RUN_COMPLETE = "dry_run_complete"
     RELEASING = "releasing"
     RELEASED = "released"
 

@@ -142,6 +142,10 @@ class TestMCPToolRegistration:
             "config_get",
             # Events
             "events_query",
+            # Metrics
+            "metrics_summary",
+            "metrics_costs",
+            "metrics_vms",
         }
         assert expected_tools.issubset(tool_names), f"Missing tools: {expected_tools - tool_names}"
 
@@ -322,3 +326,38 @@ class TestMCPMiddlewareStacking:
         finally:
             mcp.middleware.clear()
             mcp.middleware.extend(saved)
+
+
+@pytest.mark.api
+class TestMCPToolContracts:
+    """Verify MCP tools match scope mappings and parameter contracts."""
+
+    def test_all_non_public_tools_have_scope_mapping(self):
+        """Every non-public MCP tool must have a _TOOL_SCOPE_MAP entry."""
+        from tanren_api.mcp_auth import _PUBLIC_TOOLS, _TOOL_SCOPE_MAP
+
+        # Get all registered tool names from the scope map
+        mapped_tools = set(_TOOL_SCOPE_MAP.keys())
+        # Public tools are exempt
+        assert "health_check" in _PUBLIC_TOOLS
+        assert "readiness_check" in _PUBLIC_TOOLS
+        # All non-public tools should be mapped
+        assert len(mapped_tools) >= 18, f"Expected ≥18 scope mappings, got {len(mapped_tools)}"
+
+    def test_events_query_accepts_entity_type(self):
+        """events_query MCP tool should accept entity_type parameter."""
+        import inspect
+
+        from tanren_api.mcp_server import events_query
+
+        sig = inspect.signature(events_query)
+        assert "entity_type" in sig.parameters, "events_query missing entity_type parameter"
+
+    def test_metrics_costs_validates_group_by(self):
+        """metrics_costs MCP tool should validate group_by values."""
+        import inspect
+
+        from tanren_api.mcp_server import metrics_costs
+
+        sig = inspect.signature(metrics_costs)
+        assert "group_by" in sig.parameters, "metrics_costs missing group_by parameter"

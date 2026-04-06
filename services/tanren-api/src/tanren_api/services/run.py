@@ -6,7 +6,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from tanren_api.errors import NotFoundError, ServiceError
+from tanren_api.errors import ConflictError, NotFoundError, ServiceError
 from tanren_api.models import (
     DispatchAccepted,
     ExecuteRequest,
@@ -169,7 +169,7 @@ class RunService:
                 state_store=self._state_store,
             )
         except DispatchGuardError as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ConflictError(str(exc)) from exc
 
         return RunExecuteAccepted(
             env_id=dispatch_view.dispatch_id, dispatch_id=dispatch_view.dispatch_id
@@ -208,7 +208,7 @@ class RunService:
                 state_store=self._state_store,
             )
         except DispatchGuardError as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ConflictError(str(exc)) from exc
 
         return RunTeardownAccepted(
             env_id=dispatch_view.dispatch_id, dispatch_id=dispatch_view.dispatch_id
@@ -313,11 +313,51 @@ class RunService:
         ):
             env_status = RunEnvironmentStatus.FAILED
 
+        # Populate optional response fields from dispatch/steps
+        phase = dispatch_view.dispatch.phase
+        started_at = dispatch_view.created_at
+        duration_secs = None
+        vm_id = None
+        host = None
+
+        # Extract VM info from provision step
+        prov_step = next(
+            (
+                s
+                for s in steps
+                if s.step_type == StepType.PROVISION
+                and s.status == StepStatus.COMPLETED
+                and s.result_json
+            ),
+            None,
+        )
+        if prov_step and prov_step.result_json:
+            from tanren_core.store.payloads import ProvisionResult as _PR
+
+            prov = _PR.model_validate_json(prov_step.result_json)
+            if prov.handle.vm:
+                vm_id = prov.handle.vm.vm_id
+                host = prov.handle.vm.host
+
+        # Calculate elapsed duration
+        from datetime import datetime
+
+        try:
+            start_dt = datetime.fromisoformat(started_at)
+            duration_secs = int((datetime.now(start_dt.tzinfo) - start_dt).total_seconds())
+        except ValueError, TypeError:
+            pass
+
         return RunStatus(
             env_id=env_id,
             dispatch_id=dispatch_view.dispatch_id,
             status=env_status,
+            phase=phase,
             outcome=outcome,
+            started_at=started_at,
+            duration_secs=duration_secs,
+            vm_id=vm_id,
+            host=host,
         )
 
     # ── Internal helpers ──────────────────────────────────────────────────

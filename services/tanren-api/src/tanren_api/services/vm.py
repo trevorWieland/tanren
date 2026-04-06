@@ -199,7 +199,7 @@ class VMService:
             result = DryRunResult.model_validate_json(dry.result_json)
             return VMProvisionStatus(
                 env_id=env_id,
-                status=VMStatus.ACTIVE,
+                status=VMStatus.DRY_RUN_COMPLETE,
                 provider=VMProvider(result.provider),
                 server_type=result.server_type,
                 estimated_cost_hourly=result.estimated_cost_hourly,

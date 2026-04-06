@@ -7,6 +7,7 @@ from fastapi import Request
 from tanren_api.settings import APISettings
 from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.worker_config import WorkerConfig
 
 
 def get_settings(request: Request) -> APISettings:
@@ -32,3 +33,12 @@ def get_state_store(request: Request) -> StateStore:
 def get_auth_store(request: Request) -> AuthStore:
     """Return the auth store."""
     return request.app.state.auth_store
+
+
+def get_worker_config(request: Request) -> WorkerConfig | None:
+    """Return the optional WorkerConfig (None if not wired).
+
+    Returns:
+        WorkerConfig or None.
+    """
+    return getattr(request.app.state, "worker_config", None)
