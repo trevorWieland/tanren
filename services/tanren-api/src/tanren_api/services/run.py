@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from tanren_api.errors import NotFoundError, ServiceError
+from tanren_api.errors import ConflictError, NotFoundError, ServiceError
 from tanren_api.models import (
     DispatchAccepted,
     ExecuteRequest,
@@ -20,20 +18,21 @@ from tanren_api.models import (
     RunStatus,
     RunTeardownAccepted,
 )
+from tanren_core.dispatch_orchestrator import (
+    DispatchGuardError,
+    create_dispatch,
+    enqueue_execute_step,
+    enqueue_teardown_step,
+    get_provision_result,
+)
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
 from tanren_core.store.enums import (
     DispatchMode,
     DispatchStatus,
     StepStatus,
     StepType,
-    cli_to_lane,
 )
-from tanren_core.store.events import DispatchCreated
-from tanren_core.store.payloads import (
-    ExecuteStepPayload,
-    ProvisionStepPayload,
-    TeardownStepPayload,
-)
+from tanren_core.store.payloads import ProvisionResult
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
 from tanren_core.store.views import DispatchView
 
@@ -41,10 +40,6 @@ if TYPE_CHECKING:
     from tanren_core.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class RunService:
@@ -64,7 +59,7 @@ class RunService:
         self._state_store = state_store
         self._config = config
 
-    async def provision(self, body: ProvisionRequest) -> RunEnvironment:
+    async def provision(self, body: ProvisionRequest, user_id: str = "") -> RunEnvironment:
         """Enqueue a provision step (manual mode — user drives each step).
 
         Returns:
@@ -89,101 +84,54 @@ class RunService:
             required_secrets=req.required_secrets,
         )
 
-        lane = cli_to_lane(dispatch.cli)
-
-        # Create dispatch in MANUAL mode
-        await self._state_store.create_dispatch_projection(
-            dispatch_id=workflow_id,
+        result = await create_dispatch(
+            dispatch=dispatch,
             mode=DispatchMode.MANUAL,
-            lane=lane,
+            event_store=self._event_store,
+            job_queue=self._job_queue,
+            state_store=self._state_store,
+            user_id=user_id,
             preserve_on_failure=True,
-            dispatch_json=dispatch.model_dump_json(),
-        )
-
-        await self._event_store.append(
-            DispatchCreated(
-                timestamp=_now(),
-                workflow_id=workflow_id,
-                dispatch=dispatch,
-                mode=DispatchMode.MANUAL,
-                lane=lane,
-            )
-        )
-
-        step_id = uuid.uuid4().hex
-        payload = ProvisionStepPayload(dispatch=dispatch)
-        await self._job_queue.enqueue_step(
-            step_id=step_id,
-            dispatch_id=workflow_id,
-            step_type="provision",
-            step_sequence=0,
-            lane=None,
-            payload_json=payload.model_dump_json(),
         )
 
         return RunEnvironment(
-            env_id=workflow_id,
-            dispatch_id=workflow_id,
+            env_id=result.dispatch_id,
+            dispatch_id=result.dispatch_id,
             status=RunEnvironmentStatus.PROVISIONING,
         )
 
-    async def execute(self, env_id: str, body: ExecuteRequest) -> RunExecuteAccepted:
+    async def execute(
+        self, env_id: str, body: ExecuteRequest, *, user_id: str = "", is_admin: bool = False
+    ) -> RunExecuteAccepted:
         """Enqueue an execute step for a provisioned environment.
+
+        Args:
+            env_id: Environment ID.
+            body: Execute request parameters.
+            user_id: Caller's user ID for ownership check.
+            is_admin: If True, bypass ownership check.
 
         Returns:
             RunExecuteAccepted with dispatch_id.
+
+        Raises:
+            NotFoundError: If not found or not owned by caller.
         """
-        # Find the dispatch by scanning for the provisioned environment
-        # In the queue model, env_id maps to a dispatch_id
         dispatch_view = await self._find_dispatch_for_env(env_id)
         if dispatch_view is None:
+            raise NotFoundError(f"Environment {env_id} not found")
+        if not is_admin and user_id and dispatch_view.user_id != user_id:
             raise NotFoundError(f"Environment {env_id} not found")
         if dispatch_view.status == DispatchStatus.CANCELLED:
             raise ServiceError(f"Dispatch {dispatch_view.dispatch_id} is cancelled")
 
         # Get the provision step's result to extract the handle
-        steps = await self._state_store.get_steps_for_dispatch(dispatch_view.dispatch_id)
-        provision_step = next(
-            (
-                s
-                for s in steps
-                if s.step_type == StepType.PROVISION and s.status == StepStatus.COMPLETED
-            ),
-            None,
-        )
-        if provision_step is None or provision_step.result_json is None:
-            raise ServiceError("Provision step not completed — cannot execute")
-
-        from tanren_core.store.payloads import ProvisionResult
-
-        prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
+        prov_result = await self._get_provision_result(dispatch_view.dispatch_id)
 
         dispatch = dispatch_view.dispatch
 
         # Resolve cli/auth from roles.yml when not explicitly provided
-        cli = body.cli
-        auth = body.auth
-        model = body.model
-        if cli is None:
-            if body.phase == Phase.GATE:
-                # Gate always uses bash — no roles.yml lookup needed
-                cli = Cli.BASH
-                from tanren_core.roles import AuthMode as _AM
-
-                auth = auth or _AM.API_KEY
-            else:
-                if self._config is None:
-                    raise ServiceError("WorkerConfig required for CLI auto-resolution")
-                from tanren_core.dispatch_resolver import resolve_agent_tool
-
-                tool = resolve_agent_tool(self._config, body.phase)
-                cli = tool.cli
-                auth = auth or tool.auth
-                model = model or tool.model
-        if auth is None:
-            from tanren_core.roles import AuthMode
-
-            auth = AuthMode.API_KEY
+        cli, auth, model = self._resolve_execute_cli(body)
 
         # Resolve gate_cmd from profile defaults when not explicitly provided
         gate_cmd = body.gate_cmd
@@ -212,100 +160,62 @@ class RunService:
             gate_cmd=gate_cmd,
         )
 
-        # Guard: prevent concurrent execute steps (allow sequential phases)
-        if any(
-            s.step_type == StepType.EXECUTE and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
-            for s in steps
-        ):
-            raise ServiceError("Execute step already in progress for this environment")
-
-        # Guard: block execute after teardown has been requested
-        if any(
-            s.step_type == StepType.TEARDOWN
-            and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
-            for s in steps
-        ):
-            raise ServiceError("Cannot execute after teardown")
-
-        lane = cli_to_lane(exec_dispatch.cli)
-
-        # Compute next sequence number for multi-phase support
-        max_seq = max((s.step_sequence for s in steps), default=0)
-        step_id = uuid.uuid4().hex
-        payload = ExecuteStepPayload(dispatch=exec_dispatch, handle=prov_result.handle)
-        await self._job_queue.enqueue_step(
-            step_id=step_id,
-            dispatch_id=dispatch_view.dispatch_id,
-            step_type="execute",
-            step_sequence=max_seq + 1,
-            lane=str(lane),
-            payload_json=payload.model_dump_json(),
-        )
+        try:
+            await enqueue_execute_step(
+                dispatch_id=dispatch_view.dispatch_id,
+                exec_dispatch=exec_dispatch,
+                handle=prov_result.handle,
+                job_queue=self._job_queue,
+                state_store=self._state_store,
+            )
+        except DispatchGuardError as exc:
+            raise ConflictError(str(exc)) from exc
 
         return RunExecuteAccepted(
             env_id=dispatch_view.dispatch_id, dispatch_id=dispatch_view.dispatch_id
         )
 
-    async def teardown(self, env_id: str) -> RunTeardownAccepted:
+    async def teardown(
+        self, env_id: str, *, user_id: str = "", is_admin: bool = False
+    ) -> RunTeardownAccepted:
         """Enqueue a teardown step.
+
+        Args:
+            env_id: Environment ID.
+            user_id: Caller's user ID for ownership check.
+            is_admin: If True, bypass ownership check.
 
         Returns:
             RunTeardownAccepted with dispatch_id.
+
+        Raises:
+            NotFoundError: If not found or not owned by caller.
         """
         dispatch_view = await self._find_dispatch_for_env(env_id)
         if dispatch_view is None:
             raise NotFoundError(f"Environment {env_id} not found")
+        if not is_admin and user_id and dispatch_view.user_id != user_id:
+            raise NotFoundError(f"Environment {env_id} not found")
 
-        steps = await self._state_store.get_steps_for_dispatch(dispatch_view.dispatch_id)
-        provision_step = next(
-            (
-                s
-                for s in steps
-                if s.step_type == StepType.PROVISION and s.status == StepStatus.COMPLETED
-            ),
-            None,
-        )
-        if provision_step is None or provision_step.result_json is None:
-            raise ServiceError("Provision step not completed — cannot teardown")
+        prov_result = await self._get_provision_result(dispatch_view.dispatch_id)
 
-        # Guard: block teardown while execute is still active
-        if any(
-            s.step_type == StepType.EXECUTE and s.status in (StepStatus.PENDING, StepStatus.RUNNING)
-            for s in steps
-        ):
-            raise ServiceError("Cannot teardown while execute is in progress")
-
-        # Guard: prevent concurrent teardown steps (allow retry after failure)
-        if any(
-            s.step_type == StepType.TEARDOWN
-            and s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.COMPLETED)
-            for s in steps
-        ):
-            raise ServiceError("Teardown already enqueued or completed for this environment")
-
-        from tanren_core.store.payloads import ProvisionResult
-
-        prov_result = ProvisionResult.model_validate_json(provision_step.result_json)
-
-        dispatch = dispatch_view.dispatch
-        max_seq = max((s.step_sequence for s in steps), default=0)
-        step_id = uuid.uuid4().hex
-        payload = TeardownStepPayload(dispatch=dispatch, handle=prov_result.handle)
-        await self._job_queue.enqueue_step(
-            step_id=step_id,
-            dispatch_id=dispatch_view.dispatch_id,
-            step_type="teardown",
-            step_sequence=max_seq + 1,
-            lane=None,
-            payload_json=payload.model_dump_json(),
-        )
+        try:
+            await enqueue_teardown_step(
+                dispatch_id=dispatch_view.dispatch_id,
+                dispatch=dispatch_view.dispatch,
+                handle=prov_result.handle,
+                job_queue=self._job_queue,
+                state_store=self._state_store,
+            )
+        except DispatchGuardError as exc:
+            raise ConflictError(str(exc)) from exc
 
         return RunTeardownAccepted(
             env_id=dispatch_view.dispatch_id, dispatch_id=dispatch_view.dispatch_id
         )
 
-    async def full(self, body: RunFullRequest) -> DispatchAccepted:
-        """Enqueue a full dispatch lifecycle (auto-chained provision → execute → teardown).
+    async def full(self, body: RunFullRequest, user_id: str = "") -> DispatchAccepted:
+        """Enqueue a full dispatch lifecycle (auto-chained provision -> execute -> teardown).
 
         Returns:
             DispatchAccepted with workflow_id.
@@ -336,17 +246,27 @@ class RunService:
             event_store=self._event_store,
             job_queue=self._job_queue,
             state_store=self._state_store,
-            config=self._config,
+            user_id=user_id,
         )
 
-    async def status(self, env_id: str) -> RunStatus:
+    async def status(self, env_id: str, *, user_id: str = "", is_admin: bool = False) -> RunStatus:
         """Check status of a run environment.
+
+        Args:
+            env_id: Environment ID.
+            user_id: Caller's user ID for ownership check.
+            is_admin: If True, bypass ownership check.
 
         Returns:
             RunStatus with current state.
+
+        Raises:
+            NotFoundError: If not found or not owned by caller.
         """
         dispatch_view = await self._find_dispatch_for_env(env_id)
         if dispatch_view is None:
+            raise NotFoundError(f"Environment {env_id} not found")
+        if not is_admin and user_id and dispatch_view.user_id != user_id:
             raise NotFoundError(f"Environment {env_id} not found")
 
         steps = await self._state_store.get_steps_for_dispatch(dispatch_view.dispatch_id)
@@ -393,12 +313,90 @@ class RunService:
         ):
             env_status = RunEnvironmentStatus.FAILED
 
+        # Populate optional response fields from dispatch/steps
+        phase = dispatch_view.dispatch.phase
+        started_at = dispatch_view.created_at
+        duration_secs = None
+        vm_id = None
+        host = None
+
+        # Extract VM info from provision step
+        prov_step = next(
+            (
+                s
+                for s in steps
+                if s.step_type == StepType.PROVISION
+                and s.status == StepStatus.COMPLETED
+                and s.result_json
+            ),
+            None,
+        )
+        if prov_step and prov_step.result_json:
+            from tanren_core.store.payloads import ProvisionResult as _PR
+
+            prov = _PR.model_validate_json(prov_step.result_json)
+            if prov.handle.vm:
+                vm_id = prov.handle.vm.vm_id
+                host = prov.handle.vm.host
+
+        # Calculate elapsed duration
+        from datetime import datetime
+
+        try:
+            start_dt = datetime.fromisoformat(started_at)
+            duration_secs = int((datetime.now(start_dt.tzinfo) - start_dt).total_seconds())
+        except ValueError, TypeError:
+            pass
+
         return RunStatus(
             env_id=env_id,
             dispatch_id=dispatch_view.dispatch_id,
             status=env_status,
+            phase=phase,
             outcome=outcome,
+            started_at=started_at,
+            duration_secs=duration_secs,
+            vm_id=vm_id,
+            host=host,
         )
+
+    # ── Internal helpers ──────────────────────────────────────────────────
+
+    def _resolve_execute_cli(self, body: ExecuteRequest) -> tuple:
+        """Resolve CLI, auth, and model for an execute step."""
+        from tanren_core.dispatch_builder import resolve_cli_auth
+
+        if body.cli is not None:
+            # Explicit CLI — resolve auth/model defaults
+            from tanren_core.roles import AuthMode
+
+            auth = body.auth or AuthMode.API_KEY
+            return body.cli, auth, body.model
+
+        if self._config is None:
+            if body.phase == Phase.GATE:
+                # GATE always uses BASH — no roles.yml needed
+                from tanren_core.roles import AuthMode as _AM
+
+                return Cli.BASH, body.auth or _AM.API_KEY, body.model
+            raise ServiceError("WorkerConfig required for CLI auto-resolution")
+
+        # Use the shared builder resolution (handles roles.yml lookup, etc.)
+        cli, auth, model = resolve_cli_auth(
+            config=self._config,
+            phase=body.phase,
+            cli=body.cli,
+            auth=body.auth,
+            model=body.model,
+        )
+        return cli, auth, model
+
+    async def _get_provision_result(self, dispatch_id: str) -> ProvisionResult:
+        """Get provision result, raising ServiceError on failure."""
+        try:
+            return await get_provision_result(self._state_store, dispatch_id)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from exc
 
     async def _find_dispatch_for_env(self, env_id: str) -> DispatchView | None:
         """Find a dispatch by env_id.

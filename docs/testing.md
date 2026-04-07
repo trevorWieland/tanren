@@ -166,13 +166,13 @@ curl -s -X POST "$API/run/$ENV_ID/teardown" -H "$KEY" | jq .
 ```bash
 uv run python3 -c "
 import asyncio, os
-from tanren_core.store.factory import create_sqlite_store
+from tanren_core.store.factory import create_store
 from pathlib import Path
 from dotenv import dotenv_values
 
 async def audit():
-    db = str(Path(os.environ['WM_DATA_DIR']) / 'run.db')
-    store = await create_sqlite_store(db)
+    db = 'sqlite+aiosqlite:///' + str(Path(os.environ['WM_DATA_DIR']) / 'run.db')
+    store = await create_store(db)
     from tanren_core.store.views import DispatchListFilter
     dispatches = await store.query_dispatches(DispatchListFilter(limit=5))
     secrets = dotenv_values(os.path.expanduser('~/.config/tanren/secrets.env'))

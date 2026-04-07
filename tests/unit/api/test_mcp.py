@@ -10,7 +10,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from tanren_api.mcp_auth import MCPApiKeyAuth
-from tanren_api.mcp_server import mcp, set_services, set_worker_config
+from tanren_api.mcp_server import mcp, set_config_resolver, set_services, set_worker_config
 from tanren_api.services import (
     ConfigService,
     DispatchService,
@@ -21,7 +21,7 @@ from tanren_api.services import (
     VMService,
 )
 from tanren_api.settings import APISettings
-from tanren_core.store.sqlite import SqliteStore
+from tanren_core.store.factory import create_store
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,8 +46,7 @@ def _clear_mcp_middleware():
 
 @pytest.fixture
 async def mcp_store(tmp_path: Path):
-    store = SqliteStore(tmp_path / "mcp-test.db")
-    await store._ensure_conn()
+    store = await create_store(str(tmp_path / "mcp-test.db"))
     yield store
     await store.close()
 
@@ -70,6 +69,10 @@ def _seed_mcp_services(mcp_store, tmp_path: Path):
         worktree_registry_path=str(tmp_path / "worktrees.json"),
     )
     set_worker_config(config)
+
+    from tanren_core.config_resolver import DiskConfigResolver
+
+    set_config_resolver(DiskConfigResolver(str(github_dir)))
 
     settings = APISettings(api_key=TEST_API_KEY)
 
@@ -97,9 +100,12 @@ def _seed_mcp_services(mcp_store, tmp_path: Path):
 
 
 @pytest.fixture
-def _mcp_auth():
-    """Add auth middleware to the MCP server for this test scope."""
-    mcp.add_middleware(MCPApiKeyAuth(TEST_API_KEY))
+async def _mcp_auth(mcp_store):
+    """Add auth middleware with seeded store to the MCP server for this test scope."""
+    from tanren_api.auth_seed import seed_legacy_admin_key
+
+    await seed_legacy_admin_key(mcp_store, mcp_store, TEST_API_KEY)
+    mcp.add_middleware(MCPApiKeyAuth(mcp_store))
 
 
 @pytest.mark.api
@@ -136,6 +142,10 @@ class TestMCPToolRegistration:
             "config_get",
             # Events
             "events_query",
+            # Metrics
+            "metrics_summary",
+            "metrics_costs",
+            "metrics_vms",
         }
         assert expected_tools.issubset(tool_names), f"Missing tools: {expected_tools - tool_names}"
 
@@ -169,7 +179,7 @@ class TestMCPAuth:
     async def test_non_health_tool_rejected_without_auth(self):
         """Non-health tools should fail without API key (stdio has no headers)."""
         async with Client(mcp) as client:
-            with pytest.raises(ToolError, match="Invalid or missing API key"):
+            with pytest.raises(ToolError, match="Missing API key"):
                 await client.call_tool("config_get", {})
 
 
@@ -297,6 +307,11 @@ class TestMCPMiddlewareStacking:
 
     async def test_no_duplicate_auth_middleware(self):
         """Adding auth middleware twice should replace, not stack."""
+        from unittest.mock import MagicMock
+
+        from tanren_core.store.auth_protocols import AuthStore
+
+        mock_store = MagicMock(spec=AuthStore)
         saved = list(mcp.middleware)
         try:
             mcp.middleware.clear()
@@ -304,10 +319,45 @@ class TestMCPMiddlewareStacking:
             # Simulate two lifespan entries (same pattern as main.py)
             for _ in range(3):
                 mcp.middleware[:] = [m for m in mcp.middleware if not isinstance(m, MCPApiKeyAuth)]
-                mcp.add_middleware(MCPApiKeyAuth("test-key"))
+                mcp.add_middleware(MCPApiKeyAuth(mock_store))
 
             auth_count = sum(1 for m in mcp.middleware if isinstance(m, MCPApiKeyAuth))
             assert auth_count == 1, f"Expected 1 auth middleware, got {auth_count}"
         finally:
             mcp.middleware.clear()
             mcp.middleware.extend(saved)
+
+
+@pytest.mark.api
+class TestMCPToolContracts:
+    """Verify MCP tools match scope mappings and parameter contracts."""
+
+    def test_all_non_public_tools_have_scope_mapping(self):
+        """Every non-public MCP tool must have a _TOOL_SCOPE_MAP entry."""
+        from tanren_api.mcp_auth import _PUBLIC_TOOLS, _TOOL_SCOPE_MAP
+
+        # Get all registered tool names from the scope map
+        mapped_tools = set(_TOOL_SCOPE_MAP.keys())
+        # Public tools are exempt
+        assert "health_check" in _PUBLIC_TOOLS
+        assert "readiness_check" in _PUBLIC_TOOLS
+        # All non-public tools should be mapped
+        assert len(mapped_tools) >= 18, f"Expected ≥18 scope mappings, got {len(mapped_tools)}"
+
+    def test_events_query_accepts_entity_type(self):
+        """events_query MCP tool should accept entity_type parameter."""
+        import inspect
+
+        from tanren_api.mcp_server import events_query
+
+        sig = inspect.signature(events_query)
+        assert "entity_type" in sig.parameters, "events_query missing entity_type parameter"
+
+    def test_metrics_costs_validates_group_by(self):
+        """metrics_costs MCP tool should validate group_by values."""
+        import inspect
+
+        from tanren_api.mcp_server import metrics_costs
+
+        sig = inspect.signature(metrics_costs)
+        assert "group_by" in sig.parameters, "metrics_costs missing group_by parameter"

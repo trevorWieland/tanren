@@ -7,7 +7,7 @@ from tanren_core. Only models that are genuinely API-specific live here.
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tanren_core.adapters.events import (
     BootstrapCompleted,
@@ -26,6 +26,14 @@ from tanren_core.adapters.remote_types import VMProvider, VMRequirements
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Outcome, Phase
+from tanren_core.store.auth_events import (
+    KeyCreated,
+    KeyRevoked,
+    KeyRotated,
+    UserCreated,
+    UserDeactivated,
+    UserUpdated,
+)
 from tanren_core.store.events import (
     DispatchCompleted,
     DispatchCreated,
@@ -57,6 +65,7 @@ class VMStatus(StrEnum):
     ACTIVE = "active"
     PROVISIONING = "provisioning"
     FAILED = "failed"
+    DRY_RUN_COMPLETE = "dry_run_complete"
     RELEASING = "releasing"
     RELEASED = "released"
 
@@ -78,7 +87,12 @@ class RunEnvironmentStatus(StrEnum):
 
 
 class DispatchRequest(BaseModel):
-    """Submit a dispatch — omits workflow_id (auto-generated server-side)."""
+    """Submit a dispatch — all fields must be pre-resolved before submission.
+
+    Use the dispatch builder (``resolve_dispatch_inputs``) to resolve
+    cli, auth, model, gate_cmd, and profile before constructing this
+    request.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -86,17 +100,15 @@ class DispatchRequest(BaseModel):
     phase: Phase = Field(..., description="Dispatch phase type")
     branch: str = Field(..., description="Git branch name")
     spec_folder: str = Field(..., description="Relative path to spec folder")
-    cli: Cli | None = Field(
-        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
-    )
-    auth: AuthMode | None = Field(
-        default=None, description="Authentication mode (auto-resolved if omitted)"
-    )
+    cli: Cli = Field(..., description="CLI tool (must be pre-resolved via dispatch builder)")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
     model: str | None = Field(default=None, description="Model identifier")
     timeout: int = Field(default=1800, ge=1, description="Max execution time in seconds")
     environment_profile: str = Field(default="default", description="Environment profile name")
     context: str | None = Field(default=None, description="Extra context for the agent")
-    gate_cmd: str | None = Field(default=None, description="Shell command for gate phases")
+    gate_cmd: str | None = Field(
+        default=None, description="Shell command (required for gate phases)"
+    )
     issue: str = Field(
         default="0",
         min_length=1,
@@ -123,6 +135,13 @@ class DispatchRequest(BaseModel):
         default_factory=tuple,
         description="Secret names the daemon must resolve and inject",
     )
+
+    @model_validator(mode="after")
+    def _validate_gate_cmd(self) -> DispatchRequest:
+        if self.phase == Phase.GATE and not self.gate_cmd:
+            msg = "gate_cmd is required when phase is GATE"
+            raise ValueError(msg)
+        return self
 
 
 class ProvisionRequest(BaseModel):
@@ -173,7 +192,7 @@ class ExecuteRequest(BaseModel):
 
 
 class RunFullRequest(BaseModel):
-    """Full lifecycle request — combines provision + execute fields."""
+    """Full lifecycle request — all fields must be pre-resolved before submission."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -181,17 +200,15 @@ class RunFullRequest(BaseModel):
     branch: str = Field(..., description="Git branch")
     spec_path: str = Field(..., description="Spec folder path")
     phase: Phase = Field(..., description="Phase to execute")
-    cli: Cli | None = Field(
-        default=None, description="CLI tool (auto-resolved from roles.yml if omitted)"
-    )
-    auth: AuthMode | None = Field(
-        default=None, description="Authentication mode (auto-resolved if omitted)"
-    )
+    cli: Cli = Field(..., description="CLI tool (must be pre-resolved via dispatch builder)")
+    auth: AuthMode = Field(default=AuthMode.API_KEY, description="Authentication mode")
     model: str | None = Field(default=None, description="Model identifier")
     environment_profile: str = Field(default="default", description="Environment profile")
     timeout: int = Field(default=1800, ge=1, description="Max execution seconds")
     context: str | None = Field(default=None, description="Extra context")
-    gate_cmd: str | None = Field(default=None, description="Gate command")
+    gate_cmd: str | None = Field(
+        default=None, description="Gate command (required for gate phases)"
+    )
     resolved_profile: EnvironmentProfile = Field(
         ...,
         description="Fully resolved environment profile",
@@ -515,6 +532,139 @@ class MetricsVMsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Response models — users
+# ---------------------------------------------------------------------------
+
+
+class CreateUserRequest(BaseModel):
+    """Request body for creating a new user."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., description="Display name for the user")
+    email: str | None = Field(default=None, description="Email address (optional)")
+    role: str = Field(default="member", description="Role label (e.g. admin, member)")
+
+
+class UserResponse(BaseModel):
+    """API response for a single user."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(..., description="User identifier")
+    name: str = Field(..., description="Display name")
+    email: str | None = Field(default=None, description="Email address")
+    role: str = Field(..., description="Role label")
+    is_active: bool = Field(..., description="Whether the user is active")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
+
+
+class UserDeactivatedResponse(BaseModel):
+    """Confirmation that a user was deactivated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(..., description="Deactivated user identifier")
+    status: str = Field(default="deactivated", description="Deactivation status")
+
+
+# ---------------------------------------------------------------------------
+# Request/response models — API keys
+# ---------------------------------------------------------------------------
+
+
+class ResourceLimitsRequest(BaseModel):
+    """Resource limit ceilings for an API key."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_concurrent_vms: int | None = Field(default=None, ge=1, description="Max active VMs")
+    max_dispatches_per_hour: int | None = Field(
+        default=None, ge=1, description="Max dispatches in a sliding 60-minute window"
+    )
+    max_cost_per_day: float | None = Field(
+        default=None, ge=0.0, description="Max USD spend per calendar day"
+    )
+
+
+class CreateKeyRequest(BaseModel):
+    """Request body for POST /keys."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    user_id: str = Field(..., description="Owning user UUID")
+    name: str = Field(..., description="Human-readable key name")
+    scopes: list[str] = Field(..., description="Permission scopes to grant")
+    resource_limits: ResourceLimitsRequest | None = Field(
+        default=None, description="Optional resource ceilings"
+    )
+    expires_at: str | None = Field(default=None, description="ISO 8601 expiry (optional)")
+
+    @model_validator(mode="after")
+    def _validate_expires_at(self) -> CreateKeyRequest:
+        if self.expires_at is not None:
+            from datetime import datetime
+
+            try:
+                dt = datetime.fromisoformat(self.expires_at)
+            except ValueError as e:
+                msg = f"expires_at must be a valid ISO 8601 timestamp: {e}"
+                raise ValueError(msg) from e
+            if dt.tzinfo is None:
+                msg = "expires_at must be timezone-aware (e.g., '2026-12-31T23:59:59Z')"
+                raise ValueError(msg)
+        return self
+
+
+class CreateKeyResponse(BaseModel):
+    """Response for POST /keys — includes the full key (shown once)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key_id: str = Field(..., description="Key UUID")
+    key: str = Field(..., description="Full API key (shown only once)")
+    key_prefix: str = Field(..., description="8-char hex prefix for identification")
+    name: str = Field(..., description="Human-readable key name")
+    scopes: list[str] = Field(..., description="Granted scopes")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
+    expires_at: str | None = Field(default=None, description="ISO 8601 expiry")
+
+
+class KeySummary(BaseModel):
+    """API key summary — never includes the key hash or raw key."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key_id: str = Field(..., description="Key UUID")
+    user_id: str = Field(..., description="Owning user UUID")
+    name: str = Field(..., description="Human-readable key name")
+    key_prefix: str = Field(..., description="8-char hex prefix for identification")
+    scopes: list[str] = Field(..., description="Granted scopes")
+    created_at: str = Field(..., description="ISO 8601 creation timestamp")
+    expires_at: str | None = Field(default=None, description="ISO 8601 expiry")
+    revoked_at: str | None = Field(default=None, description="ISO 8601 revocation timestamp")
+
+
+class KeyRevokedResponse(BaseModel):
+    """Confirmation that an API key was revoked."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key_id: str = Field(..., description="Revoked key UUID")
+    status: str = Field(default="revoked", description="Revocation status")
+
+
+class RotateKeyRequest(BaseModel):
+    """Request body for POST /keys/{key_id}/rotate."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    grace_period_hours: int = Field(
+        default=24, ge=0, description="Hours the old key continues to work"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Events — discriminated union
 # ---------------------------------------------------------------------------
 
@@ -538,7 +688,14 @@ EventPayload = Annotated[
     | StepEnqueued
     | StepStarted
     | StepCompleted
-    | StepFailed,
+    | StepFailed
+    # Auth lifecycle events
+    | UserCreated
+    | UserUpdated
+    | UserDeactivated
+    | KeyCreated
+    | KeyRevoked
+    | KeyRotated,
     Field(discriminator="type"),
 ]
 

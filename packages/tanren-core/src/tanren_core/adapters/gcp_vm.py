@@ -7,12 +7,12 @@ import logging
 import os
 import re
 import time
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
+from tanren_core.timestamps import utc_now_iso
 
 if TYPE_CHECKING:
     import types
@@ -195,7 +195,7 @@ class GCPVMProvisioner:
                             vm_id=instance_name,
                             host=host,
                             provider=VMProvider.GCP,
-                            created_at=datetime.now(UTC).isoformat(),
+                            created_at=utc_now_iso(),
                             labels=labels,
                             hourly_cost=self._resolve_hourly_cost(),
                         )
@@ -260,9 +260,7 @@ class GCPVMProvisioner:
             host = (
                 self._extract_ip(instance, prefer_external=self._settings.enable_external_ip) or ""
             )
-            created_at = str(
-                getattr(instance, "creation_timestamp", None) or datetime.now(UTC).isoformat()
-            )
+            created_at = str(getattr(instance, "creation_timestamp", None) or utc_now_iso())
             labels = dict(instance.labels) if instance.labels else {}
             handles.append(
                 VMHandle(

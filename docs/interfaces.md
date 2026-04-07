@@ -75,5 +75,47 @@ The internal queue contract is defined by three store protocols in
 | `JobQueue` | Step-based job queue (enqueue, dequeue, ack, nack) |
 | `StateStore` | Read-only queries against dispatch and step projections |
 
-Backed by SQLite (default) or Postgres. See [protocol/README.md](../protocol/README.md)
-for the full dispatch lifecycle and lane definitions.
+Backed by a unified `Store` class (`tanren_core.store.repository`) that
+supports both SQLite and Postgres via SQLAlchemy 2.0 ORM.
+See [protocol/README.md](../protocol/README.md) for the full dispatch
+lifecycle and lane definitions.
+
+## Dispatch Orchestration
+
+All entry points (CLI, MCP, REST API) share a single orchestration layer in
+`dispatch_orchestrator.py`. No entry point implements its own lifecycle logic.
+
+### Guard Errors
+
+The orchestrator enforces state guards before enqueueing steps:
+
+| Error | Meaning |
+|-------|---------|
+| `ConcurrentExecuteError` | An execute step is already pending or running |
+| `PostTeardownExecuteError` | Cannot execute after teardown has been requested |
+| `ActiveExecuteTeardownError` | Cannot teardown while an execute step is active |
+| `DuplicateTeardownError` | Teardown already enqueued or completed (failed teardowns allow retry) |
+
+All inherit from `DispatchGuardError`.
+
+### Input Resolution Pipeline
+
+Before reaching the orchestrator, inputs are resolved through two layers:
+
+1. **ConfigResolver** (`config_resolver.py`) -- loads `tanren.yml` and `.env`
+   from disk (`DiskConfigResolver`) or GitHub API (`GitHubConfigResolver`).
+2. **dispatch_builder** (`dispatch_builder.py`) -- resolves profile, env,
+   secrets, CLI/auth/model, and gate command into a `ResolvedInputs` object.
+
+The orchestrator then creates the dispatch projection, appends events, and
+enqueues steps.
+
+### Error Mapping to API Responses
+
+| Orchestrator error | API mapping |
+|--------------------|-------------|
+| `DispatchGuardError` | `ServiceError` (HTTP 500) |
+| `ValueError` (no provision result) | `ServiceError` (HTTP 500) |
+
+See [dispatch-lifecycle.md](dispatch-lifecycle.md) for the full state machine,
+step ordering, and guard rule details.

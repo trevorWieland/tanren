@@ -1,7 +1,9 @@
 # MCP Server Setup
 
-The tanren MCP server exposes all API capabilities as tools that LLM-based
-agents (e.g. Claude Code) can invoke directly.
+The tanren MCP server exposes core operational capabilities (dispatch, VM,
+run lifecycle, events, metrics, config) as tools that LLM-based agents
+(e.g. Claude Code) can invoke directly.  Admin operations (user and key
+management) are available only via the REST API.
 
 ## Endpoint
 

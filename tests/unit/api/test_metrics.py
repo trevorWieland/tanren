@@ -19,7 +19,7 @@ async def _insert_fixture_events(store) -> None:
     await store.append(
         PhaseCompleted(
             timestamp="2026-03-01T10:00:00Z",
-            workflow_id="wf-alpha-1-100",
+            entity_id="wf-alpha-1-100",
             phase="do-task",
             project="alpha",
             outcome="success",
@@ -30,7 +30,7 @@ async def _insert_fixture_events(store) -> None:
     await store.append(
         PhaseCompleted(
             timestamp="2026-03-01T12:00:00Z",
-            workflow_id="wf-alpha-2-200",
+            entity_id="wf-alpha-2-200",
             phase="do-task",
             project="alpha",
             outcome="success",
@@ -41,7 +41,7 @@ async def _insert_fixture_events(store) -> None:
     await store.append(
         PhaseCompleted(
             timestamp="2026-03-02T10:00:00Z",
-            workflow_id="wf-beta-1-300",
+            entity_id="wf-beta-1-300",
             phase="do-task",
             project="beta",
             outcome="fail",
@@ -53,7 +53,7 @@ async def _insert_fixture_events(store) -> None:
     await store.append(
         TokenUsageRecorded(
             timestamp="2026-03-01T10:05:00Z",
-            workflow_id="wf-alpha-1-100",
+            entity_id="wf-alpha-1-100",
             phase="do-task",
             project="alpha",
             cli="claude",
@@ -68,7 +68,7 @@ async def _insert_fixture_events(store) -> None:
     await store.append(
         VMProvisioned(
             timestamp="2026-03-01T09:55:00Z",
-            workflow_id="wf-alpha-1-100",
+            entity_id="wf-alpha-1-100",
             vm_id="vm-1",
             host="10.0.0.1",
             provider=VMProvider.HETZNER,
@@ -80,7 +80,7 @@ async def _insert_fixture_events(store) -> None:
     await store.append(
         VMReleased(
             timestamp="2026-03-01T10:05:00Z",
-            workflow_id="wf-alpha-1-100",
+            entity_id="wf-alpha-1-100",
             vm_id="vm-1",
             project="alpha",
             duration_secs=600,
@@ -91,7 +91,7 @@ async def _insert_fixture_events(store) -> None:
     await store.append(
         VMProvisioned(
             timestamp="2026-03-02T09:55:00Z",
-            workflow_id="wf-beta-1-300",
+            entity_id="wf-beta-1-300",
             vm_id="vm-2",
             host="10.0.0.2",
             provider=VMProvider.GCP,
@@ -128,7 +128,7 @@ class TestMetricsSummary:
             await sqlite_store.append(
                 PhaseCompleted(
                     timestamp="2026-03-03T10:00:00Z",
-                    workflow_id=f"wf-{outcome}-1-100",
+                    entity_id=f"wf-{outcome}-1-100",
                     phase="do-task",
                     project="gamma",
                     outcome=outcome,

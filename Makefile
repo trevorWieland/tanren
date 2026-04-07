@@ -1,5 +1,5 @@
 .PHONY: install format format-check lint lint-check type unit integration docs-check check ci openapi clean \
-	docker docker-slim docker-daemon docker-daemon-slim
+	docker docker-slim docker-daemon docker-daemon-slim import-check alembic-check arch-check
 
 install:
 	uv sync --upgrade
@@ -32,10 +32,21 @@ integration:
 docs-check:
 	uv run python -m tanren_core.docs_links
 
+import-check:
+	uv run lint-imports
+
+alembic-check:
+	cd packages/tanren-core && uv run alembic upgrade head && uv run alembic check
+
+arch-check: import-check alembic-check
+	uv run python scripts/check_store_bypass.py
+	uv run python scripts/check_thin_interfaces.py
+
 check:
 	$(MAKE) format-check
 	$(MAKE) lint-check
 	$(MAKE) type
+	$(MAKE) arch-check
 	$(MAKE) unit
 	$(MAKE) integration
 	$(MAKE) docs-check

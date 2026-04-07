@@ -12,17 +12,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastmcp.utilities.lifespan import combine_lifespans
 from starlette.applications import Starlette
 
-from tanren_api.auth import verify_api_key
+from tanren_api.auth import resolve_auth
 from tanren_api.errors import TanrenAPIError, tanren_error_handler
 from tanren_api.mcp_auth import MCPApiKeyAuth
-from tanren_api.mcp_server import mcp, set_services, set_worker_config
+from tanren_api.mcp_server import (
+    mcp,
+    set_auth_store,
+    set_config_resolver,
+    set_services,
+    set_worker_config,
+)
 from tanren_api.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 from tanren_api.routers import config as config_router_mod
 from tanren_api.routers import dispatch as dispatch_router_mod
 from tanren_api.routers import events as events_router_mod
 from tanren_api.routers import health as health_router_mod
+from tanren_api.routers import keys as keys_router_mod
 from tanren_api.routers import metrics as metrics_router_mod
 from tanren_api.routers import run as run_router_mod
+from tanren_api.routers import users as users_router_mod
 from tanren_api.routers import vm as vm_router_mod
 from tanren_api.services import (
     ConfigService,
@@ -60,21 +68,35 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
         app.state.settings = settings
 
-        # Register MCP auth middleware (clear any stale instances first)
-        mcp.middleware[:] = [m for m in mcp.middleware if not isinstance(m, MCPApiKeyAuth)]
-        mcp.add_middleware(MCPApiKeyAuth(settings.api_key))
-
         # ── Store (mandatory) ──
         store = await create_store(settings.db_url)
         app.state.event_store = store
         app.state.job_queue = store
         app.state.state_store = store
+        app.state.auth_store = store
+
+        # ── Legacy admin key seeding ──
+        if settings.api_key:
+            from tanren_api.auth_seed import seed_legacy_admin_key
+
+            await seed_legacy_admin_key(store, store, settings.api_key)
+
+        # Wire auth store for MCP resource limit checks
+        set_auth_store(store)
+
+        # Register MCP auth middleware (clear any stale instances first)
+        mcp.middleware[:] = [m for m in mcp.middleware if not isinstance(m, MCPApiKeyAuth)]
+        mcp.add_middleware(MCPApiKeyAuth(store))
 
         # ── WorkerConfig (optional — needed for dispatch/resolve) ──
         wc: WorkerConfig | None = None
         try:
             wc = WorkerConfig.from_env()
             set_worker_config(wc)
+
+            from tanren_core.config_resolver import DiskConfigResolver
+
+            set_config_resolver(DiskConfigResolver(wc.github_dir))
             logger.info("MCP dispatch resolution configured from WM_* env vars")
         except ValueError:
             logger.warning(
@@ -147,32 +169,42 @@ def create_app(settings: APISettings | None = None) -> FastAPI:
     app.include_router(
         dispatch_router_mod.router,
         prefix="/api/v1",
-        dependencies=[Depends(verify_api_key)],
+        dependencies=[Depends(resolve_auth)],
     )
     app.include_router(
         vm_router_mod.router,
         prefix="/api/v1",
-        dependencies=[Depends(verify_api_key)],
+        dependencies=[Depends(resolve_auth)],
     )
     app.include_router(
         run_router_mod.router,
         prefix="/api/v1",
-        dependencies=[Depends(verify_api_key)],
+        dependencies=[Depends(resolve_auth)],
     )
     app.include_router(
         config_router_mod.router,
         prefix="/api/v1",
-        dependencies=[Depends(verify_api_key)],
+        dependencies=[Depends(resolve_auth)],
     )
     app.include_router(
         events_router_mod.router,
         prefix="/api/v1",
-        dependencies=[Depends(verify_api_key)],
+        dependencies=[Depends(resolve_auth)],
     )
     app.include_router(
         metrics_router_mod.router,
         prefix="/api/v1",
-        dependencies=[Depends(verify_api_key)],
+        dependencies=[Depends(resolve_auth)],
+    )
+    app.include_router(
+        users_router_mod.router,
+        prefix="/api/v1",
+        dependencies=[Depends(resolve_auth)],
+    )
+    app.include_router(
+        keys_router_mod.router,
+        prefix="/api/v1",
+        dependencies=[Depends(resolve_auth)],
     )
 
     # Global exception handler

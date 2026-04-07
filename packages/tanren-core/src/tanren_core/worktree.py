@@ -4,10 +4,10 @@ import asyncio
 import logging
 import os
 import shutil
-from datetime import UTC, datetime
 from pathlib import Path
 
 from tanren_core.schemas import WorktreeEntry, WorktreeRegistry
+from tanren_core.timestamps import utc_now_iso
 
 
 async def atomic_write(path: Path, content: str) -> None:
@@ -327,7 +327,7 @@ async def register_worktree(
             issue=issue,
             branch=branch,
             path=str(worktree_path),
-            created_at=datetime.now(UTC).isoformat(),
+            created_at=utc_now_iso(),
         )
         await save_registry(registry_path, registry)
 

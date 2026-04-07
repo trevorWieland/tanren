@@ -76,6 +76,10 @@ convention = "google"
 # Store subpackage: Pydantic models, re-exports, event types need runtime imports;
 # store methods return typed objects (DOC201); SQL built from safe clauses (S608)
 "packages/tanren-core/src/tanren_core/store/**" = ["TCH", "DOC201", "S608"]
+# Alembic auto-generated files have their own style conventions
+"packages/tanren-core/alembic/**" = ["D", "TCH", "TC", "ANN", "INP001"]
+# Orchestrator uses Pydantic models and Protocol types at runtime in function signatures
+"packages/tanren-core/src/tanren_core/dispatch_orchestrator.py" = ["TCH"]
 # Worker uses deferred imports to break circular deps and handle reconstructions
 "packages/tanren-core/src/tanren_core/worker.py" = ["TCH", "DOC201", "DOC501", "PLC0415", "SIM105", "S110"]
 # FastAPI evaluates type annotations at runtime for DI, validation, and OpenAPI.
@@ -142,4 +146,34 @@ dev = [
     "pytest-timeout>=2, <3",
     "httpx>=0.28.0, <1",
     "respx>=0.22.0, <1",
+    "import-linter>=2.1, <3",
 ]
+
+# ===== IMPORT-LINTER =====
+[tool.importlinter]
+root_packages = ["tanren_core", "tanren_api", "tanren_cli", "tanren_daemon"]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "Core must not depend on services"
+type = "forbidden"
+source_modules = ["tanren_core"]
+forbidden_modules = ["tanren_api", "tanren_cli", "tanren_daemon"]
+
+[[tool.importlinter.contracts]]
+name = "CLI must not depend on API"
+type = "forbidden"
+source_modules = ["tanren_cli"]
+forbidden_modules = ["tanren_api"]
+
+[[tool.importlinter.contracts]]
+name = "Daemon must not depend on API or CLI"
+type = "forbidden"
+source_modules = ["tanren_daemon"]
+forbidden_modules = ["tanren_api", "tanren_cli"]
+
+[[tool.importlinter.contracts]]
+name = "API must not depend on CLI or Daemon"
+type = "forbidden"
+source_modules = ["tanren_api"]
+forbidden_modules = ["tanren_cli", "tanren_daemon"]

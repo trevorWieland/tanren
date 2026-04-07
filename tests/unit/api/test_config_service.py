@@ -31,10 +31,9 @@ def _make_worker_config(tmp_path: Path) -> WorkerConfig:
 async def test_config_dynamic_worker_lanes(tmp_path: Path) -> None:
     """ConfigService returns dynamic worker_lanes when WorkerConfig is wired."""
     from tanren_api.settings import APISettings
-    from tanren_core.store.sqlite import SqliteStore
+    from tanren_core.store.factory import create_store
 
-    store = SqliteStore(tmp_path / "cfg.db")
-    await store._ensure_conn()
+    store = await create_store(str(tmp_path / "cfg.db"))
     try:
         settings = APISettings(api_key="k", db_url=str(tmp_path / "cfg.db"))
         wc = _make_worker_config(tmp_path)
@@ -49,10 +48,9 @@ async def test_config_dynamic_worker_lanes(tmp_path: Path) -> None:
 async def test_config_default_lanes_without_worker_config(tmp_path: Path) -> None:
     """ConfigService falls back to defaults when WorkerConfig is None."""
     from tanren_api.settings import APISettings
-    from tanren_core.store.sqlite import SqliteStore
+    from tanren_core.store.factory import create_store
 
-    store = SqliteStore(tmp_path / "cfg2.db")
-    await store._ensure_conn()
+    store = await create_store(str(tmp_path / "cfg2.db"))
     try:
         settings = APISettings(api_key="k", db_url=str(tmp_path / "cfg2.db"))
         svc = ConfigService(settings, store)

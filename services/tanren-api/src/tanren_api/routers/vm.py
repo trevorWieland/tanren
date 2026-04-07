@@ -6,7 +6,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
 
-from tanren_api.dependencies import get_event_store, get_job_queue, get_state_store
+from tanren_api.auth import require_scope
+from tanren_api.dependencies import (
+    get_auth_store,
+    get_event_store,
+    get_job_queue,
+    get_state_store,
+    get_store,
+)
+from tanren_api.limits import check_resource_limits
 from tanren_api.models import (
     ProvisionRequest,
     VMProvisionAccepted,
@@ -15,7 +23,10 @@ from tanren_api.models import (
     VMSummary,
 )
 from tanren_api.services.vm import VMService
+from tanren_core.store.auth_protocols import AuthStore
+from tanren_core.store.auth_views import AuthContext
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.repository import Store
 
 router = APIRouter(tags=["vm"])
 
@@ -26,53 +37,81 @@ def _vm_service(event_store: EventStore, job_queue: JobQueue, state_store: State
 
 @router.get("/vm")
 async def list_vms(
+    auth: Annotated[AuthContext, Depends(require_scope("vm:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> list[VMSummary]:
-    """List active VM assignments."""
-    return await _vm_service(event_store, job_queue, state_store).list_vms()
+    """List active VM assignments (filtered by user unless admin)."""
+    from tanren_api.scopes import has_scope
+
+    user_id = None if has_scope(auth.scopes, "admin:*") else auth.user.user_id
+    return await _vm_service(event_store, job_queue, state_store).list_vms(user_id=user_id)
 
 
 @router.post("/vm/provision")
 async def provision_vm(
     body: ProvisionRequest,
+    auth: Annotated[AuthContext, Depends(require_scope("vm:provision"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
+    auth_store: Annotated[AuthStore, Depends(get_auth_store)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> VMProvisionAccepted:
     """Provision a new VM (non-blocking)."""
-    return await _vm_service(event_store, job_queue, state_store).provision(body)
+    async with store.user_quota_lock(auth.user.user_id):
+        await check_resource_limits(auth, auth_store, "vm_provision")
+        return await _vm_service(event_store, job_queue, state_store).provision(
+            body, user_id=auth.user.user_id
+        )
 
 
 @router.get("/vm/provision/{env_id}")
 async def get_provision_status(
     env_id: Annotated[str, Path(description="Provisioning tracking identifier")],
+    auth: Annotated[AuthContext, Depends(require_scope("vm:read"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> VMProvisionStatus:
     """Poll status of an in-progress or completed VM provisioning."""
-    return await _vm_service(event_store, job_queue, state_store).get_provision_status(env_id)
+    from tanren_api.scopes import has_scope
+
+    return await _vm_service(event_store, job_queue, state_store).get_provision_status(
+        env_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )
 
 
 @router.delete("/vm/{vm_id}")
 async def release_vm(
     vm_id: Annotated[str, Path(description="VM identifier")],
+    auth: Annotated[AuthContext, Depends(require_scope("vm:release"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
 ) -> VMReleaseConfirmed:
     """Release a VM assignment."""
-    return await _vm_service(event_store, job_queue, state_store).release(vm_id)
+    from tanren_api.scopes import has_scope
+
+    return await _vm_service(event_store, job_queue, state_store).release(
+        vm_id, user_id=auth.user.user_id, is_admin=has_scope(auth.scopes, "admin:*")
+    )
 
 
 @router.post("/vm/dry-run")
 async def dry_run_provision(
     body: ProvisionRequest,
+    auth: Annotated[AuthContext, Depends(require_scope("vm:provision"))],
     event_store: Annotated[EventStore, Depends(get_event_store)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
     state_store: Annotated[StateStore, Depends(get_state_store)],
+    auth_store: Annotated[AuthStore, Depends(get_auth_store)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> VMProvisionAccepted:
     """Dry-run provision — enqueue a DRY_RUN step and return dispatch_id for polling."""
-    return await _vm_service(event_store, job_queue, state_store).dry_run(body)
+    async with store.user_quota_lock(auth.user.user_id):
+        await check_resource_limits(auth, auth_store, "vm_provision")
+        return await _vm_service(event_store, job_queue, state_store).dry_run(
+            body, user_id=auth.user.user_id
+        )

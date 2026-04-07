@@ -20,6 +20,14 @@ from tanren_core.adapters.events import (
 from tanren_core.adapters.remote_types import VMProvider
 from tanren_core.env.environment_schema import EnvironmentProfile
 from tanren_core.schemas import Cli, Dispatch, Outcome, Phase
+from tanren_core.store.auth_events import (
+    KeyCreated,
+    KeyRevoked,
+    KeyRotated,
+    UserCreated,
+    UserDeactivated,
+    UserUpdated,
+)
 from tanren_core.store.enums import DispatchMode, Lane, StepType
 from tanren_core.store.events import (
     DispatchCompleted,
@@ -36,37 +44,37 @@ _TS = "2026-01-01T00:00:00Z"
 _WF = "wf-proj-1-1234"
 
 EVENT_INSTANCES = [
-    DispatchReceived(timestamp=_TS, workflow_id=_WF, phase="do-task", project="proj", cli="claude"),
-    PhaseStarted(timestamp=_TS, workflow_id=_WF, phase="do-task", worktree_path="/tmp/wt"),
+    DispatchReceived(timestamp=_TS, entity_id=_WF, phase="do-task", project="proj", cli="claude"),
+    PhaseStarted(timestamp=_TS, entity_id=_WF, phase="do-task", worktree_path="/tmp/wt"),
     PhaseCompleted(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         phase="do-task",
         project="proj",
         outcome="success",
         duration_secs=10,
         exit_code=0,
     ),
-    PreflightCompleted(timestamp=_TS, workflow_id=_WF, passed=True),
-    PostflightCompleted(timestamp=_TS, workflow_id=_WF, phase="do-task"),
-    ErrorOccurred(timestamp=_TS, workflow_id=_WF, phase="do-task", error="boom"),
+    PreflightCompleted(timestamp=_TS, entity_id=_WF, passed=True),
+    PostflightCompleted(timestamp=_TS, entity_id=_WF, phase="do-task"),
+    ErrorOccurred(timestamp=_TS, entity_id=_WF, phase="do-task", error="boom"),
     RetryScheduled(
-        timestamp=_TS, workflow_id=_WF, phase="do-task", attempt=1, max_attempts=3, backoff_secs=5
+        timestamp=_TS, entity_id=_WF, phase="do-task", attempt=1, max_attempts=3, backoff_secs=5
     ),
     VMProvisioned(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         vm_id="vm-1",
         host="10.0.0.1",
         provider=VMProvider.HETZNER,
         project="proj",
         profile="default",
     ),
-    VMReleased(timestamp=_TS, workflow_id=_WF, vm_id="vm-1", project="proj", duration_secs=600),
-    BootstrapCompleted(timestamp=_TS, workflow_id=_WF, vm_id="vm-1"),
+    VMReleased(timestamp=_TS, entity_id=_WF, vm_id="vm-1", project="proj", duration_secs=600),
+    BootstrapCompleted(timestamp=_TS, entity_id=_WF, vm_id="vm-1"),
     TokenUsageRecorded(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         phase="do-task",
         project="proj",
         cli="claude",
@@ -78,7 +86,7 @@ EVENT_INSTANCES = [
     # Store lifecycle events
     DispatchCreated(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         dispatch=Dispatch(
             workflow_id=_WF,
             phase=Phase.DO_TASK,
@@ -93,32 +101,32 @@ EVENT_INSTANCES = [
         lane=Lane.IMPL,
     ),
     DispatchCompleted(
-        timestamp=_TS, workflow_id=_WF, outcome=Outcome.SUCCESS, total_duration_secs=60
+        timestamp=_TS, entity_id=_WF, outcome=Outcome.SUCCESS, total_duration_secs=60
     ),
     DispatchFailed(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         failed_step_id="step-1",
         failed_step_type=StepType.EXECUTE,
         error="boom",
     ),
     StepEnqueued(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         step_id="step-1",
         step_type=StepType.PROVISION,
         step_sequence=0,
     ),
     StepStarted(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         step_id="step-1",
         worker_id="w1",
         step_type=StepType.PROVISION,
     ),
     StepCompleted(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         step_id="step-1",
         step_type=StepType.TEARDOWN,
         duration_secs=5,
@@ -126,11 +134,54 @@ EVENT_INSTANCES = [
     ),
     StepFailed(
         timestamp=_TS,
-        workflow_id=_WF,
+        entity_id=_WF,
         step_id="step-1",
         step_type=StepType.EXECUTE,
         error="timeout",
         duration_secs=30,
+    ),
+    # Auth lifecycle events
+    UserCreated(
+        timestamp=_TS,
+        entity_id="user-1",
+        entity_type="user",
+        user_id="user-1",
+        name="Alice",
+        email="alice@example.com",
+        role="admin",
+    ),
+    UserUpdated(
+        timestamp=_TS,
+        entity_id="user-1",
+        entity_type="user",
+        name="Alice B.",
+    ),
+    UserDeactivated(
+        timestamp=_TS,
+        entity_id="user-1",
+        entity_type="user",
+    ),
+    KeyCreated(
+        timestamp=_TS,
+        entity_id="key-1",
+        entity_type="api_key",
+        key_id="key-1",
+        user_id="user-1",
+        name="dev-key",
+        key_prefix="tnrn1234",
+        scopes=["dispatch:create", "dispatch:read"],
+    ),
+    KeyRevoked(
+        timestamp=_TS,
+        entity_id="key-1",
+        entity_type="api_key",
+    ),
+    KeyRotated(
+        timestamp=_TS,
+        entity_id="key-1",
+        entity_type="api_key",
+        new_key_id="key-2",
+        grace_expires_at="2026-01-02T00:00:00Z",
     ),
 ]
 
@@ -153,6 +204,12 @@ EXPECTED_TYPES = [
     "step_started",
     "step_completed",
     "step_failed",
+    "user_created",
+    "user_updated",
+    "user_deactivated",
+    "key_created",
+    "key_revoked",
+    "key_rotated",
 ]
 
 

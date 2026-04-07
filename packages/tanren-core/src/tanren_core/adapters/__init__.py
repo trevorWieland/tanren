@@ -66,8 +66,7 @@ from tanren_core.adapters.manual_vm import (
     ManualVMProvisioner,
     NoVMAvailableError,
 )
-from tanren_core.adapters.postgres_pool import create_postgres_pool, is_postgres_url
-from tanren_core.adapters.postgres_vm_state import PostgresVMStateStore
+from tanren_core.adapters.postgres_pool import is_postgres_url
 from tanren_core.adapters.protocols import (
     EnvironmentBootstrapper,
     EnvProvisioner,
@@ -101,7 +100,6 @@ from tanren_core.adapters.remote_types import (
     WorkspacePath,
     WorkspaceSpec,
 )
-from tanren_core.adapters.sqlite_vm_state import SqliteVMStateStore
 from tanren_core.adapters.ssh import SSHConfig, SSHConnection
 from tanren_core.adapters.ssh_environment import SSHExecutionEnvironment
 from tanren_core.adapters.subprocess_spawner import SubprocessSpawner
@@ -112,6 +110,7 @@ from tanren_core.adapters.types import (
     ProvisionError,
 )
 from tanren_core.adapters.ubuntu_bootstrap import UbuntuBootstrapper
+from tanren_core.adapters.vm_state_repository import VMStateRepository
 from tanren_core.store.views import (
     EventQueryResult,
     EventRow,
@@ -170,7 +169,6 @@ __all__ = [
     "PhaseStarted",
     "PostflightCompleted",
     "PostflightRunner",
-    "PostgresVMStateStore",
     "PreflightCompleted",
     "PreflightRunner",
     "ProcessSpawner",
@@ -185,7 +183,6 @@ __all__ = [
     "SSHExecutionEnvironment",
     "SecretBundle",
     "SecretProvider",
-    "SqliteVMStateStore",
     "SubprocessSpawner",
     "TokenUsageRecorded",
     "UbuntuBootstrapper",
@@ -196,13 +193,13 @@ __all__ = [
     "VMProvisionerProtocol",
     "VMReleased",
     "VMRequirements",
+    "VMStateRepository",
     "VMStateStore",
     "WorkspaceManagerProtocol",
     "WorkspacePath",
     "WorkspaceSpec",
     "WorktreeManager",
     "all_credential_cleanup_paths",
-    "create_postgres_pool",
     "inject_all_cli_credentials",
     "is_postgres_url",
     "providers_for_clis",

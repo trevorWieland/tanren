@@ -1,9 +1,11 @@
 """Event-sourced store: protocols, types, and backends for dispatch lifecycle."""
 
+from tanren_core.store.auth_protocols import AuthStore
 from tanren_core.store.enums import (
     CLI_LANE_MAP,
     DispatchMode,
     DispatchStatus,
+    EntityType,
     Lane,
     StepStatus,
     StepType,
@@ -31,8 +33,8 @@ from tanren_core.store.payloads import (
     TeardownResult,
     TeardownStepPayload,
 )
-from tanren_core.store.postgres import PostgresStore
 from tanren_core.store.protocols import EventStore, JobQueue, StateStore
+from tanren_core.store.repository import Store
 from tanren_core.store.views import (
     DispatchListFilter,
     DispatchView,
@@ -44,6 +46,7 @@ from tanren_core.store.views import (
 
 __all__ = [
     "CLI_LANE_MAP",
+    "AuthStore",
     "DispatchCompleted",
     "DispatchCreated",
     "DispatchFailed",
@@ -51,6 +54,7 @@ __all__ = [
     "DispatchMode",
     "DispatchStatus",
     "DispatchView",
+    "EntityType",
     "EventQueryResult",
     "EventRow",
     "EventStore",
@@ -61,7 +65,6 @@ __all__ = [
     "PersistedEnvironmentHandle",
     "PersistedSSHConfig",
     "PersistedVMInfo",
-    "PostgresStore",
     "ProvisionResult",
     "ProvisionStepPayload",
     "QueuedStep",
@@ -74,6 +77,7 @@ __all__ = [
     "StepStatus",
     "StepType",
     "StepView",
+    "Store",
     "TeardownResult",
     "TeardownStepPayload",
 ]

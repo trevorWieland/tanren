@@ -1,58 +1,49 @@
-"""Factory for creating store backends from a database URL."""
+"""Factory for creating store backends from a database URL.
+
+Uses SQLAlchemy 2.0 async engine with aiosqlite or asyncpg as the
+underlying DBAPI driver.  Returns a unified ``Store`` that implements
+all four protocols (EventStore, JobQueue, StateStore, AuthStore).
+"""
 
 from __future__ import annotations
 
-import asyncpg
-
-from tanren_core.adapters.postgres_pool import is_postgres_url
-from tanren_core.store.postgres import PostgresStore
-from tanren_core.store.sqlite import SqliteStore
+from tanren_core.store.engine import create_engine_from_url, create_session_factory
+from tanren_core.store.models import Base
+from tanren_core.store.repository import Store
 
 
-async def create_sqlite_store(db_path: str) -> SqliteStore:
-    """Create a SQLite-backed store.
-
-    Returns:
-        A ``SqliteStore`` instance (implements EventStore, JobQueue, StateStore).
-    """
-    store = SqliteStore(db_path)
-    await store.ensure_schema()
-    return store
-
-
-async def create_postgres_store(dsn: str) -> PostgresStore:
-    """Create a Postgres-backed store.
-
-    Creates a fresh asyncpg pool and initialises the store schema tables.
-
-    Returns:
-        A ``PostgresStore`` instance (implements EventStore, JobQueue, StateStore).
-    """
-    pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
-    store = PostgresStore(pool, owns_pool=True)
-    await store.ensure_schema()
-    return store
-
-
-async def create_store(
-    db_url: str,
-) -> SqliteStore | PostgresStore:
+async def create_store(db_url: str) -> Store:
     """Create a store from a database URL.
 
-    For SQLite paths, returns a ``SqliteStore``.
-    For PostgreSQL URLs, returns a ``PostgresStore``.
+    For SQLite paths, returns a SQLite-backed store.
+    For PostgreSQL URLs, returns a Postgres-backed store.
+
+    Args:
+        db_url: A filesystem path for SQLite or ``postgresql://`` URL.
 
     Returns:
-        A store instance implementing EventStore, JobQueue, and StateStore.
+        A ``Store`` instance implementing all store protocols.
 
-    Raises:
-        ValueError: If the URL scheme is not recognised.
+    May raise ``ValueError`` if the URL scheme is not recognised
+    (propagated from :func:`create_engine_from_url`).
     """
-    if is_postgres_url(db_url):
-        return await create_postgres_store(db_url)
-    if "://" in db_url:
-        raise ValueError(
-            f"Unsupported database URL scheme: {db_url.split('://', maxsplit=1)[0]}://. "
-            "Use a filesystem path for SQLite or postgresql:// for Postgres."
-        )
-    return await create_sqlite_store(db_url)
+    engine, is_sqlite = create_engine_from_url(db_url)
+    sf = create_session_factory(engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    return Store(sf, is_sqlite=is_sqlite, engine=engine)
+
+
+async def create_sqlite_store(db_path: str) -> Store:
+    """Create a SQLite-backed store.
+
+    Convenience wrapper for CLI usage.  Equivalent to
+    ``create_store(db_path)`` for filesystem paths.
+
+    Args:
+        db_path: Filesystem path for the SQLite database.
+
+    Returns:
+        A ``Store`` instance.
+    """
+    return await create_store(db_path)

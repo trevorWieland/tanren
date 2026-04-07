@@ -191,11 +191,13 @@ PostflightCompleted, RetryScheduled, ErrorOccurred). `query_events` supports
 paginated, filterable reads over the event log. `close` is called during
 graceful shutdown.
 
-**Implementations:**
-- `SqliteStore` -- writes events to a SQLite database with WAL mode and
-  indexed columns for workflow_id, event_type, and timestamp.
-- `PostgresStore` -- writes events to a Postgres database using an
-  externally-owned `asyncpg` connection pool.
+**Implementation:**
+- `Store` (`tanren_core.store.repository`) -- unified SQLAlchemy 2.0 ORM
+  implementation that supports both SQLite (via aiosqlite) and Postgres
+  (via asyncpg). Schema is defined in `store/models.py` with ORM-mapped
+  classes; `store/engine.py` handles async engine creation; and
+  `store/converters.py` bridges ORM rows to domain views. Schema migrations
+  are managed by Alembic (see `packages/tanren-core/alembic/`).
 
 ### ExecutionEnvironment
 
@@ -590,7 +592,7 @@ worker = Worker(
 
 # Inject a custom event store alongside the default everything else
 worker = Worker(
-    event_store=PostgresStore(pool=my_pg_pool),
+    event_store=my_custom_event_store,
 )
 
 # Override fine-grained adapters (these feed into LocalExecutionEnvironment
@@ -618,6 +620,6 @@ class Worker:
 ```
 
 The `Worker` requires explicit store and execution environment injection.
-Use the store factory (`tanren_core.store.factory`) to construct the
-appropriate store backend (SQLite or Postgres) and pass the three store
-protocols along with an `ExecutionEnvironment` implementation.
+Use the store factory (`tanren_core.store.factory.create_store(db_url)`)
+to construct the unified `Store` backend (SQLite or Postgres) and pass the
+three store protocols along with an `ExecutionEnvironment` implementation.

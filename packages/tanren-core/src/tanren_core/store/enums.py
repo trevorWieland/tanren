@@ -9,6 +9,14 @@ if TYPE_CHECKING:
     from tanren_core.schemas import Cli
 
 
+class EntityType(StrEnum):
+    """Entity types for the polymorphic events table."""
+
+    DISPATCH = "dispatch"
+    USER = "user"
+    API_KEY = "api_key"
+
+
 class DispatchMode(StrEnum):
     """How a dispatch's steps are managed."""
 

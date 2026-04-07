@@ -16,7 +16,12 @@ class Event(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     timestamp: str = Field(..., description="ISO 8601 timestamp")
-    workflow_id: str = Field(..., description="Unique identifier for the workflow run")
+    entity_id: str = Field(
+        ..., description="Entity this event belongs to (dispatch_id, user_id, key_id)"
+    )
+    entity_type: str = Field(
+        default="dispatch", description="Type of entity (dispatch, user, api_key)"
+    )
 
 
 class DispatchReceived(Event):

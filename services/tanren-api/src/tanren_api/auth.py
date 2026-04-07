@@ -1,49 +1,94 @@
-"""API authentication via API key header."""
+"""API authentication — scoped API key resolution and scope enforcement."""
 
-import secrets
-from typing import Annotated, Protocol
+from __future__ import annotations
 
-from fastapi import Header, Request
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
-from tanren_api.errors import AuthenticationError
-from tanren_api.settings import APISettings
+from fastapi import Depends, Header, Request
 
-
-class AuthVerifier(Protocol):
-    """Protocol for pluggable auth verification."""
-
-    async def verify(self, credentials: str) -> None:
-        """Verify the provided credentials."""
-        ...
+from tanren_api.errors import AuthenticationError, ForbiddenError
+from tanren_api.key_utils import hash_api_key
+from tanren_api.scopes import has_scope
+from tanren_core.store.auth_protocols import AuthStore
+from tanren_core.store.auth_views import AuthContext
 
 
-class APIKeyVerifier:
-    """Verify requests via a static API key."""
-
-    def __init__(self, expected_key: str) -> None:
-        """Initialize with the expected API key."""
-        self._expected_key = expected_key
-
-    async def verify(self, credentials: str) -> None:
-        """Raise AuthenticationError if key doesn't match.
-
-        Raises:
-            AuthenticationError: If the credentials are invalid or missing.
-        """
-        if not self._expected_key or not secrets.compare_digest(credentials, self._expected_key):
-            raise AuthenticationError("Invalid API key")
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
-async def verify_api_key(
+def _parse_iso(ts: str) -> datetime:
+    """Parse an ISO 8601 timestamp to an aware datetime."""
+    return datetime.fromisoformat(ts)
+
+
+async def resolve_auth(
     request: Request,
     x_api_key: Annotated[str, Header()],
-) -> str:
-    """FastAPI dependency that validates the X-API-Key header.
+) -> AuthContext:
+    """FastAPI dependency: hash key -> look up -> resolve User + scopes.
 
     Returns:
-        The validated API key string.
+        Resolved AuthContext for the request.
+
+    Raises:
+        AuthenticationError: If key is invalid, revoked, expired, or user deactivated.
     """
-    settings: APISettings = request.app.state.settings
-    verifier = APIKeyVerifier(settings.api_key)
-    await verifier.verify(x_api_key)
-    return x_api_key
+    auth_store: AuthStore = request.app.state.auth_store
+
+    key_hash = hash_api_key(x_api_key)
+    key_view = await auth_store.get_api_key_by_hash(key_hash)
+
+    if key_view is None:
+        raise AuthenticationError("Invalid API key")
+
+    now = _utcnow()
+
+    # Check revocation (respecting grace period)
+    if key_view.revoked_at is not None and _parse_iso(key_view.revoked_at) <= now:
+        raise AuthenticationError("API key has been revoked")
+
+    # Check expiry
+    if key_view.expires_at is not None and _parse_iso(key_view.expires_at) <= now:
+        raise AuthenticationError("API key has expired")
+
+    # Resolve user
+    user = await auth_store.get_user(key_view.user_id)
+    if user is None or not user.is_active:
+        raise AuthenticationError("User not found or deactivated")
+
+    return AuthContext(
+        user=user,
+        key=key_view,
+        scopes=frozenset(key_view.scopes),
+        resource_limits=key_view.resource_limits,
+    )
+
+
+def require_scope(
+    scope: str,
+) -> Callable[..., Coroutine[Any, Any, AuthContext]]:
+    """FastAPI dependency factory: enforce a scope on an endpoint.
+
+    Usage::
+
+        @router.post("/dispatch")
+        async def create_dispatch(
+            auth: Annotated[AuthContext, Depends(require_scope("dispatch:create"))],
+            ...
+        ) -> ...:
+
+    Returns:
+        A dependency that resolves auth and checks the required scope.
+    """
+
+    async def _check(  # noqa: RUF029 — FastAPI resolves Depends() at runtime
+        auth: Annotated[AuthContext, Depends(resolve_auth)],
+    ) -> AuthContext:
+        if not has_scope(auth.scopes, scope):
+            raise ForbiddenError(f"Missing required scope: {scope}")
+        return auth
+
+    return _check

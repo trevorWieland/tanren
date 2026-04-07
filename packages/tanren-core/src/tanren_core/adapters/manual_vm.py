@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -13,6 +12,7 @@ if TYPE_CHECKING:
     from tanren_core.adapters.protocols import VMStateStore
 
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
+from tanren_core.timestamps import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ class ManualVMProvisioner:
         for vm_config in self._vms:
             vm_id = vm_config.vm_id
             if vm_id not in active_vm_ids:
-                now = datetime.now(UTC).isoformat()
+                now = utc_now_iso()
                 handle = VMHandle(
                     vm_id=vm_id,
                     host=vm_config.host,

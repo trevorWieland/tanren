@@ -1,11 +1,10 @@
 """API error types and global exception handler."""
 
-from datetime import UTC, datetime
-
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from tanren_api.models import ErrorResponse
+from tanren_core.timestamps import utc_now_iso
 
 
 class TanrenAPIError(Exception):
@@ -43,6 +42,22 @@ class NotImplementedAPIError(TanrenAPIError):
         super().__init__(501, "not_implemented", detail)
 
 
+class ValidationError(TanrenAPIError):
+    """Client input validation error (400)."""
+
+    def __init__(self, detail: str = "Validation error") -> None:
+        """Initialize with optional detail message."""
+        super().__init__(400, "validation_error", detail)
+
+
+class ForbiddenError(TanrenAPIError):
+    """Insufficient permissions (403)."""
+
+    def __init__(self, detail: str = "Forbidden") -> None:
+        """Initialize with optional detail message."""
+        super().__init__(403, "forbidden", detail)
+
+
 class ConflictError(TanrenAPIError):
     """Conflict (409)."""
 
@@ -70,7 +85,7 @@ async def tanren_error_handler(request: Request, exc: Exception) -> JSONResponse
     body = ErrorResponse(
         detail=exc.detail,
         error_code=exc.error_code,
-        timestamp=datetime.now(UTC).isoformat(),
+        timestamp=utc_now_iso(),
         request_id=request_id,
     )
     return JSONResponse(status_code=exc.status_code, content=body.model_dump())

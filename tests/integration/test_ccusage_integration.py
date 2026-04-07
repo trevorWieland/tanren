@@ -210,7 +210,7 @@ class TestEventPayloadUnion:
         adapter = TypeAdapter(EventPayload)
         event = TokenUsageRecorded(
             timestamp="2026-03-14T10:00:00Z",
-            workflow_id="wf-proj-1-1234",
+            entity_id="wf-proj-1-1234",
             phase="do-task",
             project="proj",
             cli="claude",

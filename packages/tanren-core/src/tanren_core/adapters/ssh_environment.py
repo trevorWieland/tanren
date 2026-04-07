@@ -689,7 +689,3 @@ class SSHExecutionEnvironment:
         raise TimeoutError(
             f"SSH not reachable within {timeout_secs}s on {conn.get_host_identifier()}"
         )
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()

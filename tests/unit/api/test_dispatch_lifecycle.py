@@ -1,41 +1,55 @@
-"""Tests for dispatch_lifecycle — _resolve_cli_auth and gate_cmd resolution."""
+"""Tests for dispatch builder — CLI/auth resolution logic."""
 
 from __future__ import annotations
 
 import pytest
 
-from tanren_api.models import DispatchRequest
-from tanren_api.services.dispatch_lifecycle import _resolve_cli_auth
-from tanren_core.env.environment_schema import EnvironmentProfile
+from tanren_core.dispatch_builder import resolve_cli_auth
 from tanren_core.roles import AuthMode
 from tanren_core.schemas import Cli, Phase
+from tanren_core.worker_config import WorkerConfig
 
 
-def _req(**overrides) -> DispatchRequest:
-    defaults = {
-        "project": "test",
-        "phase": Phase.GATE,
-        "branch": "main",
-        "spec_folder": ".",
-        "resolved_profile": EnvironmentProfile(name="default"),
-    }
-    return DispatchRequest.model_validate(defaults | overrides)
+def _minimal_config(tmp_path) -> WorkerConfig:
+    """Build a minimal WorkerConfig for testing."""
+    return WorkerConfig(
+        ipc_dir=str(tmp_path / "ipc"),
+        github_dir=str(tmp_path / "github"),
+        data_dir=str(tmp_path / "data"),
+        db_url=str(tmp_path / "test.db"),
+        worktree_registry_path=str(tmp_path / "worktrees.json"),
+    )
 
 
 class TestResolveCLIAuth:
-    def test_gate_phase_resolves_to_bash_without_config(self) -> None:
-        cli, auth, model = _resolve_cli_auth(_req(phase=Phase.GATE))
+    def test_gate_phase_resolves_to_bash(self, tmp_path) -> None:
+        config = _minimal_config(tmp_path)
+        cli, auth, model = resolve_cli_auth(
+            config=config, phase=Phase.GATE, cli=None, auth=None, model=None
+        )
         assert cli == Cli.BASH
         assert auth == AuthMode.API_KEY
         assert model is None
 
-    def test_explicit_cli_passes_through(self) -> None:
-        cli, auth, _model = _resolve_cli_auth(
-            _req(cli=Cli.CLAUDE, auth=AuthMode.API_KEY, phase=Phase.DO_TASK)
+    def test_explicit_cli_passes_through(self, tmp_path) -> None:
+        config = _minimal_config(tmp_path)
+        cli, auth, _model = resolve_cli_auth(
+            config=config,
+            phase=Phase.DO_TASK,
+            cli=Cli.CLAUDE,
+            auth=AuthMode.API_KEY,
+            model=None,
         )
         assert cli == Cli.CLAUDE
         assert auth == AuthMode.API_KEY
 
-    def test_non_gate_without_config_raises(self) -> None:
-        with pytest.raises(RuntimeError, match="WorkerConfig required"):
-            _resolve_cli_auth(_req(phase=Phase.DO_TASK))
+    def test_non_gate_without_roles_config_raises(self, tmp_path) -> None:
+        config = _minimal_config(tmp_path)
+        with pytest.raises(ValueError, match="WM_ROLES_CONFIG_PATH"):
+            resolve_cli_auth(
+                config=config,
+                phase=Phase.DO_TASK,
+                cli=None,
+                auth=None,
+                model=None,
+            )

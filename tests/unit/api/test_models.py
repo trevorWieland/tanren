@@ -280,7 +280,7 @@ class TestModels:
         assert VMStatus.ACTIVE == "active"
         assert VMStatus.RELEASED == "released"
         assert VMStatus.FAILED == "failed"
-        assert len(VMStatus) == 5
+        assert len(VMStatus) == 6  # includes DRY_RUN_COMPLETE
 
     def test_run_environment_status_values(self):
         assert RunEnvironmentStatus.PROVISIONING == "provisioning"

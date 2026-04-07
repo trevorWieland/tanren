@@ -8,12 +8,12 @@ import os
 import time
 import uuid
 from collections.abc import Mapping
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tanren_core.adapters.remote_types import VMHandle, VMProvider, VMRequirements
+from tanren_core.timestamps import utc_now_iso
 
 if TYPE_CHECKING:
     from hcloud.servers.client import BoundServer
@@ -191,7 +191,7 @@ class HetznerVMProvisioner:
                             vm_id=str(server.id),
                             host=host,
                             provider=VMProvider.HETZNER,
-                            created_at=datetime.now(UTC).isoformat(),
+                            created_at=utc_now_iso(),
                             labels=labels,
                             hourly_cost=hourly_cost,
                         )
@@ -242,7 +242,7 @@ class HetznerVMProvisioner:
             if hasattr(created_at_raw, "isoformat"):
                 created_at = created_at_raw.isoformat()
             else:
-                created_at = str(created_at_raw or datetime.now(UTC).isoformat())
+                created_at = str(created_at_raw or utc_now_iso())
             hourly_cost = await asyncio.to_thread(
                 self._resolve_hourly_cost,
                 self._server_type_name(server),

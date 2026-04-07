@@ -49,6 +49,7 @@ from tanren_core.store.payloads import (
     TeardownStepPayload,
 )
 from tanren_core.store.views import QueuedStep
+from tanren_core.timestamps import utc_now_iso
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -65,11 +66,6 @@ if TYPE_CHECKING:
     ]
 
 logger = logging.getLogger(__name__)
-
-
-def _utc_now() -> str:
-    """Return current UTC timestamp in canonical Z-suffix format."""
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class _NextStepKwargs(TypedDict):
@@ -283,11 +279,11 @@ class Worker:
     async def process_step(self, step: QueuedStep) -> None:
         """Route a step to the appropriate handler."""
         try:
-            now = _utc_now()
+            now = utc_now_iso()
             await self._event_store.append(
                 StepStarted(
                     timestamp=now,
-                    workflow_id=step.dispatch_id,
+                    entity_id=step.dispatch_id,
                     step_id=step.step_id,
                     worker_id=self._worker_id,
                     step_type=step.step_type,
@@ -329,8 +325,8 @@ class Worker:
             duration = int(time.monotonic() - start)
             await self._event_store.append(
                 PreflightCompleted(
-                    timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    timestamp=utc_now_iso(),
+                    entity_id=dispatch.workflow_id,
                     passed=False,
                     repairs=[],
                 )
@@ -349,8 +345,8 @@ class Worker:
         if persisted.vm is not None:
             await self._event_store.append(
                 VMProvisioned(
-                    timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    timestamp=utc_now_iso(),
+                    entity_id=dispatch.workflow_id,
                     vm_id=persisted.vm.vm_id,
                     host=persisted.vm.host,
                     provider=persisted.vm.provider,
@@ -361,8 +357,8 @@ class Worker:
             )
 
         step_completed_event = StepCompleted(
-            timestamp=_utc_now(),
-            workflow_id=dispatch.workflow_id,
+            timestamp=utc_now_iso(),
+            entity_id=dispatch.workflow_id,
             step_id=step.step_id,
             step_type=StepType.PROVISION,
             duration_secs=duration,
@@ -456,8 +452,8 @@ class Worker:
             tu = phase_result.token_usage
             await self._event_store.append(
                 TokenUsageRecorded(
-                    timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    timestamp=utc_now_iso(),
+                    entity_id=dispatch.workflow_id,
                     phase=str(dispatch.phase),
                     project=dispatch.project,
                     cli=str(dispatch.cli),
@@ -475,16 +471,16 @@ class Worker:
             )
 
         step_completed_event = StepCompleted(
-            timestamp=_utc_now(),
-            workflow_id=dispatch.workflow_id,
+            timestamp=utc_now_iso(),
+            entity_id=dispatch.workflow_id,
             step_id=step.step_id,
             step_type=StepType.EXECUTE,
             duration_secs=duration,
             result_payload=result,
         )
         phase_completed_event = PhaseCompleted(
-            timestamp=_utc_now(),
-            workflow_id=dispatch.workflow_id,
+            timestamp=utc_now_iso(),
+            entity_id=dispatch.workflow_id,
             phase=str(dispatch.phase),
             project=dispatch.project,
             outcome=str(phase_result.outcome),
@@ -580,8 +576,8 @@ class Worker:
             estimated_cost = (hourly * vm_duration / 3600.0) if hourly else None
             await self._event_store.append(
                 VMReleased(
-                    timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    timestamp=utc_now_iso(),
+                    entity_id=dispatch.workflow_id,
                     vm_id=payload.handle.vm.vm_id,
                     project=dispatch.project,
                     duration_secs=vm_duration,
@@ -591,8 +587,8 @@ class Worker:
 
         await self._event_store.append(
             StepCompleted(
-                timestamp=_utc_now(),
-                workflow_id=dispatch.workflow_id,
+                timestamp=utc_now_iso(),
+                entity_id=dispatch.workflow_id,
                 step_id=step.step_id,
                 step_type=StepType.TEARDOWN,
                 duration_secs=duration,
@@ -628,8 +624,8 @@ class Worker:
         if dispatch_view and dispatch_view.status == DispatchStatus.CANCELLED:
             await self._event_store.append(
                 DispatchCompleted(
-                    timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    timestamp=utc_now_iso(),
+                    entity_id=dispatch.workflow_id,
                     outcome=final_outcome,
                     total_duration_secs=total_duration,
                 )
@@ -637,8 +633,8 @@ class Worker:
         elif final_outcome in (Outcome.ERROR, Outcome.TIMEOUT):
             await self._event_store.append(
                 DispatchFailed(
-                    timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    timestamp=utc_now_iso(),
+                    entity_id=dispatch.workflow_id,
                     failed_step_id=execute_step.step_id if execute_step else step.step_id,
                     failed_step_type=StepType.EXECUTE,
                     error=f"Execution outcome: {final_outcome}",
@@ -652,8 +648,8 @@ class Worker:
         else:
             await self._event_store.append(
                 DispatchCompleted(
-                    timestamp=_utc_now(),
-                    workflow_id=dispatch.workflow_id,
+                    timestamp=utc_now_iso(),
+                    entity_id=dispatch.workflow_id,
                     outcome=final_outcome,
                     total_duration_secs=total_duration,
                 )
@@ -698,8 +694,8 @@ class Worker:
 
         await self._event_store.append(
             StepCompleted(
-                timestamp=_utc_now(),
-                workflow_id=dispatch.workflow_id,
+                timestamp=utc_now_iso(),
+                entity_id=dispatch.workflow_id,
                 step_id=step.step_id,
                 step_type=StepType.DRY_RUN,
                 duration_secs=0,
@@ -722,7 +718,7 @@ class Worker:
         exc: Exception,
     ) -> None:
         """Handle a step failure — retry or mark terminal."""
-        now = _utc_now()
+        now = utc_now_iso()
         error_msg = str(exc)
 
         # Classify error for retry decision
@@ -748,7 +744,7 @@ class Worker:
             await self._event_store.append(
                 StepFailed(
                     timestamp=now,
-                    workflow_id=step.dispatch_id,
+                    entity_id=step.dispatch_id,
                     step_id=step.step_id,
                     step_type=step.step_type,
                     error=error_msg,
@@ -760,7 +756,7 @@ class Worker:
             await self._event_store.append(
                 ErrorOccurred(
                     timestamp=now,
-                    workflow_id=step.dispatch_id,
+                    entity_id=step.dispatch_id,
                     phase=str(step.step_type),
                     error=error_msg,
                     error_class=str(error_class.value),
@@ -914,8 +910,8 @@ class Worker:
         """Mark a dispatch as terminally failed."""
         await self._event_store.append(
             DispatchFailed(
-                timestamp=_utc_now(),
-                workflow_id=dispatch_id,
+                timestamp=utc_now_iso(),
+                entity_id=dispatch_id,
                 outcome=outcome,
                 failed_step_id=failed_step_id,
                 failed_step_type=failed_step_type,
@@ -1013,7 +1009,7 @@ class Worker:
             teardown_commands=teardown_commands,
             profile_name=profile_name,
             dispatch_id=dispatch_id,
-            provision_timestamp=_utc_now(),
+            provision_timestamp=utc_now_iso(),
             agent_user=agent_user,
             docker_config=docker_config,
             task_env=task_env,

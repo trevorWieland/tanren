@@ -33,13 +33,7 @@ from tanren_api.models import (
     VMReleaseConfirmed,
     VMSummary,
 )
-from tanren_core.dispatch_resolver import (
-    resolve_agent_tool,
-    resolve_cloud_secrets,
-    resolve_profile,
-    resolve_project_env,
-    resolve_required_secrets,
-)
+from tanren_core.dispatch_builder import resolve_dispatch_inputs, resolve_provision_inputs
 from tanren_core.schemas import AuthMode, Cli, Phase
 from tanren_core.worker_config import WorkerConfig
 
@@ -53,6 +47,7 @@ if TYPE_CHECKING:
         RunService,
         VMService,
     )
+    from tanren_core.config_resolver import ConfigResolver
 
 mcp = FastMCP("tanren")
 
@@ -77,6 +72,8 @@ class _MCPServiceRegistry:
 
 _registry: _MCPServiceRegistry | None = None
 _worker_config: WorkerConfig | None = None
+_resolver: ConfigResolver | None = None
+_auth_store_ref: object | None = None
 
 
 def set_services(
@@ -108,6 +105,75 @@ def _svc() -> _MCPServiceRegistry:
     return _registry
 
 
+def set_auth_store(store: object) -> None:
+    """Wire the auth store for resource limit checks in MCP tools."""
+    global _auth_store_ref
+    _auth_store_ref = store
+
+
+async def _check_mcp_resource_limits(action: str) -> None:
+    """Check resource limits for MCP tool calls using the authenticated key.
+
+    Reads the actual authenticated key's limits from the MCP auth context,
+    rather than looking up an arbitrary key for the user.
+    No-op if auth store not wired or no auth context available.
+    """
+    from tanren_api.mcp_auth import mcp_auth_context_var
+
+    auth = mcp_auth_context_var.get()
+    if auth is None:
+        return
+    store = _auth_store_ref
+    if store is None:
+        return
+    from tanren_core.store.auth_protocols import AuthStore
+
+    assert isinstance(store, AuthStore)
+    from tanren_api.limits import check_resource_limits
+
+    await check_resource_limits(auth, store, action)
+
+
+def _mcp_quota_lock():  # noqa: ANN202 — returns AsyncContextManager
+    """Return an async context manager for per-user quota serialization.
+
+    Falls back to a no-op context manager if the store doesn't support
+    quota locking (e.g., in tests with mocked stores).
+    """
+    from contextlib import asynccontextmanager
+
+    from tanren_api.mcp_auth import mcp_auth_context_var
+
+    auth = mcp_auth_context_var.get()
+    store = _auth_store_ref
+    if auth is not None and store is not None:
+        from tanren_core.store.repository import Store
+
+        if isinstance(store, Store):
+            return store.user_quota_lock(auth.user.user_id)
+
+    @asynccontextmanager
+    async def _noop():  # noqa: ANN202, RUF029 — async context manager requires async def
+        yield
+
+    return _noop()
+
+
+def _mcp_ownership() -> tuple[str, bool]:
+    """Return (user_id, is_admin) from the MCP auth context.
+
+    Returns:
+        Tuple of (user_id, is_admin).
+    """
+    from tanren_api.mcp_auth import mcp_auth_context_var
+    from tanren_api.scopes import has_scope
+
+    auth = mcp_auth_context_var.get()
+    if auth is None:
+        return ("", False)
+    return (auth.user.user_id, has_scope(auth.scopes, "admin:*"))
+
+
 def set_worker_config(config: WorkerConfig) -> None:
     """Wire the WorkerConfig for dispatch resolution."""
     global _worker_config
@@ -121,6 +187,21 @@ def _config() -> WorkerConfig:
             "WorkerConfig not wired — ensure WM_* env vars are set in the API environment"
         )
     return _worker_config
+
+
+def set_config_resolver(resolver: ConfigResolver) -> None:
+    """Wire the ConfigResolver for dispatch/provision resolution."""
+    global _resolver
+    _resolver = resolver
+
+
+def _get_resolver() -> ConfigResolver:
+    """Get the config resolver. Raises if not wired during lifespan."""
+    if _resolver is None:
+        raise RuntimeError(
+            "ConfigResolver not wired — ensure set_config_resolver() is called during lifespan"
+        )
+    return _resolver
 
 
 # ---------------------------------------------------------------------------
@@ -195,40 +276,42 @@ async def dispatch_create(
     """
     from tanren_api.models import DispatchRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
-
-    # Auto-resolve cli/auth from roles.yml when not provided
-    resolved_cli = cli
-    resolved_auth = auth
-    resolved_model = model
-    if resolved_cli is None:
-        tool = resolve_agent_tool(config, phase)
-        resolved_cli = tool.cli
-        resolved_auth = resolved_auth or tool.auth
-        resolved_model = resolved_model or tool.model
-    if resolved_auth is None:
-        resolved_auth = AuthMode.API_KEY
-
+    resolved = await resolve_dispatch_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        phase=phase,
+        branch=branch,
+        environment_profile=environment_profile,
+        cli=cli,
+        auth=auth,
+        model=model,
+        gate_cmd=gate_cmd,
+    )
     body = DispatchRequest(
         project=project,
         phase=phase,
         branch=branch,
         spec_folder=spec_folder,
-        cli=resolved_cli,
-        auth=resolved_auth,
-        model=resolved_model,
+        cli=resolved.cli,
+        auth=resolved.auth,
+        model=resolved.model,
         timeout=timeout,
         context=context,
-        gate_cmd=gate_cmd,
+        gate_cmd=resolved.gate_cmd,
         issue=issue,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
-    return await _svc().dispatch.create(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    user_id = mcp_user_id_var.get()
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("dispatch")
+        return await _svc().dispatch.create(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -244,7 +327,8 @@ async def dispatch_get_status(dispatch_id: str) -> DispatchDetail:
     Returns:
         DispatchDetail with full dispatch state including timestamps.
     """
-    return await _svc().dispatch.get(dispatch_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().dispatch.get(dispatch_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -259,7 +343,8 @@ async def dispatch_cancel(dispatch_id: str) -> DispatchCancelled:
     Returns:
         DispatchCancelled with dispatch_id and status.
     """
-    return await _svc().dispatch.cancel(dispatch_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().dispatch.cancel(dispatch_id, user_id=user_id, is_admin=is_admin)
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +364,8 @@ async def vm_list() -> list[VMSummary]:
     Returns:
         List of VMSummary records for each active VM assignment.
     """
-    return await _svc().vm.list_vms()
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().vm.list_vms(user_id=None if is_admin else user_id)
 
 
 @mcp.tool(
@@ -301,18 +387,28 @@ async def vm_provision(
     """
     from tanren_api.models import ProvisionRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
+    resolved = await resolve_provision_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+    )
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
-    return await _svc().vm.provision(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    user_id = mcp_user_id_var.get()
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("vm_provision")
+        return await _svc().vm.provision(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -327,7 +423,8 @@ async def vm_provision_status(env_id: str) -> VMProvisionStatus:
     Returns:
         VMProvisionStatus with current status, vm_id, and host.
     """
-    return await _svc().vm.get_provision_status(env_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().vm.get_provision_status(env_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -339,7 +436,8 @@ async def vm_release(vm_id: str) -> VMReleaseConfirmed:
     Returns:
         VMReleaseConfirmed with vm_id and status.
     """
-    return await _svc().vm.release(vm_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().vm.release(vm_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -360,18 +458,27 @@ async def vm_dry_run(
     """
     from tanren_api.models import ProvisionRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
+    resolved = await resolve_provision_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+    )
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
-    return await _svc().vm.dry_run(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("vm_provision")
+        return await _svc().vm.dry_run(body, user_id=mcp_user_id_var.get())
 
 
 # ---------------------------------------------------------------------------
@@ -406,18 +513,28 @@ async def run_provision(
     """
     from tanren_api.models import ProvisionRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
+    resolved = await resolve_provision_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        branch=branch,
+        environment_profile=environment_profile,
+    )
     body = ProvisionRequest(
         project=project,
         branch=branch,
         environment_profile=environment_profile,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
-    return await _svc().run.provision(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    user_id = mcp_user_id_var.get()
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("dispatch")
+        return await _svc().run.provision(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -459,7 +576,8 @@ async def run_execute(
         context=context,
         gate_cmd=gate_cmd,
     )
-    return await _svc().run.execute(env_id, body)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().run.execute(env_id, body, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -475,7 +593,8 @@ async def run_teardown(env_id: str) -> RunTeardownAccepted:
     Returns:
         RunTeardownAccepted with env_id and status.
     """
-    return await _svc().run.teardown(env_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().run.teardown(env_id, user_id=user_id, is_admin=is_admin)
 
 
 @mcp.tool(
@@ -508,39 +627,40 @@ async def run_full(
     """
     from tanren_api.models import RunFullRequest
 
-    config = _config()
-    profile = resolve_profile(config, project, environment_profile)
-
-    # Auto-resolve cli/auth/model from roles.yml when not provided
-    resolved_cli = cli
-    resolved_auth = auth
-    resolved_model: str | None = None
-    if resolved_cli is None:
-        tool = resolve_agent_tool(config, phase)
-        resolved_cli = tool.cli
-        resolved_auth = resolved_auth or tool.auth
-        resolved_model = tool.model
-    if resolved_auth is None:
-        resolved_auth = AuthMode.API_KEY
-
+    resolved = await resolve_dispatch_inputs(
+        resolver=_get_resolver(),
+        config=_config(),
+        project=project,
+        phase=phase,
+        branch=branch,
+        environment_profile=environment_profile,
+        cli=cli,
+        auth=auth,
+        gate_cmd=gate_cmd,
+    )
     body = RunFullRequest(
         project=project,
         branch=branch,
         spec_path=spec_path,
         phase=phase,
-        cli=resolved_cli,
-        auth=resolved_auth,
-        model=resolved_model,
+        cli=resolved.cli,
+        auth=resolved.auth,
+        model=resolved.model,
         environment_profile=environment_profile,
         timeout=timeout,
         context=context,
-        gate_cmd=gate_cmd,
-        resolved_profile=profile,
-        project_env=resolve_project_env(config, project),
-        cloud_secrets=await resolve_cloud_secrets(config, project),
-        required_secrets=resolve_required_secrets(profile),
+        gate_cmd=resolved.gate_cmd,
+        resolved_profile=resolved.profile,
+        project_env=resolved.project_env,
+        cloud_secrets=resolved.cloud_secrets,
+        required_secrets=resolved.required_secrets,
     )
-    return await _svc().run.full(body)
+    from tanren_api.mcp_auth import mcp_user_id_var
+
+    user_id = mcp_user_id_var.get()
+    async with _mcp_quota_lock():
+        await _check_mcp_resource_limits("dispatch")
+        return await _svc().run.full(body, user_id=user_id)
 
 
 @mcp.tool(
@@ -556,7 +676,8 @@ async def run_status(env_id: str) -> RunStatus:
     Returns:
         RunStatus with env_id, status, phase, outcome, and duration.
     """
-    return await _svc().run.status(env_id)
+    user_id, is_admin = _mcp_ownership()
+    return await _svc().run.status(env_id, user_id=user_id, is_admin=is_admin)
 
 
 # ---------------------------------------------------------------------------
@@ -593,20 +714,37 @@ async def config_get() -> ConfigResponse:
 )
 async def events_query(
     workflow_id: str | None = None,
+    entity_type: str | None = None,
     event_type: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> PaginatedEvents:
-    """Query events.
+    """Query events (scoped to caller's own dispatches unless admin).
 
     Returns:
         PaginatedEvents with events list, total count, and pagination info.
     """
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
+
+    # DB-level ownership filter for non-admin users (matches REST /events)
+    user_id, is_admin = _mcp_ownership()
+    owner_user_id: str | None = None
+    owner_key_id: str | None = None
+    if not is_admin and user_id:
+        owner_user_id = user_id
+        from tanren_api.mcp_auth import mcp_auth_context_var
+
+        auth_ctx = mcp_auth_context_var.get()
+        if auth_ctx is not None:
+            owner_key_id = auth_ctx.key.key_id
+
     return await _svc().events.query(
         workflow_id=workflow_id,
+        entity_type=entity_type,
         event_type=event_type,
+        owner_user_id=owner_user_id,
+        owner_key_id=owner_key_id,
         limit=limit,
         offset=offset,
     )
@@ -653,6 +791,11 @@ async def metrics_costs(
     Returns:
         MetricsCostsResponse with cost buckets.
     """
+    valid_groups = {"model", "day", "workflow"}
+    if group_by not in valid_groups:
+        from tanren_api.errors import ValidationError
+
+        raise ValidationError(f"group_by must be one of {sorted(valid_groups)}, got '{group_by}'")
     return await _svc().metrics.costs(since=since, until=until, project=project, group_by=group_by)
 
 

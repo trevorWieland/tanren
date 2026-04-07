@@ -156,7 +156,7 @@ class MetricsService:
             elif group_by == "day":
                 key = str(payload.get("timestamp", ""))[:10]
             else:
-                key = str(payload.get("workflow_id", "unknown"))
+                key = str(payload.get("entity_id", payload.get("workflow_id", "unknown")))
 
             cost = _safe_float(payload.get("total_cost", 0))
             tokens = _safe_int(payload.get("total_tokens", 0))
