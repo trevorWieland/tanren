@@ -18,6 +18,9 @@ workflow, operations, and roadmap material.
 - `hld-migration-map.md` - source-to-destination mapping for the retired HLD.
 - `worker-README.md` - worker architecture and operations reference.
 - `ADAPTERS.md` - adapter architecture, decomposition, and extension points.
+- `rewrite/README.md` - clean-room rewrite planning docs (motivations, HLD, roadmap, principles).
+  Includes container/execution-system planning and Rust stack recommendations.
+  Also includes proposed crate/workspace orchestration guidance.
 
 ## Source of Truth Policy
 
