@@ -21,3 +21,7 @@ remote.yml
 
 # Alembic check creates a temp SQLite DB
 packages/tanren-core/tanren.db
+
+# Rust build artifacts
+/target/
+lcov.info

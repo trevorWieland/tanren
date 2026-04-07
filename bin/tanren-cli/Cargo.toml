@@ -1,0 +1,15 @@
+[package]
+name = "tanren-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Tanren CLI — clap-based command-line interface for local operation"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]

@@ -1,0 +1,15 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        cargo fmt --check
+    clippy:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        cargo clippy --workspace --all-targets --quiet -- -D warnings
+    taplo:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        RUST_LOG=error taplo fmt --check Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml

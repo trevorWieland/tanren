@@ -1,0 +1,15 @@
+[package]
+name = "tanren-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Event-sourced persistence — event log, projections, migrations, and repository APIs"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]

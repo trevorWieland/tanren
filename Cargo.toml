@@ -1,0 +1,139 @@
+[workspace]
+members = [
+  "bin/tanrend",
+  "bin/tanren-api",
+  "bin/tanren-cli",
+  "bin/tanren-mcp",
+  "bin/tanren-tui",
+  "crates/tanren-domain",
+  "crates/tanren-contract",
+  "crates/tanren-policy",
+  "crates/tanren-store",
+  "crates/tanren-planner",
+  "crates/tanren-scheduler",
+  "crates/tanren-runtime",
+  "crates/tanren-runtime-local",
+  "crates/tanren-runtime-docker",
+  "crates/tanren-runtime-remote",
+  "crates/tanren-harness-claude",
+  "crates/tanren-harness-codex",
+  "crates/tanren-harness-opencode",
+  "crates/tanren-orchestrator",
+  "crates/tanren-observability",
+  "crates/tanren-app-services",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trevorWieland/tanren"
+
+# ============================================================================
+# WORKSPACE LINTS — the quality gate
+# ============================================================================
+# All crates inherit these via `[lints] workspace = true` in their Cargo.toml.
+# To relax a lint for a specific crate, add it to that crate's [lints.clippy]
+# section — never use inline #[allow()] or #[expect()].
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+# Strict lint groups
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Strict individual lints
+unwrap_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+unimplemented = "deny"
+
+# Inline suppression prohibition
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+# Pedantic overrides (too noisy for practical use)
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+# ============================================================================
+# WORKSPACE DEPENDENCIES — centralized version pinning
+# ============================================================================
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "signal",
+  "sync",
+  "time",
+  "io-util",
+] }
+
+# Web framework
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Database
+sqlx = { version = "0.8", features = [
+  "runtime-tokio",
+  "sqlite",
+  "postgres",
+  "chrono",
+  "uuid",
+] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# IDs
+uuid = { version = "1", features = ["v7", "serde"] }
+
+# Secrets
+secrecy = "0.10"
+
+# Testing (dev)
+insta = { version = "1", features = ["yaml"] }
+proptest = "1"
+wiremock = "0.6"

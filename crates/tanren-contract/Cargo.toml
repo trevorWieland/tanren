@@ -1,0 +1,15 @@
+[package]
+name = "tanren-contract"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "External contract representation — API/CLI/MCP/TUI schema generation and versioning"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
