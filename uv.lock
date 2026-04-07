@@ -1920,7 +1920,7 @@ wheels = [
 
 [[package]]
 name = "tanren-api"
-version = "0.2.11"
+version = "0.2.12"
 source = { editable = "services/tanren-api" }
 dependencies = [
     { name = "fastapi" },
@@ -1956,7 +1956,7 @@ provides-extras = ["hetzner", "gcp", "all"]
 
 [[package]]
 name = "tanren-cli"
-version = "0.2.11"
+version = "0.2.12"
 source = { editable = "services/tanren-cli" }
 dependencies = [
     { name = "tanren-core" },
@@ -1971,7 +1971,7 @@ requires-dist = [
 
 [[package]]
 name = "tanren-core"
-version = "0.2.11"
+version = "0.2.12"
 source = { editable = "packages/tanren-core" }
 dependencies = [
     { name = "aiosqlite" },
@@ -2039,7 +2039,7 @@ provides-extras = ["gcp", "github", "hetzner", "linear", "docker", "all"]
 
 [[package]]
 name = "tanren-daemon"
-version = "0.2.11"
+version = "0.2.12"
 source = { editable = "services/tanren-daemon" }
 dependencies = [
     { name = "tanren-core" },
@@ -2067,7 +2067,7 @@ provides-extras = ["hetzner", "gcp", "all"]
 
 [[package]]
 name = "tanren-workspace"
-version = "0.2.11"
+version = "0.2.12"
 source = { virtual = "." }
 
 [package.optional-dependencies]
