@@ -34,6 +34,13 @@ pub enum DomainError {
     },
 
     /// The budget limit has been exceeded.
+    ///
+    /// The `f64` fields here are intentionally not wrapped in
+    /// [`crate::validated::FiniteF64`] — `DomainError` does **not**
+    /// derive `Serialize` and never crosses the `SeaORM` JSON boundary.
+    /// Errors are mapped to transport representations by downstream
+    /// crates, so the "finite-only persisted floats" contract does not
+    /// apply here.
     #[error("budget exceeded: limit={limit}, current={current}")]
     BudgetExceeded { limit: f64, current: f64 },
 

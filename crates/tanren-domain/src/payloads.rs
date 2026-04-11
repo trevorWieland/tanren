@@ -49,7 +49,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::status::{AuthMode, Cli, Outcome, Phase};
-use crate::validated::{NonEmptyString, TimeoutSecs};
+use crate::validated::{FiniteF64, NonEmptyString, TimeoutSecs};
 
 // ---------------------------------------------------------------------------
 // ConfigEnv — command-only, value-bearing, redacted Debug
@@ -308,7 +308,7 @@ pub struct ExecuteResult {
     pub signal: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
-    pub duration_secs: f64,
+    pub duration_secs: FiniteF64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate_output: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -333,9 +333,9 @@ pub struct ExecuteResult {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TeardownResult {
     pub vm_released: bool,
-    pub duration_secs: f64,
+    pub duration_secs: FiniteF64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub estimated_cost: Option<f64>,
+    pub estimated_cost: Option<FiniteF64>,
 }
 
 /// Result of a dry-run step.
@@ -343,7 +343,7 @@ pub struct TeardownResult {
 pub struct DryRunResult {
     pub provider: String,
     pub server_type: String,
-    pub estimated_cost_hourly: f64,
+    pub estimated_cost_hourly: FiniteF64,
     pub would_provision: bool,
 }
 
@@ -426,5 +426,62 @@ mod tests {
             let json = serde_json::to_string(&severity).expect("serialize");
             assert_eq!(json, format!("\"{tag}\""));
         }
+    }
+
+    #[test]
+    fn execute_result_rejects_non_finite_duration() {
+        // A caller trying to build an ExecuteResult with a non-finite
+        // duration must go through FiniteF64::try_new and see an
+        // explicit error instead of silent `null` serialization.
+        assert!(FiniteF64::try_new(f64::NAN).is_err());
+        assert!(FiniteF64::try_new(f64::INFINITY).is_err());
+
+        // The valid-construction path still works.
+        let result = ExecuteResult {
+            outcome: Outcome::Success,
+            signal: None,
+            exit_code: Some(0),
+            duration_secs: FiniteF64::try_new(1.5).expect("finite"),
+            gate_output: None,
+            tail_output: None,
+            stderr_tail: None,
+            pushed: false,
+            plan_hash: None,
+            unchecked_tasks: 0,
+            spec_modified: false,
+            findings: vec![],
+            token_usage: None,
+        };
+        let json = serde_json::to_string(&result).expect("serialize");
+        let back: ExecuteResult = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(result, back);
+
+        // And round-trips through the SeaORM Value path too.
+        let value = serde_json::to_value(&result).expect("to_value");
+        let from_value: ExecuteResult = serde_json::from_value(value).expect("from_value");
+        assert_eq!(result, from_value);
+    }
+
+    #[test]
+    fn teardown_result_option_cost_accepts_none_and_finite() {
+        // None is allowed.
+        let none = TeardownResult {
+            vm_released: true,
+            duration_secs: FiniteF64::try_new(2.0).expect("finite"),
+            estimated_cost: None,
+        };
+        let json = serde_json::to_string(&none).expect("serialize");
+        let back: TeardownResult = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(none, back);
+
+        // Some(finite) round-trips through both paths.
+        let some = TeardownResult {
+            vm_released: true,
+            duration_secs: FiniteF64::try_new(2.0).expect("finite"),
+            estimated_cost: Some(FiniteF64::try_new(0.12).expect("finite")),
+        };
+        let value = serde_json::to_value(some).expect("to_value");
+        let from_value: TeardownResult = serde_json::from_value(value).expect("from_value");
+        assert_eq!(some, from_value);
     }
 }

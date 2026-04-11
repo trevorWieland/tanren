@@ -14,7 +14,7 @@ use tanren_domain::policy::{
     PolicyDecisionKind, PolicyDecisionRecord, PolicyOutcome, PolicyResourceRef, PolicyScope,
 };
 use tanren_domain::status::{AuthMode, Cli, DispatchMode, Lane, Outcome, Phase, StepType};
-use tanren_domain::validated::{NonEmptyString, TimeoutSecs};
+use tanren_domain::validated::{FiniteF64, NonEmptyString, TimeoutSecs};
 
 /// Fixed timestamp for deterministic snapshots.
 fn ts() -> chrono::DateTime<Utc> {
@@ -55,6 +55,10 @@ fn nes(s: &str) -> NonEmptyString {
     NonEmptyString::try_new(s).expect("valid non-empty string")
 }
 
+fn finite(v: f64) -> FiniteF64 {
+    FiniteF64::try_new(v).expect("finite literal")
+}
+
 fn sample_snapshot() -> Box<DispatchSnapshot> {
     Box::new(DispatchSnapshot {
         project: nes("acme"),
@@ -89,9 +93,17 @@ macro_rules! snapshot_event {
 
             insta::assert_snapshot!(json);
 
-            // Verify round-trip.
+            // Verify round-trip through the string path.
             let back: EventEnvelope = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(envelope, back);
+
+            // Certify the SeaORM JsonBinary path: to_value -> from_value.
+            // Every DomainEvent variant must survive this round-trip
+            // because it is the exact code path SeaORM uses for a
+            // JsonBinary column.
+            let value = serde_json::to_value(&envelope).expect("to_value");
+            let from_value: EventEnvelope = serde_json::from_value(value).expect("from_value");
+            assert_eq!(envelope, from_value);
         }
     };
 }
@@ -118,7 +130,7 @@ snapshot_event!(
     DomainEvent::DispatchCompleted {
         dispatch_id: did(),
         outcome: Outcome::Success,
-        total_duration_secs: 120.5,
+        total_duration_secs: finite(120.5),
     }
 );
 
@@ -180,12 +192,12 @@ snapshot_event!(
         dispatch_id: did(),
         step_id: sid(),
         step_type: StepType::Execute,
-        duration_secs: 45.2,
+        duration_secs: finite(45.2),
         result_payload: Box::new(StepResult::Execute(Box::new(ExecuteResult {
             outcome: Outcome::Success,
             signal: None,
             exit_code: Some(0),
-            duration_secs: 45.2,
+            duration_secs: finite(45.2),
             gate_output: None,
             tail_output: Some("All tasks completed".into()),
             stderr_tail: None,
@@ -213,7 +225,7 @@ snapshot_event!(
         error: "timeout after 3600s".into(),
         error_class: ErrorClass::Transient,
         retry_count: 1,
-        duration_secs: 3600.0,
+        duration_secs: finite(3600.0),
     }
 );
 
@@ -302,7 +314,7 @@ snapshot_event!(
     DomainEvent::LeaseReleased {
         lease_id: lid(),
         dispatch_id: did(),
-        duration_secs: 300.0,
+        duration_secs: finite(300.0),
         caused_by: None,
     }
 );
@@ -353,3 +365,10 @@ fn dispatch_id_accessor_returns_correlated_id_for_every_variant() {
     };
     assert_eq!(lease_event.dispatch_id(), did());
 }
+
+// NOTE: the named per-category regression tests for the SeaORM
+// `JsonBinary` round-trip live in `tests/event_value_roundtrip.rs` to
+// keep this file under the 500-line cap. The macro expansion above
+// already asserts the same `to_value` → `from_value` contract for
+// every variant — the external file is a belt-and-suspenders diagnostic
+// that surfaces failures with a category-scoped test name.

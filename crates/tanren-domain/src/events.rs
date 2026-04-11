@@ -80,6 +80,7 @@ use crate::ids::{DispatchId, EventId, LeaseId, StepId};
 use crate::payloads::{DispatchSnapshot, StepResult};
 use crate::policy::PolicyDecisionRecord;
 use crate::status::{DispatchMode, Lane, Outcome, StepType};
+use crate::validated::FiniteF64;
 
 /// The current event schema version.
 ///
@@ -253,7 +254,7 @@ pub enum DomainEvent {
     DispatchCompleted {
         dispatch_id: DispatchId,
         outcome: Outcome,
-        total_duration_secs: f64,
+        total_duration_secs: FiniteF64,
     },
     DispatchFailed {
         dispatch_id: DispatchId,
@@ -294,7 +295,7 @@ pub enum DomainEvent {
         dispatch_id: DispatchId,
         step_id: StepId,
         step_type: StepType,
-        duration_secs: f64,
+        duration_secs: FiniteF64,
         result_payload: Box<StepResult>,
     },
     StepFailed {
@@ -304,7 +305,7 @@ pub enum DomainEvent {
         error: String,
         error_class: ErrorClass,
         retry_count: u32,
-        duration_secs: f64,
+        duration_secs: FiniteF64,
     },
     StepCancelled {
         dispatch_id: DispatchId,
@@ -357,7 +358,7 @@ pub enum DomainEvent {
     LeaseReleased {
         lease_id: LeaseId,
         dispatch_id: DispatchId,
-        duration_secs: f64,
+        duration_secs: FiniteF64,
         /// Actor that initiated the release, if any. `None` when release
         /// follows automatic drain or post-failure cleanup.
         #[serde(default, skip_serializing_if = "Option::is_none")]

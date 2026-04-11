@@ -61,5 +61,5 @@ pub use self::status::{
     AuthMode, Cli, DispatchMode, DispatchStatus, Lane, LeaseStatus, Outcome, Phase, StepReadyState,
     StepStatus, StepType, cli_to_lane,
 };
-pub use self::validated::{NonEmptyString, TimeoutSecs};
+pub use self::validated::{FiniteF64, NonEmptyString, TimeoutSecs};
 pub use self::views::{DispatchView, EventQueryResult, StepView};
