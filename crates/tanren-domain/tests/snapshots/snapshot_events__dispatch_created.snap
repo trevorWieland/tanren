@@ -1,0 +1,37 @@
+---
+source: crates/tanren-domain/tests/snapshot_events.rs
+expression: json
+---
+{
+  "schema_version": 1,
+  "event_id": "01966a00-0000-7000-8000-000000000001",
+  "timestamp": "2025-06-15T12:00:00Z",
+  "entity_ref": {
+    "type": "dispatch",
+    "id": "01966a00-0000-7000-8000-000000000001"
+  },
+  "payload": {
+    "event_type": "dispatch_created",
+    "dispatch_id": "01966a00-0000-7000-8000-000000000001",
+    "dispatch": {
+      "project": "acme",
+      "phase": "do_task",
+      "cli": "claude",
+      "auth_mode": "api_key",
+      "branch": "main",
+      "spec_folder": "specs/",
+      "workflow_id": "wf-acme-42-1718452800",
+      "timeout": 3600,
+      "environment_profile": "default",
+      "preserve_on_failure": false,
+      "created_at": "2025-06-15T12:00:00Z"
+    },
+    "mode": "auto",
+    "lane": "impl",
+    "actor": {
+      "org_id": "01966a00-0000-7000-8000-000000000001",
+      "user_id": "01966a00-0000-7000-8000-000000000001"
+    },
+    "graph_revision": 1
+  }
+}

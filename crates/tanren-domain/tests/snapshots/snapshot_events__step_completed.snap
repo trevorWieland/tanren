@@ -1,0 +1,37 @@
+---
+source: crates/tanren-domain/tests/snapshot_events.rs
+expression: json
+---
+{
+  "schema_version": 1,
+  "event_id": "01966a00-0000-7000-8000-000000000001",
+  "timestamp": "2025-06-15T12:00:00Z",
+  "entity_ref": {
+    "type": "dispatch",
+    "id": "01966a00-0000-7000-8000-000000000001"
+  },
+  "payload": {
+    "event_type": "step_completed",
+    "dispatch_id": "01966a00-0000-7000-8000-000000000001",
+    "step_id": "01966a00-0000-7000-8000-000000000001",
+    "step_type": "execute",
+    "duration_secs": 45.2,
+    "result_payload": {
+      "type": "execute",
+      "outcome": "success",
+      "exit_code": 0,
+      "duration_secs": 45.2,
+      "tail_output": "All tasks completed",
+      "pushed": true,
+      "plan_hash": "abc123",
+      "unchecked_tasks": 0,
+      "spec_modified": false,
+      "token_usage": {
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "cache_read_tokens": 200,
+        "cache_write_tokens": 100
+      }
+    }
+  }
+}

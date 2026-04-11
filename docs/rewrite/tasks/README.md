@@ -50,10 +50,17 @@ All of the following must be true:
 
 Integration happens when both lanes merge: the CLI binary connects to the real store.
 
-## Future Phases (briefs not yet written)
+## Future Phases
+
+Stubs below carry forward requirements from earlier audits so the
+follow-up work is not lost. Full briefs will be fleshed out at the
+start of each phase.
 
 - **Phase 1**: Runtime substrate (harness traits, environment leases, worker)
+  - [LANE-1.1-HARNESS.md](LANE-1.1-HARNESS.md) — harness contract + output redaction requirement
+  - [LANE-1.2-RUNTIME.md](LANE-1.2-RUNTIME.md) — runtime substrate + `runtime_type` typing decision
 - **Phase 2**: Planner-native orchestration (task graphs, scheduler, replanning)
+  - [LANE-2.1-PLANNING-GRAPH.md](LANE-2.1-PLANNING-GRAPH.md) — graph revision enforcement + non-dispatch events
 - **Phase 3**: Policy and governance (auth, budgets, placement)
 - **Phase 4**: Interface parity (API, MCP, TUI)
 - **Phase 5**: Scale and observability

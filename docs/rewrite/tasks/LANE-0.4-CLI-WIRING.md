@@ -136,6 +136,26 @@ impl<S: EventStore + JobQueue + StateStore> Orchestrator<S> {
 
 Use domain guard functions (`check_execute_guards`, etc.) from `tanren-domain`.
 
+#### Terminal-event emission rule (carried from Lane 0.2 audit)
+
+The domain schema allows two ways to reach a "dispatch finished
+unsuccessfully" state: `DispatchFailed{outcome: Outcome::Error}` or
+`DispatchCompleted{outcome: Outcome::Fail}`. The Python system had this
+exact duplication and it created projection bugs where different
+consumers counted failures differently.
+
+**Orchestrator rule:**
+
+- `DispatchCompleted` is emitted **only** for `Outcome::Success`.
+- All non-success terminations (`Fail`, `Blocked`, `Error`, `Timeout`)
+  go through `DispatchFailed`.
+- `DispatchCancelled` covers user-initiated cancellation and is not
+  mixed with `DispatchFailed`.
+
+This rule must be enforced in the orchestrator — the domain model
+permits both paths by design (so projections can reconstruct legacy
+state) but production emission is single-path.
+
 ### 4. App-Services Layer (`crates/tanren-app-services`)
 
 Thin adapter between orchestrator (domain types) and interfaces (contract types):

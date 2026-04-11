@@ -11,161 +11,218 @@ view types, and payloads.
 
 **Can run in parallel with:** Lane 0.4 (contract + CLI wiring).
 
+> **Add-on applied:** this brief has been updated to use **SeaORM** in place
+> of raw `sqlx`. See `ADDON-SEAORM.md` for rationale. The trait shape, guard
+> semantics, transactional contracts, and test coverage requirements are
+> unchanged — only the persistence mechanism differs.
+
 ## Crate
 
 `crates/tanren-store/src/lib.rs` and submodules.
 
 ## Design Constraints
 
-- **`sqlx` with compile-time checked queries** where feasible
-- **Support both `SQLite` (local/dev) and Postgres (team/enterprise)**
+- **SeaORM** as the persistence layer (pulls `sqlx` in transitively)
+- **Support both `SQLite` (local/dev) and Postgres (team/enterprise)** via one
+  `DatabaseConnection` handle
 - **Async throughout** — all store operations are async (tokio runtime)
 - **Transactional guarantees** — event append + projection update must be atomic
 - **No domain logic** — the store persists and queries, it doesn't decide
-- **Migration framework** integrated into startup and CI
+- **Migration framework** integrated into startup and CI, backend-agnostic
 
 ## Deliverables
 
-### 1. Database Engine (`engine.rs`)
+### 1. Connection (`connection.rs`)
 
-- `create_pool(url: &str) -> Result<sqlx::AnyPool>` — connect to SQLite or Postgres
-  based on URL scheme
-- Connection pool configuration (max connections, idle timeout, etc.)
-- Startup migration runner (apply pending migrations before accepting queries)
-
-### 2. Migrations (`migrations/`)
-
-Use sqlx's built-in migration system. Initial migration creates:
-
-**`events` table** (append-only log):
-```sql
-CREATE TABLE events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,  -- BIGSERIAL for Postgres
-    event_id    TEXT NOT NULL UNIQUE,
-    timestamp   TEXT NOT NULL,
-    entity_id   TEXT NOT NULL,
-    entity_type TEXT NOT NULL DEFAULT 'dispatch',
-    event_type  TEXT NOT NULL,
-    payload     TEXT NOT NULL,  -- JSONB for Postgres
-    -- Indexes
-);
-CREATE INDEX idx_events_entity_id ON events(entity_id);
-CREATE INDEX idx_events_entity_type ON events(entity_type);
-CREATE INDEX idx_events_event_type ON events(event_type);
-CREATE INDEX idx_events_timestamp ON events(timestamp);
+```rust
+pub async fn connect(url: &str) -> Result<DatabaseConnection, DbErr>;
 ```
 
-**`dispatch_projection` table**:
-```sql
-CREATE TABLE dispatch_projection (
-    dispatch_id         TEXT PRIMARY KEY,
-    mode                TEXT NOT NULL,
-    status              TEXT NOT NULL DEFAULT 'pending',
-    outcome             TEXT,
-    lane                TEXT NOT NULL,
-    preserve_on_failure INTEGER NOT NULL DEFAULT 0,  -- BOOLEAN for Postgres
-    dispatch_json       TEXT NOT NULL,                -- JSONB for Postgres
-    user_id             TEXT NOT NULL DEFAULT '',
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
-);
-CREATE INDEX idx_dispatch_status ON dispatch_projection(status);
-CREATE INDEX idx_dispatch_lane ON dispatch_projection(lane);
-CREATE INDEX idx_dispatch_created ON dispatch_projection(created_at);
-CREATE INDEX idx_dispatch_user ON dispatch_projection(user_id);
+`DatabaseConnection` is the single handle threaded through `EventStore`,
+`JobQueue`, and `StateStore`. Accepts `sqlite://…` and `postgres://…` URL
+schemes. Connection pool configuration (max connections, idle timeout,
+etc.) is expressed through SeaORM's `ConnectOptions`. Startup migration
+runner applies pending migrations before accepting queries.
+
+### 2. Migrations (`migration/` module)
+
+Each migration is a `MigrationTrait` impl using `SchemaManager`. The
+`json_binary()` column type is the key piece: emits `TEXT` on SQLite and
+`JSONB` on Postgres from a single definition.
+
+Example for the `events` table:
+
+```rust
+manager
+    .create_table(
+        Table::create()
+            .table(Events::Table)
+            .col(ColumnDef::new(Events::Id).big_integer().not_null().auto_increment().primary_key())
+            .col(ColumnDef::new(Events::EventId).uuid().not_null().unique_key())
+            .col(ColumnDef::new(Events::Timestamp).timestamp_with_time_zone().not_null())
+            .col(ColumnDef::new(Events::EntityKind).string().not_null())
+            .col(ColumnDef::new(Events::EntityId).string().not_null())
+            .col(ColumnDef::new(Events::EventType).string().not_null())
+            .col(ColumnDef::new(Events::SchemaVersion).integer().not_null())
+            .col(ColumnDef::new(Events::Payload).json_binary().not_null())
+            .to_owned(),
+    )
+    .await?;
 ```
 
-**`step_projection` table**:
-```sql
-CREATE TABLE step_projection (
-    step_id         TEXT PRIMARY KEY,
-    dispatch_id     TEXT NOT NULL REFERENCES dispatch_projection(dispatch_id),
-    step_type       TEXT NOT NULL,
-    step_sequence   INTEGER NOT NULL,
-    lane            TEXT,
-    status          TEXT NOT NULL DEFAULT 'pending',
-    worker_id       TEXT,
-    payload_json    TEXT NOT NULL,   -- JSONB for Postgres
-    result_json     TEXT,            -- JSONB for Postgres
-    error           TEXT,
-    retry_count     INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
-);
-CREATE INDEX idx_step_dispatch ON step_projection(dispatch_id);
-CREATE INDEX idx_step_status ON step_projection(status);
-CREATE INDEX idx_step_lane_status ON step_projection(lane, status);
+Repeat the pattern for `dispatch_projection` and `step_projection`.
+Required indexes:
+
+- `events`: entity_id, entity_kind, event_type, timestamp
+- `dispatch_projection`: status, lane, created_at, user_id
+- `step_projection`: dispatch_id, status, (lane, status) composite
+
+**Note:** User/ApiKey projection tables will be added in Phase 3 (policy
+lane) — leave as stubs for now, don't implement the read/write paths yet.
+
+### 3. Entity models (`entity/` module)
+
+One file per table — `events.rs`, `dispatch_projection.rs`,
+`step_projection.rs`, `mod.rs`. Each file defines a SeaORM `DeriveEntityModel`:
+
+```rust
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[sea_orm(table_name = "events")]
+pub struct Model {
+    #[sea_orm(primary_key, auto_increment = true)]
+    pub id: i64,
+    #[sea_orm(unique)]
+    pub event_id: Uuid,
+    pub timestamp: DateTimeUtc,
+    pub entity_kind: String,
+    pub entity_id: String,
+    pub event_type: String,
+    pub schema_version: i32,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub payload: serde_json::Value,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
 ```
 
-**Note:** User/ApiKey projection tables will be added in Phase 3 (policy lane).
-For now, include them as empty stubs in migration comments if helpful, but don't
-implement the read/write paths yet.
+Domain types (`EventEnvelope`, `DispatchView`, `StepView`) stay in
+`tanren-domain`. The store maps between entity `Model`s and domain types
+via `From`/`TryFrom` impls in `converters.rs`.
 
-### 3. Event Store (`event_store.rs`)
-
-Trait + implementation:
+### 4. Event Store (`event_store.rs`)
 
 ```rust
 #[async_trait]
 pub trait EventStore: Send + Sync {
-    /// Append an event to the log. Must be transactional with any
-    /// projection updates that happen in the same logical operation.
     async fn append(&self, event: &EventEnvelope) -> Result<()>;
-
-    /// Append multiple events atomically.
     async fn append_batch(&self, events: &[EventEnvelope]) -> Result<()>;
-
-    /// Query events with filters and pagination.
     async fn query_events(&self, filter: &EventFilter) -> Result<EventQueryResult>;
 }
 ```
 
-`EventFilter` fields: entity_id, entity_ids (Vec), entity_type, event_type,
+`EventFilter` fields: entity_id, entity_ids (Vec), entity_kind, event_type,
 since (DateTime), until (DateTime), limit, offset.
 
-Implementation: `SqlEventStore` backed by `sqlx::AnyPool`.
+Implementation uses the SeaORM entity API:
 
-### 4. Job Queue (`job_queue.rs`)
+```rust
+async fn append(&self, envelope: &EventEnvelope) -> Result<(), StoreError> {
+    let model: events::ActiveModel = envelope.try_into()?;
+    model.insert(&self.conn).await?;
+    Ok(())
+}
 
-Trait + implementation:
+async fn query_events(&self, filter: &EventFilter) -> Result<EventQueryResult, StoreError> {
+    let mut q = events::Entity::find();
+    if let Some(ref entity_id) = filter.entity_id {
+        q = q.filter(events::Column::EntityId.eq(entity_id.as_str()));
+    }
+    // ...
+    let rows = q.limit(filter.limit).offset(filter.offset).all(&self.conn).await?;
+    // map Model → EventEnvelope via converters.rs
+}
+```
+
+### 5. Job Queue (`job_queue.rs`)
+
+Trait unchanged:
 
 ```rust
 #[async_trait]
 pub trait JobQueue: Send + Sync {
-    /// Enqueue a step. Appends StepEnqueued event atomically.
     async fn enqueue_step(&self, params: EnqueueStepParams) -> Result<()>;
-
-    /// Atomically claim a pending step for a worker.
-    /// Returns None if no work available or lane at capacity.
     async fn dequeue(&self, params: DequeueParams) -> Result<Option<QueuedStep>>;
-
-    /// Mark step completed and store result.
     async fn ack(&self, step_id: &StepId, result_json: &str) -> Result<()>;
-
-    /// Atomically ack current step and enqueue next step.
-    /// Used for auto-chaining (provision → execute → teardown).
     async fn ack_and_enqueue(&self, params: AckAndEnqueueParams) -> Result<()>;
-
-    /// Cancel all pending (non-teardown) steps for a dispatch.
     async fn cancel_pending_steps(&self, dispatch_id: &DispatchId) -> Result<u64>;
-
-    /// Mark step failed. If retry=true, increment retry_count and reset to pending.
     async fn nack(&self, step_id: &StepId, params: NackParams) -> Result<()>;
-
-    /// Reset stale running steps back to pending (crash recovery).
     async fn recover_stale_steps(&self, timeout_secs: u64) -> Result<u64>;
 }
 ```
 
+Every method uses the entity API **except `dequeue`** — SeaORM does not
+abstract `SELECT … FOR UPDATE SKIP LOCKED` vs SQLite's single-writer
+locking model, so the claim path branches on the backend:
+
+```rust
+async fn dequeue(&self, params: DequeueParams) -> Result<Option<QueuedStep>, StoreError> {
+    match self.conn.get_database_backend() {
+        DbBackend::Postgres => {
+            let stmt = Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                r#"
+                UPDATE step_projection
+                SET status = 'running', worker_id = $1, updated_at = NOW()
+                WHERE step_id = (
+                    SELECT step_id FROM step_projection
+                    WHERE status = 'pending' AND ($2::text IS NULL OR lane = $2)
+                    ORDER BY created_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                )
+                RETURNING ...
+                "#,
+                vec![params.worker_id.into(), params.lane.map(|l| l.to_string()).into()],
+            );
+            // execute + map
+        }
+        DbBackend::Sqlite => {
+            // Serializable transaction + busy_timeout. Document the
+            // concurrency trade-off (single-writer on SQLite is fine).
+        }
+        DbBackend::MySql => unreachable!("MySQL is not a supported backend"),
+    }
+}
+```
+
+Every other method uses the entity API normally. `dequeue` is the only
+place where backend-specific raw SQL remains.
+
 Critical: `dequeue` must be atomic — check `count(status='running' AND lane=X) < max_concurrent`
 and claim in a single transaction to prevent TOCTOU races.
 
-Critical: `ack_and_enqueue` must be a single transaction — ack the current step,
-enqueue the next, and optionally append completion events, all atomically.
+Critical: `ack_and_enqueue` must be a single transaction — ack the
+current step, enqueue the next, and optionally append completion events,
+all atomically. Uses `conn.transaction`:
 
-### 5. State Store (`state_store.rs`)
+```rust
+self.conn
+    .transaction::<_, (), StoreError>(|txn| Box::pin(async move {
+        // ack current step (update step_projection row)
+        // append completion events (insert into events)
+        // insert next step_projection row
+        // append StepEnqueued event
+        Ok(())
+    }))
+    .await?;
+```
 
-Trait + implementation:
+Single transaction, backend-agnostic.
+
+### 6. State Store (`state_store.rs`)
 
 ```rust
 #[async_trait]
@@ -180,19 +237,17 @@ pub trait StateStore: Send + Sync {
 }
 ```
 
-### 6. Unified Store (`store.rs`)
-
-A single `Store` struct that implements all three traits, backed by one connection pool:
+### 7. Unified Store (`store.rs`)
 
 ```rust
 pub struct Store {
-    pool: sqlx::AnyPool,
+    conn: DatabaseConnection,
 }
 
 impl Store {
     pub async fn new(database_url: &str) -> Result<Self>;
     pub async fn run_migrations(&self) -> Result<()>;
-    pub async fn close(&self) -> Result<()>;
+    pub async fn close(self) -> Result<()>;
 }
 
 impl EventStore for Store { ... }
@@ -200,29 +255,51 @@ impl JobQueue for Store { ... }
 impl StateStore for Store { ... }
 ```
 
-### 7. Converters (`converters.rs`)
+### 8. Converters (`converters.rs`)
 
-Map between database rows and domain view types:
-- `row_to_dispatch_view(row) -> DispatchView`
-- `row_to_step_view(row) -> StepView`
-- `row_to_event_envelope(row) -> EventEnvelope`
+Map between SeaORM entity `Model`s and domain view types via `From` /
+`TryFrom` impls:
+- `events::Model` ↔ `EventEnvelope`
+- `dispatch_projection::Model` → `DispatchView`
+- `step_projection::Model` → `StepView`
+
+Fallible direction uses `TryFrom` so malformed JSON payloads surface as
+`StoreError::ConversionError` rather than panicking.
 
 ## Testing
 
-- **Unit tests** with in-memory SQLite for all trait methods
-- **Integration tests** with Postgres (gated behind `postgres` feature/marker)
-- **Concurrency tests**: spawn multiple dequeue tasks, verify no double-claims
-- **Transaction tests**: verify ack_and_enqueue is atomic (simulate crash mid-op)
-- **Migration tests**: apply migrations to fresh DB, verify schema matches expectations
+| Layer | Backend | Tool |
+|-------|---------|------|
+| Unit (converters, entity mapping) | none | `sea_orm::MockDatabase` |
+| Integration — SQLite | in-memory | `sea_orm::Database::connect("sqlite::memory:")` |
+| Integration — Postgres | real | `testcontainers-modules::postgres::Postgres` |
+| Concurrency (dequeue race) | Postgres | testcontainers — SQLite can't exercise `SKIP LOCKED` |
+
+Gate the Postgres integration tests behind a cargo feature
+(`postgres-integration`) or a nextest filter so they only run in CI / on
+demand, not on every local `just test`.
+
+Additional test coverage:
+
+- **Concurrency tests**: spawn multiple dequeue tasks against Postgres,
+  verify no double-claims
+- **Transaction tests**: verify `ack_and_enqueue` is atomic (simulate
+  crash mid-op)
+- **Migration tests**: apply migrations to fresh SQLite and fresh
+  Postgres, verify schema matches expectations on both
 - **Round-trip tests**: append events → query events → verify identical
 
 ## Exit Criteria
 
-- `cargo test -p tanren-store` passes with SQLite backend
-- All three trait implementations (EventStore, JobQueue, StateStore) are complete
-- Migrations apply cleanly to fresh SQLite database
-- Dequeue is race-safe under concurrent access
-- ack_and_enqueue is fully atomic
+- `cargo test -p tanren-store` passes against SQLite backend
+- `cargo nextest run -p tanren-store --features postgres-integration`
+  passes against a testcontainers-managed Postgres
+- All three trait implementations (EventStore, JobQueue, StateStore) are
+  complete
+- Migrations apply cleanly to fresh SQLite **and** fresh Postgres
+- Dequeue is race-safe under concurrent access on Postgres; documented
+  as single-writer on SQLite
+- `ack_and_enqueue` is fully atomic on both backends
 - `cargo clippy -p tanren-store` clean with workspace lints
 - No `unwrap()`, `todo!()`, `panic!()` in any code path
 
@@ -236,7 +313,9 @@ Python store implementation for conceptual reference:
 - `packages/tanren-core/src/tanren_core/store/converters.py` — row → view mappers
 
 Key differences from Python:
-- Use sqlx compile-time checked queries, not SQLAlchemy ORM
-- Use `sqlx::AnyPool` for SQLite/Postgres polymorphism
-- Dequeue must use proper transaction isolation (Python had TOCTOU bugs that were fixed)
-- Store migrations via sqlx's built-in system, not Alembic
+- Use SeaORM entity models, not SQLAlchemy ORM
+- Use `DatabaseConnection` for SQLite/Postgres polymorphism (sqlx is
+  pulled in transitively through SeaORM)
+- Dequeue must use proper transaction isolation (Python had TOCTOU bugs
+  that were fixed) — Postgres path uses `FOR UPDATE SKIP LOCKED`
+- Migrations via SeaORM's `MigrationTrait`, not Alembic
