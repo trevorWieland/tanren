@@ -68,6 +68,43 @@ jobs:
         run: cargo nextest run --workspace --profile ci --no-tests=pass
 
   # ============================================================
+  # Integration — Postgres
+  # ============================================================
+  # Runs tanren-store's Postgres integration suite against a service
+  # container. Local `just test` uses testcontainers and hits the same
+  # code path via TANREN_TEST_POSTGRES_URL.
+  integration-postgres:
+    name: Integration (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: tanren
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run Postgres integration tests
+        env:
+          TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
+        run: cargo nextest run -p tanren-store --features postgres-integration
+
+  # ============================================================
   # Coverage (Linux only)
   # ============================================================
   coverage:

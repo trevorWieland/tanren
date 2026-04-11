@@ -108,14 +108,28 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# Database
-sqlx = { version = "0.8", features = [
-  "runtime-tokio",
-  "sqlite",
-  "postgres",
-  "chrono",
-  "uuid",
+# Database — SeaORM replaces raw sqlx to get transparent JSON dialect
+# handling (TEXT on SQLite, JSONB on Postgres), backend-agnostic migrations,
+# and type-level query checking that works through DatabaseConnection.
+# sqlx is pulled in transitively via SeaORM's feature flags.
+sea-orm = { version = "1.1", features = [
+  "runtime-tokio-rustls",
+  "sqlx-sqlite",
+  "sqlx-postgres",
+  "with-chrono",
+  "with-uuid",
+  "with-json",
+  "macros",
 ] }
+sea-orm-migration = { version = "1.1", features = [
+  "runtime-tokio-rustls",
+  "sqlx-sqlite",
+  "sqlx-postgres",
+] }
+
+# Integration test containers (Postgres)
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
