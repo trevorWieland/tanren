@@ -7,7 +7,20 @@ feature-depth = 1
 
 # Security advisories — deny known vulnerabilities
 [advisories]
-ignore = []
+ignore = [
+  # RUSTSEC-2025-0111: `tokio-tar` PAX extended header handling bug
+  # (CVE-2025-62518). Pulled in transitively by `testcontainers`,
+  # which `tanren-store` uses only as a dev-dependency for the
+  # Postgres integration test suite. It is never present in any
+  # production binary. Upstream has no fix; the suggested replacement
+  # (`astral-tokio-tar`) has not yet been adopted by testcontainers.
+  "RUSTSEC-2025-0111",
+  # RUSTSEC-2025-0134: `rustls-pemfile` is unmaintained. Pulled in
+  # transitively through SeaORM's rustls feature flags. The crate
+  # still functions correctly; this is an unmaintained notice, not
+  # a vulnerability. Remove when SeaORM upgrades to a successor.
+  "RUSTSEC-2025-0134",
+]
 
 # License policy — permissive licenses only
 [licenses]
@@ -24,6 +37,10 @@ allow = [
   "BSL-1.0",
   "CC0-1.0",
   "OpenSSL",
+  # Used by `webpki-roots`, pulled in transitively through SeaORM's
+  # rustls-tls feature flags. CDLA-Permissive-2.0 is a permissive
+  # data-sharing license comparable to MIT/Apache in intent.
+  "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 exceptions = []

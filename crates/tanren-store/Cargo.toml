@@ -7,9 +7,32 @@ license.workspace = true
 publish = false
 description = "Event-sourced persistence — event log, projections, migrations, and repository APIs"
 
+[features]
+default = []
+# Enables the Postgres-backed integration test suite. Gated so the default
+# `cargo nextest run -p tanren-store` path stays SQLite-only and does not
+# require a running Postgres instance.
+postgres-integration = []
+
 [lints]
 workspace = true
 
 [dependencies]
+tanren-domain = { version = "0.1", path = "../tanren-domain" }
+
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+
+serde_json = { workspace = true }
+
+thiserror = { workspace = true }
+
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+async-trait = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
