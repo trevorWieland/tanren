@@ -32,7 +32,6 @@ expression: json
         "cache_read_tokens": 200,
         "cache_write_tokens": 100
       }
-    },
-    "timestamp": "2025-06-15T12:00:00Z"
+    }
   }
 }

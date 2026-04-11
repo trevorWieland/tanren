@@ -14,7 +14,6 @@ expression: json
     "event_type": "lease_released",
     "lease_id": "01966a00-0000-7000-8000-000000000001",
     "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-    "duration_secs": 300.0,
-    "timestamp": "2025-06-15T12:00:00Z"
+    "duration_secs": 300.0
   }
 }

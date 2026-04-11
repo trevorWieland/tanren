@@ -24,6 +24,7 @@ pub mod commands;
 pub mod entity;
 pub mod errors;
 pub mod events;
+pub mod graph;
 pub mod guards;
 pub mod ids;
 pub mod payloads;
@@ -43,6 +44,7 @@ pub use self::errors::{DomainError, ErrorClass, TRANSIENT_BACKOFF, classify_erro
 pub use self::events::{
     DomainEvent, EnvelopeDecodeError, EventEnvelope, RawEventEnvelope, SCHEMA_VERSION,
 };
+pub use self::graph::GraphRevision;
 pub use self::guards::{check_execute_guards, check_teardown_guards};
 pub use self::ids::{
     ApiKeyId, DispatchId, EventId, LeaseId, OrgId, ProjectId, StepId, TeamId, UserId,

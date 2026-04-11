@@ -18,7 +18,6 @@ expression: json
     "error": "timeout after 3600s",
     "error_class": "transient",
     "retry_count": 1,
-    "duration_secs": 3600.0,
-    "timestamp": "2025-06-15T12:00:00Z"
+    "duration_secs": 3600.0
   }
 }

@@ -14,6 +14,28 @@
 //!   Runtime-specific handle data lives in runtime-local storage, keyed
 //!   by the handle id, and never crosses the domain boundary.
 //!
+//! # Output redaction contract
+//!
+//! [`ExecuteResult::tail_output`], [`ExecuteResult::stderr_tail`], and
+//! [`ExecuteResult::gate_output`] are free-form strings captured from
+//! the harness. The domain layer stores them verbatim — once serialized
+//! into a `StepCompleted` event and persisted to the event log, any
+//! secret they contain is effectively unrecoverable.
+//!
+//! **Harness adapters are responsible for redacting known secret
+//! patterns before producing an `ExecuteResult`.** This includes:
+//!
+//! 1. API keys, bearer tokens, cookies, and session identifiers
+//! 2. Values of environment variables listed in `required_secrets`
+//!    on the dispatch snapshot
+//! 3. Contents of files matching known credential path patterns
+//!    (`~/.aws/credentials`, `~/.config/gcloud/*`, etc.)
+//!
+//! The domain crate cannot enforce this contract — it has no harness
+//! context — so Phase 1 harness adapters MUST implement redaction at
+//! the capture site. See `docs/rewrite/tasks/LANE-1.1-HARNESS.md` for
+//! the adapter-side requirement.
+//!
 //! # Boxing
 //!
 //! Variants of [`StepPayload`] and [`StepResult`] are boxed because
@@ -391,5 +413,18 @@ mod tests {
         };
         let json = serde_json::to_string(&handle).expect("serialize");
         assert!(!json.contains("runtime_data"));
+    }
+
+    #[test]
+    fn finding_severity_display_matches_serde() {
+        for (severity, tag) in [
+            (FindingSeverity::Fix, "fix"),
+            (FindingSeverity::Note, "note"),
+            (FindingSeverity::Question, "question"),
+        ] {
+            assert_eq!(severity.to_string(), tag);
+            let json = serde_json::to_string(&severity).expect("serialize");
+            assert_eq!(json, format!("\"{tag}\""));
+        }
     }
 }

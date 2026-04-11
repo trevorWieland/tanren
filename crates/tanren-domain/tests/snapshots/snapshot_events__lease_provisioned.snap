@@ -14,7 +14,6 @@ expression: json
     "event_type": "lease_provisioned",
     "lease_id": "01966a00-0000-7000-8000-000000000001",
     "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-    "runtime_type": "docker",
-    "timestamp": "2025-06-15T12:00:00Z"
+    "runtime_type": "docker"
   }
 }

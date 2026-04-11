@@ -119,4 +119,31 @@ mod tests {
             assert!(!StepStatus::Cancelled.can_transition_to(target));
         }
     }
+
+    #[test]
+    fn step_status_display_matches_serde() {
+        for (status, tag) in [
+            (StepStatus::Pending, "pending"),
+            (StepStatus::Running, "running"),
+            (StepStatus::Completed, "completed"),
+            (StepStatus::Failed, "failed"),
+            (StepStatus::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(status.to_string(), tag);
+            let json = serde_json::to_string(&status).expect("serialize");
+            assert_eq!(json, format!("\"{tag}\""));
+        }
+    }
+
+    #[test]
+    fn step_ready_state_display_matches_serde() {
+        for (state, tag) in [
+            (StepReadyState::Blocked, "blocked"),
+            (StepReadyState::Ready, "ready"),
+        ] {
+            assert_eq!(state.to_string(), tag);
+            let json = serde_json::to_string(&state).expect("serialize");
+            assert_eq!(json, format!("\"{tag}\""));
+        }
+    }
 }

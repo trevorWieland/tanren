@@ -7,6 +7,66 @@
 //! inspect the schema version before decoding (or preserve unknown
 //! variants for later replay), decode into [`RawEventEnvelope`] first
 //! and then call [`RawEventEnvelope::try_decode`].
+//!
+//! # Single source of truth for timestamps
+//!
+//! Timestamps live on the [`EventEnvelope`], **not** inside individual
+//! [`DomainEvent`] variants. Every event's occurrence time is
+//! `envelope.timestamp`. This collapses the former duplication between
+//! `envelope.timestamp` and per-variant `timestamp` fields and
+//! eliminates a class of "which timestamp do I trust?" projection bugs.
+//! Duration fields like `duration_secs` on `StepCompleted` remain on
+//! the payload because they're measurements, not occurrence times.
+//!
+//! # Schema versioning policy
+//!
+//! [`SCHEMA_VERSION`] is a single monotonically-increasing counter.
+//! Consumers MUST reject envelopes whose `schema_version` is greater
+//! than their compiled constant and should treat equal or lower
+//! versions as decodable (subject to unknown-variant handling).
+//!
+//! ## Changes that do NOT require a version bump
+//!
+//! - Adding a new optional field to an existing variant, as long as it
+//!   is marked `#[serde(default)]` and `#[serde(skip_serializing_if = ...)]`.
+//! - Adding a new event variant (old readers will fail typed decode for
+//!   the new variant and can fall back to [`RawEventEnvelope`] — this is
+//!   a *runtime* incompatibility, not a schema bump, so new variants
+//!   must be introduced behind a feature-flagged roll-out).
+//! - Adding a new value to a `#[serde(other)]`-equipped enum (none
+//!   today, but the option is reserved for future enums).
+//! - Reordering struct fields (the wire format is key/value based).
+//!
+//! ## Changes that REQUIRE a version bump
+//!
+//! - Renaming a field on any existing variant.
+//! - Changing a field's type (e.g. `String` → `NonEmptyString`).
+//! - Removing a variant, even one never emitted in production.
+//! - Removing a field, even `#[serde(skip_serializing_if = ...)]`.
+//! - Changing a `#[serde(tag)]` or `#[serde(rename)]` on any variant
+//!   (this breaks existing on-disk tags).
+//! - Changing the discriminant name on `DomainEvent` (currently
+//!   `event_type`) or on any child tagged enum.
+//! - Changing the meaning of an existing field (semantic break).
+//!
+//! ## Migration path on a version bump
+//!
+//! When [`SCHEMA_VERSION`] is bumped:
+//!
+//! 1. Introduce a migration function in this crate that takes a
+//!    `RawEventEnvelope` at the previous version and returns one at
+//!    the current version, or an explicit migration error.
+//! 2. `RawEventEnvelope::try_decode` must be updated to invoke the
+//!    migration before attempting typed decode when the version is
+//!    strictly less than [`SCHEMA_VERSION`].
+//! 3. Store crates replay through the migration on read so projections
+//!    always see events at the current schema version.
+//! 4. The previous version's on-disk format must remain readable for
+//!    at least one major release after the bump.
+//!
+//! Until the first bump, [`SCHEMA_VERSION`] stays at `1` and the only
+//! compatibility concern is legacy records written before the field
+//! existed (handled by the `default_schema_version` serde default).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -15,6 +75,7 @@ use crate::actor::ActorContext;
 use crate::commands::LeaseCapabilities;
 use crate::entity::EntityRef;
 use crate::errors::ErrorClass;
+use crate::graph::GraphRevision;
 use crate::ids::{DispatchId, EventId, LeaseId, StepId};
 use crate::payloads::{DispatchSnapshot, StepResult};
 use crate::policy::PolicyDecisionRecord;
@@ -22,10 +83,10 @@ use crate::status::{DispatchMode, Lane, Outcome, StepType};
 
 /// The current event schema version.
 ///
-/// Bump when any [`DomainEvent`] variant changes shape in a way that
-/// older readers cannot silently ignore. Consumers that see a
-/// `schema_version` greater than [`SCHEMA_VERSION`] should refuse to
-/// decode and upgrade instead.
+/// See the module-level docs for the rubric that determines when this
+/// constant must be bumped. Consumers that observe a raw envelope with
+/// a version greater than their compiled `SCHEMA_VERSION` must refuse
+/// to decode and upgrade the library instead.
 pub const SCHEMA_VERSION: u32 = 1;
 
 const fn default_schema_version() -> u32 {
@@ -33,6 +94,9 @@ const fn default_schema_version() -> u32 {
 }
 
 /// Fully typed envelope wrapping every domain event.
+///
+/// `timestamp` is the sole source of occurrence time — no payload
+/// variant carries its own timestamp field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventEnvelope {
     /// Schema version — defaults to [`SCHEMA_VERSION`] on deserialization
@@ -40,6 +104,8 @@ pub struct EventEnvelope {
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
     pub event_id: EventId,
+    /// Occurrence time of the event. This is the single source of
+    /// truth; payload variants do not carry their own timestamp.
     pub timestamp: DateTime<Utc>,
     /// Typed reference to the root entity this event is about. For all
     /// current variants this is [`EntityRef::Dispatch`]; future
@@ -51,16 +117,15 @@ pub struct EventEnvelope {
 
 impl EventEnvelope {
     /// Construct an envelope with the current [`SCHEMA_VERSION`], deriving
-    /// `entity_ref` from the payload.
+    /// `entity_ref` from the payload's root entity.
     ///
-    /// All current [`DomainEvent`] variants are dispatch-scoped, so the
-    /// envelope root is always [`EntityRef::Dispatch`] keyed to
-    /// `payload.dispatch_id()`. This constructor is the only way to
-    /// produce a canonical envelope without risking a mismatch between
-    /// `entity_ref` and the payload.
+    /// This is the only public constructor that guarantees the envelope
+    /// root cannot disagree with the payload. Callers building envelopes
+    /// via direct struct literals (tests or migration tooling) should
+    /// use [`Self::expected_entity_ref`] to verify consistency.
     #[must_use]
     pub fn new(event_id: EventId, timestamp: DateTime<Utc>, payload: DomainEvent) -> Self {
-        let entity_ref = EntityRef::Dispatch(payload.dispatch_id());
+        let entity_ref = payload.entity_root();
         Self {
             schema_version: SCHEMA_VERSION,
             event_id,
@@ -72,12 +137,11 @@ impl EventEnvelope {
 
     /// Expected `entity_ref` for a given [`DomainEvent`] payload.
     ///
-    /// Callers that construct envelopes via direct struct literals (for
-    /// tests or migration tooling) can use this to verify the routing
-    /// root matches the payload.
+    /// Delegates to [`DomainEvent::entity_root`] so the authoritative
+    /// routing rule lives next to the payload variants themselves.
     #[must_use]
     pub fn expected_entity_ref(payload: &DomainEvent) -> EntityRef {
-        EntityRef::Dispatch(payload.dispatch_id())
+        payload.entity_root()
     }
 }
 
@@ -110,8 +174,6 @@ impl RawEventEnvelope {
     ///   payload so callers can log or retry).
     /// - [`EnvelopeDecodeError::EntityMismatch`] if the envelope's
     ///   `entity_ref` does not match the root derived from the payload.
-    ///   This prevents a self-contradictory record where routing code
-    ///   trusts `entity_ref` but projections trust `payload.dispatch_id()`.
     pub fn try_decode(self) -> Result<EventEnvelope, EnvelopeDecodeError> {
         if self.schema_version > SCHEMA_VERSION {
             return Err(EnvelopeDecodeError::UnsupportedVersion {
@@ -127,8 +189,6 @@ impl RawEventEnvelope {
                 }
             })?;
 
-        // Validate that the envelope root matches the payload. The only
-        // valid root today is the dispatch the event correlates to.
         let expected = EventEnvelope::expected_entity_ref(&payload);
         if self.entity_ref != expected {
             return Err(EnvelopeDecodeError::EntityMismatch {
@@ -172,6 +232,9 @@ pub enum EnvelopeDecodeError {
 }
 
 /// All domain events produced by the orchestration engine.
+///
+/// No variant carries its own `timestamp` field — the envelope is the
+/// single source of truth for occurrence time.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event_type", rename_all = "snake_case")]
 pub enum DomainEvent {
@@ -182,18 +245,15 @@ pub enum DomainEvent {
         mode: DispatchMode,
         lane: Lane,
         actor: ActorContext,
-        graph_revision: u32,
-        timestamp: DateTime<Utc>,
+        graph_revision: GraphRevision,
     },
     DispatchStarted {
         dispatch_id: DispatchId,
-        timestamp: DateTime<Utc>,
     },
     DispatchCompleted {
         dispatch_id: DispatchId,
         outcome: Outcome,
         total_duration_secs: f64,
-        timestamp: DateTime<Utc>,
     },
     DispatchFailed {
         dispatch_id: DispatchId,
@@ -201,14 +261,12 @@ pub enum DomainEvent {
         failed_step_id: Option<StepId>,
         failed_step_type: Option<StepType>,
         error: String,
-        timestamp: DateTime<Utc>,
     },
     DispatchCancelled {
         dispatch_id: DispatchId,
         /// Actor that initiated the cancellation.
         actor: ActorContext,
         reason: Option<String>,
-        timestamp: DateTime<Utc>,
     },
 
     // -- Step lifecycle ----------------------------------------------------
@@ -219,21 +277,18 @@ pub enum DomainEvent {
         step_sequence: u32,
         lane: Option<Lane>,
         depends_on: Vec<StepId>,
-        graph_revision: u32,
-        timestamp: DateTime<Utc>,
+        graph_revision: GraphRevision,
     },
     StepDequeued {
         dispatch_id: DispatchId,
         step_id: StepId,
         worker_id: String,
-        timestamp: DateTime<Utc>,
     },
     StepStarted {
         dispatch_id: DispatchId,
         step_id: StepId,
         worker_id: String,
         step_type: StepType,
-        timestamp: DateTime<Utc>,
     },
     StepCompleted {
         dispatch_id: DispatchId,
@@ -241,7 +296,6 @@ pub enum DomainEvent {
         step_type: StepType,
         duration_secs: f64,
         result_payload: Box<StepResult>,
-        timestamp: DateTime<Utc>,
     },
     StepFailed {
         dispatch_id: DispatchId,
@@ -251,7 +305,6 @@ pub enum DomainEvent {
         error_class: ErrorClass,
         retry_count: u32,
         duration_secs: f64,
-        timestamp: DateTime<Utc>,
     },
     StepCancelled {
         dispatch_id: DispatchId,
@@ -262,7 +315,6 @@ pub enum DomainEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         caused_by: Option<ActorContext>,
         reason: Option<String>,
-        timestamp: DateTime<Utc>,
     },
 
     // -- Lease lifecycle ---------------------------------------------------
@@ -274,29 +326,24 @@ pub enum DomainEvent {
         dispatch_id: DispatchId,
         step_id: StepId,
         capabilities: Box<LeaseCapabilities>,
-        timestamp: DateTime<Utc>,
     },
     LeaseProvisioned {
         lease_id: LeaseId,
         dispatch_id: DispatchId,
         runtime_type: String,
-        timestamp: DateTime<Utc>,
     },
     LeaseReady {
         lease_id: LeaseId,
         dispatch_id: DispatchId,
-        timestamp: DateTime<Utc>,
     },
     LeaseRunning {
         lease_id: LeaseId,
         dispatch_id: DispatchId,
         step_id: StepId,
-        timestamp: DateTime<Utc>,
     },
     LeaseIdle {
         lease_id: LeaseId,
         dispatch_id: DispatchId,
-        timestamp: DateTime<Utc>,
     },
     LeaseDraining {
         lease_id: LeaseId,
@@ -306,7 +353,6 @@ pub enum DomainEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         caused_by: Option<ActorContext>,
         reason: Option<String>,
-        timestamp: DateTime<Utc>,
     },
     LeaseReleased {
         lease_id: LeaseId,
@@ -316,25 +362,29 @@ pub enum DomainEvent {
         /// follows automatic drain or post-failure cleanup.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         caused_by: Option<ActorContext>,
-        timestamp: DateTime<Utc>,
     },
     LeaseFailed {
         lease_id: LeaseId,
         dispatch_id: DispatchId,
         error: String,
-        timestamp: DateTime<Utc>,
     },
 
     // -- Policy ------------------------------------------------------------
     PolicyDecision {
         dispatch_id: DispatchId,
         decision: Box<PolicyDecisionRecord>,
-        timestamp: DateTime<Utc>,
     },
 }
 
 impl DomainEvent {
     /// Extract the dispatch ID associated with this event.
+    ///
+    /// TODO(phase-1): when non-dispatch events (e.g. `OrgBudgetExhausted`,
+    /// `TeamQuotaReset`) are introduced, this accessor must either
+    /// become fallible (`Option<DispatchId>`) or be retired in favor of
+    /// [`Self::entity_root`]. Callers that need routing metadata should
+    /// prefer `entity_root()` today — it's already the source of truth
+    /// for `EventEnvelope::expected_entity_ref`.
     #[must_use]
     pub const fn dispatch_id(&self) -> DispatchId {
         match self {
@@ -361,30 +411,15 @@ impl DomainEvent {
         }
     }
 
-    /// Extract the timestamp of this event.
+    /// Return the typed root [`EntityRef`] this event correlates to.
+    ///
+    /// All current variants are dispatch-scoped, so this returns
+    /// `EntityRef::Dispatch(dispatch_id())`. When non-dispatch events
+    /// land in a future phase, each new variant supplies its own root
+    /// (e.g. `EntityRef::Org` for org-level events) without breaking
+    /// envelope construction.
     #[must_use]
-    pub const fn timestamp(&self) -> DateTime<Utc> {
-        match self {
-            Self::DispatchCreated { timestamp, .. }
-            | Self::DispatchStarted { timestamp, .. }
-            | Self::DispatchCompleted { timestamp, .. }
-            | Self::DispatchFailed { timestamp, .. }
-            | Self::DispatchCancelled { timestamp, .. }
-            | Self::StepEnqueued { timestamp, .. }
-            | Self::StepDequeued { timestamp, .. }
-            | Self::StepStarted { timestamp, .. }
-            | Self::StepCompleted { timestamp, .. }
-            | Self::StepFailed { timestamp, .. }
-            | Self::StepCancelled { timestamp, .. }
-            | Self::LeaseRequested { timestamp, .. }
-            | Self::LeaseProvisioned { timestamp, .. }
-            | Self::LeaseReady { timestamp, .. }
-            | Self::LeaseRunning { timestamp, .. }
-            | Self::LeaseIdle { timestamp, .. }
-            | Self::LeaseDraining { timestamp, .. }
-            | Self::LeaseReleased { timestamp, .. }
-            | Self::LeaseFailed { timestamp, .. }
-            | Self::PolicyDecision { timestamp, .. } => *timestamp,
-        }
+    pub const fn entity_root(&self) -> EntityRef {
+        EntityRef::Dispatch(self.dispatch_id())
     }
 }

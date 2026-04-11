@@ -99,6 +99,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
+    use crate::graph::GraphRevision;
     use crate::ids::{DispatchId, StepId};
     use crate::status::StepReadyState;
 
@@ -113,7 +114,7 @@ mod tests {
             status,
             ready_state: StepReadyState::Ready,
             depends_on: Vec::new(),
-            graph_revision: 1,
+            graph_revision: GraphRevision::INITIAL,
             worker_id: None,
             payload: None,
             result: None,

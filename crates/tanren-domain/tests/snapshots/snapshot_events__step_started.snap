@@ -15,7 +15,6 @@ expression: json
     "dispatch_id": "01966a00-0000-7000-8000-000000000001",
     "step_id": "01966a00-0000-7000-8000-000000000001",
     "worker_id": "worker-1",
-    "step_type": "execute",
-    "timestamp": "2025-06-15T12:00:00Z"
+    "step_type": "execute"
   }
 }

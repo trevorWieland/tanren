@@ -94,6 +94,9 @@ impl std::fmt::Display for Phase {
 pub enum Cli {
     Claude,
     Codex,
+    /// Rendered as `"opencode"` (not `"open_code"`) to match the legacy
+    /// Python wire format and the project's canonical spelling.
+    #[serde(rename = "opencode")]
     OpenCode,
     Bash,
 }
@@ -114,6 +117,8 @@ impl std::fmt::Display for Cli {
 #[serde(rename_all = "snake_case")]
 pub enum AuthMode {
     ApiKey,
+    /// Rendered as `"oauth"` (not `"o_auth"`) to match the canonical tag.
+    #[serde(rename = "oauth")]
     OAuth,
     Subscription,
 }
@@ -154,3 +159,79 @@ impl std::fmt::Display for Outcome {
 // EntityType was removed in favor of the typed `EntityRef` / `EntityKind`
 // pair in `crate::entity` — the string-tag version didn't cover steps,
 // leases, orgs, or projects, and kept envelope routing stringly-typed.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Assert that a value's `Display` output round-trips through
+    /// serde as a `snake_case` string tag. This catches drift between
+    /// `Display::fmt` branches and `#[serde(rename_all = "snake_case")]`.
+    fn assert_display_matches_serde<T>(value: T, expected: &str)
+    where
+        T: std::fmt::Display + Serialize,
+    {
+        assert_eq!(value.to_string(), expected);
+        let json = serde_json::to_string(&value).expect("serialize");
+        assert_eq!(json, format!("\"{expected}\""));
+    }
+
+    #[test]
+    fn dispatch_mode_display() {
+        assert_display_matches_serde(DispatchMode::Auto, "auto");
+        assert_display_matches_serde(DispatchMode::Manual, "manual");
+    }
+
+    #[test]
+    fn step_type_display() {
+        assert_display_matches_serde(StepType::Provision, "provision");
+        assert_display_matches_serde(StepType::Execute, "execute");
+        assert_display_matches_serde(StepType::Teardown, "teardown");
+        assert_display_matches_serde(StepType::DryRun, "dry_run");
+    }
+
+    #[test]
+    fn lane_display() {
+        assert_display_matches_serde(Lane::Impl, "impl");
+        assert_display_matches_serde(Lane::Audit, "audit");
+        assert_display_matches_serde(Lane::Gate, "gate");
+    }
+
+    #[test]
+    fn phase_display() {
+        assert_display_matches_serde(Phase::DoTask, "do_task");
+        assert_display_matches_serde(Phase::AuditTask, "audit_task");
+        assert_display_matches_serde(Phase::RunDemo, "run_demo");
+        assert_display_matches_serde(Phase::AuditSpec, "audit_spec");
+        assert_display_matches_serde(Phase::Investigate, "investigate");
+        assert_display_matches_serde(Phase::Gate, "gate");
+        assert_display_matches_serde(Phase::Setup, "setup");
+        assert_display_matches_serde(Phase::Cleanup, "cleanup");
+    }
+
+    #[test]
+    fn cli_display() {
+        assert_display_matches_serde(Cli::Claude, "claude");
+        assert_display_matches_serde(Cli::Codex, "codex");
+        // Must match the canonical tag, not serde's auto-snake_case.
+        assert_display_matches_serde(Cli::OpenCode, "opencode");
+        assert_display_matches_serde(Cli::Bash, "bash");
+    }
+
+    #[test]
+    fn auth_mode_display() {
+        assert_display_matches_serde(AuthMode::ApiKey, "api_key");
+        // Must match the canonical tag, not serde's auto-snake_case.
+        assert_display_matches_serde(AuthMode::OAuth, "oauth");
+        assert_display_matches_serde(AuthMode::Subscription, "subscription");
+    }
+
+    #[test]
+    fn outcome_display() {
+        assert_display_matches_serde(Outcome::Success, "success");
+        assert_display_matches_serde(Outcome::Fail, "fail");
+        assert_display_matches_serde(Outcome::Blocked, "blocked");
+        assert_display_matches_serde(Outcome::Error, "error");
+        assert_display_matches_serde(Outcome::Timeout, "timeout");
+    }
+}

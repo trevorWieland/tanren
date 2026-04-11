@@ -14,7 +14,6 @@ expression: json
     "event_type": "step_dequeued",
     "dispatch_id": "01966a00-0000-7000-8000-000000000001",
     "step_id": "01966a00-0000-7000-8000-000000000001",
-    "worker_id": "worker-1",
-    "timestamp": "2025-06-15T12:00:00Z"
+    "worker_id": "worker-1"
   }
 }

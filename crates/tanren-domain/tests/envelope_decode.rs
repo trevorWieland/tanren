@@ -26,10 +26,7 @@ fn envelope_carries_current_schema_version() {
     let envelope = EventEnvelope::new(
         EventId::from_uuid(fixed_uuid()),
         ts(),
-        DomainEvent::DispatchStarted {
-            dispatch_id: did(),
-            timestamp: ts(),
-        },
+        DomainEvent::DispatchStarted { dispatch_id: did() },
     );
     assert_eq!(envelope.schema_version, SCHEMA_VERSION);
     let json = serde_json::to_string(&envelope).expect("serialize");
@@ -43,12 +40,26 @@ fn envelope_new_derives_entity_ref_from_payload() {
     let envelope = EventEnvelope::new(
         EventId::from_uuid(fixed_uuid()),
         ts(),
-        DomainEvent::DispatchStarted {
-            dispatch_id: did(),
-            timestamp: ts(),
-        },
+        DomainEvent::DispatchStarted { dispatch_id: did() },
     );
     assert_eq!(envelope.entity_ref, EntityRef::Dispatch(did()));
+}
+
+#[test]
+fn envelope_uses_timestamp_as_single_source_of_truth() {
+    // Regression: timestamps live on the envelope only. Payload variants
+    // no longer carry their own timestamp field, so there is no way for
+    // envelope.timestamp and payload.timestamp to disagree.
+    let envelope = EventEnvelope::new(
+        EventId::from_uuid(fixed_uuid()),
+        ts(),
+        DomainEvent::DispatchStarted { dispatch_id: did() },
+    );
+    let json = serde_json::to_string(&envelope).expect("serialize");
+    // `timestamp` appears exactly once in the wire form — on the envelope.
+    let occurrences = json.matches("\"timestamp\"").count();
+    assert_eq!(occurrences, 1, "expected one timestamp, got {json}");
+    assert_eq!(envelope.timestamp, ts());
 }
 
 #[test]
@@ -61,8 +72,7 @@ fn envelope_deserializes_legacy_without_schema_version() {
         "entity_ref": {"type": "dispatch", "id": "01966a00-0000-7000-8000-000000000001"},
         "payload": {
             "event_type": "dispatch_started",
-            "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-            "timestamp": "2025-06-15T12:00:00Z"
+            "dispatch_id": "01966a00-0000-7000-8000-000000000001"
         }
     }"#;
     let envelope: EventEnvelope = serde_json::from_str(legacy).expect("deserialize legacy");
@@ -78,8 +88,7 @@ fn raw_envelope_decode_succeeds_for_valid_payload() {
         "entity_ref": {"type": "dispatch", "id": "01966a00-0000-7000-8000-000000000001"},
         "payload": {
             "event_type": "dispatch_started",
-            "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-            "timestamp": "2025-06-15T12:00:00Z"
+            "dispatch_id": "01966a00-0000-7000-8000-000000000001"
         }
     }"#;
     let raw: RawEventEnvelope = serde_json::from_str(raw_json).expect("raw decode");
@@ -101,8 +110,7 @@ fn raw_envelope_decode_rejects_future_version() {
             "entity_ref": {{"type": "dispatch", "id": "01966a00-0000-7000-8000-000000000001"}},
             "payload": {{
                 "event_type": "dispatch_started",
-                "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-                "timestamp": "2025-06-15T12:00:00Z"
+                "dispatch_id": "01966a00-0000-7000-8000-000000000001"
             }}
         }}"#,
         future = SCHEMA_VERSION + 1
@@ -133,8 +141,7 @@ fn raw_envelope_decode_preserves_unknown_variant_payload() {
         "payload": {
             "event_type": "lease_hibernated",
             "lease_id": "01966a00-0000-7000-8000-000000000001",
-            "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-            "timestamp": "2025-06-15T12:00:00Z"
+            "dispatch_id": "01966a00-0000-7000-8000-000000000001"
         }
     }"#;
     let raw: RawEventEnvelope = serde_json::from_str(unknown_json).expect("raw decode");
@@ -178,8 +185,7 @@ fn raw_envelope_decode_rejects_entity_ref_payload_mismatch() {
         "entity_ref": {"type": "dispatch", "id": "019670ff-ffff-7fff-8fff-ffffffffffff"},
         "payload": {
             "event_type": "dispatch_started",
-            "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-            "timestamp": "2025-06-15T12:00:00Z"
+            "dispatch_id": "01966a00-0000-7000-8000-000000000001"
         }
     }"#;
     let raw: RawEventEnvelope = serde_json::from_str(mismatched_json).expect("raw decode");
@@ -201,8 +207,7 @@ fn raw_envelope_decode_rejects_wrong_entity_kind() {
         "entity_ref": {"type": "lease", "id": "01966a00-0000-7000-8000-000000000001"},
         "payload": {
             "event_type": "dispatch_started",
-            "dispatch_id": "01966a00-0000-7000-8000-000000000001",
-            "timestamp": "2025-06-15T12:00:00Z"
+            "dispatch_id": "01966a00-0000-7000-8000-000000000001"
         }
     }"#;
     let raw: RawEventEnvelope = serde_json::from_str(wrong_kind_json).expect("raw decode");

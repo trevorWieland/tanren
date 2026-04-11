@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::actor::ActorContext;
+use crate::graph::GraphRevision;
 use crate::ids::{DispatchId, LeaseId, StepId};
 use crate::payloads::{ConfigEnv, StepPayload};
 use crate::policy::PolicyScope;
@@ -63,8 +64,9 @@ pub struct EnqueueStep {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<StepId>,
     /// Revision of the dispatch graph this step was enqueued under.
-    /// Incremented by replans so stale enqueues can be detected.
-    pub graph_revision: u32,
+    /// Incremented by replans; an orchestrator rejects commands whose
+    /// revision is stale relative to the current dispatch graph.
+    pub graph_revision: GraphRevision,
     pub payload: StepPayload,
 }
 
@@ -101,6 +103,13 @@ pub struct ReleaseLease {
 /// Capabilities requested for a lease.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaseCapabilities {
+    /// Runtime substrate tag (e.g. `"local"`, `"docker"`, `"dood"`,
+    /// `"remote"`). This is deliberately a string rather than a typed
+    /// enum so third-party runtime adapters can introduce new tags
+    /// without changing the domain crate. TODO(phase-1): re-evaluate
+    /// in `LANE-1.2-RUNTIME.md` once the built-in runtime set is
+    /// stable — a `RuntimeKind::{Local, Docker, DooD, Remote,
+    /// Custom(String)}` enum may be worth the coupling.
     pub runtime_type: NonEmptyString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_limits: Option<ResourceLimits>,

@@ -5,6 +5,7 @@ use tanren_domain::actor::ActorContext;
 use tanren_domain::commands::LeaseCapabilities;
 use tanren_domain::errors::ErrorClass;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
+use tanren_domain::graph::GraphRevision;
 use tanren_domain::ids::{DispatchId, EventId, LeaseId, OrgId, StepId, UserId};
 use tanren_domain::payloads::{
     ConfigKeys, DispatchSnapshot, ExecuteResult, StepResult, TokenUsage,
@@ -103,17 +104,13 @@ snapshot_event!(
         mode: DispatchMode::Auto,
         lane: Lane::Impl,
         actor: actor(),
-        graph_revision: 1,
-        timestamp: ts(),
+        graph_revision: GraphRevision::INITIAL,
     }
 );
 
 snapshot_event!(
     dispatch_started,
-    DomainEvent::DispatchStarted {
-        dispatch_id: did(),
-        timestamp: ts(),
-    }
+    DomainEvent::DispatchStarted { dispatch_id: did() }
 );
 
 snapshot_event!(
@@ -122,7 +119,6 @@ snapshot_event!(
         dispatch_id: did(),
         outcome: Outcome::Success,
         total_duration_secs: 120.5,
-        timestamp: ts(),
     }
 );
 
@@ -134,7 +130,6 @@ snapshot_event!(
         failed_step_id: Some(sid()),
         failed_step_type: Some(StepType::Execute),
         error: "harness exited with code 1".into(),
-        timestamp: ts(),
     }
 );
 
@@ -144,7 +139,6 @@ snapshot_event!(
         dispatch_id: did(),
         actor: actor(),
         reason: Some("user requested".into()),
-        timestamp: ts(),
     }
 );
 
@@ -157,8 +151,7 @@ snapshot_event!(
         step_sequence: 1,
         lane: None,
         depends_on: vec![],
-        graph_revision: 1,
-        timestamp: ts(),
+        graph_revision: GraphRevision::INITIAL,
     }
 );
 
@@ -168,7 +161,6 @@ snapshot_event!(
         dispatch_id: did(),
         step_id: sid(),
         worker_id: "worker-1".into(),
-        timestamp: ts(),
     }
 );
 
@@ -179,7 +171,6 @@ snapshot_event!(
         step_id: sid(),
         worker_id: "worker-1".into(),
         step_type: StepType::Execute,
-        timestamp: ts(),
     }
 );
 
@@ -210,7 +201,6 @@ snapshot_event!(
                 cache_write_tokens: 100,
             }),
         }))),
-        timestamp: ts(),
     }
 );
 
@@ -224,7 +214,6 @@ snapshot_event!(
         error_class: ErrorClass::Transient,
         retry_count: 1,
         duration_secs: 3600.0,
-        timestamp: ts(),
     }
 );
 
@@ -236,7 +225,6 @@ snapshot_event!(
         step_type: StepType::Provision,
         caused_by: Some(actor()),
         reason: Some("dispatch cancelled".into()),
-        timestamp: ts(),
     }
 );
 
@@ -252,7 +240,6 @@ snapshot_event!(
             network_policy: None,
             mount_requirements: vec![],
         }),
-        timestamp: ts(),
     }
 );
 
@@ -262,7 +249,6 @@ snapshot_event!(
         lease_id: lid(),
         dispatch_id: did(),
         runtime_type: "docker".into(),
-        timestamp: ts(),
     }
 );
 
@@ -271,7 +257,6 @@ snapshot_event!(
     DomainEvent::LeaseReady {
         lease_id: lid(),
         dispatch_id: did(),
-        timestamp: ts(),
     }
 );
 
@@ -281,7 +266,6 @@ snapshot_event!(
         lease_id: lid(),
         dispatch_id: did(),
         step_id: sid(),
-        timestamp: ts(),
     }
 );
 
@@ -290,7 +274,6 @@ snapshot_event!(
     DomainEvent::LeaseIdle {
         lease_id: lid(),
         dispatch_id: did(),
-        timestamp: ts(),
     }
 );
 
@@ -301,7 +284,6 @@ snapshot_event!(
         dispatch_id: did(),
         caused_by: Some(actor()),
         reason: Some("user release".into()),
-        timestamp: ts(),
     }
 );
 
@@ -312,7 +294,6 @@ snapshot_event!(
         dispatch_id: did(),
         caused_by: None,
         reason: Some("idle timeout".into()),
-        timestamp: ts(),
     }
 );
 
@@ -323,7 +304,6 @@ snapshot_event!(
         dispatch_id: did(),
         duration_secs: 300.0,
         caused_by: None,
-        timestamp: ts(),
     }
 );
 
@@ -333,7 +313,6 @@ snapshot_event!(
         lease_id: lid(),
         dispatch_id: did(),
         error: "provisioning timeout".into(),
-        timestamp: ts(),
     }
 );
 
@@ -348,7 +327,6 @@ snapshot_event!(
             outcome: PolicyOutcome::Allowed,
             reason: Some("within monthly budget".into()),
         }),
-        timestamp: ts(),
     }
 );
 
@@ -356,10 +334,7 @@ snapshot_event!(
 
 #[test]
 fn dispatch_id_accessor_returns_correlated_id_for_every_variant() {
-    let dispatch_event = DomainEvent::DispatchStarted {
-        dispatch_id: did(),
-        timestamp: ts(),
-    };
+    let dispatch_event = DomainEvent::DispatchStarted { dispatch_id: did() };
     assert_eq!(dispatch_event.dispatch_id(), did());
 
     let step_event = DomainEvent::StepCancelled {
@@ -368,7 +343,6 @@ fn dispatch_id_accessor_returns_correlated_id_for_every_variant() {
         step_type: StepType::Provision,
         caused_by: None,
         reason: None,
-        timestamp: ts(),
     };
     assert_eq!(step_event.dispatch_id(), did());
 
@@ -376,7 +350,6 @@ fn dispatch_id_accessor_returns_correlated_id_for_every_variant() {
         lease_id: lid(),
         dispatch_id: did(),
         runtime_type: "docker".into(),
-        timestamp: ts(),
     };
     assert_eq!(lease_event.dispatch_id(), did());
 }

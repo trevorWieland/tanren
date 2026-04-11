@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::actor::ActorContext;
 use crate::events::EventEnvelope;
+use crate::graph::GraphRevision;
 use crate::ids::{DispatchId, StepId};
 use crate::payloads::{DispatchSnapshot, StepPayload, StepResult};
 use crate::status::{
@@ -24,7 +25,7 @@ pub struct DispatchView {
     /// Full actor attribution for policy / audit.
     pub actor: ActorContext,
     /// Current revision of the dispatch graph (incremented on replans).
-    pub graph_revision: u32,
+    pub graph_revision: GraphRevision,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -46,7 +47,7 @@ pub struct StepView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<StepId>,
     /// Graph revision this step belongs to.
-    pub graph_revision: u32,
+    pub graph_revision: GraphRevision,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

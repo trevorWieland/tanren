@@ -172,4 +172,22 @@ mod tests {
             assert!(!LeaseStatus::Released.can_transition_to(target));
         }
     }
+
+    #[test]
+    fn display_matches_serde_for_every_variant() {
+        for (status, tag) in [
+            (LeaseStatus::Requested, "requested"),
+            (LeaseStatus::Provisioning, "provisioning"),
+            (LeaseStatus::Ready, "ready"),
+            (LeaseStatus::Running, "running"),
+            (LeaseStatus::Idle, "idle"),
+            (LeaseStatus::Draining, "draining"),
+            (LeaseStatus::Released, "released"),
+            (LeaseStatus::Failed, "failed"),
+        ] {
+            assert_eq!(status.to_string(), tag);
+            let json = serde_json::to_string(&status).expect("serialize");
+            assert_eq!(json, format!("\"{tag}\""));
+        }
+    }
 }

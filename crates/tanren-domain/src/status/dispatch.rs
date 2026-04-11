@@ -105,4 +105,19 @@ mod tests {
             assert!(!DispatchStatus::Cancelled.can_transition_to(target));
         }
     }
+
+    #[test]
+    fn display_matches_serde_for_every_variant() {
+        for (status, tag) in [
+            (DispatchStatus::Pending, "pending"),
+            (DispatchStatus::Running, "running"),
+            (DispatchStatus::Completed, "completed"),
+            (DispatchStatus::Failed, "failed"),
+            (DispatchStatus::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(status.to_string(), tag);
+            let json = serde_json::to_string(&status).expect("serialize");
+            assert_eq!(json, format!("\"{tag}\""));
+        }
+    }
 }
