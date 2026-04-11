@@ -1,0 +1,19 @@
+---
+source: crates/tanren-domain/tests/snapshot_events.rs
+expression: json
+---
+{
+  "schema_version": 1,
+  "event_id": "01966a00-0000-7000-8000-000000000001",
+  "timestamp": "2025-06-15T12:00:00Z",
+  "entity_ref": {
+    "type": "dispatch",
+    "id": "01966a00-0000-7000-8000-000000000001"
+  },
+  "payload": {
+    "event_type": "lease_ready",
+    "lease_id": "01966a00-0000-7000-8000-000000000001",
+    "dispatch_id": "01966a00-0000-7000-8000-000000000001",
+    "timestamp": "2025-06-15T12:00:00Z"
+  }
+}

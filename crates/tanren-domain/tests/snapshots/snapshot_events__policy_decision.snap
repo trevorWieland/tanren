@@ -1,0 +1,31 @@
+---
+source: crates/tanren-domain/tests/snapshot_events.rs
+expression: json
+---
+{
+  "schema_version": 1,
+  "event_id": "01966a00-0000-7000-8000-000000000001",
+  "timestamp": "2025-06-15T12:00:00Z",
+  "entity_ref": {
+    "type": "dispatch",
+    "id": "01966a00-0000-7000-8000-000000000001"
+  },
+  "payload": {
+    "event_type": "policy_decision",
+    "dispatch_id": "01966a00-0000-7000-8000-000000000001",
+    "decision": {
+      "kind": "budget",
+      "resource": {
+        "type": "dispatch",
+        "dispatch_id": "01966a00-0000-7000-8000-000000000001"
+      },
+      "scope": {
+        "org_id": "01966a00-0000-7000-8000-000000000001",
+        "user_id": "01966a00-0000-7000-8000-000000000001"
+      },
+      "outcome": "allowed",
+      "reason": "within monthly budget"
+    },
+    "timestamp": "2025-06-15T12:00:00Z"
+  }
+}
