@@ -39,13 +39,11 @@ pub(crate) fn enqueue_to_active_model(
     Ok(step_projection::ActiveModel {
         step_id: Set(params.step_id.into_uuid()),
         dispatch_id: Set(params.dispatch_id.into_uuid()),
-        step_type: Set(step_type_to_string(params.step_type).to_owned()),
+        step_type: Set(params.step_type.to_string()),
         step_sequence: Set(step_sequence),
-        lane: Set(params
-            .lane
-            .map(|l| super::dispatch::lane_to_string(l).to_owned())),
-        status: Set(step_status_to_string(StepStatus::Pending).to_owned()),
-        ready_state: Set(ready_state_to_string(params.ready_state).to_owned()),
+        lane: Set(params.lane.map(|l| l.to_string())),
+        status: Set(StepStatus::Pending.to_string()),
+        ready_state: Set(params.ready_state.to_string()),
         depends_on: Set(depends_on_value),
         graph_revision: Set(graph_revision),
         worker_id: Set(None),
@@ -53,6 +51,7 @@ pub(crate) fn enqueue_to_active_model(
         result: Set(None),
         error: Set(None),
         retry_count: Set(0),
+        last_heartbeat_at: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
     })
@@ -169,70 +168,43 @@ pub(crate) fn model_to_queued_step(
 
 // ---------------------------------------------------------------------------
 // Enum <-> string helpers
+//
+// Write path: use the domain `Display` impl directly
+// (`enum.to_string()`). Every persisted enum already renders as the
+// canonical snake_case tag, so there is no store-local mapping to
+// maintain and adding a new domain variant does not require editing
+// this file. See S-02 in LANE-0.3-AUDIT.md.
+//
+// Read path: parse via `serde_json::from_value(Value::String(...))`
+// so the same `#[serde(rename_all = "snake_case")]` impl the domain
+// uses on the wire is the source of truth.
 // ---------------------------------------------------------------------------
 
-pub(crate) fn step_type_to_string(kind: StepType) -> &'static str {
-    match kind {
-        StepType::Provision => "provision",
-        StepType::Execute => "execute",
-        StepType::Teardown => "teardown",
-        StepType::DryRun => "dry_run",
-    }
-}
-
-pub(crate) fn step_status_to_string(status: StepStatus) -> &'static str {
-    match status {
-        StepStatus::Pending => "pending",
-        StepStatus::Running => "running",
-        StepStatus::Completed => "completed",
-        StepStatus::Failed => "failed",
-        StepStatus::Cancelled => "cancelled",
-    }
-}
-
-pub(crate) fn ready_state_to_string(state: StepReadyState) -> &'static str {
-    match state {
-        StepReadyState::Blocked => "blocked",
-        StepReadyState::Ready => "ready",
-    }
-}
-
 pub(crate) fn parse_step_type(value: &str) -> Result<StepType, StoreError> {
-    match value {
-        "provision" => Ok(StepType::Provision),
-        "execute" => Ok(StepType::Execute),
-        "teardown" => Ok(StepType::Teardown),
-        "dry_run" => Ok(StepType::DryRun),
-        other => Err(StoreError::Conversion {
+    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
+        StoreError::Conversion {
             context: "step::parse_step_type",
-            reason: format!("unknown step type `{other}`"),
-        }),
-    }
+            reason: format!("unknown step type `{value}`: {err}"),
+        }
+    })
 }
 
 pub(crate) fn parse_step_status(value: &str) -> Result<StepStatus, StoreError> {
-    match value {
-        "pending" => Ok(StepStatus::Pending),
-        "running" => Ok(StepStatus::Running),
-        "completed" => Ok(StepStatus::Completed),
-        "failed" => Ok(StepStatus::Failed),
-        "cancelled" => Ok(StepStatus::Cancelled),
-        other => Err(StoreError::Conversion {
+    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
+        StoreError::Conversion {
             context: "step::parse_step_status",
-            reason: format!("unknown step status `{other}`"),
-        }),
-    }
+            reason: format!("unknown step status `{value}`: {err}"),
+        }
+    })
 }
 
 pub(crate) fn parse_ready_state(value: &str) -> Result<StepReadyState, StoreError> {
-    match value {
-        "blocked" => Ok(StepReadyState::Blocked),
-        "ready" => Ok(StepReadyState::Ready),
-        other => Err(StoreError::Conversion {
+    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
+        StoreError::Conversion {
             context: "step::parse_ready_state",
-            reason: format!("unknown ready state `{other}`"),
-        }),
-    }
+            reason: format!("unknown ready state `{value}`: {err}"),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -247,8 +219,7 @@ mod tests {
             StepType::Teardown,
             StepType::DryRun,
         ] {
-            let s = step_type_to_string(kind);
-            assert_eq!(parse_step_type(s).expect("parse"), kind);
+            assert_eq!(parse_step_type(&kind.to_string()).expect("parse"), kind);
         }
     }
 
@@ -261,16 +232,35 @@ mod tests {
             StepStatus::Failed,
             StepStatus::Cancelled,
         ] {
-            let s = step_status_to_string(status);
-            assert_eq!(parse_step_status(s).expect("parse"), status);
+            assert_eq!(
+                parse_step_status(&status.to_string()).expect("parse"),
+                status
+            );
         }
     }
 
     #[test]
     fn ready_state_round_trip() {
         for state in [StepReadyState::Blocked, StepReadyState::Ready] {
-            let s = ready_state_to_string(state);
-            assert_eq!(parse_ready_state(s).expect("parse"), state);
+            assert_eq!(parse_ready_state(&state.to_string()).expect("parse"), state);
         }
+    }
+
+    #[test]
+    fn parse_step_type_rejects_unknown_variant() {
+        let err = parse_step_type("not_a_type").expect_err("should fail");
+        assert!(matches!(err, StoreError::Conversion { .. }));
+    }
+
+    #[test]
+    fn parse_step_status_rejects_unknown_variant() {
+        let err = parse_step_status("not_a_status").expect_err("should fail");
+        assert!(matches!(err, StoreError::Conversion { .. }));
+    }
+
+    #[test]
+    fn parse_ready_state_rejects_unknown_variant() {
+        let err = parse_ready_state("not_a_state").expect_err("should fail");
+        assert!(matches!(err, StoreError::Conversion { .. }));
     }
 }

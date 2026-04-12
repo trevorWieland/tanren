@@ -9,10 +9,13 @@
 //! Callers pass a URL. `sqlite://` and `postgres://` schemes are
 //! supported; anything else is rejected by `SeaORM` at connect time.
 //!
-//! For `SQLite`, include `?mode=rwc` to create the file if missing,
-//! and append `?busy_timeout=5000` (ms) to get automatic retries on
-//! `SQLITE_BUSY` so the atomic dequeue path does not propagate
-//! spurious contention errors.
+//! For `SQLite`, the connector enforces `busy_timeout = 5 seconds`
+//! via `SeaORM`'s `map_sqlx_sqlite_opts` hook. This makes the
+//! atomic dequeue path race-safe across processes by pushing
+//! contention retries into the driver instead of bubbling
+//! `SQLITE_BUSY` up to the caller. The value is set programmatically
+//! (not via URL query parameter, which `sqlx-sqlite` does not accept
+//! for `busy_timeout`).
 //!
 //! [`EventStore`]: crate::EventStore
 //! [`JobQueue`]: crate::JobQueue
@@ -21,6 +24,12 @@
 use std::time::Duration;
 
 use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbErr};
+
+/// How long the `SQLite` driver retries on a busy database before
+/// surfacing `SQLITE_BUSY`. Five seconds is long enough for normal
+/// contention between dequeue workers on a shared database but
+/// short enough to surface genuine deadlocks.
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Open a connection pool to the given database URL.
 ///
@@ -35,5 +44,10 @@ pub(crate) async fn connect(url: &str) -> Result<DatabaseConnection, DbErr> {
         .connect_timeout(Duration::from_secs(10))
         .idle_timeout(Duration::from_secs(60))
         .sqlx_logging(false);
+    // `sqlx-sqlite` does not accept `busy_timeout` as a URL query
+    // parameter, so we set it programmatically via SeaORM's sqlx
+    // options hook. Called once per pool connection; non-SQLite
+    // backends ignore this hook entirely.
+    opt.map_sqlx_sqlite_opts(|options| options.busy_timeout(SQLITE_BUSY_TIMEOUT));
     Database::connect(opt).await
 }

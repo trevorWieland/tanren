@@ -36,3 +36,7 @@ async-trait = { workspace = true }
 tokio = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
+# Test-only: enable SeaORM's `mock` feature so unit tests can use
+# `MockDatabase` without a real database. The feature is additive,
+# so production builds are unaffected.
+sea-orm = { workspace = true, features = ["mock"] }

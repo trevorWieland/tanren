@@ -15,9 +15,15 @@ use crate::connection;
 use crate::errors::{StoreError, StoreResult};
 use crate::migration::Migrator;
 
-/// Backend-agnostic store handle. Cheap to clone — the inner
-/// [`DatabaseConnection`] is itself a shared pool handle.
-#[derive(Clone, Debug)]
+/// Backend-agnostic store handle.
+///
+/// Wrap in [`std::sync::Arc`] if you need to share it across tasks.
+/// We deliberately do not derive [`Clone`] because `SeaORM`'s
+/// [`DatabaseConnection`] is not `Clone` when the `mock` feature is
+/// active (which the store enables in dev-dependencies for unit
+/// tests). Since Lane 0.4 will share `Store` via `Arc` anyway, the
+/// lost convenience is minimal.
+#[derive(Debug)]
 pub struct Store {
     conn: DatabaseConnection,
 }
@@ -71,5 +77,41 @@ impl Store {
     /// trait implementations.
     pub(crate) fn conn(&self) -> &DatabaseConnection {
         &self.conn
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::{ConnectionTrait, DbBackend, MockDatabase};
+
+    use super::*;
+
+    #[test]
+    fn from_connection_wraps_an_existing_handle() {
+        let conn = MockDatabase::new(DbBackend::Postgres).into_connection();
+        let store = Store::from_connection(conn);
+        // `conn` is a valid handle — the crate-internal accessor
+        // returns a reference we can inspect.
+        assert_eq!(
+            store.conn().get_database_backend(),
+            DbBackend::Postgres,
+            "Store::from_connection must preserve the underlying backend"
+        );
+    }
+
+    #[test]
+    fn from_connection_preserves_sqlite_backend() {
+        let conn = MockDatabase::new(DbBackend::Sqlite).into_connection();
+        let store = Store::from_connection(conn);
+        assert_eq!(store.conn().get_database_backend(), DbBackend::Sqlite);
+    }
+
+    #[tokio::test]
+    async fn new_rejects_obviously_invalid_url() {
+        // Not a `sqlite:` or `postgres:` scheme — `SeaORM` rejects
+        // the URL in its URL parser, returning a `DbErr`. The error
+        // surfaces as `StoreError::Database`.
+        let result = Store::new("gopher://nowhere").await;
+        assert!(matches!(result, Err(StoreError::Database(_))));
     }
 }

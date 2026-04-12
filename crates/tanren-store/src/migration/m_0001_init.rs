@@ -189,6 +189,11 @@ async fn create_step_projection_table(manager: &SchemaManager<'_>) -> Result<(),
                         .default(0),
                 )
                 .col(
+                    ColumnDef::new(StepProjection::LastHeartbeatAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
                     ColumnDef::new(StepProjection::CreatedAt)
                         .timestamp_with_time_zone()
                         .not_null(),
@@ -270,6 +275,20 @@ async fn create_dispatch_projection_indexes(manager: &SchemaManager<'_>) -> Resu
             )
             .await?;
     }
+    // S-01: composite index for `query_dispatches(status=?, ...) ORDER BY
+    // created_at DESC` — without it, the planner spills to a temp B-tree
+    // for the sort.
+    manager
+        .create_index(
+            Index::create()
+                .if_not_exists()
+                .name("ix_dispatch_status_created")
+                .table(DispatchProjection::Table)
+                .col(DispatchProjection::Status)
+                .col(DispatchProjection::CreatedAt)
+                .to_owned(),
+        )
+        .await?;
     Ok(())
 }
 
@@ -314,6 +333,33 @@ async fn create_step_projection_indexes(manager: &SchemaManager<'_>) -> Result<(
                 .to_owned(),
         )
         .await?;
+    // S-01: composite index for `get_steps_for_dispatch` — without it,
+    // the planner does a (dispatch_id) index scan followed by a temp
+    // B-tree sort on step_sequence.
+    manager
+        .create_index(
+            Index::create()
+                .if_not_exists()
+                .name("ix_step_dispatch_sequence")
+                .table(StepProjection::Table)
+                .col(StepProjection::DispatchId)
+                .col(StepProjection::StepSequence)
+                .to_owned(),
+        )
+        .await?;
+    // Liveness scan for `recover_stale_steps`: find running rows
+    // whose heartbeat is older than the threshold.
+    manager
+        .create_index(
+            Index::create()
+                .if_not_exists()
+                .name("ix_step_status_heartbeat")
+                .table(StepProjection::Table)
+                .col(StepProjection::Status)
+                .col(StepProjection::LastHeartbeatAt)
+                .to_owned(),
+        )
+        .await?;
     Ok(())
 }
 
@@ -343,6 +389,7 @@ async fn drop_events_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 
 async fn drop_dispatch_projection_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     for name in [
+        "ix_dispatch_status_created",
         "ix_dispatch_project",
         "ix_dispatch_user",
         "ix_dispatch_created",
@@ -364,6 +411,8 @@ async fn drop_dispatch_projection_indexes(manager: &SchemaManager<'_>) -> Result
 
 async fn drop_step_projection_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     for name in [
+        "ix_step_status_heartbeat",
+        "ix_step_dispatch_sequence",
         "ix_step_status_created",
         "ix_step_lane_status",
         "ix_step_status",
@@ -433,6 +482,7 @@ enum StepProjection {
     Result,
     Error,
     RetryCount,
+    LastHeartbeatAt,
     CreatedAt,
     UpdatedAt,
 }

@@ -22,3 +22,32 @@ impl MigratorTrait for Migrator {
         vec![Box::new(m_0001_init::Migration)]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::Database;
+
+    use super::*;
+
+    /// Round-trip `Migrator::up` and `Migrator::down` against a
+    /// fresh in-memory `SQLite` database. This is the only place
+    /// the down path is exercised — every other test runs on an
+    /// already-migrated database and never tears the schema back
+    /// down.
+    #[tokio::test]
+    async fn up_then_down_is_clean() {
+        let conn = Database::connect("sqlite::memory:").await.expect("connect");
+        Migrator::up(&conn, None).await.expect("up");
+        Migrator::down(&conn, None).await.expect("down");
+        // And back up again — the schema should be rebuildable after
+        // a full down.
+        Migrator::up(&conn, None).await.expect("up after down");
+    }
+
+    #[tokio::test]
+    async fn up_is_idempotent() {
+        let conn = Database::connect("sqlite::memory:").await.expect("connect");
+        Migrator::up(&conn, None).await.expect("first up");
+        Migrator::up(&conn, None).await.expect("second up");
+    }
+}

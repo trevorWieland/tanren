@@ -69,11 +69,20 @@ pub struct Model {
     /// Number of times this step has been retried.
     pub retry_count: i32,
 
+    /// Worker-reported liveness timestamp. `NULL` while the step is
+    /// pending; set to the wall-clock time on dequeue claim; refreshed
+    /// by `JobQueue::heartbeat_step` while the worker holds the
+    /// claim. `recover_stale_steps` uses this field — **not**
+    /// `updated_at` — to decide whether a running step is stale.
+    /// This separation keeps liveness signalling independent of
+    /// ordinary row writes (ack, nack, etc.).
+    pub last_heartbeat_at: Option<DateTimeUtc>,
+
     /// Wall-clock creation timestamp.
     pub created_at: DateTimeUtc,
 
-    /// Wall-clock last-modified timestamp. Used by
-    /// `recover_stale_steps` as the heartbeat proxy.
+    /// Wall-clock last-modified timestamp. Bumped on any write. No
+    /// longer used as a liveness proxy — see `last_heartbeat_at`.
     pub updated_at: DateTimeUtc,
 }
 

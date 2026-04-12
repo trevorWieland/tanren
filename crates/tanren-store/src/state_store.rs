@@ -68,15 +68,10 @@ impl StateStore for Store {
     async fn query_dispatches(&self, filter: &DispatchFilter) -> StoreResult<Vec<DispatchView>> {
         let mut query = dispatch_projection::Entity::find();
         if let Some(status) = filter.status {
-            query = query.filter(
-                dispatch_projection::Column::Status
-                    .eq(dispatch_converters::status_to_string(status)),
-            );
+            query = query.filter(dispatch_projection::Column::Status.eq(status.to_string()));
         }
         if let Some(lane) = filter.lane {
-            query = query.filter(
-                dispatch_projection::Column::Lane.eq(dispatch_converters::lane_to_string(lane)),
-            );
+            query = query.filter(dispatch_projection::Column::Lane.eq(lane.to_string()));
         }
         if let Some(ref project) = filter.project {
             query = query.filter(dispatch_projection::Column::Project.eq(project.as_str()));
@@ -126,13 +121,11 @@ impl StateStore for Store {
     }
 
     async fn count_running_steps(&self, lane: Option<&Lane>) -> StoreResult<u64> {
-        let mut query = step_projection::Entity::find().filter(step_projection::Column::Status.eq(
-            step_converters::step_status_to_string(tanren_domain::StepStatus::Running),
-        ));
+        let mut query = step_projection::Entity::find().filter(
+            step_projection::Column::Status.eq(tanren_domain::StepStatus::Running.to_string()),
+        );
         if let Some(lane) = lane {
-            query = query.filter(
-                step_projection::Column::Lane.eq(dispatch_converters::lane_to_string(*lane)),
-            );
+            query = query.filter(step_projection::Column::Lane.eq(lane.to_string()));
         }
         Ok(query.count(self.conn()).await?)
     }
@@ -166,8 +159,8 @@ impl StateStore for Store {
         let now = Utc::now();
         let update = dispatch_projection::ActiveModel {
             dispatch_id: Set(id.into_uuid()),
-            status: Set(dispatch_converters::status_to_string(status).to_owned()),
-            outcome: Set(outcome.map(|o| dispatch_converters::outcome_to_string(o).to_owned())),
+            status: Set(status.to_string()),
+            outcome: Set(outcome.map(|o| o.to_string())),
             updated_at: Set(now),
             ..Default::default()
         };

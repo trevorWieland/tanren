@@ -10,3 +10,20 @@ failure-output = "immediate-final"
 status-level = "all"
 retries = 2
 slow-timeout = { period = "120s", terminate-after = 3 }
+
+# Serialize the tanren-store Postgres integration suite: all tests
+# in that binary share the same schema when running against a CI
+# service container, and concurrent `DROP SCHEMA public CASCADE`
+# calls collide on pg_catalog internals. `max-threads = 1` forces
+# nextest to run them one at a time. The SQLite suite (different
+# binary) is untouched and stays parallel.
+[test-groups]
+postgres-integration = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "binary(postgres_integration)"
+test-group = "postgres-integration"
+
+[[profile.ci.overrides]]
+filter = "binary(postgres_integration)"
+test-group = "postgres-integration"

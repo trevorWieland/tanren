@@ -26,10 +26,10 @@ pub(crate) fn params_to_active_model(
 
     Ok(dispatch_projection::ActiveModel {
         dispatch_id: Set(params.dispatch_id.into_uuid()),
-        mode: Set(mode_to_string(params.mode).to_owned()),
-        status: Set(status_to_string(DispatchStatus::Pending).to_owned()),
+        mode: Set(params.mode.to_string()),
+        status: Set(DispatchStatus::Pending.to_string()),
         outcome: Set(None),
-        lane: Set(lane_to_string(params.lane).to_owned()),
+        lane: Set(params.lane.to_string()),
         dispatch: Set(dispatch_value),
         actor: Set(actor_value),
         graph_revision: Set(graph_revision),
@@ -79,43 +79,10 @@ pub(crate) fn model_to_view(model: dispatch_projection::Model) -> Result<Dispatc
 }
 
 // ---------------------------------------------------------------------------
-// Small enum <-> string helpers
+// Enum <-> string helpers — domain `Display` is the source of truth
+// for the write path, serde is the source of truth for the read path.
+// See S-02 in LANE-0.3-AUDIT.md.
 // ---------------------------------------------------------------------------
-
-pub(crate) fn mode_to_string(mode: DispatchMode) -> &'static str {
-    match mode {
-        DispatchMode::Auto => "auto",
-        DispatchMode::Manual => "manual",
-    }
-}
-
-pub(crate) fn status_to_string(status: DispatchStatus) -> &'static str {
-    match status {
-        DispatchStatus::Pending => "pending",
-        DispatchStatus::Running => "running",
-        DispatchStatus::Completed => "completed",
-        DispatchStatus::Failed => "failed",
-        DispatchStatus::Cancelled => "cancelled",
-    }
-}
-
-pub(crate) fn outcome_to_string(outcome: Outcome) -> &'static str {
-    match outcome {
-        Outcome::Success => "success",
-        Outcome::Fail => "fail",
-        Outcome::Blocked => "blocked",
-        Outcome::Error => "error",
-        Outcome::Timeout => "timeout",
-    }
-}
-
-pub(crate) fn lane_to_string(lane: Lane) -> &'static str {
-    match lane {
-        Lane::Impl => "impl",
-        Lane::Audit => "audit",
-        Lane::Gate => "gate",
-    }
-}
 
 pub(crate) fn parse_mode(value: &str) -> Result<DispatchMode, StoreError> {
     serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
@@ -160,8 +127,7 @@ mod tests {
     #[test]
     fn mode_round_trip() {
         for mode in [DispatchMode::Auto, DispatchMode::Manual] {
-            let s = mode_to_string(mode);
-            assert_eq!(parse_mode(s).expect("parse"), mode);
+            assert_eq!(parse_mode(&mode.to_string()).expect("parse"), mode);
         }
     }
 
@@ -174,16 +140,14 @@ mod tests {
             DispatchStatus::Failed,
             DispatchStatus::Cancelled,
         ] {
-            let s = status_to_string(status);
-            assert_eq!(parse_status(s).expect("parse"), status);
+            assert_eq!(parse_status(&status.to_string()).expect("parse"), status);
         }
     }
 
     #[test]
     fn lane_round_trip() {
         for lane in [Lane::Impl, Lane::Audit, Lane::Gate] {
-            let s = lane_to_string(lane);
-            assert_eq!(parse_lane(s).expect("parse"), lane);
+            assert_eq!(parse_lane(&lane.to_string()).expect("parse"), lane);
         }
     }
 
@@ -196,8 +160,31 @@ mod tests {
             Outcome::Error,
             Outcome::Timeout,
         ] {
-            let s = outcome_to_string(outcome);
-            assert_eq!(parse_outcome(s).expect("parse"), outcome);
+            assert_eq!(parse_outcome(&outcome.to_string()).expect("parse"), outcome);
         }
+    }
+
+    #[test]
+    fn parse_mode_rejects_unknown_variant() {
+        let err = parse_mode("does_not_exist").expect_err("should fail");
+        assert!(matches!(err, StoreError::Conversion { .. }));
+    }
+
+    #[test]
+    fn parse_status_rejects_unknown_variant() {
+        let err = parse_status("not_a_status").expect_err("should fail");
+        assert!(matches!(err, StoreError::Conversion { .. }));
+    }
+
+    #[test]
+    fn parse_lane_rejects_unknown_variant() {
+        let err = parse_lane("not_a_lane").expect_err("should fail");
+        assert!(matches!(err, StoreError::Conversion { .. }));
+    }
+
+    #[test]
+    fn parse_outcome_rejects_unknown_variant() {
+        let err = parse_outcome("not_an_outcome").expect_err("should fail");
+        assert!(matches!(err, StoreError::Conversion { .. }));
     }
 }

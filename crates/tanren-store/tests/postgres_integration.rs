@@ -18,6 +18,13 @@ mod common;
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
+
+// Nextest serializes this binary via the `postgres-integration`
+// test group in `.config/nextest.toml`. Running tests one at a
+// time sidesteps pg_catalog races when multiple tests all drop +
+// recreate the `public` schema against the same `Postgres`
+// instance in parallel.
 
 use common::{
     ack_and_enqueue_execute, actor, assert_dispatch_status, create_dispatch,
@@ -44,8 +51,9 @@ struct Fixture {
 async fn postgres_fixture() -> Fixture {
     if let Ok(url) = std::env::var("TANREN_TEST_POSTGRES_URL") {
         // Tests share the same database when running against CI's
-        // service container; reset the `public` schema before
-        // migrating so each test starts clean.
+        // service container; the nextest `postgres-integration`
+        // test group enforces serial execution, so it is safe to
+        // drop + recreate the `public` schema between tests.
         reset_schema(&url).await;
         let store = migrate_fresh(&url).await;
         Fixture {
@@ -104,34 +112,40 @@ async fn full_lifecycle_passes_on_postgres() {
             .is_err()
     );
 
-    // 3. Seed a few pending steps via the seed_steps helper.
-    let _seeded = seed_steps(store, id, &snap, Lane::Impl, 2)
-        .await
-        .expect("seed");
-
-    // 4. Enqueue one more via the explicit builder using a
-    //    provision payload (exercises provision_payload and enqueue
-    //    params).
+    // 3. Enqueue the provision step first (sequence 0). The dequeue
+    //    order is `created_at ASC, step_sequence ASC`, so enqueuing
+    //    provision before the execute seeds guarantees it is the
+    //    first row claimed.
     let provision_step = StepId::new();
     store
         .enqueue_step(enqueue_step_params(
             id,
             provision_step,
             StepType::Provision,
-            99,
+            0,
             Some(Lane::Impl),
             provision_payload(snap.clone()),
         ))
         .await
         .expect("provision enqueue");
+    // A small sleep guarantees the following execute seeds have
+    // observably-later `created_at` timestamps, independent of
+    // clock resolution.
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
-    // 5. Dequeue the provision step, then ack it with
+    // 4. Seed a couple of execute steps via the seed_steps helper.
+    let _seeded = seed_steps(store, id, &snap, Lane::Impl, 2)
+        .await
+        .expect("seed");
+
+    // 5. First dequeue returns the provision step. Ack it with
     //    provision_result so both provision_result and ack paths
     //    are exercised.
     let claimed = try_dequeue(store, "worker-prov", Some(Lane::Impl), 99)
         .await
         .expect("dequeue")
         .expect("claim");
+    assert_eq!(claimed.step_id, provision_step);
     assert!(matches!(claimed.payload, StepPayload::Provision(_)));
     store
         .ack(&claimed.step_id, &provision_result())
@@ -301,4 +315,63 @@ async fn dequeue_respects_max_concurrent_one() {
         }
     }
     assert_eq!(claimed, 1, "max_concurrent=1 allows exactly one claim");
+}
+
+/// B-01 regression: `dequeue(None)` counts running rows across ALL
+/// lanes while `dequeue(Some(Impl))` counts only impl rows. With
+/// a per-lane advisory lock this was a race; the global lock must
+/// prevent over-claiming when these two call shapes are mixed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn cross_lane_dequeue_respects_global_cap() {
+    let fixture = postgres_fixture().await;
+    let store = Arc::new(fixture.store);
+    let snap = snapshot("alpha");
+    let id = create_dispatch(&store, "alpha", actor(), Lane::Impl)
+        .await
+        .expect("create");
+
+    // Seed 3 steps in the Impl lane.
+    for seq in 0..3 {
+        store
+            .enqueue_step(enqueue_step_params(
+                id,
+                StepId::new(),
+                StepType::Execute,
+                seq,
+                Some(Lane::Impl),
+                execute_payload(snap.clone()),
+            ))
+            .await
+            .expect("enqueue");
+    }
+
+    // Spawn 10 workers: half call dequeue(None, max_concurrent=1),
+    // half call dequeue(Some(Impl), max_concurrent=1). With the
+    // global lock, the total running count across the entire step
+    // table never exceeds 1, because both call shapes share the
+    // same serialization point.
+    let mut handles = Vec::new();
+    for n in 0..10 {
+        let store = Arc::clone(&store);
+        let lane = if n % 2 == 0 { None } else { Some(Lane::Impl) };
+        handles.push(tokio::spawn(async move {
+            try_dequeue(&store, &format!("w{n}"), lane, 1)
+                .await
+                .expect("dequeue")
+        }));
+    }
+
+    let mut claimed = 0;
+    for handle in handles {
+        if handle.await.expect("join").is_some() {
+            claimed += 1;
+        }
+    }
+    // `max_concurrent=1` means at most 1 step should be in
+    // `running` state. All concurrent callers see the same cap
+    // because the advisory lock serializes them.
+    assert_eq!(
+        claimed, 1,
+        "cross-lane max_concurrent=1 must still allow exactly one claim"
+    );
 }
