@@ -339,3 +339,144 @@ async fn entity_ref_filter_distinguishes_different_dispatches() {
         );
     }
 }
+
+/// Semantic validation: `ack` with a `StepFailed` envelope (wrong
+/// variant) must be rejected before any write occurs.
+#[tokio::test]
+async fn ack_rejects_wrong_event_variant() {
+    let store = fresh_store().await;
+    let id = create_dispatch(&store, Lane::Impl).await.expect("create");
+    let step_id = enqueue_execute_step(&store, id, Lane::Impl)
+        .await
+        .expect("enqueue");
+    claim_step(&store, step_id).await.expect("claim");
+
+    let wrong = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::StepFailed {
+            dispatch_id: id,
+            step_id,
+            step_type: StepType::Execute,
+            error: "oops".to_owned(),
+            error_class: ErrorClass::Fatal,
+            retry_count: 0,
+            duration_secs: FiniteF64::try_new(0.1).expect("finite"),
+        },
+    );
+    let err = store
+        .ack(tanren_store::AckParams {
+            step_id,
+            result: tanren_domain::StepResult::Execute(Box::new(tanren_domain::ExecuteResult {
+                outcome: tanren_domain::Outcome::Success,
+                signal: None,
+                exit_code: Some(0),
+                duration_secs: FiniteF64::try_new(1.0).expect("f"),
+                gate_output: None,
+                tail_output: None,
+                stderr_tail: None,
+                pushed: false,
+                plan_hash: None,
+                unchecked_tasks: 0,
+                spec_modified: false,
+                findings: vec![],
+                token_usage: None,
+            })),
+            completion_event: wrong,
+        })
+        .await
+        .expect_err("wrong variant must be rejected");
+    assert!(matches!(err, StoreError::Conversion { .. }));
+}
+
+/// Semantic validation: `ack` with the correct variant but wrong
+/// `step_id` in the envelope payload must be rejected.
+#[tokio::test]
+async fn ack_rejects_wrong_step_id_in_envelope() {
+    let store = fresh_store().await;
+    let id = create_dispatch(&store, Lane::Impl).await.expect("create");
+    let step_id = enqueue_execute_step(&store, id, Lane::Impl)
+        .await
+        .expect("enqueue");
+    claim_step(&store, step_id).await.expect("claim");
+
+    let other_step = StepId::new();
+    let wrong = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::StepCompleted {
+            dispatch_id: id,
+            step_id: other_step, // wrong!
+            step_type: StepType::Execute,
+            duration_secs: FiniteF64::try_new(1.0).expect("f"),
+            result_payload: Box::new(tanren_domain::StepResult::Execute(Box::new(
+                tanren_domain::ExecuteResult {
+                    outcome: tanren_domain::Outcome::Success,
+                    signal: None,
+                    exit_code: Some(0),
+                    duration_secs: FiniteF64::try_new(1.0).expect("f"),
+                    gate_output: None,
+                    tail_output: None,
+                    stderr_tail: None,
+                    pushed: false,
+                    plan_hash: None,
+                    unchecked_tasks: 0,
+                    spec_modified: false,
+                    findings: vec![],
+                    token_usage: None,
+                },
+            ))),
+        },
+    );
+    let err = store
+        .ack(tanren_store::AckParams {
+            step_id,
+            result: tanren_domain::StepResult::Execute(Box::new(tanren_domain::ExecuteResult {
+                outcome: tanren_domain::Outcome::Success,
+                signal: None,
+                exit_code: Some(0),
+                duration_secs: FiniteF64::try_new(1.0).expect("f"),
+                gate_output: None,
+                tail_output: None,
+                stderr_tail: None,
+                pushed: false,
+                plan_hash: None,
+                unchecked_tasks: 0,
+                spec_modified: false,
+                findings: vec![],
+                token_usage: None,
+            })),
+            completion_event: wrong,
+        })
+        .await
+        .expect_err("wrong step_id must be rejected");
+    assert!(matches!(err, StoreError::Conversion { .. }));
+}
+
+/// Semantic validation: `update_dispatch_status(Running)` with a
+/// `DispatchCompleted` envelope must be rejected.
+#[tokio::test]
+async fn update_dispatch_status_rejects_variant_mismatch() {
+    let store = fresh_store().await;
+    let id = create_dispatch(&store, Lane::Impl).await.expect("create");
+
+    let wrong = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::DispatchCompleted {
+            dispatch_id: id,
+            outcome: tanren_domain::Outcome::Success,
+            total_duration_secs: FiniteF64::try_new(1.0).expect("f"),
+        },
+    );
+    let err = store
+        .update_dispatch_status(tanren_store::UpdateDispatchStatusParams {
+            dispatch_id: id,
+            status: tanren_domain::DispatchStatus::Running,
+            outcome: None,
+            status_event: wrong,
+        })
+        .await
+        .expect_err("status/variant mismatch must be rejected");
+    assert!(matches!(err, StoreError::Conversion { .. }));
+}

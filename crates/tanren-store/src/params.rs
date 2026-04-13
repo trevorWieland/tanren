@@ -236,8 +236,8 @@ pub struct AckParams {
 ///
 /// Cancels every pending non-teardown step belonging to a dispatch
 /// and appends one `StepCancelled` envelope per cancelled row in
-/// the same transaction. Replaces the old bare
-/// `cancel_pending_steps(&DispatchId)` signature.
+/// the same transaction. The store mints the timestamp internally
+/// so the operation identifier is not caller-controlled.
 #[derive(Debug, Clone)]
 pub struct CancelPendingStepsParams {
     /// Owning dispatch.
@@ -247,8 +247,6 @@ pub struct CancelPendingStepsParams {
     pub actor: Option<ActorContext>,
     /// Human-readable reason.
     pub reason: Option<String>,
-    /// Timestamp for all generated `StepCancelled` envelopes.
-    pub timestamp: DateTime<Utc>,
 }
 
 /// Parameters for

@@ -128,7 +128,11 @@ impl StateStore for Store {
     }
 
     async fn create_dispatch_projection(&self, params: CreateDispatchParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(&params.creation_event)?;
+        event_converters::validate_dispatch_event(
+            &params.creation_event,
+            params.dispatch_id,
+            "dispatch_created",
+        )?;
         let projection = dispatch_converters::params_to_active_model(&params)?;
         let event_model = event_converters::envelope_to_active_model(&params.creation_event)?;
 
@@ -147,7 +151,11 @@ impl StateStore for Store {
     }
 
     async fn update_dispatch_status(&self, params: UpdateDispatchStatusParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(&params.status_event)?;
+        event_converters::validate_dispatch_event(
+            &params.status_event,
+            params.dispatch_id,
+            event_converters::dispatch_status_event_tag(params.status),
+        )?;
 
         let now = Utc::now();
         let event_model = event_converters::envelope_to_active_model(&params.status_event)?;

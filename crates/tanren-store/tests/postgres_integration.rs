@@ -356,9 +356,12 @@ async fn dequeue_respects_max_concurrent_one() {
 }
 
 /// B-01 regression: `dequeue(None)` counts running rows across ALL
-/// lanes while `dequeue(Some(Impl))` counts only impl rows. With
-/// a per-lane advisory lock this was a race; the global lock must
-/// prevent over-claiming when these two call shapes are mixed.
+/// lanes while `dequeue(Some(Impl))` counts only impl rows. The
+/// hierarchical advisory lock scheme handles this: `lane=None` takes
+/// an exclusive lock on the global key, which conflicts with the
+/// shared lock lane-specific dequeues hold. This test mixes
+/// `dequeue(None)` and `dequeue(Some(Impl))` concurrently and
+/// asserts `max_concurrent=1` is respected.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn cross_lane_dequeue_respects_global_cap() {
     let fixture = postgres_fixture().await;
@@ -368,7 +371,6 @@ async fn cross_lane_dequeue_respects_global_cap() {
         .await
         .expect("create");
 
-    // Seed 3 steps in the Impl lane.
     for seq in 0..3 {
         store
             .enqueue_step(enqueue_step_params(
@@ -383,11 +385,9 @@ async fn cross_lane_dequeue_respects_global_cap() {
             .expect("enqueue");
     }
 
-    // Spawn 10 workers: half call dequeue(None, max_concurrent=1),
-    // half call dequeue(Some(Impl), max_concurrent=1). With the
-    // global lock, the total running count across the entire step
-    // table never exceeds 1, because both call shapes share the
-    // same serialization point.
+    // Half call dequeue(None), half call dequeue(Some(Impl)).
+    // The hierarchical lock serializes None against Impl (exclusive
+    // global vs shared global), so `max_concurrent=1` is respected.
     let mut handles = Vec::new();
     for n in 0..10 {
         let store = Arc::clone(&store);
@@ -405,11 +405,81 @@ async fn cross_lane_dequeue_respects_global_cap() {
             claimed += 1;
         }
     }
-    // `max_concurrent=1` means at most 1 step should be in
-    // `running` state. All concurrent callers see the same cap
-    // because the advisory lock serializes them.
     assert_eq!(
         claimed, 1,
         "cross-lane max_concurrent=1 must still allow exactly one claim"
+    );
+}
+
+/// Scalability property: lane-specific dequeues for different lanes
+/// can proceed in parallel under the hierarchical lock scheme. Each
+/// lane holds its own exclusive lock + a shared global lock; since
+/// the global lock is shared, different lanes do not block each
+/// other. This test seeds steps in both `Impl` and `Audit` lanes
+/// and asserts that all steps in both lanes are claimed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn different_lanes_dequeue_in_parallel() {
+    let fixture = postgres_fixture().await;
+    let store = Arc::new(fixture.store);
+    let snap = snapshot("alpha");
+    let id = create_dispatch(&store, "alpha", actor(), Lane::Impl)
+        .await
+        .expect("create");
+
+    // Seed 3 steps in Impl, 3 in Audit.
+    for seq in 0..3_u32 {
+        store
+            .enqueue_step(enqueue_step_params(
+                id,
+                StepId::new(),
+                StepType::Execute,
+                seq,
+                Some(Lane::Impl),
+                execute_payload(snap.clone()),
+            ))
+            .await
+            .expect("enqueue impl");
+        store
+            .enqueue_step(enqueue_step_params(
+                id,
+                StepId::new(),
+                StepType::Execute,
+                10 + seq,
+                Some(Lane::Audit),
+                execute_payload(snap.clone()),
+            ))
+            .await
+            .expect("enqueue audit");
+    }
+
+    // Spawn workers: half for Impl, half for Audit, each with
+    // max_concurrent=3 (enough to drain the lane).
+    let mut handles = Vec::new();
+    for n in 0..10 {
+        let store = Arc::clone(&store);
+        let lane = if n % 2 == 0 {
+            Some(Lane::Impl)
+        } else {
+            Some(Lane::Audit)
+        };
+        handles.push(tokio::spawn(async move {
+            try_dequeue(&store, &format!("w{n}"), lane, 3)
+                .await
+                .expect("dequeue")
+        }));
+    }
+
+    let mut claimed = 0;
+    for handle in handles {
+        if handle.await.expect("join").is_some() {
+            claimed += 1;
+        }
+    }
+    // Both lanes should be fully drained (3 impl + 3 audit = 6).
+    // If the locks serialized across lanes, some workers would time
+    // out or fail to claim; all 6 must succeed.
+    assert_eq!(
+        claimed, 6,
+        "different lanes must dequeue in parallel: expected 6 total claims"
     );
 }

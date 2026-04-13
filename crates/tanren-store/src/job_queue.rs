@@ -79,7 +79,11 @@ pub trait JobQueue: Send + Sync {
 #[async_trait]
 impl JobQueue for Store {
     async fn enqueue_step(&self, params: EnqueueStepParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(&params.enqueue_event)?;
+        event_converters::validate_step_event(
+            &params.enqueue_event,
+            params.step_id,
+            "step_enqueued",
+        )?;
         let now = Utc::now();
         let row = step_converters::enqueue_to_active_model(&params, now)?;
         let event_model = event_converters::envelope_to_active_model(&params.enqueue_event)?;
@@ -100,7 +104,11 @@ impl JobQueue for Store {
     }
 
     async fn ack(&self, params: AckParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(&params.completion_event)?;
+        event_converters::validate_step_event(
+            &params.completion_event,
+            params.step_id,
+            "step_completed",
+        )?;
 
         let result_value = serde_json::to_value(&params.result)?;
         let event_model = event_converters::envelope_to_active_model(&params.completion_event)?;
@@ -144,9 +152,17 @@ impl JobQueue for Store {
     }
 
     async fn ack_and_enqueue(&self, params: AckAndEnqueueParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(&params.completion_event)?;
+        event_converters::validate_step_event(
+            &params.completion_event,
+            params.step_id,
+            "step_completed",
+        )?;
         if let Some(ref next) = params.next_step {
-            event_converters::validate_envelope_entity_ref(&next.enqueue_event)?;
+            event_converters::validate_step_event(
+                &next.enqueue_event,
+                next.step_id,
+                "step_enqueued",
+            )?;
         }
         let now = Utc::now();
         let result_value = serde_json::to_value(&params.result)?;
@@ -210,7 +226,9 @@ impl JobQueue for Store {
         let dispatch_id = params.dispatch_id;
         let actor = params.actor;
         let reason = params.reason;
-        let timestamp = params.timestamp;
+        // Store-minted timestamp — not caller-controlled — so the
+        // post-UPDATE SELECT key is unique to this operation.
+        let timestamp = Utc::now();
         let dispatch_uuid = dispatch_id.into_uuid();
 
         self.conn()
@@ -280,7 +298,7 @@ impl JobQueue for Store {
     }
 
     async fn nack(&self, step_id: &StepId, params: NackParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(&params.failure_event)?;
+        event_converters::validate_step_event(&params.failure_event, *step_id, "step_failed")?;
         let now = Utc::now();
         let event_model = event_converters::envelope_to_active_model(&params.failure_event)?;
         let step_id_uuid = step_id.into_uuid();

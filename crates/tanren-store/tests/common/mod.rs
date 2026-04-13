@@ -302,7 +302,6 @@ pub(crate) fn cancel_pending_steps_params(dispatch_id: DispatchId) -> CancelPend
         dispatch_id,
         actor: None,
         reason: None,
-        timestamp: Utc::now(),
     }
 }
 
