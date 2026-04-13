@@ -10,12 +10,8 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, TransactionTrait,
-};
-use tanren_domain::{
-    DomainEvent, EntityRef, EventEnvelope, EventId, SCHEMA_VERSION, StepId, StepStatus, StepType,
-};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+use tanren_domain::{DomainEvent, EventEnvelope, EventId, StepId, StepStatus, StepType};
 
 use crate::converters::{events as event_converters, step as step_converters};
 use crate::entity::{events, step_projection};
@@ -83,6 +79,7 @@ pub trait JobQueue: Send + Sync {
 #[async_trait]
 impl JobQueue for Store {
     async fn enqueue_step(&self, params: EnqueueStepParams) -> StoreResult<()> {
+        event_converters::validate_envelope_entity_ref(&params.enqueue_event)?;
         let now = Utc::now();
         let row = step_converters::enqueue_to_active_model(&params, now)?;
         let event_model = event_converters::envelope_to_active_model(&params.enqueue_event)?;
@@ -103,10 +100,7 @@ impl JobQueue for Store {
     }
 
     async fn ack(&self, params: AckParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(
-            &params.completion_event,
-            EntityRef::Step(params.step_id),
-        )?;
+        event_converters::validate_envelope_entity_ref(&params.completion_event)?;
 
         let result_value = serde_json::to_value(&params.result)?;
         let event_model = event_converters::envelope_to_active_model(&params.completion_event)?;
@@ -150,6 +144,10 @@ impl JobQueue for Store {
     }
 
     async fn ack_and_enqueue(&self, params: AckAndEnqueueParams) -> StoreResult<()> {
+        event_converters::validate_envelope_entity_ref(&params.completion_event)?;
+        if let Some(ref next) = params.next_step {
+            event_converters::validate_envelope_entity_ref(&next.enqueue_event)?;
+        }
         let now = Utc::now();
         let result_value = serde_json::to_value(&params.result)?;
         let completion_event =
@@ -218,26 +216,13 @@ impl JobQueue for Store {
         self.conn()
             .transaction::<_, u64, StoreError>(move |txn| {
                 Box::pin(async move {
-                    // SELECT the pending non-teardown rows so we can
-                    // generate one `StepCancelled` envelope per row.
-                    let rows = step_projection::Entity::find()
-                        .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-                        .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
-                        .filter(
-                            step_projection::Column::StepType.ne(StepType::Teardown.to_string()),
-                        )
-                        .order_by_asc(step_projection::Column::StepSequence)
-                        .all(txn)
-                        .await?;
-
-                    if rows.is_empty() {
-                        return Ok(0);
-                    }
-
-                    let count = u64::try_from(rows.len()).unwrap_or(u64::MAX);
-
-                    // UPDATE all matching rows to cancelled.
-                    step_projection::Entity::update_many()
+                    // UPDATE first to atomically claim the rows.
+                    // A concurrent dequeue that races this UPDATE
+                    // will either see the row as still pending (and
+                    // claim it before we run) or see it as cancelled
+                    // (and skip it). Either way, the UPDATE's
+                    // rows_affected count is authoritative.
+                    let result = step_projection::Entity::update_many()
                         .col_expr(
                             step_projection::Column::Status,
                             Expr::value(StepStatus::Cancelled.to_string()),
@@ -251,28 +236,41 @@ impl JobQueue for Store {
                         .exec(txn)
                         .await?;
 
-                    // Generate and insert one StepCancelled envelope
-                    // per cancelled row.
+                    let count = result.rows_affected;
+                    if count == 0 {
+                        return Ok(0);
+                    }
+
+                    // Now SELECT the rows we actually cancelled to
+                    // generate events. These rows are already
+                    // status='cancelled' with our exact timestamp,
+                    // so no TOCTOU window exists.
+                    let rows = step_projection::Entity::find()
+                        .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
+                        .filter(
+                            step_projection::Column::Status.eq(StepStatus::Cancelled.to_string()),
+                        )
+                        .filter(step_projection::Column::UpdatedAt.eq(timestamp))
+                        .filter(
+                            step_projection::Column::StepType.ne(StepType::Teardown.to_string()),
+                        )
+                        .all(txn)
+                        .await?;
+
                     let mut event_models = Vec::with_capacity(rows.len());
                     for row in &rows {
-                        let step_id = StepId::from_uuid(row.step_id);
-                        let step_type = step_converters::parse_step_type(&row.step_type)?;
-                        let envelope = EventEnvelope {
-                            schema_version: SCHEMA_VERSION,
-                            event_id: EventId::from_uuid(uuid::Uuid::now_v7()),
+                        let envelope = mint_step_cancelled(
+                            dispatch_id,
+                            row,
+                            actor.as_ref(),
+                            reason.as_ref(),
                             timestamp,
-                            entity_ref: EntityRef::Step(step_id),
-                            payload: DomainEvent::StepCancelled {
-                                dispatch_id,
-                                step_id,
-                                step_type,
-                                caused_by: actor.clone(),
-                                reason: reason.clone(),
-                            },
-                        };
-                        event_models.push(event_converters::envelope_to_active_model(&envelope)?);
+                        )?;
+                        event_models.push(envelope);
                     }
-                    events::Entity::insert_many(event_models).exec(txn).await?;
+                    if !event_models.is_empty() {
+                        events::Entity::insert_many(event_models).exec(txn).await?;
+                    }
 
                     Ok(count)
                 })
@@ -282,6 +280,7 @@ impl JobQueue for Store {
     }
 
     async fn nack(&self, step_id: &StepId, params: NackParams) -> StoreResult<()> {
+        event_converters::validate_envelope_entity_ref(&params.failure_event)?;
         let now = Utc::now();
         let event_model = event_converters::envelope_to_active_model(&params.failure_event)?;
         let step_id_uuid = step_id.into_uuid();
@@ -400,4 +399,29 @@ impl JobQueue for Store {
             .await?;
         Ok(result.rows_affected)
     }
+}
+
+/// Build a `StepCancelled` event active model from a cancelled
+/// projection row + caller metadata.
+fn mint_step_cancelled(
+    dispatch_id: tanren_domain::DispatchId,
+    row: &step_projection::Model,
+    actor: Option<&tanren_domain::ActorContext>,
+    reason: Option<&String>,
+    timestamp: chrono::DateTime<Utc>,
+) -> Result<events::ActiveModel, StoreError> {
+    let step_id = StepId::from_uuid(row.step_id);
+    let step_type = step_converters::parse_step_type(&row.step_type)?;
+    let envelope = EventEnvelope::new(
+        EventId::from_uuid(uuid::Uuid::now_v7()),
+        timestamp,
+        DomainEvent::StepCancelled {
+            dispatch_id,
+            step_id,
+            step_type,
+            caused_by: actor.cloned(),
+            reason: reason.cloned(),
+        },
+    );
+    event_converters::envelope_to_active_model(&envelope)
 }

@@ -119,13 +119,11 @@ async fn event_append_query_and_filter() {
         .await
         .expect("create");
 
-    let started = tanren_domain::EventEnvelope {
-        schema_version: tanren_domain::SCHEMA_VERSION,
-        event_id: tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
-        timestamp: now(),
-        entity_ref: EntityRef::Dispatch(dispatch_id),
-        payload: DomainEvent::DispatchStarted { dispatch_id },
-    };
+    let started = tanren_domain::EventEnvelope::new(
+        tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
+        now(),
+        DomainEvent::DispatchStarted { dispatch_id },
+    );
     let completed = step_completed_event(
         dispatch_id,
         StepId::new(),
@@ -146,7 +144,7 @@ async fn event_append_query_and_filter() {
         })
         .await
         .expect("by ref");
-    assert_eq!(by_ref.total_count, 2); // creation + started (step event is on Step ref)
+    assert_eq!(by_ref.total_count, 3); // creation + started + completed (all route to Dispatch)
     assert!(!by_ref.has_more);
     let ids: Vec<_> = by_ref.events.iter().map(|e| e.event_id).collect();
     assert!(ids.contains(&creation_event_id));
@@ -160,7 +158,7 @@ async fn event_append_query_and_filter() {
         })
         .await
         .expect("by kind");
-    assert_eq!(by_kind.total_count, 2);
+    assert_eq!(by_kind.total_count, 3);
 
     let by_type = store
         .query_events(&EventFilter {
@@ -424,12 +422,10 @@ async fn nack_retry_resets_to_pending_and_bumps_count() {
         .await
         .expect("dequeue");
 
-    let failure_event = tanren_domain::EventEnvelope {
-        schema_version: tanren_domain::SCHEMA_VERSION,
-        event_id: tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
-        timestamp: now(),
-        entity_ref: EntityRef::Step(step_id),
-        payload: DomainEvent::StepFailed {
+    let failure_event = tanren_domain::EventEnvelope::new(
+        tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
+        now(),
+        DomainEvent::StepFailed {
             dispatch_id: id,
             step_id,
             step_type: StepType::Execute,
@@ -438,7 +434,7 @@ async fn nack_retry_resets_to_pending_and_bumps_count() {
             retry_count: 1,
             duration_secs: tanren_domain::FiniteF64::try_new(0.5).expect("finite"),
         },
-    };
+    );
     store
         .nack(
             &step_id,

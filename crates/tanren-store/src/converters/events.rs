@@ -72,6 +72,20 @@ pub(crate) fn model_to_envelope(model: events::Model) -> Result<EventEnvelope, S
             reason: "schema_version is negative".to_owned(),
         })?;
 
+    // Verify the reconstructed entity_ref matches the payload's own
+    // root. If these disagree, the row was written with a misrouted
+    // envelope — surface the inconsistency now rather than returning
+    // a silently corrupt envelope.
+    let expected = EventEnvelope::expected_entity_ref(&payload);
+    if entity_ref != expected {
+        return Err(StoreError::Conversion {
+            context: "events::model_to_envelope",
+            reason: format!(
+                "stored entity_ref ({entity_ref}) disagrees with payload root ({expected})",
+            ),
+        });
+    }
+
     Ok(EventEnvelope {
         schema_version,
         event_id: EventId::from_uuid(model.event_id),
@@ -81,22 +95,21 @@ pub(crate) fn model_to_envelope(model: events::Model) -> Result<EventEnvelope, S
     })
 }
 
-/// Validate that an envelope's `entity_ref` matches the expected value.
+/// Validate that an envelope's `entity_ref` matches the canonical
+/// routing derived from its payload via [`DomainEvent::entity_root`].
 ///
 /// Called by every store method that accepts a caller-supplied
 /// [`EventEnvelope`] before committing the transaction. This catches
 /// misrouted envelopes early rather than persisting inconsistent
 /// routing metadata.
-pub(crate) fn validate_envelope_entity_ref(
-    envelope: &EventEnvelope,
-    expected: EntityRef,
-) -> Result<(), StoreError> {
-    if envelope.entity_ref != expected {
+pub(crate) fn validate_envelope_entity_ref(envelope: &EventEnvelope) -> Result<(), StoreError> {
+    let canonical = envelope.payload.entity_root();
+    if envelope.entity_ref != canonical {
         return Err(StoreError::Conversion {
             context: "envelope validation",
             reason: format!(
-                "entity_ref mismatch: envelope={}, expected={}",
-                envelope.entity_ref, expected,
+                "entity_ref mismatch: envelope={}, canonical={}",
+                envelope.entity_ref, canonical,
             ),
         });
     }

@@ -17,10 +17,9 @@
 use chrono::{DateTime, Utc};
 use tanren_domain::{
     ActorContext, AuthMode, Cli, ConfigKeys, DispatchId, DispatchMode, DispatchSnapshot,
-    DispatchStatus, DomainEvent, EntityRef, EventEnvelope, EventId, ExecutePayload, ExecuteResult,
-    FiniteF64, GraphRevision, Lane, NonEmptyString, OrgId, Outcome, Phase, ProvisionPayload,
-    ProvisionResult, SCHEMA_VERSION, StepId, StepPayload, StepReadyState, StepResult, StepType,
-    TimeoutSecs, UserId,
+    DispatchStatus, DomainEvent, EventEnvelope, EventId, ExecutePayload, ExecuteResult, FiniteF64,
+    GraphRevision, Lane, NonEmptyString, OrgId, Outcome, Phase, ProvisionPayload, ProvisionResult,
+    StepId, StepPayload, StepReadyState, StepResult, StepType, TimeoutSecs, UserId,
 };
 use tanren_store::{
     AckAndEnqueueParams, AckParams, CancelPendingStepsParams, CreateDispatchParams, DequeueParams,
@@ -71,12 +70,10 @@ pub(crate) fn create_dispatch_params(
     let dispatch_id = DispatchId::new();
     let snap = snapshot(project);
     let created_at = Utc::now();
-    let event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: created_at,
-        entity_ref: EntityRef::Dispatch(dispatch_id),
-        payload: DomainEvent::DispatchCreated {
+    let event = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        created_at,
+        DomainEvent::DispatchCreated {
             dispatch_id,
             dispatch: Box::new(snap.clone()),
             mode: DispatchMode::Manual,
@@ -84,7 +81,7 @@ pub(crate) fn create_dispatch_params(
             actor: actor.clone(),
             graph_revision: GraphRevision::INITIAL,
         },
-    };
+    );
     CreateDispatchParams {
         dispatch_id,
         mode: DispatchMode::Manual,
@@ -107,12 +104,10 @@ pub(crate) fn enqueue_step_params(
     lane: Option<Lane>,
     payload: StepPayload,
 ) -> EnqueueStepParams {
-    let event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Step(step_id),
-        payload: DomainEvent::StepEnqueued {
+    let event = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::StepEnqueued {
             dispatch_id,
             step_id,
             step_type,
@@ -121,7 +116,7 @@ pub(crate) fn enqueue_step_params(
             depends_on: vec![],
             graph_revision: GraphRevision::INITIAL,
         },
-    };
+    );
     EnqueueStepParams {
         dispatch_id,
         step_id,
@@ -143,19 +138,17 @@ pub(crate) fn step_completed_event(
     step_type: StepType,
     result: &StepResult,
 ) -> EventEnvelope {
-    EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Step(step_id),
-        payload: DomainEvent::StepCompleted {
+    EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::StepCompleted {
             dispatch_id,
             step_id,
             step_type,
             duration_secs: FiniteF64::try_new(1.0).expect("finite"),
             result_payload: Box::new(result.clone()),
         },
-    }
+    )
 }
 
 /// A canonical `StepResult::Provision` for tests.
@@ -341,13 +334,7 @@ pub(crate) fn update_dispatch_status_params(
             reason: None,
         },
     };
-    let event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Dispatch(dispatch_id),
-        payload,
-    };
+    let event = EventEnvelope::new(EventId::from_uuid(Uuid::now_v7()), Utc::now(), payload);
     UpdateDispatchStatusParams {
         dispatch_id,
         status,
@@ -365,12 +352,10 @@ pub(crate) fn duplicate_create_params(
 ) -> CreateDispatchParams {
     let snap = snapshot("clashing");
     let created_at = Utc::now();
-    let event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: created_at,
-        entity_ref: EntityRef::Dispatch(existing),
-        payload: DomainEvent::DispatchCreated {
+    let event = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        created_at,
+        DomainEvent::DispatchCreated {
             dispatch_id: existing,
             dispatch: Box::new(snap.clone()),
             mode: DispatchMode::Manual,
@@ -378,7 +363,7 @@ pub(crate) fn duplicate_create_params(
             actor: actor.clone(),
             graph_revision: GraphRevision::INITIAL,
         },
-    };
+    );
     CreateDispatchParams {
         dispatch_id: existing,
         mode: DispatchMode::Manual,

@@ -13,8 +13,8 @@ use chrono::Utc;
 use tanren_domain::{
     ActorContext, AuthMode, Cli, ConfigKeys, DispatchId, DispatchMode, DispatchSnapshot,
     DomainEvent, EntityRef, EnvironmentHandle, ErrorClass, EventEnvelope, EventId, ExecutePayload,
-    FiniteF64, GraphRevision, Lane, NonEmptyString, OrgId, Phase, SCHEMA_VERSION, StepId,
-    StepPayload, StepReadyState, StepStatus, StepType, TimeoutSecs, UserId,
+    FiniteF64, GraphRevision, Lane, NonEmptyString, OrgId, Phase, StepId, StepPayload,
+    StepReadyState, StepStatus, StepType, TimeoutSecs, UserId,
 };
 use tanren_store::{
     CreateDispatchParams, DequeueParams, EnqueueStepParams, EventFilter, EventStore, JobQueue,
@@ -64,12 +64,10 @@ async fn create_dispatch(store: &Store, lane: Lane) -> StoreResult<DispatchId> {
     let actor_ctx = actor();
     let dispatch_id = DispatchId::new();
     let created_at = Utc::now();
-    let event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: created_at,
-        entity_ref: EntityRef::Dispatch(dispatch_id),
-        payload: DomainEvent::DispatchCreated {
+    let event = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        created_at,
+        DomainEvent::DispatchCreated {
             dispatch_id,
             dispatch: Box::new(snap.clone()),
             mode: DispatchMode::Manual,
@@ -77,7 +75,7 @@ async fn create_dispatch(store: &Store, lane: Lane) -> StoreResult<DispatchId> {
             actor: actor_ctx.clone(),
             graph_revision: GraphRevision::INITIAL,
         },
-    };
+    );
     store
         .create_dispatch_projection(CreateDispatchParams {
             dispatch_id,
@@ -109,12 +107,10 @@ async fn enqueue_execute_step(
     lane: Lane,
 ) -> StoreResult<StepId> {
     let step_id = StepId::new();
-    let event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Step(step_id),
-        payload: DomainEvent::StepEnqueued {
+    let event = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::StepEnqueued {
             dispatch_id,
             step_id,
             step_type: StepType::Execute,
@@ -123,7 +119,7 @@ async fn enqueue_execute_step(
             depends_on: vec![],
             graph_revision: GraphRevision::INITIAL,
         },
-    };
+    );
     store
         .enqueue_step(EnqueueStepParams {
             dispatch_id,
@@ -155,12 +151,10 @@ async fn claim_step(store: &Store, step_id: StepId) -> StoreResult<()> {
 }
 
 fn failure_envelope(dispatch_id: DispatchId, step_id: StepId) -> EventEnvelope {
-    EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Step(step_id),
-        payload: DomainEvent::StepFailed {
+    EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::StepFailed {
             dispatch_id,
             step_id,
             step_type: StepType::Execute,
@@ -169,7 +163,7 @@ fn failure_envelope(dispatch_id: DispatchId, step_id: StepId) -> EventEnvelope {
             retry_count: 1,
             duration_secs: FiniteF64::try_new(0.5).expect("finite"),
         },
-    }
+    )
 }
 
 /// B-02: a step that is still receiving heartbeats must not be
@@ -297,64 +291,51 @@ async fn nack_rejects_pending_step() {
     assert_eq!(failures.total_count, 0);
 }
 
-/// I-05: when `entity_ref` is `Some(Dispatch(uuid_x))` and there
-/// exists a step event whose `entity_id` is also `uuid_x` (same UUID,
-/// different kind), only the dispatch event should be returned.
-/// Before the fix, the query filtered only on `entity_id` and would
-/// match both.
+/// I-05: filtering by `entity_ref = Dispatch(uuid_a)` must not
+/// return events that belong to `Dispatch(uuid_b)`. All domain
+/// events route to `EntityRef::Dispatch(dispatch_id)` via
+/// `entity_root()`, so the real discrimination axis is always
+/// between different dispatch UUIDs.
 #[tokio::test]
-async fn entity_ref_filter_distinguishes_kinds_with_same_uuid() {
+async fn entity_ref_filter_distinguishes_different_dispatches() {
     let store = fresh_store().await;
-    let id = create_dispatch(&store, Lane::Impl).await.expect("create");
-
-    // Fabricate a step event whose entity_id happens to share the
-    // dispatch_id's UUID — pathological but not impossible when
-    // IDs are externally-supplied in future.
-    let shared_uuid = id.into_uuid();
-    let step_id_same_uuid = StepId::from_uuid(shared_uuid);
-
-    let dispatch_event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Dispatch(id),
-        payload: DomainEvent::DispatchStarted { dispatch_id: id },
-    };
-    let step_event = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Step(step_id_same_uuid),
-        payload: DomainEvent::StepDequeued {
-            dispatch_id: id,
-            step_id: step_id_same_uuid,
-            worker_id: "test-worker".to_owned(),
-        },
-    };
-    store
-        .append(&dispatch_event)
+    let id_a = create_dispatch(&store, Lane::Impl).await.expect("create a");
+    let id_b = create_dispatch(&store, Lane::Audit)
         .await
-        .expect("append dispatch");
-    store.append(&step_event).await.expect("append step");
+        .expect("create b");
 
-    // Filter by typed Dispatch ref — must exclude the step event.
+    // Append an extra event on each dispatch so there is more than
+    // just the creation event to count.
+    let event_a = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::DispatchStarted { dispatch_id: id_a },
+    );
+    let event_b = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::DispatchStarted { dispatch_id: id_b },
+    );
+    store.append(&event_a).await.expect("append a");
+    store.append(&event_b).await.expect("append b");
+
+    // Filter by Dispatch(id_a) — must exclude all id_b events.
     let result = store
         .query_events(&EventFilter {
-            entity_ref: Some(EntityRef::Dispatch(id)),
+            entity_ref: Some(EntityRef::Dispatch(id_a)),
             limit: 100,
             ..EventFilter::new()
         })
         .await
         .expect("query");
 
-    // The creation event (from create_dispatch) + the DispatchStarted
-    // we just appended = 2. The StepDequeued must NOT be included.
+    // creation(a) + DispatchStarted(a) = 2
     assert_eq!(result.total_count, 2);
     for e in &result.events {
         assert_eq!(
-            e.entity_ref.kind(),
-            tanren_domain::EntityKind::Dispatch,
-            "step event must not appear in dispatch-filtered results"
+            e.entity_ref,
+            EntityRef::Dispatch(id_a),
+            "events for dispatch_b must not appear in dispatch_a-filtered results"
         );
     }
 }

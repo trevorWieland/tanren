@@ -32,7 +32,7 @@ use common::{
     enqueue_step_params, execute_payload, execute_result, now, provision_payload, provision_result,
     seed_steps, snapshot, step_completed_event, try_dequeue, update_dispatch_status_params,
 };
-use tanren_domain::{DispatchStatus, DomainEvent, EntityRef, Lane, StepId, StepPayload, StepType};
+use tanren_domain::{DispatchStatus, DomainEvent, Lane, StepId, StepPayload, StepType};
 use tanren_store::{EventFilter, EventStore, JobQueue, StateStore, Store};
 use testcontainers::ContainerAsync;
 use testcontainers::runners::AsyncRunner;
@@ -191,13 +191,11 @@ async fn full_lifecycle_passes_on_postgres() {
 
     // 8. Build a DispatchStarted envelope inline using `now()` to
     //    exercise that helper.
-    let started = tanren_domain::EventEnvelope {
-        schema_version: tanren_domain::SCHEMA_VERSION,
-        event_id: tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
-        timestamp: now(),
-        entity_ref: EntityRef::Dispatch(id),
-        payload: DomainEvent::DispatchStarted { dispatch_id: id },
-    };
+    let started = tanren_domain::EventEnvelope::new(
+        tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
+        now(),
+        DomainEvent::DispatchStarted { dispatch_id: id },
+    );
     store.append(&started).await.expect("append started");
 
     let events = store

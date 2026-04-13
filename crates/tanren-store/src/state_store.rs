@@ -12,7 +12,7 @@ use sea_orm::{
     ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect, TransactionTrait,
 };
-use tanren_domain::{DispatchId, DispatchView, EntityRef, Lane, StepId, StepView};
+use tanren_domain::{DispatchId, DispatchView, Lane, StepId, StepView};
 
 use crate::converters::{
     dispatch as dispatch_converters, events as event_converters, step as step_converters,
@@ -128,6 +128,7 @@ impl StateStore for Store {
     }
 
     async fn create_dispatch_projection(&self, params: CreateDispatchParams) -> StoreResult<()> {
+        event_converters::validate_envelope_entity_ref(&params.creation_event)?;
         let projection = dispatch_converters::params_to_active_model(&params)?;
         let event_model = event_converters::envelope_to_active_model(&params.creation_event)?;
 
@@ -146,10 +147,7 @@ impl StateStore for Store {
     }
 
     async fn update_dispatch_status(&self, params: UpdateDispatchStatusParams) -> StoreResult<()> {
-        event_converters::validate_envelope_entity_ref(
-            &params.status_event,
-            EntityRef::Dispatch(params.dispatch_id),
-        )?;
+        event_converters::validate_envelope_entity_ref(&params.status_event)?;
 
         let now = Utc::now();
         let event_model = event_converters::envelope_to_active_model(&params.status_event)?;

@@ -46,7 +46,7 @@ use chrono::Utc;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Statement, TransactionTrait, Value,
 };
-use tanren_domain::{DomainEvent, EntityRef, EventEnvelope, EventId, SCHEMA_VERSION};
+use tanren_domain::{DomainEvent, EventEnvelope, EventId};
 
 use crate::converters::{events as event_converters, step as step_converters};
 use crate::entity::{events, step_projection};
@@ -223,17 +223,15 @@ fn mint_step_dequeued(
     step_id: tanren_domain::StepId,
     worker_id: &str,
 ) -> Result<events::ActiveModel, StoreError> {
-    let envelope = EventEnvelope {
-        schema_version: SCHEMA_VERSION,
-        event_id: EventId::from_uuid(uuid::Uuid::now_v7()),
-        timestamp: Utc::now(),
-        entity_ref: EntityRef::Step(step_id),
-        payload: DomainEvent::StepDequeued {
+    let envelope = EventEnvelope::new(
+        EventId::from_uuid(uuid::Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::StepDequeued {
             dispatch_id,
             step_id,
             worker_id: worker_id.to_owned(),
         },
-    };
+    );
     event_converters::envelope_to_active_model(&envelope)
 }
 
