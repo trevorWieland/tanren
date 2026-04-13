@@ -27,10 +27,10 @@ use std::time::Duration;
 // instance in parallel.
 
 use common::{
-    ack_and_enqueue_execute, actor, assert_dispatch_status, create_dispatch,
-    create_dispatch_params, duplicate_create_params, enqueue_step_params, execute_payload,
-    execute_result, now, provision_payload, provision_result, seed_steps, snapshot,
-    step_completed_event, try_dequeue,
+    ack_and_enqueue_execute, ack_params, actor, assert_dispatch_status,
+    cancel_pending_steps_params, create_dispatch, create_dispatch_params, duplicate_create_params,
+    enqueue_step_params, execute_payload, execute_result, now, provision_payload, provision_result,
+    seed_steps, snapshot, step_completed_event, try_dequeue, update_dispatch_status_params,
 };
 use tanren_domain::{DispatchStatus, DomainEvent, EntityRef, Lane, StepId, StepPayload, StepType};
 use tanren_store::{EventFilter, EventStore, JobQueue, StateStore, Store};
@@ -148,7 +148,12 @@ async fn full_lifecycle_passes_on_postgres() {
     assert_eq!(claimed.step_id, provision_step);
     assert!(matches!(claimed.payload, StepPayload::Provision(_)));
     store
-        .ack(&claimed.step_id, &provision_result())
+        .ack(ack_params(
+            id,
+            claimed.step_id,
+            StepType::Provision,
+            provision_result(),
+        ))
         .await
         .expect("ack provision");
 
@@ -202,12 +207,47 @@ async fn full_lifecycle_passes_on_postgres() {
         })
         .await
         .expect("query");
-    assert!(events.total_count >= 6);
+    // Dequeue now mints StepDequeued events, ack now appends
+    // StepCompleted co-transactionally, so the total is higher.
+    assert!(events.total_count >= 8);
 
     // Ensure `create_dispatch_params` is still directly invokable in
     // isolation (exercised above through `create_dispatch`, but
     // clippy wants an explicit reference so the helper isn't pruned).
     let _params = create_dispatch_params("second", actor(), Lane::Audit);
+}
+
+/// Exercises `update_dispatch_status` and `cancel_pending_steps` on
+/// `Postgres` — both must append their companion events
+/// co-transactionally.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dispatch_status_and_cancel_on_postgres() {
+    let fixture = postgres_fixture().await;
+    let store = &fixture.store;
+    let snap = snapshot("beta");
+    let id = create_dispatch(store, "beta", actor(), Lane::Impl)
+        .await
+        .expect("create");
+    // Seed some steps so cancel has work to do.
+    let _ = seed_steps(store, id, &snap, Lane::Impl, 3)
+        .await
+        .expect("seed");
+
+    store
+        .update_dispatch_status(update_dispatch_status_params(
+            id,
+            DispatchStatus::Running,
+            None,
+        ))
+        .await
+        .expect("update status");
+    assert_dispatch_status(store, &id, DispatchStatus::Running).await;
+
+    let cancelled = store
+        .cancel_pending_steps(cancel_pending_steps_params(id))
+        .await
+        .expect("cancel");
+    assert_eq!(cancelled, 3);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]

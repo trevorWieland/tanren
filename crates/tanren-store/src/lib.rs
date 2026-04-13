@@ -24,6 +24,10 @@
 // module (but not re-exporting anything from it at the crate root)
 // keeps the lint satisfied without leaking the entity types into the
 // documented API.
+// `connection` houses `ConnectConfig` (public) alongside internal
+// helpers (`connect`, `connect_with_config`).  Making the module
+// `pub(crate)` keeps the helpers private while letting `lib.rs`
+// re-export `ConnectConfig` by path.
 mod connection;
 mod converters;
 #[doc(hidden)]
@@ -37,12 +41,14 @@ mod params;
 mod state_store;
 mod store;
 
+pub use connection::ConnectConfig;
 pub use errors::{StoreError, StoreResult};
 pub use event_store::EventStore;
 pub use job_queue::JobQueue;
 pub use params::{
-    AckAndEnqueueParams, CreateDispatchParams, DEFAULT_QUERY_LIMIT, DequeueParams, DispatchFilter,
-    EnqueueStepParams, EventFilter, NackParams, QueuedStep,
+    AckAndEnqueueParams, AckParams, CancelPendingStepsParams, CreateDispatchParams,
+    DEFAULT_QUERY_LIMIT, DequeueParams, DispatchFilter, EnqueueStepParams, EventFilter, NackParams,
+    QueuedStep, UpdateDispatchStatusParams,
 };
 pub use state_store::StateStore;
 pub use store::Store;

@@ -42,12 +42,14 @@
 //! cross-process contention by retrying inside the driver instead
 //! of bubbling `SQLITE_BUSY` up.
 
+use chrono::Utc;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Statement, TransactionTrait, Value,
 };
+use tanren_domain::{DomainEvent, EntityRef, EventEnvelope, EventId, SCHEMA_VERSION};
 
-use crate::converters::step as step_converters;
-use crate::entity::step_projection;
+use crate::converters::{events as event_converters, step as step_converters};
+use crate::entity::{events, step_projection};
 use crate::errors::{StoreError, StoreResult};
 use crate::params::{DequeueParams, QueuedStep};
 
@@ -62,12 +64,15 @@ pub(crate) async fn dequeue_impl(
             context: "job_queue_dequeue::dequeue_impl",
             reason: "max_concurrent exceeds i64::MAX".to_owned(),
         })?;
-    let lane_string = params.lane.map(|l| l.to_string());
+    let lane_typed = params.lane;
+    let lane_string = lane_typed.map(|l| l.to_string());
     let worker_id = params.worker_id;
 
     let backend = conn.get_database_backend();
     match backend {
-        DbBackend::Postgres => dequeue_postgres(conn, worker_id, lane_string, max_concurrent).await,
+        DbBackend::Postgres => {
+            dequeue_postgres(conn, worker_id, lane_string, lane_typed, max_concurrent).await
+        }
         DbBackend::Sqlite => dequeue_sqlite(conn, worker_id, lane_string, max_concurrent).await,
         DbBackend::MySql => Err(StoreError::Conversion {
             context: "job_queue_dequeue::dequeue_impl",
@@ -81,25 +86,59 @@ pub(crate) async fn dequeue_impl(
 /// by unrelated subsystems.
 const ADVISORY_LOCK_NAMESPACE: i32 = 42;
 
-/// All dequeue operations share key 0. See the module doc for
-/// why a per-lane key is unsound.
-const ADVISORY_LOCK_KEY: i32 = 0;
+/// Global dequeue key. `lane=None` takes an exclusive lock on this
+/// key; `lane=Some(L)` takes a shared lock on it (plus an exclusive
+/// lock on the lane-specific key). This ensures `lane=None` blocks
+/// all lane-specific dequeues, but different lanes can proceed in
+/// parallel.
+const ADVISORY_LOCK_GLOBAL: i32 = 0;
+
+/// Map a lane to a unique advisory-lock key.
+fn lane_advisory_key(lane: tanren_domain::Lane) -> i32 {
+    match lane {
+        tanren_domain::Lane::Impl => 1,
+        tanren_domain::Lane::Audit => 2,
+        tanren_domain::Lane::Gate => 3,
+    }
+}
 
 async fn dequeue_postgres(
     conn: &DatabaseConnection,
     worker_id: String,
     lane: Option<String>,
+    lane_typed: Option<tanren_domain::Lane>,
     max_concurrent: i64,
 ) -> StoreResult<Option<QueuedStep>> {
     conn.transaction::<_, Option<QueuedStep>, StoreError>(move |txn| {
         Box::pin(async move {
-            // Global serialization lock — see module doc.
-            txn.execute(Statement::from_sql_and_values(
-                DbBackend::Postgres,
-                "SELECT pg_advisory_xact_lock($1, $2)",
-                vec![ADVISORY_LOCK_NAMESPACE.into(), ADVISORY_LOCK_KEY.into()],
-            ))
-            .await?;
+            // Hierarchical advisory locks:
+            // - lane=None  -> exclusive on global key
+            // - lane=Some  -> exclusive on lane key, shared on global
+            match lane_typed {
+                None => {
+                    txn.execute(Statement::from_sql_and_values(
+                        DbBackend::Postgres,
+                        "SELECT pg_advisory_xact_lock($1, $2)",
+                        vec![ADVISORY_LOCK_NAMESPACE.into(), ADVISORY_LOCK_GLOBAL.into()],
+                    ))
+                    .await?;
+                }
+                Some(l) => {
+                    let lane_key = lane_advisory_key(l);
+                    txn.execute(Statement::from_sql_and_values(
+                        DbBackend::Postgres,
+                        "SELECT pg_advisory_xact_lock($1, $2)",
+                        vec![ADVISORY_LOCK_NAMESPACE.into(), lane_key.into()],
+                    ))
+                    .await?;
+                    txn.execute(Statement::from_sql_and_values(
+                        DbBackend::Postgres,
+                        "SELECT pg_advisory_xact_lock_shared($1, $2)",
+                        vec![ADVISORY_LOCK_NAMESPACE.into(), ADVISORY_LOCK_GLOBAL.into()],
+                    ))
+                    .await?;
+                }
+            }
 
             let stmt = postgres_claim_statement(&worker_id, lane, max_concurrent);
             let row = step_projection::Entity::find()
@@ -107,7 +146,13 @@ async fn dequeue_postgres(
                 .one(txn)
                 .await?;
             match row {
-                Some(model) => Ok(Some(step_converters::model_to_queued_step(model)?)),
+                Some(model) => {
+                    let queued = step_converters::model_to_queued_step(model)?;
+                    let dequeued_event =
+                        mint_step_dequeued(queued.dispatch_id, queued.step_id, &worker_id)?;
+                    events::Entity::insert(dequeued_event).exec(txn).await?;
+                    Ok(Some(queued))
+                }
                 None => Ok(None),
             }
         })
@@ -152,18 +197,44 @@ async fn dequeue_sqlite(
         .await;
 
     match result {
-        Ok(row) => {
+        Ok(Some(model)) => {
+            let queued = step_converters::model_to_queued_step(model)?;
+            let dequeued_event =
+                mint_step_dequeued(queued.dispatch_id, queued.step_id, &worker_id)?;
+            events::Entity::insert(dequeued_event).exec(&txn).await?;
             txn.commit().await?;
-            match row {
-                Some(model) => Ok(Some(step_converters::model_to_queued_step(model)?)),
-                None => Ok(None),
-            }
+            Ok(Some(queued))
+        }
+        Ok(None) => {
+            txn.commit().await?;
+            Ok(None)
         }
         Err(err) => {
             txn.rollback().await?;
             Err(err.into())
         }
     }
+}
+
+/// Build a `StepDequeued` event [`events::ActiveModel`] for the
+/// claimed row.
+fn mint_step_dequeued(
+    dispatch_id: tanren_domain::DispatchId,
+    step_id: tanren_domain::StepId,
+    worker_id: &str,
+) -> Result<events::ActiveModel, StoreError> {
+    let envelope = EventEnvelope {
+        schema_version: SCHEMA_VERSION,
+        event_id: EventId::from_uuid(uuid::Uuid::now_v7()),
+        timestamp: Utc::now(),
+        entity_ref: EntityRef::Step(step_id),
+        payload: DomainEvent::StepDequeued {
+            dispatch_id,
+            step_id,
+            worker_id: worker_id.to_owned(),
+        },
+    };
+    event_converters::envelope_to_active_model(&envelope)
 }
 
 /// Build the `Postgres` `UPDATE...RETURNING` claim statement.
@@ -214,7 +285,7 @@ pub(crate) fn sqlite_claim_statement(
     lane: Option<String>,
     max_concurrent: i64,
 ) -> Statement {
-    let now = chrono::Utc::now();
+    let now = Utc::now();
     let sql = r"
         UPDATE step_projection
         SET status = 'running',

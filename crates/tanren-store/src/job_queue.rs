@@ -10,14 +10,19 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
-use tanren_domain::{DispatchId, StepId, StepStatus, StepType};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, TransactionTrait,
+};
+use tanren_domain::{
+    DomainEvent, EntityRef, EventEnvelope, EventId, SCHEMA_VERSION, StepId, StepStatus, StepType,
+};
 
 use crate::converters::{events as event_converters, step as step_converters};
 use crate::entity::{events, step_projection};
 use crate::errors::{StoreError, StoreResult};
 use crate::params::{
-    AckAndEnqueueParams, DequeueParams, EnqueueStepParams, NackParams, QueuedStep,
+    AckAndEnqueueParams, AckParams, CancelPendingStepsParams, DequeueParams, EnqueueStepParams,
+    NackParams, QueuedStep,
 };
 use crate::store::Store;
 
@@ -33,10 +38,11 @@ pub trait JobQueue: Send + Sync {
     /// Returns `None` if no candidate qualifies.
     async fn dequeue(&self, params: DequeueParams) -> StoreResult<Option<QueuedStep>>;
 
-    /// Mark a step as completed, storing its result. Fails with
-    /// [`StoreError::InvalidTransition`] if the step is not currently
-    /// `running`.
-    async fn ack(&self, step_id: &StepId, result: &tanren_domain::StepResult) -> StoreResult<()>;
+    /// Mark a step as completed, storing its result. Appends the
+    /// companion `StepCompleted` envelope co-transactionally. Fails
+    /// with [`StoreError::InvalidTransition`] if the step is not
+    /// currently `running`.
+    async fn ack(&self, params: AckParams) -> StoreResult<()>;
 
     /// Single-transaction ack of the current step **and** enqueue of
     /// its successor. Both events (completion + optional next enqueue)
@@ -44,9 +50,11 @@ pub trait JobQueue: Send + Sync {
     /// path the orchestrator uses to drive dispatches forward.
     async fn ack_and_enqueue(&self, params: AckAndEnqueueParams) -> StoreResult<()>;
 
-    /// Cancel every pending non-teardown step belonging to a dispatch.
-    /// Returns the number of rows updated.
-    async fn cancel_pending_steps(&self, dispatch_id: &DispatchId) -> StoreResult<u64>;
+    /// Cancel every pending non-teardown step belonging to a dispatch,
+    /// generating one `StepCancelled` envelope per cancelled row and
+    /// appending them all co-transactionally. Returns the number of
+    /// rows updated.
+    async fn cancel_pending_steps(&self, params: CancelPendingStepsParams) -> StoreResult<u64>;
 
     /// Mark a step as failed. If `params.retry` is true, the row is
     /// reset to `pending` with an incremented `retry_count` instead.
@@ -94,31 +102,51 @@ impl JobQueue for Store {
         crate::job_queue_dequeue::dequeue_impl(self.conn(), params).await
     }
 
-    async fn ack(&self, step_id: &StepId, result: &tanren_domain::StepResult) -> StoreResult<()> {
-        let result_value = serde_json::to_value(result)?;
+    async fn ack(&self, params: AckParams) -> StoreResult<()> {
+        event_converters::validate_envelope_entity_ref(
+            &params.completion_event,
+            EntityRef::Step(params.step_id),
+        )?;
+
+        let result_value = serde_json::to_value(&params.result)?;
+        let event_model = event_converters::envelope_to_active_model(&params.completion_event)?;
         let now = Utc::now();
-        let update = step_projection::ActiveModel {
-            step_id: Set(step_id.into_uuid()),
-            status: Set(StepStatus::Completed.to_string()),
-            result: Set(Some(result_value)),
-            updated_at: Set(now),
-            worker_id: Set(None),
-            ..Default::default()
-        };
-        let outcome = step_projection::Entity::update(update)
-            .filter(step_projection::Column::StepId.eq(step_id.into_uuid()))
-            .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
-            .exec(self.conn())
-            .await;
-        match outcome {
-            Ok(_) => Ok(()),
-            Err(sea_orm::DbErr::RecordNotUpdated) => Err(StoreError::InvalidTransition {
-                entity: format!("step {step_id}"),
-                from: "running".to_owned(),
-                to: "completed".to_owned(),
-            }),
-            Err(err) => Err(err.into()),
-        }
+        let step_id = params.step_id;
+        let step_id_uuid = step_id.into_uuid();
+
+        self.conn()
+            .transaction::<_, (), StoreError>(move |txn| {
+                Box::pin(async move {
+                    let update = step_projection::ActiveModel {
+                        step_id: Set(step_id_uuid),
+                        status: Set(StepStatus::Completed.to_string()),
+                        result: Set(Some(result_value)),
+                        updated_at: Set(now),
+                        worker_id: Set(None),
+                        ..Default::default()
+                    };
+                    let outcome = step_projection::Entity::update(update)
+                        .filter(step_projection::Column::StepId.eq(step_id_uuid))
+                        .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
+                        .exec(txn)
+                        .await;
+                    match outcome {
+                        Ok(_) => {}
+                        Err(sea_orm::DbErr::RecordNotUpdated) => {
+                            return Err(StoreError::InvalidTransition {
+                                entity: format!("step {step_id}"),
+                                from: "running".to_owned(),
+                                to: "completed".to_owned(),
+                            });
+                        }
+                        Err(err) => return Err(err.into()),
+                    }
+                    events::Entity::insert(event_model).exec(txn).await?;
+                    Ok(())
+                })
+            })
+            .await?;
+        Ok(())
     }
 
     async fn ack_and_enqueue(&self, params: AckAndEnqueueParams) -> StoreResult<()> {
@@ -180,19 +208,77 @@ impl JobQueue for Store {
         Ok(())
     }
 
-    async fn cancel_pending_steps(&self, dispatch_id: &DispatchId) -> StoreResult<u64> {
-        let result = step_projection::Entity::update_many()
-            .col_expr(
-                step_projection::Column::Status,
-                Expr::value(StepStatus::Cancelled.to_string()),
-            )
-            .col_expr(step_projection::Column::UpdatedAt, Expr::value(Utc::now()))
-            .filter(step_projection::Column::DispatchId.eq(dispatch_id.into_uuid()))
-            .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
-            .filter(step_projection::Column::StepType.ne(StepType::Teardown.to_string()))
-            .exec(self.conn())
-            .await?;
-        Ok(result.rows_affected)
+    async fn cancel_pending_steps(&self, params: CancelPendingStepsParams) -> StoreResult<u64> {
+        let dispatch_id = params.dispatch_id;
+        let actor = params.actor;
+        let reason = params.reason;
+        let timestamp = params.timestamp;
+        let dispatch_uuid = dispatch_id.into_uuid();
+
+        self.conn()
+            .transaction::<_, u64, StoreError>(move |txn| {
+                Box::pin(async move {
+                    // SELECT the pending non-teardown rows so we can
+                    // generate one `StepCancelled` envelope per row.
+                    let rows = step_projection::Entity::find()
+                        .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
+                        .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
+                        .filter(
+                            step_projection::Column::StepType.ne(StepType::Teardown.to_string()),
+                        )
+                        .order_by_asc(step_projection::Column::StepSequence)
+                        .all(txn)
+                        .await?;
+
+                    if rows.is_empty() {
+                        return Ok(0);
+                    }
+
+                    let count = u64::try_from(rows.len()).unwrap_or(u64::MAX);
+
+                    // UPDATE all matching rows to cancelled.
+                    step_projection::Entity::update_many()
+                        .col_expr(
+                            step_projection::Column::Status,
+                            Expr::value(StepStatus::Cancelled.to_string()),
+                        )
+                        .col_expr(step_projection::Column::UpdatedAt, Expr::value(timestamp))
+                        .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
+                        .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
+                        .filter(
+                            step_projection::Column::StepType.ne(StepType::Teardown.to_string()),
+                        )
+                        .exec(txn)
+                        .await?;
+
+                    // Generate and insert one StepCancelled envelope
+                    // per cancelled row.
+                    let mut event_models = Vec::with_capacity(rows.len());
+                    for row in &rows {
+                        let step_id = StepId::from_uuid(row.step_id);
+                        let step_type = step_converters::parse_step_type(&row.step_type)?;
+                        let envelope = EventEnvelope {
+                            schema_version: SCHEMA_VERSION,
+                            event_id: EventId::from_uuid(uuid::Uuid::now_v7()),
+                            timestamp,
+                            entity_ref: EntityRef::Step(step_id),
+                            payload: DomainEvent::StepCancelled {
+                                dispatch_id,
+                                step_id,
+                                step_type,
+                                caused_by: actor.clone(),
+                                reason: reason.clone(),
+                            },
+                        };
+                        event_models.push(event_converters::envelope_to_active_model(&envelope)?);
+                    }
+                    events::Entity::insert_many(event_models).exec(txn).await?;
+
+                    Ok(count)
+                })
+            })
+            .await
+            .map_err(StoreError::from)
     }
 
     async fn nack(&self, step_id: &StepId, params: NackParams) -> StoreResult<()> {

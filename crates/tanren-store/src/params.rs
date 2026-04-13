@@ -18,8 +18,8 @@
 use chrono::{DateTime, Utc};
 use tanren_domain::{
     ActorContext, DispatchId, DispatchMode, DispatchSnapshot, DispatchStatus, EntityKind,
-    EntityRef, ErrorClass, EventEnvelope, GraphRevision, Lane, StepId, StepPayload, StepReadyState,
-    StepResult, StepType, UserId,
+    EntityRef, ErrorClass, EventEnvelope, GraphRevision, Lane, Outcome, StepId, StepPayload,
+    StepReadyState, StepResult, StepType, UserId,
 };
 
 // ---------------------------------------------------------------------------
@@ -213,6 +213,62 @@ pub struct NackParams {
 // ---------------------------------------------------------------------------
 // Dispatch projection params
 // ---------------------------------------------------------------------------
+
+/// Parameters for [`JobQueue::ack`](crate::JobQueue::ack).
+///
+/// Completes the given step and appends the caller-supplied
+/// `StepCompleted` envelope co-transactionally. Replaces the old
+/// bare `ack(&StepId, &StepResult)` signature so that every
+/// projection-mutating method co-transactionally appends its
+/// companion event.
+#[derive(Debug, Clone)]
+pub struct AckParams {
+    /// Step being completed.
+    pub step_id: StepId,
+    /// Result payload stored on the step projection row.
+    pub result: StepResult,
+    /// `StepCompleted` envelope appended co-transactionally.
+    pub completion_event: EventEnvelope,
+}
+
+/// Parameters for
+/// [`JobQueue::cancel_pending_steps`](crate::JobQueue::cancel_pending_steps).
+///
+/// Cancels every pending non-teardown step belonging to a dispatch
+/// and appends one `StepCancelled` envelope per cancelled row in
+/// the same transaction. Replaces the old bare
+/// `cancel_pending_steps(&DispatchId)` signature.
+#[derive(Debug, Clone)]
+pub struct CancelPendingStepsParams {
+    /// Owning dispatch.
+    pub dispatch_id: DispatchId,
+    /// Actor initiating the cancellation (written to each
+    /// `StepCancelled` event).
+    pub actor: Option<ActorContext>,
+    /// Human-readable reason.
+    pub reason: Option<String>,
+    /// Timestamp for all generated `StepCancelled` envelopes.
+    pub timestamp: DateTime<Utc>,
+}
+
+/// Parameters for
+/// [`StateStore::update_dispatch_status`](crate::StateStore::update_dispatch_status).
+///
+/// Updates the dispatch projection row and appends the caller-
+/// supplied lifecycle event co-transactionally. The store validates
+/// that the event's `entity_ref` matches `EntityRef::Dispatch(dispatch_id)`
+/// before committing.
+#[derive(Debug, Clone)]
+pub struct UpdateDispatchStatusParams {
+    /// Dispatch identifier.
+    pub dispatch_id: DispatchId,
+    /// New status.
+    pub status: DispatchStatus,
+    /// Terminal outcome, if any.
+    pub outcome: Option<Outcome>,
+    /// The lifecycle event to append co-transactionally.
+    pub status_event: EventEnvelope,
+}
 
 /// Parameters for
 /// [`StateStore::create_dispatch_projection`](crate::StateStore::create_dispatch_projection).

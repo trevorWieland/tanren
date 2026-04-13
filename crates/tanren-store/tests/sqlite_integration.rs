@@ -1,19 +1,14 @@
 //! `SQLite`-backed integration tests for `tanren-store`.
-//!
-//! Every test creates a fresh `sqlite::memory:` database, applies
-//! migrations, and exercises the traits end-to-end. `SQLite` cannot
-//! exercise row-level locking (`FOR UPDATE SKIP LOCKED`), so the
-//! Postgres-only concurrency test lives in `postgres_integration.rs`.
 
 mod common;
 
 use std::time::Duration;
 
 use common::{
-    ack_and_enqueue_execute, actor, assert_dispatch_status, create_dispatch,
-    create_dispatch_params, duplicate_create_params, enqueue_step_params, execute_payload,
-    execute_result, now, provision_payload, provision_result, seed_steps, snapshot,
-    step_completed_event, try_dequeue,
+    ack_and_enqueue_execute, ack_params, actor, assert_dispatch_status,
+    cancel_pending_steps_params, create_dispatch, create_dispatch_params, duplicate_create_params,
+    enqueue_step_params, execute_payload, execute_result, now, provision_payload, provision_result,
+    seed_steps, snapshot, step_completed_event, try_dequeue, update_dispatch_status_params,
 };
 use tanren_domain::{
     DispatchStatus, DomainEvent, EntityKind, EntityRef, Lane, Outcome, StepId, StepPayload,
@@ -34,16 +29,20 @@ async fn fresh_store() -> Store {
 #[tokio::test]
 async fn dispatch_create_get_and_status_lifecycle() {
     let store = fresh_store().await;
-    // Migrations are idempotent — a second run is a no-op. (`fresh_store`
-    // already ran them once.) `now()` keeps the helper exercised.
-    store.run_migrations().await.expect("second migration run");
+    store.run_migrations().await.expect("idempotent");
     let _ = now();
-
     let actor_ctx = actor();
     let user_id = actor_ctx.user_id;
+    let dup_actor = actor_ctx.clone();
     let id = create_dispatch(&store, "alpha", actor_ctx, Lane::Impl)
         .await
         .expect("create");
+    assert!(
+        store
+            .create_dispatch_projection(duplicate_create_params(id, dup_actor, Lane::Impl))
+            .await
+            .is_err()
+    );
 
     let view = store.get_dispatch(&id).await.expect("get").expect("exists");
     assert_eq!(view.dispatch_id, id);
@@ -52,12 +51,20 @@ async fn dispatch_create_get_and_status_lifecycle() {
     assert_eq!(view.actor.user_id, user_id);
 
     store
-        .update_dispatch_status(&id, DispatchStatus::Running, None)
+        .update_dispatch_status(update_dispatch_status_params(
+            id,
+            DispatchStatus::Running,
+            None,
+        ))
         .await
         .expect("running");
     assert_dispatch_status(&store, &id, DispatchStatus::Running).await;
     store
-        .update_dispatch_status(&id, DispatchStatus::Completed, Some(Outcome::Success))
+        .update_dispatch_status(update_dispatch_status_params(
+            id,
+            DispatchStatus::Completed,
+            Some(Outcome::Success),
+        ))
         .await
         .expect("completed");
     let view = store.get_dispatch(&id).await.expect("get").expect("exists");
@@ -198,7 +205,15 @@ async fn enqueue_dequeue_ack_lifecycle() {
         .expect("dequeue");
     assert!(none.is_none(), "max_concurrent saturated");
 
-    store.ack(&step_id, &provision_result()).await.expect("ack");
+    store
+        .ack(ack_params(
+            id,
+            step_id,
+            StepType::Provision,
+            provision_result(),
+        ))
+        .await
+        .expect("ack");
     let view = store
         .get_step(&step_id)
         .await
@@ -264,7 +279,7 @@ async fn ack_and_enqueue_is_atomic() {
         .expect("b exists");
     assert_eq!(view_b.status, StepStatus::Pending);
 
-    // 1 create + 1 enqueue(a) + 1 completion(a) + 1 enqueue(b) = 4
+    // 1 create + 1 enqueue(a) + 1 dequeue(a) + 1 completion(a) + 1 enqueue(b) = 5
     let events = store
         .query_events(&EventFilter {
             limit: 100,
@@ -272,7 +287,7 @@ async fn ack_and_enqueue_is_atomic() {
         })
         .await
         .expect("query");
-    assert_eq!(events.total_count, 4);
+    assert_eq!(events.total_count, 5);
 }
 
 #[tokio::test]
@@ -371,7 +386,13 @@ async fn cancel_pending_steps_excludes_teardown() {
         .await
         .expect("teardown enqueue");
 
-    assert_eq!(store.cancel_pending_steps(&id).await.expect("cancel"), 3);
+    assert_eq!(
+        store
+            .cancel_pending_steps(cancel_pending_steps_params(id))
+            .await
+            .expect("cancel"),
+        3
+    );
     let tv = store
         .get_step(&teardown_id)
         .await
@@ -474,24 +495,4 @@ async fn recover_stale_steps_resets_long_running() {
         .expect("exists");
     assert_eq!(view.status, StepStatus::Pending);
     assert!(view.worker_id.is_none());
-}
-
-#[tokio::test]
-async fn duplicate_dispatch_fails_cleanly() {
-    let store = fresh_store().await;
-    let actor_ctx = actor();
-    let dup_actor = actor_ctx.clone();
-    let id = create_dispatch(&store, "alpha", actor_ctx, Lane::Impl)
-        .await
-        .expect("first");
-    let result = store
-        .create_dispatch_projection(duplicate_create_params(id, dup_actor, Lane::Impl))
-        .await;
-    assert!(result.is_err(), "duplicate should fail");
-    let view = store
-        .get_dispatch(&id)
-        .await
-        .expect("get")
-        .expect("still exists");
-    assert_eq!(view.status, DispatchStatus::Pending);
 }

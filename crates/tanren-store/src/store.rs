@@ -11,7 +11,7 @@
 use sea_orm::{DatabaseConnection, DbErr};
 use sea_orm_migration::MigratorTrait;
 
-use crate::connection;
+use crate::connection::{self, ConnectConfig};
 use crate::errors::{StoreError, StoreResult};
 use crate::migration::Migrator;
 
@@ -38,6 +38,16 @@ impl Store {
     /// unreachable host, authentication failure).
     pub async fn new(database_url: &str) -> StoreResult<Self> {
         let conn = connection::connect(database_url).await?;
+        Ok(Self { conn })
+    }
+
+    /// Open a connection with explicit pool sizing and timeout knobs.
+    ///
+    /// # Errors
+    ///
+    /// Returns any connection error raised by `SeaORM`.
+    pub async fn new_with_config(database_url: &str, config: &ConnectConfig) -> StoreResult<Self> {
+        let conn = connection::connect_with_config(database_url, config).await?;
         Ok(Self { conn })
     }
 

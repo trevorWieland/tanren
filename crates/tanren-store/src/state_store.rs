@@ -12,14 +12,14 @@ use sea_orm::{
     ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect, TransactionTrait,
 };
-use tanren_domain::{DispatchId, DispatchStatus, DispatchView, Lane, Outcome, StepId, StepView};
+use tanren_domain::{DispatchId, DispatchView, EntityRef, Lane, StepId, StepView};
 
 use crate::converters::{
     dispatch as dispatch_converters, events as event_converters, step as step_converters,
 };
-use crate::entity::{dispatch_projection, step_projection};
+use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreError, StoreResult};
-use crate::params::{CreateDispatchParams, DispatchFilter};
+use crate::params::{CreateDispatchParams, DispatchFilter, UpdateDispatchStatusParams};
 use crate::store::Store;
 
 /// Projection read / write interface for dispatches and steps.
@@ -47,13 +47,10 @@ pub trait StateStore: Send + Sync {
     async fn create_dispatch_projection(&self, params: CreateDispatchParams) -> StoreResult<()>;
 
     /// Update a dispatch's status (and, for terminal transitions,
-    /// its outcome). `updated_at` is set to the current wall clock.
-    async fn update_dispatch_status(
-        &self,
-        id: &DispatchId,
-        status: DispatchStatus,
-        outcome: Option<Outcome>,
-    ) -> StoreResult<()>;
+    /// its outcome) and append the companion lifecycle event
+    /// co-transactionally. `updated_at` is set to the current wall
+    /// clock.
+    async fn update_dispatch_status(&self, params: UpdateDispatchStatusParams) -> StoreResult<()>;
 }
 
 #[async_trait]
@@ -140,9 +137,7 @@ impl StateStore for Store {
                     dispatch_projection::Entity::insert(projection)
                         .exec(txn)
                         .await?;
-                    crate::entity::events::Entity::insert(event_model)
-                        .exec(txn)
-                        .await?;
+                    events::Entity::insert(event_model).exec(txn).await?;
                     Ok(())
                 })
             })
@@ -150,30 +145,47 @@ impl StateStore for Store {
         Ok(())
     }
 
-    async fn update_dispatch_status(
-        &self,
-        id: &DispatchId,
-        status: DispatchStatus,
-        outcome: Option<Outcome>,
-    ) -> StoreResult<()> {
+    async fn update_dispatch_status(&self, params: UpdateDispatchStatusParams) -> StoreResult<()> {
+        event_converters::validate_envelope_entity_ref(
+            &params.status_event,
+            EntityRef::Dispatch(params.dispatch_id),
+        )?;
+
         let now = Utc::now();
-        let update = dispatch_projection::ActiveModel {
-            dispatch_id: Set(id.into_uuid()),
-            status: Set(status.to_string()),
-            outcome: Set(outcome.map(|o| o.to_string())),
-            updated_at: Set(now),
-            ..Default::default()
-        };
-        let result = dispatch_projection::Entity::update(update)
-            .filter(dispatch_projection::Column::DispatchId.eq(id.into_uuid()))
-            .exec(self.conn())
-            .await;
-        match result {
-            Ok(_) => Ok(()),
-            Err(sea_orm::DbErr::RecordNotUpdated) => Err(StoreError::NotFound {
-                entity: format!("dispatch {id}"),
-            }),
-            Err(err) => Err(err.into()),
-        }
+        let event_model = event_converters::envelope_to_active_model(&params.status_event)?;
+        let id = params.dispatch_id;
+        let id_uuid = id.into_uuid();
+        let status = params.status;
+        let outcome = params.outcome;
+
+        self.conn()
+            .transaction::<_, (), StoreError>(move |txn| {
+                Box::pin(async move {
+                    let update = dispatch_projection::ActiveModel {
+                        dispatch_id: Set(id_uuid),
+                        status: Set(status.to_string()),
+                        outcome: Set(outcome.map(|o| o.to_string())),
+                        updated_at: Set(now),
+                        ..Default::default()
+                    };
+                    let result = dispatch_projection::Entity::update(update)
+                        .filter(dispatch_projection::Column::DispatchId.eq(id_uuid))
+                        .exec(txn)
+                        .await;
+                    match result {
+                        Ok(_) => {}
+                        Err(sea_orm::DbErr::RecordNotUpdated) => {
+                            return Err(StoreError::NotFound {
+                                entity: format!("dispatch {id}"),
+                            });
+                        }
+                        Err(err) => return Err(err.into()),
+                    }
+                    events::Entity::insert(event_model).exec(txn).await?;
+                    Ok(())
+                })
+            })
+            .await?;
+        Ok(())
     }
 }

@@ -23,8 +23,8 @@ use tanren_domain::{
     TimeoutSecs, UserId,
 };
 use tanren_store::{
-    AckAndEnqueueParams, CreateDispatchParams, DequeueParams, EnqueueStepParams, JobQueue,
-    StateStore, Store, StoreResult,
+    AckAndEnqueueParams, AckParams, CancelPendingStepsParams, CreateDispatchParams, DequeueParams,
+    EnqueueStepParams, JobQueue, StateStore, Store, StoreResult, UpdateDispatchStatusParams,
 };
 use uuid::Uuid;
 
@@ -285,6 +285,74 @@ pub(crate) fn ack_and_enqueue_execute(
         result,
         completion_event,
         next_step: Some(next),
+    }
+}
+
+/// Build an [`AckParams`] wrapping a step completion.
+pub(crate) fn ack_params(
+    dispatch_id: DispatchId,
+    step_id: StepId,
+    step_type: StepType,
+    result: StepResult,
+) -> AckParams {
+    let completion_event = step_completed_event(dispatch_id, step_id, step_type, &result);
+    AckParams {
+        step_id,
+        result,
+        completion_event,
+    }
+}
+
+/// Build [`CancelPendingStepsParams`] for a dispatch.
+pub(crate) fn cancel_pending_steps_params(dispatch_id: DispatchId) -> CancelPendingStepsParams {
+    CancelPendingStepsParams {
+        dispatch_id,
+        actor: None,
+        reason: None,
+        timestamp: Utc::now(),
+    }
+}
+
+/// Build [`UpdateDispatchStatusParams`] for a status transition.
+pub(crate) fn update_dispatch_status_params(
+    dispatch_id: DispatchId,
+    status: DispatchStatus,
+    outcome: Option<Outcome>,
+) -> UpdateDispatchStatusParams {
+    let payload = match status {
+        DispatchStatus::Pending | DispatchStatus::Running => {
+            DomainEvent::DispatchStarted { dispatch_id }
+        }
+        DispatchStatus::Completed => DomainEvent::DispatchCompleted {
+            dispatch_id,
+            outcome: outcome.unwrap_or(Outcome::Success),
+            total_duration_secs: FiniteF64::try_new(1.0).expect("finite"),
+        },
+        DispatchStatus::Failed => DomainEvent::DispatchFailed {
+            dispatch_id,
+            outcome: outcome.unwrap_or(Outcome::Fail),
+            failed_step_id: None,
+            failed_step_type: None,
+            error: "test failure".to_owned(),
+        },
+        DispatchStatus::Cancelled => DomainEvent::DispatchCancelled {
+            dispatch_id,
+            actor: actor(),
+            reason: None,
+        },
+    };
+    let event = EventEnvelope {
+        schema_version: SCHEMA_VERSION,
+        event_id: EventId::from_uuid(Uuid::now_v7()),
+        timestamp: Utc::now(),
+        entity_ref: EntityRef::Dispatch(dispatch_id),
+        payload,
+    };
+    UpdateDispatchStatusParams {
+        dispatch_id,
+        status,
+        outcome,
+        status_event: event,
     }
 }
 

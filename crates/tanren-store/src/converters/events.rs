@@ -81,6 +81,28 @@ pub(crate) fn model_to_envelope(model: events::Model) -> Result<EventEnvelope, S
     })
 }
 
+/// Validate that an envelope's `entity_ref` matches the expected value.
+///
+/// Called by every store method that accepts a caller-supplied
+/// [`EventEnvelope`] before committing the transaction. This catches
+/// misrouted envelopes early rather than persisting inconsistent
+/// routing metadata.
+pub(crate) fn validate_envelope_entity_ref(
+    envelope: &EventEnvelope,
+    expected: EntityRef,
+) -> Result<(), StoreError> {
+    if envelope.entity_ref != expected {
+        return Err(StoreError::Conversion {
+            context: "envelope validation",
+            reason: format!(
+                "entity_ref mismatch: envelope={}, expected={}",
+                envelope.entity_ref, expected,
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn extract_event_type(payload: &JsonValue) -> Result<String, StoreError> {
     payload
         .get("event_type")
