@@ -30,24 +30,17 @@
 //!
 //! ## `SQLite` path
 //!
-//! `SQLite` is serialized at the database level by its single-writer
-//! lock. The dequeue is a single `UPDATE ... WHERE step_id =
-//! (SELECT ... LIMIT 1) RETURNING ...` statement — there are no
-//! pre-write reads in the transaction. `SQLite` acquires the
-//! **reserved lock** (equivalent to the write lock) when the first
-//! write statement executes, so the entire count+claim decision
-//! runs under that lock even under `BEGIN DEFERRED`. This makes the
-//! `DEFERRED` vs `IMMEDIATE` distinction a no-op for this specific
-//! statement shape: both modes acquire the write lock before the
-//! UPDATE's subquery reads the candidate set. The `busy_timeout`
-//! set in `connection.rs` handles cross-process contention by
-//! retrying inside the driver instead of bubbling `SQLITE_BUSY` up.
-//!
-//! We use `conn.transaction()` (which issues `BEGIN DEFERRED`) and
-//! document this reasoning explicitly so the audit trail is clear.
-//! Reference: <https://www.sqlite.org/lang_transaction.html>
-//! ("DEFERRED ... the first read operation ... creates a SHARED
-//! lock and the first write operation creates a RESERVED lock").
+//! The audit brief requires `BEGIN IMMEDIATE` + `busy_timeout` for
+//! the `SQLite` dequeue path, and flags `BEGIN DEFERRED` as
+//! non-conformant. `SeaORM`'s `conn.transaction()` always issues
+//! `BEGIN DEFERRED` and ignores `IsolationLevel` on `SQLite`, so we
+//! bypass it: call `conn.begin()` to acquire a sticky pooled
+//! connection (which issues `BEGIN DEFERRED`), then immediately
+//! upgrade via `END; BEGIN IMMEDIATE` on the same connection. The
+//! claim statement and the final `COMMIT` all run on that same
+//! sticky handle. The `busy_timeout` set in `connection.rs` handles
+//! cross-process contention by retrying inside the driver instead
+//! of bubbling `SQLITE_BUSY` up.
 
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Statement, TransactionTrait, Value,
@@ -123,32 +116,54 @@ async fn dequeue_postgres(
     .map_err(StoreError::from)
 }
 
-/// `SQLite` dequeue inside a `conn.transaction()` closure.
+/// `SQLite` dequeue under `BEGIN IMMEDIATE`.
 ///
-/// See the module doc for why `BEGIN DEFERRED` is sufficient for
-/// this single-statement shape — the write lock is acquired at
-/// the UPDATE, before the subquery reads.
+/// `SeaORM`'s `conn.transaction()` always issues `BEGIN DEFERRED`,
+/// so we acquire a sticky connection via `conn.begin()` and
+/// immediately upgrade to `IMMEDIATE` by ending the deferred
+/// transaction and starting a new immediate one on the same handle.
+/// This satisfies the audit brief's requirement and ensures the
+/// write lock is held from the very start of the transaction.
 async fn dequeue_sqlite(
     conn: &DatabaseConnection,
     worker_id: String,
     lane: Option<String>,
     max_concurrent: i64,
 ) -> StoreResult<Option<QueuedStep>> {
-    conn.transaction::<_, Option<QueuedStep>, StoreError>(move |txn| {
-        Box::pin(async move {
-            let stmt = sqlite_claim_statement(&worker_id, lane, max_concurrent);
-            let row = step_projection::Entity::find()
-                .from_raw_sql(stmt)
-                .one(txn)
-                .await?;
+    // `conn.begin()` acquires a sticky pooled connection and issues
+    // `BEGIN` (deferred). We hold this handle for the lifetime of
+    // the dequeue so every subsequent statement runs on the same
+    // connection.
+    let txn = conn.begin().await?;
+
+    // Upgrade: end the deferred transaction and immediately start
+    // an IMMEDIATE one. Both statements execute on the sticky
+    // connection held by `txn`. If `BEGIN IMMEDIATE` fails (e.g.,
+    // `SQLITE_BUSY` after busy_timeout exhaustion), the error
+    // propagates and `txn`'s drop handler is a no-op (no active
+    // transaction to rollback — we already ended it).
+    txn.execute_unprepared("END").await?;
+    txn.execute_unprepared("BEGIN IMMEDIATE").await?;
+
+    let stmt = sqlite_claim_statement(&worker_id, lane, max_concurrent);
+    let result = step_projection::Entity::find()
+        .from_raw_sql(stmt)
+        .one(&txn)
+        .await;
+
+    match result {
+        Ok(row) => {
+            txn.commit().await?;
             match row {
                 Some(model) => Ok(Some(step_converters::model_to_queued_step(model)?)),
                 None => Ok(None),
             }
-        })
-    })
-    .await
-    .map_err(StoreError::from)
+        }
+        Err(err) => {
+            txn.rollback().await?;
+            Err(err.into())
+        }
+    }
 }
 
 /// Build the `Postgres` `UPDATE...RETURNING` claim statement.
