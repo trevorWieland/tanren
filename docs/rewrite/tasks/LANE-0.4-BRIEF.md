@@ -35,6 +35,9 @@ new persistence helpers.
 - **No runtime execution yet.** This lane wires dispatch creation,
   query, list, and cancel only. No harness or environment execution
   belongs here.
+- **No methodology-boundary work here.** Command templating, self-hosting
+  workflow mechanics, issue-source integration, and installed-command
+  rendering belong to lane 0.5.
 
 ## Deliverables
 

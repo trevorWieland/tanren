@@ -30,6 +30,9 @@ built against the store traits (not the implementation).
   listing, and status queries (no execution)
 - **Trait-based store dependency** — the CLI takes a `Store` via dependency
   injection (constructor), not a hardcoded implementation
+- **No methodology templating or self-hosting mechanics** — command rendering,
+  workflow-context artifacts, issue-source-backed workflow prep, and manual
+  Tanren-in-Tanren flow are lane 0.5 concerns
 
 ## Deliverables
 

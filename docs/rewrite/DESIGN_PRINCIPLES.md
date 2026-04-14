@@ -102,3 +102,15 @@ Implication:
 
 - deployment mode changes should adjust policy and infrastructure, not redesign
   core orchestration semantics.
+
+## 11. Workflow Mechanics in Code, Agent Behavior in Markdown
+
+Workflow mechanics must live in Tanren code. Command markdown defines what an
+agent should do, not how Tanren resolves workflow state.
+
+Implication:
+
+- issue tracker operations, verification-hook resolution, branch/PR flow, and
+  workflow-target selection belong in code
+- shared command markdown stays provider-agnostic and repo-agnostic
+- installed command files are rendered artifacts, not the workflow engine

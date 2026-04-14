@@ -117,7 +117,27 @@ Policy is evaluated before and during execution:
 
 All policy decisions are evented and auditable.
 
-### 6. Store and Eventing Layer
+### 6. Methodology / Workflow Context Layer
+
+Tanren's methodology is a control-plane concern. The system must distinguish
+between:
+
+- shared command templates as reusable assets
+- installed command files rendered for a concrete repo/runtime
+- dynamic phase context generated per invocation from workflow state
+
+This layer owns:
+
+- workflow target resolution
+- verification-hook resolution
+- issue-source / repo-specific workflow mechanics
+- repo-specific installed command rendering inputs
+- phase context generation for agent invocations
+
+The markdown command files define agent behavior. They do not own issue
+tracker mechanics, branch/PR flow, or literal verification commands.
+
+### 7. Store and Eventing Layer
 
 A unified event-sourced store remains the core durability model, but with
 explicit read-model strategy for scale:
@@ -127,7 +147,7 @@ explicit read-model strategy for scale:
 - indexed read models for status, metrics, VM/environment inventory, and dashboards
 - retention and archival policies
 
-### 7. Observability and Audit
+### 8. Observability and Audit
 
 First-class telemetry includes:
 

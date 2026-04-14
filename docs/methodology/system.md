@@ -10,10 +10,10 @@ instructions, output expectations, and failure handling.
 | Command | Role | Primary Purpose |
 |---|---|---|
 | `shape-spec` | conversation | Decompose issue into spec + executable plan |
-| `do-task` | implementation | Execute one plan task and update code |
-| `audit-task` | audit | Independently review task output |
-| `run-demo` | implementation | Non-interactive product verification |
-| `audit-spec` | audit | Final whole-spec quality review |
+| `do-task` | implementation | Implement the supplied task scope and emit evidence |
+| `audit-task` | audit | Audit the supplied task scope and emit findings |
+| `run-demo` | implementation | Execute the supplied demo context and record results |
+| `audit-spec` | audit | Perform whole-spec review and classify findings |
 | `walk-spec` | conversation | Interactive developer walkthrough |
 | `handle-feedback` | feedback | Process PR comments and iterate |
 | `resolve-blockers` | conversation | Diagnose blockers |
@@ -41,6 +41,30 @@ Profiles in `profiles/` package standards by stack.
 
 - `default`: language-agnostic baseline
 - `python-uv`: strict typing, testing, architecture, naming, and dependency conventions
+
+## Ownership Boundary
+
+The methodology layer is split deliberately:
+
+- **Tanren code** owns workflow mechanics, provider integration, workflow
+  target selection, verification-hook resolution, and repo-specific installed
+  command rendering.
+- **Command markdown** owns agent instructions, allowed edits, required
+  outputs, and role behavior.
+
+Shared command markdown should describe:
+
+- what context the agent must consume
+- what files it may change
+- what artifact(s) it must produce
+
+Shared command markdown should not hardcode:
+
+- issue tracker shell commands
+- branch creation steps
+- commit / push / PR steps
+- literal verification commands
+- “discover the next task” workflow logic
 
 ## Product Templates
 
