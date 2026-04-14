@@ -217,9 +217,10 @@ pub(crate) async fn seed_steps(
     snap: &DispatchSnapshot,
     lane: Lane,
     count: u32,
+    start_seq: u32,
 ) -> StoreResult<Vec<StepId>> {
     let mut ids = Vec::with_capacity(count as usize);
-    for seq in 0..count {
+    for seq in start_seq..(start_seq + count) {
         let step_id = StepId::new();
         let params = enqueue_step_params(
             dispatch_id,
@@ -274,7 +275,9 @@ pub(crate) fn ack_and_enqueue_execute(
         execute_payload(snap.clone()),
     );
     AckAndEnqueueParams {
+        dispatch_id,
         step_id: ack_step_id,
+        step_type: ack_step_type,
         result,
         completion_event,
         next_step: Some(next),
@@ -290,7 +293,9 @@ pub(crate) fn ack_params(
 ) -> AckParams {
     let completion_event = step_completed_event(dispatch_id, step_id, step_type, &result);
     AckParams {
+        dispatch_id,
         step_id,
+        step_type,
         result,
         completion_event,
     }
@@ -312,9 +317,10 @@ pub(crate) fn update_dispatch_status_params(
     outcome: Option<Outcome>,
 ) -> UpdateDispatchStatusParams {
     let payload = match status {
-        DispatchStatus::Pending | DispatchStatus::Running => {
-            DomainEvent::DispatchStarted { dispatch_id }
-        }
+        DispatchStatus::Pending => unreachable!(
+            "update_dispatch_status_params must not be called with Pending — Pending is only set at creation"
+        ),
+        DispatchStatus::Running => DomainEvent::DispatchStarted { dispatch_id },
         DispatchStatus::Completed => DomainEvent::DispatchCompleted {
             dispatch_id,
             outcome: outcome.unwrap_or(Outcome::Success),

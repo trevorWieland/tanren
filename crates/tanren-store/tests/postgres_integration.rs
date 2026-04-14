@@ -134,7 +134,7 @@ async fn full_lifecycle_passes_on_postgres() {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // 4. Seed a couple of execute steps via the seed_steps helper.
-    let _seeded = seed_steps(store, id, &snap, Lane::Impl, 2)
+    let _seeded = seed_steps(store, id, &snap, Lane::Impl, 2, 1)
         .await
         .expect("seed");
 
@@ -227,7 +227,7 @@ async fn dispatch_status_and_cancel_on_postgres() {
         .await
         .expect("create");
     // Seed some steps so cancel has work to do.
-    let _ = seed_steps(store, id, &snap, Lane::Impl, 3)
+    let _ = seed_steps(store, id, &snap, Lane::Impl, 3, 0)
         .await
         .expect("seed");
 

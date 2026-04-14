@@ -185,8 +185,14 @@ pub struct EnqueueStepParams {
 /// transaction. If `next_step` is `None`, only the completion half runs.
 #[derive(Debug, Clone)]
 pub struct AckAndEnqueueParams {
+    /// Owning dispatch — validated against the completion event payload.
+    pub dispatch_id: DispatchId,
     /// Step being completed.
     pub step_id: StepId,
+    /// Declared step type — validated against the completion event and
+    /// used as a WHERE filter on the projection UPDATE to prevent
+    /// `step_type` divergence between the event log and the projection.
+    pub step_type: StepType,
     /// Result payload stored on the step projection row.
     pub result: StepResult,
     /// `StepCompleted` envelope appended co-transactionally.
@@ -199,6 +205,14 @@ pub struct AckAndEnqueueParams {
 /// Parameters for [`JobQueue::nack`](crate::JobQueue::nack).
 #[derive(Debug, Clone)]
 pub struct NackParams {
+    /// Owning dispatch — validated against the event payload.
+    pub dispatch_id: DispatchId,
+    /// Step being failed or retried.
+    pub step_id: StepId,
+    /// Declared step type — validated against the failure event and
+    /// used as a WHERE filter on the projection UPDATE to prevent
+    /// `step_type` divergence between the event log and the projection.
+    pub step_type: StepType,
     /// Human-readable error text stored on the step row.
     pub error: String,
     /// Typed classification (transient / fatal / ambiguous).
@@ -223,8 +237,14 @@ pub struct NackParams {
 /// companion event.
 #[derive(Debug, Clone)]
 pub struct AckParams {
+    /// Owning dispatch — validated against the event payload.
+    pub dispatch_id: DispatchId,
     /// Step being completed.
     pub step_id: StepId,
+    /// Declared step type — validated against the completion event and
+    /// used as a WHERE filter on the projection UPDATE to prevent
+    /// `step_type` divergence between the event log and the projection.
+    pub step_type: StepType,
     /// Result payload stored on the step projection row.
     pub result: StepResult,
     /// `StepCompleted` envelope appended co-transactionally.

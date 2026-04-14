@@ -257,15 +257,15 @@ async fn nack_rejects_pending_step() {
         .expect("enqueue");
 
     let err = store
-        .nack(
-            &step_id,
-            NackParams {
-                error: "should reject".to_owned(),
-                error_class: ErrorClass::Transient,
-                retry: false,
-                failure_event: failure_envelope(id, step_id),
-            },
-        )
+        .nack(NackParams {
+            dispatch_id: id,
+            step_id,
+            step_type: StepType::Execute,
+            error: "boom".to_owned(),
+            error_class: ErrorClass::Transient,
+            retry: false,
+            failure_event: failure_envelope(id, step_id),
+        })
         .await
         .expect_err("nack on pending should fail");
     assert!(matches!(err, StoreError::InvalidTransition { .. }));
@@ -366,7 +366,9 @@ async fn ack_rejects_wrong_event_variant() {
     );
     let err = store
         .ack(tanren_store::AckParams {
+            dispatch_id: id,
             step_id,
+            step_type: StepType::Execute,
             result: tanren_domain::StepResult::Execute(Box::new(tanren_domain::ExecuteResult {
                 outcome: tanren_domain::Outcome::Success,
                 signal: None,
@@ -430,7 +432,9 @@ async fn ack_rejects_wrong_step_id_in_envelope() {
     );
     let err = store
         .ack(tanren_store::AckParams {
+            dispatch_id: id,
             step_id,
+            step_type: StepType::Execute,
             result: tanren_domain::StepResult::Execute(Box::new(tanren_domain::ExecuteResult {
                 outcome: tanren_domain::Outcome::Success,
                 signal: None,

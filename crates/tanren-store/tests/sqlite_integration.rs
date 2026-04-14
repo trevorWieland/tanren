@@ -360,7 +360,7 @@ async fn cancel_pending_steps_excludes_teardown() {
     let id = create_dispatch(&store, "alpha", actor(), Lane::Impl)
         .await
         .expect("create");
-    let _ = seed_steps(&store, id, &snap, Lane::Impl, 3)
+    let _ = seed_steps(&store, id, &snap, Lane::Impl, 3, 0)
         .await
         .expect("seed");
     let teardown_id = StepId::new();
@@ -436,15 +436,15 @@ async fn nack_retry_resets_to_pending_and_bumps_count() {
         },
     );
     store
-        .nack(
-            &step_id,
-            NackParams {
-                error: "boom".to_owned(),
-                error_class: tanren_domain::ErrorClass::Transient,
-                retry: true,
-                failure_event,
-            },
-        )
+        .nack(NackParams {
+            dispatch_id: id,
+            step_id,
+            step_type: StepType::Execute,
+            error: "boom".to_owned(),
+            error_class: tanren_domain::ErrorClass::Transient,
+            retry: true,
+            failure_event,
+        })
         .await
         .expect("nack");
 
@@ -455,7 +455,7 @@ async fn nack_retry_resets_to_pending_and_bumps_count() {
         .expect("exists");
     assert_eq!(view.status, StepStatus::Pending);
     assert_eq!(view.retry_count, 1);
-    assert_eq!(view.error.as_deref(), Some("boom"));
+    assert!(view.error.is_none(), "retry=true must clear error");
 }
 
 #[tokio::test]

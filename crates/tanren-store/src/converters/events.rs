@@ -95,50 +95,28 @@ pub(crate) fn model_to_envelope(model: events::Model) -> Result<EventEnvelope, S
     })
 }
 
-/// Validate that a caller-supplied step-event envelope matches the
-/// mutation being committed: correct routing, correct variant, and
-/// correct `step_id`.
-pub(crate) fn validate_step_event(
-    envelope: &EventEnvelope,
-    expected_step_id: tanren_domain::StepId,
-    expected_tag: &str,
-) -> Result<(), StoreError> {
-    validate_routing(envelope)?;
-    let json = serde_json::to_value(&envelope.payload)?;
-    check_event_type(&json, expected_tag)?;
-    check_step_id(&json, expected_step_id)?;
-    Ok(())
-}
-
-/// Validate that a caller-supplied dispatch-event envelope matches
-/// the mutation being committed: correct routing, correct variant,
-/// and correct `dispatch_id`.
-pub(crate) fn validate_dispatch_event(
-    envelope: &EventEnvelope,
-    expected_dispatch_id: tanren_domain::DispatchId,
-    expected_tag: &str,
-) -> Result<(), StoreError> {
-    validate_routing(envelope)?;
-    let json = serde_json::to_value(&envelope.payload)?;
-    check_event_type(&json, expected_tag)?;
-    check_dispatch_id(&json, expected_dispatch_id)?;
-    Ok(())
-}
-
 /// Map a [`DispatchStatus`] to the expected `event_type` tag of its
-/// companion lifecycle event.
-pub(crate) fn dispatch_status_event_tag(status: tanren_domain::DispatchStatus) -> &'static str {
+/// companion lifecycle event. Returns an error for `Pending` because
+/// that status is only set at creation time via
+/// [`create_dispatch_projection`] — there is no valid lifecycle event
+/// that transitions a dispatch *to* `Pending`.
+pub(crate) fn dispatch_status_event_tag(
+    status: tanren_domain::DispatchStatus,
+) -> Result<&'static str, StoreError> {
     match status {
-        tanren_domain::DispatchStatus::Pending | tanren_domain::DispatchStatus::Running => {
-            "dispatch_started"
-        }
-        tanren_domain::DispatchStatus::Completed => "dispatch_completed",
-        tanren_domain::DispatchStatus::Failed => "dispatch_failed",
-        tanren_domain::DispatchStatus::Cancelled => "dispatch_cancelled",
+        tanren_domain::DispatchStatus::Running => Ok("dispatch_started"),
+        tanren_domain::DispatchStatus::Completed => Ok("dispatch_completed"),
+        tanren_domain::DispatchStatus::Failed => Ok("dispatch_failed"),
+        tanren_domain::DispatchStatus::Cancelled => Ok("dispatch_cancelled"),
+        tanren_domain::DispatchStatus::Pending => Err(StoreError::InvalidTransition {
+            entity: "dispatch".to_owned(),
+            from: "any".to_owned(),
+            to: "pending".to_owned(),
+        }),
     }
 }
 
-fn validate_routing(envelope: &EventEnvelope) -> Result<(), StoreError> {
+pub(crate) fn validate_routing(envelope: &EventEnvelope) -> Result<(), StoreError> {
     let canonical = envelope.payload.entity_root();
     if envelope.entity_ref != canonical {
         return Err(StoreError::Conversion {
@@ -146,57 +124,6 @@ fn validate_routing(envelope: &EventEnvelope) -> Result<(), StoreError> {
             reason: format!(
                 "entity_ref mismatch: envelope={}, canonical={}",
                 envelope.entity_ref, canonical,
-            ),
-        });
-    }
-    Ok(())
-}
-
-fn check_event_type(json: &JsonValue, expected: &str) -> Result<(), StoreError> {
-    let actual = json
-        .get("event_type")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("<missing>");
-    if actual != expected {
-        return Err(StoreError::Conversion {
-            context: "envelope validation",
-            reason: format!("expected event_type `{expected}`, got `{actual}`"),
-        });
-    }
-    Ok(())
-}
-
-fn check_step_id(json: &JsonValue, expected: tanren_domain::StepId) -> Result<(), StoreError> {
-    let actual_str = json
-        .get("step_id")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("");
-    let expected_str = expected.into_uuid().to_string();
-    if actual_str != expected_str {
-        return Err(StoreError::Conversion {
-            context: "envelope validation",
-            reason: format!(
-                "step_id mismatch: envelope has `{actual_str}`, expected `{expected_str}`",
-            ),
-        });
-    }
-    Ok(())
-}
-
-fn check_dispatch_id(
-    json: &JsonValue,
-    expected: tanren_domain::DispatchId,
-) -> Result<(), StoreError> {
-    let actual_str = json
-        .get("dispatch_id")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("");
-    let expected_str = expected.into_uuid().to_string();
-    if actual_str != expected_str {
-        return Err(StoreError::Conversion {
-            context: "envelope validation",
-            reason: format!(
-                "dispatch_id mismatch: envelope has `{actual_str}`, expected `{expected_str}`",
             ),
         });
     }
@@ -353,5 +280,11 @@ mod tests {
         let active = envelope_to_active_model(&original).expect("to active");
         let entity_kind = unwrap_active(active.entity_kind);
         assert_eq!(entity_kind, "dispatch");
+    }
+
+    #[test]
+    fn dispatch_status_event_tag_rejects_pending() {
+        let result = dispatch_status_event_tag(tanren_domain::DispatchStatus::Pending);
+        assert!(result.is_err(), "Pending has no lifecycle event tag");
     }
 }

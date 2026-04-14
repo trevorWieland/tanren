@@ -10,11 +10,13 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, EntityTrait, QueryFilter, TransactionTrait,
+};
 use tanren_domain::{DomainEvent, EventEnvelope, EventId, StepId, StepStatus, StepType};
 
-use crate::converters::{events as event_converters, step as step_converters};
-use crate::entity::{events, step_projection};
+use crate::converters::{events as event_converters, step as step_converters, validate};
+use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreError, StoreResult};
 use crate::params::{
     AckAndEnqueueParams, AckParams, CancelPendingStepsParams, DequeueParams, EnqueueStepParams,
@@ -57,7 +59,7 @@ pub trait JobQueue: Send + Sync {
     /// Fails with [`StoreError::InvalidTransition`] if the step is
     /// not currently `running`. Appends the companion `StepFailed`
     /// envelope co-transactionally.
-    async fn nack(&self, step_id: &StepId, params: NackParams) -> StoreResult<()>;
+    async fn nack(&self, params: NackParams) -> StoreResult<()>;
 
     /// Refresh the worker liveness signal (`last_heartbeat_at`) on a
     /// running step. Workers call this periodically while executing
@@ -79,17 +81,26 @@ pub trait JobQueue: Send + Sync {
 #[async_trait]
 impl JobQueue for Store {
     async fn enqueue_step(&self, params: EnqueueStepParams) -> StoreResult<()> {
-        event_converters::validate_step_event(
-            &params.enqueue_event,
-            params.step_id,
-            "step_enqueued",
-        )?;
+        validate::validate_enqueue_step(&params)?;
         let now = Utc::now();
         let row = step_converters::enqueue_to_active_model(&params, now)?;
         let event_model = event_converters::envelope_to_active_model(&params.enqueue_event)?;
+        let dispatch_uuid = params.dispatch_id.into_uuid();
+        let dispatch_id_display = params.dispatch_id;
         self.conn()
             .transaction::<_, (), StoreError>(move |txn| {
                 Box::pin(async move {
+                    // Verify the dispatch exists — application-level FK
+                    // that protects both backends (SQLite FK is backed
+                    // by PRAGMA foreign_keys, but belt-and-suspenders).
+                    let exists = dispatch_projection::Entity::find_by_id(dispatch_uuid)
+                        .one(txn)
+                        .await?;
+                    if exists.is_none() {
+                        return Err(StoreError::NotFound {
+                            entity: format!("dispatch {dispatch_id_display}"),
+                        });
+                    }
                     step_projection::Entity::insert(row).exec(txn).await?;
                     events::Entity::insert(event_model).exec(txn).await?;
                     Ok(())
@@ -104,17 +115,15 @@ impl JobQueue for Store {
     }
 
     async fn ack(&self, params: AckParams) -> StoreResult<()> {
-        event_converters::validate_step_event(
-            &params.completion_event,
-            params.step_id,
-            "step_completed",
-        )?;
+        validate::validate_ack(&params)?;
 
         let result_value = serde_json::to_value(&params.result)?;
         let event_model = event_converters::envelope_to_active_model(&params.completion_event)?;
         let now = Utc::now();
         let step_id = params.step_id;
         let step_id_uuid = step_id.into_uuid();
+        let dispatch_id_uuid = params.dispatch_id.into_uuid();
+        let step_type_string = params.step_type.to_string();
 
         self.conn()
             .transaction::<_, (), StoreError>(move |txn| {
@@ -123,13 +132,16 @@ impl JobQueue for Store {
                         step_id: Set(step_id_uuid),
                         status: Set(StepStatus::Completed.to_string()),
                         result: Set(Some(result_value)),
+                        error: Set(None),
                         updated_at: Set(now),
                         worker_id: Set(None),
                         ..Default::default()
                     };
                     let outcome = step_projection::Entity::update(update)
                         .filter(step_projection::Column::StepId.eq(step_id_uuid))
+                        .filter(step_projection::Column::DispatchId.eq(dispatch_id_uuid))
                         .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
+                        .filter(step_projection::Column::StepType.eq(step_type_string.as_str()))
                         .exec(txn)
                         .await;
                     match outcome {
@@ -152,24 +164,15 @@ impl JobQueue for Store {
     }
 
     async fn ack_and_enqueue(&self, params: AckAndEnqueueParams) -> StoreResult<()> {
-        event_converters::validate_step_event(
-            &params.completion_event,
-            params.step_id,
-            "step_completed",
-        )?;
-        if let Some(ref next) = params.next_step {
-            event_converters::validate_step_event(
-                &next.enqueue_event,
-                next.step_id,
-                "step_enqueued",
-            )?;
-        }
+        validate::validate_ack_and_enqueue(&params)?;
         let now = Utc::now();
         let result_value = serde_json::to_value(&params.result)?;
         let completion_event =
             event_converters::envelope_to_active_model(&params.completion_event)?;
         let step_id_uuid = params.step_id.into_uuid();
+        let dispatch_id_uuid = params.dispatch_id.into_uuid();
         let step_id_display = params.step_id.to_string();
+        let step_type_string = params.step_type.to_string();
 
         let next = match params.next_step {
             Some(step) => {
@@ -187,13 +190,16 @@ impl JobQueue for Store {
                         step_id: Set(step_id_uuid),
                         status: Set(StepStatus::Completed.to_string()),
                         result: Set(Some(result_value)),
+                        error: Set(None),
                         updated_at: Set(now),
                         worker_id: Set(None),
                         ..Default::default()
                     };
                     let result = step_projection::Entity::update(update)
                         .filter(step_projection::Column::StepId.eq(step_id_uuid))
+                        .filter(step_projection::Column::DispatchId.eq(dispatch_id_uuid))
                         .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
+                        .filter(step_projection::Column::StepType.eq(step_type_string.as_str()))
                         .exec(txn)
                         .await;
                     match result {
@@ -297,37 +303,42 @@ impl JobQueue for Store {
             .map_err(StoreError::from)
     }
 
-    async fn nack(&self, step_id: &StepId, params: NackParams) -> StoreResult<()> {
-        event_converters::validate_step_event(&params.failure_event, *step_id, "step_failed")?;
+    async fn nack(&self, params: NackParams) -> StoreResult<()> {
+        validate::validate_nack(&params)?;
         let now = Utc::now();
         let event_model = event_converters::envelope_to_active_model(&params.failure_event)?;
-        let step_id_uuid = step_id.into_uuid();
-        let step_id_display = step_id.to_string();
+        let step_id_uuid = params.step_id.into_uuid();
+        let dispatch_id_uuid = params.dispatch_id.into_uuid();
+        let step_id_display = params.step_id.to_string();
+        let step_type_string = params.step_type.to_string();
         let error = params.error.clone();
         let retry = params.retry;
 
         self.conn()
             .transaction::<_, (), StoreError>(move |txn| {
                 Box::pin(async move {
-                    let mut active = step_projection::ActiveModel {
+                    let (status, error_value) = if retry {
+                        (StepStatus::Pending, None)
+                    } else {
+                        (StepStatus::Failed, Some(error))
+                    };
+                    let active = step_projection::ActiveModel {
                         step_id: Set(step_id_uuid),
+                        status: Set(status.to_string()),
                         updated_at: Set(now),
-                        error: Set(Some(error)),
+                        error: Set(error_value),
                         worker_id: Set(None),
                         ..Default::default()
                     };
-                    if retry {
-                        active.status = Set(StepStatus::Pending.to_string());
-                    } else {
-                        active.status = Set(StepStatus::Failed.to_string());
-                    }
                     // Require `status = 'running'` so nack can only
                     // move a step out of the running state — domain
                     // rules (status/step.rs::can_transition_to) never
                     // allow Pending -> Failed directly.
                     let result = step_projection::Entity::update(active)
                         .filter(step_projection::Column::StepId.eq(step_id_uuid))
+                        .filter(step_projection::Column::DispatchId.eq(dispatch_id_uuid))
                         .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
+                        .filter(step_projection::Column::StepType.eq(step_type_string.as_str()))
                         .exec(txn)
                         .await;
                     match result {
@@ -407,12 +418,17 @@ impl JobQueue for Store {
             )
             .col_expr(step_projection::Column::UpdatedAt, Expr::value(Utc::now()))
             .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
-            // Only reclaim rows whose heartbeat is older than the
-            // threshold. Rows whose heartbeat was refreshed within
-            // the window stay running — liveness signal is
-            // independent of `updated_at`, which is bumped by every
-            // write and is not a reliable indicator of worker health.
-            .filter(step_projection::Column::LastHeartbeatAt.lt(threshold))
+            // Reclaim rows whose heartbeat is older than the
+            // threshold OR has never been set (NULL). Rows whose
+            // heartbeat was refreshed within the window stay
+            // running — liveness signal is independent of
+            // `updated_at`, which is bumped by every write and is
+            // not a reliable indicator of worker health.
+            .filter(
+                Condition::any()
+                    .add(step_projection::Column::LastHeartbeatAt.lt(threshold))
+                    .add(step_projection::Column::LastHeartbeatAt.is_null()),
+            )
             .exec(self.conn())
             .await?;
         Ok(result.rows_affected)

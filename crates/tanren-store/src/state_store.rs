@@ -9,13 +9,13 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, TransactionTrait,
+    ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    TransactionTrait, sea_query::Expr,
 };
 use tanren_domain::{DispatchId, DispatchView, Lane, StepId, StepView};
 
 use crate::converters::{
-    dispatch as dispatch_converters, events as event_converters, step as step_converters,
+    dispatch as dispatch_converters, events as event_converters, step as step_converters, validate,
 };
 use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreError, StoreResult};
@@ -128,11 +128,7 @@ impl StateStore for Store {
     }
 
     async fn create_dispatch_projection(&self, params: CreateDispatchParams) -> StoreResult<()> {
-        event_converters::validate_dispatch_event(
-            &params.creation_event,
-            params.dispatch_id,
-            "dispatch_created",
-        )?;
+        validate::validate_create_dispatch(&params)?;
         let projection = dispatch_converters::params_to_active_model(&params)?;
         let event_model = event_converters::envelope_to_active_model(&params.creation_event)?;
 
@@ -151,11 +147,7 @@ impl StateStore for Store {
     }
 
     async fn update_dispatch_status(&self, params: UpdateDispatchStatusParams) -> StoreResult<()> {
-        event_converters::validate_dispatch_event(
-            &params.status_event,
-            params.dispatch_id,
-            event_converters::dispatch_status_event_tag(params.status),
-        )?;
+        validate::validate_update_dispatch_status(&params)?;
 
         let now = Utc::now();
         let event_model = event_converters::envelope_to_active_model(&params.status_event)?;
@@ -167,25 +159,44 @@ impl StateStore for Store {
         self.conn()
             .transaction::<_, (), StoreError>(move |txn| {
                 Box::pin(async move {
-                    let update = dispatch_projection::ActiveModel {
-                        dispatch_id: Set(id_uuid),
-                        status: Set(status.to_string()),
-                        outcome: Set(outcome.map(|o| o.to_string())),
-                        updated_at: Set(now),
-                        ..Default::default()
-                    };
-                    let result = dispatch_projection::Entity::update(update)
+                    // Fetch current row to enforce lifecycle transitions.
+                    let row = dispatch_projection::Entity::find_by_id(id_uuid)
+                        .one(txn)
+                        .await?;
+                    let row = row.ok_or_else(|| StoreError::NotFound {
+                        entity: format!("dispatch {id}"),
+                    })?;
+                    let current = dispatch_converters::parse_status(&row.status)?;
+                    if !current.can_transition_to(status) {
+                        return Err(StoreError::InvalidTransition {
+                            entity: format!("dispatch {id}"),
+                            from: current.to_string(),
+                            to: status.to_string(),
+                        });
+                    }
+
+                    // CAS: only update if the status still matches
+                    // what we read, preventing concurrent callers
+                    // from both succeeding.
+                    let result = dispatch_projection::Entity::update_many()
+                        .col_expr(
+                            dispatch_projection::Column::Status,
+                            Expr::value(status.to_string()),
+                        )
+                        .col_expr(
+                            dispatch_projection::Column::Outcome,
+                            Expr::value(outcome.map(|o| o.to_string())),
+                        )
+                        .col_expr(dispatch_projection::Column::UpdatedAt, Expr::value(now))
                         .filter(dispatch_projection::Column::DispatchId.eq(id_uuid))
+                        .filter(dispatch_projection::Column::Status.eq(current.to_string()))
                         .exec(txn)
-                        .await;
-                    match result {
-                        Ok(_) => {}
-                        Err(sea_orm::DbErr::RecordNotUpdated) => {
-                            return Err(StoreError::NotFound {
-                                entity: format!("dispatch {id}"),
-                            });
-                        }
-                        Err(err) => return Err(err.into()),
+                        .await?;
+                    if result.rows_affected == 0 {
+                        return Err(StoreError::Conflict(format!(
+                            "dispatch {id} status changed concurrently \
+                             from {current}"
+                        )));
                     }
                     events::Entity::insert(event_model).exec(txn).await?;
                     Ok(())

@@ -1,46 +1,21 @@
 //! Atomic dequeue — the one place raw SQL remains.
 //!
 //! `dequeue` must perform the "check running-count, claim pending
-//! candidate" decision in a single atomic step, otherwise two workers
-//! will see the same pending row before either of them flips it to
-//! `running`. `SeaORM`'s entity API cannot express this: there's no
-//! dialect-neutral way to encode `SELECT ... FOR UPDATE SKIP LOCKED`
-//! (`Postgres`) or the serialization required on `SQLite`. This
-//! module therefore branches on `DbBackend` and hands each backend
-//! the canonical idiom for its locking model.
+//! candidate" decision in a single atomic step. `SeaORM`'s entity
+//! API cannot express this, so we branch on `DbBackend`.
 //!
-//! Both branches run inside an explicit transaction and claim at
-//! most one candidate row per call.
+//! **Postgres**: hierarchical advisory locks serialize dequeue by
+//! lane scope. `lane=None` takes an exclusive lock on global key
+//! `(42, 0)`; `lane=Some(L)` takes exclusive on the lane key plus
+//! shared on global, so different lanes dequeue in parallel.
 //!
-//! ## `Postgres` path
+//! **`SQLite`**: `BEGIN IMMEDIATE` + `busy_timeout` (set in
+//! `connection.rs`). We upgrade from `SeaORM`'s `BEGIN DEFERRED` via
+//! `END; BEGIN IMMEDIATE` on the same sticky connection.
 //!
-//! A single global `pg_advisory_xact_lock(42, 0)` is taken at the
-//! start of every dequeue transaction, regardless of the requested
-//! lane. This serializes all concurrent dequeue operations against
-//! the same cluster.
-//!
-//! A per-lane lock key would be tempting, but `lane=None` counts
-//! running rows across *all* lanes while `lane=Impl` counts only
-//! impl rows — those are overlapping predicate spaces, so keying
-//! by lane lets two callers with different specs both observe a
-//! passing count and over-claim. The global lock closes this race
-//! at the cost of serializing cross-lane dequeues. The throughput
-//! impact is negligible: the critical section is a single UPDATE
-//! that completes in microseconds.
-//!
-//! ## `SQLite` path
-//!
-//! The audit brief requires `BEGIN IMMEDIATE` + `busy_timeout` for
-//! the `SQLite` dequeue path, and flags `BEGIN DEFERRED` as
-//! non-conformant. `SeaORM`'s `conn.transaction()` always issues
-//! `BEGIN DEFERRED` and ignores `IsolationLevel` on `SQLite`, so we
-//! bypass it: call `conn.begin()` to acquire a sticky pooled
-//! connection (which issues `BEGIN DEFERRED`), then immediately
-//! upgrade via `END; BEGIN IMMEDIATE` on the same connection. The
-//! claim statement and the final `COMMIT` all run on that same
-//! sticky handle. The `busy_timeout` set in `connection.rs` handles
-//! cross-process contention by retrying inside the driver instead
-//! of bubbling `SQLITE_BUSY` up.
+//! Both backends split claim SQL into lane-scoped and global
+//! variants so the query planner can use the `(lane, status)`
+//! composite index instead of the `IS NULL OR` disjunction.
 
 use chrono::Utc;
 use sea_orm::{
@@ -92,6 +67,16 @@ const ADVISORY_LOCK_NAMESPACE: i32 = 42;
 /// all lane-specific dequeues, but different lanes can proceed in
 /// parallel.
 const ADVISORY_LOCK_GLOBAL: i32 = 0;
+
+// Domain-enum string literals for raw SQL; drift caught by test below.
+const STATUS_PENDING: &str = "pending";
+const STATUS_RUNNING: &str = "running";
+const READY_STATE_READY: &str = "ready";
+
+const RETURNING_COLS: &str = "\
+RETURNING step_id, dispatch_id, step_type, step_sequence, lane, status, \
+ready_state, depends_on, graph_revision, worker_id, payload, \
+result, error, retry_count, last_heartbeat_at, created_at, updated_at";
 
 /// Map a lane to a unique advisory-lock key.
 fn lane_advisory_key(lane: tanren_domain::Lane) -> i32 {
@@ -241,31 +226,35 @@ pub(crate) fn postgres_claim_statement(
     lane: Option<String>,
     max_concurrent: i64,
 ) -> Statement {
-    let sql = r"
-        UPDATE step_projection
-        SET status = 'running',
+    match lane {
+        Some(l) => postgres_claim_lane(worker_id, l, max_concurrent),
+        None => postgres_claim_global(worker_id, max_concurrent),
+    }
+}
+
+fn postgres_claim_lane(worker_id: &str, lane: String, max_concurrent: i64) -> Statement {
+    let sql = format!(
+        "UPDATE step_projection
+        SET status = '{STATUS_RUNNING}',
             worker_id = $1,
             updated_at = NOW(),
             last_heartbeat_at = NOW()
         WHERE step_id = (
             SELECT step_id FROM step_projection
-            WHERE status = 'pending'
-              AND ready_state = 'ready'
-              AND ($2::text IS NULL OR lane = $2)
+            WHERE status = '{STATUS_PENDING}'
+              AND ready_state = '{READY_STATE_READY}'
+              AND lane = $2
               AND (
                   SELECT COUNT(*) FROM step_projection
-                  WHERE status = 'running'
-                    AND ($2::text IS NULL OR lane = $2)
+                  WHERE status = '{STATUS_RUNNING}'
+                    AND lane = $2
               ) < $3
             ORDER BY created_at ASC, step_sequence ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1
         )
-        RETURNING step_id, dispatch_id, step_type, step_sequence, lane, status,
-                  ready_state, depends_on, graph_revision, worker_id, payload,
-                  result, error, retry_count, last_heartbeat_at, created_at,
-                  updated_at
-    ";
+        {RETURNING_COLS}"
+    );
     Statement::from_sql_and_values(
         DbBackend::Postgres,
         sql,
@@ -277,37 +266,72 @@ pub(crate) fn postgres_claim_statement(
     )
 }
 
+fn postgres_claim_global(worker_id: &str, max_concurrent: i64) -> Statement {
+    let sql = format!(
+        "UPDATE step_projection
+        SET status = '{STATUS_RUNNING}',
+            worker_id = $1,
+            updated_at = NOW(),
+            last_heartbeat_at = NOW()
+        WHERE step_id = (
+            SELECT step_id FROM step_projection
+            WHERE status = '{STATUS_PENDING}'
+              AND ready_state = '{READY_STATE_READY}'
+              AND (
+                  SELECT COUNT(*) FROM step_projection
+                  WHERE status = '{STATUS_RUNNING}'
+              ) < $2
+            ORDER BY created_at ASC, step_sequence ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        {RETURNING_COLS}"
+    );
+    Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        sql,
+        vec![
+            Value::from(worker_id.to_owned()),
+            Value::from(max_concurrent),
+        ],
+    )
+}
+
 /// Build the `SQLite` `UPDATE ... RETURNING` claim statement.
 pub(crate) fn sqlite_claim_statement(
     worker_id: &str,
     lane: Option<String>,
     max_concurrent: i64,
 ) -> Statement {
+    match lane {
+        Some(l) => sqlite_claim_lane(worker_id, l, max_concurrent),
+        None => sqlite_claim_global(worker_id, max_concurrent),
+    }
+}
+
+fn sqlite_claim_lane(worker_id: &str, lane: String, max_concurrent: i64) -> Statement {
     let now = Utc::now();
-    let sql = r"
-        UPDATE step_projection
-        SET status = 'running',
+    let sql = format!(
+        "UPDATE step_projection
+        SET status = '{STATUS_RUNNING}',
             worker_id = ?1,
             updated_at = ?2,
             last_heartbeat_at = ?2
         WHERE step_id = (
             SELECT step_id FROM step_projection
-            WHERE status = 'pending'
-              AND ready_state = 'ready'
-              AND (?3 IS NULL OR lane = ?3)
+            WHERE status = '{STATUS_PENDING}'
+              AND ready_state = '{READY_STATE_READY}'
+              AND lane = ?3
               AND (
                   SELECT COUNT(*) FROM step_projection
-                  WHERE status = 'running'
-                    AND (?3 IS NULL OR lane = ?3)
+                  WHERE status = '{STATUS_RUNNING}'
+                    AND lane = ?3
               ) < ?4
             ORDER BY created_at ASC, step_sequence ASC
             LIMIT 1
         )
-        RETURNING step_id, dispatch_id, step_type, step_sequence, lane, status,
-                  ready_state, depends_on, graph_revision, worker_id, payload,
-                  result, error, retry_count, last_heartbeat_at, created_at,
-                  updated_at
-    ";
+        {RETURNING_COLS}"
+    );
     Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
@@ -315,6 +339,38 @@ pub(crate) fn sqlite_claim_statement(
             Value::from(worker_id.to_owned()),
             Value::from(now),
             Value::from(lane),
+            Value::from(max_concurrent),
+        ],
+    )
+}
+
+fn sqlite_claim_global(worker_id: &str, max_concurrent: i64) -> Statement {
+    let now = Utc::now();
+    let sql = format!(
+        "UPDATE step_projection
+        SET status = '{STATUS_RUNNING}',
+            worker_id = ?1,
+            updated_at = ?2,
+            last_heartbeat_at = ?2
+        WHERE step_id = (
+            SELECT step_id FROM step_projection
+            WHERE status = '{STATUS_PENDING}'
+              AND ready_state = '{READY_STATE_READY}'
+              AND (
+                  SELECT COUNT(*) FROM step_projection
+                  WHERE status = '{STATUS_RUNNING}'
+              ) < ?3
+            ORDER BY created_at ASC, step_sequence ASC
+            LIMIT 1
+        )
+        {RETURNING_COLS}"
+    );
+    Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        sql,
+        vec![
+            Value::from(worker_id.to_owned()),
+            Value::from(now),
             Value::from(max_concurrent),
         ],
     )
@@ -328,7 +384,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn postgres_claim_statement_contains_required_clauses() {
+    fn postgres_claim_lane_contains_required_clauses() {
         let stmt = postgres_claim_statement("worker-1", Some("impl".to_owned()), 5);
         let sql = stmt.sql;
         assert!(sql.contains("FOR UPDATE SKIP LOCKED"));
@@ -336,28 +392,65 @@ mod tests {
         assert!(sql.contains("ready_state = 'ready'"));
         assert!(sql.contains("last_heartbeat_at"));
         assert!(sql.contains("RETURNING"));
+        assert!(sql.contains("lane = $2"), "lane-scoped must use direct eq");
+        assert!(
+            !sql.contains("IS NULL"),
+            "lane-scoped must not use IS NULL pattern"
+        );
     }
 
     #[test]
-    fn sqlite_claim_statement_has_no_for_update() {
+    fn postgres_claim_global_omits_lane_filter() {
+        let stmt = postgres_claim_statement("worker-1", None, 5);
+        let sql = stmt.sql;
+        assert!(sql.contains("FOR UPDATE SKIP LOCKED"));
+        assert!(!sql.contains("lane ="), "global must not filter by lane");
+    }
+
+    #[test]
+    fn sqlite_claim_lane_has_no_for_update() {
         let stmt = sqlite_claim_statement("worker-1", Some("impl".to_owned()), 5);
         let sql = stmt.sql;
         assert!(!sql.contains("FOR UPDATE"));
         assert!(sql.contains("pending"));
         assert!(sql.contains("last_heartbeat_at"));
         assert!(sql.contains("RETURNING"));
+        assert!(sql.contains("lane = ?3"), "lane-scoped must use direct eq");
+        assert!(
+            !sql.contains("IS NULL"),
+            "lane-scoped must not use IS NULL pattern"
+        );
     }
 
     #[test]
-    fn postgres_claim_statement_carries_three_parameters() {
-        let stmt = postgres_claim_statement("worker-1", None, 3);
+    fn sqlite_claim_global_omits_lane_filter() {
+        let stmt = sqlite_claim_statement("worker-1", None, 5);
+        let sql = stmt.sql;
+        assert!(!sql.contains("lane ="), "global must not filter by lane");
+    }
+
+    #[test]
+    fn postgres_claim_lane_carries_three_parameters() {
+        let stmt = postgres_claim_statement("worker-1", Some("impl".to_owned()), 3);
         assert_eq!(stmt.values.as_ref().map_or(0, |v| v.0.len()), 3);
     }
 
     #[test]
-    fn sqlite_claim_statement_carries_four_parameters() {
-        let stmt = sqlite_claim_statement("worker-1", None, 3);
+    fn postgres_claim_global_carries_two_parameters() {
+        let stmt = postgres_claim_statement("worker-1", None, 3);
+        assert_eq!(stmt.values.as_ref().map_or(0, |v| v.0.len()), 2);
+    }
+
+    #[test]
+    fn sqlite_claim_lane_carries_four_parameters() {
+        let stmt = sqlite_claim_statement("worker-1", Some("impl".to_owned()), 3);
         assert_eq!(stmt.values.as_ref().map_or(0, |v| v.0.len()), 4);
+    }
+
+    #[test]
+    fn sqlite_claim_global_carries_three_parameters() {
+        let stmt = sqlite_claim_statement("worker-1", None, 3);
+        assert_eq!(stmt.values.as_ref().map_or(0, |v| v.0.len()), 3);
     }
 
     /// Reject `MySQL` at the dispatcher because we don't ship a
@@ -395,5 +488,13 @@ mod tests {
             matches!(err, StoreError::Conversion { .. }),
             "expected Conversion, got {err:?}"
         );
+    }
+
+    #[test]
+    fn sql_literals_match_domain_enums() {
+        use tanren_domain::{StepReadyState, StepStatus};
+        assert_eq!(STATUS_PENDING, StepStatus::Pending.to_string());
+        assert_eq!(STATUS_RUNNING, StepStatus::Running.to_string());
+        assert_eq!(READY_STATE_READY, StepReadyState::Ready.to_string());
     }
 }

@@ -51,6 +51,21 @@ impl Store {
         Ok(Self { conn })
     }
 
+    /// Open a connection **and** apply all pending migrations.
+    ///
+    /// This is the recommended entrypoint for production use.
+    /// Equivalent to calling [`Store::new`] followed by
+    /// [`Store::run_migrations`].
+    ///
+    /// # Errors
+    ///
+    /// Returns connection errors or migration failures.
+    pub async fn open_and_migrate(database_url: &str) -> StoreResult<Self> {
+        let store = Self::new(database_url).await?;
+        store.run_migrations().await?;
+        Ok(store)
+    }
+
     /// Wrap an existing [`DatabaseConnection`]. Useful for tests that
     /// already hold a mock or in-memory connection.
     #[must_use]
@@ -123,5 +138,13 @@ mod tests {
         // surfaces as `StoreError::Database`.
         let result = Store::new("gopher://nowhere").await;
         assert!(matches!(result, Err(StoreError::Database(_))));
+    }
+
+    #[tokio::test]
+    async fn open_and_migrate_creates_usable_store() {
+        let store = Store::open_and_migrate("sqlite::memory:")
+            .await
+            .expect("open_and_migrate");
+        assert_eq!(store.conn().get_database_backend(), DbBackend::Sqlite);
     }
 }

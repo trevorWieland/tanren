@@ -93,6 +93,8 @@ pub(crate) async fn connect_with_config(
     // parameter, so we set it programmatically via SeaORM's sqlx
     // options hook. Called once per pool connection; non-SQLite
     // backends ignore this hook entirely.
-    opt.map_sqlx_sqlite_opts(|options| options.busy_timeout(SQLITE_BUSY_TIMEOUT));
+    opt.map_sqlx_sqlite_opts(|options| {
+        options.busy_timeout(SQLITE_BUSY_TIMEOUT).foreign_keys(true)
+    });
     Database::connect(opt).await
 }

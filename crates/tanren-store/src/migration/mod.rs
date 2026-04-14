@@ -9,6 +9,8 @@
 use sea_orm_migration::{MigrationTrait, MigratorTrait, async_trait};
 
 mod m_0001_init;
+mod m_0002_integrity;
+mod m_0003_dequeue_indexes;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
@@ -19,7 +21,11 @@ pub(crate) struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m_0001_init::Migration)]
+        vec![
+            Box::new(m_0001_init::Migration),
+            Box::new(m_0002_integrity::Migration),
+            Box::new(m_0003_dequeue_indexes::Migration),
+        ]
     }
 }
 

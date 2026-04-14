@@ -53,6 +53,8 @@ registries = []
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace path deps parse as wildcard version requirements — this is expected
+allow-wildcard-paths = true
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"

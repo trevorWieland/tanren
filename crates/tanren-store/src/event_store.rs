@@ -8,7 +8,7 @@
 
 use async_trait::async_trait;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
-use tanren_domain::{EventEnvelope, EventQueryResult};
+use tanren_domain::EventQueryResult;
 
 use crate::converters::events as event_converters;
 use crate::entity::events;
@@ -17,27 +17,42 @@ use crate::params::EventFilter;
 use crate::store::Store;
 
 /// Append-only event log interface.
+///
+/// Event appends are not exposed on this trait — they are only
+/// available through co-transactional store methods (e.g.
+/// [`JobQueue::enqueue_step`](crate::JobQueue::enqueue_step),
+/// [`StateStore::create_dispatch_projection`](crate::StateStore::create_dispatch_projection))
+/// that guarantee event/projection consistency. Direct append is
+/// available via `Store::append` and `Store::append_batch` (behind
+/// the `test-hooks` feature) for testing and migration scenarios.
 #[async_trait]
 pub trait EventStore: Send + Sync {
-    /// Append a single event.
-    async fn append(&self, event: &EventEnvelope) -> StoreResult<()>;
-
-    /// Append a batch of events in one transaction.
-    async fn append_batch(&self, events: &[EventEnvelope]) -> StoreResult<()>;
-
     /// Query events by filter dimensions. Indexed; no table scans.
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult>;
 }
 
-#[async_trait]
-impl EventStore for Store {
-    async fn append(&self, event: &EventEnvelope) -> StoreResult<()> {
+/// Direct event-append methods — available for testing and migration
+/// scenarios but deliberately excluded from the [`EventStore`] trait
+/// to prevent event/projection divergence in normal operation.
+///
+/// Gated behind the `test-hooks` feature to prevent downstream
+/// crates from accidentally bypassing projection consistency.
+#[cfg(feature = "test-hooks")]
+impl Store {
+    /// Append a single event. Bypasses projection consistency — use
+    /// co-transactional trait methods for operational writes.
+    pub async fn append(&self, event: &tanren_domain::EventEnvelope) -> StoreResult<()> {
         let model = event_converters::envelope_to_active_model(event)?;
         events::Entity::insert(model).exec(self.conn()).await?;
         Ok(())
     }
 
-    async fn append_batch(&self, envelopes: &[EventEnvelope]) -> StoreResult<()> {
+    /// Append a batch of events. Bypasses projection consistency —
+    /// use co-transactional trait methods for operational writes.
+    pub async fn append_batch(
+        &self,
+        envelopes: &[tanren_domain::EventEnvelope],
+    ) -> StoreResult<()> {
         if envelopes.is_empty() {
             return Ok(());
         }
@@ -48,7 +63,10 @@ impl EventStore for Store {
         events::Entity::insert_many(rows).exec(self.conn()).await?;
         Ok(())
     }
+}
 
+#[async_trait]
+impl EventStore for Store {
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult> {
         let conn = self.conn();
         let total_count = build_count_query(filter).count(conn).await?;

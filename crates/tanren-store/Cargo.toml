@@ -13,6 +13,27 @@ default = []
 # `cargo nextest run -p tanren-store` path stays SQLite-only and does not
 # require a running Postgres instance.
 postgres-integration = []
+# Exposes `Store::append` / `Store::append_batch` for integration tests.
+# Production code must NOT enable this feature — these methods bypass
+# projection consistency. Test binaries that use these methods declare
+# `required-features = ["test-hooks"]` so bare `cargo test` silently
+# skips them rather than failing to compile.
+test-hooks = []
+
+[[test]]
+name = "sqlite_integration"
+path = "tests/sqlite_integration.rs"
+required-features = ["test-hooks"]
+
+[[test]]
+name = "sqlite_liveness"
+path = "tests/sqlite_liveness.rs"
+required-features = ["test-hooks"]
+
+[[test]]
+name = "postgres_integration"
+path = "tests/postgres_integration.rs"
+required-features = ["test-hooks", "postgres-integration"]
 
 [lints]
 workspace = true
