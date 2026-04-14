@@ -11,6 +11,7 @@ use sea_orm_migration::{MigrationTrait, MigratorTrait, async_trait};
 mod m_0001_init;
 mod m_0002_integrity;
 mod m_0003_dequeue_indexes;
+mod m_0004_dispatch_cursor_indexes;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
@@ -25,6 +26,7 @@ impl MigratorTrait for Migrator {
             Box::new(m_0001_init::Migration),
             Box::new(m_0002_integrity::Migration),
             Box::new(m_0003_dequeue_indexes::Migration),
+            Box::new(m_0004_dispatch_cursor_indexes::Migration),
         ]
     }
 }

@@ -81,6 +81,48 @@ fn create_outputs_valid_json_and_exits_0() {
     assert_eq!(v["cli"], "claude");
 }
 
+#[test]
+fn create_accepts_optional_actor_attribution_flags() {
+    let (db_url, _dir) = temp_db();
+    let output = cli()
+        .args([
+            "--database-url",
+            &db_url,
+            "dispatch",
+            "create",
+            "--project",
+            "test-project",
+            "--phase",
+            "do_task",
+            "--cli",
+            "claude",
+            "--branch",
+            "main",
+            "--spec-folder",
+            "spec",
+            "--workflow-id",
+            "wf-1",
+            "--org-id",
+            &Uuid::now_v7().to_string(),
+            "--user-id",
+            &Uuid::now_v7().to_string(),
+            "--team-id",
+            &Uuid::now_v7().to_string(),
+            "--api-key-id",
+            &Uuid::now_v7().to_string(),
+            "--project-id",
+            &Uuid::now_v7().to_string(),
+        ])
+        .output()
+        .expect("execute");
+
+    assert!(
+        output.status.success(),
+        "create should succeed. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 // -- Get --------------------------------------------------------------------
 
 #[test]
@@ -254,6 +296,35 @@ fn startup_failure_outputs_json_on_stderr() {
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v: Value = serde_json::from_str(&stderr).expect("stderr should be valid JSON");
     assert_eq!(v["code"], "internal");
+    assert!(v["details"]["correlation_id"].is_string());
+}
+
+#[test]
+fn invalid_flag_outputs_json_on_stderr() {
+    let output = cli()
+        .args(["--definitely-invalid-flag"])
+        .output()
+        .expect("execute");
+
+    assert!(!output.status.success(), "should fail with non-zero exit");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("stderr should be valid JSON");
+    assert_eq!(v["code"], "invalid_input");
+    assert!(v["message"].is_string());
+}
+
+#[test]
+fn invalid_log_level_outputs_json_on_stderr() {
+    let output = cli()
+        .args(["--log-level", "[", "dispatch", "list"])
+        .output()
+        .expect("execute");
+
+    assert!(!output.status.success(), "should fail with non-zero exit");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("stderr should be valid JSON");
+    assert_eq!(v["code"], "invalid_input");
+    assert!(v["message"].as_str().expect("msg").contains("log_level"));
 }
 
 // -- Full lifecycle ---------------------------------------------------------
@@ -332,4 +403,53 @@ fn full_lifecycle_create_get_list_cancel() {
         serde_json::from_str(&String::from_utf8(get_cancelled.stdout).expect("utf8"))
             .expect("JSON");
     assert_eq!(cancelled_json["status"], "cancelled");
+}
+
+#[test]
+fn list_cursor_returns_next_page() {
+    let (db_url, _dir) = temp_db();
+    let _ = create_dispatch(&db_url);
+    let _ = create_dispatch(&db_url);
+
+    let page1 = cli()
+        .args([
+            "--database-url",
+            &db_url,
+            "dispatch",
+            "list",
+            "--limit",
+            "1",
+        ])
+        .output()
+        .expect("execute");
+    assert!(page1.status.success());
+    let page1_json: Value =
+        serde_json::from_str(&String::from_utf8(page1.stdout).expect("utf8")).expect("json");
+    let first_id = page1_json["dispatches"][0]["dispatch_id"]
+        .as_str()
+        .expect("id1")
+        .to_owned();
+    let cursor = page1_json["next_cursor"].as_str().expect("next_cursor");
+
+    let page2 = cli()
+        .args([
+            "--database-url",
+            &db_url,
+            "dispatch",
+            "list",
+            "--limit",
+            "1",
+            "--cursor",
+            cursor,
+        ])
+        .output()
+        .expect("execute");
+    assert!(page2.status.success());
+    let page2_json: Value =
+        serde_json::from_str(&String::from_utf8(page2.stdout).expect("utf8")).expect("json");
+    let second_id = page2_json["dispatches"][0]["dispatch_id"]
+        .as_str()
+        .expect("id2")
+        .to_owned();
+    assert_ne!(first_id, second_id);
 }

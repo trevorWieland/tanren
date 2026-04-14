@@ -13,7 +13,9 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, Condition, EntityTrait, QueryFilter, TransactionTrait,
 };
-use tanren_domain::{DomainEvent, EventEnvelope, EventId, StepId, StepStatus, StepType};
+use tanren_domain::{
+    DomainEvent, EntityKind, EventEnvelope, EventId, StepId, StepStatus, StepType,
+};
 
 use crate::converters::{events as event_converters, step as step_converters, validate};
 use crate::entity::{dispatch_projection, events, step_projection};
@@ -98,7 +100,8 @@ impl JobQueue for Store {
                         .await?;
                     if exists.is_none() {
                         return Err(StoreError::NotFound {
-                            entity: format!("dispatch {dispatch_id_display}"),
+                            entity_kind: EntityKind::Dispatch,
+                            id: dispatch_id_display.to_string(),
                         });
                     }
                     step_projection::Entity::insert(row).exec(txn).await?;

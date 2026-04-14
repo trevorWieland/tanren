@@ -1,15 +1,15 @@
 //! Inbound request types for contract operations.
 //!
 //! These types represent the canonical input shapes consumed by all
-//! transport interfaces (CLI, API, MCP, TUI). String fields for domain
-//! enums allow the contract to stay stable across domain enum additions;
-//! validation happens in the [`TryFrom`] conversion to domain commands.
+//! transport interfaces (CLI, API, MCP, TUI). Validation happens in
+//! the [`TryFrom`] conversion to domain commands.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tanren_domain::{AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Phase};
 use uuid::Uuid;
+
+use crate::enums::{AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Phase};
 
 /// Request to create a new dispatch.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,9 +79,9 @@ pub struct DispatchListFilter {
     /// Maximum number of results to return.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
-    /// Number of results to skip.
+    /// Opaque cursor returned by a previous list response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub offset: Option<u64>,
+    pub cursor: Option<String>,
 }
 
 /// Request to cancel a dispatch.
@@ -96,6 +96,12 @@ pub struct CancelDispatchRequest {
     /// Team UUID (optional actor attribution).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_id: Option<Uuid>,
+    /// API key UUID (optional actor attribution).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_id: Option<Uuid>,
+    /// Project UUID (optional actor attribution).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
     /// Reason for cancellation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,

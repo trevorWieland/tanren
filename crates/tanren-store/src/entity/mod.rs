@@ -6,6 +6,6 @@
 //! evolution never requires touching SeaORM generated glue, and
 //! SeaORM upgrades never require touching domain types.
 
-pub mod dispatch_projection;
-pub mod events;
-pub mod step_projection;
+pub(crate) mod dispatch_projection;
+pub(crate) mod events;
+pub(crate) mod step_projection;

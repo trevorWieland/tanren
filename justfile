@@ -274,11 +274,55 @@ check-deps:
         done
     done
 
+    # Transport binaries must stay thin: no direct core/capability deps.
+    transport=(
+        "tanren-cli"
+        "tanren-api"
+        "tanren-mcp"
+        "tanren-tui"
+    )
+    forbidden_transport=(
+        "tanren-domain"
+        "tanren-policy"
+        "tanren-store"
+        "tanren-planner"
+        "tanren-scheduler"
+        "tanren-orchestrator"
+    )
+    for bin in "${transport[@]}"; do
+        deps=$(echo "$metadata" \
+            | jq -r ".packages[] | select(.name == \"$bin\") | .dependencies[].name" 2>/dev/null || true)
+        for forbidden in "${forbidden_transport[@]}"; do
+            if echo "$deps" | grep -qx "$forbidden"; then
+                echo "FAIL: transport binary '$bin' depends directly on '$forbidden'"
+                failed=1
+            fi
+        done
+    done
+
+    # Store row-shape entities must remain crate-internal.
+    if grep -Eq '^[[:space:]]*pub mod entity;' crates/tanren-store/src/lib.rs; then
+        echo "FAIL: crates/tanren-store/src/lib.rs exports 'pub mod entity;'"
+        failed=1
+    fi
+    if grep -Eq '^[[:space:]]*pub mod (dispatch_projection|events|step_projection);' crates/tanren-store/src/entity/mod.rs; then
+        echo "FAIL: crates/tanren-store/src/entity/mod.rs exposes row-shape modules publicly"
+        failed=1
+    fi
+
     if [[ "$failed" -eq 1 ]]; then
-        echo "Crate layering violation detected. Foundation crates must not depend on capability crates."
+        echo "Dependency/boundary rule violations detected."
         exit 1
     fi
     echo "Crate layering rules pass."
+
+# Python architecture guard: interface layers stay thin.
+check-thin-interfaces:
+    @uv run python scripts/check_thin_interfaces.py
+
+# Python architecture guard: interface layers must not bypass store traits.
+check-store-bypass:
+    @uv run python scripts/check_store_bypass.py
 
 # Prohibit inline lint suppression (#[allow/expect])
 check-suppression:
@@ -322,5 +366,5 @@ clean:
 # ============================================================================
 
 # Run full CI check locally
-ci: fmt lint check check-lines check-suppression check-deps deny test doc machete
+ci: fmt lint check check-lines check-suppression check-deps check-thin-interfaces check-store-bypass deny test doc machete
     @echo "==> All CI checks passed!"

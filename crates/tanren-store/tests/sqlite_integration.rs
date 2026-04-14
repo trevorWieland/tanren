@@ -93,8 +93,8 @@ async fn query_dispatches_filters_by_lane_and_user() {
         })
         .await
         .expect("by lane");
-    assert_eq!(by_lane.len(), 1);
-    assert_eq!(by_lane[0].dispatch_id, id_a);
+    assert_eq!(by_lane.dispatches.len(), 1);
+    assert_eq!(by_lane.dispatches[0].dispatch_id, id_a);
 
     let by_user = store
         .query_dispatches(&DispatchFilter {
@@ -104,8 +104,8 @@ async fn query_dispatches_filters_by_lane_and_user() {
         })
         .await
         .expect("by user");
-    assert_eq!(by_user.len(), 1);
-    assert_eq!(by_user[0].actor.user_id, actor_b_user);
+    assert_eq!(by_user.dispatches.len(), 1);
+    assert_eq!(by_user.dispatches[0].actor.user_id, actor_b_user);
 }
 
 #[tokio::test]

@@ -3071,12 +3071,15 @@ version = "0.1.0"
 name = "tanren-app-services"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "serde_json",
  "tanren-contract",
  "tanren-domain",
  "tanren-orchestrator",
  "tanren-policy",
  "tanren-store",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -3091,13 +3094,10 @@ dependencies = [
  "serde_json",
  "tanren-app-services",
  "tanren-contract",
- "tanren-domain",
  "tanren-observability",
- "tanren-orchestrator",
- "tanren-policy",
- "tanren-store",
  "tempfile",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -3106,6 +3106,7 @@ name = "tanren-contract"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "clap",
  "serde",
  "serde_json",
  "tanren-domain",

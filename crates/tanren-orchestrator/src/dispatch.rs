@@ -10,12 +10,13 @@
 use chrono::Utc;
 use tanren_domain::{
     CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot, DispatchStatus, DispatchView,
-    DomainError, DomainEvent, EntityRef, EventEnvelope, EventId, GraphRevision, PolicyOutcome,
-    ProvisionPayload, StepId, StepPayload, StepReadyState, StepType, cli_to_lane,
+    DomainError, DomainEvent, EntityRef, EventEnvelope, EventId, FiniteF64, GraphRevision, Outcome,
+    PolicyOutcome, ProvisionPayload, StepId, StepPayload, StepReadyState, StepType, cli_to_lane,
 };
 use tanren_store::{
-    CancelPendingStepsParams, CreateDispatchParams, DispatchFilter, EnqueueStepParams, EventStore,
-    JobQueue, StateStore, UpdateDispatchStatusParams,
+    CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
+    DispatchFilter, DispatchQueryPage, EnqueueStepParams, EventStore, JobQueue, StateStore,
+    UpdateDispatchStatusParams,
 };
 use uuid::Uuid;
 
@@ -50,103 +51,9 @@ where
         }
 
         let now = Utc::now();
-        let lane = cli_to_lane(&cmd.cli);
-        let mode = cmd.mode;
-        let actor = cmd.actor.clone();
+        let (params, view) = build_create_dispatch_artifacts(cmd, dispatch_id, now);
 
-        let snapshot = DispatchSnapshot {
-            project: cmd.project,
-            phase: cmd.phase,
-            cli: cmd.cli,
-            auth_mode: cmd.auth_mode,
-            branch: cmd.branch,
-            spec_folder: cmd.spec_folder,
-            workflow_id: cmd.workflow_id,
-            timeout: cmd.timeout,
-            environment_profile: cmd.environment_profile,
-            gate_cmd: cmd.gate_cmd,
-            context: cmd.context,
-            model: cmd.model,
-            project_env: cmd.project_env.to_keys(),
-            required_secrets: cmd.required_secrets,
-            preserve_on_failure: cmd.preserve_on_failure,
-            created_at: now,
-        };
-
-        // Clone snapshot for the view and step payload before moving into params.
-        let snapshot_for_view = snapshot.clone();
-
-        let creation_event = EventEnvelope::new(
-            EventId::from_uuid(Uuid::now_v7()),
-            now,
-            DomainEvent::DispatchCreated {
-                dispatch_id,
-                dispatch: Box::new(snapshot.clone()),
-                mode,
-                lane,
-                actor: actor.clone(),
-                graph_revision: GraphRevision::INITIAL,
-            },
-        );
-
-        let params = CreateDispatchParams {
-            dispatch_id,
-            mode,
-            lane,
-            dispatch: snapshot,
-            actor: actor.clone(),
-            graph_revision: GraphRevision::INITIAL,
-            created_at: now,
-            creation_event,
-        };
-
-        self.store.create_dispatch_projection(params).await?;
-
-        // Enqueue the initial provision step.
-        let step_id = StepId::new();
-        let step_event = EventEnvelope::new(
-            EventId::from_uuid(Uuid::now_v7()),
-            now,
-            DomainEvent::StepEnqueued {
-                dispatch_id,
-                step_id,
-                step_type: StepType::Provision,
-                step_sequence: 0,
-                lane: Some(lane),
-                depends_on: vec![],
-                graph_revision: GraphRevision::INITIAL,
-            },
-        );
-        self.store
-            .enqueue_step(EnqueueStepParams {
-                dispatch_id,
-                step_id,
-                step_type: StepType::Provision,
-                step_sequence: 0,
-                lane: Some(lane),
-                depends_on: vec![],
-                graph_revision: GraphRevision::INITIAL,
-                payload: StepPayload::Provision(Box::new(ProvisionPayload {
-                    dispatch: snapshot_for_view.clone(),
-                })),
-                ready_state: StepReadyState::Ready,
-                enqueue_event: step_event,
-            })
-            .await?;
-
-        // Build the view directly from in-hand data — no read-after-write.
-        let view = DispatchView {
-            dispatch_id,
-            mode,
-            status: DispatchStatus::Pending,
-            outcome: None,
-            lane,
-            dispatch: Box::new(snapshot_for_view),
-            actor,
-            graph_revision: GraphRevision::INITIAL,
-            created_at: now,
-            updated_at: now,
-        };
+        self.store.create_dispatch_with_initial_step(params).await?;
 
         Ok(view)
     }
@@ -163,16 +70,65 @@ where
     pub async fn list_dispatches(
         &self,
         filter: DispatchFilter,
-    ) -> Result<Vec<DispatchView>, OrchestratorError> {
+    ) -> Result<DispatchQueryPage, OrchestratorError> {
         Ok(self.store.query_dispatches(&filter).await?)
+    }
+
+    /// Transition dispatch status to `Running`.
+    pub async fn start_dispatch(&self, dispatch_id: DispatchId) -> Result<(), OrchestratorError> {
+        let event = EventEnvelope::new(
+            EventId::from_uuid(Uuid::now_v7()),
+            Utc::now(),
+            DomainEvent::DispatchStarted { dispatch_id },
+        );
+        self.store
+            .update_dispatch_status(UpdateDispatchStatusParams {
+                dispatch_id,
+                status: DispatchStatus::Running,
+                outcome: None,
+                status_event: event,
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Finalize a running dispatch using the single terminal-event rule.
+    ///
+    /// - `Outcome::Success` emits `DispatchCompleted`
+    /// - all other outcomes emit `DispatchFailed`
+    pub async fn finalize_dispatch(
+        &self,
+        dispatch_id: DispatchId,
+        outcome: Outcome,
+        total_duration_secs: FiniteF64,
+        failed_step_id: Option<StepId>,
+        failed_step_type: Option<StepType>,
+        error: Option<String>,
+    ) -> Result<(), OrchestratorError> {
+        let (status, event) = terminal_status_event(
+            dispatch_id,
+            outcome,
+            total_duration_secs,
+            failed_step_id,
+            failed_step_type,
+            error,
+        );
+        self.store
+            .update_dispatch_status(UpdateDispatchStatusParams {
+                dispatch_id,
+                status,
+                outcome: Some(outcome),
+                status_event: event,
+            })
+            .await?;
+        Ok(())
     }
 
     /// Cancel a dispatch.
     ///
     /// 1. Verify the dispatch exists
     /// 2. Verify the transition to `Cancelled` is valid
-    /// 3. Cancel all pending steps
-    /// 4. Update dispatch status with `DispatchCancelled` event
+    /// 3. Atomically cancel pending steps + dispatch status/event
     pub async fn cancel_dispatch(&self, cmd: CancelDispatch) -> Result<(), OrchestratorError> {
         let view = self
             .store
@@ -192,35 +148,165 @@ where
             }));
         }
 
-        // Cancel all pending steps first
-        self.store
-            .cancel_pending_steps(CancelPendingStepsParams {
-                dispatch_id: cmd.dispatch_id,
-                actor: Some(cmd.actor.clone()),
-                reason: cmd.reason.clone(),
-            })
-            .await?;
-
-        // Build the cancellation event
         let event = EventEnvelope::new(
             EventId::from_uuid(Uuid::now_v7()),
             Utc::now(),
             DomainEvent::DispatchCancelled {
                 dispatch_id: cmd.dispatch_id,
-                actor: cmd.actor,
-                reason: cmd.reason,
+                actor: cmd.actor.clone(),
+                reason: cmd.reason.clone(),
             },
         );
 
         self.store
-            .update_dispatch_status(UpdateDispatchStatusParams {
+            .cancel_dispatch(CancelDispatchParams {
                 dispatch_id: cmd.dispatch_id,
-                status: DispatchStatus::Cancelled,
-                outcome: None,
+                actor: cmd.actor,
+                reason: cmd.reason,
                 status_event: event,
             })
             .await?;
 
         Ok(())
     }
+}
+
+fn build_create_dispatch_artifacts(
+    cmd: CreateDispatch,
+    dispatch_id: DispatchId,
+    now: chrono::DateTime<Utc>,
+) -> (CreateDispatchWithInitialStepParams, DispatchView) {
+    let lane = cli_to_lane(&cmd.cli);
+    let mode = cmd.mode;
+    let actor = cmd.actor.clone();
+
+    let snapshot = DispatchSnapshot {
+        project: cmd.project,
+        phase: cmd.phase,
+        cli: cmd.cli,
+        auth_mode: cmd.auth_mode,
+        branch: cmd.branch,
+        spec_folder: cmd.spec_folder,
+        workflow_id: cmd.workflow_id,
+        timeout: cmd.timeout,
+        environment_profile: cmd.environment_profile,
+        gate_cmd: cmd.gate_cmd,
+        context: cmd.context,
+        model: cmd.model,
+        project_env: cmd.project_env.to_keys(),
+        required_secrets: cmd.required_secrets,
+        preserve_on_failure: cmd.preserve_on_failure,
+        created_at: now,
+    };
+
+    let snapshot_for_view = snapshot.clone();
+    let creation_event = EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        now,
+        DomainEvent::DispatchCreated {
+            dispatch_id,
+            dispatch: Box::new(snapshot.clone()),
+            mode,
+            lane,
+            actor: actor.clone(),
+            graph_revision: GraphRevision::INITIAL,
+        },
+    );
+    let dispatch_params = CreateDispatchParams {
+        dispatch_id,
+        mode,
+        lane,
+        dispatch: snapshot,
+        actor: actor.clone(),
+        graph_revision: GraphRevision::INITIAL,
+        created_at: now,
+        creation_event,
+    };
+
+    let step_id = StepId::new();
+    let initial_step = EnqueueStepParams {
+        dispatch_id,
+        step_id,
+        step_type: StepType::Provision,
+        step_sequence: 0,
+        lane: Some(lane),
+        depends_on: vec![],
+        graph_revision: GraphRevision::INITIAL,
+        payload: StepPayload::Provision(Box::new(ProvisionPayload {
+            dispatch: snapshot_for_view.clone(),
+        })),
+        ready_state: StepReadyState::Ready,
+        enqueue_event: EventEnvelope::new(
+            EventId::from_uuid(Uuid::now_v7()),
+            now,
+            DomainEvent::StepEnqueued {
+                dispatch_id,
+                step_id,
+                step_type: StepType::Provision,
+                step_sequence: 0,
+                lane: Some(lane),
+                depends_on: vec![],
+                graph_revision: GraphRevision::INITIAL,
+            },
+        ),
+    };
+
+    let view = DispatchView {
+        dispatch_id,
+        mode,
+        status: DispatchStatus::Pending,
+        outcome: None,
+        lane,
+        dispatch: Box::new(snapshot_for_view),
+        actor,
+        graph_revision: GraphRevision::INITIAL,
+        created_at: now,
+        updated_at: now,
+    };
+
+    (
+        CreateDispatchWithInitialStepParams {
+            dispatch: dispatch_params,
+            initial_step,
+        },
+        view,
+    )
+}
+
+fn terminal_status_event(
+    dispatch_id: DispatchId,
+    outcome: Outcome,
+    total_duration_secs: FiniteF64,
+    failed_step_id: Option<StepId>,
+    failed_step_type: Option<StepType>,
+    error: Option<String>,
+) -> (DispatchStatus, EventEnvelope) {
+    let event = match outcome {
+        Outcome::Success => DomainEvent::DispatchCompleted {
+            dispatch_id,
+            outcome,
+            total_duration_secs,
+        },
+        Outcome::Fail | Outcome::Blocked | Outcome::Error | Outcome::Timeout => {
+            DomainEvent::DispatchFailed {
+                dispatch_id,
+                outcome,
+                failed_step_id,
+                failed_step_type,
+                error: error.unwrap_or_else(|| format!("dispatch terminated with {outcome}")),
+            }
+        }
+    };
+
+    let status = match outcome {
+        Outcome::Success => DispatchStatus::Completed,
+        Outcome::Fail | Outcome::Blocked | Outcome::Error | Outcome::Timeout => {
+            DispatchStatus::Failed
+        }
+    };
+
+    (
+        status,
+        EventEnvelope::new(EventId::from_uuid(Uuid::now_v7()), Utc::now(), event),
+    )
 }

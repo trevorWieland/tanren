@@ -8,9 +8,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use tanren_domain::{
-    Cli, DispatchMode, DispatchStatus, DispatchView, Lane, Outcome, Phase, StepView,
-};
+use tanren_domain::{DispatchView, StepView};
+
+use crate::enums::{Cli, DispatchMode, DispatchStatus, Lane, Outcome, Phase};
 
 /// Response representing a single dispatch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +37,8 @@ pub struct DispatchResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DispatchListResponse {
     pub dispatches: Vec<DispatchResponse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// Response representing a single step within a dispatch.
@@ -63,18 +65,18 @@ impl From<DispatchView> for DispatchResponse {
     fn from(view: DispatchView) -> Self {
         Self {
             dispatch_id: view.dispatch_id.into_uuid(),
-            status: view.status,
-            mode: view.mode,
-            lane: view.lane,
+            status: view.status.into(),
+            mode: view.mode.into(),
+            lane: view.lane.into(),
             project: view.dispatch.project.as_str().to_owned(),
-            phase: view.dispatch.phase,
-            cli: view.dispatch.cli,
+            phase: view.dispatch.phase.into(),
+            cli: view.dispatch.cli.into(),
             branch: view.dispatch.branch.as_str().to_owned(),
             spec_folder: view.dispatch.spec_folder.as_str().to_owned(),
             workflow_id: view.dispatch.workflow_id.as_str().to_owned(),
             environment_profile: view.dispatch.environment_profile.as_str().to_owned(),
             timeout_secs: view.dispatch.timeout.get(),
-            outcome: view.outcome,
+            outcome: view.outcome.map(Into::into),
             created_at: view.created_at,
             updated_at: view.updated_at,
         }

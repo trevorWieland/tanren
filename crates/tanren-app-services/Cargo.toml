@@ -17,6 +17,9 @@ tanren-orchestrator = { path = "../tanren-orchestrator" }
 tanren-policy = { path = "../tanren-policy" }
 tanren-store = { path = "../tanren-store" }
 uuid.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

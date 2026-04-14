@@ -5,8 +5,8 @@
 
 use tanren_domain::{
     ActorContext, AuthMode, CancelDispatch, Cli, ConfigEnv, CreateDispatch, DispatchId,
-    DispatchMode, DispatchStatus, DomainError, EntityRef, NonEmptyString, OrgId, Phase,
-    StepReadyState, StepStatus, StepType, TimeoutSecs, UserId,
+    DispatchMode, DispatchStatus, DomainError, EntityRef, FiniteF64, NonEmptyString, OrgId,
+    Outcome, Phase, StepReadyState, StepStatus, StepType, TimeoutSecs, UserId,
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
@@ -126,7 +126,8 @@ async fn list_dispatches_returns_created() {
         .list_dispatches(DispatchFilter::new())
         .await
         .expect("list");
-    assert_eq!(list.len(), 3);
+    assert_eq!(list.dispatches.len(), 3);
+    assert!(list.next_cursor.is_none());
 }
 
 #[tokio::test]
@@ -144,8 +145,8 @@ async fn list_dispatches_with_project_filter() {
     let mut filter = DispatchFilter::new();
     filter.project = Some("test-project".to_owned());
     let list = orch.list_dispatches(filter).await.expect("list");
-    assert_eq!(list.len(), 1);
-    assert_eq!(list[0].dispatch.project.as_str(), "test-project");
+    assert_eq!(list.dispatches.len(), 1);
+    assert_eq!(list.dispatches[0].dispatch.project.as_str(), "test-project");
 }
 
 #[tokio::test]
@@ -155,7 +156,8 @@ async fn list_empty_returns_empty_vec() {
         .list_dispatches(DispatchFilter::new())
         .await
         .expect("list");
-    assert!(list.is_empty());
+    assert!(list.dispatches.is_empty());
+    assert!(list.next_cursor.is_none());
 }
 
 // -- Cancel -----------------------------------------------------------------
@@ -323,4 +325,132 @@ async fn cancel_emits_dispatch_cancelled_not_failed() {
             "cancellation must not produce DispatchFailed"
         );
     }
+}
+
+#[tokio::test]
+async fn finalize_success_emits_dispatch_completed() {
+    let orch = setup().await;
+    let created = orch
+        .create_dispatch(sample_command(sample_actor()))
+        .await
+        .expect("create");
+    orch.start_dispatch(created.dispatch_id)
+        .await
+        .expect("start");
+    orch.finalize_dispatch(
+        created.dispatch_id,
+        Outcome::Success,
+        FiniteF64::try_new(3.2).expect("finite"),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("finalize");
+
+    let view = orch
+        .get_dispatch(&created.dispatch_id)
+        .await
+        .expect("get")
+        .expect("exists");
+    assert_eq!(view.status, DispatchStatus::Completed);
+    assert_eq!(view.outcome, Some(Outcome::Success));
+
+    let events = orch
+        .store()
+        .query_events(&EventFilter {
+            entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
+            ..EventFilter::new()
+        })
+        .await
+        .expect("events");
+    let last = events.events.last().expect("last");
+    assert!(matches!(
+        last.payload,
+        tanren_domain::DomainEvent::DispatchCompleted {
+            outcome: Outcome::Success,
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn finalize_non_success_outcomes_emit_dispatch_failed() {
+    let outcomes = [
+        Outcome::Fail,
+        Outcome::Blocked,
+        Outcome::Error,
+        Outcome::Timeout,
+    ];
+
+    for outcome in outcomes {
+        let orch = setup().await;
+        let created = orch
+            .create_dispatch(sample_command(sample_actor()))
+            .await
+            .expect("create");
+        orch.start_dispatch(created.dispatch_id)
+            .await
+            .expect("start");
+        orch.finalize_dispatch(
+            created.dispatch_id,
+            outcome,
+            FiniteF64::try_new(1.0).expect("finite"),
+            None,
+            None,
+            Some("failure".to_owned()),
+        )
+        .await
+        .expect("finalize");
+
+        let view = orch
+            .get_dispatch(&created.dispatch_id)
+            .await
+            .expect("get")
+            .expect("exists");
+        assert_eq!(view.status, DispatchStatus::Failed);
+        assert_eq!(view.outcome, Some(outcome));
+
+        let events = orch
+            .store()
+            .query_events(&EventFilter {
+                entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
+                ..EventFilter::new()
+            })
+            .await
+            .expect("events");
+        let last = events.events.last().expect("last");
+        assert!(matches!(
+            last.payload,
+            tanren_domain::DomainEvent::DispatchFailed { outcome: o, .. } if o == outcome
+        ));
+    }
+}
+
+#[tokio::test]
+async fn finalize_without_running_state_rejected() {
+    let orch = setup().await;
+    let created = orch
+        .create_dispatch(sample_command(sample_actor()))
+        .await
+        .expect("create");
+    let err = orch
+        .finalize_dispatch(
+            created.dispatch_id,
+            Outcome::Success,
+            FiniteF64::try_new(1.0).expect("finite"),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("finalize should fail from pending");
+
+    assert!(
+        matches!(
+            err,
+            OrchestratorError::Store(tanren_store::StoreError::InvalidTransition { .. })
+        ),
+        "expected invalid transition, got {err:?}"
+    );
 }

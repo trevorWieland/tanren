@@ -5,7 +5,10 @@ use std::io::Write as _;
 use anyhow::Result;
 use clap::Subcommand;
 use tanren_app_services::compose::Service;
-use tanren_contract::{CreateDispatchRequest, DispatchListFilter, ErrorResponse};
+use tanren_contract::{
+    CancelDispatchRequest, CreateDispatchRequest, DispatchListFilter, DispatchMode, DispatchStatus,
+    Lane, Phase,
+};
 use uuid::Uuid;
 
 /// Dispatch management commands.
@@ -29,10 +32,10 @@ pub(crate) struct CreateArgs {
     pub project: String,
     /// Phase of work.
     #[arg(long)]
-    pub phase: String,
+    pub phase: Phase,
     /// CLI harness.
     #[arg(long)]
-    pub cli: String,
+    pub cli: tanren_contract::Cli,
     /// Git branch.
     #[arg(long)]
     pub branch: String,
@@ -44,7 +47,7 @@ pub(crate) struct CreateArgs {
     pub workflow_id: String,
     /// Dispatch mode.
     #[arg(long, default_value = "manual")]
-    pub mode: String,
+    pub mode: DispatchMode,
     /// Timeout in seconds.
     #[arg(long, default_value = "300")]
     pub timeout: u64,
@@ -59,7 +62,16 @@ pub(crate) struct CreateArgs {
     pub user_id: Uuid,
     /// Authentication mode.
     #[arg(long)]
-    pub auth_mode: Option<String>,
+    pub auth_mode: Option<tanren_contract::AuthMode>,
+    /// Team UUID (optional actor attribution).
+    #[arg(long)]
+    pub team_id: Option<Uuid>,
+    /// API key UUID (optional actor attribution).
+    #[arg(long)]
+    pub api_key_id: Option<Uuid>,
+    /// Project UUID (optional actor attribution).
+    #[arg(long)]
+    pub project_id: Option<Uuid>,
     /// Gate command.
     #[arg(long)]
     pub gate_cmd: Option<String>,
@@ -84,19 +96,19 @@ pub(crate) struct GetArgs {
 pub(crate) struct ListArgs {
     /// Filter by status.
     #[arg(long)]
-    pub status: Option<String>,
+    pub status: Option<DispatchStatus>,
     /// Filter by lane.
     #[arg(long)]
-    pub lane: Option<String>,
+    pub lane: Option<Lane>,
     /// Filter by project.
     #[arg(long)]
     pub project: Option<String>,
     /// Maximum number of results.
     #[arg(long)]
     pub limit: Option<u64>,
-    /// Number of results to skip.
+    /// Opaque cursor returned by previous list results.
     #[arg(long)]
-    pub offset: Option<u64>,
+    pub cursor: Option<String>,
 }
 
 /// Arguments for `dispatch cancel`.
@@ -111,9 +123,18 @@ pub(crate) struct CancelArgs {
     /// User UUID.
     #[arg(long)]
     pub user_id: Uuid,
+    /// Team UUID (optional actor attribution).
+    #[arg(long)]
+    pub team_id: Option<Uuid>,
     /// Reason for cancellation.
     #[arg(long)]
     pub reason: Option<String>,
+    /// API key UUID (optional actor attribution).
+    #[arg(long)]
+    pub api_key_id: Option<Uuid>,
+    /// Project UUID (optional actor attribution).
+    #[arg(long)]
+    pub project_id: Option<Uuid>,
 }
 
 /// Handle a dispatch subcommand.
@@ -131,22 +152,18 @@ async fn handle_create(args: CreateArgs, service: &Service) -> Result<()> {
         org_id: args.org_id,
         user_id: args.user_id,
         project: args.project,
-        phase: parse_enum("phase", &args.phase)?,
-        cli: parse_enum("cli", &args.cli)?,
+        phase: args.phase,
+        cli: args.cli,
         branch: args.branch,
         spec_folder: args.spec_folder,
         workflow_id: args.workflow_id,
-        mode: parse_enum("mode", &args.mode)?,
+        mode: args.mode,
         timeout_secs: args.timeout,
         environment_profile: args.environment_profile,
-        team_id: None,
-        api_key_id: None,
-        project_id: None,
-        auth_mode: args
-            .auth_mode
-            .as_deref()
-            .map(|s| parse_enum("auth_mode", s))
-            .transpose()?,
+        team_id: args.team_id,
+        api_key_id: args.api_key_id,
+        project_id: args.project_id,
+        auth_mode: args.auth_mode,
         gate_cmd: args.gate_cmd,
         context: args.context,
         model: args.model,
@@ -166,19 +183,11 @@ async fn handle_get(args: GetArgs, service: &Service) -> Result<()> {
 
 async fn handle_list(args: ListArgs, service: &Service) -> Result<()> {
     let filter = DispatchListFilter {
-        status: args
-            .status
-            .as_deref()
-            .map(|s| parse_enum("status", s))
-            .transpose()?,
-        lane: args
-            .lane
-            .as_deref()
-            .map(|s| parse_enum("lane", s))
-            .transpose()?,
+        status: args.status,
+        lane: args.lane,
         project: args.project,
         limit: args.limit,
-        offset: args.offset,
+        cursor: args.cursor,
     };
 
     let resp = service.list(filter).await?;
@@ -186,11 +195,13 @@ async fn handle_list(args: ListArgs, service: &Service) -> Result<()> {
 }
 
 async fn handle_cancel(args: CancelArgs, service: &Service) -> Result<()> {
-    let req = tanren_contract::CancelDispatchRequest {
+    let req = CancelDispatchRequest {
         dispatch_id: args.id,
         org_id: args.org_id,
         user_id: args.user_id,
-        team_id: None,
+        team_id: args.team_id,
+        api_key_id: args.api_key_id,
+        project_id: args.project_id,
         reason: args.reason,
     };
 
@@ -203,18 +214,4 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
     let json = serde_json::to_string_pretty(value)?;
     writeln!(std::io::stdout(), "{json}")?;
     Ok(())
-}
-
-/// Parse a CLI string arg into a serde-deserializable domain enum.
-fn parse_enum<T>(field: &str, value: &str) -> Result<T, ErrorResponse>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let quoted = format!("\"{value}\"");
-    serde_json::from_str::<T>(&quoted).map_err(|_| {
-        ErrorResponse::from(tanren_contract::ContractError::InvalidField {
-            field: field.to_owned(),
-            reason: format!("unknown value: {value:?}"),
-        })
-    })
 }

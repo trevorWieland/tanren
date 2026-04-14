@@ -15,10 +15,12 @@
 //! - Contract changes must be backwards-compatible or explicitly versioned
 
 mod convert;
+pub mod enums;
 pub mod error;
 pub mod request;
 pub mod response;
 
+pub use enums::{AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Outcome, Phase};
 pub use error::{ContractError, ErrorResponse};
 pub use request::{CancelDispatchRequest, CreateDispatchRequest, DispatchListFilter};
 pub use response::{DispatchListResponse, DispatchResponse, StepResponse};

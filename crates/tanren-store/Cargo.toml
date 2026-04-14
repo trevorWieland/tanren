@@ -31,12 +31,42 @@ path = "tests/sqlite_liveness.rs"
 required-features = ["test-hooks"]
 
 [[test]]
+name = "sqlite_cancel_dispatch_atomic"
+path = "tests/sqlite_cancel_dispatch_atomic.rs"
+required-features = ["test-hooks"]
+
+[[test]]
 name = "postgres_integration"
 path = "tests/postgres_integration.rs"
 required-features = ["test-hooks", "postgres-integration"]
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+# SeaORM's `DeriveEntityModel` macro generates public entity types that
+# must remain `pub` to satisfy its trait surface, even though the module
+# path is crate-internal (`pub(crate) mod entity` in `lib.rs`).
+unreachable_pub = "allow"
+unused_qualifications = "warn"
+
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+unimplemented = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 [dependencies]
 tanren-domain = { version = "0.1", path = "../tanren-domain" }

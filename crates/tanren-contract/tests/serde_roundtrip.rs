@@ -7,12 +7,11 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use tanren_contract::{
-    CancelDispatchRequest, ContractError, CreateDispatchRequest, DispatchListFilter,
-    DispatchListResponse, DispatchResponse, ErrorResponse, StepResponse,
+    AuthMode, CancelDispatchRequest, Cli, ContractError, CreateDispatchRequest, DispatchListFilter,
+    DispatchListResponse, DispatchMode, DispatchResponse, DispatchStatus, ErrorResponse, Lane,
+    Outcome, Phase, StepResponse,
 };
-use tanren_domain::{
-    AuthMode, Cli, CreateDispatch, DispatchMode, DispatchStatus, Lane, Outcome, Phase,
-};
+use tanren_domain::{CancelDispatch, CreateDispatch};
 use uuid::Uuid;
 
 fn sample_create_request() -> CreateDispatchRequest {
@@ -137,7 +136,7 @@ fn dispatch_list_filter_roundtrip() {
         lane: Some(Lane::Impl),
         project: Some("proj".to_owned()),
         limit: Some(50),
-        offset: Some(10),
+        cursor: Some("2026-01-01T00:00:00+00:00|01966a00-0000-7000-8000-000000000001".to_owned()),
     };
     let json = serde_json::to_string(&filter).expect("serialize");
     let back: DispatchListFilter = serde_json::from_str(&json).expect("deserialize");
@@ -160,6 +159,8 @@ fn cancel_dispatch_request_roundtrip() {
         org_id: Uuid::now_v7(),
         user_id: Uuid::now_v7(),
         team_id: Some(Uuid::now_v7()),
+        api_key_id: Some(Uuid::now_v7()),
+        project_id: Some(Uuid::now_v7()),
         reason: Some("testing".to_owned()),
     };
     let json = serde_json::to_string(&req).expect("serialize");
@@ -192,6 +193,7 @@ fn dispatch_response_with_outcome() {
 fn dispatch_list_response_roundtrip() {
     let resp = DispatchListResponse {
         dispatches: vec![sample_dispatch_response()],
+        next_cursor: Some("cursor-token".to_owned()),
     };
     let json = serde_json::to_string(&resp).expect("serialize");
     let back: DispatchListResponse = serde_json::from_str(&json).expect("deserialize");
@@ -289,9 +291,9 @@ fn valid_request_converts_to_command() {
     let cmd = cmd.expect("should convert");
     assert_eq!(cmd.project.as_str(), "my-project");
     assert_eq!(cmd.timeout.get(), 300);
-    assert_eq!(cmd.phase, Phase::DoTask);
-    assert_eq!(cmd.cli, Cli::Claude);
-    assert_eq!(cmd.mode, DispatchMode::Manual);
+    assert_eq!(cmd.phase, tanren_domain::Phase::DoTask);
+    assert_eq!(cmd.cli, tanren_domain::Cli::Claude);
+    assert_eq!(cmd.mode, tanren_domain::DispatchMode::Manual);
 }
 
 #[test]
@@ -320,7 +322,7 @@ fn zero_timeout_rejected() {
 fn default_auth_mode_is_api_key() {
     let req = sample_create_request();
     let cmd = CreateDispatch::try_from(req).expect("should convert");
-    assert_eq!(cmd.auth_mode, AuthMode::ApiKey);
+    assert_eq!(cmd.auth_mode, tanren_domain::AuthMode::ApiKey);
 }
 
 #[test]
@@ -328,7 +330,7 @@ fn explicit_auth_mode_preserved() {
     let mut req = sample_create_request();
     req.auth_mode = Some(AuthMode::OAuth);
     let cmd = CreateDispatch::try_from(req).expect("should convert");
-    assert_eq!(cmd.auth_mode, AuthMode::OAuth);
+    assert_eq!(cmd.auth_mode, tanren_domain::AuthMode::OAuth);
 }
 
 #[test]
@@ -340,4 +342,22 @@ fn project_env_converted() {
     ]));
     let cmd = CreateDispatch::try_from(req).expect("should convert");
     assert!(!cmd.project_env.is_empty());
+}
+
+#[test]
+fn cancel_request_converts_to_command_with_optional_actor_fields() {
+    let req = CancelDispatchRequest {
+        dispatch_id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        user_id: Uuid::now_v7(),
+        team_id: Some(Uuid::now_v7()),
+        api_key_id: Some(Uuid::now_v7()),
+        project_id: Some(Uuid::now_v7()),
+        reason: Some("stop".to_owned()),
+    };
+    let cmd = CancelDispatch::try_from(req).expect("should convert");
+    assert!(cmd.actor.team_id.is_some());
+    assert!(cmd.actor.api_key_id.is_some());
+    assert!(cmd.actor.project_id.is_some());
+    assert_eq!(cmd.reason.as_deref(), Some("stop"));
 }

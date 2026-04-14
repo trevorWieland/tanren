@@ -17,6 +17,7 @@
 //! [`DbErr`]: sea_orm::DbErr
 
 use sea_orm::DbErr;
+use tanren_domain::EntityKind;
 
 /// All errors raised by the store layer.
 #[derive(Debug, thiserror::Error)]
@@ -49,12 +50,13 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
 
     /// The caller asked for an entity that does not exist. The
-    /// `entity` field is an already-rendered identifier (never raw
-    /// user input).
-    #[error("entity not found: {entity}")]
+    /// identifier is a stable contract-level representation.
+    #[error("{entity_kind} not found: {id}")]
     NotFound {
-        /// Already-rendered identifier describing what was missing.
-        entity: String,
+        /// Kind of the missing entity.
+        entity_kind: EntityKind,
+        /// Identifier of the missing entity.
+        id: String,
     },
 
     /// A projection row was found in an unexpected state for the
