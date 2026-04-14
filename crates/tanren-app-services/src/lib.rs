@@ -1,16 +1,23 @@
 //! Shared application service layer for all tanren interfaces.
 //!
-//! Depends on: `tanren-orchestrator`, `tanren-contract`, `tanren-policy`,
-//!             `tanren-store`, `tanren-observability`
+//! Depends on: `tanren-orchestrator`, `tanren-contract`, `tanren-store`,
+//!             `tanren-domain`
 //!
 //! # Responsibilities
 //!
 //! - Stable use-case APIs consumed by CLI, API, MCP, and TUI binaries
-//! - Input mapping and output shaping (domain types to/from interface types)
+//! - Input mapping and output shaping (contract types ↔ domain types)
+//! - Error translation from orchestrator/store to wire-safe responses
 //! - No direct transport assumptions (no HTTP, no CLI args, no MCP protocol)
 //!
 //! # Design Rules
 //!
-//! - This is the only crate that interface binaries should depend on
-//!   (plus `contract` for schema types and runtime/harness crates for wiring)
-//! - Forgeclaw integrates with tanren through this layer
+//! - This is the primary crate that interface binaries depend on for
+//!   business logic (plus `contract` for schema types)
+//! - All transport-specific concerns belong in the binary crates
+
+pub mod compose;
+mod dispatch_service;
+pub mod error;
+
+pub use dispatch_service::DispatchService;

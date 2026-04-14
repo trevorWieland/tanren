@@ -11,5 +11,12 @@ description = "Shared application service layer — stable use-case APIs for CLI
 workspace = true
 
 [dependencies]
+tanren-domain = { path = "../tanren-domain" }
+tanren-contract = { path = "../tanren-contract" }
+tanren-orchestrator = { path = "../tanren-orchestrator" }
+tanren-policy = { path = "../tanren-policy" }
+tanren-store = { path = "../tanren-store" }
+uuid.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

@@ -11,5 +11,12 @@ description = "Control-plane orchestration engine — planner/scheduler/policy/s
 workspace = true
 
 [dependencies]
+tanren-domain = { path = "../tanren-domain" }
+tanren-store = { path = "../tanren-store" }
+tanren-policy = { path = "../tanren-policy" }
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

@@ -11,5 +11,7 @@ description = "Shared telemetry primitives — tracing context, metrics registry
 workspace = true
 
 [dependencies]
+tracing-subscriber.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]

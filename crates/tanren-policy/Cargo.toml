@@ -11,5 +11,6 @@ description = "Authorization and governance — identity, budgets, quotas, and p
 workspace = true
 
 [dependencies]
+tanren-domain = { path = "../tanren-domain" }
 
 [dev-dependencies]
