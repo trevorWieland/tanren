@@ -148,7 +148,7 @@ build:
 
 # Type-check all workspace crates
 check:
-    @{{ cargo }} check --workspace --all-targets --quiet
+    @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks --quiet
 
 # ============================================================================
 # Test
@@ -156,11 +156,11 @@ check:
 
 # Run all tests via nextest (pass extra args after --)
 test *args:
-    @{{ cargo }} nextest run --workspace --no-tests=pass {{ args }}
+    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks {{ args }}
 
 # Generate code coverage report (lcov)
 coverage:
-    @{{ cargo }} llvm-cov nextest --workspace --lcov --output-path lcov.info --no-tests=pass
+    @{{ cargo }} llvm-cov nextest --workspace --features tanren-store/test-hooks --lcov --output-path lcov.info --no-tests=pass
     @echo "Coverage report: lcov.info"
 
 # ============================================================================
@@ -169,7 +169,7 @@ coverage:
 
 # Run clippy with deny warnings
 lint:
-    @{{ cargo }} clippy --workspace --all-targets --quiet -- -D warnings
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks --quiet -- -D warnings
 
 # Glob for Rust workspace TOML files (excludes Python pyproject.toml)
 toml_globs := "Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml lefthook.yml"
@@ -188,7 +188,7 @@ fmt-fix:
 fix:
     @{{ cargo }} fmt
     @RUST_LOG=error taplo fmt {{ toml_globs }}
-    @{{ cargo }} clippy --workspace --all-targets --fix --allow-dirty --allow-staged --quiet -- -D warnings
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks --fix --allow-dirty --allow-staged --quiet -- -D warnings
 
 # ============================================================================
 # Audit & Analysis
@@ -229,6 +229,56 @@ check-lines:
     done < <(find crates/ bin/ -name '*.rs' -print0)
     if [[ "$failed" -eq 1 ]]; then exit 1; fi
     echo "All files within line limit."
+
+# Enforce crate dependency layering (foundation crates must not depend on capability crates)
+check-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Checking crate dependency layering..."
+
+    # Foundation crates: domain logic, no I/O, no orchestration
+    foundation=(
+        "tanren-domain"
+        "tanren-contract"
+        "tanren-policy"
+        "tanren-observability"
+    )
+
+    # Capability crates: these must NOT be depended upon by foundation crates
+    capability=(
+        "tanren-store"
+        "tanren-planner"
+        "tanren-scheduler"
+        "tanren-orchestrator"
+        "tanren-app-services"
+        "tanren-runtime"
+        "tanren-runtime-local"
+        "tanren-runtime-docker"
+        "tanren-runtime-remote"
+        "tanren-harness-claude"
+        "tanren-harness-codex"
+        "tanren-harness-opencode"
+    )
+
+    failed=0
+    metadata=$({{ cargo }} metadata --format-version 1 --no-deps 2>/dev/null)
+
+    for fnd in "${foundation[@]}"; do
+        deps=$(echo "$metadata" \
+            | jq -r ".packages[] | select(.name == \"$fnd\") | .dependencies[].name" 2>/dev/null || true)
+        for cap in "${capability[@]}"; do
+            if echo "$deps" | grep -qx "$cap"; then
+                echo "FAIL: foundation crate '$fnd' depends on capability crate '$cap'"
+                failed=1
+            fi
+        done
+    done
+
+    if [[ "$failed" -eq 1 ]]; then
+        echo "Crate layering violation detected. Foundation crates must not depend on capability crates."
+        exit 1
+    fi
+    echo "Crate layering rules pass."
 
 # Prohibit inline lint suppression (#[allow/expect])
 check-suppression:
@@ -272,5 +322,5 @@ clean:
 # ============================================================================
 
 # Run full CI check locally
-ci: fmt lint deny check-lines check-suppression test doc machete
+ci: fmt lint check check-lines check-suppression check-deps deny test doc machete
     @echo "==> All CI checks passed!"

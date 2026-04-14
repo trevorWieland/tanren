@@ -7,9 +7,57 @@ license.workspace = true
 publish = false
 description = "Event-sourced persistence — event log, projections, migrations, and repository APIs"
 
+[features]
+default = []
+# Enables the Postgres-backed integration test suite. Gated so the default
+# `cargo nextest run -p tanren-store` path stays SQLite-only and does not
+# require a running Postgres instance.
+postgres-integration = []
+# Exposes `Store::append` / `Store::append_batch` for integration tests.
+# Production code must NOT enable this feature — these methods bypass
+# projection consistency. Test binaries that use these methods declare
+# `required-features = ["test-hooks"]` so bare `cargo test` silently
+# skips them rather than failing to compile.
+test-hooks = []
+
+[[test]]
+name = "sqlite_integration"
+path = "tests/sqlite_integration.rs"
+required-features = ["test-hooks"]
+
+[[test]]
+name = "sqlite_liveness"
+path = "tests/sqlite_liveness.rs"
+required-features = ["test-hooks"]
+
+[[test]]
+name = "postgres_integration"
+path = "tests/postgres_integration.rs"
+required-features = ["test-hooks", "postgres-integration"]
+
 [lints]
 workspace = true
 
 [dependencies]
+tanren-domain = { version = "0.1", path = "../tanren-domain" }
+
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+
+serde_json = { workspace = true }
+
+thiserror = { workspace = true }
+
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+async-trait = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+# Test-only: enable SeaORM's `mock` feature so unit tests can use
+# `MockDatabase` without a real database. The feature is additive,
+# so production builds are unaffected.
+sea-orm = { workspace = true, features = ["mock"] }
