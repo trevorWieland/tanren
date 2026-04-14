@@ -5,16 +5,18 @@
 //! from the domain, translating errors into wire-safe [`ErrorResponse`].
 
 use tanren_contract::{
-    CancelDispatchRequest, ContractError, CreateDispatchRequest, DispatchListFilter,
-    DispatchListResponse, DispatchResponse, ErrorResponse,
+    CancelDispatchRequest, ContractError, DispatchCursorToken, DispatchListFilter,
+    DispatchListResponse, DispatchResponse, ErrorResponse, cancel_dispatch_from_request,
+    create_dispatch_from_request,
 };
-use tanren_domain::{CreateDispatch, DispatchId};
+use tanren_domain::DispatchId;
 use tanren_orchestrator::Orchestrator;
 use tanren_store::{
     DispatchCursor, DispatchFilter, EventStore, JobQueue, MAX_DISPATCH_QUERY_LIMIT, StateStore,
 };
 use uuid::Uuid;
 
+use crate::RequestContext;
 use crate::error::map_orchestrator_error;
 
 /// Application service for dispatch operations.
@@ -43,9 +45,11 @@ where
     /// Create a new dispatch from a contract request.
     pub async fn create(
         &self,
-        req: CreateDispatchRequest,
+        context: &RequestContext,
+        req: tanren_contract::CreateDispatchRequest,
     ) -> Result<DispatchResponse, ErrorResponse> {
-        let cmd = CreateDispatch::try_from(req).map_err(ErrorResponse::from)?;
+        let cmd = create_dispatch_from_request(context.actor().clone(), req)
+            .map_err(ErrorResponse::from)?;
         let view = self
             .orchestrator
             .create_dispatch(cmd)
@@ -55,11 +59,15 @@ where
     }
 
     /// Get a dispatch by its UUID.
-    pub async fn get(&self, dispatch_id: Uuid) -> Result<DispatchResponse, ErrorResponse> {
+    pub async fn get(
+        &self,
+        context: &RequestContext,
+        dispatch_id: Uuid,
+    ) -> Result<DispatchResponse, ErrorResponse> {
         let id = DispatchId::from_uuid(dispatch_id);
         let view = self
             .orchestrator
-            .get_dispatch(&id)
+            .get_dispatch_for_actor(&id, context.actor())
             .await
             .map_err(map_orchestrator_error)?;
         match view {
@@ -74,12 +82,13 @@ where
     /// List dispatches matching the given filter.
     pub async fn list(
         &self,
+        context: &RequestContext,
         filter: DispatchListFilter,
     ) -> Result<DispatchListResponse, ErrorResponse> {
         let store_filter = convert_list_filter(filter)?;
         let views = self
             .orchestrator
-            .list_dispatches(store_filter)
+            .list_dispatches_for_actor(store_filter, context.actor())
             .await
             .map_err(map_orchestrator_error)?;
         Ok(DispatchListResponse {
@@ -93,8 +102,13 @@ where
     }
 
     /// Cancel a dispatch.
-    pub async fn cancel(&self, req: CancelDispatchRequest) -> Result<(), ErrorResponse> {
-        let cmd = tanren_domain::CancelDispatch::try_from(req).map_err(ErrorResponse::from)?;
+    pub async fn cancel(
+        &self,
+        context: &RequestContext,
+        req: CancelDispatchRequest,
+    ) -> Result<(), ErrorResponse> {
+        let cmd = cancel_dispatch_from_request(context.actor().clone(), req)
+            .map_err(ErrorResponse::from)?;
         self.orchestrator
             .cancel_dispatch(cmd)
             .await
@@ -124,54 +138,71 @@ fn convert_list_filter(filter: DispatchListFilter) -> Result<DispatchFilter, Err
         f.limit = limit;
     }
     if let Some(cursor) = filter.cursor {
-        f.cursor = Some(parse_cursor(&cursor)?);
+        f.cursor = Some(parse_cursor(cursor));
     }
     Ok(f)
 }
 
-fn format_cursor(cursor: DispatchCursor) -> String {
-    format!(
-        "{}|{}",
-        cursor.created_at.to_rfc3339(),
-        cursor.dispatch_id.into_uuid()
-    )
+fn format_cursor(cursor: DispatchCursor) -> DispatchCursorToken {
+    DispatchCursorToken::new(cursor.created_at, cursor.dispatch_id.into_uuid())
 }
 
-fn parse_cursor(raw: &str) -> Result<DispatchCursor, ErrorResponse> {
-    let (created_at_raw, dispatch_id_raw) = raw.split_once('|').ok_or_else(|| {
-        ErrorResponse::from(ContractError::InvalidField {
-            field: "cursor".to_owned(),
-            reason: "invalid cursor format".to_owned(),
-        })
-    })?;
-
-    let created_at = chrono::DateTime::parse_from_rfc3339(created_at_raw)
-        .map_err(|_| {
-            ErrorResponse::from(ContractError::InvalidField {
-                field: "cursor".to_owned(),
-                reason: "invalid cursor timestamp".to_owned(),
-            })
-        })?
-        .with_timezone(&chrono::Utc);
-    let dispatch_id = Uuid::parse_str(dispatch_id_raw).map_err(|_| {
-        ErrorResponse::from(ContractError::InvalidField {
-            field: "cursor".to_owned(),
-            reason: "invalid cursor dispatch_id".to_owned(),
-        })
-    })?;
-
-    Ok(DispatchCursor {
-        created_at,
-        dispatch_id: DispatchId::from_uuid(dispatch_id),
-    })
+fn parse_cursor(token: DispatchCursorToken) -> DispatchCursor {
+    DispatchCursor {
+        created_at: token.created_at,
+        dispatch_id: DispatchId::from_uuid(token.dispatch_id),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-    use tanren_contract::DispatchListFilter;
+    use std::collections::HashMap;
 
-    use super::{convert_list_filter, format_cursor, parse_cursor};
+    use chrono::Utc;
+    use tanren_contract::{
+        Cli, ContractError, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
+        DispatchMode, ErrorCode, Phase,
+    };
+    use tanren_domain::{ActorContext, OrgId, UserId};
+    use tanren_orchestrator::Orchestrator;
+    use tanren_policy::PolicyEngine;
+    use tanren_store::Store;
+
+    use super::{DispatchService, convert_list_filter, format_cursor, parse_cursor};
+    use crate::RequestContext;
+
+    async fn setup_service() -> DispatchService<Store> {
+        let store = Store::open_and_migrate("sqlite::memory:")
+            .await
+            .expect("store");
+        let orchestrator = Orchestrator::new(store, PolicyEngine::new());
+        DispatchService::new(orchestrator)
+    }
+
+    fn sample_context() -> RequestContext {
+        RequestContext::new(ActorContext::new(OrgId::new(), UserId::new()))
+    }
+
+    fn sample_request() -> CreateDispatchRequest {
+        CreateDispatchRequest {
+            project: "proj".to_owned(),
+            phase: Phase::DoTask,
+            cli: Cli::Claude,
+            branch: "main".to_owned(),
+            spec_folder: "spec".to_owned(),
+            workflow_id: "wf-1".to_owned(),
+            mode: DispatchMode::Manual,
+            timeout_secs: 300,
+            environment_profile: "default".to_owned(),
+            auth_mode: tanren_contract::AuthMode::ApiKey,
+            gate_cmd: None,
+            context: None,
+            model: None,
+            project_env: HashMap::new(),
+            required_secrets: vec![],
+            preserve_on_failure: false,
+        }
+    }
 
     #[test]
     fn convert_list_filter_rejects_limit_above_max() {
@@ -180,7 +211,7 @@ mod tests {
             ..DispatchListFilter::default()
         };
         let err = convert_list_filter(filter).expect_err("should fail");
-        assert_eq!(err.code, "invalid_input");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
         assert!(err.message.contains("limit"));
     }
 
@@ -191,7 +222,7 @@ mod tests {
             ..DispatchListFilter::default()
         };
         let err = convert_list_filter(filter).expect_err("should fail");
-        assert_eq!(err.code, "invalid_input");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
         assert!(err.message.contains("limit"));
     }
 
@@ -202,14 +233,59 @@ mod tests {
             dispatch_id: tanren_domain::DispatchId::new(),
         };
         let encoded = format_cursor(cursor);
-        let decoded = parse_cursor(&encoded).expect("decode");
+        let decoded = parse_cursor(encoded);
         assert_eq!(decoded, cursor);
     }
 
     #[test]
-    fn parse_cursor_rejects_bad_format() {
-        let err = parse_cursor("bad").expect_err("should fail");
-        assert_eq!(err.code, "invalid_input");
-        assert!(err.message.contains("cursor"));
+    fn decode_cursor_token_rejects_bad_format() {
+        let err = DispatchCursorToken::decode("bad").expect_err("should fail");
+        assert!(
+            matches!(err, ContractError::InvalidField { ref field, .. } if field == "cursor"),
+            "expected invalid cursor field, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn service_create_rejects_duplicate_required_secrets() {
+        let service = setup_service().await;
+        let mut req = sample_request();
+        req.required_secrets = vec!["API_KEY".to_owned(), "API_KEY".to_owned()];
+
+        let err = service
+            .create(&sample_context(), req)
+            .await
+            .expect_err("should fail");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("required_secrets"));
+    }
+
+    #[tokio::test]
+    async fn service_create_accepts_empty_project_env_values() {
+        let service = setup_service().await;
+        let mut req = sample_request();
+        req.project_env = HashMap::from([("EMPTY".to_owned(), String::new())]);
+
+        let created = service
+            .create(&sample_context(), req)
+            .await
+            .expect("should create");
+        assert_eq!(created.project_env_keys, vec!["EMPTY".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn service_get_hides_unauthorized_dispatch_as_not_found() {
+        let service = setup_service().await;
+        let created = service
+            .create(&sample_context(), sample_request())
+            .await
+            .expect("create");
+
+        let unauthorized = RequestContext::new(ActorContext::new(OrgId::new(), UserId::new()));
+        let err = service
+            .get(&unauthorized, created.dispatch_id)
+            .await
+            .expect_err("unauthorized actor should not see dispatch");
+        assert_eq!(err.code, ErrorCode::NotFound);
     }
 }

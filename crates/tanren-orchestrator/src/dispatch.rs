@@ -9,9 +9,10 @@
 
 use chrono::Utc;
 use tanren_domain::{
-    CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot, DispatchStatus, DispatchView,
-    DomainError, DomainEvent, EntityRef, EventEnvelope, EventId, FiniteF64, GraphRevision, Outcome,
-    PolicyOutcome, ProvisionPayload, StepId, StepPayload, StepReadyState, StepType, cli_to_lane,
+    ActorContext, CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot, DispatchStatus,
+    DispatchView, DomainError, DomainEvent, EntityRef, EventEnvelope, EventId, FiniteF64,
+    GraphRevision, Outcome, PolicyOutcome, ProvisionPayload, StepId, StepPayload, StepReadyState,
+    StepType, cli_to_lane,
 };
 use tanren_store::{
     CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
@@ -66,11 +67,41 @@ where
         Ok(self.store.get_dispatch(id).await?)
     }
 
+    /// Retrieve a dispatch by ID, enforcing actor-scope read policy.
+    pub async fn get_dispatch_for_actor(
+        &self,
+        id: &DispatchId,
+        actor: &ActorContext,
+    ) -> Result<Option<DispatchView>, OrchestratorError> {
+        let view = self.store.get_dispatch(id).await?;
+        if let Some(ref dispatch) = view {
+            let decision = self.policy.check_dispatch_read_allowed(
+                actor,
+                &dispatch.actor,
+                dispatch.dispatch_id,
+            )?;
+            if decision.outcome == PolicyOutcome::Denied {
+                return Ok(None);
+            }
+        }
+        Ok(view)
+    }
+
     /// List dispatches matching the given filter.
     pub async fn list_dispatches(
         &self,
         filter: DispatchFilter,
     ) -> Result<DispatchQueryPage, OrchestratorError> {
+        Ok(self.store.query_dispatches(&filter).await?)
+    }
+
+    /// List dispatches within the actor's policy-derived read scope.
+    pub async fn list_dispatches_for_actor(
+        &self,
+        mut filter: DispatchFilter,
+        actor: &ActorContext,
+    ) -> Result<DispatchQueryPage, OrchestratorError> {
+        filter.read_scope = Some(self.policy.dispatch_read_scope(actor));
         Ok(self.store.query_dispatches(&filter).await?)
     }
 
@@ -127,7 +158,7 @@ where
     /// Cancel a dispatch.
     ///
     /// 1. Verify the dispatch exists
-    /// 2. Verify the transition to `Cancelled` is valid
+    /// 2. Enforce cancel policy authorization
     /// 3. Atomically cancel pending steps + dispatch status/event
     pub async fn cancel_dispatch(&self, cmd: CancelDispatch) -> Result<(), OrchestratorError> {
         let view = self
@@ -140,12 +171,11 @@ where
                 })
             })?;
 
-        if !view.status.can_transition_to(DispatchStatus::Cancelled) {
-            return Err(OrchestratorError::Domain(DomainError::InvalidTransition {
-                from: view.status.to_string(),
-                to: "cancelled".to_owned(),
-                entity: EntityRef::Dispatch(cmd.dispatch_id),
-            }));
+        let decision = self.policy.check_cancel_allowed(&cmd, &view.actor)?;
+        if decision.outcome == PolicyOutcome::Denied {
+            return Err(OrchestratorError::PolicyDenied {
+                decision: Box::new(decision),
+            });
         }
 
         let event = EventEnvelope::new(

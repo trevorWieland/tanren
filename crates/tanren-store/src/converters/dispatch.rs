@@ -34,6 +34,16 @@ pub(crate) fn params_to_active_model(
         actor: Set(actor_value),
         graph_revision: Set(graph_revision),
         user_id: Set(params.actor.user_id.into_uuid()),
+        org_id: Set(Some(params.actor.org_id.into_uuid())),
+        scope_project_id: Set(params
+            .actor
+            .project_id
+            .map(tanren_domain::ProjectId::into_uuid)),
+        scope_team_id: Set(params.actor.team_id.map(tanren_domain::TeamId::into_uuid)),
+        scope_api_key_id: Set(params
+            .actor
+            .api_key_id
+            .map(tanren_domain::ApiKeyId::into_uuid)),
         project: Set(params.dispatch.project.as_str().to_owned()),
         created_at: Set(params.created_at),
         updated_at: Set(params.created_at),

@@ -54,6 +54,18 @@ pub struct Model {
     /// Denormalized `actor.user_id` for indexable queries.
     pub user_id: Uuid,
 
+    /// Denormalized `actor.org_id` for policy-scoped reads.
+    pub org_id: Option<Uuid>,
+
+    /// Denormalized `actor.project_id` for policy-scoped reads.
+    pub scope_project_id: Option<Uuid>,
+
+    /// Denormalized `actor.team_id` for policy-scoped reads.
+    pub scope_team_id: Option<Uuid>,
+
+    /// Denormalized `actor.api_key_id` for policy-scoped reads.
+    pub scope_api_key_id: Option<Uuid>,
+
     /// Denormalized `dispatch.project` for indexable queries and
     /// prefix/equality filtering.
     pub project: String,

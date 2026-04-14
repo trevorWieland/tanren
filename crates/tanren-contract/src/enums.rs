@@ -6,18 +6,20 @@
 use serde::{Deserialize, Serialize};
 
 /// Dispatch mode for create requests and responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
 pub enum DispatchMode {
     Auto,
     Manual,
 }
 
 /// Dispatch lifecycle status for filters and responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
 pub enum DispatchStatus {
     Pending,
     Running,
@@ -27,9 +29,10 @@ pub enum DispatchStatus {
 }
 
 /// Concurrency lane for filters and responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
 pub enum Lane {
     Impl,
     Audit,
@@ -37,9 +40,10 @@ pub enum Lane {
 }
 
 /// Phase of work for create requests and responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
 pub enum Phase {
     DoTask,
     AuditTask,
@@ -52,38 +56,77 @@ pub enum Phase {
 }
 
 /// CLI harness for create requests and responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
 pub enum Cli {
     Claude,
     Codex,
     #[serde(rename = "opencode")]
-    #[value(name = "opencode")]
+    #[cfg_attr(feature = "clap", value(name = "opencode"))]
     OpenCode,
     Bash,
 }
 
 /// Authentication mode for create requests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
 pub enum AuthMode {
+    #[default]
     ApiKey,
     #[serde(rename = "oauth")]
-    #[value(name = "oauth")]
+    #[cfg_attr(feature = "clap", value(name = "oauth"))]
     OAuth,
     Subscription,
 }
 
 /// Dispatch outcome for responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
 pub enum Outcome {
     Success,
     Fail,
     Blocked,
     Error,
     Timeout,
+}
+
+/// Step kind for step responses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
+pub enum StepType {
+    Provision,
+    Execute,
+    Teardown,
+    DryRun,
+}
+
+/// Step execution status for step responses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
+pub enum StepStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// Scheduler-ready state for step responses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "clap", value(rename_all = "snake_case"))]
+pub enum StepReadyState {
+    Blocked,
+    Ready,
 }

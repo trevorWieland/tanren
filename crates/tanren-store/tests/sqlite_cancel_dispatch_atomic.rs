@@ -337,9 +337,7 @@ async fn cancel_dispatch_concurrent_calls_allow_only_one_winner() {
         outcomes.iter().any(|r| {
             matches!(
                 r,
-                Err(StoreError::Conflict(_)
-                    | StoreError::InvalidTransition { .. }
-                    | StoreError::Database(_))
+                Err(StoreError::Conflict { .. } | StoreError::InvalidTransition { .. })
             )
         }),
         "losing call should fail with contention signal: {outcomes:?}",

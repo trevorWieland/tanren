@@ -1,9 +1,8 @@
-"""Detect business logic leaking into interface layers.
+"""Detect architecture leakage in Rust transport interface code.
 
-Interface code (routers, MCP tool handlers, CLI commands) should be thin:
-parse input, check auth, delegate to service, format output.  Step payload
-construction, raw Dispatch building, state guard patterns, and manual step
-sequencing belong in the service/orchestrator layer.
+Transport binaries (CLI/API/MCP/TUI) must stay thin: parse input, delegate to
+app-services, and format output. They must not depend on domain/store/
+orchestrator/policy internals directly.
 
 Usage:
     uv run python scripts/check_thin_interfaces.py
@@ -13,103 +12,79 @@ Exit code 0 if clean, 1 if violations found.
 
 from __future__ import annotations
 
-import ast
+import re
 import sys
 from pathlib import Path
 
-# Payload classes that should never be instantiated in interface code.
-FORBIDDEN_CONSTRUCTORS = frozenset({
-    "ProvisionStepPayload",
-    "ExecuteStepPayload",
-    "TeardownStepPayload",
-    "DryRunStepPayload",
-})
+INTERFACE_GLOBS = [
+    "bin/tanren-cli/src/**/*.rs",
+    "bin/tanren-api/src/**/*.rs",
+    "bin/tanren-mcp/src/**/*.rs",
+    "bin/tanren-tui/src/**/*.rs",
+]
 
-# Enum members that indicate state-guard logic in interface code.
-GUARD_PATTERN_NAMES = frozenset({
-    "StepStatus",
-    "StepType",
-})
-
-# Files to scan (interface layers only).
-INTERFACE_FILES = [
-    *Path("services/tanren-api/src/tanren_api/routers").glob("*.py"),
-    Path("services/tanren-api/src/tanren_api/mcp_server.py"),
-    *Path("services/tanren-cli/src/tanren_cli").glob("*_cli.py"),
+FORBIDDEN_PATH_PATTERNS = [
+    re.compile(r"\btanren_domain::"),
+    re.compile(r"\btanren_store::"),
+    re.compile(r"\btanren_orchestrator::"),
+    re.compile(r"\btanren_policy::"),
 ]
 
 
+def iter_interface_files() -> list[Path]:
+    """Return all transport binary Rust files to audit."""
+    files: set[Path] = set()
+    for pattern in INTERFACE_GLOBS:
+        files.update(Path().glob(pattern))
+    return sorted(path for path in files if path.is_file())
+
+
+def strip_line_comments(line: str) -> str:
+    """Return `line` without trailing `//` comment content."""
+    comment_start = line.find("//")
+    if comment_start == -1:
+        return line
+    return line[:comment_start]
+
+
 def check_file(path: Path) -> list[str]:
-    """Return list of violation messages for a single file."""
-    source = path.read_text()
-    try:
-        tree = ast.parse(source, filename=str(path))
-    except SyntaxError:
-        return []
-
+    """Return thin-interface violations found in one file."""
     violations: list[str] = []
-
-    for node in ast.walk(tree):
-        # Check for step payload construction
-        if isinstance(node, ast.Call):
-            func = node.func
-            name = None
-            if isinstance(func, ast.Name):
-                name = func.id
-            elif isinstance(func, ast.Attribute):
-                name = func.attr
-            if name in FORBIDDEN_CONSTRUCTORS:
-                violations.append(
-                    f"  {path}:{node.lineno} — constructs '{name}' in interface code. "
-                    "Move to service/orchestrator."
-                )
-
-        # Check for step_type/step_status comparisons inside any() calls —
-        # this is the state guard pattern (e.g., any(s.step_type == StepType.EXECUTE ...)).
-        # Simple comparisons like `step.status == StepStatus.FAILED` are
-        # result-reading for output and are allowed.
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id == "any":
-                # Walk the any() arguments for guard patterns
-                for child in ast.walk(node):
-                    if isinstance(child, ast.Compare):
-                        for comparator in [child.left, *child.comparators]:
-                            if (
-                                isinstance(comparator, ast.Attribute)
-                                and isinstance(comparator.value, ast.Name)
-                                and comparator.value.id in GUARD_PATTERN_NAMES
-                            ):
-                                violations.append(
-                                    f"  {path}:{node.lineno} — state guard pattern "
-                                    f"({comparator.value.id}.{comparator.attr}) inside any() "
-                                    "in interface code. Move guards to service/orchestrator."
-                                )
-                                break
-
+    lines = path.read_text().splitlines()
+    for lineno, raw_line in enumerate(lines, start=1):
+        line = strip_line_comments(raw_line)
+        if not line.strip():
+            continue
+        violations.extend(
+            (
+                f"  {path}:{lineno} — forbidden direct dependency in transport binary: "
+                f"`{pattern.pattern}`. Route through tanren-app-services/contract."
+            )
+            for pattern in FORBIDDEN_PATH_PATTERNS
+            if pattern.search(line)
+        )
     return violations
 
 
 def main() -> int:
-    """Run the checker.
+    """Run the thin-interface audit and return an exit status.
 
     Returns:
-        Exit code: 0 if clean, 1 if violations found.
+        Exit status code (0 on success, 1 when violations are found).
     """
+    files = iter_interface_files()
     all_violations: list[str] = []
-    for path in INTERFACE_FILES:
-        if not path.exists():
-            continue
+    for path in files:
         all_violations.extend(check_file(path))
 
     if all_violations:
-        print("ERROR: Business logic detected in interface code:\n")
-        for v in all_violations:
-            print(v)
-        print(f"\n{len(all_violations)} violation(s) found.")
+        print("ERROR: Rust transport thin-interface violations detected:\n")
+        for violation in all_violations:
+            print(violation)
+        print(f"\n{len(all_violations)} violation(s) found across {len(files)} files.")
         return 1
 
-    print(f"Thin interface check passed ({len(INTERFACE_FILES)} files scanned).")
+    print(f"Rust thin-interface check passed ({len(files)} files scanned).")
     return 0
 
 

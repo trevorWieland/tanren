@@ -5,9 +5,10 @@
 //! mapping `OrchestratorError` (which wraps `StoreError` and
 //! `DomainError`) to `ContractError`.
 
-use tanren_contract::ContractError;
+use tanren_contract::{ContractError, ErrorCode};
+use tanren_observability::sanitize_error_for_log;
 use tanren_orchestrator::OrchestratorError;
-use tanren_store::StoreError;
+use tanren_store::{StoreConflictClass, StoreError};
 use tracing::error;
 use uuid::Uuid;
 
@@ -19,17 +20,26 @@ pub fn map_orchestrator_error(err: OrchestratorError) -> tanren_contract::ErrorR
         }
         OrchestratorError::Store(ref store_err) => map_store_error(store_err),
         OrchestratorError::PolicyDenied { decision } => {
-            tanren_contract::ErrorResponse::from(ContractError::PolicyDenied {
-                reason: decision
-                    .reason
-                    .unwrap_or_else(|| "policy denied".to_owned()),
-            })
+            let reason_message = decision
+                .reason
+                .clone()
+                .unwrap_or_else(|| "policy denied".to_owned());
+            tanren_contract::ErrorResponse {
+                code: ErrorCode::PolicyDenied,
+                message: format!("policy denied: {reason_message}"),
+                details: Some(serde_json::json!({
+                    "reason_code": decision.reason_code.map(|code| code.to_string()),
+                    "reason_message": reason_message,
+                    "decision_kind": decision.kind.to_string(),
+                    "resource": decision.resource,
+                })),
+            }
         }
     }
 }
 
 /// Map a store error to a wire-safe contract error response.
-fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
+pub fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
     match err {
         StoreError::NotFound { entity_kind, id } => {
             tanren_contract::ErrorResponse::from(ContractError::NotFound {
@@ -38,12 +48,31 @@ fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
             })
         }
         StoreError::InvalidTransition { entity, from, to } => {
-            tanren_contract::ErrorResponse::from(ContractError::Conflict {
-                reason: format!("invalid transition on {entity}: {from} -> {to}"),
+            tanren_contract::ErrorResponse::from(ContractError::InvalidTransition {
+                entity: entity.clone(),
+                from: from.clone(),
+                to: to.clone(),
             })
         }
-        StoreError::Conflict(reason) => {
-            tanren_contract::ErrorResponse::from(ContractError::Conflict {
+        StoreError::Conflict {
+            class,
+            operation,
+            reason,
+        } => match class {
+            StoreConflictClass::Contention => {
+                tanren_contract::ErrorResponse::from(ContractError::ContentionConflict {
+                    operation: operation.to_string(),
+                    reason: reason.clone(),
+                })
+            }
+            StoreConflictClass::Other => {
+                tanren_contract::ErrorResponse::from(ContractError::Conflict {
+                    reason: reason.clone(),
+                })
+            }
+        },
+        StoreError::SchemaNotReady { reason } => {
+            tanren_contract::ErrorResponse::from(ContractError::SchemaNotReady {
                 reason: reason.clone(),
             })
         }
@@ -52,14 +81,14 @@ fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
         | StoreError::Conversion { .. }
         | StoreError::Json(_) => {
             let correlation_id = Uuid::now_v7();
+            let sanitized = sanitize_error_for_log(&err.to_string());
             error!(
                 %correlation_id,
-                error = %err,
-                ?err,
+                error = %sanitized,
                 "store internal failure mapped to contract internal error",
             );
             tanren_contract::ErrorResponse {
-                code: "internal".to_owned(),
+                code: ErrorCode::Internal,
                 message: "internal error".to_owned(),
                 details: Some(serde_json::json!({
                     "correlation_id": correlation_id.to_string(),
@@ -71,9 +100,13 @@ fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
 
 #[cfg(test)]
 mod tests {
-    use tanren_domain::{DomainError, EntityKind, EntityRef};
+    use tanren_domain::{
+        ActorContext, DomainError, EntityKind, EntityRef, OrgId, PolicyDecisionKind,
+        PolicyDecisionRecord, PolicyOutcome, PolicyReasonCode, PolicyResourceRef, PolicyScope,
+        UserId,
+    };
     use tanren_orchestrator::OrchestratorError;
-    use tanren_store::StoreError;
+    use tanren_store::{StoreConflictClass, StoreError, StoreOperation};
 
     use super::map_orchestrator_error;
 
@@ -84,7 +117,7 @@ mod tests {
             id: "123".to_owned(),
         });
         let mapped = map_orchestrator_error(err);
-        assert_eq!(mapped.code, "not_found");
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::NotFound);
         assert!(mapped.message.contains("dispatch"));
         assert!(mapped.message.contains("123"));
     }
@@ -93,7 +126,7 @@ mod tests {
     fn store_internal_is_sanitized_with_correlation_id() {
         let err = OrchestratorError::Store(StoreError::Migration("db specifics".to_owned()));
         let mapped = map_orchestrator_error(err);
-        assert_eq!(mapped.code, "internal");
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::Internal);
         assert_eq!(mapped.message, "internal error");
         let details = mapped.details.expect("details");
         let correlation_id = details
@@ -109,7 +142,60 @@ mod tests {
             entity: EntityRef::Dispatch(tanren_domain::DispatchId::new()),
         });
         let mapped = map_orchestrator_error(err);
-        assert_eq!(mapped.code, "not_found");
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::NotFound);
         assert!(mapped.details.is_none());
+    }
+
+    #[test]
+    fn policy_denied_includes_reason_code_details() {
+        let err = OrchestratorError::PolicyDenied {
+            decision: Box::new(PolicyDecisionRecord {
+                kind: PolicyDecisionKind::Authz,
+                resource: PolicyResourceRef::Dispatch {
+                    dispatch_id: tanren_domain::DispatchId::new(),
+                },
+                scope: PolicyScope::new(ActorContext::new(OrgId::new(), UserId::new())),
+                outcome: PolicyOutcome::Denied,
+                reason_code: Some(PolicyReasonCode::TimeoutOutOfRange),
+                reason: Some("timeout too high".to_owned()),
+            }),
+        };
+        let mapped = map_orchestrator_error(err);
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::PolicyDenied);
+        let details = mapped.details.expect("details");
+        assert_eq!(details["reason_code"], "timeout_out_of_range");
+        assert_eq!(details["reason_message"], "timeout too high");
+        assert_eq!(details["decision_kind"], "authz");
+    }
+
+    #[test]
+    fn contention_conflict_maps_to_typed_wire_code() {
+        let err = OrchestratorError::Store(StoreError::Conflict {
+            class: StoreConflictClass::Contention,
+            operation: StoreOperation::CancelDispatch,
+            reason: "cancel contention".to_owned(),
+        });
+        let mapped = map_orchestrator_error(err);
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::ContentionConflict);
+    }
+
+    #[test]
+    fn invalid_transition_maps_to_typed_wire_code() {
+        let err = OrchestratorError::Store(StoreError::InvalidTransition {
+            entity: "dispatch abc".to_owned(),
+            from: "running".to_owned(),
+            to: "cancelled".to_owned(),
+        });
+        let mapped = map_orchestrator_error(err);
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::InvalidTransition);
+    }
+
+    #[test]
+    fn schema_not_ready_maps_to_typed_wire_code() {
+        let err = OrchestratorError::Store(StoreError::SchemaNotReady {
+            reason: "missing migration metadata table".to_owned(),
+        });
+        let mapped = map_orchestrator_error(err);
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::SchemaNotReady);
     }
 }

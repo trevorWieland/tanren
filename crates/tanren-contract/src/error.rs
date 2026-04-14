@@ -7,6 +7,36 @@
 use serde::{Deserialize, Serialize};
 use tanren_domain::DomainError;
 
+/// Machine-readable wire error code shared by all transports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    InvalidInput,
+    NotFound,
+    SchemaNotReady,
+    InvalidTransition,
+    ContentionConflict,
+    Conflict,
+    PolicyDenied,
+    Internal,
+}
+
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Self::InvalidInput => "invalid_input",
+            Self::NotFound => "not_found",
+            Self::SchemaNotReady => "schema_not_ready",
+            Self::InvalidTransition => "invalid_transition",
+            Self::ContentionConflict => "contention_conflict",
+            Self::Conflict => "conflict",
+            Self::PolicyDenied => "policy_denied",
+            Self::Internal => "internal",
+        };
+        f.write_str(text)
+    }
+}
+
 /// Typed contract-level error.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ContractError {
@@ -26,6 +56,33 @@ pub enum ContractError {
         entity: String,
         /// Identifier of the missing entity.
         id: String,
+    },
+
+    /// The backing database schema is not initialized for this operation.
+    #[error("schema not ready: {reason}")]
+    SchemaNotReady {
+        /// Why the schema is considered not ready.
+        reason: String,
+    },
+
+    /// The requested lifecycle transition is invalid.
+    #[error("invalid transition on {entity}: {from} -> {to}")]
+    InvalidTransition {
+        /// The entity in the invalid transition.
+        entity: String,
+        /// The transition's source state.
+        from: String,
+        /// The transition's target state.
+        to: String,
+    },
+
+    /// A typed contention conflict.
+    #[error("contention conflict in {operation}: {reason}")]
+    ContentionConflict {
+        /// Operation where contention was observed.
+        operation: String,
+        /// Description of the contention.
+        reason: String,
     },
 
     /// A domain-level conflict (e.g. invalid state transition).
@@ -54,7 +111,7 @@ pub enum ContractError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorResponse {
     /// Machine-readable error code.
-    pub code: String,
+    pub code: ErrorCode,
     /// Human-readable error message.
     pub message: String,
     /// Optional structured details.
@@ -73,14 +130,21 @@ impl std::error::Error for ErrorResponse {}
 impl From<ContractError> for ErrorResponse {
     fn from(err: ContractError) -> Self {
         let (code, message) = match &err {
-            ContractError::InvalidField { .. } => ("invalid_input", err.to_string()),
-            ContractError::NotFound { .. } => ("not_found", err.to_string()),
-            ContractError::Conflict { .. } => ("conflict", err.to_string()),
-            ContractError::PolicyDenied { .. } => ("policy_denied", err.to_string()),
-            ContractError::Internal { .. } => ("internal", err.to_string()),
+            ContractError::InvalidField { .. } => (ErrorCode::InvalidInput, err.to_string()),
+            ContractError::NotFound { .. } => (ErrorCode::NotFound, err.to_string()),
+            ContractError::SchemaNotReady { .. } => (ErrorCode::SchemaNotReady, err.to_string()),
+            ContractError::InvalidTransition { .. } => {
+                (ErrorCode::InvalidTransition, err.to_string())
+            }
+            ContractError::ContentionConflict { .. } => {
+                (ErrorCode::ContentionConflict, err.to_string())
+            }
+            ContractError::Conflict { .. } => (ErrorCode::Conflict, err.to_string()),
+            ContractError::PolicyDenied { .. } => (ErrorCode::PolicyDenied, err.to_string()),
+            ContractError::Internal { .. } => (ErrorCode::Internal, err.to_string()),
         };
         Self {
-            code: code.to_owned(),
+            code,
             message,
             details: None,
         }
@@ -107,12 +171,13 @@ impl From<DomainError> for ContractError {
             DomainError::QuotaExhausted { resource, limit } => Self::PolicyDenied {
                 reason: format!("quota exhausted for {resource}: limit={limit}"),
             },
-            DomainError::InvalidTransition { .. } | DomainError::Conflict { .. } => {
-                Self::Conflict {
-                    reason: err.to_string(),
-                }
-            }
-            DomainError::ConcurrentExecute { .. }
+            DomainError::InvalidTransition { entity, from, to } => Self::InvalidTransition {
+                entity: entity.to_string(),
+                from: from.clone(),
+                to: to.clone(),
+            },
+            DomainError::Conflict { .. }
+            | DomainError::ConcurrentExecute { .. }
             | DomainError::PostTeardownExecute { .. }
             | DomainError::ActiveExecuteTeardown { .. }
             | DomainError::DuplicateTeardown { .. } => Self::Conflict {

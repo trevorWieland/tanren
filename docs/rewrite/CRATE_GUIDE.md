@@ -127,7 +127,8 @@ Owns external contract representation and versioning:
 - CLI command schema mapping
 - compatibility/version policy
 
-Must not own business logic.
+Must not own business logic. Actor identity is not request-payload data;
+trusted actor context is supplied separately by interface auth boundaries.
 
 ### `policy`
 
@@ -209,6 +210,7 @@ Owns interface-facing application service layer:
 
 - stable use-case APIs for API/CLI/MCP/TUI
 - input mapping and output shaping
+- trusted request-context intake (e.g., verified actor token context)
 - workflow-context and methodology-boundary resolution for interface-facing operations
 - no direct transport assumptions
 

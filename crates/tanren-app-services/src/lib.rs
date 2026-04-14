@@ -16,8 +16,10 @@
 //!   business logic (plus `contract` for schema types)
 //! - All transport-specific concerns belong in the binary crates
 
+pub mod auth;
 pub mod compose;
 mod dispatch_service;
 pub mod error;
 
+pub use auth::{ActorTokenVerifier, RequestContext};
 pub use dispatch_service::DispatchService;

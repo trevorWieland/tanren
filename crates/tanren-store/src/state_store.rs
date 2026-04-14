@@ -6,25 +6,29 @@
 //! the store an [`EventEnvelope`] via the param struct and the store
 //! appends it inside the same transaction closure.
 
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    TransactionTrait, sea_query::Expr,
+    Select, TransactionTrait, sea_query::Expr,
 };
 use tanren_domain::{
-    ActorContext, DispatchId, DispatchStatus, DispatchView, DomainEvent, EntityKind, EventEnvelope,
-    EventId, Lane, StepId, StepStatus, StepType, StepView,
+    DispatchId, DispatchReadScope, DispatchView, EntityKind, Lane, StepId, StepStatus, StepView,
 };
 
 use crate::converters::{
     dispatch as dispatch_converters, events as event_converters, step as step_converters, validate,
 };
 use crate::entity::{dispatch_projection, events, step_projection};
-use crate::errors::{StoreError, StoreResult};
+use crate::errors::{StoreConflictClass, StoreError, StoreOperation, StoreResult};
 use crate::params::{
     CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
     DispatchFilter, DispatchQueryPage, UpdateDispatchStatusParams,
+};
+use crate::state_store_cancel::{
+    CancelDispatchTxnInput, normalize_cancel_error, run_cancel_dispatch_transaction,
 };
 use crate::store::Store;
 
@@ -80,40 +84,6 @@ impl StateStore for Store {
     }
 
     async fn query_dispatches(&self, filter: &DispatchFilter) -> StoreResult<DispatchQueryPage> {
-        let mut query = dispatch_projection::Entity::find();
-        if let Some(status) = filter.status {
-            query = query.filter(dispatch_projection::Column::Status.eq(status.to_string()));
-        }
-        if let Some(lane) = filter.lane {
-            query = query.filter(dispatch_projection::Column::Lane.eq(lane.to_string()));
-        }
-        if let Some(ref project) = filter.project {
-            query = query.filter(dispatch_projection::Column::Project.eq(project.as_str()));
-        }
-        if let Some(user_id) = filter.user_id {
-            query = query.filter(dispatch_projection::Column::UserId.eq(user_id.into_uuid()));
-        }
-        if let Some(since) = filter.since {
-            query = query.filter(dispatch_projection::Column::CreatedAt.gte(since));
-        }
-        if let Some(until) = filter.until {
-            query = query.filter(dispatch_projection::Column::CreatedAt.lt(until));
-        }
-        if let Some(cursor) = filter.cursor {
-            query = query.filter(
-                Condition::any()
-                    .add(dispatch_projection::Column::CreatedAt.lt(cursor.created_at))
-                    .add(
-                        Condition::all()
-                            .add(dispatch_projection::Column::CreatedAt.eq(cursor.created_at))
-                            .add(
-                                dispatch_projection::Column::DispatchId
-                                    .lt(cursor.dispatch_id.into_uuid()),
-                            ),
-                    ),
-            );
-        }
-
         let page_size = filter.limit.min(crate::params::MAX_DISPATCH_QUERY_LIMIT);
         if page_size == 0 {
             return Ok(DispatchQueryPage {
@@ -121,32 +91,17 @@ impl StateStore for Store {
                 next_cursor: None,
             });
         }
-        let rows = query
-            .order_by_desc(dispatch_projection::Column::CreatedAt)
-            .order_by_desc(dispatch_projection::Column::DispatchId)
-            .limit(page_size.saturating_add(1))
-            .all(self.conn())
-            .await?;
-
-        let mut rows = rows;
-        let has_more = rows.len() > usize::try_from(page_size).unwrap_or(usize::MAX);
-        if has_more {
-            rows.pop();
-        }
-
-        let next_cursor = rows.last().map(|row| crate::params::DispatchCursor {
-            created_at: row.created_at,
-            dispatch_id: DispatchId::from_uuid(row.dispatch_id),
-        });
-
-        let mut out = Vec::with_capacity(rows.len());
-        for row in rows {
-            out.push(dispatch_converters::model_to_view(row)?);
-        }
-        Ok(DispatchQueryPage {
-            dispatches: out,
-            next_cursor: if has_more { next_cursor } else { None },
-        })
+        let rows = if let Some(scope) = filter.read_scope {
+            query_dispatches_union_scoped(self, filter, scope, page_size).await?
+        } else {
+            apply_common_dispatch_filters(dispatch_projection::Entity::find(), filter)
+                .order_by_desc(dispatch_projection::Column::CreatedAt)
+                .order_by_desc(dispatch_projection::Column::DispatchId)
+                .limit(page_size.saturating_add(1))
+                .all(self.conn())
+                .await?
+        };
+        build_dispatch_query_page(rows, page_size)
     }
 
     async fn get_step(&self, id: &StepId) -> StoreResult<Option<StepView>> {
@@ -241,102 +196,26 @@ impl StateStore for Store {
         let dispatch_event_model =
             event_converters::envelope_to_active_model(&params.status_event)?;
 
-        self.conn()
+        let result = self
+            .conn()
             .transaction::<_, u64, StoreError>(move |txn| {
-                Box::pin(async move {
-                    let row = dispatch_projection::Entity::find_by_id(dispatch_uuid)
-                        .one(txn)
-                        .await?;
-                    let row = row.ok_or_else(|| StoreError::NotFound {
-                        entity_kind: EntityKind::Dispatch,
-                        id: dispatch_id.to_string(),
-                    })?;
-
-                    let current = dispatch_converters::parse_status(&row.status)?;
-                    if !current.can_transition_to(DispatchStatus::Cancelled) {
-                        return Err(StoreError::InvalidTransition {
-                            entity: format!("dispatch {dispatch_id}"),
-                            from: current.to_string(),
-                            to: DispatchStatus::Cancelled.to_string(),
-                        });
-                    }
-
-                    let cancelled = step_projection::Entity::update_many()
-                        .col_expr(
-                            step_projection::Column::Status,
-                            Expr::value(StepStatus::Cancelled.to_string()),
-                        )
-                        .col_expr(step_projection::Column::UpdatedAt, Expr::value(now))
-                        .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-                        .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
-                        .filter(
-                            step_projection::Column::StepType.ne(StepType::Teardown.to_string()),
-                        )
-                        .exec(txn)
-                        .await?;
-
-                    let cancelled_count = cancelled.rows_affected;
-                    if cancelled_count > 0 {
-                        let rows = step_projection::Entity::find()
-                            .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-                            .filter(
-                                step_projection::Column::Status
-                                    .eq(StepStatus::Cancelled.to_string()),
-                            )
-                            .filter(step_projection::Column::UpdatedAt.eq(now))
-                            .filter(
-                                step_projection::Column::StepType
-                                    .ne(StepType::Teardown.to_string()),
-                            )
-                            .all(txn)
-                            .await?;
-
-                        let mut events_to_insert = Vec::with_capacity(rows.len());
-                        for row in &rows {
-                            events_to_insert.push(mint_step_cancelled(
-                                dispatch_id,
-                                row,
-                                &actor,
-                                reason.as_ref(),
-                                step_event_timestamp,
-                            )?);
-                        }
-                        if !events_to_insert.is_empty() {
-                            events::Entity::insert_many(events_to_insert)
-                                .exec(txn)
-                                .await?;
-                        }
-                    }
-
-                    let result = dispatch_projection::Entity::update_many()
-                        .col_expr(
-                            dispatch_projection::Column::Status,
-                            Expr::value(DispatchStatus::Cancelled.to_string()),
-                        )
-                        .col_expr(
-                            dispatch_projection::Column::Outcome,
-                            Expr::value(Option::<String>::None),
-                        )
-                        .col_expr(dispatch_projection::Column::UpdatedAt, Expr::value(now))
-                        .filter(dispatch_projection::Column::DispatchId.eq(dispatch_uuid))
-                        .filter(dispatch_projection::Column::Status.eq(current.to_string()))
-                        .exec(txn)
-                        .await?;
-                    if result.rows_affected == 0 {
-                        return Err(StoreError::Conflict(format!(
-                            "dispatch {dispatch_id} status changed concurrently \
-                             from {current}"
-                        )));
-                    }
-
-                    events::Entity::insert(dispatch_event_model)
-                        .exec(txn)
-                        .await?;
-                    Ok(cancelled_count)
-                })
+                Box::pin(run_cancel_dispatch_transaction(
+                    txn,
+                    CancelDispatchTxnInput {
+                        dispatch_id,
+                        dispatch_uuid,
+                        actor,
+                        reason,
+                        now,
+                        step_event_timestamp,
+                        dispatch_event_model,
+                    },
+                ))
             })
             .await
-            .map_err(StoreError::from)
+            .map_err(StoreError::from);
+
+        result.map_err(normalize_cancel_error)
     }
 
     async fn update_dispatch_status(&self, params: UpdateDispatchStatusParams) -> StoreResult<()> {
@@ -387,10 +266,13 @@ impl StateStore for Store {
                         .exec(txn)
                         .await?;
                     if result.rows_affected == 0 {
-                        return Err(StoreError::Conflict(format!(
-                            "dispatch {id} status changed concurrently \
-                             from {current}"
-                        )));
+                        return Err(StoreError::Conflict {
+                            class: StoreConflictClass::Contention,
+                            operation: StoreOperation::UpdateDispatchStatus,
+                            reason: format!(
+                                "dispatch {id} status changed concurrently from {current}"
+                            ),
+                        });
                     }
                     events::Entity::insert(event_model).exec(txn).await?;
                     Ok(())
@@ -401,25 +283,170 @@ impl StateStore for Store {
     }
 }
 
-fn mint_step_cancelled(
-    dispatch_id: DispatchId,
-    row: &step_projection::Model,
-    actor: &ActorContext,
-    reason: Option<&String>,
-    timestamp: chrono::DateTime<Utc>,
-) -> Result<events::ActiveModel, StoreError> {
-    let step_id = StepId::from_uuid(row.step_id);
-    let step_type = step_converters::parse_step_type(&row.step_type)?;
-    let envelope = EventEnvelope::new(
-        EventId::from_uuid(uuid::Uuid::now_v7()),
-        timestamp,
-        DomainEvent::StepCancelled {
-            dispatch_id,
-            step_id,
-            step_type,
-            caused_by: Some(actor.clone()),
-            reason: reason.cloned(),
-        },
+type DispatchProjectionSelect = Select<dispatch_projection::Entity>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScopeTupleBranch {
+    project: Option<uuid::Uuid>,
+    team: Option<uuid::Uuid>,
+    api_key: Option<uuid::Uuid>,
+}
+
+impl ScopeTupleBranch {
+    fn expand(scope: DispatchReadScope) -> Vec<Self> {
+        let project_values =
+            scope_dimension_values(scope.project_id.map(tanren_domain::ProjectId::into_uuid));
+        let team_values =
+            scope_dimension_values(scope.team_id.map(tanren_domain::TeamId::into_uuid));
+        let api_key_values =
+            scope_dimension_values(scope.api_key_id.map(tanren_domain::ApiKeyId::into_uuid));
+
+        let mut branches = Vec::with_capacity(
+            project_values
+                .len()
+                .saturating_mul(team_values.len())
+                .saturating_mul(api_key_values.len()),
+        );
+        for project_id in &project_values {
+            for team_id in &team_values {
+                for api_key_id in &api_key_values {
+                    branches.push(Self {
+                        project: *project_id,
+                        team: *team_id,
+                        api_key: *api_key_id,
+                    });
+                }
+            }
+        }
+        branches
+    }
+}
+
+fn scope_dimension_values(scope_id: Option<uuid::Uuid>) -> Vec<Option<uuid::Uuid>> {
+    match scope_id {
+        Some(scope_id) => vec![None, Some(scope_id)],
+        None => vec![None],
+    }
+}
+
+async fn query_dispatches_union_scoped(
+    store: &Store,
+    filter: &DispatchFilter,
+    scope: DispatchReadScope,
+    page_size: u64,
+) -> StoreResult<Vec<dispatch_projection::Model>> {
+    let mut rows = Vec::new();
+    for branch in ScopeTupleBranch::expand(scope) {
+        let query = apply_scope_tuple_branch(
+            apply_common_dispatch_filters(dispatch_projection::Entity::find(), filter)
+                .filter(dispatch_projection::Column::OrgId.eq(scope.org_id.into_uuid())),
+            branch,
+        )
+        .order_by_desc(dispatch_projection::Column::CreatedAt)
+        .order_by_desc(dispatch_projection::Column::DispatchId)
+        .limit(page_size.saturating_add(1));
+        rows.extend(query.all(store.conn()).await?);
+    }
+    Ok(rows)
+}
+
+fn apply_scope_tuple_branch(
+    mut query: DispatchProjectionSelect,
+    branch: ScopeTupleBranch,
+) -> DispatchProjectionSelect {
+    query = apply_scope_column_match(
+        query,
+        dispatch_projection::Column::ScopeProjectId,
+        branch.project,
     );
-    event_converters::envelope_to_active_model(&envelope)
+    query = apply_scope_column_match(query, dispatch_projection::Column::ScopeTeamId, branch.team);
+    apply_scope_column_match(
+        query,
+        dispatch_projection::Column::ScopeApiKeyId,
+        branch.api_key,
+    )
+}
+
+fn apply_scope_column_match(
+    query: DispatchProjectionSelect,
+    column: dispatch_projection::Column,
+    value: Option<uuid::Uuid>,
+) -> DispatchProjectionSelect {
+    match value {
+        Some(value) => query.filter(column.eq(value)),
+        None => query.filter(column.is_null()),
+    }
+}
+
+fn apply_common_dispatch_filters(
+    mut query: DispatchProjectionSelect,
+    filter: &DispatchFilter,
+) -> DispatchProjectionSelect {
+    if let Some(status) = filter.status {
+        query = query.filter(dispatch_projection::Column::Status.eq(status.to_string()));
+    }
+    if let Some(lane) = filter.lane {
+        query = query.filter(dispatch_projection::Column::Lane.eq(lane.to_string()));
+    }
+    if let Some(ref project) = filter.project {
+        query = query.filter(dispatch_projection::Column::Project.eq(project.as_str()));
+    }
+    if let Some(user_id) = filter.user_id {
+        query = query.filter(dispatch_projection::Column::UserId.eq(user_id.into_uuid()));
+    }
+    if let Some(since) = filter.since {
+        query = query.filter(dispatch_projection::Column::CreatedAt.gte(since));
+    }
+    if let Some(until) = filter.until {
+        query = query.filter(dispatch_projection::Column::CreatedAt.lt(until));
+    }
+    if let Some(cursor) = filter.cursor {
+        query = query.filter(
+            Condition::any()
+                .add(dispatch_projection::Column::CreatedAt.lt(cursor.created_at))
+                .add(
+                    Condition::all()
+                        .add(dispatch_projection::Column::CreatedAt.eq(cursor.created_at))
+                        .add(
+                            dispatch_projection::Column::DispatchId
+                                .lt(cursor.dispatch_id.into_uuid()),
+                        ),
+                ),
+        );
+    }
+    query
+}
+
+fn build_dispatch_query_page(
+    mut rows: Vec<dispatch_projection::Model>,
+    page_size: u64,
+) -> StoreResult<DispatchQueryPage> {
+    rows.sort_by(|lhs, rhs| {
+        rhs.created_at
+            .cmp(&lhs.created_at)
+            .then_with(|| rhs.dispatch_id.cmp(&lhs.dispatch_id))
+    });
+
+    let mut seen = HashSet::with_capacity(rows.len());
+    rows.retain(|row| seen.insert(row.dispatch_id));
+
+    let page_size_usize = usize::try_from(page_size).unwrap_or(usize::MAX);
+    let has_more = rows.len() > page_size_usize;
+    if has_more {
+        rows.truncate(page_size_usize);
+    }
+
+    let next_cursor = rows.last().map(|row| crate::params::DispatchCursor {
+        created_at: row.created_at,
+        dispatch_id: DispatchId::from_uuid(row.dispatch_id),
+    });
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        out.push(dispatch_converters::model_to_view(row)?);
+    }
+    Ok(DispatchQueryPage {
+        dispatches: out,
+        next_cursor: if has_more { next_cursor } else { None },
+    })
 }

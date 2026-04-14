@@ -10,7 +10,7 @@ use tanren_domain::{
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
-use tanren_store::{DispatchFilter, EventFilter, EventStore, StateStore, Store};
+use tanren_store::{DispatchFilter, EventFilter, EventStore, StateStore, Store, StoreError};
 
 fn sample_actor() -> ActorContext {
     ActorContext::new(OrgId::new(), UserId::new())
@@ -211,9 +211,9 @@ async fn cancel_already_cancelled_returns_error() {
     assert!(
         matches!(
             err,
-            OrchestratorError::Domain(DomainError::InvalidTransition { .. })
+            OrchestratorError::Store(StoreError::InvalidTransition { .. })
         ),
-        "expected InvalidTransition, got: {err:?}"
+        "expected store InvalidTransition, got: {err:?}"
     );
 }
 
@@ -449,7 +449,7 @@ async fn finalize_without_running_state_rejected() {
     assert!(
         matches!(
             err,
-            OrchestratorError::Store(tanren_store::StoreError::InvalidTransition { .. })
+            OrchestratorError::Store(StoreError::InvalidTransition { .. })
         ),
         "expected invalid transition, got {err:?}"
     );

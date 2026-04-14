@@ -22,6 +22,7 @@
 // re-export `ConnectConfig` by path.
 mod connection;
 mod converters;
+mod db_error_codes;
 #[doc(hidden)]
 pub(crate) mod entity;
 mod errors;
@@ -31,10 +32,11 @@ mod job_queue_dequeue;
 mod migration;
 mod params;
 mod state_store;
+mod state_store_cancel;
 mod store;
 
 pub use connection::ConnectConfig;
-pub use errors::{StoreError, StoreResult};
+pub use errors::{StoreConflictClass, StoreError, StoreOperation, StoreResult};
 pub use event_store::EventStore;
 pub use job_queue::JobQueue;
 pub use params::{

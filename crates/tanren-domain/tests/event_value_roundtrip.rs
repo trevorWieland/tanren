@@ -271,6 +271,7 @@ fn policy_decision_variant_survives_value_path() {
             resource: PolicyResourceRef::Dispatch { dispatch_id: did() },
             scope: PolicyScope::new(actor()),
             outcome: PolicyOutcome::Allowed,
+            reason_code: None,
             reason: Some("within monthly budget".into()),
         }),
     }]);

@@ -35,6 +35,9 @@ new persistence helpers.
 - **No runtime execution yet.** This lane wires dispatch creation,
   query, list, and cancel only. No harness or environment execution
   belongs here.
+- **Security hard-cut in effect.** Caller-asserted actor fields are removed;
+  interfaces must provide signed actor tokens that verify into trusted
+  request context before policy/store access.
 - **No methodology-boundary work here.** Command templating, self-hosting
   workflow mechanics, issue-source integration, and installed-command
   rendering belong to lane 0.5.
@@ -60,6 +63,13 @@ new persistence helpers.
    - `DispatchCancelled` only for user-initiated cancellation
 4. **Typed error mapping.** Libraries use `thiserror`; the CLI binary may use `anyhow`.
 5. **Trait-based wiring.** Orchestrator/service code is generic over store traits or accepts trait objects; do not hardcode SQLite logic into use cases.
+6. **Contract-owned request semantics.** Input validation/normalization rules must be enforced in shared contract conversion, not per-interface binaries.
+7. **Typed cancel authorization.** `cancel_dispatch` must pass a policy authorization decision before store mutation.
+8. **Deterministic cancel conflicts.** Cancel contention must surface as stable conflict/transition classes, not backend-specific lock/database errors.
+   - Wire codes must stay machine-distinct: `invalid_transition` vs `contention_conflict`.
+   - Contention classification must rely on typed backend codes, not DB error message text.
+9. **Typed step response contract.** Step response fields must use contract enums rather than stringly-typed status/kind values.
+10. **Rust-first architecture guardrails.** CI checks for thin interfaces and store-bypass must scan Rust transport/interface layers.
 
 ## Implementation Order
 
@@ -86,5 +96,5 @@ new persistence helpers.
 
 - Runtime / harness execution
 - Planner-native graph scheduling
-- Auth, quotas, and placement policy beyond the minimal skeleton
+- Quotas and placement policy beyond current scope checks
 - API, MCP, or TUI transport wiring

@@ -4,10 +4,10 @@ use std::io::Write as _;
 
 use anyhow::Result;
 use clap::Subcommand;
-use tanren_app_services::compose::Service;
+use tanren_app_services::{RequestContext, compose::Service};
 use tanren_contract::{
-    CancelDispatchRequest, CreateDispatchRequest, DispatchListFilter, DispatchMode, DispatchStatus,
-    Lane, Phase,
+    CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
+    ErrorResponse, parse_project_env_entries,
 };
 use uuid::Uuid;
 
@@ -24,6 +24,15 @@ pub(crate) enum DispatchCommand {
     Cancel(CancelArgs),
 }
 
+impl DispatchCommand {
+    /// Whether this command mutates persistent state and therefore
+    /// requires migrate-before-write behavior.
+    #[must_use]
+    pub(crate) const fn requires_write_store(&self) -> bool {
+        matches!(self, Self::Create(_) | Self::Cancel(_))
+    }
+}
+
 /// Arguments for `dispatch create`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct CreateArgs {
@@ -32,7 +41,7 @@ pub(crate) struct CreateArgs {
     pub project: String,
     /// Phase of work.
     #[arg(long)]
-    pub phase: Phase,
+    pub phase: tanren_contract::Phase,
     /// CLI harness.
     #[arg(long)]
     pub cli: tanren_contract::Cli,
@@ -47,31 +56,16 @@ pub(crate) struct CreateArgs {
     pub workflow_id: String,
     /// Dispatch mode.
     #[arg(long, default_value = "manual")]
-    pub mode: DispatchMode,
+    pub mode: tanren_contract::DispatchMode,
     /// Timeout in seconds.
     #[arg(long, default_value = "300")]
     pub timeout: u64,
     /// Environment profile.
     #[arg(long, default_value = "default")]
     pub environment_profile: String,
-    /// Organization UUID.
-    #[arg(long)]
-    pub org_id: Uuid,
-    /// User UUID.
-    #[arg(long)]
-    pub user_id: Uuid,
     /// Authentication mode.
-    #[arg(long)]
-    pub auth_mode: Option<tanren_contract::AuthMode>,
-    /// Team UUID (optional actor attribution).
-    #[arg(long)]
-    pub team_id: Option<Uuid>,
-    /// API key UUID (optional actor attribution).
-    #[arg(long)]
-    pub api_key_id: Option<Uuid>,
-    /// Project UUID (optional actor attribution).
-    #[arg(long)]
-    pub project_id: Option<Uuid>,
+    #[arg(long, default_value = "api_key")]
+    pub auth_mode: tanren_contract::AuthMode,
     /// Gate command.
     #[arg(long)]
     pub gate_cmd: Option<String>,
@@ -81,6 +75,15 @@ pub(crate) struct CreateArgs {
     /// Model override.
     #[arg(long)]
     pub model: Option<String>,
+    /// Non-secret environment variables, repeatable `KEY=VALUE`.
+    #[arg(long = "project-env", value_name = "KEY=VALUE", action = clap::ArgAction::Append)]
+    pub project_env: Vec<String>,
+    /// Required runtime secret names, repeatable.
+    #[arg(long = "required-secret", value_name = "SECRET_NAME", action = clap::ArgAction::Append)]
+    pub required_secrets: Vec<String>,
+    /// Preserve environment on failure.
+    #[arg(long, default_value_t = false)]
+    pub preserve_on_failure: bool,
 }
 
 /// Arguments for `dispatch get`.
@@ -96,17 +99,17 @@ pub(crate) struct GetArgs {
 pub(crate) struct ListArgs {
     /// Filter by status.
     #[arg(long)]
-    pub status: Option<DispatchStatus>,
+    pub status: Option<tanren_contract::DispatchStatus>,
     /// Filter by lane.
     #[arg(long)]
-    pub lane: Option<Lane>,
+    pub lane: Option<tanren_contract::Lane>,
     /// Filter by project.
     #[arg(long)]
     pub project: Option<String>,
     /// Maximum number of results.
     #[arg(long)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned by previous list results.
+    /// Opaque cursor token from previous list output.
     #[arg(long)]
     pub cursor: Option<String>,
 }
@@ -117,40 +120,32 @@ pub(crate) struct CancelArgs {
     /// Dispatch UUID to cancel.
     #[arg(long)]
     pub id: Uuid,
-    /// Organization UUID.
-    #[arg(long)]
-    pub org_id: Uuid,
-    /// User UUID.
-    #[arg(long)]
-    pub user_id: Uuid,
-    /// Team UUID (optional actor attribution).
-    #[arg(long)]
-    pub team_id: Option<Uuid>,
     /// Reason for cancellation.
     #[arg(long)]
     pub reason: Option<String>,
-    /// API key UUID (optional actor attribution).
-    #[arg(long)]
-    pub api_key_id: Option<Uuid>,
-    /// Project UUID (optional actor attribution).
-    #[arg(long)]
-    pub project_id: Option<Uuid>,
 }
 
 /// Handle a dispatch subcommand.
-pub(crate) async fn handle(cmd: DispatchCommand, service: &Service) -> Result<()> {
+pub(crate) async fn handle(
+    cmd: DispatchCommand,
+    service: &Service,
+    context: &RequestContext,
+) -> Result<()> {
     match cmd {
-        DispatchCommand::Create(args) => handle_create(*args, service).await,
-        DispatchCommand::Get(args) => handle_get(args, service).await,
-        DispatchCommand::List(args) => handle_list(args, service).await,
-        DispatchCommand::Cancel(args) => handle_cancel(args, service).await,
+        DispatchCommand::Create(args) => handle_create(*args, service, context).await,
+        DispatchCommand::Get(args) => handle_get(args, service, context).await,
+        DispatchCommand::List(args) => handle_list(args, service, context).await,
+        DispatchCommand::Cancel(args) => handle_cancel(args, service, context).await,
     }
 }
 
-async fn handle_create(args: CreateArgs, service: &Service) -> Result<()> {
+async fn handle_create(
+    args: CreateArgs,
+    service: &Service,
+    context: &RequestContext,
+) -> Result<()> {
+    let project_env = parse_project_env_entries(args.project_env).map_err(ErrorResponse::from)?;
     let req = CreateDispatchRequest {
-        org_id: args.org_id,
-        user_id: args.user_id,
         project: args.project,
         phase: args.phase,
         cli: args.cli,
@@ -160,52 +155,53 @@ async fn handle_create(args: CreateArgs, service: &Service) -> Result<()> {
         mode: args.mode,
         timeout_secs: args.timeout,
         environment_profile: args.environment_profile,
-        team_id: args.team_id,
-        api_key_id: args.api_key_id,
-        project_id: args.project_id,
         auth_mode: args.auth_mode,
         gate_cmd: args.gate_cmd,
         context: args.context,
         model: args.model,
-        project_env: None,
-        required_secrets: None,
-        preserve_on_failure: None,
+        project_env,
+        required_secrets: args.required_secrets,
+        preserve_on_failure: args.preserve_on_failure,
     };
 
-    let resp = service.create(req).await?;
+    let resp = service.create(context, req).await?;
     print_json(&resp)
 }
 
-async fn handle_get(args: GetArgs, service: &Service) -> Result<()> {
-    let resp = service.get(args.id).await?;
+async fn handle_get(args: GetArgs, service: &Service, context: &RequestContext) -> Result<()> {
+    let resp = service.get(context, args.id).await?;
     print_json(&resp)
 }
 
-async fn handle_list(args: ListArgs, service: &Service) -> Result<()> {
+async fn handle_list(args: ListArgs, service: &Service, context: &RequestContext) -> Result<()> {
+    let cursor = args
+        .cursor
+        .map(|raw| DispatchCursorToken::decode(&raw).map_err(ErrorResponse::from))
+        .transpose()?;
+
     let filter = DispatchListFilter {
         status: args.status,
         lane: args.lane,
         project: args.project,
         limit: args.limit,
-        cursor: args.cursor,
+        cursor,
     };
 
-    let resp = service.list(filter).await?;
+    let resp = service.list(context, filter).await?;
     print_json(&resp)
 }
 
-async fn handle_cancel(args: CancelArgs, service: &Service) -> Result<()> {
+async fn handle_cancel(
+    args: CancelArgs,
+    service: &Service,
+    context: &RequestContext,
+) -> Result<()> {
     let req = CancelDispatchRequest {
         dispatch_id: args.id,
-        org_id: args.org_id,
-        user_id: args.user_id,
-        team_id: args.team_id,
-        api_key_id: args.api_key_id,
-        project_id: args.project_id,
         reason: args.reason,
     };
 
-    service.cancel(req).await?;
+    service.cancel(context, req).await?;
     print_json(&serde_json::json!({"status": "cancelled"}))
 }
 

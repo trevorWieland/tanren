@@ -38,6 +38,7 @@ repository = "https://github.com/trevorWieland/tanren"
 # section — never use inline #[allow()] or #[expect()].
 
 [workspace.lints.rust]
+warnings = "deny"
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"
 unreachable_pub = "warn"
@@ -148,6 +149,11 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # IDs
 uuid = { version = "1", features = ["v7", "serde"] }
+
+# JWT verification
+jsonwebtoken = { version = "9", default-features = false, features = [
+  "use_pem",
+] }
 
 # Secrets
 secrecy = "0.10"

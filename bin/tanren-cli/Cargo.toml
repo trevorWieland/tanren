@@ -11,7 +11,7 @@ description = "Tanren CLI — clap-based command-line interface for local operat
 workspace = true
 
 [dependencies]
-tanren-contract = { path = "../../crates/tanren-contract" }
+tanren-contract = { path = "../../crates/tanren-contract", features = ["clap"] }
 tanren-app-services = { path = "../../crates/tanren-app-services" }
 tanren-observability = { path = "../../crates/tanren-observability" }
 anyhow.workspace = true
@@ -27,3 +27,5 @@ assert_cmd = "2"
 serde_json = { workspace = true }
 tempfile = "3"
 uuid.workspace = true
+chrono.workspace = true
+jsonwebtoken.workspace = true

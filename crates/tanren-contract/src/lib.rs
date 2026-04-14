@@ -20,7 +20,14 @@ pub mod error;
 pub mod request;
 pub mod response;
 
-pub use enums::{AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Outcome, Phase};
-pub use error::{ContractError, ErrorResponse};
-pub use request::{CancelDispatchRequest, CreateDispatchRequest, DispatchListFilter};
+pub use convert::{cancel_dispatch_from_request, create_dispatch_from_request};
+pub use enums::{
+    AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Outcome, Phase, StepReadyState, StepStatus,
+    StepType,
+};
+pub use error::{ContractError, ErrorCode, ErrorResponse};
+pub use request::{
+    CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
+    parse_project_env_entries,
+};
 pub use response::{DispatchListResponse, DispatchResponse, StepResponse};

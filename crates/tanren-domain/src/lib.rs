@@ -55,7 +55,8 @@ pub use self::payloads::{
     StepPayload, StepResult, TeardownPayload, TeardownResult, TokenUsage,
 };
 pub use self::policy::{
-    PolicyDecisionKind, PolicyDecisionRecord, PolicyOutcome, PolicyResourceRef, PolicyScope,
+    DispatchReadScope, PolicyDecisionKind, PolicyDecisionRecord, PolicyOutcome, PolicyReasonCode,
+    PolicyResourceRef, PolicyScope,
 };
 pub use self::status::{
     AuthMode, Cli, DispatchMode, DispatchStatus, Lane, LeaseStatus, Outcome, Phase, StepReadyState,

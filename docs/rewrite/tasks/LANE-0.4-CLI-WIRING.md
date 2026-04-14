@@ -34,6 +34,56 @@ built against the store traits (not the implementation).
   workflow-context artifacts, issue-source-backed workflow prep, and manual
   Tanren-in-Tanren flow are lane 0.5 concerns
 
+## Hardening Baseline (Post-Audit)
+
+These are mandatory lane-0.4 behaviors for parity/security/stability:
+
+1. **Canonical input semantics live in contract conversion**
+   - Request-shape validation (`project_env` key format, `required_secrets`
+     name format, duplicate secret rejection) is enforced in
+     `tanren-contract` conversion logic.
+   - Empty `project_env` values (`KEY=`) are valid.
+   - Interface binaries (CLI/API/MCP/TUI) must not implement divergent
+     business semantics; they only parse transport shape.
+
+2. **Cancel authorization is explicit and typed**
+   - `tanren-policy` exposes a typed cancel decision path.
+   - Orchestrator enforces cancel policy before store mutation.
+   - Scope-match model: org must match; if dispatch actor has
+     `project_id`/`team_id`/`api_key_id`, canceller must match each present scope.
+
+3. **Cancel transition truth lives in the store transaction**
+   - Orchestrator does not pre-check cancel transitions.
+   - Store CAS and transition checks are the source of truth.
+   - Contention/lock DB errors in cancel path are normalized to stable conflict
+     semantics at the store boundary (no backend-specific lock errors leaking up).
+   - Normalization uses backend-typed DB codes, not substring matching:
+     SQLite `BUSY/LOCKED` code families, Postgres SQLSTATE `40P01/40001/55P03`.
+
+5. **Typed conflict wire codes are deterministic**
+   - `invalid_transition` and `contention_conflict` are distinct machine codes.
+   - Generic `conflict` is reserved for uncategorized legacy conflict paths.
+
+4. **Step response is enum-typed**
+   - Contract `StepResponse` uses enums for step type/status/ready-state/lane.
+   - Wire shape remains snake_case for backward-compatible JSON contracts.
+
+6. **Trusted actor context is token-derived (breaking)**
+   - `CreateDispatchRequest` and `CancelDispatchRequest` no longer carry
+     actor identity fields.
+   - CLI requires a signed actor JWT and Ed25519 public-key verification
+     inputs (`--actor-token-stdin` or `--actor-token-file` or
+     `TANREN_ACTOR_TOKEN`, plus `--actor-public-key-file`,
+     `--token-issuer`, `--token-audience`).
+   - Missing/invalid tokens fail closed; there is no insecure fallback.
+   - `get`/`list` are policy-scoped by trusted actor context, not open reads.
+
+7. **Migration behavior is explicit**
+   - Read commands (`dispatch get/list`) open DB without running migrations.
+   - Write commands (`dispatch create/cancel`) run migrate-before-write.
+   - `tanren db migrate` is the explicit schema mutation command.
+   - Read commands against non-ready schema return `schema_not_ready`.
+
 ## Deliverables
 
 ### 1. Contract Types (`crates/tanren-contract`)
@@ -72,7 +122,7 @@ pub struct DispatchListResponse {
 pub struct StepResponse { ... }
 
 pub struct ErrorResponse {
-    pub code: String,       // stable error code
+    pub code: ErrorCode,    // serde snake_case (invalid_transition, contention_conflict, ...)
     pub message: String,
     pub details: Option<serde_json::Value>,
 }
@@ -205,18 +255,24 @@ Enough to get structured logs in the CLI. Full OpenTelemetry integration is Phas
 Clap-based CLI with these subcommands:
 
 ```
-tanren dispatch create  --project <P> --phase <PH> --cli <C> --branch <B> ...
-tanren dispatch get     --id <ID>
-tanren dispatch list    [--status <S>] [--limit <N>]
-tanren dispatch cancel  --id <ID> [--reason <R>]
+tanren dispatch create  --project <P> --phase <PH> --cli <C> --branch <B> ... \
+  --actor-token-file <PATH> --actor-public-key-file <PEM> \
+  --token-issuer <ISS> --token-audience <AUD>
+tanren dispatch get     --id <ID> --actor-token-file <PATH> ...
+tanren dispatch list    [--status <S>] [--limit <N>] --actor-token-file <PATH> ...
+tanren dispatch cancel  --id <ID> [--reason <R>] --actor-token-file <PATH> ...
+tanren db migrate
 ```
 
 The CLI:
 1. Reads `--database-url` flag (default: `sqlite:tanren.db`)
-2. Creates a `Store` from the URL
-3. Creates the service stack: `Store → Orchestrator → DispatchService`
-4. Runs the requested command
-5. Prints results as JSON to stdout
+2. For `dispatch` commands, verifies a signed actor JWT into trusted request context
+3. Opens store based on command mutability:
+   - read (`get/list`): open-only + schema readiness check
+   - write (`create/cancel`): migrate-before-write
+4. Creates the service stack: `Store → Orchestrator → DispatchService`
+5. Runs the requested command
+6. Prints results as JSON to stdout
 
 This proves the full pipeline: CLI args → contract types → domain commands →
 orchestrator → store → query → contract response → CLI output.

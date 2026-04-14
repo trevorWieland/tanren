@@ -102,7 +102,7 @@ jobs:
       - name: Run Postgres integration tests
         env:
           TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-        run: cargo nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration
+        run: cargo nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
 
   # ============================================================
   # Coverage (Linux only)
@@ -205,3 +205,12 @@ jobs:
 
       - name: Check crate dependency layering
         run: just check-deps
+
+      - name: Check thin transport interfaces
+        run: just check-thin-interfaces
+
+      - name: Check store-bypass guardrails
+        run: just check-store-bypass
+
+      - name: Check local/workflow CI parity rules
+        run: just check-ci-parity

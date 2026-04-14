@@ -12,12 +12,20 @@ mod m_0001_init;
 mod m_0002_integrity;
 mod m_0003_dequeue_indexes;
 mod m_0004_dispatch_cursor_indexes;
+mod m_0005_cancel_dispatch_indexes;
+mod m_0006_dispatch_read_scope;
+mod m_0007_dispatch_scope_tuple_index;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
 /// [`Store::run_migrations`](crate::Store::run_migrations).
 #[derive(Debug)]
 pub(crate) struct Migrator;
+
+impl Migrator {
+    /// Name of the latest expected schema migration.
+    pub(crate) const LATEST_MIGRATION_NAME: &'static str = "m_0007_dispatch_scope_tuple_index";
+}
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
@@ -27,13 +35,16 @@ impl MigratorTrait for Migrator {
             Box::new(m_0002_integrity::Migration),
             Box::new(m_0003_dequeue_indexes::Migration),
             Box::new(m_0004_dispatch_cursor_indexes::Migration),
+            Box::new(m_0005_cancel_dispatch_indexes::Migration),
+            Box::new(m_0006_dispatch_read_scope::Migration),
+            Box::new(m_0007_dispatch_scope_tuple_index::Migration),
         ]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::Database;
+    use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
 
     use super::*;
 
@@ -57,5 +68,33 @@ mod tests {
         let conn = Database::connect("sqlite::memory:").await.expect("connect");
         Migrator::up(&conn, None).await.expect("first up");
         Migrator::up(&conn, None).await.expect("second up");
+    }
+
+    #[tokio::test]
+    async fn m0006_resume_succeeds_after_partial_column_apply() {
+        let conn = Database::connect("sqlite::memory:").await.expect("connect");
+        Migrator::up(&conn, Some(5))
+            .await
+            .expect("up through m_0005");
+        conn.execute(Statement::from_string(
+            DbBackend::Sqlite,
+            "ALTER TABLE dispatch_projection ADD COLUMN org_id TEXT NULL",
+        ))
+        .await
+        .expect("partial org_id column");
+
+        Migrator::up(&conn, None).await.expect("resume to latest");
+        let rows = conn
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT name FROM pragma_table_info('dispatch_projection') WHERE name IN ('org_id','scope_project_id','scope_team_id','scope_api_key_id')",
+            ))
+            .await
+            .expect("inspect scope columns");
+        assert_eq!(
+            rows.len(),
+            4,
+            "all m_0006 scope columns must exist after resumable rerun"
+        );
     }
 }

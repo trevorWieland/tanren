@@ -17,9 +17,9 @@
 
 use chrono::{DateTime, Utc};
 use tanren_domain::{
-    ActorContext, DispatchId, DispatchMode, DispatchSnapshot, DispatchStatus, DispatchView,
-    EntityKind, EntityRef, ErrorClass, EventEnvelope, GraphRevision, Lane, Outcome, StepId,
-    StepPayload, StepReadyState, StepResult, StepType, UserId,
+    ActorContext, DispatchId, DispatchMode, DispatchReadScope, DispatchSnapshot, DispatchStatus,
+    DispatchView, EntityKind, EntityRef, ErrorClass, EventEnvelope, GraphRevision, Lane, Outcome,
+    StepId, StepPayload, StepReadyState, StepResult, StepType, UserId,
 };
 
 // ---------------------------------------------------------------------------
@@ -88,6 +88,8 @@ pub struct DispatchFilter {
     pub project: Option<String>,
     /// Restrict to dispatches submitted by a particular user.
     pub user_id: Option<UserId>,
+    /// Restrict reads to policy-authorized actor scope.
+    pub read_scope: Option<DispatchReadScope>,
     /// Earliest dispatch creation time (inclusive).
     pub since: Option<DateTime<Utc>>,
     /// Latest dispatch creation time (exclusive).
@@ -107,6 +109,7 @@ impl DispatchFilter {
             lane: None,
             project: None,
             user_id: None,
+            read_scope: None,
             since: None,
             until: None,
             cursor: None,
