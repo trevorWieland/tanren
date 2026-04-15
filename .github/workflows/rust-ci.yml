@@ -206,11 +206,5 @@ jobs:
       - name: Check crate dependency layering
         run: just check-deps
 
-      - name: Check thin transport interfaces
-        run: just check-thin-interfaces
-
-      - name: Check store-bypass guardrails
-        run: just check-store-bypass
-
       - name: Check local/workflow CI parity rules
         run: just check-ci-parity

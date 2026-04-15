@@ -32,8 +32,9 @@ impl EventStore for ContentionStore {
     async fn query_events(&self, _filter: &EventFilter) -> Result<EventQueryResult, StoreError> {
         Ok(EventQueryResult {
             events: vec![],
-            total_count: 0,
+            total_count: None,
             has_more: false,
+            next_cursor: None,
         })
     }
 

@@ -18,8 +18,8 @@
 use chrono::{DateTime, Utc};
 use tanren_domain::{
     ActorContext, DispatchId, DispatchMode, DispatchReadScope, DispatchSnapshot, DispatchStatus,
-    DispatchView, EntityKind, EntityRef, ErrorClass, EventEnvelope, GraphRevision, Lane, Outcome,
-    StepId, StepPayload, StepReadyState, StepResult, StepType, UserId,
+    DispatchView, EntityKind, EntityRef, ErrorClass, EventCursor, EventEnvelope, GraphRevision,
+    Lane, Outcome, StepId, StepPayload, StepReadyState, StepResult, StepType, UserId,
 };
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ pub const MAX_DISPATCH_QUERY_LIMIT: u64 = 500;
 /// Filter passed to [`EventStore::query_events`](crate::EventStore::query_events).
 ///
 /// Fields use `Option` for "unfiltered on this dimension". `limit`
-/// defaults to [`DEFAULT_QUERY_LIMIT`]; `offset` defaults to `0`. Each
+/// defaults to [`DEFAULT_QUERY_LIMIT`]. Each
 /// filter dimension is backed by an index on the `events` table — see
 /// `migration::m_0001_init`.
 #[derive(Debug, Clone, Default)]
@@ -51,14 +51,16 @@ pub struct EventFilter {
     pub since: Option<DateTime<Utc>>,
     /// Latest event timestamp (exclusive).
     pub until: Option<DateTime<Utc>>,
+    /// Return rows after this cursor key (keyset pagination).
+    pub cursor: Option<EventCursor>,
     /// Max rows to return.
     pub limit: u64,
-    /// Zero-based offset into the result set.
-    pub offset: u64,
+    /// Compute total count as a separate query.
+    pub include_total_count: bool,
 }
 
 impl EventFilter {
-    /// Construct an empty filter with the default limit and zero offset.
+    /// Construct an empty filter with the default limit.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -68,8 +70,9 @@ impl EventFilter {
             event_type: None,
             since: None,
             until: None,
+            cursor: None,
             limit: DEFAULT_QUERY_LIMIT,
-            offset: 0,
+            include_total_count: false,
         }
     }
 }
@@ -367,4 +370,30 @@ pub struct CreateDispatchWithInitialStepParams {
     pub dispatch: CreateDispatchParams,
     /// Initial step params (must be the provision step at sequence 0).
     pub initial_step: EnqueueStepParams,
+}
+
+/// Parameters for replay-protected actor-token consumption.
+#[derive(Debug, Clone)]
+pub struct ConsumeActorTokenJtiParams {
+    /// JWT issuer claim.
+    pub issuer: String,
+    /// JWT audience claim.
+    pub audience: String,
+    /// JWT ID claim (`jti`).
+    pub jti: String,
+    /// Issued-at unix timestamp (`iat`).
+    pub iat_unix: i64,
+    /// Expiry unix timestamp (`exp`).
+    pub exp_unix: i64,
+    /// Wall-clock consumed-at time.
+    pub consumed_at: DateTime<Utc>,
+}
+
+/// Parameters for bounded replay-ledger cleanup.
+#[derive(Debug, Clone, Copy)]
+pub struct PurgeExpiredActorTokenJtisParams {
+    /// Remove rows with `exp_unix < expires_before_unix`.
+    pub expires_before_unix: i64,
+    /// Maximum rows to delete this run.
+    pub limit: u64,
 }

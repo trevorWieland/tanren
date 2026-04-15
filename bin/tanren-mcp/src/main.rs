@@ -7,5 +7,6 @@
 //! - Observability tools (events query, metrics summary)
 //!
 //! Tool surface generated from the shared domain contract and capability metadata.
+#![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
 fn main() {}

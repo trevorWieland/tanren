@@ -28,3 +28,4 @@ tempfile = "3"
 uuid.workspace = true
 chrono.workspace = true
 jsonwebtoken.workspace = true
+wiremock.workspace = true

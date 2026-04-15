@@ -49,11 +49,12 @@ async fn append_policy_decision_event_persists_and_is_queryable() {
     let queried = store
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(dispatch_id)),
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query events");
-    assert_eq!(queried.total_count, 1);
+    assert_eq!(queried.total_count, Some(1));
     assert!(matches!(
         queried.events[0].payload,
         DomainEvent::PolicyDecision { .. }

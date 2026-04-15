@@ -29,10 +29,22 @@ pub(crate) fn is_postgres_undefined_table_code(code: &str) -> bool {
     code.eq_ignore_ascii_case("42P01")
 }
 
+pub(crate) fn is_sqlite_unique_violation_code(code: &str) -> bool {
+    // SQLITE_CONSTRAINT primary class (19), including extended codes
+    // like 2067 for UNIQUE.
+    code.parse::<i32>().is_ok_and(|raw| (raw & 0xFF) == 19)
+}
+
+pub(crate) fn is_postgres_unique_violation_code(code: &str) -> bool {
+    code.eq_ignore_ascii_case("23505")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        is_postgres_contention_code, is_postgres_undefined_table_code, is_sqlite_contention_code,
+        is_postgres_contention_code, is_postgres_undefined_table_code,
+        is_postgres_unique_violation_code, is_sqlite_contention_code,
+        is_sqlite_unique_violation_code,
     };
 
     #[test]
@@ -68,5 +80,19 @@ mod tests {
         assert!(is_postgres_undefined_table_code("42P01"));
         assert!(is_postgres_undefined_table_code("42p01"));
         assert!(!is_postgres_undefined_table_code("42703"));
+    }
+
+    #[test]
+    fn sqlite_unique_code_detects_constraint_class() {
+        assert!(is_sqlite_unique_violation_code("19"));
+        assert!(is_sqlite_unique_violation_code("2067"));
+        assert!(!is_sqlite_unique_violation_code("5"));
+    }
+
+    #[test]
+    fn postgres_unique_code_detects_23505() {
+        assert!(is_postgres_unique_violation_code("23505"));
+        assert!(is_postgres_unique_violation_code("23505"));
+        assert!(!is_postgres_unique_violation_code("40P01"));
     }
 }

@@ -1,7 +1,7 @@
 //! `dispatch_projection` table — materialized view of dispatch state.
 //!
 //! One row per dispatch. Carries everything `StateStore::get_dispatch`
-//! needs to return a [`DispatchView`](tanren_domain::DispatchView)
+//! needs to return a dispatch view
 //! without re-reading the event log. Event appends that affect a
 //! dispatch update this row co-transactionally.
 //!
@@ -12,37 +12,37 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::enums::{DispatchStatusModel, LaneModel, OutcomeModel};
+
 /// Row shape of the `dispatch_projection` table.
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "dispatch_projection")]
 pub struct Model {
-    /// Dispatch identifier — same UUID as the domain [`DispatchId`].
-    ///
-    /// [`DispatchId`]: tanren_domain::DispatchId
+    /// Dispatch identifier — same UUID as the domain dispatch ID.
     #[sea_orm(primary_key, auto_increment = false)]
     pub dispatch_id: Uuid,
 
-    /// Snake-case tag of the [`DispatchMode`](tanren_domain::DispatchMode).
+    /// Snake-case tag of the dispatch mode enum.
     pub mode: String,
 
-    /// Snake-case tag of the [`DispatchStatus`](tanren_domain::DispatchStatus).
-    pub status: String,
+    /// Snake-case tag of the dispatch status enum.
+    pub status: DispatchStatusModel,
 
-    /// Snake-case tag of the [`Outcome`](tanren_domain::Outcome), if
+    /// Snake-case tag of the outcome enum, if
     /// the dispatch has reached a terminal state.
-    pub outcome: Option<String>,
+    pub outcome: Option<OutcomeModel>,
 
-    /// Snake-case tag of the [`Lane`](tanren_domain::Lane).
-    pub lane: String,
+    /// Snake-case tag of the lane enum.
+    pub lane: LaneModel,
 
-    /// Serialized [`DispatchSnapshot`](tanren_domain::DispatchSnapshot).
+    /// Serialized dispatch snapshot.
     /// Holds the original configuration so history queries reflect
     /// exactly what the caller asked for, even after related config
     /// has rotated.
     #[sea_orm(column_type = "JsonBinary")]
     pub dispatch: Json,
 
-    /// Serialized [`ActorContext`](tanren_domain::ActorContext).
+    /// Serialized actor context.
     #[sea_orm(column_type = "JsonBinary")]
     pub actor: Json,
 

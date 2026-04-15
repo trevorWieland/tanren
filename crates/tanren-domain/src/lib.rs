@@ -64,4 +64,4 @@ pub use self::status::{
     StepStatus, StepType, cli_to_lane,
 };
 pub use self::validated::{FiniteF64, NonEmptyString, TimeoutSecs};
-pub use self::views::{DispatchView, EventQueryResult, StepView};
+pub use self::views::{DispatchView, EventCursor, EventQueryResult, StepView};

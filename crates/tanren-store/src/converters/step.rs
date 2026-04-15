@@ -1,18 +1,12 @@
 //! Step-projection converters.
-//!
-//! Covers both the projection-row direction (domain → `ActiveModel` for
-//! inserts / Model → `StepView` for reads) and the queue direction
-//! (Model → [`QueuedStep`](crate::params::QueuedStep) for dequeue).
-//! Every enum column round-trips through exhaustive helpers defined
-//! here rather than through the serde string path, so the
-//! `snake_case` spelling is authoritative and checked at compile time.
 
 use sea_orm::ActiveValue::Set;
 use tanren_domain::{
-    DispatchId, GraphRevision, StepId, StepPayload, StepReadyState, StepResult, StepStatus,
+    DispatchId, GraphRevision, Lane, StepId, StepPayload, StepReadyState, StepResult, StepStatus,
     StepType, StepView,
 };
 
+use crate::entity::enums::{LaneModel, StepReadyStateModel, StepStatusModel, StepTypeModel};
 use crate::entity::step_projection;
 use crate::errors::StoreError;
 use crate::params::{EnqueueStepParams, QueuedStep};
@@ -39,11 +33,11 @@ pub(crate) fn enqueue_to_active_model(
     Ok(step_projection::ActiveModel {
         step_id: Set(params.step_id.into_uuid()),
         dispatch_id: Set(params.dispatch_id.into_uuid()),
-        step_type: Set(params.step_type.to_string()),
+        step_type: Set(StepTypeModel::from(params.step_type)),
         step_sequence: Set(step_sequence),
-        lane: Set(params.lane.map(|l| l.to_string())),
-        status: Set(StepStatus::Pending.to_string()),
-        ready_state: Set(params.ready_state.to_string()),
+        lane: Set(params.lane.map(LaneModel::from)),
+        status: Set(StepStatusModel::Pending),
+        ready_state: Set(StepReadyStateModel::from(params.ready_state)),
         depends_on: Set(depends_on_value),
         graph_revision: Set(graph_revision),
         worker_id: Set(None),
@@ -59,14 +53,10 @@ pub(crate) fn enqueue_to_active_model(
 
 /// Read a projection row back into the domain [`StepView`].
 pub(crate) fn model_to_view(model: step_projection::Model) -> Result<StepView, StoreError> {
-    let step_type = parse_step_type(&model.step_type)?;
-    let status = parse_step_status(&model.status)?;
-    let ready_state = parse_ready_state(&model.ready_state)?;
-    let lane = model
-        .lane
-        .as_deref()
-        .map(super::dispatch::parse_lane)
-        .transpose()?;
+    let step_type = StepType::from(model.step_type);
+    let status = StepStatus::from(model.status);
+    let ready_state = StepReadyState::from(model.ready_state);
+    let lane = model.lane.map(Lane::from);
 
     let depends_on: Vec<StepId> =
         serde_json::from_value(model.depends_on).map_err(|err| StoreError::Conversion {
@@ -127,18 +117,12 @@ pub(crate) fn model_to_view(model: step_projection::Model) -> Result<StepView, S
 }
 
 /// Read a projection row into a [`QueuedStep`] shape for the dequeue
-/// path. Populated from the same columns as `StepView`, but drops the
-/// fields a worker handing off a task does not need (status, result,
-/// retry count, timestamps).
+/// path.
 pub(crate) fn model_to_queued_step(
     model: step_projection::Model,
 ) -> Result<QueuedStep, StoreError> {
-    let step_type = parse_step_type(&model.step_type)?;
-    let lane = model
-        .lane
-        .as_deref()
-        .map(super::dispatch::parse_lane)
-        .transpose()?;
+    let step_type = StepType::from(model.step_type);
+    let lane = model.lane.map(Lane::from);
     let step_sequence = u32::try_from(model.step_sequence).map_err(|_| StoreError::Conversion {
         context: "step::model_to_queued_step",
         reason: "step_sequence is negative".to_owned(),
@@ -166,45 +150,68 @@ pub(crate) fn model_to_queued_step(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Enum <-> string helpers
-//
-// Write path: use the domain `Display` impl directly
-// (`enum.to_string()`). Every persisted enum already renders as the
-// canonical snake_case tag, so there is no store-local mapping to
-// maintain and adding a new domain variant does not require editing
-// this file. See S-02 in LANE-0.3-AUDIT.md.
-//
-// Read path: parse via `serde_json::from_value(Value::String(...))`
-// so the same `#[serde(rename_all = "snake_case")]` impl the domain
-// uses on the wire is the source of truth.
-// ---------------------------------------------------------------------------
-
-pub(crate) fn parse_step_type(value: &str) -> Result<StepType, StoreError> {
-    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
-        StoreError::Conversion {
-            context: "step::parse_step_type",
-            reason: format!("unknown step type `{value}`: {err}"),
+impl From<StepType> for StepTypeModel {
+    fn from(value: StepType) -> Self {
+        match value {
+            StepType::Provision => Self::Provision,
+            StepType::Execute => Self::Execute,
+            StepType::Teardown => Self::Teardown,
+            StepType::DryRun => Self::DryRun,
         }
-    })
+    }
 }
 
-pub(crate) fn parse_step_status(value: &str) -> Result<StepStatus, StoreError> {
-    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
-        StoreError::Conversion {
-            context: "step::parse_step_status",
-            reason: format!("unknown step status `{value}`: {err}"),
+impl From<StepTypeModel> for StepType {
+    fn from(value: StepTypeModel) -> Self {
+        match value {
+            StepTypeModel::Provision => Self::Provision,
+            StepTypeModel::Execute => Self::Execute,
+            StepTypeModel::Teardown => Self::Teardown,
+            StepTypeModel::DryRun => Self::DryRun,
         }
-    })
+    }
 }
 
-pub(crate) fn parse_ready_state(value: &str) -> Result<StepReadyState, StoreError> {
-    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
-        StoreError::Conversion {
-            context: "step::parse_ready_state",
-            reason: format!("unknown ready state `{value}`: {err}"),
+impl From<StepStatus> for StepStatusModel {
+    fn from(value: StepStatus) -> Self {
+        match value {
+            StepStatus::Pending => Self::Pending,
+            StepStatus::Running => Self::Running,
+            StepStatus::Completed => Self::Completed,
+            StepStatus::Failed => Self::Failed,
+            StepStatus::Cancelled => Self::Cancelled,
         }
-    })
+    }
+}
+
+impl From<StepStatusModel> for StepStatus {
+    fn from(value: StepStatusModel) -> Self {
+        match value {
+            StepStatusModel::Pending => Self::Pending,
+            StepStatusModel::Running => Self::Running,
+            StepStatusModel::Completed => Self::Completed,
+            StepStatusModel::Failed => Self::Failed,
+            StepStatusModel::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+impl From<StepReadyState> for StepReadyStateModel {
+    fn from(value: StepReadyState) -> Self {
+        match value {
+            StepReadyState::Blocked => Self::Blocked,
+            StepReadyState::Ready => Self::Ready,
+        }
+    }
+}
+
+impl From<StepReadyStateModel> for StepReadyState {
+    fn from(value: StepReadyStateModel) -> Self {
+        match value {
+            StepReadyStateModel::Blocked => Self::Blocked,
+            StepReadyStateModel::Ready => Self::Ready,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -219,7 +226,8 @@ mod tests {
             StepType::Teardown,
             StepType::DryRun,
         ] {
-            assert_eq!(parse_step_type(&kind.to_string()).expect("parse"), kind);
+            let db = StepTypeModel::from(kind);
+            assert_eq!(StepType::from(db), kind);
         }
     }
 
@@ -232,35 +240,16 @@ mod tests {
             StepStatus::Failed,
             StepStatus::Cancelled,
         ] {
-            assert_eq!(
-                parse_step_status(&status.to_string()).expect("parse"),
-                status
-            );
+            let db = StepStatusModel::from(status);
+            assert_eq!(StepStatus::from(db), status);
         }
     }
 
     #[test]
     fn ready_state_round_trip() {
         for state in [StepReadyState::Blocked, StepReadyState::Ready] {
-            assert_eq!(parse_ready_state(&state.to_string()).expect("parse"), state);
+            let db = StepReadyStateModel::from(state);
+            assert_eq!(StepReadyState::from(db), state);
         }
-    }
-
-    #[test]
-    fn parse_step_type_rejects_unknown_variant() {
-        let err = parse_step_type("not_a_type").expect_err("should fail");
-        assert!(matches!(err, StoreError::Conversion { .. }));
-    }
-
-    #[test]
-    fn parse_step_status_rejects_unknown_variant() {
-        let err = parse_step_status("not_a_status").expect_err("should fail");
-        assert!(matches!(err, StoreError::Conversion { .. }));
-    }
-
-    #[test]
-    fn parse_ready_state_rejects_unknown_variant() {
-        let err = parse_ready_state("not_a_state").expect_err("should fail");
-        assert!(matches!(err, StoreError::Conversion { .. }));
     }
 }

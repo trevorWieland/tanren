@@ -21,6 +21,7 @@ use testcontainers_modules::postgres::Postgres as PostgresImage;
 
 struct Fixture {
     _container: Option<ContainerAsync<PostgresImage>>,
+    url: String,
     store: Store,
 }
 
@@ -30,6 +31,7 @@ async fn postgres_fixture() -> Fixture {
         let store = migrate_fresh(&url).await;
         Fixture {
             _container: None,
+            url,
             store,
         }
     } else {
@@ -43,6 +45,7 @@ async fn postgres_fixture() -> Fixture {
         let store = migrate_fresh(&url).await;
         Fixture {
             _container: Some(container),
+            url,
             store,
         }
     }
@@ -154,11 +157,12 @@ async fn full_lifecycle_passes_on_postgres() {
     let events = store
         .query_events(&EventFilter {
             limit: 100,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query");
-    assert!(events.total_count >= 8);
+    assert!(events.total_count.unwrap_or(0) >= 8);
 
     let _params = create_dispatch_params("second", actor(), Lane::Audit);
 }
@@ -190,6 +194,40 @@ async fn dispatch_status_and_cancel_on_postgres() {
         .await
         .expect("cancel");
     assert_eq!(cancelled, 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_projection_constraints_reject_invalid_enum_values() {
+    let fixture = postgres_fixture().await;
+    let conn = Database::connect(&fixture.url).await.expect("connect raw");
+
+    let dispatch_err = conn
+        .execute_unprepared(&format!(
+            "INSERT INTO dispatch_projection (dispatch_id, mode, status, outcome, lane, dispatch, actor, graph_revision, user_id, project, created_at, updated_at) VALUES ('{}', 'manual', 'bogus', NULL, 'impl', '{{}}', '{{}}', 1, '{}', 'proj', NOW(), NOW())",
+            uuid::Uuid::now_v7(),
+            uuid::Uuid::now_v7(),
+        ))
+        .await
+        .expect_err("invalid dispatch status must fail");
+    assert!(
+        dispatch_err
+            .to_string()
+            .contains("chk_dispatch_projection_status_enum")
+    );
+
+    let step_err = conn
+        .execute_unprepared(&format!(
+            "INSERT INTO step_projection (step_id, dispatch_id, step_type, step_sequence, lane, status, ready_state, depends_on, graph_revision, retry_count, created_at, updated_at) VALUES ('{}', '{}', 'bad_kind', 0, 'impl', 'pending', 'ready', '[]', 1, 0, NOW(), NOW())",
+            uuid::Uuid::now_v7(),
+            uuid::Uuid::now_v7(),
+        ))
+        .await
+        .expect_err("invalid step_type must fail");
+    assert!(
+        step_err
+            .to_string()
+            .contains("chk_step_projection_step_type_enum")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]

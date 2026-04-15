@@ -21,7 +21,6 @@ use tanren_store::{
     UpdateDispatchStatusParams,
 };
 use tokio::sync::Mutex;
-
 #[derive(Debug, Default)]
 struct RecordingState {
     created_dispatches: Vec<CreateDispatchWithInitialStepParams>,
@@ -63,8 +62,9 @@ impl EventStore for RecordingStore {
     async fn query_events(&self, _filter: &EventFilter) -> Result<EventQueryResult, StoreError> {
         Ok(EventQueryResult {
             events: vec![],
-            total_count: 0,
+            total_count: None,
             has_more: false,
+            next_cursor: None,
         })
     }
 
@@ -283,7 +283,6 @@ impl StateStore for RecordingStore {
         Ok(())
     }
 }
-
 fn sample_actor() -> ActorContext {
     ActorContext::new(OrgId::new(), UserId::new())
 }
@@ -481,15 +480,19 @@ async fn cancel_dispatch_hides_actor_scope_mismatch_as_not_found() {
 async fn list_dispatches_applies_filters_without_store_sql_knowledge() {
     let store = RecordingStore::default();
     let orch = Orchestrator::new(store, PolicyEngine::new());
+    let actor = sample_actor();
 
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(actor.clone()))
         .await
         .expect("create");
 
     let mut filter = DispatchFilter::new();
     filter.status = Some(DispatchStatus::Pending);
-    let page = orch.list_dispatches(filter).await.expect("list");
+    let page = orch
+        .list_dispatches_for_actor(filter, &actor)
+        .await
+        .expect("list");
 
     assert_eq!(page.dispatches.len(), 1);
     assert_eq!(page.dispatches[0].dispatch_id, created.dispatch_id);

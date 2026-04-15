@@ -68,12 +68,18 @@ async fn concurrent_create_and_list_is_stable() {
 
     let mut filter = DispatchFilter::new();
     filter.limit = 10;
-    let page1 = orch.list_dispatches(filter.clone()).await.expect("page1");
+    let page1 = orch
+        .list_dispatches_for_actor(filter.clone(), &actor)
+        .await
+        .expect("page1");
     assert_eq!(page1.dispatches.len(), 10);
     assert!(page1.next_cursor.is_some(), "first page should have cursor");
 
     filter.cursor = page1.next_cursor;
-    let page2 = orch.list_dispatches(filter).await.expect("page2");
+    let page2 = orch
+        .list_dispatches_for_actor(filter, &actor)
+        .await
+        .expect("page2");
     assert!(
         !page2.dispatches.is_empty(),
         "second page should not be empty"
@@ -149,6 +155,7 @@ async fn concurrent_cancel_results_in_single_success_path() {
 async fn cancel_after_concurrent_cancels_reads_cancelled() {
     let orch = setup().await;
     let actor = sample_actor();
+    let read_actor = actor.clone();
     let created = orch
         .create_dispatch(sample_command(actor.clone()))
         .await
@@ -163,7 +170,7 @@ async fn cancel_after_concurrent_cancels_reads_cancelled() {
     .expect("cancel");
 
     let view = orch
-        .get_dispatch(&created.dispatch_id)
+        .get_dispatch_for_actor(&created.dispatch_id, &read_actor)
         .await
         .expect("get")
         .expect("exists");

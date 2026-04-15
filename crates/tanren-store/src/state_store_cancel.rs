@@ -5,15 +5,14 @@ use sea_orm::{
 };
 use tanren_domain::{
     ActorContext, DispatchId, DispatchStatus, DomainEvent, EntityKind, EventEnvelope, EventId,
-    StepId, StepStatus, StepType,
+    StepId, StepType,
 };
 
-use crate::converters::{
-    dispatch as dispatch_converters, events as event_converters, step as step_converters,
-};
+use crate::converters::events as event_converters;
 use crate::db_error_codes::{
     extract_db_error_code, is_postgres_contention_code, is_sqlite_contention_code,
 };
+use crate::entity::enums::{DispatchStatusModel, OutcomeModel, StepStatusModel, StepTypeModel};
 use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreConflictClass, StoreError, StoreOperation};
 
@@ -58,15 +57,15 @@ pub(crate) async fn run_cancel_dispatch_transaction(
     let result = dispatch_projection::Entity::update_many()
         .col_expr(
             dispatch_projection::Column::Status,
-            Expr::value(DispatchStatus::Cancelled.to_string()),
+            Expr::value(DispatchStatusModel::Cancelled),
         )
         .col_expr(
             dispatch_projection::Column::Outcome,
-            Expr::value(Option::<String>::None),
+            Expr::value(Option::<OutcomeModel>::None),
         )
         .col_expr(dispatch_projection::Column::UpdatedAt, Expr::value(now))
         .filter(dispatch_projection::Column::DispatchId.eq(dispatch_uuid))
-        .filter(dispatch_projection::Column::Status.eq(current.to_string()))
+        .filter(dispatch_projection::Column::Status.eq(DispatchStatusModel::from(current)))
         .exec(txn)
         .await?;
     if result.rows_affected == 0 {
@@ -111,7 +110,7 @@ async fn fetch_dispatch_status_for_cancel(
         id: dispatch_id.to_string(),
     })?;
 
-    let current = dispatch_converters::parse_status(&row.status)?;
+    let current = DispatchStatus::from(row.status);
     if !current.can_transition_to(DispatchStatus::Cancelled) {
         return Err(StoreError::InvalidTransition {
             entity: format!("dispatch {dispatch_id}"),
@@ -134,13 +133,13 @@ async fn cancel_pending_steps_and_emit_events(
     let mut total_cancelled = 0_u64;
 
     loop {
-        let rows: Vec<(uuid::Uuid, String)> = step_projection::Entity::find()
+        let rows: Vec<(uuid::Uuid, StepTypeModel)> = step_projection::Entity::find()
             .select_only()
             .column(step_projection::Column::StepId)
             .column(step_projection::Column::StepType)
             .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-            .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
-            .filter(step_projection::Column::StepType.ne(StepType::Teardown.to_string()))
+            .filter(step_projection::Column::Status.eq(StepStatusModel::Pending))
+            .filter(step_projection::Column::StepType.ne(StepTypeModel::Teardown))
             .order_by_asc(step_projection::Column::StepId)
             .limit(CANCEL_BATCH_SIZE)
             .into_tuple()
@@ -154,13 +153,13 @@ async fn cancel_pending_steps_and_emit_events(
         let cancelled = step_projection::Entity::update_many()
             .col_expr(
                 step_projection::Column::Status,
-                Expr::value(StepStatus::Cancelled.to_string()),
+                Expr::value(StepStatusModel::Cancelled),
             )
             .col_expr(step_projection::Column::UpdatedAt, Expr::value(now))
             .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
             .filter(step_projection::Column::StepId.is_in(step_ids))
-            .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
-            .filter(step_projection::Column::StepType.ne(StepType::Teardown.to_string()))
+            .filter(step_projection::Column::Status.eq(StepStatusModel::Pending))
+            .filter(step_projection::Column::StepType.ne(StepTypeModel::Teardown))
             .exec(txn)
             .await?;
 
@@ -182,7 +181,7 @@ async fn cancel_pending_steps_and_emit_events(
             events_to_insert.push(mint_step_cancelled(
                 dispatch_id,
                 step_id,
-                &step_type_raw,
+                step_type_raw,
                 actor,
                 reason,
                 step_event_timestamp,
@@ -200,13 +199,13 @@ async fn cancel_pending_steps_and_emit_events(
 fn mint_step_cancelled(
     dispatch_id: DispatchId,
     step_id_uuid: uuid::Uuid,
-    step_type_raw: &str,
+    step_type_model: StepTypeModel,
     actor: &ActorContext,
     reason: Option<&String>,
     timestamp: chrono::DateTime<Utc>,
 ) -> Result<events::ActiveModel, StoreError> {
     let step_id = StepId::from_uuid(step_id_uuid);
-    let step_type = step_converters::parse_step_type(step_type_raw)?;
+    let step_type = StepType::from(step_type_model);
     let envelope = EventEnvelope::new(
         EventId::from_uuid(uuid::Uuid::now_v7()),
         timestamp,

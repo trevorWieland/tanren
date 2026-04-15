@@ -140,11 +140,12 @@ async fn event_append_query_and_filter() {
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(dispatch_id)),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("by ref");
-    assert_eq!(by_ref.total_count, 3); // creation + started + completed (all route to Dispatch)
+    assert_eq!(by_ref.total_count, Some(3)); // creation + started + completed (all route to Dispatch)
     assert!(!by_ref.has_more);
     let ids: Vec<_> = by_ref.events.iter().map(|e| e.event_id).collect();
     assert!(ids.contains(&creation_event_id));
@@ -154,21 +155,23 @@ async fn event_append_query_and_filter() {
         .query_events(&EventFilter {
             entity_kind: Some(EntityKind::Dispatch),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("by kind");
-    assert_eq!(by_kind.total_count, 3);
+    assert_eq!(by_kind.total_count, Some(3));
 
     let by_type = store
         .query_events(&EventFilter {
             event_type: Some("step_completed".to_owned()),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("by type");
-    assert_eq!(by_type.total_count, 1);
+    assert_eq!(by_type.total_count, Some(1));
 }
 
 #[tokio::test]
@@ -281,11 +284,12 @@ async fn ack_and_enqueue_is_atomic() {
     let events = store
         .query_events(&EventFilter {
             limit: 100,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query");
-    assert_eq!(events.total_count, 5);
+    assert_eq!(events.total_count, Some(5));
 }
 
 #[tokio::test]
@@ -346,11 +350,12 @@ async fn ack_and_enqueue_rolls_back_on_pk_collision() {
         .query_events(&EventFilter {
             event_type: Some("step_completed".to_owned()),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query");
-    assert_eq!(events.total_count, 0);
+    assert_eq!(events.total_count, Some(0));
 }
 
 #[tokio::test]

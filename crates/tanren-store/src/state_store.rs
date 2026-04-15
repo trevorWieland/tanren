@@ -15,12 +15,13 @@ use sea_orm::{
 #[cfg(feature = "test-hooks")]
 use sea_orm::{DbBackend, QueryTrait, Statement};
 use tanren_domain::{
-    DispatchId, DispatchReadScope, DispatchView, EntityKind, Lane, StepId, StepStatus, StepView,
+    DispatchId, DispatchReadScope, DispatchView, EntityKind, Lane, StepId, StepView,
 };
 
 use crate::converters::{
     dispatch as dispatch_converters, events as event_converters, step as step_converters, validate,
 };
+use crate::entity::enums::{DispatchStatusModel, LaneModel, OutcomeModel, StepStatusModel};
 use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreConflictClass, StoreError, StoreOperation, StoreResult};
 use crate::params::{
@@ -140,9 +141,9 @@ impl StateStore for Store {
 
     async fn count_running_steps(&self, lane: Option<&Lane>) -> StoreResult<u64> {
         let mut query = step_projection::Entity::find()
-            .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()));
+            .filter(step_projection::Column::Status.eq(StepStatusModel::Running));
         if let Some(lane) = lane {
-            query = query.filter(step_projection::Column::Lane.eq(lane.to_string()));
+            query = query.filter(step_projection::Column::Lane.eq(LaneModel::from(*lane)));
         }
         Ok(query.count(self.conn()).await?)
     }
@@ -253,7 +254,7 @@ impl StateStore for Store {
                         entity_kind: EntityKind::Dispatch,
                         id: id.to_string(),
                     })?;
-                    let current = dispatch_converters::parse_status(&row.status)?;
+                    let current = tanren_domain::DispatchStatus::from(row.status);
                     if !current.can_transition_to(status) {
                         return Err(StoreError::InvalidTransition {
                             entity: format!("dispatch {id}"),
@@ -268,15 +269,18 @@ impl StateStore for Store {
                     let result = dispatch_projection::Entity::update_many()
                         .col_expr(
                             dispatch_projection::Column::Status,
-                            Expr::value(status.to_string()),
+                            Expr::value(DispatchStatusModel::from(status)),
                         )
                         .col_expr(
                             dispatch_projection::Column::Outcome,
-                            Expr::value(outcome.map(|o| o.to_string())),
+                            Expr::value(outcome.map(OutcomeModel::from)),
                         )
                         .col_expr(dispatch_projection::Column::UpdatedAt, Expr::value(now))
                         .filter(dispatch_projection::Column::DispatchId.eq(id_uuid))
-                        .filter(dispatch_projection::Column::Status.eq(current.to_string()))
+                        .filter(
+                            dispatch_projection::Column::Status
+                                .eq(DispatchStatusModel::from(current)),
+                        )
                         .exec(txn)
                         .await?;
                     if result.rows_affected == 0 {
@@ -367,10 +371,11 @@ fn apply_common_dispatch_filters(
     filter: &DispatchFilter,
 ) -> DispatchProjectionSelect {
     if let Some(status) = filter.status {
-        query = query.filter(dispatch_projection::Column::Status.eq(status.to_string()));
+        query =
+            query.filter(dispatch_projection::Column::Status.eq(DispatchStatusModel::from(status)));
     }
     if let Some(lane) = filter.lane {
-        query = query.filter(dispatch_projection::Column::Lane.eq(lane.to_string()));
+        query = query.filter(dispatch_projection::Column::Lane.eq(LaneModel::from(lane)));
     }
     if let Some(ref project) = filter.project {
         query = query.filter(dispatch_projection::Column::Project.eq(project.as_str()));

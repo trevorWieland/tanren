@@ -8,6 +8,7 @@ use tanren_domain::{
 };
 
 use crate::entity::dispatch_projection;
+use crate::entity::enums::{DispatchStatusModel, LaneModel, OutcomeModel};
 use crate::errors::StoreError;
 use crate::params::CreateDispatchParams;
 
@@ -27,9 +28,9 @@ pub(crate) fn params_to_active_model(
     Ok(dispatch_projection::ActiveModel {
         dispatch_id: Set(params.dispatch_id.into_uuid()),
         mode: Set(params.mode.to_string()),
-        status: Set(DispatchStatus::Pending.to_string()),
+        status: Set(DispatchStatusModel::Pending),
         outcome: Set(None),
-        lane: Set(params.lane.to_string()),
+        lane: Set(LaneModel::from(params.lane)),
         dispatch: Set(dispatch_value),
         actor: Set(actor_value),
         graph_revision: Set(graph_revision),
@@ -53,9 +54,9 @@ pub(crate) fn params_to_active_model(
 /// Read a projection row back into the domain [`DispatchView`].
 pub(crate) fn model_to_view(model: dispatch_projection::Model) -> Result<DispatchView, StoreError> {
     let mode = parse_mode(&model.mode)?;
-    let status = parse_status(&model.status)?;
-    let outcome = model.outcome.as_deref().map(parse_outcome).transpose()?;
-    let lane = parse_lane(&model.lane)?;
+    let status = DispatchStatus::from(model.status);
+    let outcome = model.outcome.map(Outcome::from);
+    let lane = Lane::from(model.lane);
 
     let dispatch: DispatchSnapshot =
         serde_json::from_value(model.dispatch).map_err(|err| StoreError::Conversion {
@@ -88,12 +89,6 @@ pub(crate) fn model_to_view(model: dispatch_projection::Model) -> Result<Dispatc
     })
 }
 
-// ---------------------------------------------------------------------------
-// Enum <-> string helpers — domain `Display` is the source of truth
-// for the write path, serde is the source of truth for the read path.
-// See S-02 in LANE-0.3-AUDIT.md.
-// ---------------------------------------------------------------------------
-
 pub(crate) fn parse_mode(value: &str) -> Result<DispatchMode, StoreError> {
     serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
         StoreError::Conversion {
@@ -103,31 +98,72 @@ pub(crate) fn parse_mode(value: &str) -> Result<DispatchMode, StoreError> {
     })
 }
 
-pub(crate) fn parse_status(value: &str) -> Result<DispatchStatus, StoreError> {
-    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
-        StoreError::Conversion {
-            context: "dispatch::parse_status",
-            reason: format!("unknown dispatch status `{value}`: {err}"),
+impl From<DispatchStatus> for DispatchStatusModel {
+    fn from(value: DispatchStatus) -> Self {
+        match value {
+            DispatchStatus::Pending => Self::Pending,
+            DispatchStatus::Running => Self::Running,
+            DispatchStatus::Completed => Self::Completed,
+            DispatchStatus::Failed => Self::Failed,
+            DispatchStatus::Cancelled => Self::Cancelled,
         }
-    })
+    }
 }
 
-pub(crate) fn parse_outcome(value: &str) -> Result<Outcome, StoreError> {
-    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
-        StoreError::Conversion {
-            context: "dispatch::parse_outcome",
-            reason: format!("unknown outcome `{value}`: {err}"),
+impl From<DispatchStatusModel> for DispatchStatus {
+    fn from(value: DispatchStatusModel) -> Self {
+        match value {
+            DispatchStatusModel::Pending => Self::Pending,
+            DispatchStatusModel::Running => Self::Running,
+            DispatchStatusModel::Completed => Self::Completed,
+            DispatchStatusModel::Failed => Self::Failed,
+            DispatchStatusModel::Cancelled => Self::Cancelled,
         }
-    })
+    }
 }
 
-pub(crate) fn parse_lane(value: &str) -> Result<Lane, StoreError> {
-    serde_json::from_value(serde_json::Value::String(value.to_owned())).map_err(|err| {
-        StoreError::Conversion {
-            context: "dispatch::parse_lane",
-            reason: format!("unknown lane `{value}`: {err}"),
+impl From<Lane> for LaneModel {
+    fn from(value: Lane) -> Self {
+        match value {
+            Lane::Impl => Self::Impl,
+            Lane::Audit => Self::Audit,
+            Lane::Gate => Self::Gate,
         }
-    })
+    }
+}
+
+impl From<LaneModel> for Lane {
+    fn from(value: LaneModel) -> Self {
+        match value {
+            LaneModel::Impl => Self::Impl,
+            LaneModel::Audit => Self::Audit,
+            LaneModel::Gate => Self::Gate,
+        }
+    }
+}
+
+impl From<Outcome> for OutcomeModel {
+    fn from(value: Outcome) -> Self {
+        match value {
+            Outcome::Success => Self::Success,
+            Outcome::Fail => Self::Fail,
+            Outcome::Blocked => Self::Blocked,
+            Outcome::Error => Self::Error,
+            Outcome::Timeout => Self::Timeout,
+        }
+    }
+}
+
+impl From<OutcomeModel> for Outcome {
+    fn from(value: OutcomeModel) -> Self {
+        match value {
+            OutcomeModel::Success => Self::Success,
+            OutcomeModel::Fail => Self::Fail,
+            OutcomeModel::Blocked => Self::Blocked,
+            OutcomeModel::Error => Self::Error,
+            OutcomeModel::Timeout => Self::Timeout,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -142,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn status_round_trip() {
+    fn dispatch_status_round_trip() {
         for status in [
             DispatchStatus::Pending,
             DispatchStatus::Running,
@@ -150,14 +186,16 @@ mod tests {
             DispatchStatus::Failed,
             DispatchStatus::Cancelled,
         ] {
-            assert_eq!(parse_status(&status.to_string()).expect("parse"), status);
+            let db = DispatchStatusModel::from(status);
+            assert_eq!(DispatchStatus::from(db), status);
         }
     }
 
     #[test]
     fn lane_round_trip() {
         for lane in [Lane::Impl, Lane::Audit, Lane::Gate] {
-            assert_eq!(parse_lane(&lane.to_string()).expect("parse"), lane);
+            let db = LaneModel::from(lane);
+            assert_eq!(Lane::from(db), lane);
         }
     }
 
@@ -170,31 +208,8 @@ mod tests {
             Outcome::Error,
             Outcome::Timeout,
         ] {
-            assert_eq!(parse_outcome(&outcome.to_string()).expect("parse"), outcome);
+            let db = OutcomeModel::from(outcome);
+            assert_eq!(Outcome::from(db), outcome);
         }
-    }
-
-    #[test]
-    fn parse_mode_rejects_unknown_variant() {
-        let err = parse_mode("does_not_exist").expect_err("should fail");
-        assert!(matches!(err, StoreError::Conversion { .. }));
-    }
-
-    #[test]
-    fn parse_status_rejects_unknown_variant() {
-        let err = parse_status("not_a_status").expect_err("should fail");
-        assert!(matches!(err, StoreError::Conversion { .. }));
-    }
-
-    #[test]
-    fn parse_lane_rejects_unknown_variant() {
-        let err = parse_lane("not_a_lane").expect_err("should fail");
-        assert!(matches!(err, StoreError::Conversion { .. }));
-    }
-
-    #[test]
-    fn parse_outcome_rejects_unknown_variant() {
-        let err = parse_outcome("not_an_outcome").expect_err("should fail");
-        assert!(matches!(err, StoreError::Conversion { .. }));
     }
 }

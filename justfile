@@ -332,14 +332,6 @@ check-deps:
     fi
     echo "Crate layering rules pass."
 
-# Rust architecture guard: transport/interface layers stay thin.
-check-thin-interfaces:
-    @uv run python scripts/check_thin_interfaces.py
-
-# Rust architecture guard: interface layers must not bypass store contracts.
-check-store-bypass:
-    @uv run python scripts/check_store_bypass.py
-
 # Verify local CI recipes stay aligned with workflow strict rust commands.
 check-ci-parity:
     @uv run python scripts/check_ci_parity.py
@@ -392,5 +384,5 @@ ci-rust-strict:
     @PGSSLMODE="${PGSSLMODE:-disable}" RUSTFLAGS="-D warnings" {{ cargo }} nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
 
 # Run full CI check locally.
-ci: fmt check-lines check-suppression check-deps check-thin-interfaces check-store-bypass check-ci-parity deny doc machete ci-rust-strict
+ci: fmt check-lines check-suppression check-deps check-ci-parity deny doc machete ci-rust-strict
     @echo "==> All CI checks passed!"

@@ -63,9 +63,19 @@ pub struct StepView {
 }
 
 /// Paginated query result for events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventCursor {
+    pub timestamp: DateTime<Utc>,
+    pub id: i64,
+}
+
+/// Paginated query result for events.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventQueryResult {
     pub events: Vec<EventEnvelope>,
-    pub total_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<u64>,
     pub has_more: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<EventCursor>,
 }

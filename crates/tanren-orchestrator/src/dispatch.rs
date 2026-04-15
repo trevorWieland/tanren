@@ -64,14 +64,6 @@ where
         Ok(view)
     }
 
-    /// Retrieve a dispatch by ID.
-    pub async fn get_dispatch(
-        &self,
-        id: &DispatchId,
-    ) -> Result<Option<DispatchView>, OrchestratorError> {
-        Ok(self.store.get_dispatch(id).await?)
-    }
-
     /// Retrieve a dispatch by ID, enforcing actor-scope read policy.
     pub async fn get_dispatch_for_actor(
         &self,
@@ -80,14 +72,6 @@ where
     ) -> Result<Option<DispatchView>, OrchestratorError> {
         let scope = self.policy.dispatch_read_scope(actor);
         Ok(self.store.get_dispatch_scoped(id, scope).await?)
-    }
-
-    /// List dispatches matching the given filter.
-    pub async fn list_dispatches(
-        &self,
-        filter: DispatchFilter,
-    ) -> Result<DispatchQueryPage, OrchestratorError> {
-        Ok(self.store.query_dispatches(&filter).await?)
     }
 
     /// List dispatches within the actor's policy-derived read scope.

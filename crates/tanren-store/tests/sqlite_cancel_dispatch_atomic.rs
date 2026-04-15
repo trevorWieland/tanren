@@ -245,22 +245,24 @@ async fn cancel_dispatch_is_atomic_for_steps_and_dispatch_status() {
             entity_ref: Some(EntityRef::Dispatch(id)),
             event_type: Some("step_cancelled".to_owned()),
             limit: 50,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("step events");
-    assert_eq!(step_cancelled.total_count, 3);
+    assert_eq!(step_cancelled.total_count, Some(3));
 
     let dispatch_cancelled = store
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(id)),
             event_type: Some("dispatch_cancelled".to_owned()),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("dispatch events");
-    assert_eq!(dispatch_cancelled.total_count, 1);
+    assert_eq!(dispatch_cancelled.total_count, Some(1));
 }
 
 #[tokio::test]
@@ -303,11 +305,12 @@ async fn cancel_dispatch_rolls_back_on_dispatch_event_insert_failure() {
             entity_ref: Some(EntityRef::Dispatch(id)),
             event_type: Some("step_cancelled".to_owned()),
             limit: 50,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("events");
-    assert_eq!(step_cancelled.total_count, 0);
+    assert_eq!(step_cancelled.total_count, Some(0));
 }
 
 #[tokio::test]
@@ -351,9 +354,10 @@ async fn cancel_dispatch_concurrent_calls_allow_only_one_winner() {
             entity_ref: Some(EntityRef::Dispatch(id)),
             event_type: Some("dispatch_cancelled".to_owned()),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("events");
-    assert_eq!(dispatch_cancelled.total_count, 1);
+    assert_eq!(dispatch_cancelled.total_count, Some(1));
 }

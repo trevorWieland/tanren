@@ -70,6 +70,10 @@ must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
+# Guardrail lints are enabled selectively at crate roots where needed.
+disallowed_types = "allow"
+disallowed_methods = "allow"
+
 # ============================================================================
 # WORKSPACE DEPENDENCIES — centralized version pinning
 # ============================================================================

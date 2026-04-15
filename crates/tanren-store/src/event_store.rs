@@ -8,7 +8,7 @@
 
 use async_trait::async_trait;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
-use tanren_domain::{DomainEvent, EventEnvelope, EventQueryResult};
+use tanren_domain::{DomainEvent, EventCursor, EventEnvelope, EventQueryResult};
 
 use crate::converters::events as event_converters;
 use crate::entity::events;
@@ -71,30 +71,42 @@ impl Store {
 impl EventStore for Store {
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult> {
         let conn = self.conn();
-        let total_count = build_count_query(filter).count(conn).await?;
+        let total_count = if filter.include_total_count {
+            Some(build_count_query(filter).count(conn).await?)
+        } else {
+            None
+        };
 
-        let rows = build_select_query(filter)
-            .limit(filter.limit)
-            .offset(filter.offset)
+        let mut rows = build_select_query(filter)
             .order_by_asc(events::Column::Timestamp)
             .order_by_asc(events::Column::Id)
+            .limit(filter.limit.saturating_add(1))
             .all(conn)
             .await?;
+        let page_size = usize::try_from(filter.limit).unwrap_or(usize::MAX);
+        let has_more = rows.len() > page_size;
+        if has_more {
+            rows.truncate(page_size);
+        }
+        let next_cursor = if has_more {
+            rows.last().map(|row| EventCursor {
+                timestamp: row.timestamp,
+                id: row.id,
+            })
+        } else {
+            None
+        };
 
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             out.push(event_converters::model_to_envelope(row)?);
         }
 
-        let has_more = filter
-            .offset
-            .saturating_add(u64::try_from(out.len()).unwrap_or(u64::MAX))
-            < total_count;
-
         Ok(EventQueryResult {
             events: out,
             total_count,
             has_more,
+            next_cursor,
         })
     }
 
@@ -128,6 +140,8 @@ fn apply_filters(
     mut query: sea_orm::Select<events::Entity>,
     filter: &EventFilter,
 ) -> sea_orm::Select<events::Entity> {
+    use sea_orm::sea_query::Condition;
+
     // Typed entity references must constrain both `entity_kind` and
     // `entity_id`. A bare `entity_id` filter would return events
     // from a different entity kind that happens to share the same
@@ -151,6 +165,17 @@ fn apply_filters(
     }
     if let Some(until) = filter.until {
         query = query.filter(events::Column::Timestamp.lt(until));
+    }
+    if let Some(cursor) = filter.cursor {
+        query = query.filter(
+            Condition::any()
+                .add(events::Column::Timestamp.gt(cursor.timestamp))
+                .add(
+                    Condition::all()
+                        .add(events::Column::Timestamp.eq(cursor.timestamp))
+                        .add(events::Column::Id.gt(cursor.id)),
+                ),
+        );
     }
     query
 }

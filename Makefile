@@ -39,8 +39,7 @@ alembic-check:
 	cd packages/tanren-core && uv run alembic upgrade head && uv run alembic check
 
 arch-check: import-check alembic-check
-	uv run python scripts/check_store_bypass.py
-	uv run python scripts/check_thin_interfaces.py
+	cargo clippy --workspace --all-targets --features tanren-store/test-hooks -- -D warnings
 
 check:
 	$(MAKE) format-check

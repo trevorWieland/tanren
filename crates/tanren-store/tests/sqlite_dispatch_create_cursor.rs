@@ -184,12 +184,14 @@ async fn create_dispatch_with_initial_step_rolls_back_on_step_conflict() {
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(dispatch_b)),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("events");
     assert_eq!(
-        events.total_count, 0,
+        events.total_count,
+        Some(0),
         "events must roll back with projection"
     );
 }

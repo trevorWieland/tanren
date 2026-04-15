@@ -284,11 +284,12 @@ async fn nack_rejects_pending_step() {
         .query_events(&EventFilter {
             event_type: Some("step_failed".to_owned()),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query");
-    assert_eq!(failures.total_count, 0);
+    assert_eq!(failures.total_count, Some(0));
 }
 
 /// I-05: filtering by `entity_ref = Dispatch(uuid_a)` must not
@@ -324,13 +325,14 @@ async fn entity_ref_filter_distinguishes_different_dispatches() {
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(id_a)),
             limit: 100,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query");
 
     // creation(a) + DispatchStarted(a) = 2
-    assert_eq!(result.total_count, 2);
+    assert_eq!(result.total_count, Some(2));
     for e in &result.events {
         assert_eq!(
             e.entity_ref,

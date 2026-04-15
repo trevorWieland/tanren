@@ -34,6 +34,7 @@ mod params;
 mod state_store;
 mod state_store_cancel;
 mod store;
+mod token_replay_store;
 
 pub use connection::ConnectConfig;
 pub use errors::{StoreConflictClass, StoreError, StoreOperation, StoreResult};
@@ -41,11 +42,13 @@ pub use event_store::EventStore;
 pub use job_queue::JobQueue;
 pub use params::{
     AckAndEnqueueParams, AckParams, CancelDispatchParams, CancelPendingStepsParams,
-    CreateDispatchParams, CreateDispatchWithInitialStepParams, DEFAULT_QUERY_LIMIT, DequeueParams,
-    DispatchCursor, DispatchFilter, DispatchQueryPage, EnqueueStepParams, EventFilter,
-    MAX_DISPATCH_QUERY_LIMIT, NackParams, QueuedStep, UpdateDispatchStatusParams,
+    ConsumeActorTokenJtiParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
+    DEFAULT_QUERY_LIMIT, DequeueParams, DispatchCursor, DispatchFilter, DispatchQueryPage,
+    EnqueueStepParams, EventFilter, MAX_DISPATCH_QUERY_LIMIT, NackParams,
+    PurgeExpiredActorTokenJtisParams, QueuedStep, UpdateDispatchStatusParams,
 };
 pub use state_store::StateStore;
 #[cfg(feature = "test-hooks")]
 pub use state_store::dispatch_query_statement_for_backend;
 pub use store::Store;
+pub use token_replay_store::TokenReplayStore;

@@ -1,108 +1,19 @@
 //! CLI auth-boundary hardening tests.
 
-use std::path::PathBuf;
+mod support;
 
-use assert_cmd::Command;
-use chrono::Utc;
-use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-use serde::Serialize;
 use serde_json::Value;
-use uuid::Uuid;
-
-const TEST_ED25519_PRIVATE_KEY_PEM: &str = "\
------BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIAPLmow/yTJDEVu9jxvrdcEK0yfRG0bAzr3hnOrtggLP
------END PRIVATE KEY-----
-";
-const TEST_ED25519_PUBLIC_KEY_PEM: &str = "\
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
------END PUBLIC KEY-----
-";
-
-#[derive(Debug)]
-struct AuthHarness {
-    audience: String,
-    public_key_file: PathBuf,
-    actor_token_file: PathBuf,
-    _dir: tempfile::TempDir,
-}
-
-#[derive(Debug, Serialize)]
-struct ActorClaims {
-    iss: String,
-    aud: String,
-    exp: i64,
-    nbf: i64,
-    org_id: Uuid,
-    user_id: Uuid,
-}
-
-fn cli() -> Command {
-    Command::cargo_bin("tanren-cli").expect("binary should exist")
-}
-
-fn temp_db() -> (String, tempfile::TempDir) {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("test.db");
-    let url = format!("sqlite:{}?mode=rwc", db_path.display());
-    (url, dir)
-}
-
-fn auth_harness() -> AuthHarness {
-    let claims = ActorClaims {
-        iss: "tanren-tests".to_owned(),
-        aud: "tanren-cli".to_owned(),
-        exp: Utc::now().timestamp() + 600,
-        nbf: Utc::now().timestamp() - 60,
-        org_id: Uuid::now_v7(),
-        user_id: Uuid::now_v7(),
-    };
-
-    let token = encode(
-        &Header::new(Algorithm::EdDSA),
-        &claims,
-        &EncodingKey::from_ed_pem(TEST_ED25519_PRIVATE_KEY_PEM.as_bytes()).expect("encoding key"),
-    )
-    .expect("token");
-
-    let dir = tempfile::tempdir().expect("temp dir");
-    let public_key_file = dir.path().join("actor-public.pem");
-    std::fs::write(&public_key_file, TEST_ED25519_PUBLIC_KEY_PEM).expect("write key");
-    let actor_token_file = dir.path().join("actor-token.jwt");
-    std::fs::write(&actor_token_file, &token).expect("write token");
-
-    AuthHarness {
-        audience: claims.aud,
-        public_key_file,
-        actor_token_file,
-        _dir: dir,
-    }
-}
-
-fn assert_stderr_is_single_json(stderr: &str) -> Value {
-    let trimmed = stderr.trim();
-    assert!(
-        trimmed.starts_with('{') && trimmed.ends_with('}'),
-        "stderr should contain exactly one JSON document: {stderr}"
-    );
-    let mut stream = serde_json::Deserializer::from_str(trimmed).into_iter::<Value>();
-    let parsed = stream
-        .next()
-        .expect("expected one JSON value")
-        .expect("stderr should be valid JSON");
-    assert!(
-        stream.next().is_none(),
-        "stderr should contain only one JSON value"
-    );
-    parsed
-}
+use support::auth::{
+    add_auth_args, add_auth_args_with_ttl, assert_stderr_is_single_json, auth_harness,
+    claims_missing_jti, sign_with_kid, temp_db,
+};
 
 #[test]
 fn invalid_actor_token_error_is_generic_without_verification_details() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
-    let mut cmd = cli();
+    support::auth::lint_anchor(&auth);
+    let mut cmd = support::auth::cli();
     cmd.args([
         "--database-url",
         &db_url,
@@ -110,8 +21,8 @@ fn invalid_actor_token_error_is_generic_without_verification_details() {
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-public-key-file",
-        auth.public_key_file.to_str().expect("utf8 path"),
+        "--actor-jwks-file",
+        auth.jwks_file.to_str().expect("utf8 path"),
         "--token-issuer",
         "wrong-issuer",
         "--token-audience",
@@ -140,7 +51,7 @@ fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
         .actor_token_file
         .with_file_name("missing-actor-token.jwt");
     let missing_token_text = missing_token_path.display().to_string();
-    let mut cmd = cli();
+    let mut cmd = support::auth::cli();
     cmd.args([
         "--database-url",
         &db_url,
@@ -148,8 +59,8 @@ fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
         "list",
         "--actor-token-file",
         missing_token_path.to_str().expect("utf8 path"),
-        "--actor-public-key-file",
-        auth.public_key_file.to_str().expect("utf8 path"),
+        "--actor-jwks-file",
+        auth.jwks_file.to_str().expect("utf8 path"),
         "--token-issuer",
         "tanren-tests",
         "--token-audience",
@@ -169,14 +80,12 @@ fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
 }
 
 #[test]
-fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
+fn actor_jwks_file_read_failure_is_generic_without_path_or_io_details() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
-    let missing_key_path = auth
-        .public_key_file
-        .with_file_name("missing-actor-public.pem");
-    let missing_key_text = missing_key_path.display().to_string();
-    let mut cmd = cli();
+    let missing_jwks_path = auth.jwks_file.with_file_name("missing-actor-jwks.json");
+    let missing_jwks_text = missing_jwks_path.display().to_string();
+    let mut cmd = support::auth::cli();
     cmd.args([
         "--database-url",
         &db_url,
@@ -184,8 +93,8 @@ fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-public-key-file",
-        missing_key_path.to_str().expect("utf8 path"),
+        "--actor-jwks-file",
+        missing_jwks_path.to_str().expect("utf8 path"),
         "--token-issuer",
         "tanren-tests",
         "--token-audience",
@@ -198,18 +107,18 @@ fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
     let v = assert_stderr_is_single_json(&stderr);
     assert_eq!(v["code"], "invalid_input");
     let message = v["message"].as_str().expect("message");
-    assert!(message.contains("invalid actor public key"));
-    assert!(!message.contains(&missing_key_text));
+    assert!(message.contains("invalid actor jwks"));
+    assert!(!message.contains(&missing_jwks_text));
     assert!(!message.contains("No such file"));
     assert!(!message.contains("os error"));
 }
 
 #[test]
-fn actor_public_key_parse_failure_is_generic_without_parser_details() {
+fn actor_jwks_parse_failure_is_generic_without_parser_details() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
-    std::fs::write(&auth.public_key_file, "not-a-valid-pem").expect("write invalid key");
-    let mut cmd = cli();
+    std::fs::write(&auth.jwks_file, "not-a-valid-jwks").expect("write invalid jwks");
+    let mut cmd = support::auth::cli();
     cmd.args([
         "--database-url",
         &db_url,
@@ -217,8 +126,8 @@ fn actor_public_key_parse_failure_is_generic_without_parser_details() {
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-public-key-file",
-        auth.public_key_file.to_str().expect("utf8 path"),
+        "--actor-jwks-file",
+        auth.jwks_file.to_str().expect("utf8 path"),
         "--token-issuer",
         "tanren-tests",
         "--token-audience",
@@ -231,31 +140,118 @@ fn actor_public_key_parse_failure_is_generic_without_parser_details() {
     let v = assert_stderr_is_single_json(&stderr);
     assert_eq!(v["code"], "invalid_input");
     let message = v["message"].as_str().expect("message");
-    assert!(message.contains("invalid actor public key"));
-    assert!(!message.contains("PEM"));
-    assert!(!message.contains("base64"));
+    assert!(message.contains("invalid actor jwks"));
     assert!(!message.contains("Ed25519"));
+    assert!(!message.contains("base64"));
+}
+
+#[test]
+fn token_missing_kid_header_is_rejected() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    let claims = support::auth::base_claims();
+    let token = sign_with_kid(&claims, None);
+    std::fs::write(&auth.actor_token_file, token).expect("write token");
+
+    let mut cmd = support::auth::cli();
+    cmd.args(["--database-url", &db_url, "dispatch", "list"]);
+    add_auth_args(&mut cmd, &auth);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+    let message = v["message"].as_str().expect("message");
+    assert!(message.contains("token validation failed"));
+}
+
+#[test]
+fn token_missing_jti_claim_is_rejected() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    let token = sign_with_kid(&claims_missing_jti(), Some(&auth.kid));
+    std::fs::write(&auth.actor_token_file, token).expect("write token");
+
+    let mut cmd = support::auth::cli();
+    cmd.args(["--database-url", &db_url, "dispatch", "list"]);
+    add_auth_args(&mut cmd, &auth);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+    let message = v["message"].as_str().expect("message");
+    assert!(message.contains("token validation failed"));
+}
+
+#[test]
+fn token_replay_is_rejected_on_second_use() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    support::auth::migrate(&db_url);
+
+    let mut first = support::auth::cli();
+    first.args(["--database-url", &db_url, "dispatch", "list"]);
+    add_auth_args(&mut first, &auth);
+    let first_output = first.output().expect("first execute");
+    assert!(first_output.status.success(), "first call should pass");
+
+    let mut second = support::auth::cli();
+    second.args(["--database-url", &db_url, "dispatch", "list"]);
+    add_auth_args(&mut second, &auth);
+    let second_output = second.output().expect("second execute");
+    assert!(
+        !second_output.status.success(),
+        "second call must fail replay"
+    );
+
+    let stderr = String::from_utf8(second_output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "invalid_input");
+    assert!(
+        v["message"]
+            .as_str()
+            .expect("message")
+            .contains("token validation failed")
+    );
+}
+
+#[test]
+fn actor_token_max_ttl_is_enforced() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+
+    let mut cmd = support::auth::cli();
+    cmd.args(["--database-url", &db_url, "dispatch", "list"]);
+    add_auth_args_with_ttl(&mut cmd, &auth, 30);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "ttl should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+    assert!(
+        v["message"]
+            .as_str()
+            .expect("message")
+            .contains("token validation failed")
+    );
 }
 
 #[test]
 fn internal_failure_omits_correlation_id_when_sink_persist_fails() {
     let auth = auth_harness();
-    let mut cmd = cli();
+    let mut cmd = support::auth::cli();
     cmd.env("XDG_STATE_HOME", "/dev/null");
     cmd.args([
         "--database-url",
         "sqlite:/dev/null/tanren.db?mode=rwc",
         "dispatch",
         "list",
-        "--actor-token-file",
-        auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-public-key-file",
-        auth.public_key_file.to_str().expect("utf8 path"),
-        "--token-issuer",
-        "tanren-tests",
-        "--token-audience",
-        &auth.audience,
     ]);
+    add_auth_args(&mut cmd, &auth);
 
     let output = cmd.output().expect("execute");
     assert!(!output.status.success(), "should fail");

@@ -6,6 +6,7 @@
 //!
 //! All failures — including startup errors — produce deterministic JSON
 //! on stderr and a non-zero exit code.
+#![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
 mod commands;
 
@@ -14,7 +15,8 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
-use tanren_app_services::{ActorTokenVerifier, RequestContext};
+use tanren_app_services::ActorTokenVerifier;
+use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS;
 use tanren_contract::{ContractError, ErrorCode, ErrorResponse};
 use tanren_observability::{
     ObservabilityError, emit_correlated_internal_error, init_tracing_for_contract_io,
@@ -44,9 +46,13 @@ struct Cli {
     #[arg(long, global = true)]
     actor_token_file: Option<PathBuf>,
 
-    /// Path to Ed25519 public key PEM for token verification.
+    /// Path to JWKS file for actor token verification.
     #[arg(long, global = true)]
-    actor_public_key_file: Option<PathBuf>,
+    actor_jwks_file: Option<PathBuf>,
+
+    /// URL to JWKS document for actor token verification.
+    #[arg(long, global = true)]
+    actor_jwks_url: Option<String>,
 
     /// Required JWT issuer claim.
     #[arg(long, global = true)]
@@ -55,6 +61,14 @@ struct Cli {
     /// Required JWT audience claim.
     #[arg(long, global = true)]
     token_audience: Option<String>,
+
+    /// Maximum allowed actor token lifetime (`exp - iat`) in seconds.
+    #[arg(
+        long,
+        global = true,
+        default_value_t = DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS
+    )]
+    actor_token_max_ttl_secs: u64,
 
     #[command(subcommand)]
     command: Commands,
@@ -129,9 +143,11 @@ async fn run() -> Result<()> {
         log_level: _,
         actor_token_stdin,
         actor_token_file,
-        actor_public_key_file,
+        actor_jwks_file,
+        actor_jwks_url,
         token_issuer,
         token_audience,
+        actor_token_max_ttl_secs,
         command,
     } = cli;
 
@@ -145,39 +161,51 @@ async fn run() -> Result<()> {
             print_json(&serde_json::json!({ "status": "migrated" }))
         }
         Commands::Dispatch(cmd) => {
-            let context = resolve_request_context(
-                actor_token_stdin,
-                actor_token_file.as_ref(),
-                actor_public_key_file.as_ref(),
+            let token = resolve_actor_token(actor_token_stdin, actor_token_file.as_ref())?;
+            let mut verifier = resolve_actor_token_verifier(
+                actor_jwks_file.as_ref(),
+                actor_jwks_url.as_deref(),
                 token_issuer.as_deref(),
                 token_audience.as_deref(),
-            )?;
-            let service = if cmd.requires_write_store() {
-                tanren_app_services::compose::build_dispatch_service_for_write(&database_url)
+                actor_token_max_ttl_secs,
+            )
+            .await?;
+            let store = if cmd.requires_write_store() {
+                tanren_app_services::compose::open_store_for_write(&database_url)
                     .await
                     .map_err(|err| {
                         anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
                     })?
             } else {
-                tanren_app_services::compose::build_dispatch_service_for_read(&database_url)
+                let store = tanren_app_services::compose::open_store_for_read(&database_url)
                     .await
                     .map_err(|err| {
                         anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
-                    })?
+                    })?;
+                store.assert_schema_ready().await.map_err(|err| {
+                    anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
+                })?;
+                store
             };
+            let context = verifier
+                .verify_and_consume(token.as_str(), &store)
+                .await
+                .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)))?;
+            let policy = tanren_app_services::compose::build_policy_engine();
+            let orchestrator = tanren_app_services::compose::build_orchestrator(store, policy);
+            let service = tanren_app_services::compose::build_dispatch_service(orchestrator);
             commands::dispatch::handle(cmd, &service, &context).await
         }
     }
 }
 
-fn resolve_request_context(
-    actor_token_stdin: bool,
-    actor_token_file: Option<&PathBuf>,
-    actor_public_key_file: Option<&PathBuf>,
+async fn resolve_actor_token_verifier(
+    actor_jwks_file: Option<&PathBuf>,
+    actor_jwks_url: Option<&str>,
     token_issuer: Option<&str>,
     token_audience: Option<&str>,
-) -> Result<RequestContext, anyhow::Error> {
-    let token = resolve_actor_token(actor_token_stdin, actor_token_file)?;
+    actor_token_max_ttl_secs: u64,
+) -> Result<ActorTokenVerifier, anyhow::Error> {
     let issuer = token_issuer.ok_or_else(|| {
         anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
             field: "token_issuer".to_owned(),
@@ -190,36 +218,48 @@ fn resolve_request_context(
             reason: "missing required --token-audience".to_owned(),
         }))
     })?;
-    let key_path = actor_public_key_file.ok_or_else(|| {
-        anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
-            field: "actor_public_key_file".to_owned(),
-            reason: "missing required --actor-public-key-file".to_owned(),
-        }))
-    })?;
+    if actor_token_max_ttl_secs == 0 {
+        return Err(anyhow::Error::new(ErrorResponse::from(
+            ContractError::InvalidField {
+                field: "actor_token_max_ttl_secs".to_owned(),
+                reason: "must be >= 1".to_owned(),
+            },
+        )));
+    }
 
-    let public_key_pem = std::fs::read_to_string(key_path).map_err(|err| {
-        let raw_error = format!(
-            "failed to read actor public key file `{}`: {err}",
-            key_path.display()
-        );
-        let _ = emit_correlated_internal_error(
-            "tanren_cli",
-            "invalid_actor_public_key",
-            Uuid::now_v7(),
-            &raw_error,
-        );
-        anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
-            field: "actor_public_key_file".to_owned(),
-            reason: "invalid actor public key".to_owned(),
-        }))
-    })?;
+    let selected_source_count =
+        u8::from(actor_jwks_file.is_some()) + u8::from(actor_jwks_url.is_some());
+    if selected_source_count > 1 {
+        return Err(anyhow::Error::new(ErrorResponse::from(
+            ContractError::InvalidField {
+                field: "actor_jwks".to_owned(),
+                reason: "exactly one JWKS source is allowed; choose one of --actor-jwks-file or --actor-jwks-url".to_owned(),
+            },
+        )));
+    }
 
-    let verifier = ActorTokenVerifier::from_ed25519_pem(&public_key_pem, issuer, audience)
-        .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)))?;
+    if let Some(path) = actor_jwks_file {
+        return ActorTokenVerifier::from_jwks_file(
+            path,
+            issuer,
+            audience,
+            actor_token_max_ttl_secs,
+        )
+        .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)));
+    }
 
-    verifier
-        .verify(token.as_str())
-        .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)))
+    if let Some(url) = actor_jwks_url {
+        return ActorTokenVerifier::from_jwks_url(url, issuer, audience, actor_token_max_ttl_secs)
+            .await
+            .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)));
+    }
+
+    Err(anyhow::Error::new(ErrorResponse::from(
+        ContractError::InvalidField {
+            field: "actor_jwks".to_owned(),
+            reason: "missing JWKS source (use --actor-jwks-file or --actor-jwks-url)".to_owned(),
+        },
+    )))
 }
 
 fn resolve_actor_token(

@@ -15,6 +15,7 @@
 //! - This is the primary crate that interface binaries depend on for
 //!   business logic (plus `contract` for schema types)
 //! - All transport-specific concerns belong in the binary crates
+#![deny(clippy::disallowed_methods)]
 
 pub mod auth;
 pub mod compose;

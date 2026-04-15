@@ -37,11 +37,6 @@ where
         Self { orchestrator }
     }
 
-    /// Borrow the underlying orchestrator.
-    pub fn orchestrator(&self) -> &Orchestrator<S> {
-        &self.orchestrator
-    }
-
     /// Create a new dispatch from a contract request.
     pub async fn create(
         &self,

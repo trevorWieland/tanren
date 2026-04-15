@@ -1,107 +1,17 @@
 //! Additional CLI contract-surface coverage.
 
-use std::path::PathBuf;
+mod support;
 
-use assert_cmd::Command;
-use chrono::Utc;
-use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-use serde::Serialize;
 use serde_json::Value;
+use support::auth::{add_auth_args, auth_harness, auth_harness_with_org, cli, temp_db};
 use uuid::Uuid;
-
-const TEST_ED25519_PRIVATE_KEY_PEM: &str = "\
------BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIAPLmow/yTJDEVu9jxvrdcEK0yfRG0bAzr3hnOrtggLP
------END PRIVATE KEY-----
-";
-const TEST_ED25519_PUBLIC_KEY_PEM: &str = "\
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
------END PUBLIC KEY-----
-";
-
-#[derive(Debug)]
-struct AuthHarness {
-    issuer: String,
-    audience: String,
-    public_key_file: PathBuf,
-    actor_token_file: PathBuf,
-    _dir: tempfile::TempDir,
-}
-
-#[derive(Debug, Serialize)]
-struct ActorClaims {
-    iss: String,
-    aud: String,
-    exp: i64,
-    nbf: i64,
-    org_id: Uuid,
-    user_id: Uuid,
-}
-
-fn cli() -> Command {
-    Command::cargo_bin("tanren-cli").expect("binary should exist")
-}
-
-fn temp_db() -> (String, tempfile::TempDir) {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("test.db");
-    let url = format!("sqlite:{}?mode=rwc", db_path.display());
-    (url, dir)
-}
-
-fn auth_harness() -> AuthHarness {
-    let issuer = "tanren-tests".to_owned();
-    let audience = "tanren-cli".to_owned();
-    let now = Utc::now().timestamp();
-    let claims = ActorClaims {
-        iss: issuer.clone(),
-        aud: audience.clone(),
-        exp: now + 600,
-        nbf: now - 60,
-        org_id: Uuid::now_v7(),
-        user_id: Uuid::now_v7(),
-    };
-
-    let token = encode(
-        &Header::new(Algorithm::EdDSA),
-        &claims,
-        &EncodingKey::from_ed_pem(TEST_ED25519_PRIVATE_KEY_PEM.as_bytes()).expect("encoding key"),
-    )
-    .expect("token");
-
-    let dir = tempfile::tempdir().expect("temp dir");
-    let public_key_file = dir.path().join("actor-public.pem");
-    std::fs::write(&public_key_file, TEST_ED25519_PUBLIC_KEY_PEM).expect("write key");
-    let actor_token_file = dir.path().join("actor-token.jwt");
-    std::fs::write(&actor_token_file, &token).expect("write token");
-
-    AuthHarness {
-        issuer,
-        audience,
-        public_key_file,
-        actor_token_file,
-        _dir: dir,
-    }
-}
-
-fn add_auth_args(cmd: &mut Command, auth: &AuthHarness) {
-    cmd.args([
-        "--actor-token-file",
-        auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-public-key-file",
-        auth.public_key_file.to_str().expect("utf8 path"),
-        "--token-issuer",
-        &auth.issuer,
-        "--token-audience",
-        &auth.audience,
-    ]);
-}
 
 #[test]
 fn create_accepts_contract_surface_fields_and_get_reflects_them() {
     let (db_url, _dir) = temp_db();
-    let auth = auth_harness();
+    let org_id = Uuid::now_v7();
+    let auth = auth_harness_with_org(org_id);
+    support::auth::lint_anchor(&auth);
     let mut create_cmd = cli();
     create_cmd.args([
         "--database-url",
@@ -159,7 +69,8 @@ fn create_accepts_contract_surface_fields_and_get_reflects_them() {
         "--id",
         dispatch_id,
     ]);
-    add_auth_args(&mut get_cmd, &auth);
+    let read_auth = auth_harness_with_org(org_id);
+    add_auth_args(&mut get_cmd, &read_auth);
     let get_output = get_cmd.output().expect("execute");
     assert!(get_output.status.success(), "get should succeed");
     let get_json: Value =

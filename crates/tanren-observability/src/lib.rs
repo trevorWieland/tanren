@@ -14,6 +14,9 @@
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::sync::mpsc::{RecvTimeoutError, SyncSender, TrySendError, sync_channel};
+use std::time::Duration;
 
 use chrono::Utc;
 use serde::Serialize;
@@ -38,6 +41,73 @@ pub enum ObservabilityError {
     /// A correlated error event could not be written.
     #[error("failed to write correlated error event: {0}")]
     SinkIo(String),
+}
+
+#[derive(Debug)]
+struct SinkWriteRequest {
+    path: PathBuf,
+    line: String,
+    ack: SyncSender<Result<(), ObservabilityError>>,
+}
+
+#[derive(Debug)]
+struct CorrelatedErrorSink {
+    tx: SyncSender<SinkWriteRequest>,
+    ack_timeout: Duration,
+}
+
+impl CorrelatedErrorSink {
+    fn with_capacity(capacity: usize, ack_timeout: Duration, write_delay: Duration) -> Self {
+        let (tx, rx) = sync_channel::<SinkWriteRequest>(capacity);
+        std::thread::Builder::new()
+            .name("tanren-internal-error-sink".to_owned())
+            .spawn(move || {
+                while let Ok(req) = rx.recv() {
+                    if !write_delay.is_zero() {
+                        std::thread::sleep(write_delay);
+                    }
+                    let result = append_jsonl_line(&req.path, &req.line);
+                    let _ = req.ack.send(result);
+                }
+            })
+            .expect("internal-error sink worker thread must spawn");
+        Self { tx, ack_timeout }
+    }
+
+    fn emit(&self, path: &Path, line: String) -> Result<(), ObservabilityError> {
+        let (ack_tx, ack_rx) = sync_channel(1);
+        let req = SinkWriteRequest {
+            path: path.to_path_buf(),
+            line,
+            ack: ack_tx,
+        };
+
+        self.tx.try_send(req).map_err(|err| match err {
+            TrySendError::Full(_) => {
+                ObservabilityError::SinkIo("internal error sink queue saturated".to_owned())
+            }
+            TrySendError::Disconnected(_) => {
+                ObservabilityError::SinkIo("internal error sink worker unavailable".to_owned())
+            }
+        })?;
+
+        match ack_rx.recv_timeout(self.ack_timeout) {
+            Ok(write_result) => write_result,
+            Err(RecvTimeoutError::Timeout) => Err(ObservabilityError::SinkIo(
+                "internal error sink write timed out".to_owned(),
+            )),
+            Err(RecvTimeoutError::Disconnected) => Err(ObservabilityError::SinkIo(
+                "internal error sink worker unavailable".to_owned(),
+            )),
+        }
+    }
+}
+
+fn global_correlated_error_sink() -> &'static CorrelatedErrorSink {
+    static SINK: OnceLock<CorrelatedErrorSink> = OnceLock::new();
+    SINK.get_or_init(|| {
+        CorrelatedErrorSink::with_capacity(512, Duration::from_millis(75), Duration::ZERO)
+    })
 }
 
 /// Initialize the global tracing subscriber with the given filter level.
@@ -94,13 +164,14 @@ pub fn emit_correlated_internal_error(
     correlation_id: Uuid,
     raw_error: &str,
 ) -> Result<(), ObservabilityError> {
-    emit_correlated_internal_error_to_path(
-        &default_internal_error_sink_path(),
+    let path = default_internal_error_sink_path();
+    let line = build_correlated_internal_error_jsonl_line(
         component,
         error_code,
         correlation_id,
         raw_error,
-    )
+    )?;
+    global_correlated_error_sink().emit(&path, line)
 }
 
 /// Sanitize error text before structured logging.
@@ -198,6 +269,7 @@ fn default_internal_error_sink_path() -> PathBuf {
         .join("internal-errors.jsonl")
 }
 
+#[cfg(test)]
 fn emit_correlated_internal_error_to_path(
     path: &Path,
     component: &str,
@@ -205,13 +277,21 @@ fn emit_correlated_internal_error_to_path(
     correlation_id: Uuid,
     raw_error: &str,
 ) -> Result<(), ObservabilityError> {
-    let parent = path.parent().ok_or_else(|| {
-        ObservabilityError::SinkIo(format!("missing parent directory for {}", path.display()))
-    })?;
-    std::fs::create_dir_all(parent).map_err(|err| {
-        ObservabilityError::SinkIo(format!("create_dir_all {}: {err}", parent.display()))
-    })?;
+    let line = build_correlated_internal_error_jsonl_line(
+        component,
+        error_code,
+        correlation_id,
+        raw_error,
+    )?;
+    append_jsonl_line(path, &line)
+}
 
+fn build_correlated_internal_error_jsonl_line(
+    component: &str,
+    error_code: &str,
+    correlation_id: Uuid,
+    raw_error: &str,
+) -> Result<String, ObservabilityError> {
     let record = CorrelatedInternalErrorRecord {
         timestamp_utc: Utc::now().to_rfc3339(),
         component,
@@ -219,9 +299,16 @@ fn emit_correlated_internal_error_to_path(
         correlation_id: correlation_id.to_string(),
         message: sanitize_error_for_log(raw_error),
     };
-    let line = serde_json::to_string(&record)
-        .map_err(|err| ObservabilityError::SinkSerialize(err.to_string()))?;
+    serde_json::to_string(&record).map_err(|err| ObservabilityError::SinkSerialize(err.to_string()))
+}
 
+fn append_jsonl_line(path: &Path, line: &str) -> Result<(), ObservabilityError> {
+    let parent = path.parent().ok_or_else(|| {
+        ObservabilityError::SinkIo(format!("missing parent directory for {}", path.display()))
+    })?;
+    std::fs::create_dir_all(parent).map_err(|err| {
+        ObservabilityError::SinkIo(format!("create_dir_all {}: {err}", parent.display()))
+    })?;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -242,7 +329,13 @@ struct CorrelatedInternalErrorRecord<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{emit_correlated_internal_error_to_path, sanitize_error_for_log};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::{
+        CorrelatedErrorSink, ObservabilityError, emit_correlated_internal_error_to_path,
+        sanitize_error_for_log,
+    };
     use uuid::Uuid;
 
     #[test]
@@ -292,6 +385,46 @@ mod tests {
         assert!(!message.contains("alice:secret"));
         assert!(!message.contains("abc123"));
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn correlated_error_sink_times_out_on_slow_worker() {
+        let sink = CorrelatedErrorSink::with_capacity(
+            1,
+            Duration::from_millis(5),
+            Duration::from_millis(50),
+        );
+        let path =
+            std::env::temp_dir().join(format!("tanren-observability-{}.jsonl", Uuid::now_v7()));
+        let err = sink
+            .emit(&path, "{\"k\":\"v\"}".to_owned())
+            .expect_err("slow sink must time out");
+        assert!(matches!(err, ObservabilityError::SinkIo(msg) if msg.contains("timed out")));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn correlated_error_sink_rejects_when_queue_saturated() {
+        let sink = Arc::new(CorrelatedErrorSink::with_capacity(
+            0,
+            Duration::from_secs(1),
+            Duration::from_millis(200),
+        ));
+        let path =
+            std::env::temp_dir().join(format!("tanren-observability-{}.jsonl", Uuid::now_v7()));
+        let first_sink = Arc::clone(&sink);
+        let first_path = path.clone();
+        let first =
+            std::thread::spawn(move || first_sink.emit(&first_path, "{\"first\":1}".to_owned()));
+
+        std::thread::sleep(Duration::from_millis(20));
+
+        let err = sink
+            .emit(&path, "{\"second\":2}".to_owned())
+            .expect_err("queue saturation must fail fast");
+        assert!(matches!(err, ObservabilityError::SinkIo(msg) if msg.contains("queue saturated")));
+        let _ = first.join();
         let _ = std::fs::remove_file(&path);
     }
 }

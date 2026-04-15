@@ -52,7 +52,7 @@ async fn setup() -> Orchestrator<Store> {
 async fn create_dispatch_returns_pending_view() {
     let orch = setup().await;
     let actor = sample_actor();
-    let cmd = sample_command(actor);
+    let cmd = sample_command(actor.clone());
     let view = orch.create_dispatch(cmd).await.expect("create");
 
     assert_eq!(view.status, DispatchStatus::Pending);
@@ -66,11 +66,11 @@ async fn create_dispatch_returns_pending_view() {
 async fn get_dispatch_after_create() {
     let orch = setup().await;
     let actor = sample_actor();
-    let cmd = sample_command(actor);
+    let cmd = sample_command(actor.clone());
     let created = orch.create_dispatch(cmd).await.expect("create");
 
     let fetched = orch
-        .get_dispatch(&created.dispatch_id)
+        .get_dispatch_for_actor(&created.dispatch_id, &actor)
         .await
         .expect("get")
         .expect("should exist");
@@ -82,7 +82,10 @@ async fn get_dispatch_after_create() {
 #[tokio::test]
 async fn get_nonexistent_dispatch_returns_none() {
     let orch = setup().await;
-    let result = orch.get_dispatch(&DispatchId::new()).await.expect("get");
+    let result = orch
+        .get_dispatch_for_actor(&DispatchId::new(), &sample_actor())
+        .await
+        .expect("get");
     assert!(result.is_none());
 }
 
@@ -123,7 +126,7 @@ async fn list_dispatches_returns_created() {
     }
 
     let list = orch
-        .list_dispatches(DispatchFilter::new())
+        .list_dispatches_for_actor(DispatchFilter::new(), &actor)
         .await
         .expect("list");
     assert_eq!(list.dispatches.len(), 3);
@@ -134,6 +137,7 @@ async fn list_dispatches_returns_created() {
 async fn list_dispatches_with_project_filter() {
     let orch = setup().await;
     let actor = sample_actor();
+    let list_actor = actor.clone();
 
     let cmd = sample_command(actor.clone());
     orch.create_dispatch(cmd).await.expect("create");
@@ -144,7 +148,10 @@ async fn list_dispatches_with_project_filter() {
 
     let mut filter = DispatchFilter::new();
     filter.project = Some("test-project".to_owned());
-    let list = orch.list_dispatches(filter).await.expect("list");
+    let list = orch
+        .list_dispatches_for_actor(filter, &list_actor)
+        .await
+        .expect("list");
     assert_eq!(list.dispatches.len(), 1);
     assert_eq!(list.dispatches[0].dispatch.project.as_str(), "test-project");
 }
@@ -153,7 +160,7 @@ async fn list_dispatches_with_project_filter() {
 async fn list_empty_returns_empty_vec() {
     let orch = setup().await;
     let list = orch
-        .list_dispatches(DispatchFilter::new())
+        .list_dispatches_for_actor(DispatchFilter::new(), &sample_actor())
         .await
         .expect("list");
     assert!(list.dispatches.is_empty());
@@ -166,6 +173,7 @@ async fn list_empty_returns_empty_vec() {
 async fn cancel_dispatch_transitions_to_cancelled() {
     let orch = setup().await;
     let actor = sample_actor();
+    let read_actor = actor.clone();
     let cmd = sample_command(actor.clone());
     let created = orch.create_dispatch(cmd).await.expect("create");
 
@@ -177,7 +185,7 @@ async fn cancel_dispatch_transitions_to_cancelled() {
     orch.cancel_dispatch(cancel_cmd).await.expect("cancel");
 
     let view = orch
-        .get_dispatch(&created.dispatch_id)
+        .get_dispatch_for_actor(&created.dispatch_id, &read_actor)
         .await
         .expect("get")
         .expect("should exist");
@@ -330,8 +338,9 @@ async fn cancel_emits_dispatch_cancelled_not_failed() {
 #[tokio::test]
 async fn finalize_success_emits_dispatch_completed() {
     let orch = setup().await;
+    let actor = sample_actor();
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(actor.clone()))
         .await
         .expect("create");
     orch.start_dispatch(created.dispatch_id)
@@ -349,7 +358,7 @@ async fn finalize_success_emits_dispatch_completed() {
     .expect("finalize");
 
     let view = orch
-        .get_dispatch(&created.dispatch_id)
+        .get_dispatch_for_actor(&created.dispatch_id, &actor)
         .await
         .expect("get")
         .expect("exists");
@@ -385,8 +394,9 @@ async fn finalize_non_success_outcomes_emit_dispatch_failed() {
 
     for outcome in outcomes {
         let orch = setup().await;
+        let actor = sample_actor();
         let created = orch
-            .create_dispatch(sample_command(sample_actor()))
+            .create_dispatch(sample_command(actor.clone()))
             .await
             .expect("create");
         orch.start_dispatch(created.dispatch_id)
@@ -404,7 +414,7 @@ async fn finalize_non_success_outcomes_emit_dispatch_failed() {
         .expect("finalize");
 
         let view = orch
-            .get_dispatch(&created.dispatch_id)
+            .get_dispatch_for_actor(&created.dispatch_id, &actor)
             .await
             .expect("get")
             .expect("exists");

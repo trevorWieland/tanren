@@ -47,7 +47,9 @@ missing_debug_implementations = "warn"
 # must remain `pub` to satisfy its trait surface, even though the module
 # path is crate-internal (`pub(crate) mod entity` in `lib.rs`).
 unreachable_pub = "allow"
-unused_qualifications = "warn"
+# SeaORM derive expansions trigger false-positive `unused_qualifications`
+# spans on enum-backed entity fields.
+unused_qualifications = "allow"
 
 [lints.clippy]
 correctness = { level = "deny", priority = -1 }
