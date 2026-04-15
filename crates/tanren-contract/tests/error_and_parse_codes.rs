@@ -1,4 +1,6 @@
-use tanren_contract::{ContractError, ErrorCode, ErrorResponse, parse_project_env_entries};
+use tanren_contract::{
+    ContractError, ErrorCode, ErrorDetails, ErrorResponse, parse_project_env_entries,
+};
 use tanren_domain::PolicyReasonCode;
 
 #[test]
@@ -30,11 +32,12 @@ fn policy_denied_maps_to_canonical_wire_shape() {
     let resp = ErrorResponse::from(err);
     assert_eq!(resp.code, ErrorCode::PolicyDenied);
     assert_eq!(resp.message, "policy denied");
-    let details = resp.details.expect("details");
-    assert_eq!(details["reason_code"], "timeout_out_of_range");
-    let object = details.as_object().expect("object");
-    assert_eq!(object.len(), 1);
-    assert!(!object.contains_key("reason"));
+    assert_eq!(
+        resp.details,
+        Some(ErrorDetails::PolicyDenied {
+            reason_code: PolicyReasonCode::TimeoutOutOfRange,
+        })
+    );
 }
 
 #[test]

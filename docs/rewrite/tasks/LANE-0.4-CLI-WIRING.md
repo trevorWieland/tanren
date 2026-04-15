@@ -172,7 +172,13 @@ pub struct StepResponse { ... }
 pub struct ErrorResponse {
     pub code: ErrorCode,    // serde snake_case (invalid_transition, contention_conflict, ...)
     pub message: String,
-    pub details: Option<serde_json::Value>,
+    pub details: Option<ErrorDetails>,
+}
+
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ErrorDetails {
+    PolicyDenied { reason_code: PolicyReasonCode },
+    Internal { correlation_id: Uuid },
 }
 ```
 

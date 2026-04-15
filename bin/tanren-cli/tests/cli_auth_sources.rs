@@ -3,9 +3,7 @@
 mod support;
 
 use serde_json::Value;
-use support::auth::{add_auth_args_with_jwks_url, auth_harness, cli, migrate, temp_db};
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use support::auth::{auth_harness, cli, migrate, temp_db};
 
 #[test]
 fn actor_token_cli_arg_is_rejected() {
@@ -47,8 +45,8 @@ fn actor_token_can_be_read_from_stdin() {
         "--database-url",
         &db_url,
         "--actor-token-stdin",
-        "--actor-jwks-file",
-        auth.jwks_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
         "--token-issuer",
         &auth.issuer,
         "--token-audience",
@@ -72,8 +70,8 @@ fn actor_token_can_be_read_from_env() {
         .args([
             "--database-url",
             &db_url,
-            "--actor-jwks-file",
-            auth.jwks_file.to_str().expect("utf8 path"),
+            "--actor-public-key-file",
+            auth.actor_public_key_file.to_str().expect("utf8 path"),
             "--token-issuer",
             &auth.issuer,
             "--token-audience",
@@ -98,8 +96,8 @@ fn token_source_conflict_is_rejected() {
             "--actor-token-stdin",
             "--actor-token-file",
             auth.actor_token_file.to_str().expect("utf8 path"),
-            "--actor-jwks-file",
-            auth.jwks_file.to_str().expect("utf8 path"),
+            "--actor-public-key-file",
+            auth.actor_public_key_file.to_str().expect("utf8 path"),
             "--token-issuer",
             &auth.issuer,
             "--token-audience",
@@ -131,8 +129,8 @@ fn token_source_conflict_env_plus_file_is_rejected() {
             &db_url,
             "--actor-token-file",
             auth.actor_token_file.to_str().expect("utf8 path"),
-            "--actor-jwks-file",
-            auth.jwks_file.to_str().expect("utf8 path"),
+            "--actor-public-key-file",
+            auth.actor_public_key_file.to_str().expect("utf8 path"),
             "--token-issuer",
             &auth.issuer,
             "--token-audience",
@@ -163,8 +161,8 @@ fn empty_env_token_is_treated_as_absent_for_source_selection() {
             &db_url,
             "--actor-token-file",
             auth.actor_token_file.to_str().expect("utf8 path"),
-            "--actor-jwks-file",
-            auth.jwks_file.to_str().expect("utf8 path"),
+            "--actor-public-key-file",
+            auth.actor_public_key_file.to_str().expect("utf8 path"),
             "--token-issuer",
             &auth.issuer,
             "--token-audience",
@@ -191,8 +189,8 @@ fn token_source_conflict_env_plus_stdin_is_rejected() {
         "--database-url",
         &db_url,
         "--actor-token-stdin",
-        "--actor-jwks-file",
-        auth.jwks_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
         "--token-issuer",
         &auth.issuer,
         "--token-audience",
@@ -211,7 +209,7 @@ fn token_source_conflict_env_plus_stdin_is_rejected() {
 }
 
 #[test]
-fn jwks_source_conflict_file_and_url_is_rejected() {
+fn legacy_actor_jwks_file_flag_is_rejected() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
 
@@ -222,7 +220,40 @@ fn jwks_source_conflict_file_and_url_is_rejected() {
             "--actor-token-file",
             auth.actor_token_file.to_str().expect("utf8 path"),
             "--actor-jwks-file",
-            auth.jwks_file.to_str().expect("utf8 path"),
+            auth.actor_public_key_file.to_str().expect("utf8 path"),
+            "--token-issuer",
+            &auth.issuer,
+            "--token-audience",
+            &auth.audience,
+            "dispatch",
+            "list",
+        ])
+        .output()
+        .expect("execute");
+
+    assert!(!output.status.success(), "legacy jwks-file flag must fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "invalid_input");
+    assert!(
+        v["message"]
+            .as_str()
+            .expect("msg")
+            .contains("--actor-jwks-file")
+    );
+}
+
+#[test]
+fn legacy_actor_jwks_url_flag_is_rejected() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+
+    let output = cli()
+        .args([
+            "--database-url",
+            &db_url,
+            "--actor-token-file",
+            auth.actor_token_file.to_str().expect("utf8 path"),
             "--actor-jwks-url",
             "https://example.com/jwks.json",
             "--token-issuer",
@@ -235,34 +266,16 @@ fn jwks_source_conflict_file_and_url_is_rejected() {
         .output()
         .expect("execute");
 
-    assert!(!output.status.success(), "jwks source conflict must fail");
+    assert!(!output.status.success(), "legacy jwks-url flag must fail");
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v: Value = serde_json::from_str(&stderr).expect("json");
     assert_eq!(v["code"], "invalid_input");
-    assert!(v["message"].as_str().expect("msg").contains("JWKS source"));
-}
-
-#[tokio::test]
-async fn jwks_source_can_use_url() {
-    let (db_url, _dir) = temp_db();
-    let auth = auth_harness();
-    migrate(&db_url);
-
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/jwks.json"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(support::auth::jwks_json(&auth.kid)),
-        )
-        .mount(&server)
-        .await;
-
-    let mut cmd = cli();
-    cmd.args(["--database-url", &db_url, "dispatch", "list"]);
-    add_auth_args_with_jwks_url(&mut cmd, &auth, &format!("{}/jwks.json", server.uri()));
-
-    let output = cmd.output().expect("execute");
-    assert!(output.status.success(), "jwks url should authenticate");
+    assert!(
+        v["message"]
+            .as_str()
+            .expect("msg")
+            .contains("--actor-jwks-url")
+    );
 }
 
 #[test]

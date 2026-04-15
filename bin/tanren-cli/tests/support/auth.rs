@@ -12,16 +12,18 @@ const TEST_ED25519_PRIVATE_KEY_PEM: &str = "\
 MC4CAQAwBQYDK2VwBCIEIAPLmow/yTJDEVu9jxvrdcEK0yfRG0bAzr3hnOrtggLP
 -----END PRIVATE KEY-----
 ";
-const TEST_ED25519_PUBLIC_KEY_X: &str = "7jO4B-xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs";
-const DEFAULT_KID: &str = "kid-1";
+const TEST_ED25519_PUBLIC_KEY_PEM: &str = "\
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
+-----END PUBLIC KEY-----
+";
 
 #[derive(Debug)]
 pub(crate) struct AuthHarness {
     pub token: String,
     pub issuer: String,
     pub audience: String,
-    pub kid: String,
-    pub jwks_file: PathBuf,
+    pub actor_public_key_file: PathBuf,
     pub actor_token_file: PathBuf,
     _dir: tempfile::TempDir,
 }
@@ -125,22 +127,6 @@ pub(crate) fn sign_with_kid<T: Serialize>(claims: &T, kid: Option<&str>) -> Stri
     .expect("token")
 }
 
-pub(crate) fn jwks_json(kid: &str) -> String {
-    serde_json::json!({
-        "keys": [
-            {
-                "kty": "OKP",
-                "crv": "Ed25519",
-                "x": TEST_ED25519_PUBLIC_KEY_X,
-                "kid": kid,
-                "alg": "EdDSA",
-                "use": "sig"
-            }
-        ]
-    })
-    .to_string()
-}
-
 pub(crate) fn auth_harness() -> AuthHarness {
     auth_harness_with_claims(&base_claims())
 }
@@ -150,15 +136,11 @@ pub(crate) fn auth_harness_with_org(org_id: Uuid) -> AuthHarness {
 }
 
 pub(crate) fn auth_harness_with_claims(claims: &ActorClaims) -> AuthHarness {
-    auth_harness_with_claims_and_kid(claims, DEFAULT_KID)
-}
-
-pub(crate) fn auth_harness_with_claims_and_kid(claims: &ActorClaims, kid: &str) -> AuthHarness {
-    let token = sign_with_kid(claims, Some(kid));
+    let token = sign_with_kid(claims, Some("kid-1"));
 
     let dir = tempfile::tempdir().expect("temp dir");
-    let jwks_file = dir.path().join("actor-jwks.json");
-    std::fs::write(&jwks_file, jwks_json(kid)).expect("write jwks");
+    let actor_public_key_file = dir.path().join("actor-public-key.pem");
+    std::fs::write(&actor_public_key_file, TEST_ED25519_PUBLIC_KEY_PEM).expect("write public key");
     let actor_token_file = dir.path().join("actor-token.jwt");
     std::fs::write(&actor_token_file, &token).expect("write token");
 
@@ -166,8 +148,7 @@ pub(crate) fn auth_harness_with_claims_and_kid(claims: &ActorClaims, kid: &str) 
         token,
         issuer: claims.iss.clone(),
         audience: claims.aud.clone(),
-        kid: kid.to_owned(),
-        jwks_file,
+        actor_public_key_file,
         actor_token_file,
         _dir: dir,
     }
@@ -181,27 +162,14 @@ pub(crate) fn add_auth_args_with_ttl(cmd: &mut Command, auth: &AuthHarness, ttl_
     cmd.args([
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-jwks-file",
-        auth.jwks_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
         "--token-issuer",
         &auth.issuer,
         "--token-audience",
         &auth.audience,
         "--actor-token-max-ttl-secs",
         &ttl_secs.to_string(),
-    ]);
-}
-
-pub(crate) fn add_auth_args_with_jwks_url(cmd: &mut Command, auth: &AuthHarness, jwks_url: &str) {
-    cmd.args([
-        "--actor-token-file",
-        auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-jwks-url",
-        jwks_url,
-        "--token-issuer",
-        &auth.issuer,
-        "--token-audience",
-        &auth.audience,
     ]);
 }
 
@@ -225,13 +193,11 @@ pub(crate) fn assert_stderr_is_single_json(stderr: &str) -> Value {
 
 pub(crate) fn lint_anchor(auth: &AuthHarness) {
     let _ = &auth.token;
-    let _ = &auth.kid;
     let _ = migrate as fn(&str);
     let _ = base_claims_with_org as fn(Uuid) -> ActorClaims;
     let _ = claims_missing_jti as fn() -> ActorClaimsMissingJti;
     let _ = auth_harness_with_org as fn(Uuid) -> AuthHarness;
     let _ = add_auth_args as fn(&mut Command, &AuthHarness);
     let _ = add_auth_args_with_ttl as fn(&mut Command, &AuthHarness, u64);
-    let _ = add_auth_args_with_jwks_url as fn(&mut Command, &AuthHarness, &str);
     let _ = assert_stderr_is_single_json as fn(&str) -> Value;
 }

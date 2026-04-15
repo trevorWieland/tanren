@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use tanren_domain::{DomainError, EntityRef, PolicyReasonCode};
+use uuid::Uuid;
 
 /// Machine-readable wire error code shared by all transports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,9 +115,17 @@ pub struct ErrorResponse {
     pub code: ErrorCode,
     /// Human-readable error message.
     pub message: String,
-    /// Optional structured details.
+    /// Optional typed details.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
+    pub details: Option<ErrorDetails>,
+}
+
+/// Typed detail payload for wire errors.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ErrorDetails {
+    PolicyDenied { reason_code: PolicyReasonCode },
+    Internal { correlation_id: Uuid },
 }
 
 impl std::fmt::Display for ErrorResponse {
@@ -163,11 +172,7 @@ impl From<ContractError> for ErrorResponse {
             ContractError::PolicyDenied { reason_code } => Self {
                 code: ErrorCode::PolicyDenied,
                 message: "policy denied".to_owned(),
-                details: reason_code.map(|code| {
-                    serde_json::json!({
-                        "reason_code": code.to_string(),
-                    })
-                }),
+                details: reason_code.map(|reason_code| ErrorDetails::PolicyDenied { reason_code }),
             },
             ContractError::Internal { message } => Self {
                 code: ErrorCode::Internal,

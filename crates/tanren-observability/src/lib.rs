@@ -56,13 +56,60 @@ struct CorrelatedErrorSink {
     ack_timeout: Duration,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone)]
+struct SinkWorkerControl {
+    received: std::sync::Arc<std::sync::Barrier>,
+    release: std::sync::Arc<std::sync::Barrier>,
+}
+
+#[cfg(test)]
+impl SinkWorkerControl {
+    fn new() -> Self {
+        Self {
+            received: std::sync::Arc::new(std::sync::Barrier::new(2)),
+            release: std::sync::Arc::new(std::sync::Barrier::new(2)),
+        }
+    }
+}
+
 impl CorrelatedErrorSink {
     fn with_capacity(capacity: usize, ack_timeout: Duration, write_delay: Duration) -> Self {
+        Self::with_capacity_inner(
+            capacity,
+            ack_timeout,
+            write_delay,
+            #[cfg(test)]
+            None,
+        )
+    }
+
+    #[cfg(test)]
+    fn with_capacity_for_test(
+        capacity: usize,
+        ack_timeout: Duration,
+        write_delay: Duration,
+        control: SinkWorkerControl,
+    ) -> Self {
+        Self::with_capacity_inner(capacity, ack_timeout, write_delay, Some(control))
+    }
+
+    fn with_capacity_inner(
+        capacity: usize,
+        ack_timeout: Duration,
+        write_delay: Duration,
+        #[cfg(test)] control: Option<SinkWorkerControl>,
+    ) -> Self {
         let (tx, rx) = sync_channel::<SinkWriteRequest>(capacity);
         std::thread::Builder::new()
             .name("tanren-internal-error-sink".to_owned())
             .spawn(move || {
                 while let Ok(req) = rx.recv() {
+                    #[cfg(test)]
+                    if let Some(control) = &control {
+                        control.received.wait();
+                        control.release.wait();
+                    }
                     if !write_delay.is_zero() {
                         std::thread::sleep(write_delay);
                     }
@@ -333,8 +380,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        CorrelatedErrorSink, ObservabilityError, emit_correlated_internal_error_to_path,
-        sanitize_error_for_log,
+        CorrelatedErrorSink, ObservabilityError, SinkWorkerControl,
+        emit_correlated_internal_error_to_path, sanitize_error_for_log,
     };
     use uuid::Uuid;
 
@@ -406,10 +453,12 @@ mod tests {
 
     #[test]
     fn correlated_error_sink_rejects_when_queue_saturated() {
-        let sink = Arc::new(CorrelatedErrorSink::with_capacity(
+        let control = SinkWorkerControl::new();
+        let sink = Arc::new(CorrelatedErrorSink::with_capacity_for_test(
             0,
             Duration::from_secs(1),
-            Duration::from_millis(200),
+            Duration::ZERO,
+            control.clone(),
         ));
         let path =
             std::env::temp_dir().join(format!("tanren-observability-{}.jsonl", Uuid::now_v7()));
@@ -417,14 +466,18 @@ mod tests {
         let first_path = path.clone();
         let first =
             std::thread::spawn(move || first_sink.emit(&first_path, "{\"first\":1}".to_owned()));
-
-        std::thread::sleep(Duration::from_millis(20));
+        control.received.wait();
 
         let err = sink
             .emit(&path, "{\"second\":2}".to_owned())
             .expect_err("queue saturation must fail fast");
         assert!(matches!(err, ObservabilityError::SinkIo(msg) if msg.contains("queue saturated")));
-        let _ = first.join();
+        control.release.wait();
+        let first_result = first.join().expect("first sender thread should join");
+        assert!(
+            first_result.is_ok(),
+            "first sender should complete once worker is released"
+        );
         let _ = std::fs::remove_file(&path);
     }
 }

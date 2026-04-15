@@ -21,8 +21,8 @@ fn invalid_actor_token_error_is_generic_without_verification_details() {
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-jwks-file",
-        auth.jwks_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
         "--token-issuer",
         "wrong-issuer",
         "--token-audience",
@@ -59,8 +59,8 @@ fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
         "list",
         "--actor-token-file",
         missing_token_path.to_str().expect("utf8 path"),
-        "--actor-jwks-file",
-        auth.jwks_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
         "--token-issuer",
         "tanren-tests",
         "--token-audience",
@@ -80,11 +80,13 @@ fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
 }
 
 #[test]
-fn actor_jwks_file_read_failure_is_generic_without_path_or_io_details() {
+fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
-    let missing_jwks_path = auth.jwks_file.with_file_name("missing-actor-jwks.json");
-    let missing_jwks_text = missing_jwks_path.display().to_string();
+    let missing_path = auth
+        .actor_public_key_file
+        .with_file_name("missing-actor-public-key.pem");
+    let missing_text = missing_path.display().to_string();
     let mut cmd = support::auth::cli();
     cmd.args([
         "--database-url",
@@ -93,8 +95,8 @@ fn actor_jwks_file_read_failure_is_generic_without_path_or_io_details() {
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-jwks-file",
-        missing_jwks_path.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        missing_path.to_str().expect("utf8 path"),
         "--token-issuer",
         "tanren-tests",
         "--token-audience",
@@ -107,17 +109,18 @@ fn actor_jwks_file_read_failure_is_generic_without_path_or_io_details() {
     let v = assert_stderr_is_single_json(&stderr);
     assert_eq!(v["code"], "invalid_input");
     let message = v["message"].as_str().expect("message");
-    assert!(message.contains("invalid actor jwks"));
-    assert!(!message.contains(&missing_jwks_text));
+    assert!(message.contains("invalid actor public key"));
+    assert!(!message.contains(&missing_text));
     assert!(!message.contains("No such file"));
     assert!(!message.contains("os error"));
 }
 
 #[test]
-fn actor_jwks_parse_failure_is_generic_without_parser_details() {
+fn actor_public_key_parse_failure_is_generic_without_parser_details() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
-    std::fs::write(&auth.jwks_file, "not-a-valid-jwks").expect("write invalid jwks");
+    std::fs::write(&auth.actor_public_key_file, "not-a-valid-public-key")
+        .expect("write invalid key");
     let mut cmd = support::auth::cli();
     cmd.args([
         "--database-url",
@@ -126,8 +129,8 @@ fn actor_jwks_parse_failure_is_generic_without_parser_details() {
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
-        "--actor-jwks-file",
-        auth.jwks_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
         "--token-issuer",
         "tanren-tests",
         "--token-audience",
@@ -140,13 +143,13 @@ fn actor_jwks_parse_failure_is_generic_without_parser_details() {
     let v = assert_stderr_is_single_json(&stderr);
     assert_eq!(v["code"], "invalid_input");
     let message = v["message"].as_str().expect("message");
-    assert!(message.contains("invalid actor jwks"));
+    assert!(message.contains("invalid actor public key"));
     assert!(!message.contains("Ed25519"));
     assert!(!message.contains("base64"));
 }
 
 #[test]
-fn token_missing_kid_header_is_rejected() {
+fn token_without_kid_header_is_accepted_with_static_public_key() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
     let claims = support::auth::base_claims();
@@ -158,19 +161,17 @@ fn token_missing_kid_header_is_rejected() {
     add_auth_args(&mut cmd, &auth);
 
     let output = cmd.output().expect("execute");
-    assert!(!output.status.success(), "should fail");
-    let stderr = String::from_utf8(output.stderr).expect("utf8");
-    let v = assert_stderr_is_single_json(&stderr);
-    assert_eq!(v["code"], "invalid_input");
-    let message = v["message"].as_str().expect("message");
-    assert!(message.contains("token validation failed"));
+    assert!(
+        output.status.success(),
+        "missing kid should still authenticate"
+    );
 }
 
 #[test]
 fn token_missing_jti_claim_is_rejected() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
-    let token = sign_with_kid(&claims_missing_jti(), Some(&auth.kid));
+    let token = sign_with_kid(&claims_missing_jti(), Some("kid-1"));
     std::fs::write(&auth.actor_token_file, token).expect("write token");
 
     let mut cmd = support::auth::cli();

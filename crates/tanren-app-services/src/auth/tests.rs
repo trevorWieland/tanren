@@ -1,12 +1,10 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
-use jsonwebtoken::{EncodingKey, Header, encode};
+use chrono::Utc;
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::Serialize;
 use tokio::sync::Mutex;
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::*;
 
@@ -15,7 +13,11 @@ const TEST_ED25519_PRIVATE_KEY_PEM: &str = "\
 MC4CAQAwBQYDK2VwBCIEIAPLmow/yTJDEVu9jxvrdcEK0yfRG0bAzr3hnOrtggLP
 -----END PRIVATE KEY-----
 ";
-const TEST_ED25519_PUBLIC_KEY_X: &str = "7jO4B-xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs";
+const TEST_ED25519_PUBLIC_KEY_PEM: &str = "\
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
+-----END PUBLIC KEY-----
+";
 
 #[derive(Debug, Clone)]
 struct ReplayStoreMock {
@@ -94,25 +96,14 @@ struct MissingJtiClaims {
     user_id: Uuid,
 }
 
-fn jwks_json(kid: &str) -> String {
-    serde_json::json!({
-        "keys": [
-            {
-                "kty": "OKP",
-                "crv": "Ed25519",
-                "x": TEST_ED25519_PUBLIC_KEY_X,
-                "kid": kid,
-                "alg": "EdDSA",
-                "use": "sig"
-            }
-        ]
-    })
-    .to_string()
-}
-
-fn verifier(kid: &str, max_ttl_secs: u64) -> ActorTokenVerifier {
-    ActorTokenVerifier::from_jwks_json(&jwks_json(kid), "tanren-tests", "tanren-cli", max_ttl_secs)
-        .expect("verifier")
+fn verifier(max_ttl_secs: u64) -> ActorTokenVerifier {
+    ActorTokenVerifier::from_public_key_pem(
+        TEST_ED25519_PUBLIC_KEY_PEM,
+        "tanren-tests",
+        "tanren-cli",
+        max_ttl_secs,
+    )
+    .expect("verifier")
 }
 
 fn base_claims(now_unix: i64) -> TestClaims {
@@ -131,7 +122,7 @@ fn base_claims(now_unix: i64) -> TestClaims {
     }
 }
 
-fn sign_with_kid<T: Serialize>(claims: &T, kid: Option<&str>) -> String {
+fn sign<T: Serialize>(claims: &T, kid: Option<&str>) -> String {
     let mut header = Header::new(Algorithm::EdDSA);
     header.kid = kid.map(str::to_owned);
     encode(
@@ -146,9 +137,9 @@ fn sign_with_kid<T: Serialize>(claims: &T, kid: Option<&str>) -> String {
 async fn verify_accepts_valid_token_and_consumes_replay_key() {
     let now = Utc::now().timestamp();
     let claims = base_claims(now);
-    let token = sign_with_kid(&claims, Some("kid-1"));
+    let token = sign(&claims, Some("kid-1"));
 
-    let mut verifier = verifier("kid-1", 300);
+    let verifier = verifier(300);
     let replay_store = ReplayStoreMock::accepting();
 
     let context = verifier
@@ -165,24 +156,18 @@ async fn verify_accepts_valid_token_and_consumes_replay_key() {
 }
 
 #[tokio::test]
-async fn verify_rejects_missing_kid_header() {
+async fn verify_accepts_token_without_kid_header() {
     let now = Utc::now().timestamp();
     let claims = base_claims(now);
-    let token = sign_with_kid(&claims, None);
+    let token = sign(&claims, None);
 
-    let mut verifier = verifier("kid-1", 300);
+    let verifier = verifier(300);
     let replay_store = ReplayStoreMock::accepting();
 
-    let err = verifier
+    verifier
         .verify_and_consume(&token, &replay_store)
         .await
-        .expect_err("missing kid must fail");
-
-    assert!(matches!(
-        err,
-        ContractError::InvalidField { ref field, ref reason }
-        if field == "actor_token" && reason == "token validation failed"
-    ));
+        .expect("missing kid should still validate with static public key");
 }
 
 #[tokio::test]
@@ -197,9 +182,9 @@ async fn verify_rejects_missing_jti_claim() {
         org_id: Uuid::now_v7(),
         user_id: Uuid::now_v7(),
     };
-    let token = sign_with_kid(&claims, Some("kid-1"));
+    let token = sign(&claims, Some("kid-1"));
 
-    let mut verifier = verifier("kid-1", 300);
+    let verifier = verifier(300);
     let replay_store = ReplayStoreMock::accepting();
 
     let err = verifier
@@ -218,9 +203,9 @@ async fn verify_rejects_missing_jti_claim() {
 async fn verify_rejects_replayed_token() {
     let now = Utc::now().timestamp();
     let claims = base_claims(now);
-    let token = sign_with_kid(&claims, Some("kid-1"));
+    let token = sign(&claims, Some("kid-1"));
 
-    let mut verifier = verifier("kid-1", 300);
+    let verifier = verifier(300);
     let replay_store = ReplayStoreMock::rejecting_replay();
 
     let err = verifier
@@ -240,9 +225,9 @@ async fn verify_rejects_token_ttl_above_configured_max() {
     let now = Utc::now().timestamp();
     let mut claims = base_claims(now);
     claims.exp = claims.iat + 3_600;
-    let token = sign_with_kid(&claims, Some("kid-1"));
+    let token = sign(&claims, Some("kid-1"));
 
-    let mut verifier = verifier("kid-1", 300);
+    let verifier = verifier(300);
     let replay_store = ReplayStoreMock::accepting();
 
     let err = verifier
@@ -255,39 +240,4 @@ async fn verify_rejects_token_ttl_above_configured_max() {
         ContractError::InvalidField { ref field, ref reason }
         if field == "actor_token" && reason == "token validation failed"
     ));
-}
-
-#[tokio::test]
-async fn verifier_refreshes_remote_jwks_on_unknown_kid() {
-    let server = MockServer::start().await;
-    let path_name = "/.well-known/jwks.json";
-    let call_count = Arc::new(AtomicUsize::new(0));
-    let call_count_for_mock = Arc::clone(&call_count);
-    Mock::given(method("GET"))
-        .and(path(path_name))
-        .respond_with(move |_: &wiremock::Request| {
-            if call_count_for_mock.fetch_add(1, Ordering::SeqCst) == 0 {
-                ResponseTemplate::new(200).set_body_string(jwks_json("kid-old"))
-            } else {
-                ResponseTemplate::new(200).set_body_string(jwks_json("kid-new"))
-            }
-        })
-        .expect(2)
-        .mount(&server)
-        .await;
-
-    let url = format!("{}{path_name}", server.uri());
-    let mut verifier = ActorTokenVerifier::from_jwks_url(&url, "tanren-tests", "tanren-cli", 300)
-        .await
-        .expect("verifier");
-
-    let token = sign_with_kid(&base_claims(Utc::now().timestamp()), Some("kid-new"));
-    let replay_store = ReplayStoreMock::accepting();
-
-    let context = verifier
-        .verify_and_consume(&token, &replay_store)
-        .await
-        .expect("should refresh and validate");
-
-    assert!(context.actor().org_id.into_uuid() != Uuid::nil());
 }

@@ -17,7 +17,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
 use tanren_app_services::ActorTokenVerifier;
 use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS;
-use tanren_contract::{ContractError, ErrorCode, ErrorResponse};
+use tanren_contract::{ContractError, ErrorCode, ErrorDetails, ErrorResponse};
 use tanren_observability::{
     ObservabilityError, emit_correlated_internal_error, init_tracing_for_contract_io,
 };
@@ -46,13 +46,9 @@ struct Cli {
     #[arg(long, global = true)]
     actor_token_file: Option<PathBuf>,
 
-    /// Path to JWKS file for actor token verification.
+    /// Path to Ed25519 public key PEM for actor token verification.
     #[arg(long, global = true)]
-    actor_jwks_file: Option<PathBuf>,
-
-    /// URL to JWKS document for actor token verification.
-    #[arg(long, global = true)]
-    actor_jwks_url: Option<String>,
+    actor_public_key_file: Option<PathBuf>,
 
     /// Required JWT issuer claim.
     #[arg(long, global = true)]
@@ -143,8 +139,7 @@ async fn run() -> Result<()> {
         log_level: _,
         actor_token_stdin,
         actor_token_file,
-        actor_jwks_file,
-        actor_jwks_url,
+        actor_public_key_file,
         token_issuer,
         token_audience,
         actor_token_max_ttl_secs,
@@ -162,14 +157,12 @@ async fn run() -> Result<()> {
         }
         Commands::Dispatch(cmd) => {
             let token = resolve_actor_token(actor_token_stdin, actor_token_file.as_ref())?;
-            let mut verifier = resolve_actor_token_verifier(
-                actor_jwks_file.as_ref(),
-                actor_jwks_url.as_deref(),
+            let verifier = resolve_actor_token_verifier(
+                actor_public_key_file.as_ref(),
                 token_issuer.as_deref(),
                 token_audience.as_deref(),
                 actor_token_max_ttl_secs,
-            )
-            .await?;
+            )?;
             let store = if cmd.requires_write_store() {
                 tanren_app_services::compose::open_store_for_write(&database_url)
                     .await
@@ -199,9 +192,8 @@ async fn run() -> Result<()> {
     }
 }
 
-async fn resolve_actor_token_verifier(
-    actor_jwks_file: Option<&PathBuf>,
-    actor_jwks_url: Option<&str>,
+fn resolve_actor_token_verifier(
+    actor_public_key_file: Option<&PathBuf>,
     token_issuer: Option<&str>,
     token_audience: Option<&str>,
     actor_token_max_ttl_secs: u64,
@@ -227,19 +219,8 @@ async fn resolve_actor_token_verifier(
         )));
     }
 
-    let selected_source_count =
-        u8::from(actor_jwks_file.is_some()) + u8::from(actor_jwks_url.is_some());
-    if selected_source_count > 1 {
-        return Err(anyhow::Error::new(ErrorResponse::from(
-            ContractError::InvalidField {
-                field: "actor_jwks".to_owned(),
-                reason: "exactly one JWKS source is allowed; choose one of --actor-jwks-file or --actor-jwks-url".to_owned(),
-            },
-        )));
-    }
-
-    if let Some(path) = actor_jwks_file {
-        return ActorTokenVerifier::from_jwks_file(
+    if let Some(path) = actor_public_key_file {
+        return ActorTokenVerifier::from_public_key_file(
             path,
             issuer,
             audience,
@@ -248,16 +229,10 @@ async fn resolve_actor_token_verifier(
         .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)));
     }
 
-    if let Some(url) = actor_jwks_url {
-        return ActorTokenVerifier::from_jwks_url(url, issuer, audience, actor_token_max_ttl_secs)
-            .await
-            .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)));
-    }
-
     Err(anyhow::Error::new(ErrorResponse::from(
         ContractError::InvalidField {
-            field: "actor_jwks".to_owned(),
-            reason: "missing JWKS source (use --actor-jwks-file or --actor-jwks-url)".to_owned(),
+            field: "actor_public_key".to_owned(),
+            reason: "missing required --actor-public-key-file".to_owned(),
         },
     )))
 }
@@ -378,9 +353,7 @@ fn correlated_internal_error_response_with_emitter(
 ) -> ErrorResponse {
     let correlation_id = Uuid::now_v7();
     let details = if emitter(component, error_code, correlation_id, raw_error).is_ok() {
-        Some(serde_json::json!({
-            "correlation_id": correlation_id.to_string(),
-        }))
+        Some(ErrorDetails::Internal { correlation_id })
     } else {
         None
     };

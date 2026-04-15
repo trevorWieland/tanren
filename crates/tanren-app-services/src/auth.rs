@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use chrono::Utc;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
 use tanren_contract::ContractError;
 use tanren_domain::{ActorContext, ApiKeyId, OrgId, ProjectId, TeamId, UserId};
@@ -48,94 +48,80 @@ impl RequestContext {
     }
 }
 
-#[derive(Debug, Clone)]
-enum JwksSource {
-    Static,
-    RemoteUrl {
-        url: String,
-        client: reqwest::Client,
-    },
-}
-
 /// Verifies signed actor tokens and produces trusted request context.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ActorTokenVerifier {
-    jwks: JwkSet,
-    source: JwksSource,
+    decoding_key: DecodingKey,
     validation: Validation,
     max_token_ttl_secs: i64,
     iat_future_skew_secs: i64,
 }
 
+impl std::fmt::Debug for ActorTokenVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActorTokenVerifier")
+            .field("decoding_key", &"<redacted>")
+            .field("validation", &self.validation)
+            .field("max_token_ttl_secs", &self.max_token_ttl_secs)
+            .field("iat_future_skew_secs", &self.iat_future_skew_secs)
+            .finish()
+    }
+}
+
 impl ActorTokenVerifier {
-    /// Construct a verifier from an in-memory JWKS JSON document.
-    pub fn from_jwks_json(
-        jwks_json: &str,
+    /// Construct a verifier from an in-memory Ed25519 public key PEM document.
+    pub fn from_public_key_pem(
+        public_key_pem: &str,
         issuer: &str,
         audience: &str,
         max_token_ttl_secs: u64,
     ) -> Result<Self, ContractError> {
-        let jwks = parse_jwks_json(jwks_json)?;
+        let decoding_key = DecodingKey::from_ed_pem(public_key_pem.as_bytes()).map_err(|err| {
+            emit_auth_boundary_internal_error("invalid_actor_public_key", &err.to_string());
+            ContractError::InvalidField {
+                field: "actor_public_key".to_owned(),
+                reason: "invalid actor public key".to_owned(),
+            }
+        })?;
+
         Ok(Self {
-            jwks,
-            source: JwksSource::Static,
+            decoding_key,
             validation: build_validation(issuer, audience),
             max_token_ttl_secs: i64::try_from(max_token_ttl_secs).unwrap_or(i64::MAX),
             iat_future_skew_secs: DEFAULT_IAT_FUTURE_SKEW_SECS,
         })
     }
 
-    /// Construct a verifier from a local JWKS file.
-    pub fn from_jwks_file(
+    /// Construct a verifier from a local Ed25519 public key PEM file.
+    pub fn from_public_key_file(
         path: &Path,
         issuer: &str,
         audience: &str,
         max_token_ttl_secs: u64,
     ) -> Result<Self, ContractError> {
-        let jwks_json = std::fs::read_to_string(path).map_err(|err| {
-            emit_auth_boundary_internal_error("invalid_actor_jwks", &err.to_string());
+        let public_key_pem = std::fs::read_to_string(path).map_err(|err| {
+            emit_auth_boundary_internal_error("invalid_actor_public_key", &err.to_string());
             ContractError::InvalidField {
-                field: "actor_jwks".to_owned(),
-                reason: "invalid actor jwks".to_owned(),
+                field: "actor_public_key".to_owned(),
+                reason: "invalid actor public key".to_owned(),
             }
         })?;
-        Self::from_jwks_json(&jwks_json, issuer, audience, max_token_ttl_secs)
-    }
-
-    /// Construct a verifier from a remote JWKS URL.
-    pub async fn from_jwks_url(
-        url: &str,
-        issuer: &str,
-        audience: &str,
-        max_token_ttl_secs: u64,
-    ) -> Result<Self, ContractError> {
-        let client = reqwest::Client::new();
-        let jwks = fetch_jwks_from_url(&client, url).await?;
-        Ok(Self {
-            jwks,
-            source: JwksSource::RemoteUrl {
-                url: url.to_owned(),
-                client,
-            },
-            validation: build_validation(issuer, audience),
-            max_token_ttl_secs: i64::try_from(max_token_ttl_secs).unwrap_or(i64::MAX),
-            iat_future_skew_secs: DEFAULT_IAT_FUTURE_SKEW_SECS,
-        })
+        Self::from_public_key_pem(&public_key_pem, issuer, audience, max_token_ttl_secs)
     }
 
     /// Verify a signed actor token, enforce one-time replay consumption,
     /// and return trusted request context.
     pub async fn verify_and_consume<S>(
-        &mut self,
+        &self,
         token: &str,
         replay_store: &S,
     ) -> Result<RequestContext, ContractError>
     where
         S: TokenReplayStore,
     {
-        let (kid, decoding_key) = self.resolve_decoding_key(token).await?;
+        Self::validate_header(token)?;
 
-        let claims = decode::<ActorTokenClaims>(token, &decoding_key, &self.validation)
+        let claims = decode::<ActorTokenClaims>(token, &self.decoding_key, &self.validation)
             .map_err(|err| {
                 emit_auth_boundary_internal_error("invalid_actor_token", &err.to_string());
                 token_validation_error()
@@ -165,7 +151,7 @@ impl ActorTokenVerifier {
         if !consumed {
             emit_auth_boundary_internal_error(
                 "actor_token_replay_rejected",
-                &format!("kid={kid}; jti={}", claims.jti),
+                &format!("jti={}", claims.jti),
             );
             return Err(token_validation_error());
         }
@@ -188,6 +174,23 @@ impl ActorTokenVerifier {
             project_id: claims.project_id.map(ProjectId::from_uuid),
         };
         Ok(RequestContext::new(actor))
+    }
+
+    fn validate_header(token: &str) -> Result<(), ContractError> {
+        let header = decode_header(token).map_err(|err| {
+            emit_auth_boundary_internal_error("invalid_actor_token_header", &err.to_string());
+            token_validation_error()
+        })?;
+
+        if header.alg != Algorithm::EdDSA {
+            emit_auth_boundary_internal_error(
+                "invalid_actor_token_algorithm",
+                &format!("unexpected algorithm: {:?}", header.alg),
+            );
+            return Err(token_validation_error());
+        }
+
+        Ok(())
     }
 
     fn enforce_claim_sanity(&self, claims: &ActorTokenClaims) -> Result<(), ContractError> {
@@ -236,99 +239,6 @@ impl ActorTokenVerifier {
 
         Ok(())
     }
-
-    async fn resolve_decoding_key(
-        &mut self,
-        token: &str,
-    ) -> Result<(String, DecodingKey), ContractError> {
-        let header = decode_header(token).map_err(|err| {
-            emit_auth_boundary_internal_error("invalid_actor_token_header", &err.to_string());
-            token_validation_error()
-        })?;
-
-        if header.alg != Algorithm::EdDSA {
-            emit_auth_boundary_internal_error(
-                "invalid_actor_token_algorithm",
-                &format!("unexpected algorithm: {:?}", header.alg),
-            );
-            return Err(token_validation_error());
-        }
-
-        let Some(kid) = header.kid.filter(|kid| !kid.trim().is_empty()) else {
-            emit_auth_boundary_internal_error(
-                "missing_actor_token_kid",
-                "token header missing kid",
-            );
-            return Err(token_validation_error());
-        };
-
-        if self.jwks.find(&kid).is_none() {
-            self.refresh_jwks().await?;
-        }
-
-        let jwk = self.jwks.find(&kid).ok_or_else(|| {
-            emit_auth_boundary_internal_error("unknown_actor_token_kid", &kid);
-            token_validation_error()
-        })?;
-
-        let decoding_key = DecodingKey::from_jwk(jwk).map_err(|err| {
-            emit_auth_boundary_internal_error("invalid_actor_jwk", &err.to_string());
-            token_validation_error()
-        })?;
-
-        Ok((kid, decoding_key))
-    }
-
-    async fn refresh_jwks(&mut self) -> Result<(), ContractError> {
-        let JwksSource::RemoteUrl { url, client } = &self.source else {
-            return Ok(());
-        };
-
-        let refreshed = fetch_jwks_from_url(client, url).await.map_err(|err| {
-            emit_auth_boundary_internal_error("actor_jwks_refresh_failed", &err.to_string());
-            token_validation_error()
-        })?;
-        self.jwks = refreshed;
-        Ok(())
-    }
-}
-
-fn parse_jwks_json(jwks_json: &str) -> Result<JwkSet, ContractError> {
-    serde_json::from_str::<JwkSet>(jwks_json).map_err(|err| {
-        emit_auth_boundary_internal_error("invalid_actor_jwks", &err.to_string());
-        ContractError::InvalidField {
-            field: "actor_jwks".to_owned(),
-            reason: "invalid actor jwks".to_owned(),
-        }
-    })
-}
-
-async fn fetch_jwks_from_url(client: &reqwest::Client, url: &str) -> Result<JwkSet, ContractError> {
-    let response = client.get(url).send().await.map_err(|err| {
-        emit_auth_boundary_internal_error("invalid_actor_jwks", &err.to_string());
-        ContractError::InvalidField {
-            field: "actor_jwks".to_owned(),
-            reason: "invalid actor jwks".to_owned(),
-        }
-    })?;
-
-    let response = response.error_for_status().map_err(|err| {
-        emit_auth_boundary_internal_error("invalid_actor_jwks", &err.to_string());
-        ContractError::InvalidField {
-            field: "actor_jwks".to_owned(),
-            reason: "invalid actor jwks".to_owned(),
-        }
-    })?;
-
-    let body = response.text().await.map_err(|err| {
-        emit_auth_boundary_internal_error("invalid_actor_jwks", &err.to_string());
-        ContractError::InvalidField {
-            field: "actor_jwks".to_owned(),
-            reason: "invalid actor jwks".to_owned(),
-        }
-    })?;
-
-    parse_jwks_json(&body)
 }
 
 fn build_validation(issuer: &str, audience: &str) -> Validation {

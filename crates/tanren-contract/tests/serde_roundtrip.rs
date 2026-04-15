@@ -6,8 +6,8 @@ use chrono::Utc;
 use tanren_contract::{
     AuthMode, CancelDispatchRequest, Cli, ContractError, CreateDispatchRequest,
     DispatchCursorToken, DispatchListFilter, DispatchListResponse, DispatchMode, DispatchResponse,
-    DispatchStatus, ErrorCode, ErrorResponse, Lane, Outcome, Phase, StepReadyState, StepResponse,
-    StepStatus, StepType, cancel_dispatch_from_request, create_dispatch_from_request,
+    DispatchStatus, ErrorCode, ErrorDetails, ErrorResponse, Lane, Outcome, Phase, StepReadyState,
+    StepResponse, StepStatus, StepType, cancel_dispatch_from_request, create_dispatch_from_request,
 };
 use tanren_domain::{ActorContext, OrgId, UserId};
 use uuid::Uuid;
@@ -207,6 +207,20 @@ fn error_response_roundtrip() {
         code: ErrorCode::NotFound,
         message: "dispatch not found".to_owned(),
         details: None,
+    };
+    let json = serde_json::to_string(&resp).expect("serialize");
+    let back: ErrorResponse = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(resp, back);
+}
+
+#[test]
+fn error_response_roundtrip_with_tagged_details() {
+    let resp = ErrorResponse {
+        code: ErrorCode::Internal,
+        message: "internal error".to_owned(),
+        details: Some(ErrorDetails::Internal {
+            correlation_id: Uuid::now_v7(),
+        }),
     };
     let json = serde_json::to_string(&resp).expect("serialize");
     let back: ErrorResponse = serde_json::from_str(&json).expect("deserialize");

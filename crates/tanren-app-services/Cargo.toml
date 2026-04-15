@@ -19,12 +19,9 @@ tanren-store = { path = "../tanren-store" }
 tanren-observability = { path = "../tanren-observability" }
 uuid.workspace = true
 chrono.workspace = true
-serde_json.workspace = true
 serde.workspace = true
 jsonwebtoken.workspace = true
-reqwest.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 async-trait.workspace = true
-wiremock.workspace = true

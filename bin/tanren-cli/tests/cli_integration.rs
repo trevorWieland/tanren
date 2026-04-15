@@ -44,6 +44,59 @@ fn create_dispatch(db_url: &str, auth: &support::auth::AuthHarness) -> String {
     String::from_utf8(output.stdout).expect("utf8")
 }
 
+fn get_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHarness) -> Value {
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        db_url,
+        "dispatch",
+        "get",
+        "--id",
+        dispatch_id,
+    ]);
+    add_auth_args(&mut cmd, auth);
+    let output = cmd.output().expect("execute");
+    assert!(
+        output.status.success(),
+        "get should succeed. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("json")
+}
+
+fn list_dispatches(db_url: &str, auth: &support::auth::AuthHarness) -> Value {
+    let mut cmd = cli();
+    cmd.args(["--database-url", db_url, "dispatch", "list"]);
+    add_auth_args(&mut cmd, auth);
+    let output = cmd.output().expect("execute");
+    assert!(
+        output.status.success(),
+        "list should succeed. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("json")
+}
+
+fn cancel_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHarness) -> Value {
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        db_url,
+        "dispatch",
+        "cancel",
+        "--id",
+        dispatch_id,
+    ]);
+    add_auth_args(&mut cmd, auth);
+    let output = cmd.output().expect("execute");
+    assert!(
+        output.status.success(),
+        "cancel should succeed. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("json")
+}
+
 #[test]
 fn create_outputs_valid_json_and_exits_0() {
     let (db_url, _dir) = temp_db();
@@ -144,4 +197,48 @@ fn cancel_unauthorized_dispatch_is_hidden_as_not_found() {
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v = assert_stderr_is_single_json(&stderr);
     assert_eq!(v["code"], "not_found");
+}
+
+#[test]
+fn sqlite_lifecycle_create_get_list_cancel_is_consistent() {
+    let (db_url, _dir) = temp_db();
+    let org_id = Uuid::now_v7();
+
+    let create_auth = auth_harness_with_org(org_id);
+    let created =
+        serde_json::from_str::<Value>(&create_dispatch(&db_url, &create_auth)).expect("json");
+    let dispatch_id = created["dispatch_id"]
+        .as_str()
+        .expect("dispatch_id")
+        .to_owned();
+    assert_eq!(created["status"], "pending");
+
+    let get_before_cancel = get_dispatch(&db_url, &dispatch_id, &auth_harness_with_org(org_id));
+    assert_eq!(get_before_cancel["dispatch_id"], dispatch_id);
+    assert_eq!(get_before_cancel["status"], "pending");
+
+    let list_before_cancel = list_dispatches(&db_url, &auth_harness_with_org(org_id));
+    let pending_entry = list_before_cancel["dispatches"]
+        .as_array()
+        .expect("dispatches array")
+        .iter()
+        .find(|entry| entry["dispatch_id"] == dispatch_id)
+        .expect("created dispatch should be listed before cancel");
+    assert_eq!(pending_entry["status"], "pending");
+
+    let cancel_result = cancel_dispatch(&db_url, &dispatch_id, &auth_harness_with_org(org_id));
+    assert_eq!(cancel_result["status"], "cancelled");
+
+    let get_after_cancel = get_dispatch(&db_url, &dispatch_id, &auth_harness_with_org(org_id));
+    assert_eq!(get_after_cancel["dispatch_id"], dispatch_id);
+    assert_eq!(get_after_cancel["status"], "cancelled");
+
+    let list_after_cancel = list_dispatches(&db_url, &auth_harness_with_org(org_id));
+    let cancelled_entry = list_after_cancel["dispatches"]
+        .as_array()
+        .expect("dispatches array")
+        .iter()
+        .find(|entry| entry["dispatch_id"] == dispatch_id)
+        .expect("created dispatch should be listed after cancel");
+    assert_eq!(cancelled_entry["status"], "cancelled");
 }

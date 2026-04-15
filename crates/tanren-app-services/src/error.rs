@@ -5,7 +5,7 @@
 //! mapping `OrchestratorError` (which wraps `StoreError` and
 //! `DomainError`) to `ContractError`.
 
-use tanren_contract::ContractError;
+use tanren_contract::{ContractError, ErrorDetails};
 use tanren_observability::{ObservabilityError, emit_correlated_internal_error};
 use tanren_orchestrator::OrchestratorError;
 use tanren_store::{StoreConflictClass, StoreError};
@@ -96,9 +96,7 @@ fn correlated_internal_error_response_with_emitter(
 ) -> tanren_contract::ErrorResponse {
     let correlation_id = Uuid::now_v7();
     let details = if emitter(component, error_code, correlation_id, raw_error).is_ok() {
-        Some(serde_json::json!({
-            "correlation_id": correlation_id.to_string(),
-        }))
+        Some(ErrorDetails::Internal { correlation_id })
     } else {
         None
     };
@@ -160,11 +158,14 @@ mod tests {
         assert_eq!(mapped.code, tanren_contract::ErrorCode::Internal);
         assert_eq!(mapped.message, "internal error");
         let details = mapped.details.expect("details");
-        let correlation_id = details
-            .get("correlation_id")
-            .and_then(serde_json::Value::as_str)
-            .expect("correlation_id");
-        assert!(uuid::Uuid::parse_str(correlation_id).is_ok());
+        assert!(
+            matches!(
+                details,
+                tanren_contract::ErrorDetails::Internal { correlation_id }
+                if correlation_id != uuid::Uuid::nil()
+            ),
+            "expected typed internal details, got: {details:?}"
+        );
     }
 
     #[test]
@@ -246,13 +247,12 @@ mod tests {
         assert_eq!(mapped.code, tanren_contract::ErrorCode::PolicyDenied);
         assert_eq!(mapped.message, "policy denied");
         let details = mapped.details.expect("details");
-        assert_eq!(details["reason_code"], "timeout_out_of_range");
-        let object = details.as_object().expect("object");
-        assert_eq!(object.len(), 1, "only reason_code should be present");
-        assert!(!object.contains_key("reason"));
-        assert!(!object.contains_key("reason_message"));
-        assert!(!object.contains_key("decision_kind"));
-        assert!(!object.contains_key("resource"));
+        assert_eq!(
+            details,
+            tanren_contract::ErrorDetails::PolicyDenied {
+                reason_code: PolicyReasonCode::TimeoutOutOfRange,
+            }
+        );
     }
 
     #[test]
