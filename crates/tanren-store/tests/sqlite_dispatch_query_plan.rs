@@ -1,3 +1,5 @@
+#![cfg(feature = "test-hooks")]
+
 //! Query-plan regression tests for scoped `SQLite` dispatch reads.
 
 use chrono::{Duration, Utc};

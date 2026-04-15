@@ -309,6 +309,22 @@ check-deps:
         echo "FAIL: crates/tanren-store/src/entity/mod.rs exposes row-shape modules publicly"
         failed=1
     fi
+    if ! awk '
+        prev_cfg && /^[[:space:]]*pub use state_store::dispatch_query_statement_for_backend;/ {ok=1}
+        { prev_cfg = ($0 ~ /^[[:space:]]*#\[cfg\(feature = "test-hooks"\)\][[:space:]]*$/) }
+        END { exit ok ? 0 : 1 }
+    ' crates/tanren-store/src/lib.rs; then
+        echo "FAIL: dispatch_query_statement_for_backend re-export must be gated by #[cfg(feature = \"test-hooks\")]"
+        failed=1
+    fi
+    if ! awk '
+        prev_cfg && /^[[:space:]]*pub fn dispatch_query_statement_for_backend\(/ {ok=1}
+        { prev_cfg = ($0 ~ /^[[:space:]]*#\[cfg\(feature = "test-hooks"\)\][[:space:]]*$/) }
+        END { exit ok ? 0 : 1 }
+    ' crates/tanren-store/src/state_store.rs; then
+        echo "FAIL: dispatch_query_statement_for_backend function must be gated by #[cfg(feature = \"test-hooks\")]"
+        failed=1
+    fi
 
     if [[ "$failed" -eq 1 ]]; then
         echo "Dependency/boundary rule violations detected."

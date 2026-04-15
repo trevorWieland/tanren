@@ -5,7 +5,7 @@
 //! error returned to transport interfaces.
 
 use serde::{Deserialize, Serialize};
-use tanren_domain::{DomainError, PolicyReasonCode};
+use tanren_domain::{DomainError, EntityRef, PolicyReasonCode};
 
 /// Machine-readable wire error code shared by all transports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,7 +183,7 @@ impl From<DomainError> for ContractError {
         match &err {
             DomainError::NotFound { entity } => Self::NotFound {
                 entity: entity.kind().to_string(),
-                id: entity.to_string(),
+                id: entity_ref_id(entity),
             },
             DomainError::InvalidValue { field, reason } => Self::InvalidField {
                 field: field.clone(),
@@ -208,5 +208,37 @@ impl From<DomainError> for ContractError {
                 reason: reason.clone(),
             },
         }
+    }
+}
+
+fn entity_ref_id(entity: &EntityRef) -> String {
+    match entity {
+        EntityRef::Dispatch(id) => id.to_string(),
+        EntityRef::Step(id) => id.to_string(),
+        EntityRef::Lease(id) => id.to_string(),
+        EntityRef::User(id) => id.to_string(),
+        EntityRef::Org(id) => id.to_string(),
+        EntityRef::Team(id) => id.to_string(),
+        EntityRef::Project(id) => id.to_string(),
+        EntityRef::ApiKey(id) => id.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ContractError, ErrorCode, ErrorResponse};
+    use tanren_domain::{DispatchId, DomainError, EntityRef};
+
+    #[test]
+    fn domain_not_found_uses_raw_entity_id_in_wire_message() {
+        let id = DispatchId::new();
+        let contract = ContractError::from(DomainError::NotFound {
+            entity: EntityRef::Dispatch(id),
+        });
+        let wire = ErrorResponse::from(contract);
+
+        assert_eq!(wire.code, ErrorCode::NotFound);
+        assert_eq!(wire.message, format!("dispatch not found: {id}"));
+        assert!(!wire.message.contains("dispatch dispatch"));
     }
 }

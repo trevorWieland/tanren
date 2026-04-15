@@ -9,7 +9,6 @@
 
 mod commands;
 
-use std::io::Read as _;
 use std::io::Write as _;
 use std::path::PathBuf;
 
@@ -227,7 +226,9 @@ fn resolve_actor_token(
     actor_token_stdin: bool,
     actor_token_file: Option<&PathBuf>,
 ) -> Result<String, anyhow::Error> {
-    let env_token = std::env::var(ACTOR_TOKEN_ENV_VAR).ok();
+    let env_token = std::env::var(ACTOR_TOKEN_ENV_VAR)
+        .ok()
+        .filter(|token| !token.trim().is_empty());
     let selected_source_count = u8::from(actor_token_stdin)
         + u8::from(actor_token_file.is_some())
         + u8::from(env_token.is_some());
@@ -249,15 +250,7 @@ fn resolve_actor_token(
     }
 
     if let Some(path) = actor_token_file {
-        let token = std::fs::read_to_string(path).map_err(|err| {
-            anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
-                field: "actor_token".to_owned(),
-                reason: format!(
-                    "failed to read actor token file `{}`: {err}",
-                    path.display()
-                ),
-            }))
-        })?;
+        let token = read_actor_token_from_file(path)?;
         return normalize_actor_token(&token);
     }
 
@@ -275,15 +268,40 @@ fn resolve_actor_token(
     )))
 }
 
+fn read_actor_token_from_file(path: &PathBuf) -> Result<String, anyhow::Error> {
+    std::fs::read_to_string(path).map_err(|err| {
+        actor_token_source_error(
+            "invalid_actor_token_source",
+            &format!(
+                "failed to read actor token file `{}`: {err}",
+                path.display()
+            ),
+        )
+    })
+}
+
 fn read_actor_token_from_stdin() -> Result<String, anyhow::Error> {
+    let mut stdin = std::io::stdin();
+    read_actor_token_from_reader(&mut stdin)
+}
+
+fn read_actor_token_from_reader(reader: &mut dyn std::io::Read) -> Result<String, anyhow::Error> {
     let mut token = String::new();
-    std::io::stdin().read_to_string(&mut token).map_err(|err| {
-        anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
-            field: "actor_token".to_owned(),
-            reason: format!("failed to read actor token from stdin: {err}"),
-        }))
+    reader.read_to_string(&mut token).map_err(|err| {
+        actor_token_source_error(
+            "invalid_actor_token_source",
+            &format!("failed to read actor token from stdin: {err}"),
+        )
     })?;
     Ok(token)
+}
+
+fn actor_token_source_error(error_code: &str, raw_error: &str) -> anyhow::Error {
+    let _ = emit_correlated_internal_error("tanren_cli", error_code, Uuid::now_v7(), raw_error);
+    anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
+        field: "actor_token".to_owned(),
+        reason: "invalid actor token source".to_owned(),
+    }))
 }
 
 fn normalize_actor_token(token: &str) -> Result<String, anyhow::Error> {
@@ -345,4 +363,36 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
     let json = serde_json::to_string_pretty(value)?;
     writeln!(std::io::stdout(), "{json}")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read};
+
+    use tanren_contract::ErrorCode;
+
+    use super::{into_error_response, read_actor_token_from_reader};
+
+    struct FailingReader;
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(IoError::new(
+                IoErrorKind::PermissionDenied,
+                "redacted-test-io-detail",
+            ))
+        }
+    }
+
+    #[test]
+    fn actor_token_stdin_failure_is_generic_and_redacted() {
+        let mut reader = FailingReader;
+        let err = read_actor_token_from_reader(&mut reader).expect_err("read should fail");
+        let response = into_error_response(err);
+        assert_eq!(response.code, ErrorCode::InvalidInput);
+        assert!(response.message.contains("invalid actor token source"));
+        assert!(!response.message.contains("stdin"));
+        assert!(!response.message.contains("PermissionDenied"));
+        assert!(!response.message.contains("redacted-test-io-detail"));
+    }
 }

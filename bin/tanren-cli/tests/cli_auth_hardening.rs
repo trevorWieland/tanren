@@ -133,6 +133,42 @@ fn invalid_actor_token_error_is_generic_without_verification_details() {
 }
 
 #[test]
+fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    let missing_token_path = auth
+        .actor_token_file
+        .with_file_name("missing-actor-token.jwt");
+    let missing_token_text = missing_token_path.display().to_string();
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "list",
+        "--actor-token-file",
+        missing_token_path.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.public_key_file.to_str().expect("utf8 path"),
+        "--token-issuer",
+        "tanren-tests",
+        "--token-audience",
+        &auth.audience,
+    ]);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+    let message = v["message"].as_str().expect("message");
+    assert!(message.contains("invalid actor token source"));
+    assert!(!message.contains(&missing_token_text));
+    assert!(!message.contains("No such file"));
+    assert!(!message.contains("os error"));
+}
+
+#[test]
 fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();

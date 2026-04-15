@@ -46,5 +46,6 @@ pub use params::{
     MAX_DISPATCH_QUERY_LIMIT, NackParams, QueuedStep, UpdateDispatchStatusParams,
 };
 pub use state_store::StateStore;
+#[cfg(feature = "test-hooks")]
 pub use state_store::dispatch_query_statement_for_backend;
 pub use store::Store;

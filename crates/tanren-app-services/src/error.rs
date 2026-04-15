@@ -204,6 +204,12 @@ mod tests {
         });
         let mapped = map_orchestrator_error(err);
         assert_eq!(mapped.code, tanren_contract::ErrorCode::NotFound);
+        assert!(
+            mapped.message.starts_with("dispatch not found: "),
+            "expected canonical not_found message: {}",
+            mapped.message
+        );
+        assert!(!mapped.message.contains("dispatch dispatch"));
         assert!(mapped.details.is_none());
     }
 

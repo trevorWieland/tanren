@@ -239,6 +239,37 @@ fn token_source_conflict_env_plus_file_is_rejected() {
 }
 
 #[test]
+fn empty_env_token_is_treated_as_absent_for_source_selection() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    migrate(&db_url);
+
+    let output = cli()
+        .env("TANREN_ACTOR_TOKEN", "   ")
+        .args([
+            "--database-url",
+            &db_url,
+            "--actor-token-file",
+            auth.actor_token_file.to_str().expect("utf8 path"),
+            "--actor-public-key-file",
+            auth.public_key_file.to_str().expect("utf8 path"),
+            "--token-issuer",
+            &auth.issuer,
+            "--token-audience",
+            &auth.audience,
+            "dispatch",
+            "list",
+        ])
+        .output()
+        .expect("execute");
+
+    assert!(
+        output.status.success(),
+        "empty env token should not create a multi-source conflict"
+    );
+}
+
+#[test]
 fn token_source_conflict_env_plus_stdin_is_rejected() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();

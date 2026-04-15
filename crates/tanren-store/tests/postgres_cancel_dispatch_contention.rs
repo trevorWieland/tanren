@@ -1,4 +1,4 @@
-#![cfg(feature = "postgres-integration")]
+#![cfg(all(feature = "test-hooks", feature = "postgres-integration"))]
 
 use std::sync::Arc;
 

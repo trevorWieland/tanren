@@ -8,11 +8,12 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sea_orm::DbBackend;
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    QueryTrait, Select, Statement, TransactionTrait, sea_query::Expr,
+    Select, TransactionTrait, sea_query::Expr,
 };
+#[cfg(feature = "test-hooks")]
+use sea_orm::{DbBackend, QueryTrait, Statement};
 use tanren_domain::{
     DispatchId, DispatchReadScope, DispatchView, EntityKind, Lane, StepId, StepStatus, StepView,
 };
@@ -315,6 +316,7 @@ fn build_dispatch_query(filter: &DispatchFilter, page_size: u64) -> DispatchProj
 /// Exposed behind `test-hooks` so integration tests can run backend-native
 /// `EXPLAIN` on the same predicate and ordering plan that `query_dispatches`
 /// executes.
+#[cfg(feature = "test-hooks")]
 pub fn dispatch_query_statement_for_backend(
     filter: &DispatchFilter,
     page_size: u64,
