@@ -3,15 +3,17 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use sea_orm::ConnectionTrait;
+use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
 use tanren_domain::{
-    ActorContext, AuthMode, Cli, ConfigKeys, DispatchId, DispatchMode, DispatchSnapshot,
-    DispatchStatus, DomainEvent, EventEnvelope, EventId, GraphRevision, Lane, NonEmptyString,
-    OrgId, Phase, StepId, StepPayload, StepReadyState, StepType, TimeoutSecs, UserId,
+    ActorContext, AuthMode, Cli, ConfigKeys, DispatchId, DispatchMode, DispatchReadScope,
+    DispatchSnapshot, DispatchStatus, DomainEvent, EventEnvelope, EventId, GraphRevision, Lane,
+    NonEmptyString, OrgId, Phase, StepId, StepPayload, StepReadyState, StepType, TimeoutSecs,
+    UserId,
 };
 use tanren_store::{
-    CancelDispatchParams, CreateDispatchParams, EnqueueStepParams, JobQueue, StateStore, Store,
-    StoreConflictClass, StoreError, UpdateDispatchStatusParams,
+    CancelDispatchParams, CreateDispatchParams, DispatchFilter, EnqueueStepParams, JobQueue,
+    StateStore, Store, StoreConflictClass, StoreError, UpdateDispatchStatusParams,
+    dispatch_query_statement_for_backend,
 };
 use testcontainers::ContainerAsync;
 use testcontainers::runners::AsyncRunner;
@@ -21,6 +23,7 @@ use uuid::Uuid;
 struct Fixture {
     _container: Option<ContainerAsync<PostgresImage>>,
     store: Store,
+    url: String,
 }
 
 async fn postgres_fixture() -> Fixture {
@@ -30,6 +33,7 @@ async fn postgres_fixture() -> Fixture {
         Fixture {
             _container: None,
             store,
+            url,
         }
     } else {
         let container = PostgresImage::default()
@@ -43,6 +47,7 @@ async fn postgres_fixture() -> Fixture {
         Fixture {
             _container: Some(container),
             store,
+            url,
         }
     }
 }
@@ -54,8 +59,6 @@ async fn migrate_fresh(url: &str) -> Store {
 }
 
 async fn reset_schema(url: &str) {
-    use sea_orm::Database;
-
     let conn = Database::connect(url).await.expect("bootstrap connect");
     conn.execute_unprepared("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
         .await
@@ -248,5 +251,119 @@ async fn cancel_dispatch_concurrent_calls_do_not_leak_database_errors_postgres()
             )
         }),
         "losing call should be typed contention/invalid-transition: {outcomes:?}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scoped_dispatch_query_plan_uses_scope_indexes_postgres() {
+    let fixture = postgres_fixture().await;
+    let store = &fixture.store;
+    let org = OrgId::new();
+    let project = tanren_domain::ProjectId::new();
+    let team = tanren_domain::TeamId::new();
+    let api_key = tanren_domain::ApiKeyId::new();
+
+    for index in 0..160 {
+        let actor_ctx = match index % 6 {
+            0 => ActorContext {
+                org_id: org,
+                user_id: UserId::new(),
+                team_id: None,
+                api_key_id: None,
+                project_id: None,
+            },
+            1 => ActorContext {
+                org_id: org,
+                user_id: UserId::new(),
+                team_id: None,
+                api_key_id: None,
+                project_id: Some(project),
+            },
+            2 => ActorContext {
+                org_id: org,
+                user_id: UserId::new(),
+                team_id: Some(team),
+                api_key_id: None,
+                project_id: Some(project),
+            },
+            3 => ActorContext {
+                org_id: org,
+                user_id: UserId::new(),
+                team_id: None,
+                api_key_id: Some(api_key),
+                project_id: Some(project),
+            },
+            4 => ActorContext {
+                org_id: org,
+                user_id: UserId::new(),
+                team_id: Some(team),
+                api_key_id: Some(api_key),
+                project_id: Some(project),
+            },
+            _ => ActorContext {
+                org_id: OrgId::new(),
+                user_id: UserId::new(),
+                team_id: Some(team),
+                api_key_id: Some(api_key),
+                project_id: Some(project),
+            },
+        };
+        create_dispatch(store, "scope-plan", actor_ctx, Lane::Impl)
+            .await
+            .expect("create dispatch");
+    }
+
+    let filter = DispatchFilter {
+        read_scope: Some(DispatchReadScope {
+            org_id: org,
+            project_id: None,
+            team_id: None,
+            api_key_id: None,
+        }),
+        limit: 32,
+        ..DispatchFilter::new()
+    };
+    let stmt = dispatch_query_statement_for_backend(&filter, filter.limit, DbBackend::Postgres);
+
+    let conn = Database::connect(&fixture.url)
+        .await
+        .expect("explain connection");
+    conn.execute_unprepared("SET enable_seqscan = off")
+        .await
+        .expect("disable seqscan");
+    conn.execute_unprepared("SET enable_bitmapscan = off")
+        .await
+        .expect("disable bitmap scans");
+
+    let explain_sql = format!("EXPLAIN (COSTS FALSE) {}", stmt.sql);
+    let explain_stmt = match stmt.values {
+        Some(values) => Statement::from_sql_and_values(DbBackend::Postgres, explain_sql, values),
+        None => Statement::from_string(DbBackend::Postgres, explain_sql),
+    };
+    let rows = conn.query_all(explain_stmt).await.expect("explain plan");
+    let lines: Vec<String> = rows
+        .into_iter()
+        .map(|row| {
+            row.try_get("", "QUERY PLAN")
+                .or_else(|_| row.try_get("", "query_plan"))
+                .expect("query plan line")
+        })
+        .collect();
+    let lines_upper = lines
+        .iter()
+        .map(|line| line.to_ascii_uppercase())
+        .collect::<Vec<_>>();
+
+    assert!(
+        lines_upper.iter().any(|line| {
+            line.contains("INDEX")
+                && (line.contains("IX_DISPATCH_SCOPE_ORG_PROJECT_CREATED_DISPATCH")
+                    || line.contains("IX_DISPATCH_SCOPE_TUPLE_CREATED_DISPATCH"))
+        }),
+        "expected scoped index in postgres plan: {lines:?}"
+    );
+    assert!(
+        lines_upper.iter().all(|line| !line.contains("SEQ SCAN")),
+        "expected no sequential scan for scoped query: {lines:?}"
     );
 }

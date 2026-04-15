@@ -15,6 +15,7 @@ mod m_0004_dispatch_cursor_indexes;
 mod m_0005_cancel_dispatch_indexes;
 mod m_0006_dispatch_read_scope;
 mod m_0007_dispatch_scope_tuple_index;
+mod m_0008_dispatch_scope_common_tuple_indexes;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
@@ -24,7 +25,8 @@ pub(crate) struct Migrator;
 
 impl Migrator {
     /// Name of the latest expected schema migration.
-    pub(crate) const LATEST_MIGRATION_NAME: &'static str = "m_0007_dispatch_scope_tuple_index";
+    pub(crate) const LATEST_MIGRATION_NAME: &'static str =
+        "m_0008_dispatch_scope_common_tuple_indexes";
 }
 
 #[async_trait::async_trait]
@@ -38,6 +40,7 @@ impl MigratorTrait for Migrator {
             Box::new(m_0005_cancel_dispatch_indexes::Migration),
             Box::new(m_0006_dispatch_read_scope::Migration),
             Box::new(m_0007_dispatch_scope_tuple_index::Migration),
+            Box::new(m_0008_dispatch_scope_common_tuple_indexes::Migration),
         ]
     }
 }

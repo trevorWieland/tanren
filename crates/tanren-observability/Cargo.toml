@@ -13,5 +13,9 @@ workspace = true
 [dependencies]
 tracing-subscriber.workspace = true
 thiserror.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]

@@ -143,7 +143,7 @@ fn cancel_allowed_when_scope_matches_dispatch() {
         reason: Some("requested".to_owned()),
     };
     let decision = engine
-        .check_cancel_allowed(&cmd, &dispatch_actor)
+        .check_cancel_allowed(&cmd, Some(&dispatch_actor))
         .expect("policy should not error");
     assert_eq!(decision.outcome, PolicyOutcome::Allowed);
     assert_eq!(decision.reason_code, None);
@@ -159,7 +159,7 @@ fn cancel_denied_when_org_mismatches() {
         reason: None,
     };
     let decision = engine
-        .check_cancel_allowed(&cmd, &dispatch_actor)
+        .check_cancel_allowed(&cmd, Some(&dispatch_actor))
         .expect("policy should not error");
     assert_eq!(decision.outcome, PolicyOutcome::Denied);
     assert_eq!(
@@ -190,7 +190,7 @@ fn cancel_denied_when_project_scope_mismatches() {
         reason: None,
     };
     let decision = engine
-        .check_cancel_allowed(&cmd, &dispatch_actor)
+        .check_cancel_allowed(&cmd, Some(&dispatch_actor))
         .expect("policy should not error");
     assert_eq!(decision.outcome, PolicyOutcome::Denied);
     assert_eq!(
@@ -221,7 +221,7 @@ fn cancel_denied_when_team_scope_mismatches() {
         reason: None,
     };
     let decision = engine
-        .check_cancel_allowed(&cmd, &dispatch_actor)
+        .check_cancel_allowed(&cmd, Some(&dispatch_actor))
         .expect("policy should not error");
     assert_eq!(decision.outcome, PolicyOutcome::Denied);
     assert_eq!(
@@ -252,7 +252,7 @@ fn cancel_denied_when_api_key_scope_mismatches() {
         reason: None,
     };
     let decision = engine
-        .check_cancel_allowed(&cmd, &dispatch_actor)
+        .check_cancel_allowed(&cmd, Some(&dispatch_actor))
         .expect("policy should not error");
     assert_eq!(decision.outcome, PolicyOutcome::Denied);
     assert_eq!(
@@ -262,126 +262,36 @@ fn cancel_denied_when_api_key_scope_mismatches() {
 }
 
 #[test]
-fn read_allowed_when_scope_matches_dispatch() {
+fn dispatch_read_scope_is_derived_directly_from_actor() {
     let engine = PolicyEngine::new();
-    let dispatch_id = DispatchId::new();
-    let dispatch_actor = ActorContext {
+    let actor = ActorContext {
         org_id: OrgId::new(),
         user_id: UserId::new(),
         team_id: Some(TeamId::new()),
         api_key_id: Some(ApiKeyId::new()),
         project_id: Some(ProjectId::new()),
     };
-    let caller = ActorContext {
-        org_id: dispatch_actor.org_id,
-        user_id: UserId::new(),
-        team_id: dispatch_actor.team_id,
-        api_key_id: dispatch_actor.api_key_id,
-        project_id: dispatch_actor.project_id,
-    };
-    let decision = engine
-        .check_dispatch_read_allowed(&caller, &dispatch_actor, dispatch_id)
-        .expect("policy should not error");
-    assert_eq!(decision.outcome, PolicyOutcome::Allowed);
-    assert_eq!(decision.reason_code, None);
+    let scope = engine.dispatch_read_scope(&actor);
+    assert_eq!(scope.org_id, actor.org_id);
+    assert_eq!(scope.project_id, actor.project_id);
+    assert_eq!(scope.team_id, actor.team_id);
+    assert_eq!(scope.api_key_id, actor.api_key_id);
 }
 
 #[test]
-fn read_denied_when_org_mismatches() {
+fn cancel_missing_dispatch_is_denied_with_not_found_reason_code() {
     let engine = PolicyEngine::new();
-    let dispatch_id = DispatchId::new();
-    let dispatch_actor = ActorContext::new(OrgId::new(), UserId::new());
-    let caller = ActorContext::new(OrgId::new(), UserId::new());
+    let cmd = CancelDispatch {
+        actor: ActorContext::new(OrgId::new(), UserId::new()),
+        dispatch_id: DispatchId::new(),
+        reason: None,
+    };
     let decision = engine
-        .check_dispatch_read_allowed(&caller, &dispatch_actor, dispatch_id)
+        .check_cancel_allowed(&cmd, None)
         .expect("policy should not error");
     assert_eq!(decision.outcome, PolicyOutcome::Denied);
     assert_eq!(
         decision.reason_code,
-        Some(PolicyReasonCode::ReadOrgMismatch)
-    );
-}
-
-#[test]
-fn read_denied_when_project_scope_mismatches() {
-    let engine = PolicyEngine::new();
-    let dispatch_id = DispatchId::new();
-    let dispatch_actor = ActorContext {
-        org_id: OrgId::new(),
-        user_id: UserId::new(),
-        team_id: None,
-        api_key_id: None,
-        project_id: Some(ProjectId::new()),
-    };
-    let caller = ActorContext {
-        org_id: dispatch_actor.org_id,
-        user_id: UserId::new(),
-        team_id: None,
-        api_key_id: None,
-        project_id: Some(ProjectId::new()),
-    };
-    let decision = engine
-        .check_dispatch_read_allowed(&caller, &dispatch_actor, dispatch_id)
-        .expect("policy should not error");
-    assert_eq!(decision.outcome, PolicyOutcome::Denied);
-    assert_eq!(
-        decision.reason_code,
-        Some(PolicyReasonCode::ReadProjectScopeMismatch)
-    );
-}
-
-#[test]
-fn read_denied_when_team_scope_mismatches() {
-    let engine = PolicyEngine::new();
-    let dispatch_id = DispatchId::new();
-    let dispatch_actor = ActorContext {
-        org_id: OrgId::new(),
-        user_id: UserId::new(),
-        team_id: Some(TeamId::new()),
-        api_key_id: None,
-        project_id: None,
-    };
-    let caller = ActorContext {
-        org_id: dispatch_actor.org_id,
-        user_id: UserId::new(),
-        team_id: Some(TeamId::new()),
-        api_key_id: None,
-        project_id: None,
-    };
-    let decision = engine
-        .check_dispatch_read_allowed(&caller, &dispatch_actor, dispatch_id)
-        .expect("policy should not error");
-    assert_eq!(decision.outcome, PolicyOutcome::Denied);
-    assert_eq!(
-        decision.reason_code,
-        Some(PolicyReasonCode::ReadTeamScopeMismatch)
-    );
-}
-
-#[test]
-fn read_denied_when_api_key_scope_mismatches() {
-    let engine = PolicyEngine::new();
-    let dispatch_id = DispatchId::new();
-    let dispatch_actor = ActorContext {
-        org_id: OrgId::new(),
-        user_id: UserId::new(),
-        team_id: None,
-        api_key_id: Some(ApiKeyId::new()),
-        project_id: None,
-    };
-    let caller = ActorContext {
-        org_id: dispatch_actor.org_id,
-        user_id: UserId::new(),
-        team_id: None,
-        api_key_id: Some(ApiKeyId::new()),
-        project_id: None,
-    };
-    let decision = engine
-        .check_dispatch_read_allowed(&caller, &dispatch_actor, dispatch_id)
-        .expect("policy should not error");
-    assert_eq!(decision.outcome, PolicyOutcome::Denied);
-    assert_eq!(
-        decision.reason_code,
-        Some(PolicyReasonCode::ReadApiKeyScopeMismatch)
+        Some(PolicyReasonCode::CancelDispatchNotFound)
     );
 }

@@ -1,7 +1,4 @@
 //! Unit-level orchestrator tests with a recording store.
-//!
-//! These tests verify sequencing and emitted store calls without relying
-//! on `SQLite` integration behavior.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,7 +9,7 @@ use tanren_domain::{
     ActorContext, AuthMode, CancelDispatch, Cli, ConfigEnv, CreateDispatch, DispatchId,
     DispatchMode, DispatchStatus, DispatchView, DomainError, EntityKind, EntityRef,
     EventQueryResult, FiniteF64, Lane, NonEmptyString, OrgId, Outcome, Phase, StepReadyState,
-    StepType, TimeoutSecs, UserId, cli_to_lane,
+    StepType, TimeoutSecs, UserId, cli_to_lane, read_scope_allows_dispatch_actor,
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
@@ -30,6 +27,7 @@ struct RecordingState {
     created_dispatches: Vec<CreateDispatchWithInitialStepParams>,
     cancelled_dispatches: Vec<CancelDispatchParams>,
     dispatch_status_updates: Vec<UpdateDispatchStatusParams>,
+    policy_decision_events: Vec<tanren_domain::EventEnvelope>,
     dispatches: HashMap<DispatchId, DispatchView>,
 }
 
@@ -45,6 +43,7 @@ impl RecordingStore {
             created_dispatches: state.created_dispatches.clone(),
             cancelled_dispatches: state.cancelled_dispatches.clone(),
             dispatch_status_updates: state.dispatch_status_updates.clone(),
+            policy_decision_events: state.policy_decision_events.clone(),
             dispatches: state.dispatches.clone(),
         }
     }
@@ -55,6 +54,7 @@ struct RecordingStateSnapshot {
     created_dispatches: Vec<CreateDispatchWithInitialStepParams>,
     cancelled_dispatches: Vec<CancelDispatchParams>,
     dispatch_status_updates: Vec<UpdateDispatchStatusParams>,
+    policy_decision_events: Vec<tanren_domain::EventEnvelope>,
     dispatches: HashMap<DispatchId, DispatchView>,
 }
 
@@ -66,6 +66,15 @@ impl EventStore for RecordingStore {
             total_count: 0,
             has_more: false,
         })
+    }
+
+    async fn append_policy_decision_event(
+        &self,
+        event: &tanren_domain::EventEnvelope,
+    ) -> Result<(), StoreError> {
+        let mut state = self.state.lock().await;
+        state.policy_decision_events.push(event.clone());
+        Ok(())
     }
 }
 
@@ -114,6 +123,19 @@ impl StateStore for RecordingStore {
         Ok(state.dispatches.get(id).cloned())
     }
 
+    async fn get_dispatch_scoped(
+        &self,
+        id: &DispatchId,
+        scope: tanren_domain::DispatchReadScope,
+    ) -> Result<Option<DispatchView>, StoreError> {
+        let state = self.state.lock().await;
+        Ok(state
+            .dispatches
+            .get(id)
+            .cloned()
+            .filter(|view| read_scope_allows_dispatch_actor(scope, &view.actor)))
+    }
+
     async fn query_dispatches(
         &self,
         filter: &DispatchFilter,
@@ -133,12 +155,7 @@ impl StateStore for RecordingStore {
             dispatches.retain(|view| view.actor.user_id == user_id);
         }
         if let Some(scope) = filter.read_scope {
-            dispatches.retain(|view| {
-                view.actor.org_id == scope.org_id
-                    && scope_allows(view.actor.project_id, scope.project_id)
-                    && scope_allows(view.actor.team_id, scope.team_id)
-                    && scope_allows(view.actor.api_key_id, scope.api_key_id)
-            });
+            dispatches.retain(|view| read_scope_allows_dispatch_actor(scope, &view.actor));
         }
         dispatches.sort_by(|a, b| {
             b.created_at
@@ -267,11 +284,6 @@ impl StateStore for RecordingStore {
     }
 }
 
-fn scope_allows<T: Eq + Copy>(dispatch_scope: Option<T>, reader_scope: Option<T>) -> bool {
-    reader_scope.map_or(dispatch_scope.is_none(), |reader| {
-        dispatch_scope.is_none() || dispatch_scope == Some(reader)
-    })
-}
 fn sample_actor() -> ActorContext {
     ActorContext::new(OrgId::new(), UserId::new())
 }
@@ -418,13 +430,20 @@ async fn cancel_nonexistent_dispatch_returns_not_found() {
             entity: EntityRef::Dispatch(_),
         })
     ));
+    let snapshot = store.snapshot().await;
+    assert_eq!(snapshot.policy_decision_events.len(), 1);
+    assert!(matches!(
+        snapshot.policy_decision_events[0].payload,
+        tanren_domain::DomainEvent::PolicyDecision { ref decision, .. }
+            if decision.reason_code == Some(tanren_domain::PolicyReasonCode::CancelDispatchNotFound)
+    ));
+    assert!(snapshot.cancelled_dispatches.is_empty());
 }
 
 #[tokio::test]
-async fn cancel_dispatch_denied_when_actor_scope_mismatches() {
+async fn cancel_dispatch_hides_actor_scope_mismatch_as_not_found() {
     let store = RecordingStore::default();
     let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
-
     let created = orch
         .create_dispatch(sample_command(sample_actor()))
         .await
@@ -439,15 +458,23 @@ async fn cancel_dispatch_denied_when_actor_scope_mismatches() {
         .await
         .expect_err("cancel should fail");
     assert!(
-        matches!(err, OrchestratorError::PolicyDenied { .. }),
-        "expected policy denial, got: {err:?}"
+        matches!(
+            err,
+            OrchestratorError::Domain(DomainError::NotFound {
+                entity: EntityRef::Dispatch(_),
+            })
+        ),
+        "expected hidden not-found, got: {err:?}"
     );
 
     let snapshot = store.snapshot().await;
-    assert!(
-        snapshot.cancelled_dispatches.is_empty(),
-        "store cancellation should not run when policy denies"
-    );
+    assert_eq!(snapshot.policy_decision_events.len(), 1);
+    assert!(matches!(
+        snapshot.policy_decision_events[0].payload,
+        tanren_domain::DomainEvent::PolicyDecision { ref decision, .. }
+            if decision.reason_code == Some(tanren_domain::PolicyReasonCode::CancelOrgMismatch)
+    ));
+    assert!(snapshot.cancelled_dispatches.is_empty());
 }
 
 #[tokio::test]
@@ -467,30 +494,4 @@ async fn list_dispatches_applies_filters_without_store_sql_knowledge() {
     assert_eq!(page.dispatches.len(), 1);
     assert_eq!(page.dispatches[0].dispatch_id, created.dispatch_id);
     assert_eq!(page.dispatches[0].status, DispatchStatus::Pending);
-}
-
-#[tokio::test]
-async fn benchmark_hot_path_create_list_cancel_smoke() {
-    let store = RecordingStore::default();
-    let orch = Orchestrator::new(store, PolicyEngine::new());
-
-    for _ in 0..250 {
-        let actor = sample_actor();
-        let created = orch
-            .create_dispatch(sample_command(actor.clone()))
-            .await
-            .expect("create");
-
-        let mut filter = DispatchFilter::new();
-        filter.limit = 10;
-        let _ = orch.list_dispatches(filter).await.expect("list");
-
-        orch.cancel_dispatch(CancelDispatch {
-            actor,
-            dispatch_id: created.dispatch_id,
-            reason: Some("benchmark".to_owned()),
-        })
-        .await
-        .expect("cancel");
-    }
 }

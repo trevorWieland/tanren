@@ -1,17 +1,3 @@
-//! Postgres-backed integration tests for `tanren-store`.
-//!
-//! Gated behind the `postgres-integration` cargo feature so it does
-//! not run on every local `cargo nextest run`. Each test either
-//! spins up a fresh `testcontainers::Postgres` container or
-//! connects to `TANREN_TEST_POSTGRES_URL` (for CI where a service
-//! container is already running). Tests share no state — each call
-//! to [`postgres_store`] migrates a fresh schema.
-//!
-//! The most important test in this file is [`dequeue_is_race_safe`],
-//! which exercises the `FOR UPDATE SKIP LOCKED` path that `SQLite`
-//! cannot reproduce and is the single most critical correctness
-//! guarantee the store provides.
-
 #![cfg(feature = "postgres-integration")]
 
 mod common;
@@ -20,40 +6,26 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-// Nextest serializes this binary via the `postgres-integration`
-// test group in `.config/nextest.toml`. Running tests one at a
-// time sidesteps pg_catalog races when multiple tests all drop +
-// recreate the `public` schema against the same `Postgres`
-// instance in parallel.
-
 use common::{
     ack_and_enqueue_execute, ack_params, actor, assert_dispatch_status,
     cancel_pending_steps_params, create_dispatch, create_dispatch_params, duplicate_create_params,
     enqueue_step_params, execute_payload, execute_result, now, provision_payload, provision_result,
     seed_steps, snapshot, step_completed_event, try_dequeue, update_dispatch_status_params,
 };
+use sea_orm::{ConnectionTrait, Database};
 use tanren_domain::{DispatchStatus, DomainEvent, Lane, StepId, StepPayload, StepType};
 use tanren_store::{EventFilter, EventStore, JobQueue, StateStore, Store};
 use testcontainers::ContainerAsync;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres as PostgresImage;
 
-/// Container handle + connected store. Keep both around — dropping
-/// the container shuts down the database.
 struct Fixture {
     _container: Option<ContainerAsync<PostgresImage>>,
     store: Store,
 }
 
-/// Acquire a running Postgres and migrate a fresh schema. Uses
-/// `TANREN_TEST_POSTGRES_URL` when set (CI path); otherwise spins up
-/// a testcontainer.
 async fn postgres_fixture() -> Fixture {
     if let Ok(url) = std::env::var("TANREN_TEST_POSTGRES_URL") {
-        // Tests share the same database when running against CI's
-        // service container; the nextest `postgres-integration`
-        // test group enforces serial execution, so it is safe to
-        // drop + recreate the `public` schema between tests.
         reset_schema(&url).await;
         let store = migrate_fresh(&url).await;
         Fixture {
@@ -83,7 +55,6 @@ async fn migrate_fresh(url: &str) -> Store {
 }
 
 async fn reset_schema(url: &str) {
-    use sea_orm::{ConnectionTrait, Database};
     let conn = Database::connect(url).await.expect("bootstrap connect");
     conn.execute_unprepared("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
         .await
@@ -98,13 +69,11 @@ async fn full_lifecycle_passes_on_postgres() {
     let actor_ctx = actor();
     let dup_actor = actor_ctx.clone();
 
-    // 1. create_dispatch helper + get_dispatch + assert_dispatch_status
     let id = create_dispatch(store, "alpha", actor_ctx, Lane::Impl)
         .await
         .expect("create");
     assert_dispatch_status(store, &id, DispatchStatus::Pending).await;
 
-    // 2. Duplicate create must fail cleanly without corrupting state.
     assert!(
         store
             .create_dispatch_projection(duplicate_create_params(id, dup_actor, Lane::Impl))
@@ -112,10 +81,6 @@ async fn full_lifecycle_passes_on_postgres() {
             .is_err()
     );
 
-    // 3. Enqueue the provision step first (sequence 0). The dequeue
-    //    order is `created_at ASC, step_sequence ASC`, so enqueuing
-    //    provision before the execute seeds guarantees it is the
-    //    first row claimed.
     let provision_step = StepId::new();
     store
         .enqueue_step(enqueue_step_params(
@@ -128,19 +93,12 @@ async fn full_lifecycle_passes_on_postgres() {
         ))
         .await
         .expect("provision enqueue");
-    // A small sleep guarantees the following execute seeds have
-    // observably-later `created_at` timestamps, independent of
-    // clock resolution.
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    // 4. Seed a couple of execute steps via the seed_steps helper.
     let _seeded = seed_steps(store, id, &snap, Lane::Impl, 2, 1)
         .await
         .expect("seed");
 
-    // 5. First dequeue returns the provision step. Ack it with
-    //    provision_result so both provision_result and ack paths
-    //    are exercised.
     let claimed = try_dequeue(store, "worker-prov", Some(Lane::Impl), 99)
         .await
         .expect("dequeue")
@@ -157,7 +115,6 @@ async fn full_lifecycle_passes_on_postgres() {
         .await
         .expect("ack provision");
 
-    // 6. Pick one execute step, hand it off via ack_and_enqueue.
     let execute_step = try_dequeue(store, "worker-exec", Some(Lane::Impl), 99)
         .await
         .expect("dequeue")
@@ -176,8 +133,6 @@ async fn full_lifecycle_passes_on_postgres() {
         .await
         .expect("ack_and_enqueue");
 
-    // 7. Append a StepCompleted envelope via the helper and verify
-    //    it lands.
     let standalone_completed = step_completed_event(
         id,
         execute_step.step_id,
@@ -189,8 +144,6 @@ async fn full_lifecycle_passes_on_postgres() {
         .await
         .expect("append completed");
 
-    // 8. Build a DispatchStarted envelope inline using `now()` to
-    //    exercise that helper.
     let started = tanren_domain::EventEnvelope::new(
         tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
         now(),
@@ -205,19 +158,11 @@ async fn full_lifecycle_passes_on_postgres() {
         })
         .await
         .expect("query");
-    // Dequeue now mints StepDequeued events, ack now appends
-    // StepCompleted co-transactionally, so the total is higher.
     assert!(events.total_count >= 8);
 
-    // Ensure `create_dispatch_params` is still directly invokable in
-    // isolation (exercised above through `create_dispatch`, but
-    // clippy wants an explicit reference so the helper isn't pruned).
     let _params = create_dispatch_params("second", actor(), Lane::Audit);
 }
 
-/// Exercises `update_dispatch_status` and `cancel_pending_steps` on
-/// `Postgres` — both must append their companion events
-/// co-transactionally.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dispatch_status_and_cancel_on_postgres() {
     let fixture = postgres_fixture().await;
@@ -226,7 +171,6 @@ async fn dispatch_status_and_cancel_on_postgres() {
     let id = create_dispatch(store, "beta", actor(), Lane::Impl)
         .await
         .expect("create");
-    // Seed some steps so cancel has work to do.
     let _ = seed_steps(store, id, &snap, Lane::Impl, 3, 0)
         .await
         .expect("seed");
@@ -257,7 +201,6 @@ async fn dequeue_is_race_safe() {
         .await
         .expect("create");
 
-    // Seed 5 pending execute-lane steps.
     let mut seeded = Vec::new();
     for seq in 0..5 {
         let step_id = StepId::new();
@@ -275,8 +218,6 @@ async fn dequeue_is_race_safe() {
         seeded.push(step_id);
     }
 
-    // Spawn 20 concurrent dequeues with max_concurrent = 5. Exactly
-    // 5 must succeed; no step may be claimed twice.
     let mut handles = Vec::new();
     for n in 0..20 {
         let store = Arc::clone(&store);
@@ -355,13 +296,6 @@ async fn dequeue_respects_max_concurrent_one() {
     assert_eq!(claimed, 1, "max_concurrent=1 allows exactly one claim");
 }
 
-/// B-01 regression: `dequeue(None)` counts running rows across ALL
-/// lanes while `dequeue(Some(Impl))` counts only impl rows. The
-/// hierarchical advisory lock scheme handles this: `lane=None` takes
-/// an exclusive lock on the global key, which conflicts with the
-/// shared lock lane-specific dequeues hold. This test mixes
-/// `dequeue(None)` and `dequeue(Some(Impl))` concurrently and
-/// asserts `max_concurrent=1` is respected.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn cross_lane_dequeue_respects_global_cap() {
     let fixture = postgres_fixture().await;
@@ -385,9 +319,6 @@ async fn cross_lane_dequeue_respects_global_cap() {
             .expect("enqueue");
     }
 
-    // Half call dequeue(None), half call dequeue(Some(Impl)).
-    // The hierarchical lock serializes None against Impl (exclusive
-    // global vs shared global), so `max_concurrent=1` is respected.
     let mut handles = Vec::new();
     for n in 0..10 {
         let store = Arc::clone(&store);
@@ -411,12 +342,6 @@ async fn cross_lane_dequeue_respects_global_cap() {
     );
 }
 
-/// Scalability property: lane-specific dequeues for different lanes
-/// can proceed in parallel under the hierarchical lock scheme. Each
-/// lane holds its own exclusive lock + a shared global lock; since
-/// the global lock is shared, different lanes do not block each
-/// other. This test seeds steps in both `Impl` and `Audit` lanes
-/// and asserts that all steps in both lanes are claimed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn different_lanes_dequeue_in_parallel() {
     let fixture = postgres_fixture().await;
@@ -426,7 +351,6 @@ async fn different_lanes_dequeue_in_parallel() {
         .await
         .expect("create");
 
-    // Seed 3 steps in Impl, 3 in Audit.
     for seq in 0..3_u32 {
         store
             .enqueue_step(enqueue_step_params(
@@ -452,8 +376,6 @@ async fn different_lanes_dequeue_in_parallel() {
             .expect("enqueue audit");
     }
 
-    // Spawn workers: half for Impl, half for Audit, each with
-    // max_concurrent=3 (enough to drain the lane).
     let mut handles = Vec::new();
     for n in 0..10 {
         let store = Arc::clone(&store);
@@ -475,9 +397,6 @@ async fn different_lanes_dequeue_in_parallel() {
             claimed += 1;
         }
     }
-    // Both lanes should be fully drained (3 impl + 3 audit = 6).
-    // If the locks serialized across lanes, some workers would time
-    // out or fail to claim; all 6 must succeed.
     assert_eq!(
         claimed, 6,
         "different lanes must dequeue in parallel: expected 6 total claims"

@@ -5,12 +5,13 @@
 //! mapping `OrchestratorError` (which wraps `StoreError` and
 //! `DomainError`) to `ContractError`.
 
-use tanren_contract::{ContractError, ErrorCode};
-use tanren_observability::sanitize_error_for_log;
+use tanren_contract::ContractError;
+use tanren_observability::{ObservabilityError, emit_correlated_internal_error};
 use tanren_orchestrator::OrchestratorError;
 use tanren_store::{StoreConflictClass, StoreError};
-use tracing::error;
 use uuid::Uuid;
+
+type EmitCorrelatedInternalError = fn(&str, &str, Uuid, &str) -> Result<(), ObservabilityError>;
 
 /// Map an orchestrator error to a wire-safe contract error response.
 pub fn map_orchestrator_error(err: OrchestratorError) -> tanren_contract::ErrorResponse {
@@ -20,20 +21,9 @@ pub fn map_orchestrator_error(err: OrchestratorError) -> tanren_contract::ErrorR
         }
         OrchestratorError::Store(ref store_err) => map_store_error(store_err),
         OrchestratorError::PolicyDenied { decision } => {
-            let reason_message = decision
-                .reason
-                .clone()
-                .unwrap_or_else(|| "policy denied".to_owned());
-            tanren_contract::ErrorResponse {
-                code: ErrorCode::PolicyDenied,
-                message: format!("policy denied: {reason_message}"),
-                details: Some(serde_json::json!({
-                    "reason_code": decision.reason_code.map(|code| code.to_string()),
-                    "reason_message": reason_message,
-                    "decision_kind": decision.kind.to_string(),
-                    "resource": decision.resource,
-                })),
-            }
+            tanren_contract::ErrorResponse::from(ContractError::PolicyDenied {
+                reason_code: decision.reason_code,
+            })
         }
     }
 }
@@ -80,21 +70,43 @@ pub fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
         | StoreError::Migration(_)
         | StoreError::Conversion { .. }
         | StoreError::Json(_) => {
-            let correlation_id = Uuid::now_v7();
-            let sanitized = sanitize_error_for_log(&err.to_string());
-            error!(
-                %correlation_id,
-                error = %sanitized,
-                "store internal failure mapped to contract internal error",
-            );
-            tanren_contract::ErrorResponse {
-                code: ErrorCode::Internal,
-                message: "internal error".to_owned(),
-                details: Some(serde_json::json!({
-                    "correlation_id": correlation_id.to_string(),
-                })),
-            }
+            correlated_internal_error_response("tanren_app_services", "internal", &err.to_string())
         }
+    }
+}
+
+fn correlated_internal_error_response(
+    component: &str,
+    error_code: &str,
+    raw_error: &str,
+) -> tanren_contract::ErrorResponse {
+    correlated_internal_error_response_with_emitter(
+        component,
+        error_code,
+        raw_error,
+        emit_correlated_internal_error,
+    )
+}
+
+fn correlated_internal_error_response_with_emitter(
+    component: &str,
+    error_code: &str,
+    raw_error: &str,
+    emitter: EmitCorrelatedInternalError,
+) -> tanren_contract::ErrorResponse {
+    let correlation_id = Uuid::now_v7();
+    let details = if emitter(component, error_code, correlation_id, raw_error).is_ok() {
+        Some(serde_json::json!({
+            "correlation_id": correlation_id.to_string(),
+        }))
+    } else {
+        None
+    };
+
+    tanren_contract::ErrorResponse {
+        code: tanren_contract::ErrorCode::Internal,
+        message: "internal error".to_owned(),
+        details,
     }
 }
 
@@ -108,6 +120,7 @@ mod tests {
     use tanren_orchestrator::OrchestratorError;
     use tanren_store::{StoreConflictClass, StoreError, StoreOperation};
 
+    use super::correlated_internal_error_response_with_emitter;
     use super::map_orchestrator_error;
 
     #[test]
@@ -123,9 +136,27 @@ mod tests {
     }
 
     #[test]
-    fn store_internal_is_sanitized_with_correlation_id() {
-        let err = OrchestratorError::Store(StoreError::Migration("db specifics".to_owned()));
-        let mapped = map_orchestrator_error(err);
+    fn correlated_internal_error_includes_correlation_id_when_sink_persists() {
+        fn emitter(
+            _component: &str,
+            _error_code: &str,
+            _correlation_id: uuid::Uuid,
+            raw_error: &str,
+        ) -> Result<(), tanren_observability::ObservabilityError> {
+            if raw_error == "__force_sink_error__" {
+                return Err(tanren_observability::ObservabilityError::SinkIo(
+                    "disk full".to_owned(),
+                ));
+            }
+            Ok(())
+        }
+
+        let mapped = correlated_internal_error_response_with_emitter(
+            "tanren_app_services",
+            "internal",
+            "db specifics",
+            emitter,
+        );
         assert_eq!(mapped.code, tanren_contract::ErrorCode::Internal);
         assert_eq!(mapped.message, "internal error");
         let details = mapped.details.expect("details");
@@ -134,6 +165,36 @@ mod tests {
             .and_then(serde_json::Value::as_str)
             .expect("correlation_id");
         assert!(uuid::Uuid::parse_str(correlation_id).is_ok());
+    }
+
+    #[test]
+    fn correlated_internal_error_omits_correlation_id_when_sink_persist_fails() {
+        fn emitter(
+            _component: &str,
+            _error_code: &str,
+            _correlation_id: uuid::Uuid,
+            raw_error: &str,
+        ) -> Result<(), tanren_observability::ObservabilityError> {
+            if raw_error == "__force_sink_error__" {
+                return Err(tanren_observability::ObservabilityError::SinkIo(
+                    "disk full".to_owned(),
+                ));
+            }
+            Ok(())
+        }
+
+        let mapped = correlated_internal_error_response_with_emitter(
+            "tanren_app_services",
+            "internal",
+            "__force_sink_error__",
+            emitter,
+        );
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::Internal);
+        assert_eq!(mapped.message, "internal error");
+        assert!(
+            mapped.details.is_none(),
+            "correlation_id must be omitted when sink persistence fails"
+        );
     }
 
     #[test]
@@ -147,7 +208,22 @@ mod tests {
     }
 
     #[test]
-    fn policy_denied_includes_reason_code_details() {
+    fn domain_policy_denied_maps_to_canonical_wire_shape() {
+        let err = OrchestratorError::Domain(DomainError::PolicyDenied {
+            kind: PolicyDecisionKind::Authz,
+            resource: PolicyResourceRef::Dispatch {
+                dispatch_id: tanren_domain::DispatchId::new(),
+            },
+            reason: "nope".to_owned(),
+        });
+        let mapped = map_orchestrator_error(err);
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::PolicyDenied);
+        assert_eq!(mapped.message, "policy denied");
+        assert!(mapped.details.is_none());
+    }
+
+    #[test]
+    fn policy_denied_exposes_only_reason_code_details() {
         let err = OrchestratorError::PolicyDenied {
             decision: Box::new(PolicyDecisionRecord {
                 kind: PolicyDecisionKind::Authz,
@@ -162,10 +238,15 @@ mod tests {
         };
         let mapped = map_orchestrator_error(err);
         assert_eq!(mapped.code, tanren_contract::ErrorCode::PolicyDenied);
+        assert_eq!(mapped.message, "policy denied");
         let details = mapped.details.expect("details");
         assert_eq!(details["reason_code"], "timeout_out_of_range");
-        assert_eq!(details["reason_message"], "timeout too high");
-        assert_eq!(details["decision_kind"], "authz");
+        let object = details.as_object().expect("object");
+        assert_eq!(object.len(), 1, "only reason_code should be present");
+        assert!(!object.contains_key("reason"));
+        assert!(!object.contains_key("reason_message"));
+        assert!(!object.contains_key("decision_kind"));
+        assert!(!object.contains_key("resource"));
     }
 
     #[test]

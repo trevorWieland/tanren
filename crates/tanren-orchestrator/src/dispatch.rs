@@ -11,8 +11,8 @@ use chrono::Utc;
 use tanren_domain::{
     ActorContext, CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot, DispatchStatus,
     DispatchView, DomainError, DomainEvent, EntityRef, EventEnvelope, EventId, FiniteF64,
-    GraphRevision, Outcome, PolicyOutcome, ProvisionPayload, StepId, StepPayload, StepReadyState,
-    StepType, cli_to_lane,
+    GraphRevision, Outcome, PolicyDecisionRecord, PolicyOutcome, ProvisionPayload, StepId,
+    StepPayload, StepReadyState, StepType, cli_to_lane,
 };
 use tanren_store::{
     CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
@@ -46,6 +46,10 @@ where
         // Policy check
         let decision = self.policy.check_dispatch_allowed(&cmd, dispatch_id)?;
         if decision.outcome == PolicyOutcome::Denied {
+            let audit_event = policy_decision_event(dispatch_id, decision.clone());
+            self.store
+                .append_policy_decision_event(&audit_event)
+                .await?;
             return Err(OrchestratorError::PolicyDenied {
                 decision: Box::new(decision),
             });
@@ -73,18 +77,8 @@ where
         id: &DispatchId,
         actor: &ActorContext,
     ) -> Result<Option<DispatchView>, OrchestratorError> {
-        let view = self.store.get_dispatch(id).await?;
-        if let Some(ref dispatch) = view {
-            let decision = self.policy.check_dispatch_read_allowed(
-                actor,
-                &dispatch.actor,
-                dispatch.dispatch_id,
-            )?;
-            if decision.outcome == PolicyOutcome::Denied {
-                return Ok(None);
-            }
-        }
-        Ok(view)
+        let scope = self.policy.dispatch_read_scope(actor);
+        Ok(self.store.get_dispatch_scoped(id, scope).await?)
     }
 
     /// List dispatches matching the given filter.
@@ -158,24 +152,27 @@ where
     /// Cancel a dispatch.
     ///
     /// 1. Verify the dispatch exists
-    /// 2. Enforce cancel policy authorization
+    /// 2. Enforce cancel policy authorization (missing/unauthorized are hidden as not-found)
     /// 3. Atomically cancel pending steps + dispatch status/event
     pub async fn cancel_dispatch(&self, cmd: CancelDispatch) -> Result<(), OrchestratorError> {
-        let view = self
-            .store
-            .get_dispatch(&cmd.dispatch_id)
-            .await?
-            .ok_or_else(|| {
-                OrchestratorError::Domain(DomainError::NotFound {
-                    entity: EntityRef::Dispatch(cmd.dispatch_id),
-                })
-            })?;
-
-        let decision = self.policy.check_cancel_allowed(&cmd, &view.actor)?;
+        let view = self.store.get_dispatch(&cmd.dispatch_id).await?;
+        let decision = self
+            .policy
+            .check_cancel_allowed(&cmd, view.as_ref().map(|dispatch| &dispatch.actor))?;
         if decision.outcome == PolicyOutcome::Denied {
-            return Err(OrchestratorError::PolicyDenied {
-                decision: Box::new(decision),
-            });
+            let audit_event = policy_decision_event(cmd.dispatch_id, decision);
+            self.store
+                .append_policy_decision_event(&audit_event)
+                .await?;
+            return Err(OrchestratorError::Domain(DomainError::NotFound {
+                entity: EntityRef::Dispatch(cmd.dispatch_id),
+            }));
+        }
+
+        if view.is_none() {
+            return Err(OrchestratorError::Domain(DomainError::NotFound {
+                entity: EntityRef::Dispatch(cmd.dispatch_id),
+            }));
         }
 
         let event = EventEnvelope::new(
@@ -199,6 +196,17 @@ where
 
         Ok(())
     }
+}
+
+fn policy_decision_event(dispatch_id: DispatchId, decision: PolicyDecisionRecord) -> EventEnvelope {
+    EventEnvelope::new(
+        EventId::from_uuid(Uuid::now_v7()),
+        Utc::now(),
+        DomainEvent::PolicyDecision {
+            dispatch_id,
+            decision: Box::new(decision),
+        },
+    )
 }
 
 fn build_create_dispatch_artifacts(

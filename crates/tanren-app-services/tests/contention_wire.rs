@@ -6,7 +6,8 @@ use tanren_app_services::{DispatchService, RequestContext};
 use tanren_contract::CancelDispatchRequest;
 use tanren_domain::{
     ActorContext, AuthMode, ConfigKeys, DispatchId, DispatchMode, DispatchStatus, DispatchView,
-    EventQueryResult, GraphRevision, Lane, NonEmptyString, OrgId, Phase, TimeoutSecs, UserId,
+    EventEnvelope, EventQueryResult, GraphRevision, Lane, NonEmptyString, OrgId, Phase,
+    TimeoutSecs, UserId, read_scope_allows_dispatch_actor,
 };
 use tanren_orchestrator::Orchestrator;
 use tanren_policy::PolicyEngine;
@@ -34,6 +35,10 @@ impl EventStore for ContentionStore {
             total_count: 0,
             has_more: false,
         })
+    }
+
+    async fn append_policy_decision_event(&self, _event: &EventEnvelope) -> Result<(), StoreError> {
+        Ok(())
     }
 }
 
@@ -112,6 +117,17 @@ impl StateStore for ContentionStore {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }))
+    }
+
+    async fn get_dispatch_scoped(
+        &self,
+        id: &DispatchId,
+        scope: tanren_domain::DispatchReadScope,
+    ) -> Result<Option<DispatchView>, StoreError> {
+        Ok(self
+            .get_dispatch(id)
+            .await?
+            .filter(|view| read_scope_allows_dispatch_actor(scope, &view.actor)))
     }
 
     async fn query_dispatches(

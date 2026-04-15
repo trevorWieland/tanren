@@ -11,8 +11,8 @@ use common::{
     seed_steps, snapshot, step_completed_event, try_dequeue, update_dispatch_status_params,
 };
 use tanren_domain::{
-    DispatchStatus, DomainEvent, EntityKind, EntityRef, Lane, Outcome, StepId, StepPayload,
-    StepStatus, StepType,
+    DispatchStatus, DomainEvent, EntityKind, EntityRef, EventEnvelope, EventId, Lane, Outcome,
+    StepId, StepPayload, StepStatus, StepType,
 };
 use tanren_store::{
     DispatchFilter, EventFilter, EventStore, JobQueue, NackParams, StateStore, Store,
@@ -119,8 +119,8 @@ async fn event_append_query_and_filter() {
         .await
         .expect("create");
 
-    let started = tanren_domain::EventEnvelope::new(
-        tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
+    let started = EventEnvelope::new(
+        EventId::from_uuid(uuid::Uuid::now_v7()),
         now(),
         DomainEvent::DispatchStarted { dispatch_id },
     );
@@ -422,8 +422,8 @@ async fn nack_retry_resets_to_pending_and_bumps_count() {
         .await
         .expect("dequeue");
 
-    let failure_event = tanren_domain::EventEnvelope::new(
-        tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
+    let failure_event = EventEnvelope::new(
+        EventId::from_uuid(uuid::Uuid::now_v7()),
         now(),
         DomainEvent::StepFailed {
             dispatch_id: id,

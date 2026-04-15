@@ -17,8 +17,8 @@
 
 use tanren_domain::{
     ActorContext, CancelDispatch, Cli, CreateDispatch, DispatchId, DispatchMode, DispatchReadScope,
-    DomainError, Phase, PolicyDecisionKind, PolicyDecisionRecord, PolicyOutcome, PolicyReasonCode,
-    PolicyResourceRef, PolicyScope,
+    DispatchScopeMismatch, DomainError, Phase, PolicyDecisionKind, PolicyDecisionRecord,
+    PolicyOutcome, PolicyReasonCode, PolicyResourceRef, PolicyScope, actor_matches_dispatch_scope,
 };
 
 /// Security and admission limits for dispatch creation policy.
@@ -98,7 +98,7 @@ impl PolicyEngine {
     pub fn check_cancel_allowed(
         &self,
         cmd: &CancelDispatch,
-        dispatch_actor: &ActorContext,
+        dispatch_actor: Option<&ActorContext>,
     ) -> Result<PolicyDecisionRecord, DomainError> {
         let scope = PolicyScope::new(cmd.actor.clone());
         let resource = PolicyResourceRef::Dispatch {
@@ -106,35 +106,6 @@ impl PolicyEngine {
         };
 
         if let Some(violation) = Self::first_cancel_violation(cmd, dispatch_actor) {
-            return Ok(Self::deny(
-                violation.code,
-                &violation.message,
-                scope,
-                resource,
-            ));
-        }
-
-        Ok(PolicyDecisionRecord {
-            kind: PolicyDecisionKind::Authz,
-            resource,
-            scope,
-            outcome: PolicyOutcome::Allowed,
-            reason_code: None,
-            reason: Some("allowed".to_owned()),
-        })
-    }
-
-    /// Evaluate whether dispatch read access is allowed.
-    pub fn check_dispatch_read_allowed(
-        &self,
-        actor: &ActorContext,
-        dispatch_actor: &ActorContext,
-        dispatch_id: DispatchId,
-    ) -> Result<PolicyDecisionRecord, DomainError> {
-        let scope = PolicyScope::new(actor.clone());
-        let resource = PolicyResourceRef::Dispatch { dispatch_id };
-
-        if let Some(violation) = Self::first_read_violation(actor, dispatch_actor) {
             return Ok(Self::deny(
                 violation.code,
                 &violation.message,
@@ -294,64 +265,34 @@ impl PolicyEngine {
 
     fn first_cancel_violation(
         cmd: &CancelDispatch,
-        dispatch_actor: &ActorContext,
+        dispatch_actor: Option<&ActorContext>,
     ) -> Option<PolicyViolation> {
-        Self::first_actor_scope_violation(PolicyAction::Cancel, &cmd.actor, dispatch_actor)
-    }
-
-    fn first_read_violation(
-        actor: &ActorContext,
-        dispatch_actor: &ActorContext,
-    ) -> Option<PolicyViolation> {
-        Self::first_actor_scope_violation(PolicyAction::Read, actor, dispatch_actor)
-    }
-
-    fn first_actor_scope_violation(
-        action: PolicyAction,
-        actor: &ActorContext,
-        dispatch_actor: &ActorContext,
-    ) -> Option<PolicyViolation> {
-        if actor.org_id != dispatch_actor.org_id {
+        let Some(dispatch_actor) = dispatch_actor else {
             return Some(PolicyViolation::new(
-                match action {
-                    PolicyAction::Cancel => PolicyReasonCode::CancelOrgMismatch,
-                    PolicyAction::Read => PolicyReasonCode::ReadOrgMismatch,
-                },
+                PolicyReasonCode::CancelDispatchNotFound,
+                "dispatch not found".to_owned(),
+            ));
+        };
+
+        match actor_matches_dispatch_scope(&cmd.actor, dispatch_actor) {
+            Ok(()) => None,
+            Err(DispatchScopeMismatch::Org) => Some(PolicyViolation::new(
+                PolicyReasonCode::CancelOrgMismatch,
                 "actor org_id does not match dispatch org_id".to_owned(),
-            ));
-        }
-
-        if dispatch_actor.project_id.is_some() && actor.project_id != dispatch_actor.project_id {
-            return Some(PolicyViolation::new(
-                match action {
-                    PolicyAction::Cancel => PolicyReasonCode::CancelProjectScopeMismatch,
-                    PolicyAction::Read => PolicyReasonCode::ReadProjectScopeMismatch,
-                },
+            )),
+            Err(DispatchScopeMismatch::Project) => Some(PolicyViolation::new(
+                PolicyReasonCode::CancelProjectScopeMismatch,
                 "dispatch requires matching project_id".to_owned(),
-            ));
-        }
-
-        if dispatch_actor.team_id.is_some() && actor.team_id != dispatch_actor.team_id {
-            return Some(PolicyViolation::new(
-                match action {
-                    PolicyAction::Cancel => PolicyReasonCode::CancelTeamScopeMismatch,
-                    PolicyAction::Read => PolicyReasonCode::ReadTeamScopeMismatch,
-                },
+            )),
+            Err(DispatchScopeMismatch::Team) => Some(PolicyViolation::new(
+                PolicyReasonCode::CancelTeamScopeMismatch,
                 "dispatch requires matching team_id".to_owned(),
-            ));
-        }
-
-        if dispatch_actor.api_key_id.is_some() && actor.api_key_id != dispatch_actor.api_key_id {
-            return Some(PolicyViolation::new(
-                match action {
-                    PolicyAction::Cancel => PolicyReasonCode::CancelApiKeyScopeMismatch,
-                    PolicyAction::Read => PolicyReasonCode::ReadApiKeyScopeMismatch,
-                },
+            )),
+            Err(DispatchScopeMismatch::ApiKey) => Some(PolicyViolation::new(
+                PolicyReasonCode::CancelApiKeyScopeMismatch,
                 "dispatch requires matching api_key_id".to_owned(),
-            ));
+            )),
         }
-
-        None
     }
 }
 
@@ -370,12 +311,6 @@ fn is_allowed_phase_cli_mode(phase: Phase, cli: Cli, mode: DispatchMode) -> bool
             DispatchMode::Auto
         ) | (Phase::AuditSpec | Phase::Gate, Cli::Bash, _)
     )
-}
-
-#[derive(Debug, Clone, Copy)]
-enum PolicyAction {
-    Cancel,
-    Read,
 }
 
 #[derive(Debug, Clone)]

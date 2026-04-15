@@ -10,6 +10,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::Deserialize;
 use tanren_contract::ContractError;
 use tanren_domain::{ActorContext, ApiKeyId, OrgId, ProjectId, TeamId, UserId};
+use tanren_observability::emit_correlated_internal_error;
 use uuid::Uuid;
 
 /// Trusted request context for service and orchestrator entrypoints.
@@ -81,9 +82,22 @@ impl ActorTokenVerifier {
     /// Verify a signed actor token and return trusted context.
     pub fn verify(&self, token: &str) -> Result<RequestContext, ContractError> {
         let claims = decode::<ActorTokenClaims>(token, &self.decoding_key, &self.validation)
-            .map_err(|err| ContractError::InvalidField {
-                field: "actor_token".to_owned(),
-                reason: format!("token verification failed: {err}"),
+            .map_err(|err| {
+                let correlation_id = Uuid::now_v7();
+                if emit_correlated_internal_error(
+                    "tanren_app_services",
+                    "invalid_actor_token",
+                    correlation_id,
+                    &err.to_string(),
+                )
+                .is_err()
+                {
+                    // Fail closed at the wire boundary with generic auth errors.
+                }
+                ContractError::InvalidField {
+                    field: "actor_token".to_owned(),
+                    reason: "token validation failed".to_owned(),
+                }
             })?
             .claims;
 
@@ -215,6 +229,12 @@ MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
             err,
             ContractError::InvalidField { ref field, .. } if field == "actor_token"
         ));
+        if let ContractError::InvalidField { reason, .. } = err {
+            assert_eq!(reason, "token validation failed");
+            assert!(!reason.contains("issuer"));
+            assert!(!reason.contains("audience"));
+            assert!(!reason.contains("expired"));
+        }
     }
 
     #[test]

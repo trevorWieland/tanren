@@ -49,6 +49,8 @@ These are mandatory lane-0.4 behaviors for parity/security/stability:
 2. **Cancel authorization is explicit and typed**
    - `tanren-policy` exposes a typed cancel decision path.
    - Orchestrator enforces cancel policy before store mutation.
+   - Unauthorized cancel attempts are hidden as `not_found` to avoid
+     cross-scope existence disclosure.
    - Scope-match model: org must match; if dispatch actor has
      `project_id`/`team_id`/`api_key_id`, canceller must match each present scope.
 
@@ -76,6 +78,11 @@ These are mandatory lane-0.4 behaviors for parity/security/stability:
      `TANREN_ACTOR_TOKEN`, plus `--actor-public-key-file`,
      `--token-issuer`, `--token-audience`).
    - Missing/invalid tokens fail closed; there is no insecure fallback.
+   - Token source resolution is strict one-of across all three sources:
+     `--actor-token-stdin`, `--actor-token-file`, `TANREN_ACTOR_TOKEN`.
+     Any multi-source combination is rejected.
+   - Verification failure responses are generic at the wire boundary
+     (`token validation failed`); detailed JWT failure causes stay internal.
    - `get`/`list` are policy-scoped by trusted actor context, not open reads.
 
 7. **Migration behavior is explicit**
@@ -83,6 +90,47 @@ These are mandatory lane-0.4 behaviors for parity/security/stability:
    - Write commands (`dispatch create/cancel`) run migrate-before-write.
    - `tanren db migrate` is the explicit schema mutation command.
    - Read commands against non-ready schema return `schema_not_ready`.
+
+8. **CLI failure output is deterministic JSON-only**
+   - On non-zero exit, stderr is a single JSON document and contains no
+     tracing/log prefix/suffix bytes.
+   - Internal/store failures preserve `code = internal`, generic
+     `message = "internal error"`.
+   - `details.correlation_id` is returned only when correlated sink
+     persistence succeeds; if sink persistence fails, `correlation_id`
+     is omitted.
+   - Correlated internal error events are emitted to default JSONL sink:
+     `$XDG_STATE_HOME/tanren/internal-errors.jsonl` (fallback:
+     `$HOME/.local/state/tanren/internal-errors.jsonl`).
+
+9. **Policy-denied wire details are minimized**
+   - `policy_denied` details expose only machine-safe
+     `reason_code` (when available).
+   - Resource identifiers and internal decision metadata are not exposed.
+
+10. **Scoped dispatch list uses one predicate query**
+   - Policy-scoped dispatch reads execute as a single query with
+     tuple-aware null-or-exact scope predicates.
+   - Single-dispatch reads used by actor-scoped `get` are
+     scope-predicate-first.
+   - `cancel` authorization is enforced by typed policy checks against
+     dispatch ownership scope; denied decisions are audited and still
+     returned as masked `not_found`.
+   - `StateStore::get_dispatch_scoped` is a required backend contract
+     (no default fallback to unscoped read + in-memory filtering).
+   - Cursor filtering and ordering stay in SQL
+     (`created_at DESC, dispatch_id DESC`) without in-memory fan-out merge/dedupe.
+   - Index strategy is validated with backend-native `EXPLAIN` coverage
+     for both `SQLite` and `Postgres`.
+
+11. **Denied policy decisions are internally auditable**
+   - Denied create/cancel decisions append `DomainEvent::PolicyDecision`
+     records to the event log.
+   - Both unauthorized cancel attempts and missing-dispatch cancel attempts
+     are internally audited, while the wire response remains masked
+     `not_found`.
+   - Wire responses remain minimized (`policy_denied` details and masked
+     `not_found` for unauthorized cancel).
 
 ## Deliverables
 

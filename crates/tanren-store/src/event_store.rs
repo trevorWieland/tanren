@@ -8,7 +8,7 @@
 
 use async_trait::async_trait;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
-use tanren_domain::EventQueryResult;
+use tanren_domain::{DomainEvent, EventEnvelope, EventQueryResult};
 
 use crate::converters::events as event_converters;
 use crate::entity::events;
@@ -29,6 +29,11 @@ use crate::store::Store;
 pub trait EventStore: Send + Sync {
     /// Query events by filter dimensions. Indexed; no table scans.
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult>;
+
+    /// Append a typed policy-decision audit event.
+    ///
+    /// Only `DomainEvent::PolicyDecision` payloads are accepted.
+    async fn append_policy_decision_event(&self, event: &EventEnvelope) -> StoreResult<()>;
 }
 
 /// Direct event-append methods — available for testing and migration
@@ -41,7 +46,7 @@ pub trait EventStore: Send + Sync {
 impl Store {
     /// Append a single event. Bypasses projection consistency — use
     /// co-transactional trait methods for operational writes.
-    pub async fn append(&self, event: &tanren_domain::EventEnvelope) -> StoreResult<()> {
+    pub async fn append(&self, event: &EventEnvelope) -> StoreResult<()> {
         let model = event_converters::envelope_to_active_model(event)?;
         events::Entity::insert(model).exec(self.conn()).await?;
         Ok(())
@@ -49,10 +54,7 @@ impl Store {
 
     /// Append a batch of events. Bypasses projection consistency —
     /// use co-transactional trait methods for operational writes.
-    pub async fn append_batch(
-        &self,
-        envelopes: &[tanren_domain::EventEnvelope],
-    ) -> StoreResult<()> {
+    pub async fn append_batch(&self, envelopes: &[EventEnvelope]) -> StoreResult<()> {
         if envelopes.is_empty() {
             return Ok(());
         }
@@ -95,6 +97,23 @@ impl EventStore for Store {
             has_more,
         })
     }
+
+    async fn append_policy_decision_event(&self, event: &EventEnvelope) -> StoreResult<()> {
+        ensure_policy_decision_payload(event)?;
+        let row = event_converters::envelope_to_active_model(event)?;
+        events::Entity::insert(row).exec(self.conn()).await?;
+        Ok(())
+    }
+}
+
+fn ensure_policy_decision_payload(event: &EventEnvelope) -> StoreResult<()> {
+    if matches!(event.payload, DomainEvent::PolicyDecision { .. }) {
+        return Ok(());
+    }
+    Err(crate::errors::StoreError::Conversion {
+        context: "event_store::append_policy_decision_event",
+        reason: "expected DomainEvent::PolicyDecision payload".to_owned(),
+    })
 }
 
 fn build_select_query(filter: &EventFilter) -> sea_orm::Select<events::Entity> {

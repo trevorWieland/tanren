@@ -162,6 +162,24 @@ fn create_dispatch(db_url: &str, auth: &AuthHarness) -> String {
     String::from_utf8(output.stdout).expect("utf8")
 }
 
+fn assert_stderr_is_single_json(stderr: &str) -> Value {
+    let trimmed = stderr.trim();
+    assert!(
+        trimmed.starts_with('{') && trimmed.ends_with('}'),
+        "stderr should contain exactly one JSON document: {stderr}"
+    );
+    let mut stream = serde_json::Deserializer::from_str(trimmed).into_iter::<Value>();
+    let parsed = stream
+        .next()
+        .expect("expected one JSON value")
+        .expect("stderr should be valid JSON");
+    assert!(
+        stream.next().is_none(),
+        "stderr should contain only one JSON value"
+    );
+    parsed
+}
+
 #[test]
 fn create_outputs_valid_json_and_exits_0() {
     let (db_url, _dir) = temp_db();
@@ -232,6 +250,55 @@ fn get_unauthorized_dispatch_is_hidden_as_not_found() {
     assert!(!output.status.success(), "unauthorized read should fail");
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "not_found");
+}
+
+#[test]
+fn cancel_unauthorized_dispatch_is_hidden_as_not_found() {
+    let (db_url, _dir) = temp_db();
+    let create_auth = auth_harness_with_org(Uuid::now_v7());
+    let stdout = create_dispatch(&db_url, &create_auth);
+    let created: Value = serde_json::from_str(&stdout).expect("json");
+    let dispatch_id = created["dispatch_id"].as_str().expect("dispatch_id");
+
+    let cancel_auth = auth_harness_with_org(Uuid::now_v7());
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "cancel",
+        "--id",
+        dispatch_id,
+    ]);
+    add_auth_args(&mut cmd, &cancel_auth);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "unauthorized cancel should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "not_found");
+}
+
+#[test]
+fn cancel_nonexistent_dispatch_outputs_not_found_json_on_stderr() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "cancel",
+        "--id",
+        &Uuid::now_v7().to_string(),
+    ]);
+    add_auth_args(&mut cmd, &auth);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "missing cancel should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
     assert_eq!(v["code"], "not_found");
 }
 
@@ -394,4 +461,38 @@ fn invalid_log_level_outputs_json_on_stderr() {
     let v: Value = serde_json::from_str(&stderr).expect("stderr should be valid JSON");
     assert_eq!(v["code"], "invalid_input");
     assert!(v["message"].as_str().expect("msg").contains("log_level"));
+}
+
+#[test]
+fn store_internal_failure_with_trace_outputs_pure_json_on_stderr() {
+    let auth = auth_harness();
+    let state_dir = tempfile::tempdir().expect("state dir");
+    let mut cmd = cli();
+    cmd.env("XDG_STATE_HOME", state_dir.path());
+    cmd.args([
+        "--log-level",
+        "trace",
+        "--database-url",
+        "sqlite:/dev/null/tanren.db?mode=rwc",
+        "dispatch",
+        "list",
+    ]);
+    add_auth_args(&mut cmd, &auth);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "internal");
+    let correlation_id = v["details"]["correlation_id"]
+        .as_str()
+        .expect("correlation_id");
+    assert!(!correlation_id.is_empty());
+    let sink_path = state_dir.path().join("tanren/internal-errors.jsonl");
+    let sink = std::fs::read_to_string(&sink_path).expect("sink file");
+    let line = sink.lines().next().expect("sink line");
+    let event: Value = serde_json::from_str(line).expect("event json");
+    assert_eq!(event["error_code"], "internal");
+    assert_eq!(event["correlation_id"], correlation_id);
+    assert_eq!(event["component"], "tanren_app_services");
 }

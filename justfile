@@ -373,7 +373,7 @@ clean:
 ci-rust-strict:
     @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks -- -D warnings
     @RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks --profile ci --no-tests=pass
-    @RUSTFLAGS="-D warnings" {{ cargo }} nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
+    @PGSSLMODE="${PGSSLMODE:-disable}" RUSTFLAGS="-D warnings" {{ cargo }} nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
 
 # Run full CI check locally.
 ci: fmt check-lines check-suppression check-deps check-thin-interfaces check-store-bypass check-ci-parity deny doc machete ci-rust-strict

@@ -17,10 +17,13 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
 use tanren_app_services::{ActorTokenVerifier, RequestContext};
 use tanren_contract::{ContractError, ErrorCode, ErrorResponse};
-use tanren_observability::{ObservabilityError, init_tracing, sanitize_error_for_log};
+use tanren_observability::{
+    ObservabilityError, emit_correlated_internal_error, init_tracing_for_contract_io,
+};
 use uuid::Uuid;
 
 const ACTOR_TOKEN_ENV_VAR: &str = "TANREN_ACTOR_TOKEN";
+type EmitCorrelatedInternalError = fn(&str, &str, Uuid, &str) -> Result<(), ObservabilityError>;
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
@@ -103,7 +106,7 @@ async fn run() -> Result<()> {
         }
     };
 
-    match init_tracing(&cli.log_level) {
+    match init_tracing_for_contract_io(&cli.log_level) {
         Ok(()) | Err(ObservabilityError::AlreadyInitialized) => {}
         Err(ObservabilityError::FilterParse(reason)) => {
             return Err(anyhow::Error::new(ErrorResponse::from(
@@ -112,6 +115,13 @@ async fn run() -> Result<()> {
                     reason,
                 },
             )));
+        }
+        Err(ObservabilityError::SinkSerialize(_) | ObservabilityError::SinkIo(_)) => {
+            return Err(anyhow::Error::new(ErrorResponse {
+                code: ErrorCode::Internal,
+                message: "internal error".to_owned(),
+                details: None,
+            }));
         }
     }
 
@@ -206,31 +216,29 @@ fn resolve_request_context(
         .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ActorTokenSource {
-    Stdin,
-    File,
-    Env,
-}
-
 fn resolve_actor_token(
     actor_token_stdin: bool,
     actor_token_file: Option<&PathBuf>,
 ) -> Result<String, anyhow::Error> {
-    if actor_token_stdin && actor_token_file.is_some() {
+    let env_token = std::env::var(ACTOR_TOKEN_ENV_VAR).ok();
+    let selected_source_count = u8::from(actor_token_stdin)
+        + u8::from(actor_token_file.is_some())
+        + u8::from(env_token.is_some());
+
+    if selected_source_count > 1 {
         return Err(anyhow::Error::new(ErrorResponse::from(
             ContractError::InvalidField {
                 field: "actor_token".to_owned(),
-                reason:
-                    "exactly one token source is allowed; use either --actor-token-stdin or --actor-token-file"
-                        .to_owned(),
+                reason: format!(
+                    "exactly one token source is allowed; choose one of --actor-token-stdin, --actor-token-file, or {ACTOR_TOKEN_ENV_VAR}"
+                ),
             },
         )));
     }
 
     if actor_token_stdin {
         let token = read_actor_token_from_stdin()?;
-        return normalize_actor_token(&token, ActorTokenSource::Stdin);
+        return normalize_actor_token(&token);
     }
 
     if let Some(path) = actor_token_file {
@@ -243,11 +251,11 @@ fn resolve_actor_token(
                 ),
             }))
         })?;
-        return normalize_actor_token(&token, ActorTokenSource::File);
+        return normalize_actor_token(&token);
     }
 
-    if let Ok(token) = std::env::var(ACTOR_TOKEN_ENV_VAR) {
-        return normalize_actor_token(&token, ActorTokenSource::Env);
+    if let Some(token) = env_token {
+        return normalize_actor_token(&token);
     }
 
     Err(anyhow::Error::new(ErrorResponse::from(
@@ -271,7 +279,7 @@ fn read_actor_token_from_stdin() -> Result<String, anyhow::Error> {
     Ok(token)
 }
 
-fn normalize_actor_token(token: &str, source: ActorTokenSource) -> Result<String, anyhow::Error> {
+fn normalize_actor_token(token: &str) -> Result<String, anyhow::Error> {
     let token = token.trim().to_owned();
     if token.is_empty() {
         return Err(anyhow::Error::new(ErrorResponse::from(
@@ -282,37 +290,40 @@ fn normalize_actor_token(token: &str, source: ActorTokenSource) -> Result<String
         )));
     }
 
-    tracing::info!(
-        token_source = match source {
-            ActorTokenSource::Stdin => "stdin",
-            ActorTokenSource::File => "file",
-            ActorTokenSource::Env => "env",
-        },
-        "resolved actor token source",
-    );
-
     Ok(token)
 }
 
 fn into_error_response(err: anyhow::Error) -> ErrorResponse {
     match err.downcast::<ErrorResponse>() {
         Ok(er) => er,
-        Err(other) => {
-            let correlation_id = Uuid::now_v7();
-            let sanitized = sanitize_error_for_log(&other.to_string());
-            tracing::error!(
-                %correlation_id,
-                error = %sanitized,
-                "unhandled cli failure mapped to internal error response",
-            );
-            ErrorResponse {
-                code: ErrorCode::Internal,
-                message: "internal error".to_owned(),
-                details: Some(serde_json::json!({
-                    "correlation_id": correlation_id.to_string(),
-                })),
-            }
-        }
+        Err(other) => correlated_internal_error_response_with_emitter(
+            "tanren_cli",
+            "internal",
+            &other.to_string(),
+            emit_correlated_internal_error,
+        ),
+    }
+}
+
+fn correlated_internal_error_response_with_emitter(
+    component: &str,
+    error_code: &str,
+    raw_error: &str,
+    emitter: EmitCorrelatedInternalError,
+) -> ErrorResponse {
+    let correlation_id = Uuid::now_v7();
+    let details = if emitter(component, error_code, correlation_id, raw_error).is_ok() {
+        Some(serde_json::json!({
+            "correlation_id": correlation_id.to_string(),
+        }))
+    } else {
+        None
+    };
+
+    ErrorResponse {
+        code: ErrorCode::Internal,
+        message: "internal error".to_owned(),
+        details,
     }
 }
 

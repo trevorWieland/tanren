@@ -168,6 +168,73 @@ async fn query_dispatches_filters_by_policy_read_scope() {
 }
 
 #[tokio::test]
+async fn get_dispatch_scoped_enforces_scope_and_keeps_unscoped_visibility() {
+    let store = fresh_store().await;
+    let org = OrgId::new();
+    let project = ProjectId::new();
+    let scoped_dispatch = create_dispatch(
+        &store,
+        "alpha",
+        ActorContext {
+            org_id: org,
+            user_id: UserId::new(),
+            team_id: None,
+            api_key_id: None,
+            project_id: Some(project),
+        },
+        Lane::Impl,
+    )
+    .await
+    .expect("create scoped");
+    let unscoped_dispatch = create_dispatch(
+        &store,
+        "alpha",
+        ActorContext {
+            org_id: org,
+            user_id: UserId::new(),
+            team_id: None,
+            api_key_id: None,
+            project_id: None,
+        },
+        Lane::Impl,
+    )
+    .await
+    .expect("create unscoped");
+
+    let unscoped_reader = DispatchReadScope {
+        org_id: org,
+        project_id: None,
+        team_id: None,
+        api_key_id: None,
+    };
+    let hidden = store
+        .get_dispatch_scoped(&scoped_dispatch, unscoped_reader)
+        .await
+        .expect("scoped get");
+    assert!(hidden.is_none(), "scope mismatch should be hidden");
+
+    let scope = DispatchReadScope {
+        org_id: org,
+        project_id: Some(project),
+        team_id: None,
+        api_key_id: None,
+    };
+    let scoped_view = store
+        .get_dispatch_scoped(&scoped_dispatch, scope)
+        .await
+        .expect("scoped get")
+        .expect("visible");
+    assert_eq!(scoped_view.dispatch_id, scoped_dispatch);
+
+    let unscoped_view = store
+        .get_dispatch_scoped(&unscoped_dispatch, scope)
+        .await
+        .expect("unscoped get")
+        .expect("visible");
+    assert_eq!(unscoped_view.dispatch_id, unscoped_dispatch);
+}
+
+#[tokio::test]
 async fn query_dispatches_respects_full_scope_tuple_matching() {
     let store = fresh_store().await;
     let fixture = seed_full_scope_fixture(&store).await;

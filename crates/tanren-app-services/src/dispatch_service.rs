@@ -167,6 +167,7 @@ mod tests {
     use tanren_orchestrator::Orchestrator;
     use tanren_policy::PolicyEngine;
     use tanren_store::Store;
+    use uuid::Uuid;
 
     use super::{DispatchService, convert_list_filter, format_cursor, parse_cursor};
     use crate::RequestContext;
@@ -286,6 +287,44 @@ mod tests {
             .get(&unauthorized, created.dispatch_id)
             .await
             .expect_err("unauthorized actor should not see dispatch");
+        assert_eq!(err.code, ErrorCode::NotFound);
+    }
+
+    #[tokio::test]
+    async fn service_cancel_hides_unauthorized_dispatch_as_not_found() {
+        let service = setup_service().await;
+        let created = service
+            .create(&sample_context(), sample_request())
+            .await
+            .expect("create");
+
+        let unauthorized = RequestContext::new(ActorContext::new(OrgId::new(), UserId::new()));
+        let err = service
+            .cancel(
+                &unauthorized,
+                tanren_contract::CancelDispatchRequest {
+                    dispatch_id: created.dispatch_id,
+                    reason: Some("unauthorized cancel".to_owned()),
+                },
+            )
+            .await
+            .expect_err("unauthorized actor should not see dispatch");
+        assert_eq!(err.code, ErrorCode::NotFound);
+    }
+
+    #[tokio::test]
+    async fn service_cancel_nonexistent_dispatch_returns_not_found() {
+        let service = setup_service().await;
+        let err = service
+            .cancel(
+                &sample_context(),
+                tanren_contract::CancelDispatchRequest {
+                    dispatch_id: Uuid::now_v7(),
+                    reason: Some("missing dispatch".to_owned()),
+                },
+            )
+            .await
+            .expect_err("missing dispatch should fail");
         assert_eq!(err.code, ErrorCode::NotFound);
     }
 }

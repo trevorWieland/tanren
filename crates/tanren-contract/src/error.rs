@@ -5,7 +5,7 @@
 //! error returned to transport interfaces.
 
 use serde::{Deserialize, Serialize};
-use tanren_domain::DomainError;
+use tanren_domain::{DomainError, PolicyReasonCode};
 
 /// Machine-readable wire error code shared by all transports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,10 +93,10 @@ pub enum ContractError {
     },
 
     /// Policy denied the operation.
-    #[error("policy denied: {reason}")]
+    #[error("policy denied")]
     PolicyDenied {
-        /// Reason the policy denied the action.
-        reason: String,
+        /// Machine-safe policy reason code when available.
+        reason_code: Option<PolicyReasonCode>,
     },
 
     /// An internal infrastructure error.
@@ -129,24 +129,51 @@ impl std::error::Error for ErrorResponse {}
 
 impl From<ContractError> for ErrorResponse {
     fn from(err: ContractError) -> Self {
-        let (code, message) = match &err {
-            ContractError::InvalidField { .. } => (ErrorCode::InvalidInput, err.to_string()),
-            ContractError::NotFound { .. } => (ErrorCode::NotFound, err.to_string()),
-            ContractError::SchemaNotReady { .. } => (ErrorCode::SchemaNotReady, err.to_string()),
-            ContractError::InvalidTransition { .. } => {
-                (ErrorCode::InvalidTransition, err.to_string())
-            }
-            ContractError::ContentionConflict { .. } => {
-                (ErrorCode::ContentionConflict, err.to_string())
-            }
-            ContractError::Conflict { .. } => (ErrorCode::Conflict, err.to_string()),
-            ContractError::PolicyDenied { .. } => (ErrorCode::PolicyDenied, err.to_string()),
-            ContractError::Internal { .. } => (ErrorCode::Internal, err.to_string()),
-        };
-        Self {
-            code,
-            message,
-            details: None,
+        match err {
+            ContractError::InvalidField { field, reason } => Self {
+                code: ErrorCode::InvalidInput,
+                message: format!("invalid field `{field}`: {reason}"),
+                details: None,
+            },
+            ContractError::NotFound { entity, id } => Self {
+                code: ErrorCode::NotFound,
+                message: format!("{entity} not found: {id}"),
+                details: None,
+            },
+            ContractError::SchemaNotReady { reason } => Self {
+                code: ErrorCode::SchemaNotReady,
+                message: format!("schema not ready: {reason}"),
+                details: None,
+            },
+            ContractError::InvalidTransition { entity, from, to } => Self {
+                code: ErrorCode::InvalidTransition,
+                message: format!("invalid transition on {entity}: {from} -> {to}"),
+                details: None,
+            },
+            ContractError::ContentionConflict { operation, reason } => Self {
+                code: ErrorCode::ContentionConflict,
+                message: format!("contention conflict in {operation}: {reason}"),
+                details: None,
+            },
+            ContractError::Conflict { reason } => Self {
+                code: ErrorCode::Conflict,
+                message: format!("conflict: {reason}"),
+                details: None,
+            },
+            ContractError::PolicyDenied { reason_code } => Self {
+                code: ErrorCode::PolicyDenied,
+                message: "policy denied".to_owned(),
+                details: reason_code.map(|code| {
+                    serde_json::json!({
+                        "reason_code": code.to_string(),
+                    })
+                }),
+            },
+            ContractError::Internal { message } => Self {
+                code: ErrorCode::Internal,
+                message: format!("internal error: {message}"),
+                details: None,
+            },
         }
     }
 }
@@ -162,15 +189,9 @@ impl From<DomainError> for ContractError {
                 field: field.clone(),
                 reason: reason.clone(),
             },
-            DomainError::PolicyDenied { reason, .. } => Self::PolicyDenied {
-                reason: reason.clone(),
-            },
-            DomainError::BudgetExceeded { limit, current } => Self::PolicyDenied {
-                reason: format!("budget exceeded: limit={limit}, current={current}"),
-            },
-            DomainError::QuotaExhausted { resource, limit } => Self::PolicyDenied {
-                reason: format!("quota exhausted for {resource}: limit={limit}"),
-            },
+            DomainError::PolicyDenied { .. }
+            | DomainError::BudgetExceeded { .. }
+            | DomainError::QuotaExhausted { .. } => Self::PolicyDenied { reason_code: None },
             DomainError::InvalidTransition { entity, from, to } => Self::InvalidTransition {
                 entity: entity.to_string(),
                 from: from.clone(),

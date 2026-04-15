@@ -6,13 +6,12 @@
 //! the store an [`EventEnvelope`] via the param struct and the store
 //! appends it inside the same transaction closure.
 
-use std::collections::HashSet;
-
 use async_trait::async_trait;
 use chrono::Utc;
+use sea_orm::DbBackend;
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    Select, TransactionTrait, sea_query::Expr,
+    QueryTrait, Select, Statement, TransactionTrait, sea_query::Expr,
 };
 use tanren_domain::{
     DispatchId, DispatchReadScope, DispatchView, EntityKind, Lane, StepId, StepStatus, StepView,
@@ -37,6 +36,13 @@ use crate::store::Store;
 pub trait StateStore: Send + Sync {
     /// Look up a dispatch by id.
     async fn get_dispatch(&self, id: &DispatchId) -> StoreResult<Option<DispatchView>>;
+
+    /// Look up a dispatch by id within an actor-derived read scope.
+    async fn get_dispatch_scoped(
+        &self,
+        id: &DispatchId,
+        scope: DispatchReadScope,
+    ) -> StoreResult<Option<DispatchView>>;
 
     /// Query dispatches by filter dimensions (status, lane, user, etc.).
     async fn query_dispatches(&self, filter: &DispatchFilter) -> StoreResult<DispatchQueryPage>;
@@ -83,6 +89,20 @@ impl StateStore for Store {
         row.map(dispatch_converters::model_to_view).transpose()
     }
 
+    async fn get_dispatch_scoped(
+        &self,
+        id: &DispatchId,
+        scope: DispatchReadScope,
+    ) -> StoreResult<Option<DispatchView>> {
+        let row = apply_scoped_dispatch_filter(
+            dispatch_projection::Entity::find_by_id(id.into_uuid()),
+            scope,
+        )
+        .one(self.conn())
+        .await?;
+        row.map(dispatch_converters::model_to_view).transpose()
+    }
+
     async fn query_dispatches(&self, filter: &DispatchFilter) -> StoreResult<DispatchQueryPage> {
         let page_size = filter.limit.min(crate::params::MAX_DISPATCH_QUERY_LIMIT);
         if page_size == 0 {
@@ -91,16 +111,9 @@ impl StateStore for Store {
                 next_cursor: None,
             });
         }
-        let rows = if let Some(scope) = filter.read_scope {
-            query_dispatches_union_scoped(self, filter, scope, page_size).await?
-        } else {
-            apply_common_dispatch_filters(dispatch_projection::Entity::find(), filter)
-                .order_by_desc(dispatch_projection::Column::CreatedAt)
-                .order_by_desc(dispatch_projection::Column::DispatchId)
-                .limit(page_size.saturating_add(1))
-                .all(self.conn())
-                .await?
-        };
+        let rows = build_dispatch_query(filter, page_size)
+            .all(self.conn())
+            .await?;
         build_dispatch_query_page(rows, page_size)
     }
 
@@ -285,95 +298,64 @@ impl StateStore for Store {
 
 type DispatchProjectionSelect = Select<dispatch_projection::Entity>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ScopeTupleBranch {
-    project: Option<uuid::Uuid>,
-    team: Option<uuid::Uuid>,
-    api_key: Option<uuid::Uuid>,
-}
-
-impl ScopeTupleBranch {
-    fn expand(scope: DispatchReadScope) -> Vec<Self> {
-        let project_values =
-            scope_dimension_values(scope.project_id.map(tanren_domain::ProjectId::into_uuid));
-        let team_values =
-            scope_dimension_values(scope.team_id.map(tanren_domain::TeamId::into_uuid));
-        let api_key_values =
-            scope_dimension_values(scope.api_key_id.map(tanren_domain::ApiKeyId::into_uuid));
-
-        let mut branches = Vec::with_capacity(
-            project_values
-                .len()
-                .saturating_mul(team_values.len())
-                .saturating_mul(api_key_values.len()),
-        );
-        for project_id in &project_values {
-            for team_id in &team_values {
-                for api_key_id in &api_key_values {
-                    branches.push(Self {
-                        project: *project_id,
-                        team: *team_id,
-                        api_key: *api_key_id,
-                    });
-                }
-            }
-        }
-        branches
+fn build_dispatch_query(filter: &DispatchFilter, page_size: u64) -> DispatchProjectionSelect {
+    let mut query = apply_common_dispatch_filters(dispatch_projection::Entity::find(), filter);
+    if let Some(scope) = filter.read_scope {
+        query = apply_scoped_dispatch_filter(query, scope);
     }
-}
 
-fn scope_dimension_values(scope_id: Option<uuid::Uuid>) -> Vec<Option<uuid::Uuid>> {
-    match scope_id {
-        Some(scope_id) => vec![None, Some(scope_id)],
-        None => vec![None],
-    }
-}
-
-async fn query_dispatches_union_scoped(
-    store: &Store,
-    filter: &DispatchFilter,
-    scope: DispatchReadScope,
-    page_size: u64,
-) -> StoreResult<Vec<dispatch_projection::Model>> {
-    let mut rows = Vec::new();
-    for branch in ScopeTupleBranch::expand(scope) {
-        let query = apply_scope_tuple_branch(
-            apply_common_dispatch_filters(dispatch_projection::Entity::find(), filter)
-                .filter(dispatch_projection::Column::OrgId.eq(scope.org_id.into_uuid())),
-            branch,
-        )
+    query
         .order_by_desc(dispatch_projection::Column::CreatedAt)
         .order_by_desc(dispatch_projection::Column::DispatchId)
-        .limit(page_size.saturating_add(1));
-        rows.extend(query.all(store.conn()).await?);
-    }
-    Ok(rows)
+        .limit(page_size.saturating_add(1))
 }
 
-fn apply_scope_tuple_branch(
+/// Build the exact scoped dispatch query statement used at runtime.
+///
+/// Exposed behind `test-hooks` so integration tests can run backend-native
+/// `EXPLAIN` on the same predicate and ordering plan that `query_dispatches`
+/// executes.
+pub fn dispatch_query_statement_for_backend(
+    filter: &DispatchFilter,
+    page_size: u64,
+    backend: DbBackend,
+) -> Statement {
+    let built = build_dispatch_query(filter, page_size).build(backend);
+    match built.values {
+        Some(values) => Statement::from_sql_and_values(backend, built.sql, values),
+        None => Statement::from_string(backend, built.sql),
+    }
+}
+
+fn apply_scoped_dispatch_filter(
     mut query: DispatchProjectionSelect,
-    branch: ScopeTupleBranch,
+    scope: DispatchReadScope,
 ) -> DispatchProjectionSelect {
-    query = apply_scope_column_match(
+    query = query.filter(dispatch_projection::Column::OrgId.eq(scope.org_id.into_uuid()));
+    query = apply_scope_dimension_filter(
         query,
         dispatch_projection::Column::ScopeProjectId,
-        branch.project,
+        scope.project_id.map(tanren_domain::ProjectId::into_uuid),
     );
-    query = apply_scope_column_match(query, dispatch_projection::Column::ScopeTeamId, branch.team);
-    apply_scope_column_match(
+    query = apply_scope_dimension_filter(
+        query,
+        dispatch_projection::Column::ScopeTeamId,
+        scope.team_id.map(tanren_domain::TeamId::into_uuid),
+    );
+    apply_scope_dimension_filter(
         query,
         dispatch_projection::Column::ScopeApiKeyId,
-        branch.api_key,
+        scope.api_key_id.map(tanren_domain::ApiKeyId::into_uuid),
     )
 }
 
-fn apply_scope_column_match(
+fn apply_scope_dimension_filter(
     query: DispatchProjectionSelect,
     column: dispatch_projection::Column,
     value: Option<uuid::Uuid>,
 ) -> DispatchProjectionSelect {
     match value {
-        Some(value) => query.filter(column.eq(value)),
+        Some(value) => query.filter(Condition::any().add(column.is_null()).add(column.eq(value))),
         None => query.filter(column.is_null()),
     }
 }
@@ -421,15 +403,6 @@ fn build_dispatch_query_page(
     mut rows: Vec<dispatch_projection::Model>,
     page_size: u64,
 ) -> StoreResult<DispatchQueryPage> {
-    rows.sort_by(|lhs, rhs| {
-        rhs.created_at
-            .cmp(&lhs.created_at)
-            .then_with(|| rhs.dispatch_id.cmp(&lhs.dispatch_id))
-    });
-
-    let mut seen = HashSet::with_capacity(rows.len());
-    rows.retain(|row| seen.insert(row.dispatch_id));
-
     let page_size_usize = usize::try_from(page_size).unwrap_or(usize::MAX);
     let has_more = rows.len() > page_size_usize;
     if has_more {

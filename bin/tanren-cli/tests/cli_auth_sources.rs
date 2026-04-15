@@ -209,6 +209,65 @@ fn token_source_conflict_is_rejected() {
 }
 
 #[test]
+fn token_source_conflict_env_plus_file_is_rejected() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    let output = cli()
+        .env("TANREN_ACTOR_TOKEN", &auth.token)
+        .args([
+            "--database-url",
+            &db_url,
+            "--actor-token-file",
+            auth.actor_token_file.to_str().expect("utf8 path"),
+            "--actor-public-key-file",
+            auth.public_key_file.to_str().expect("utf8 path"),
+            "--token-issuer",
+            &auth.issuer,
+            "--token-audience",
+            &auth.audience,
+            "dispatch",
+            "list",
+        ])
+        .output()
+        .expect("execute");
+
+    assert!(!output.status.success(), "env+file conflict must fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "invalid_input");
+    assert!(v["message"].as_str().expect("msg").contains("token source"));
+}
+
+#[test]
+fn token_source_conflict_env_plus_stdin_is_rejected() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    let mut cmd = cli();
+    cmd.env("TANREN_ACTOR_TOKEN", &auth.token);
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "--actor-token-stdin",
+        "--actor-public-key-file",
+        auth.public_key_file.to_str().expect("utf8 path"),
+        "--token-issuer",
+        &auth.issuer,
+        "--token-audience",
+        &auth.audience,
+        "dispatch",
+        "list",
+    ]);
+    cmd.write_stdin(format!("{}\n", auth.token));
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "env+stdin conflict must fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "invalid_input");
+    assert!(v["message"].as_str().expect("msg").contains("token source"));
+}
+
+#[test]
 fn help_exits_successfully() {
     let output = cli().arg("--help").output().expect("execute");
     assert!(output.status.success(), "help should exit 0");

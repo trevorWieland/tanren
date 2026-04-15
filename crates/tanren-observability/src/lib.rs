@@ -10,9 +10,15 @@
 //!
 //! - No crate emits unstructured logs without correlation context
 //! - All telemetry uses structured tracing, never `println!` or `eprintln!`
-//! - Binary crates call [`init_tracing`] once at startup
+//! - Binary crates call [`init_tracing`] or [`init_tracing_for_contract_io`] once at startup
 
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+
+use chrono::Utc;
+use serde::Serialize;
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 /// Errors that can occur during observability initialization.
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +30,14 @@ pub enum ObservabilityError {
     /// The tracing subscriber has already been initialized.
     #[error("tracing subscriber already initialized")]
     AlreadyInitialized,
+
+    /// A correlated error event could not be serialized.
+    #[error("failed to serialize correlated error event: {0}")]
+    SinkSerialize(String),
+
+    /// A correlated error event could not be written.
+    #[error("failed to write correlated error event: {0}")]
+    SinkIo(String),
 }
 
 /// Initialize the global tracing subscriber with the given filter level.
@@ -51,6 +65,42 @@ pub fn init_tracing(level: &str) -> Result<(), ObservabilityError> {
         .compact()
         .try_init()
         .map_err(|_| ObservabilityError::AlreadyInitialized)
+}
+
+/// Initialize tracing for binaries with strict machine I/O contracts.
+///
+/// This variant validates and installs a global subscriber but writes
+/// trace output to a sink so command stdout/stderr remain contract-only.
+pub fn init_tracing_for_contract_io(level: &str) -> Result<(), ObservabilityError> {
+    let filter =
+        EnvFilter::try_new(level).map_err(|e| ObservabilityError::FilterParse(e.to_string()))?;
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_writer(std::io::sink)
+        .compact()
+        .try_init()
+        .map_err(|_| ObservabilityError::AlreadyInitialized)
+}
+
+/// Emit an internal error event to the default JSONL sink.
+///
+/// This is best-effort telemetry for correlation IDs returned in wire
+/// responses. It never writes to stdout/stderr.
+pub fn emit_correlated_internal_error(
+    component: &str,
+    error_code: &str,
+    correlation_id: Uuid,
+    raw_error: &str,
+) -> Result<(), ObservabilityError> {
+    emit_correlated_internal_error_to_path(
+        &default_internal_error_sink_path(),
+        component,
+        error_code,
+        correlation_id,
+        raw_error,
+    )
 }
 
 /// Sanitize error text before structured logging.
@@ -124,9 +174,76 @@ fn redact_after_prefix(input: &str, prefix: &str) -> String {
     out
 }
 
+fn default_internal_error_sink_path() -> PathBuf {
+    if let Ok(xdg_state_home) = std::env::var("XDG_STATE_HOME")
+        && !xdg_state_home.trim().is_empty()
+    {
+        return PathBuf::from(xdg_state_home)
+            .join("tanren")
+            .join("internal-errors.jsonl");
+    }
+
+    if let Ok(home) = std::env::var("HOME")
+        && !home.trim().is_empty()
+    {
+        return PathBuf::from(home)
+            .join(".local")
+            .join("state")
+            .join("tanren")
+            .join("internal-errors.jsonl");
+    }
+
+    std::env::temp_dir()
+        .join("tanren")
+        .join("internal-errors.jsonl")
+}
+
+fn emit_correlated_internal_error_to_path(
+    path: &Path,
+    component: &str,
+    error_code: &str,
+    correlation_id: Uuid,
+    raw_error: &str,
+) -> Result<(), ObservabilityError> {
+    let parent = path.parent().ok_or_else(|| {
+        ObservabilityError::SinkIo(format!("missing parent directory for {}", path.display()))
+    })?;
+    std::fs::create_dir_all(parent).map_err(|err| {
+        ObservabilityError::SinkIo(format!("create_dir_all {}: {err}", parent.display()))
+    })?;
+
+    let record = CorrelatedInternalErrorRecord {
+        timestamp_utc: Utc::now().to_rfc3339(),
+        component,
+        error_code,
+        correlation_id: correlation_id.to_string(),
+        message: sanitize_error_for_log(raw_error),
+    };
+    let line = serde_json::to_string(&record)
+        .map_err(|err| ObservabilityError::SinkSerialize(err.to_string()))?;
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|err| ObservabilityError::SinkIo(format!("open {}: {err}", path.display())))?;
+    writeln!(file, "{line}")
+        .map_err(|err| ObservabilityError::SinkIo(format!("write {}: {err}", path.display())))
+}
+
+#[derive(Debug, Serialize)]
+struct CorrelatedInternalErrorRecord<'a> {
+    timestamp_utc: String,
+    component: &'a str,
+    error_code: &'a str,
+    correlation_id: String,
+    message: String,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::sanitize_error_for_log;
+    use super::{emit_correlated_internal_error_to_path, sanitize_error_for_log};
+    use uuid::Uuid;
 
     #[test]
     fn sanitize_redacts_postgres_url_userinfo() {
@@ -144,5 +261,37 @@ mod tests {
         assert!(sanitized.contains("sqlite://REDACTED@localhost/tmp/t.db"));
         assert!(!sanitized.contains("abc123"));
         assert!(sanitized.contains("token=REDACTED"));
+    }
+
+    #[test]
+    fn correlated_error_sink_writes_sanitized_jsonl_record() {
+        let path =
+            std::env::temp_dir().join(format!("tanren-observability-{}.jsonl", Uuid::now_v7()));
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+
+        let correlation_id = Uuid::now_v7();
+        emit_correlated_internal_error_to_path(
+            &path,
+            "tanren_cli",
+            "internal",
+            correlation_id,
+            "failed postgres://alice:secret@localhost:5432/tanren?token=abc123",
+        )
+        .expect("write sink");
+
+        let line = std::fs::read_to_string(&path).expect("read sink");
+        let trimmed = line.trim();
+        let value: serde_json::Value = serde_json::from_str(trimmed).expect("json");
+        assert_eq!(value["component"], "tanren_cli");
+        assert_eq!(value["error_code"], "internal");
+        assert_eq!(value["correlation_id"], correlation_id.to_string());
+        assert!(value["timestamp_utc"].as_str().is_some());
+        let message = value["message"].as_str().expect("message");
+        assert!(!message.contains("alice:secret"));
+        assert!(!message.contains("abc123"));
+
+        let _ = std::fs::remove_file(&path);
     }
 }
