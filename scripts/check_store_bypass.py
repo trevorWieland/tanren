@@ -55,6 +55,23 @@ FORBIDDEN_TRANSPORT_CALLS = [
     "append_batch",
 ]
 
+FORBIDDEN_APP_SERVICES_CALLS = [
+    "create_dispatch_projection",
+    "create_dispatch_with_initial_step",
+    "update_dispatch_status",
+    "cancel_pending_steps",
+    "enqueue_step",
+    "ack",
+    "ack_and_enqueue",
+    "nack",
+    "append",
+    "append_batch",
+]
+
+FORBIDDEN_APP_SERVICES_CANCEL_CALL = "cancel_dispatch"
+
+CANCEL_DISPATCH_ALLOWED_RECEIVER_MARKERS = ("orchestrator",)
+
 
 def iter_interface_files() -> list[Path]:
     """Return all Rust interface source files that should be audited."""
@@ -72,45 +89,119 @@ def strip_line_comments(line: str) -> str:
     return line[:comment_start]
 
 
+def strip_line_comments_from_text(text: str) -> str:
+    """Return `text` with `//` comments removed while preserving line count."""
+    return "\n".join(strip_line_comments(line) for line in text.splitlines())
+
+
 def is_transport_binary_file(path: Path) -> bool:
     """Return whether `path` points at a transport binary source tree."""
-    parts = path.parts
-    return len(parts) > 1 and parts[0] == "bin"
+    path_text = path.as_posix()
+    if path_text.startswith("bin/"):
+        return True
+    return any(
+        marker in path_text
+        for marker in (
+            "/bin/tanren-cli/src/",
+            "/bin/tanren-api/src/",
+            "/bin/tanren-mcp/src/",
+            "/bin/tanren-tui/src/",
+        )
+    )
+
+
+def is_app_services_file(path: Path) -> bool:
+    """Return whether `path` points at the app-services source tree."""
+    path_text = path.as_posix()
+    return path_text.startswith("crates/tanren-app-services/src/") or (
+        "/crates/tanren-app-services/src/" in path_text
+    )
+
+
+def line_number_for_offset(text: str, offset: int) -> int:
+    """Convert a string offset to a 1-based line number."""
+    return text.count("\n", 0, offset) + 1
+
+
+def extract_receiver_expression(text: str, call_dot_offset: int) -> str:
+    """Extract a best-effort receiver expression before a method call dot."""
+    index = call_dot_offset - 1
+    while index >= 0 and text[index].isspace():
+        index -= 1
+    receiver_end = index + 1
+    while index >= 0 and text[index] not in ";\n{}":
+        index -= 1
+    receiver_start = index + 1
+    return text[receiver_start:receiver_end].strip()
+
+
+def find_method_calls(text: str, method_name: str) -> list[tuple[int, str]]:
+    """Return `(line_number, receiver_expression)` for method call matches."""
+    method_pattern = re.compile(rf"\.\s*{re.escape(method_name)}\s*\(")
+    return [
+        (line_number_for_offset(text, match.start()), extract_receiver_expression(text, match.start()))
+        for match in method_pattern.finditer(text)
+    ]
+
+
+def find_constructor_occurrences(text: str, constructor_name: str) -> list[int]:
+    """Return line numbers where a constructor literal is instantiated."""
+    constructor_pattern = re.compile(rf"\b{re.escape(constructor_name)}\s*\{{")
+    return [line_number_for_offset(text, match.start()) for match in constructor_pattern.finditer(text)]
 
 
 def check_file(path: Path) -> list[str]:
     """Return store-bypass violations found in one Rust source file."""
     violations: list[str] = []
-    lines = path.read_text().splitlines()
+    seen: set[str] = set()
+    raw_text = path.read_text(encoding="utf-8")
+    text = strip_line_comments_from_text(raw_text)
+    lines = text.splitlines()
+
+    def add_violation(message: str) -> None:
+        if message in seen:
+            return
+        seen.add(message)
+        violations.append(message)
 
     for lineno, raw_line in enumerate(lines, start=1):
-        line = strip_line_comments(raw_line)
-        if not line.strip():
+        if not raw_line.strip():
             continue
 
-        violations.extend(
-            (
-                f"  {path}:{lineno} — imports store internals `{pattern.pattern}`. "
-                "Use public store/app-service contracts only."
-            )
-            for pattern in FORBIDDEN_STORE_INTERNAL_IMPORTS
-            if pattern.search(line)
-        )
+        for pattern in FORBIDDEN_STORE_INTERNAL_IMPORTS:
+            if pattern.search(raw_line):
+                add_violation(
+                    f"  {path}:{lineno} — imports store internals `{pattern.pattern}`. "
+                    "Use public store/app-service contracts only."
+                )
 
-        violations.extend(
-            (f"  {path}:{lineno} — constructs `{constructor}` outside orchestrator/store.")
-            for constructor in FORBIDDEN_STORE_CONSTRUCTORS
-            if re.search(rf"\b{re.escape(constructor)}\s*\{{", line)
-        )
+    for constructor in FORBIDDEN_STORE_CONSTRUCTORS:
+        for lineno in find_constructor_occurrences(text, constructor):
+            add_violation(f"  {path}:{lineno} — constructs `{constructor}` outside orchestrator/store.")
 
-        if is_transport_binary_file(path):
-            violations.extend(
-                (
+    if is_transport_binary_file(path):
+        for method_name in FORBIDDEN_TRANSPORT_CALLS:
+            for lineno, _ in find_method_calls(text, method_name):
+                add_violation(
                     f"  {path}:{lineno} — direct `{method_name}(...)` call in "
                     "transport binary. Route through tanren-app-services."
                 )
-                for method_name in FORBIDDEN_TRANSPORT_CALLS
-                if re.search(rf"\.\s*{re.escape(method_name)}\s*\(", line)
+
+    if is_app_services_file(path):
+        for method_name in FORBIDDEN_APP_SERVICES_CALLS:
+            for lineno, _ in find_method_calls(text, method_name):
+                add_violation(
+                    f"  {path}:{lineno} — direct `{method_name}(...)` call in "
+                    "app-services. Route writes through tanren-orchestrator."
+                )
+
+        for lineno, receiver in find_method_calls(text, FORBIDDEN_APP_SERVICES_CANCEL_CALL):
+            receiver_lower = receiver.lower()
+            if any(marker in receiver_lower for marker in CANCEL_DISPATCH_ALLOWED_RECEIVER_MARKERS):
+                continue
+            add_violation(
+                f"  {path}:{lineno} — direct `cancel_dispatch(...)` store-path call in "
+                "app-services. Route cancellation through tanren-orchestrator."
             )
 
     return violations

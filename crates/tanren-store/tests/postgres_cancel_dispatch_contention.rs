@@ -178,6 +178,87 @@ async fn seed_execute_steps(
     Ok(ids)
 }
 
+fn scoped_dispatch_filter(org: OrgId, limit: u64) -> DispatchFilter {
+    DispatchFilter {
+        read_scope: Some(DispatchReadScope {
+            org_id: org,
+            project_id: None,
+            team_id: None,
+            api_key_id: None,
+        }),
+        limit,
+        ..DispatchFilter::new()
+    }
+}
+
+fn explain_statement(stmt: Statement) -> Statement {
+    let explain_sql = format!("EXPLAIN (COSTS FALSE) {}", stmt.sql);
+    match stmt.values {
+        Some(values) => Statement::from_sql_and_values(DbBackend::Postgres, explain_sql, values),
+        None => Statement::from_string(DbBackend::Postgres, explain_sql),
+    }
+}
+
+async fn explain_plan_lines(url: &str, stmt: Statement, force_index_path: bool) -> Vec<String> {
+    let conn = Database::connect(url).await.expect("explain connection");
+    conn.execute_unprepared("ANALYZE").await.expect("analyze");
+    if force_index_path {
+        conn.execute_unprepared("SET enable_seqscan = off")
+            .await
+            .expect("disable seqscan");
+        conn.execute_unprepared("SET enable_bitmapscan = off")
+            .await
+            .expect("disable bitmap scans");
+    }
+
+    let rows = conn
+        .query_all(explain_statement(stmt))
+        .await
+        .expect("explain plan");
+    rows.into_iter()
+        .map(|row| {
+            row.try_get("", "QUERY PLAN")
+                .or_else(|_| row.try_get("", "query_plan"))
+                .expect("query plan line")
+        })
+        .collect()
+}
+
+fn assert_scope_index_usage(lines: &[String]) {
+    const ACCEPTED_SCOPE_INDEX_NAMES: [&str; 6] = [
+        "IX_DISPATCH_SCOPE_ORG_PROJECT_CREATED_DISPATCH",
+        "IX_DISPATCH_SCOPE_TUPLE_CREATED_DISPATCH",
+        "IX_DISPATCH_SCOPE_PROJECT",
+        "IX_DISPATCH_SCOPE_TEAM",
+        "IX_DISPATCH_SCOPE_API_KEY",
+        "IX_DISPATCH_ORG_CREATED_DISPATCH",
+    ];
+    let lines_upper = lines
+        .iter()
+        .map(|line| line.to_ascii_uppercase())
+        .collect::<Vec<_>>();
+    assert!(
+        lines_upper.iter().any(|line| {
+            line.contains("INDEX")
+                && ACCEPTED_SCOPE_INDEX_NAMES
+                    .iter()
+                    .any(|index_name| line.contains(index_name))
+        }),
+        "expected scoped index in postgres plan: {lines:?}"
+    );
+}
+
+fn assert_no_seq_scan(lines: &[String]) {
+    let lines_upper = lines
+        .iter()
+        .map(|line| line.to_ascii_uppercase())
+        .collect::<Vec<_>>();
+    assert!(
+        lines_upper.iter().all(|line| !line.contains("SEQ SCAN")),
+        "expected no sequential scan for scoped query: {lines:?}"
+    );
+}
+
 fn update_dispatch_status_running_params(dispatch_id: DispatchId) -> UpdateDispatchStatusParams {
     UpdateDispatchStatusParams {
         dispatch_id,
@@ -255,7 +336,7 @@ async fn cancel_dispatch_concurrent_calls_do_not_leak_database_errors_postgres()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn scoped_dispatch_query_plan_uses_scope_indexes_postgres() {
+async fn scoped_dispatch_query_plan_uses_scope_indexes_postgres_forced() {
     let fixture = postgres_fixture().await;
     let store = &fixture.store;
     let org = OrgId::new();
@@ -313,57 +394,67 @@ async fn scoped_dispatch_query_plan_uses_scope_indexes_postgres() {
             .expect("create dispatch");
     }
 
-    let filter = DispatchFilter {
-        read_scope: Some(DispatchReadScope {
-            org_id: org,
-            project_id: None,
-            team_id: None,
-            api_key_id: None,
-        }),
-        limit: 32,
-        ..DispatchFilter::new()
-    };
+    let filter = scoped_dispatch_filter(org, 32);
     let stmt = dispatch_query_statement_for_backend(&filter, filter.limit, DbBackend::Postgres);
+    let lines = explain_plan_lines(&fixture.url, stmt, true).await;
+    assert_scope_index_usage(&lines);
+    assert_no_seq_scan(&lines);
+}
 
-    let conn = Database::connect(&fixture.url)
-        .await
-        .expect("explain connection");
-    conn.execute_unprepared("SET enable_seqscan = off")
-        .await
-        .expect("disable seqscan");
-    conn.execute_unprepared("SET enable_bitmapscan = off")
-        .await
-        .expect("disable bitmap scans");
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scoped_dispatch_query_plan_uses_scope_indexes_postgres_natural_planner() {
+    let fixture = postgres_fixture().await;
+    let store = &fixture.store;
+    let org = OrgId::new();
+    let project = tanren_domain::ProjectId::new();
 
-    let explain_sql = format!("EXPLAIN (COSTS FALSE) {}", stmt.sql);
-    let explain_stmt = match stmt.values {
-        Some(values) => Statement::from_sql_and_values(DbBackend::Postgres, explain_sql, values),
-        None => Statement::from_string(DbBackend::Postgres, explain_sql),
-    };
-    let rows = conn.query_all(explain_stmt).await.expect("explain plan");
-    let lines: Vec<String> = rows
-        .into_iter()
-        .map(|row| {
-            row.try_get("", "QUERY PLAN")
-                .or_else(|_| row.try_get("", "query_plan"))
-                .expect("query plan line")
-        })
-        .collect();
-    let lines_upper = lines
-        .iter()
-        .map(|line| line.to_ascii_uppercase())
-        .collect::<Vec<_>>();
+    for _ in 0..140 {
+        create_dispatch(
+            store,
+            "scope-plan-target",
+            ActorContext::new(org, UserId::new()),
+            Lane::Impl,
+        )
+        .await
+        .expect("create target scoped dispatch");
+    }
 
-    assert!(
-        lines_upper.iter().any(|line| {
-            line.contains("INDEX")
-                && (line.contains("IX_DISPATCH_SCOPE_ORG_PROJECT_CREATED_DISPATCH")
-                    || line.contains("IX_DISPATCH_SCOPE_TUPLE_CREATED_DISPATCH"))
-        }),
-        "expected scoped index in postgres plan: {lines:?}"
-    );
-    assert!(
-        lines_upper.iter().all(|line| !line.contains("SEQ SCAN")),
-        "expected no sequential scan for scoped query: {lines:?}"
-    );
+    for _ in 0..600 {
+        create_dispatch(
+            store,
+            "scope-plan-target-project",
+            ActorContext {
+                org_id: org,
+                user_id: UserId::new(),
+                team_id: None,
+                api_key_id: None,
+                project_id: Some(project),
+            },
+            Lane::Impl,
+        )
+        .await
+        .expect("create target projected dispatch");
+    }
+
+    for _ in 0..1200 {
+        create_dispatch(
+            store,
+            "scope-plan-background",
+            ActorContext {
+                org_id: OrgId::new(),
+                user_id: UserId::new(),
+                team_id: None,
+                api_key_id: None,
+                project_id: None,
+            },
+            Lane::Impl,
+        )
+        .await
+        .expect("create background dispatch");
+    }
+
+    let filter = scoped_dispatch_filter(org, 32);
+    let stmt = dispatch_query_statement_for_backend(&filter, filter.limit, DbBackend::Postgres);
+    let lines = explain_plan_lines(&fixture.url, stmt, false).await;
+    assert_scope_index_usage(&lines);
 }

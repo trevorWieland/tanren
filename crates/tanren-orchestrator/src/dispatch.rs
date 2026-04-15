@@ -11,8 +11,9 @@ use chrono::Utc;
 use tanren_domain::{
     ActorContext, CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot, DispatchStatus,
     DispatchView, DomainError, DomainEvent, EntityRef, EventEnvelope, EventId, FiniteF64,
-    GraphRevision, Outcome, PolicyDecisionRecord, PolicyOutcome, ProvisionPayload, StepId,
-    StepPayload, StepReadyState, StepType, cli_to_lane,
+    GraphRevision, Outcome, PolicyDecisionKind, PolicyDecisionRecord, PolicyOutcome,
+    PolicyReasonCode, PolicyResourceRef, PolicyScope, ProvisionPayload, StepId, StepPayload,
+    StepReadyState, StepType, cli_to_lane,
 };
 use tanren_store::{
     CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
@@ -156,11 +157,8 @@ where
     /// 3. Atomically cancel pending steps + dispatch status/event
     pub async fn cancel_dispatch(&self, cmd: CancelDispatch) -> Result<(), OrchestratorError> {
         let view = self.store.get_dispatch(&cmd.dispatch_id).await?;
-        let decision = self
-            .policy
-            .check_cancel_allowed(&cmd, view.as_ref().map(|dispatch| &dispatch.actor))?;
-        if decision.outcome == PolicyOutcome::Denied {
-            let audit_event = policy_decision_event(cmd.dispatch_id, decision);
+        if view.is_none() {
+            let audit_event = policy_decision_event(cmd.dispatch_id, missing_cancel_decision(&cmd));
             self.store
                 .append_policy_decision_event(&audit_event)
                 .await?;
@@ -169,7 +167,14 @@ where
             }));
         }
 
-        if view.is_none() {
+        let decision = self
+            .policy
+            .check_cancel_allowed(&cmd, view.as_ref().map(|dispatch| &dispatch.actor))?;
+        if decision.outcome == PolicyOutcome::Denied {
+            let audit_event = policy_decision_event(cmd.dispatch_id, decision);
+            self.store
+                .append_policy_decision_event(&audit_event)
+                .await?;
             return Err(OrchestratorError::Domain(DomainError::NotFound {
                 entity: EntityRef::Dispatch(cmd.dispatch_id),
             }));
@@ -207,6 +212,19 @@ fn policy_decision_event(dispatch_id: DispatchId, decision: PolicyDecisionRecord
             decision: Box::new(decision),
         },
     )
+}
+
+fn missing_cancel_decision(cmd: &CancelDispatch) -> PolicyDecisionRecord {
+    PolicyDecisionRecord {
+        kind: PolicyDecisionKind::Authz,
+        resource: PolicyResourceRef::Dispatch {
+            dispatch_id: cmd.dispatch_id,
+        },
+        scope: PolicyScope::new(cmd.actor.clone()),
+        outcome: PolicyOutcome::Denied,
+        reason_code: Some(PolicyReasonCode::CancelDispatchNotFound),
+        reason: Some("dispatch not found".to_owned()),
+    }
 }
 
 fn build_create_dispatch_artifacts(

@@ -114,6 +114,13 @@ async fn denied_cancel_emits_policy_decision_event_and_returns_not_found() {
                 if decision.reason_code == Some(PolicyReasonCode::CancelOrgMismatch)
         )
     }));
+    assert!(
+        events.events.iter().all(|event| !matches!(
+            event.payload,
+            tanren_domain::DomainEvent::DispatchCancelled { .. }
+        )),
+        "unauthorized cancel attempts must not append DispatchCancelled events"
+    );
 }
 
 #[tokio::test]
@@ -151,4 +158,16 @@ async fn missing_cancel_emits_policy_decision_event_and_returns_not_found() {
                 if decision.reason_code == Some(PolicyReasonCode::CancelDispatchNotFound)
         )
     }));
+    assert_eq!(
+        events.events.len(),
+        1,
+        "missing cancel should only append a policy decision audit event"
+    );
+    assert!(
+        events.events.iter().all(|event| !matches!(
+            event.payload,
+            tanren_domain::DomainEvent::DispatchCancelled { .. }
+        )),
+        "missing cancel attempts must not append DispatchCancelled events"
+    );
 }

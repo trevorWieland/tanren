@@ -54,9 +54,10 @@ impl ActorTokenVerifier {
         audience: &str,
     ) -> Result<Self, ContractError> {
         let decoding_key = DecodingKey::from_ed_pem(public_key_pem.as_bytes()).map_err(|err| {
+            emit_auth_boundary_internal_error("invalid_actor_public_key", &err.to_string());
             ContractError::InvalidField {
                 field: "actor_public_key".to_owned(),
-                reason: format!("invalid Ed25519 public key PEM: {err}"),
+                reason: "invalid actor public key".to_owned(),
             }
         })?;
 
@@ -83,17 +84,7 @@ impl ActorTokenVerifier {
     pub fn verify(&self, token: &str) -> Result<RequestContext, ContractError> {
         let claims = decode::<ActorTokenClaims>(token, &self.decoding_key, &self.validation)
             .map_err(|err| {
-                let correlation_id = Uuid::now_v7();
-                if emit_correlated_internal_error(
-                    "tanren_app_services",
-                    "invalid_actor_token",
-                    correlation_id,
-                    &err.to_string(),
-                )
-                .is_err()
-                {
-                    // Fail closed at the wire boundary with generic auth errors.
-                }
+                emit_auth_boundary_internal_error("invalid_actor_token", &err.to_string());
                 ContractError::InvalidField {
                     field: "actor_token".to_owned(),
                     reason: "token validation failed".to_owned(),
@@ -118,6 +109,16 @@ impl ActorTokenVerifier {
         };
         Ok(RequestContext::new(actor))
     }
+}
+
+fn emit_auth_boundary_internal_error(error_code: &str, raw_error: &str) {
+    let correlation_id = Uuid::now_v7();
+    let _ = emit_correlated_internal_error(
+        "tanren_app_services",
+        error_code,
+        correlation_id,
+        raw_error,
+    );
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -216,6 +217,23 @@ MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
         let ctx = verifier().verify(&token).expect("valid token");
         assert_eq!(ctx.actor().org_id.into_uuid(), claims.org_id);
         assert_eq!(ctx.actor().user_id.into_uuid(), claims.user_id);
+    }
+
+    #[test]
+    fn verifier_rejects_invalid_public_key_without_parse_details() {
+        let err = ActorTokenVerifier::from_ed25519_pem("not-a-pem", "tanren-tests", "tanren-cli")
+            .expect_err("invalid public key");
+        assert!(matches!(
+            err,
+            ContractError::InvalidField { ref field, .. } if field == "actor_public_key"
+        ));
+        let reason = match err {
+            ContractError::InvalidField { reason, .. } => reason,
+            _ => String::new(),
+        };
+        assert_eq!(reason, "invalid actor public key");
+        assert!(!reason.contains("PEM"));
+        assert!(!reason.contains("invalid base64"));
     }
 
     #[test]

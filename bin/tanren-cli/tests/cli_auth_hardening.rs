@@ -133,6 +133,75 @@ fn invalid_actor_token_error_is_generic_without_verification_details() {
 }
 
 #[test]
+fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    let missing_key_path = auth
+        .public_key_file
+        .with_file_name("missing-actor-public.pem");
+    let missing_key_text = missing_key_path.display().to_string();
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "list",
+        "--actor-token-file",
+        auth.actor_token_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        missing_key_path.to_str().expect("utf8 path"),
+        "--token-issuer",
+        "tanren-tests",
+        "--token-audience",
+        &auth.audience,
+    ]);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+    let message = v["message"].as_str().expect("message");
+    assert!(message.contains("invalid actor public key"));
+    assert!(!message.contains(&missing_key_text));
+    assert!(!message.contains("No such file"));
+    assert!(!message.contains("os error"));
+}
+
+#[test]
+fn actor_public_key_parse_failure_is_generic_without_parser_details() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    std::fs::write(&auth.public_key_file, "not-a-valid-pem").expect("write invalid key");
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "list",
+        "--actor-token-file",
+        auth.actor_token_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.public_key_file.to_str().expect("utf8 path"),
+        "--token-issuer",
+        "tanren-tests",
+        "--token-audience",
+        &auth.audience,
+    ]);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+    let message = v["message"].as_str().expect("message");
+    assert!(message.contains("invalid actor public key"));
+    assert!(!message.contains("PEM"));
+    assert!(!message.contains("base64"));
+    assert!(!message.contains("Ed25519"));
+}
+
+#[test]
 fn internal_failure_omits_correlation_id_when_sink_persist_fails() {
     let auth = auth_harness();
     let mut cmd = cli();

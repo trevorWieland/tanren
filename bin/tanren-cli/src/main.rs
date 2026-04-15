@@ -199,12 +199,19 @@ fn resolve_request_context(
     })?;
 
     let public_key_pem = std::fs::read_to_string(key_path).map_err(|err| {
+        let raw_error = format!(
+            "failed to read actor public key file `{}`: {err}",
+            key_path.display()
+        );
+        let _ = emit_correlated_internal_error(
+            "tanren_cli",
+            "invalid_actor_public_key",
+            Uuid::now_v7(),
+            &raw_error,
+        );
         anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
             field: "actor_public_key_file".to_owned(),
-            reason: format!(
-                "failed to read public key file `{}`: {err}",
-                key_path.display()
-            ),
+            reason: "invalid actor public key".to_owned(),
         }))
     })?;
 
