@@ -6,7 +6,8 @@ use tanren_domain::{
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
-use tanren_store::{EventFilter, EventStore, Store};
+use tanren_store::{EventFilter, EventStore, ReplayGuard, Store};
+use uuid::Uuid;
 
 fn sample_actor() -> ActorContext {
     ActorContext::new(OrgId::new(), UserId::new())
@@ -41,6 +42,16 @@ async fn setup() -> Orchestrator<Store> {
     Orchestrator::new(store, PolicyEngine::new())
 }
 
+fn sample_replay_guard() -> ReplayGuard {
+    ReplayGuard {
+        issuer: "tanren-tests".to_owned(),
+        audience: "tanren-cli".to_owned(),
+        jti: Uuid::now_v7().to_string(),
+        iat_unix: 10,
+        exp_unix: 20,
+    }
+}
+
 #[tokio::test]
 async fn denied_create_emits_policy_decision_event() {
     let orch = setup().await;
@@ -49,7 +60,7 @@ async fn denied_create_emits_policy_decision_event() {
     cmd.preserve_on_failure = true;
 
     let err = orch
-        .create_dispatch(cmd)
+        .create_dispatch(cmd, sample_replay_guard())
         .await
         .expect_err("create should be denied");
     assert!(matches!(err, OrchestratorError::PolicyDenied { .. }));
@@ -80,16 +91,19 @@ async fn denied_create_emits_policy_decision_event() {
 async fn denied_cancel_emits_policy_decision_event_and_returns_not_found() {
     let orch = setup().await;
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
         .await
         .expect("create");
 
     let err = orch
-        .cancel_dispatch(tanren_domain::CancelDispatch {
-            actor: ActorContext::new(OrgId::new(), UserId::new()),
-            dispatch_id: created.dispatch_id,
-            reason: Some("forbidden".to_owned()),
-        })
+        .cancel_dispatch(
+            tanren_domain::CancelDispatch {
+                actor: ActorContext::new(OrgId::new(), UserId::new()),
+                dispatch_id: created.dispatch_id,
+                reason: Some("forbidden".to_owned()),
+            },
+            sample_replay_guard(),
+        )
         .await
         .expect_err("cancel should fail");
     assert!(matches!(
@@ -129,11 +143,14 @@ async fn missing_cancel_emits_policy_decision_event_and_returns_not_found() {
     let missing_id = tanren_domain::DispatchId::new();
 
     let err = orch
-        .cancel_dispatch(tanren_domain::CancelDispatch {
-            actor: sample_actor(),
-            dispatch_id: missing_id,
-            reason: Some("missing".to_owned()),
-        })
+        .cancel_dispatch(
+            tanren_domain::CancelDispatch {
+                actor: sample_actor(),
+                dispatch_id: missing_id,
+                reason: Some("missing".to_owned()),
+            },
+            sample_replay_guard(),
+        )
         .await
         .expect_err("cancel should fail");
     assert!(matches!(

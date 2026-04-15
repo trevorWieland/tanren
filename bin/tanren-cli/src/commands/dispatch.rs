@@ -4,10 +4,10 @@ use std::io::Write as _;
 
 use anyhow::Result;
 use clap::Subcommand;
-use tanren_app_services::{RequestContext, compose::Service};
+use tanren_app_services::{ReplayGuard, RequestContext, compose::Service};
 use tanren_contract::{
-    CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
-    ErrorResponse, parse_project_env_entries,
+    CancelDispatchRequest, ContractError, CreateDispatchRequest, DispatchCursorToken,
+    DispatchListFilter, ErrorResponse, parse_project_env_entries,
 };
 use uuid::Uuid;
 
@@ -25,12 +25,35 @@ pub(crate) enum DispatchCommand {
 }
 
 impl DispatchCommand {
-    /// Whether this command mutates persistent state and therefore
-    /// requires migrate-before-write behavior.
+    /// Storage access profile for this command.
     #[must_use]
-    pub(crate) const fn requires_write_store(&self) -> bool {
-        matches!(self, Self::Create(_) | Self::Cancel(_))
+    pub(crate) const fn store_access(&self) -> DispatchStoreAccess {
+        match self {
+            Self::Create(_) | Self::Cancel(_) => DispatchStoreAccess::Mutating,
+            Self::Get(_) | Self::List(_) => DispatchStoreAccess::ReadOnly,
+        }
     }
+
+    /// Replay consumption policy for this command.
+    #[must_use]
+    pub(crate) const fn replay_policy(&self) -> DispatchReplayPolicy {
+        match self {
+            Self::Create(_) | Self::Cancel(_) => DispatchReplayPolicy::ConsumeOnce,
+            Self::Get(_) | Self::List(_) => DispatchReplayPolicy::VerifyOnly,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DispatchStoreAccess {
+    ReadOnly,
+    Mutating,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DispatchReplayPolicy {
+    VerifyOnly,
+    ConsumeOnce,
 }
 
 /// Arguments for `dispatch create`.
@@ -130,12 +153,27 @@ pub(crate) async fn handle(
     cmd: DispatchCommand,
     service: &Service,
     context: &RequestContext,
+    replay_guard: Option<&ReplayGuard>,
 ) -> Result<()> {
     match cmd {
-        DispatchCommand::Create(args) => handle_create(*args, service, context).await,
+        DispatchCommand::Create(args) => {
+            let replay_guard = replay_guard.ok_or_else(|| {
+                anyhow::Error::new(ErrorResponse::from(ContractError::Internal {
+                    message: "missing replay guard for mutating command".to_owned(),
+                }))
+            })?;
+            handle_create(*args, service, context, replay_guard).await
+        }
         DispatchCommand::Get(args) => handle_get(args, service, context).await,
         DispatchCommand::List(args) => handle_list(args, service, context).await,
-        DispatchCommand::Cancel(args) => handle_cancel(args, service, context).await,
+        DispatchCommand::Cancel(args) => {
+            let replay_guard = replay_guard.ok_or_else(|| {
+                anyhow::Error::new(ErrorResponse::from(ContractError::Internal {
+                    message: "missing replay guard for mutating command".to_owned(),
+                }))
+            })?;
+            handle_cancel(args, service, context, replay_guard).await
+        }
     }
 }
 
@@ -143,6 +181,7 @@ async fn handle_create(
     args: CreateArgs,
     service: &Service,
     context: &RequestContext,
+    replay_guard: &ReplayGuard,
 ) -> Result<()> {
     let project_env = parse_project_env_entries(args.project_env).map_err(ErrorResponse::from)?;
     let req = CreateDispatchRequest {
@@ -164,7 +203,7 @@ async fn handle_create(
         preserve_on_failure: args.preserve_on_failure,
     };
 
-    let resp = service.create(context, req).await?;
+    let resp = service.create(context, req, replay_guard).await?;
     print_json(&resp)
 }
 
@@ -195,13 +234,14 @@ async fn handle_cancel(
     args: CancelArgs,
     service: &Service,
     context: &RequestContext,
+    replay_guard: &ReplayGuard,
 ) -> Result<()> {
     let req = CancelDispatchRequest {
         dispatch_id: args.id,
         reason: args.reason,
     };
 
-    service.cancel(context, req).await?;
+    service.cancel(context, req, replay_guard).await?;
     print_json(&serde_json::json!({"status": "cancelled"}))
 }
 

@@ -15,6 +15,8 @@ use crate::db_error_codes::{
 use crate::entity::enums::{DispatchStatusModel, OutcomeModel, StepStatusModel, StepTypeModel};
 use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreConflictClass, StoreError, StoreOperation};
+use crate::params::ReplayGuard;
+use crate::token_replay_store::consume_replay_guard_once;
 
 const CANCEL_BATCH_SIZE: u64 = 500;
 
@@ -23,6 +25,7 @@ pub(crate) struct CancelDispatchTxnInput {
     pub(crate) dispatch_uuid: uuid::Uuid,
     pub(crate) actor: ActorContext,
     pub(crate) reason: Option<String>,
+    pub(crate) replay_guard: ReplayGuard,
     pub(crate) now: chrono::DateTime<Utc>,
     pub(crate) step_event_timestamp: chrono::DateTime<Utc>,
     pub(crate) dispatch_event_model: events::ActiveModel,
@@ -37,10 +40,13 @@ pub(crate) async fn run_cancel_dispatch_transaction(
         dispatch_uuid,
         actor,
         reason,
+        replay_guard,
         now,
         step_event_timestamp,
         dispatch_event_model,
     } = input;
+
+    consume_replay_guard_once(txn, replay_guard).await?;
 
     let current = fetch_dispatch_status_for_cancel(txn, dispatch_id, dispatch_uuid).await?;
     let cancelled_count = cancel_pending_steps_and_emit_events(

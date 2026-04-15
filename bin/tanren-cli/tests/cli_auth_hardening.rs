@@ -188,7 +188,7 @@ fn token_missing_jti_claim_is_rejected() {
 }
 
 #[test]
-fn token_replay_is_rejected_on_second_use() {
+fn read_commands_verify_only_allow_immediate_token_reuse() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
     support::auth::migrate(&db_url);
@@ -203,9 +203,66 @@ fn token_replay_is_rejected_on_second_use() {
     second.args(["--database-url", &db_url, "dispatch", "list"]);
     add_auth_args(&mut second, &auth);
     let second_output = second.output().expect("second execute");
+    assert!(second_output.status.success(), "second read should pass");
+}
+
+#[test]
+fn mutating_commands_consume_replay_and_reject_second_use() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    support::auth::migrate(&db_url);
+
+    let mut first = support::auth::cli();
+    first.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "create",
+        "--project",
+        "test-project",
+        "--phase",
+        "do_task",
+        "--cli",
+        "claude",
+        "--branch",
+        "main",
+        "--spec-folder",
+        "spec",
+        "--workflow-id",
+        "wf-1",
+    ]);
+    add_auth_args(&mut first, &auth);
+    let first_output = first.output().expect("first execute");
+    assert!(
+        first_output.status.success(),
+        "first create should pass. stderr: {}",
+        String::from_utf8_lossy(&first_output.stderr)
+    );
+
+    let mut second = support::auth::cli();
+    second.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "create",
+        "--project",
+        "test-project",
+        "--phase",
+        "do_task",
+        "--cli",
+        "claude",
+        "--branch",
+        "main",
+        "--spec-folder",
+        "spec",
+        "--workflow-id",
+        "wf-1",
+    ]);
+    add_auth_args(&mut second, &auth);
+    let second_output = second.output().expect("second execute");
     assert!(
         !second_output.status.success(),
-        "second call must fail replay"
+        "second create must fail replay"
     );
 
     let stderr = String::from_utf8(second_output.stderr).expect("utf8");
@@ -217,6 +274,102 @@ fn token_replay_is_rejected_on_second_use() {
             .expect("message")
             .contains("token validation failed")
     );
+}
+
+#[test]
+fn invalid_token_fails_before_read_store_open() {
+    let auth = auth_harness();
+    let mut cmd = support::auth::cli();
+    cmd.args([
+        "--database-url",
+        "sqlite:/dev/null/tanren.db?mode=rwc",
+        "dispatch",
+        "list",
+        "--actor-token-file",
+        auth.actor_token_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
+        "--token-issuer",
+        "wrong-issuer",
+        "--token-audience",
+        &auth.audience,
+    ]);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "invalid token should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+}
+
+#[test]
+fn invalid_token_fails_before_write_store_open_and_migrate() {
+    let auth = auth_harness();
+    let mut cmd = support::auth::cli();
+    cmd.args([
+        "--database-url",
+        "sqlite:/dev/null/tanren.db?mode=rwc",
+        "dispatch",
+        "create",
+        "--project",
+        "test-project",
+        "--phase",
+        "do_task",
+        "--cli",
+        "claude",
+        "--branch",
+        "main",
+        "--spec-folder",
+        "spec",
+        "--workflow-id",
+        "wf-1",
+        "--actor-token-file",
+        auth.actor_token_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
+        "--token-issuer",
+        "wrong-issuer",
+        "--token-audience",
+        &auth.audience,
+    ]);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "invalid token should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+}
+
+#[test]
+fn valid_token_write_backend_failure_maps_to_internal_not_invalid_input() {
+    let auth = auth_harness();
+    let mut cmd = support::auth::cli();
+    cmd.args([
+        "--database-url",
+        "sqlite:/dev/null/tanren.db?mode=rwc",
+        "dispatch",
+        "create",
+        "--project",
+        "test-project",
+        "--phase",
+        "do_task",
+        "--cli",
+        "claude",
+        "--branch",
+        "main",
+        "--spec-folder",
+        "spec",
+        "--workflow-id",
+        "wf-1",
+    ]);
+    add_auth_args(&mut cmd, &auth);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "create should fail on backend");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "internal");
+    assert_eq!(v["message"], "internal error");
 }
 
 #[test]

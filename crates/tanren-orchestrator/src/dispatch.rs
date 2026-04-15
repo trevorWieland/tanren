@@ -9,16 +9,16 @@
 
 use chrono::Utc;
 use tanren_domain::{
-    ActorContext, CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot, DispatchStatus,
-    DispatchView, DomainError, DomainEvent, EntityRef, EventEnvelope, EventId, FiniteF64,
-    GraphRevision, Outcome, PolicyDecisionKind, PolicyDecisionRecord, PolicyOutcome,
-    PolicyReasonCode, PolicyResourceRef, PolicyScope, ProvisionPayload, StepId, StepPayload,
-    StepReadyState, StepType, cli_to_lane,
+    ActorContext, CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot,
+    DispatchSnapshotRef, DispatchStatus, DispatchView, DomainError, DomainEvent, EntityRef,
+    EventEnvelope, EventId, FiniteF64, GraphRevision, Outcome, PolicyDecisionKind,
+    PolicyDecisionRecord, PolicyOutcome, PolicyReasonCode, PolicyResourceRef, PolicyScope,
+    ProvisionRefPayload, StepId, StepPayload, StepReadyState, StepType, cli_to_lane,
 };
 use tanren_store::{
     CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
-    DispatchFilter, DispatchQueryPage, EnqueueStepParams, EventStore, JobQueue, StateStore,
-    UpdateDispatchStatusParams,
+    DispatchFilter, DispatchQueryPage, EnqueueStepParams, EventStore, JobQueue, ReplayGuard,
+    StateStore, UpdateDispatchStatusParams,
 };
 use uuid::Uuid;
 
@@ -40,6 +40,7 @@ where
     pub async fn create_dispatch(
         &self,
         cmd: CreateDispatch,
+        replay_guard: ReplayGuard,
     ) -> Result<DispatchView, OrchestratorError> {
         // Mint IDs first so the policy decision can reference the dispatch.
         let dispatch_id = DispatchId::new();
@@ -57,7 +58,7 @@ where
         }
 
         let now = Utc::now();
-        let (params, view) = build_create_dispatch_artifacts(cmd, dispatch_id, now);
+        let (params, view) = build_create_dispatch_artifacts(cmd, dispatch_id, now, replay_guard);
 
         self.store.create_dispatch_with_initial_step(params).await?;
 
@@ -139,7 +140,11 @@ where
     /// 1. Verify the dispatch exists
     /// 2. Enforce cancel policy authorization (missing/unauthorized are hidden as not-found)
     /// 3. Atomically cancel pending steps + dispatch status/event
-    pub async fn cancel_dispatch(&self, cmd: CancelDispatch) -> Result<(), OrchestratorError> {
+    pub async fn cancel_dispatch(
+        &self,
+        cmd: CancelDispatch,
+        replay_guard: ReplayGuard,
+    ) -> Result<(), OrchestratorError> {
         let view = self.store.get_dispatch(&cmd.dispatch_id).await?;
         if view.is_none() {
             let audit_event = policy_decision_event(cmd.dispatch_id, missing_cancel_decision(&cmd));
@@ -180,6 +185,7 @@ where
                 actor: cmd.actor,
                 reason: cmd.reason,
                 status_event: event,
+                replay_guard,
             })
             .await?;
 
@@ -215,6 +221,7 @@ fn build_create_dispatch_artifacts(
     cmd: CreateDispatch,
     dispatch_id: DispatchId,
     now: chrono::DateTime<Utc>,
+    replay_guard: ReplayGuard,
 ) -> (CreateDispatchWithInitialStepParams, DispatchView) {
     let lane = cli_to_lane(&cmd.cli);
     let mode = cmd.mode;
@@ -272,8 +279,8 @@ fn build_create_dispatch_artifacts(
         lane: Some(lane),
         depends_on: vec![],
         graph_revision: GraphRevision::INITIAL,
-        payload: StepPayload::Provision(Box::new(ProvisionPayload {
-            dispatch: snapshot_for_view.clone(),
+        payload: StepPayload::ProvisionRef(Box::new(ProvisionRefPayload {
+            dispatch_ref: DispatchSnapshotRef::new(dispatch_id),
         })),
         ready_state: StepReadyState::Ready,
         enqueue_event: EventEnvelope::new(
@@ -308,6 +315,7 @@ fn build_create_dispatch_artifacts(
         CreateDispatchWithInitialStepParams {
             dispatch: dispatch_params,
             initial_step,
+            replay_guard,
         },
         view,
     )

@@ -14,12 +14,12 @@ use crate::DispatchService;
 pub type Service = DispatchService<Store>;
 
 /// Open the persistent store for read commands without mutating schema.
-pub async fn open_store_for_read(database_url: &str) -> Result<Store, StoreError> {
+pub(crate) async fn open_store_for_read(database_url: &str) -> Result<Store, StoreError> {
     Store::new(database_url).await
 }
 
 /// Open the persistent store for write commands and apply migrations.
-pub async fn open_store_for_write(database_url: &str) -> Result<Store, StoreError> {
+pub(crate) async fn open_store_for_write(database_url: &str) -> Result<Store, StoreError> {
     Store::open_and_migrate(database_url).await
 }
 
@@ -31,19 +31,19 @@ pub async fn run_migrations(database_url: &str) -> Result<(), StoreError> {
 
 /// Build the policy engine used by the dispatch service stack.
 #[must_use]
-pub fn build_policy_engine() -> PolicyEngine {
+pub(crate) fn build_policy_engine() -> PolicyEngine {
     PolicyEngine::new()
 }
 
 /// Build an orchestrator from a store and policy engine.
 #[must_use]
-pub fn build_orchestrator(store: Store, policy: PolicyEngine) -> Orchestrator<Store> {
+pub(crate) fn build_orchestrator(store: Store, policy: PolicyEngine) -> Orchestrator<Store> {
     Orchestrator::new(store, policy)
 }
 
 /// Build a dispatch service from an orchestrator.
 #[must_use]
-pub fn build_dispatch_service(orchestrator: Orchestrator<Store>) -> Service {
+pub(crate) fn build_dispatch_service(orchestrator: Orchestrator<Store>) -> Service {
     DispatchService::new(orchestrator)
 }
 

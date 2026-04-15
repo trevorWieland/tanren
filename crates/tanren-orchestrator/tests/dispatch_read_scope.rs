@@ -6,7 +6,8 @@ use tanren_domain::{
 };
 use tanren_orchestrator::Orchestrator;
 use tanren_policy::PolicyEngine;
-use tanren_store::Store;
+use tanren_store::{ReplayGuard, Store};
+use uuid::Uuid;
 
 fn sample_command(actor: ActorContext) -> CreateDispatch {
     CreateDispatch {
@@ -34,6 +35,16 @@ fn sample_actor() -> ActorContext {
     ActorContext::new(OrgId::new(), UserId::new())
 }
 
+fn sample_replay_guard() -> ReplayGuard {
+    ReplayGuard {
+        issuer: "tanren-tests".to_owned(),
+        audience: "tanren-cli".to_owned(),
+        jti: Uuid::now_v7().to_string(),
+        iat_unix: 10,
+        exp_unix: 20,
+    }
+}
+
 async fn setup() -> Orchestrator<Store> {
     let store = Store::open_and_migrate("sqlite::memory:")
         .await
@@ -45,7 +56,7 @@ async fn setup() -> Orchestrator<Store> {
 async fn get_dispatch_for_actor_denies_scope_mismatch() {
     let orch = setup().await;
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
         .await
         .expect("create");
 
@@ -66,7 +77,7 @@ async fn get_dispatch_for_actor_denies_scope_mismatch() {
 async fn list_dispatches_for_actor_hides_unauthorized_dispatches() {
     let orch = setup().await;
     let _ = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
         .await
         .expect("create");
 
@@ -104,7 +115,7 @@ async fn list_dispatches_for_actor_allows_cross_user_with_matching_scope() {
     };
 
     let _ = orch
-        .create_dispatch(sample_command(creator))
+        .create_dispatch(sample_command(creator), sample_replay_guard())
         .await
         .expect("create");
 

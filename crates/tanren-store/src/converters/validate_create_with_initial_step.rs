@@ -29,6 +29,29 @@ pub(crate) fn validate_create_dispatch_with_initial_step(
         params.initial_step.ready_state == tanren_domain::StepReadyState::Ready,
         "initial_step.ready_state",
     )?;
+    check(
+        matches!(
+            params.initial_step.payload,
+            tanren_domain::StepPayload::Provision(_) | tanren_domain::StepPayload::ProvisionRef(_)
+        ),
+        "initial_step.payload",
+    )?;
+    check(
+        !params.replay_guard.issuer.trim().is_empty(),
+        "replay_guard.issuer",
+    )?;
+    check(
+        !params.replay_guard.audience.trim().is_empty(),
+        "replay_guard.audience",
+    )?;
+    check(
+        !params.replay_guard.jti.trim().is_empty(),
+        "replay_guard.jti",
+    )?;
+    check(
+        params.replay_guard.exp_unix > params.replay_guard.iat_unix,
+        "replay_guard.exp_unix",
+    )?;
     Ok(())
 }
 

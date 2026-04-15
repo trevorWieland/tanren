@@ -11,7 +11,8 @@ use tanren_domain::{
 };
 use tanren_store::{
     CancelDispatchParams, CreateDispatchParams, EnqueueStepParams, EventFilter, EventStore,
-    JobQueue, StateStore, Store, StoreError, UpdateDispatchStatusParams,
+    JobQueue, ReplayGuard, StateStore, Store, StoreError, TokenReplayStore,
+    UpdateDispatchStatusParams,
 };
 use uuid::Uuid;
 
@@ -149,10 +150,21 @@ async fn seed_execute_steps(
     }
 }
 
-fn cancel_dispatch_params(
+fn replay_guard(jti: String) -> ReplayGuard {
+    ReplayGuard {
+        issuer: "tanren-test".to_owned(),
+        audience: "tanren-cli".to_owned(),
+        jti,
+        iat_unix: 1,
+        exp_unix: 2,
+    }
+}
+
+fn cancel_dispatch_params_with_guard(
     dispatch_id: DispatchId,
     actor_ctx: ActorContext,
     reason: Option<String>,
+    replay_guard: ReplayGuard,
 ) -> CancelDispatchParams {
     let reason_for_event = reason.clone();
     CancelDispatchParams {
@@ -168,7 +180,21 @@ fn cancel_dispatch_params(
                 reason: reason_for_event,
             },
         ),
+        replay_guard,
     }
+}
+
+fn cancel_dispatch_params(
+    dispatch_id: DispatchId,
+    actor_ctx: ActorContext,
+    reason: Option<String>,
+) -> CancelDispatchParams {
+    cancel_dispatch_params_with_guard(
+        dispatch_id,
+        actor_ctx,
+        reason,
+        replay_guard(Uuid::now_v7().to_string()),
+    )
 }
 
 fn running_status_params(dispatch_id: DispatchId) -> UpdateDispatchStatusParams {
@@ -311,6 +337,72 @@ async fn cancel_dispatch_rolls_back_on_dispatch_event_insert_failure() {
         .await
         .expect("events");
     assert_eq!(step_cancelled.total_count, Some(0));
+}
+
+#[tokio::test]
+async fn cancel_dispatch_replay_rejection_rolls_back_status_steps_and_events() {
+    let store = fresh_store().await;
+    let snap = snapshot("alpha");
+    let id = create_dispatch(&store, "alpha", Lane::Impl).await;
+    seed_execute_steps(&store, id, &snap, 2).await;
+    store
+        .update_dispatch_status(running_status_params(id))
+        .await
+        .expect("set running");
+
+    let replay_guard = replay_guard("replayed-cancel-jti".to_owned());
+    let consumed = store
+        .consume_actor_token_jti(replay_guard.clone().into_consume_params(Utc::now()))
+        .await
+        .expect("seed replay key");
+    assert!(consumed, "seed consume should insert first use");
+
+    let err = store
+        .cancel_dispatch(cancel_dispatch_params_with_guard(
+            id,
+            actor(),
+            Some("replay".to_owned()),
+            replay_guard,
+        ))
+        .await
+        .expect_err("replayed cancel must fail");
+    assert!(matches!(err, StoreError::ReplayRejected));
+
+    let dispatch = store.get_dispatch(&id).await.expect("get").expect("exists");
+    assert_eq!(
+        dispatch.status,
+        DispatchStatus::Running,
+        "replay rejection must not update dispatch status"
+    );
+    let steps = store.get_steps_for_dispatch(&id).await.expect("steps");
+    assert!(
+        steps.iter().all(|s| s.status == StepStatus::Pending),
+        "replay rejection must not cancel steps"
+    );
+
+    let step_cancelled = store
+        .query_events(&EventFilter {
+            entity_ref: Some(EntityRef::Dispatch(id)),
+            event_type: Some("step_cancelled".to_owned()),
+            limit: 50,
+            include_total_count: true,
+            ..EventFilter::new()
+        })
+        .await
+        .expect("step cancelled events");
+    assert_eq!(step_cancelled.total_count, Some(0));
+
+    let dispatch_cancelled = store
+        .query_events(&EventFilter {
+            entity_ref: Some(EntityRef::Dispatch(id)),
+            event_type: Some("dispatch_cancelled".to_owned()),
+            limit: 10,
+            include_total_count: true,
+            ..EventFilter::new()
+        })
+        .await
+        .expect("dispatch cancelled events");
+    assert_eq!(dispatch_cancelled.total_count, Some(0));
 }
 
 #[tokio::test]

@@ -32,6 +32,7 @@ use crate::state_store_cancel::{
     CancelDispatchTxnInput, normalize_cancel_error, run_cancel_dispatch_transaction,
 };
 use crate::store::Store;
+use crate::token_replay_store::consume_replay_guard_once;
 
 /// Projection read / write interface for dispatches and steps.
 #[async_trait]
@@ -172,6 +173,7 @@ impl StateStore for Store {
         params: CreateDispatchWithInitialStepParams,
     ) -> StoreResult<()> {
         validate::validate_create_dispatch_with_initial_step(&params)?;
+        let replay_guard = params.replay_guard;
         let dispatch_row = dispatch_converters::params_to_active_model(&params.dispatch)?;
         let step_row = step_converters::enqueue_to_active_model(
             &params.initial_step,
@@ -185,6 +187,7 @@ impl StateStore for Store {
         self.conn()
             .transaction::<_, (), StoreError>(move |txn| {
                 Box::pin(async move {
+                    consume_replay_guard_once(txn, replay_guard).await?;
                     dispatch_projection::Entity::insert(dispatch_row)
                         .exec(txn)
                         .await?;
@@ -205,6 +208,7 @@ impl StateStore for Store {
         let dispatch_uuid = dispatch_id.into_uuid();
         let actor = params.actor;
         let reason = params.reason;
+        let replay_guard = params.replay_guard;
         let now = Utc::now();
         let dispatch_event_timestamp = params.status_event.timestamp;
         let step_event_timestamp = dispatch_event_timestamp - chrono::Duration::microseconds(1);
@@ -221,6 +225,7 @@ impl StateStore for Store {
                         dispatch_uuid,
                         actor,
                         reason,
+                        replay_guard,
                         now,
                         step_event_timestamp,
                         dispatch_event_model,

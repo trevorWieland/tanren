@@ -174,9 +174,9 @@ impl From<ContractError> for ErrorResponse {
                 message: "policy denied".to_owned(),
                 details: reason_code.map(|reason_code| ErrorDetails::PolicyDenied { reason_code }),
             },
-            ContractError::Internal { message } => Self {
+            ContractError::Internal { .. } => Self {
                 code: ErrorCode::Internal,
-                message: format!("internal error: {message}"),
+                message: "internal error".to_owned(),
                 details: None,
             },
         }

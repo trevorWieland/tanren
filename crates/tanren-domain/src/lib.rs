@@ -50,9 +50,10 @@ pub use self::ids::{
     ApiKeyId, DispatchId, EventId, LeaseId, OrgId, ProjectId, StepId, TeamId, UserId,
 };
 pub use self::payloads::{
-    ConfigEnv, ConfigKeys, DispatchSnapshot, DryRunPayload, DryRunResult, EnvironmentHandle,
-    ExecutePayload, ExecuteResult, Finding, FindingSeverity, ProvisionPayload, ProvisionResult,
-    StepPayload, StepResult, TeardownPayload, TeardownResult, TokenUsage,
+    ConfigEnv, ConfigKeys, DispatchSnapshot, DispatchSnapshotRef, DryRunPayload, DryRunResult,
+    EnvironmentHandle, ExecutePayload, ExecuteResult, Finding, FindingSeverity, ProvisionPayload,
+    ProvisionRefPayload, ProvisionResult, StepPayload, StepResult, TeardownPayload, TeardownResult,
+    TokenUsage,
 };
 pub use self::policy::{
     DispatchReadScope, DispatchScopeMismatch, PolicyDecisionKind, PolicyDecisionRecord,

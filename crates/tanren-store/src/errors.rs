@@ -125,6 +125,10 @@ pub enum StoreError {
         /// Human-readable conflict description.
         reason: String,
     },
+
+    /// Replay guard key was already consumed.
+    #[error("actor token replay rejected")]
+    ReplayRejected,
 }
 
 /// Convenient alias used throughout the store crate.

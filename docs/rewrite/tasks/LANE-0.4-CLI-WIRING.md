@@ -84,10 +84,17 @@ These are mandatory lane-0.4 behaviors for parity/security/stability:
    - Verification failure responses are generic at the wire boundary
      (`token validation failed`); detailed JWT failure causes stay internal.
    - `get`/`list` are policy-scoped by trusted actor context, not open reads.
+   - Actor-token signature/claim verification runs before any store open,
+     migration, or schema-readiness work on both read and write command paths.
+   - Replay semantics are command-policy aware:
+     - `dispatch get/list`: verify-only (no replay consumption write)
+     - `dispatch create/cancel`: single-use replay consumption
+       atomically within the mutation transaction.
 
 7. **Migration behavior is explicit**
    - Read commands (`dispatch get/list`) open DB without running migrations.
-   - Write commands (`dispatch create/cancel`) run migrate-before-write.
+   - Write commands (`dispatch create/cancel`) run migrate-before-write,
+     but only after actor-token verification succeeds.
    - `tanren db migrate` is the explicit schema mutation command.
    - Read commands against non-ready schema return `schema_not_ready`.
 

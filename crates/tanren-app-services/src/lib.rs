@@ -22,5 +22,8 @@ pub mod compose;
 mod dispatch_service;
 pub mod error;
 
-pub use auth::{ActorTokenVerifier, RequestContext};
+pub use auth::{
+    ActorTokenVerifier, AuthFailureKind, ReplayGuard, RequestContext, TokenVerificationError,
+    VerifiedActorToken,
+};
 pub use dispatch_service::DispatchService;

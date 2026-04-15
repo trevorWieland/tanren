@@ -14,9 +14,7 @@ use serde::Deserialize;
 use tanren_contract::ContractError;
 use tanren_domain::{ActorContext, ApiKeyId, OrgId, ProjectId, TeamId, UserId};
 use tanren_observability::emit_correlated_internal_error;
-use tanren_store::{
-    ConsumeActorTokenJtiParams, PurgeExpiredActorTokenJtisParams, TokenReplayStore,
-};
+use tanren_store::ReplayGuard as StoreReplayGuard;
 use uuid::Uuid;
 
 /// Default hard ceiling for accepted actor token lifetime (`exp - iat`).
@@ -24,9 +22,6 @@ pub const DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS: u64 = 900;
 
 /// Allowed positive clock skew for `iat` relative to local wall clock.
 const DEFAULT_IAT_FUTURE_SKEW_SECS: i64 = 30;
-
-/// Maximum replay rows to purge per verification call.
-const REPLAY_PURGE_LIMIT: u64 = 128;
 
 /// Trusted request context for service and orchestrator entrypoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +40,106 @@ impl RequestContext {
     #[must_use]
     pub const fn actor(&self) -> &ActorContext {
         &self.actor
+    }
+}
+
+/// Replay guard key materialized from a verified actor token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayGuard {
+    issuer: String,
+    audience: String,
+    jti: String,
+    iat_unix: i64,
+    exp_unix: i64,
+}
+
+impl ReplayGuard {
+    #[must_use]
+    pub fn new(
+        issuer: String,
+        audience: String,
+        jti: String,
+        iat_unix: i64,
+        exp_unix: i64,
+    ) -> Self {
+        Self {
+            issuer,
+            audience,
+            jti,
+            iat_unix,
+            exp_unix,
+        }
+    }
+
+    #[must_use]
+    pub fn to_store_replay_guard(&self) -> StoreReplayGuard {
+        StoreReplayGuard {
+            issuer: self.issuer.clone(),
+            audience: self.audience.clone(),
+            jti: self.jti.clone(),
+            iat_unix: self.iat_unix,
+            exp_unix: self.exp_unix,
+        }
+    }
+}
+
+/// Verified token material including trusted request context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedActorToken {
+    context: RequestContext,
+    replay_guard: ReplayGuard,
+}
+
+impl VerifiedActorToken {
+    /// Borrow the trusted request context extracted from claims.
+    #[must_use]
+    pub const fn context(&self) -> &RequestContext {
+        &self.context
+    }
+
+    /// Borrow replay guard key material for mutating command paths.
+    #[must_use]
+    pub const fn replay_guard(&self) -> &ReplayGuard {
+        &self.replay_guard
+    }
+
+    /// Consume into `(RequestContext, ReplayGuard)`.
+    #[must_use]
+    pub fn into_parts(self) -> (RequestContext, ReplayGuard) {
+        (self.context, self.replay_guard)
+    }
+}
+
+/// Typed token-verification failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum TokenVerificationError {
+    /// Token did not pass cryptographic/claim validation.
+    #[error("token validation failed")]
+    InvalidToken,
+}
+
+/// Auth failure taxonomy shared across verify/replay/backend boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthFailureKind {
+    InvalidToken,
+    ReplayRejected,
+    BackendFailure,
+}
+
+impl TokenVerificationError {
+    #[must_use]
+    pub const fn kind(self) -> AuthFailureKind {
+        match self {
+            Self::InvalidToken => AuthFailureKind::InvalidToken,
+        }
+    }
+}
+
+impl From<TokenVerificationError> for ContractError {
+    fn from(err: TokenVerificationError) -> Self {
+        match err {
+            TokenVerificationError::InvalidToken => token_validation_contract_error(),
+        }
     }
 }
 
@@ -109,16 +204,8 @@ impl ActorTokenVerifier {
         Self::from_public_key_pem(&public_key_pem, issuer, audience, max_token_ttl_secs)
     }
 
-    /// Verify a signed actor token, enforce one-time replay consumption,
-    /// and return trusted request context.
-    pub async fn verify_and_consume<S>(
-        &self,
-        token: &str,
-        replay_store: &S,
-    ) -> Result<RequestContext, ContractError>
-    where
-        S: TokenReplayStore,
-    {
+    /// Verify a signed actor token and return trusted context + replay guard.
+    pub fn verify(&self, token: &str) -> Result<VerifiedActorToken, TokenVerificationError> {
         Self::validate_header(token)?;
 
         let claims = decode::<ActorTokenClaims>(token, &self.decoding_key, &self.validation)
@@ -130,42 +217,6 @@ impl ActorTokenVerifier {
 
         self.enforce_claim_sanity(&claims)?;
 
-        let consumed = replay_store
-            .consume_actor_token_jti(ConsumeActorTokenJtiParams {
-                issuer: claims.iss.clone(),
-                audience: claims.aud.clone(),
-                jti: claims.jti.clone(),
-                iat_unix: claims.iat,
-                exp_unix: claims.exp,
-                consumed_at: Utc::now(),
-            })
-            .await
-            .map_err(|err| {
-                emit_auth_boundary_internal_error(
-                    "actor_token_replay_store_error",
-                    &err.to_string(),
-                );
-                token_validation_error()
-            })?;
-
-        if !consumed {
-            emit_auth_boundary_internal_error(
-                "actor_token_replay_rejected",
-                &format!("jti={}", claims.jti),
-            );
-            return Err(token_validation_error());
-        }
-
-        if let Err(err) = replay_store
-            .purge_expired_actor_token_jtis(PurgeExpiredActorTokenJtisParams {
-                expires_before_unix: Utc::now().timestamp(),
-                limit: REPLAY_PURGE_LIMIT,
-            })
-            .await
-        {
-            emit_auth_boundary_internal_error("actor_token_replay_purge_error", &err.to_string());
-        }
-
         let actor = ActorContext {
             org_id: OrgId::from_uuid(claims.org_id),
             user_id: UserId::from_uuid(claims.user_id),
@@ -173,10 +224,15 @@ impl ActorTokenVerifier {
             api_key_id: claims.api_key_id.map(ApiKeyId::from_uuid),
             project_id: claims.project_id.map(ProjectId::from_uuid),
         };
-        Ok(RequestContext::new(actor))
+        let replay_guard =
+            ReplayGuard::new(claims.iss, claims.aud, claims.jti, claims.iat, claims.exp);
+        Ok(VerifiedActorToken {
+            context: RequestContext::new(actor),
+            replay_guard,
+        })
     }
 
-    fn validate_header(token: &str) -> Result<(), ContractError> {
+    fn validate_header(token: &str) -> Result<(), TokenVerificationError> {
         let header = decode_header(token).map_err(|err| {
             emit_auth_boundary_internal_error("invalid_actor_token_header", &err.to_string());
             token_validation_error()
@@ -193,7 +249,10 @@ impl ActorTokenVerifier {
         Ok(())
     }
 
-    fn enforce_claim_sanity(&self, claims: &ActorTokenClaims) -> Result<(), ContractError> {
+    fn enforce_claim_sanity(
+        &self,
+        claims: &ActorTokenClaims,
+    ) -> Result<(), TokenVerificationError> {
         let token_ttl = claims.exp.saturating_sub(claims.iat);
         if token_ttl <= 0 || token_ttl > self.max_token_ttl_secs {
             emit_auth_boundary_internal_error(
@@ -259,11 +318,15 @@ fn build_validation(issuer: &str, audience: &str) -> Validation {
     validation
 }
 
-fn token_validation_error() -> ContractError {
+fn token_validation_contract_error() -> ContractError {
     ContractError::InvalidField {
         field: "actor_token".to_owned(),
         reason: "token validation failed".to_owned(),
     }
+}
+
+fn token_validation_error() -> TokenVerificationError {
+    TokenVerificationError::InvalidToken
 }
 
 fn emit_auth_boundary_internal_error(error_code: &str, raw_error: &str) {

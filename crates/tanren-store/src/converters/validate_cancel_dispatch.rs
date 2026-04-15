@@ -21,6 +21,22 @@ pub(crate) fn validate_cancel_dispatch(params: &CancelDispatchParams) -> Result<
             check(params.dispatch_id == *dispatch_id, "dispatch_id")?;
             check(params.actor == *actor, "actor")?;
             check(params.reason == *reason, "reason")?;
+            check(
+                !params.replay_guard.issuer.trim().is_empty(),
+                "replay_guard.issuer",
+            )?;
+            check(
+                !params.replay_guard.audience.trim().is_empty(),
+                "replay_guard.audience",
+            )?;
+            check(
+                !params.replay_guard.jti.trim().is_empty(),
+                "replay_guard.jti",
+            )?;
+            check(
+                params.replay_guard.exp_unix > params.replay_guard.iat_unix,
+                "replay_guard.exp_unix",
+            )?;
             Ok(())
         }
         other => Err(super::wrong_variant("dispatch_cancelled", other)),

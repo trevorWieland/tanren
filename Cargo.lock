@@ -3184,6 +3184,7 @@ dependencies = [
  "tanren-orchestrator",
  "tanren-policy",
  "tanren-store",
+ "thiserror",
  "tokio",
  "uuid",
 ]

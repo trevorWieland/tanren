@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
-use async_trait::async_trait;
 use chrono::Utc;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::Serialize;
-use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use super::*;
 
@@ -18,54 +15,6 @@ const TEST_ED25519_PUBLIC_KEY_PEM: &str = "\
 MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
 -----END PUBLIC KEY-----
 ";
-
-#[derive(Debug, Clone)]
-struct ReplayStoreMock {
-    consume_result: bool,
-    consumed: Arc<Mutex<Vec<(String, String, String)>>>,
-    purge_calls: Arc<Mutex<u64>>,
-}
-
-impl ReplayStoreMock {
-    fn accepting() -> Self {
-        Self {
-            consume_result: true,
-            consumed: Arc::new(Mutex::new(Vec::new())),
-            purge_calls: Arc::new(Mutex::new(0)),
-        }
-    }
-
-    fn rejecting_replay() -> Self {
-        Self {
-            consume_result: false,
-            consumed: Arc::new(Mutex::new(Vec::new())),
-            purge_calls: Arc::new(Mutex::new(0)),
-        }
-    }
-}
-
-#[async_trait]
-impl TokenReplayStore for ReplayStoreMock {
-    async fn consume_actor_token_jti(
-        &self,
-        params: ConsumeActorTokenJtiParams,
-    ) -> tanren_store::StoreResult<bool> {
-        self.consumed
-            .lock()
-            .await
-            .push((params.issuer, params.audience, params.jti));
-        Ok(self.consume_result)
-    }
-
-    async fn purge_expired_actor_token_jtis(
-        &self,
-        _params: PurgeExpiredActorTokenJtisParams,
-    ) -> tanren_store::StoreResult<u64> {
-        let mut calls = self.purge_calls.lock().await;
-        *calls += 1;
-        Ok(0)
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
 struct TestClaims {
@@ -133,45 +82,46 @@ fn sign<T: Serialize>(claims: &T, kid: Option<&str>) -> String {
     .expect("token")
 }
 
-#[tokio::test]
-async fn verify_accepts_valid_token_and_consumes_replay_key() {
+#[test]
+fn verify_accepts_valid_token_and_materializes_replay_guard() {
     let now = Utc::now().timestamp();
     let claims = base_claims(now);
     let token = sign(&claims, Some("kid-1"));
 
     let verifier = verifier(300);
-    let replay_store = ReplayStoreMock::accepting();
+    let token_ctx = verifier.verify(&token).expect("valid token");
 
-    let context = verifier
-        .verify_and_consume(&token, &replay_store)
-        .await
-        .expect("valid token");
+    assert_eq!(
+        token_ctx.context().actor().org_id.into_uuid(),
+        claims.org_id
+    );
+    assert_eq!(
+        token_ctx.context().actor().user_id.into_uuid(),
+        claims.user_id
+    );
 
-    assert_eq!(context.actor().org_id.into_uuid(), claims.org_id);
-    assert_eq!(context.actor().user_id.into_uuid(), claims.user_id);
-
-    let consumed = replay_store.consumed.lock().await;
-    assert_eq!(consumed.len(), 1);
-    assert_eq!(consumed[0].2, claims.jti);
+    let replay_guard = token_ctx.replay_guard().to_store_replay_guard();
+    assert_eq!(replay_guard.issuer, claims.iss);
+    assert_eq!(replay_guard.audience, claims.aud);
+    assert_eq!(replay_guard.jti, claims.jti);
+    assert_eq!(replay_guard.iat_unix, claims.iat);
+    assert_eq!(replay_guard.exp_unix, claims.exp);
 }
 
-#[tokio::test]
-async fn verify_accepts_token_without_kid_header() {
+#[test]
+fn verify_accepts_token_without_kid_header() {
     let now = Utc::now().timestamp();
     let claims = base_claims(now);
     let token = sign(&claims, None);
 
     let verifier = verifier(300);
-    let replay_store = ReplayStoreMock::accepting();
-
     verifier
-        .verify_and_consume(&token, &replay_store)
-        .await
+        .verify(&token)
         .expect("missing kid should still validate with static public key");
 }
 
-#[tokio::test]
-async fn verify_rejects_missing_jti_claim() {
+#[test]
+fn verify_rejects_missing_jti_claim() {
     let now = Utc::now().timestamp();
     let claims = MissingJtiClaims {
         iss: "tanren-tests".to_owned(),
@@ -185,59 +135,20 @@ async fn verify_rejects_missing_jti_claim() {
     let token = sign(&claims, Some("kid-1"));
 
     let verifier = verifier(300);
-    let replay_store = ReplayStoreMock::accepting();
+    let err = verifier.verify(&token).expect_err("missing jti must fail");
 
-    let err = verifier
-        .verify_and_consume(&token, &replay_store)
-        .await
-        .expect_err("missing jti must fail");
-
-    assert!(matches!(
-        err,
-        ContractError::InvalidField { ref field, ref reason }
-        if field == "actor_token" && reason == "token validation failed"
-    ));
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
 }
 
-#[tokio::test]
-async fn verify_rejects_replayed_token() {
-    let now = Utc::now().timestamp();
-    let claims = base_claims(now);
-    let token = sign(&claims, Some("kid-1"));
-
-    let verifier = verifier(300);
-    let replay_store = ReplayStoreMock::rejecting_replay();
-
-    let err = verifier
-        .verify_and_consume(&token, &replay_store)
-        .await
-        .expect_err("replay must fail");
-
-    assert!(matches!(
-        err,
-        ContractError::InvalidField { ref field, ref reason }
-        if field == "actor_token" && reason == "token validation failed"
-    ));
-}
-
-#[tokio::test]
-async fn verify_rejects_token_ttl_above_configured_max() {
+#[test]
+fn verify_rejects_token_ttl_above_configured_max() {
     let now = Utc::now().timestamp();
     let mut claims = base_claims(now);
     claims.exp = claims.iat + 3_600;
     let token = sign(&claims, Some("kid-1"));
 
     let verifier = verifier(300);
-    let replay_store = ReplayStoreMock::accepting();
+    let err = verifier.verify(&token).expect_err("ttl must fail");
 
-    let err = verifier
-        .verify_and_consume(&token, &replay_store)
-        .await
-        .expect_err("ttl must fail");
-
-    assert!(matches!(
-        err,
-        ContractError::InvalidField { ref field, ref reason }
-        if field == "actor_token" && reason == "token validation failed"
-    ));
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
 }

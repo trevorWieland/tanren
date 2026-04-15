@@ -12,7 +12,7 @@ use tanren_domain::{
 };
 use tanren_store::{
     CancelDispatchParams, CreateDispatchParams, DispatchFilter, EnqueueStepParams, JobQueue,
-    StateStore, Store, StoreConflictClass, StoreError, UpdateDispatchStatusParams,
+    ReplayGuard, StateStore, Store, StoreConflictClass, StoreError, UpdateDispatchStatusParams,
     dispatch_query_statement_for_backend,
 };
 use testcontainers::ContainerAsync;
@@ -278,6 +278,7 @@ fn cancel_dispatch_params(
     reason: Option<String>,
 ) -> CancelDispatchParams {
     let reason_for_event = reason.clone();
+    let replay_seed = Uuid::now_v7();
     CancelDispatchParams {
         dispatch_id,
         actor: actor_ctx.clone(),
@@ -291,6 +292,13 @@ fn cancel_dispatch_params(
                 reason: reason_for_event,
             },
         ),
+        replay_guard: ReplayGuard {
+            issuer: "tanren-test".to_owned(),
+            audience: "tanren-cli".to_owned(),
+            jti: replay_seed.to_string(),
+            iat_unix: 1,
+            exp_unix: 2,
+        },
     }
 }
 

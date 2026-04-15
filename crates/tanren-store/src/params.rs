@@ -313,6 +313,8 @@ pub struct CancelDispatchParams {
     pub reason: Option<String>,
     /// `DispatchCancelled` lifecycle event appended co-transactionally.
     pub status_event: EventEnvelope,
+    /// Replay guard key consumed atomically with the cancellation.
+    pub replay_guard: ReplayGuard,
 }
 
 /// Parameters for
@@ -370,6 +372,8 @@ pub struct CreateDispatchWithInitialStepParams {
     pub dispatch: CreateDispatchParams,
     /// Initial step params (must be the provision step at sequence 0).
     pub initial_step: EnqueueStepParams,
+    /// Replay guard key consumed atomically with the create path.
+    pub replay_guard: ReplayGuard,
 }
 
 /// Parameters for replay-protected actor-token consumption.
@@ -387,6 +391,40 @@ pub struct ConsumeActorTokenJtiParams {
     pub exp_unix: i64,
     /// Wall-clock consumed-at time.
     pub consumed_at: DateTime<Utc>,
+}
+
+/// Replay guard materialized from a verified actor token.
+///
+/// Mutating store operations consume this key atomically with their
+/// dispatch mutation so replay rejection cannot race the write path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayGuard {
+    /// JWT issuer claim.
+    pub issuer: String,
+    /// JWT audience claim.
+    pub audience: String,
+    /// JWT ID claim (`jti`).
+    pub jti: String,
+    /// Issued-at unix timestamp (`iat`).
+    pub iat_unix: i64,
+    /// Expiry unix timestamp (`exp`).
+    pub exp_unix: i64,
+}
+
+impl ReplayGuard {
+    /// Convert this replay guard into insert params with a concrete
+    /// `consumed_at` timestamp.
+    #[must_use]
+    pub fn into_consume_params(self, consumed_at: DateTime<Utc>) -> ConsumeActorTokenJtiParams {
+        ConsumeActorTokenJtiParams {
+            issuer: self.issuer,
+            audience: self.audience,
+            jti: self.jti,
+            iat_unix: self.iat_unix,
+            exp_unix: self.exp_unix,
+            consumed_at,
+        }
+    }
 }
 
 /// Parameters for bounded replay-ledger cleanup.

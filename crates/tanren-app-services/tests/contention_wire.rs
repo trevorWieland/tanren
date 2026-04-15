@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tanren_app_services::{DispatchService, RequestContext};
+use tanren_app_services::{DispatchService, ReplayGuard, RequestContext};
 use tanren_contract::CancelDispatchRequest;
 use tanren_domain::{
     ActorContext, AuthMode, ConfigKeys, DispatchId, DispatchMode, DispatchStatus, DispatchView,
@@ -19,12 +19,23 @@ use tanren_store::{
     UpdateDispatchStatusParams,
 };
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 struct ContentionStore {
     dispatch_id: DispatchId,
     actor: ActorContext,
     _marker: Arc<Mutex<()>>,
+}
+
+fn sample_replay_guard() -> ReplayGuard {
+    ReplayGuard::new(
+        "tanren-test".to_owned(),
+        "tanren-cli".to_owned(),
+        Uuid::now_v7().to_string(),
+        1,
+        2,
+    )
 }
 
 #[async_trait]
@@ -207,6 +218,7 @@ async fn cancel_contention_returns_contention_conflict_wire_code() {
                 dispatch_id: store.dispatch_id.into_uuid(),
                 reason: Some("stop".to_owned()),
             },
+            &sample_replay_guard(),
         )
         .await
         .expect_err("cancel should fail");

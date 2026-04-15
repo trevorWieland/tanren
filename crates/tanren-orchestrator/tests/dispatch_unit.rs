@@ -3,13 +3,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[path = "support/dispatch_fixtures.rs"]
+mod dispatch_fixtures;
+
 use async_trait::async_trait;
 use chrono::Utc;
+use dispatch_fixtures::{sample_actor, sample_command, sample_replay_guard};
 use tanren_domain::{
-    ActorContext, AuthMode, CancelDispatch, Cli, ConfigEnv, CreateDispatch, DispatchId,
-    DispatchMode, DispatchStatus, DispatchView, DomainError, EntityKind, EntityRef,
-    EventQueryResult, FiniteF64, Lane, NonEmptyString, OrgId, Outcome, Phase, StepReadyState,
-    StepType, TimeoutSecs, UserId, cli_to_lane, read_scope_allows_dispatch_actor,
+    ActorContext, CancelDispatch, Cli, DispatchId, DispatchStatus, DispatchView, DomainError,
+    EntityKind, EntityRef, EventQueryResult, FiniteF64, Lane, OrgId, Outcome, StepPayload,
+    StepReadyState, StepType, UserId, cli_to_lane, read_scope_allows_dispatch_actor,
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
@@ -283,34 +286,6 @@ impl StateStore for RecordingStore {
         Ok(())
     }
 }
-fn sample_actor() -> ActorContext {
-    ActorContext::new(OrgId::new(), UserId::new())
-}
-
-fn sample_command(actor: ActorContext) -> CreateDispatch {
-    CreateDispatch {
-        actor,
-        project: NonEmptyString::try_new("test-project".to_owned()).expect("non-empty"),
-        phase: Phase::DoTask,
-        cli: Cli::Claude,
-        auth_mode: AuthMode::ApiKey,
-        branch: NonEmptyString::try_new("main".to_owned()).expect("non-empty"),
-        spec_folder: NonEmptyString::try_new("spec".to_owned()).expect("non-empty"),
-        workflow_id: NonEmptyString::try_new("wf-1".to_owned()).expect("non-empty"),
-        mode: DispatchMode::Manual,
-        timeout: TimeoutSecs::try_new(60).expect("positive"),
-        environment_profile: NonEmptyString::try_new("default".to_owned()).expect("non-empty"),
-        gate_cmd: Some("cargo test".to_owned()),
-        context: Some("context".to_owned()),
-        model: Some("claude-4".to_owned()),
-        project_env: ConfigEnv::from(HashMap::from([(
-            "API_URL".to_owned(),
-            "https://example.com".to_owned(),
-        )])),
-        required_secrets: vec!["OPENAI_API_KEY".to_owned()],
-        preserve_on_failure: true,
-    }
-}
 
 #[tokio::test]
 async fn create_dispatch_records_atomic_store_operation() {
@@ -318,7 +293,7 @@ async fn create_dispatch_records_atomic_store_operation() {
     let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
 
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
         .await
         .expect("create");
     let snapshot = store.snapshot().await;
@@ -330,6 +305,14 @@ async fn create_dispatch_records_atomic_store_operation() {
     assert_eq!(params.initial_step.step_type, StepType::Provision);
     assert_eq!(params.initial_step.step_sequence, 0);
     assert_eq!(params.initial_step.ready_state, StepReadyState::Ready);
+    assert!(
+        matches!(
+            params.initial_step.payload,
+            StepPayload::ProvisionRef(ref payload)
+                if payload.dispatch_ref.dispatch_id == created.dispatch_id
+        ),
+        "create path must store a typed snapshot reference payload"
+    );
 
     let stored = snapshot
         .dispatches
@@ -346,15 +329,18 @@ async fn cancel_dispatch_records_cancel_params_and_updates_status() {
     let actor = sample_actor();
 
     let created = orch
-        .create_dispatch(sample_command(actor.clone()))
+        .create_dispatch(sample_command(actor.clone()), sample_replay_guard())
         .await
         .expect("create");
 
-    orch.cancel_dispatch(CancelDispatch {
-        actor,
-        dispatch_id: created.dispatch_id,
-        reason: Some("user cancelled".to_owned()),
-    })
+    orch.cancel_dispatch(
+        CancelDispatch {
+            actor,
+            dispatch_id: created.dispatch_id,
+            reason: Some("user cancelled".to_owned()),
+        },
+        sample_replay_guard(),
+    )
     .await
     .expect("cancel");
 
@@ -378,7 +364,7 @@ async fn finalize_dispatch_enforces_single_terminal_failed_path() {
     let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
 
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
         .await
         .expect("create");
     orch.start_dispatch(created.dispatch_id)
@@ -416,11 +402,14 @@ async fn cancel_nonexistent_dispatch_returns_not_found() {
     let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
 
     let err = orch
-        .cancel_dispatch(CancelDispatch {
-            actor: sample_actor(),
-            dispatch_id: DispatchId::new(),
-            reason: None,
-        })
+        .cancel_dispatch(
+            CancelDispatch {
+                actor: sample_actor(),
+                dispatch_id: DispatchId::new(),
+                reason: None,
+            },
+            sample_replay_guard(),
+        )
         .await
         .expect_err("cancel should fail");
     assert!(matches!(
@@ -444,16 +433,19 @@ async fn cancel_dispatch_hides_actor_scope_mismatch_as_not_found() {
     let store = RecordingStore::default();
     let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
         .await
         .expect("create");
 
     let err = orch
-        .cancel_dispatch(CancelDispatch {
-            actor: ActorContext::new(OrgId::new(), UserId::new()),
-            dispatch_id: created.dispatch_id,
-            reason: Some("mismatch".to_owned()),
-        })
+        .cancel_dispatch(
+            CancelDispatch {
+                actor: ActorContext::new(OrgId::new(), UserId::new()),
+                dispatch_id: created.dispatch_id,
+                reason: Some("mismatch".to_owned()),
+            },
+            sample_replay_guard(),
+        )
         .await
         .expect_err("cancel should fail");
     assert!(
@@ -483,7 +475,7 @@ async fn list_dispatches_applies_filters_without_store_sql_knowledge() {
     let actor = sample_actor();
 
     let created = orch
-        .create_dispatch(sample_command(actor.clone()))
+        .create_dispatch(sample_command(actor.clone()), sample_replay_guard())
         .await
         .expect("create");
 

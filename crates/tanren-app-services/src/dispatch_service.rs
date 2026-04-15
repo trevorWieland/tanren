@@ -16,6 +16,7 @@ use tanren_store::{
 };
 use uuid::Uuid;
 
+use crate::ReplayGuard;
 use crate::RequestContext;
 use crate::error::map_orchestrator_error;
 
@@ -42,12 +43,13 @@ where
         &self,
         context: &RequestContext,
         req: tanren_contract::CreateDispatchRequest,
+        replay_guard: &ReplayGuard,
     ) -> Result<DispatchResponse, ErrorResponse> {
         let cmd = create_dispatch_from_request(context.actor().clone(), req)
             .map_err(ErrorResponse::from)?;
         let view = self
             .orchestrator
-            .create_dispatch(cmd)
+            .create_dispatch(cmd, replay_guard.to_store_replay_guard())
             .await
             .map_err(map_orchestrator_error)?;
         Ok(DispatchResponse::from(view))
@@ -101,11 +103,12 @@ where
         &self,
         context: &RequestContext,
         req: CancelDispatchRequest,
+        replay_guard: &ReplayGuard,
     ) -> Result<(), ErrorResponse> {
         let cmd = cancel_dispatch_from_request(context.actor().clone(), req)
             .map_err(ErrorResponse::from)?;
         self.orchestrator
-            .cancel_dispatch(cmd)
+            .cancel_dispatch(cmd, replay_guard.to_store_replay_guard())
             .await
             .map_err(map_orchestrator_error)
     }
@@ -165,6 +168,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{DispatchService, convert_list_filter, format_cursor, parse_cursor};
+    use crate::ReplayGuard;
     use crate::RequestContext;
 
     async fn setup_service() -> DispatchService<Store> {
@@ -198,6 +202,16 @@ mod tests {
             required_secrets: vec![],
             preserve_on_failure: false,
         }
+    }
+
+    fn sample_replay_guard() -> ReplayGuard {
+        ReplayGuard::new(
+            "tanren-tests".to_owned(),
+            "tanren-cli".to_owned(),
+            Uuid::now_v7().to_string(),
+            10,
+            20,
+        )
     }
 
     #[test]
@@ -249,7 +263,7 @@ mod tests {
         req.required_secrets = vec!["API_KEY".to_owned(), "API_KEY".to_owned()];
 
         let err = service
-            .create(&sample_context(), req)
+            .create(&sample_context(), req, &sample_replay_guard())
             .await
             .expect_err("should fail");
         assert_eq!(err.code, ErrorCode::InvalidInput);
@@ -263,7 +277,7 @@ mod tests {
         req.project_env = HashMap::from([("EMPTY".to_owned(), String::new())]);
 
         let created = service
-            .create(&sample_context(), req)
+            .create(&sample_context(), req, &sample_replay_guard())
             .await
             .expect("should create");
         assert_eq!(created.project_env_keys, vec!["EMPTY".to_owned()]);
@@ -273,7 +287,7 @@ mod tests {
     async fn service_get_hides_unauthorized_dispatch_as_not_found() {
         let service = setup_service().await;
         let created = service
-            .create(&sample_context(), sample_request())
+            .create(&sample_context(), sample_request(), &sample_replay_guard())
             .await
             .expect("create");
 
@@ -289,7 +303,7 @@ mod tests {
     async fn service_cancel_hides_unauthorized_dispatch_as_not_found() {
         let service = setup_service().await;
         let created = service
-            .create(&sample_context(), sample_request())
+            .create(&sample_context(), sample_request(), &sample_replay_guard())
             .await
             .expect("create");
 
@@ -301,6 +315,7 @@ mod tests {
                     dispatch_id: created.dispatch_id,
                     reason: Some("unauthorized cancel".to_owned()),
                 },
+                &sample_replay_guard(),
             )
             .await
             .expect_err("unauthorized actor should not see dispatch");
@@ -317,6 +332,7 @@ mod tests {
                     dispatch_id: Uuid::now_v7(),
                     reason: Some("missing dispatch".to_owned()),
                 },
+                &sample_replay_guard(),
             )
             .await
             .expect_err("missing dispatch should fail");

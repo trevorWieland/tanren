@@ -1,42 +1,16 @@
 //! Integration tests for dispatch lifecycle operations.
-//!
-//! Tests run against an in-memory `SQLite` database to verify the full
-//! orchestrator → store pipeline.
 
+#[path = "support/dispatch_fixtures.rs"]
+mod dispatch_fixtures;
+
+use dispatch_fixtures::{sample_actor, sample_command, sample_replay_guard};
 use tanren_domain::{
-    ActorContext, AuthMode, CancelDispatch, Cli, ConfigEnv, CreateDispatch, DispatchId,
-    DispatchMode, DispatchStatus, DomainError, EntityRef, FiniteF64, NonEmptyString, OrgId,
-    Outcome, Phase, StepReadyState, StepStatus, StepType, TimeoutSecs, UserId,
+    CancelDispatch, Cli, DispatchId, DispatchMode, DispatchStatus, DomainError, EntityRef,
+    FiniteF64, NonEmptyString, Outcome, Phase, StepReadyState, StepStatus, StepType,
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
 use tanren_store::{DispatchFilter, EventFilter, EventStore, StateStore, Store, StoreError};
-
-fn sample_actor() -> ActorContext {
-    ActorContext::new(OrgId::new(), UserId::new())
-}
-
-fn sample_command(actor: ActorContext) -> CreateDispatch {
-    CreateDispatch {
-        actor,
-        project: NonEmptyString::try_new("test-project".to_owned()).expect("non-empty"),
-        phase: Phase::DoTask,
-        cli: Cli::Claude,
-        auth_mode: AuthMode::ApiKey,
-        branch: NonEmptyString::try_new("main".to_owned()).expect("non-empty"),
-        spec_folder: NonEmptyString::try_new("spec".to_owned()).expect("non-empty"),
-        workflow_id: NonEmptyString::try_new("wf-1".to_owned()).expect("non-empty"),
-        mode: DispatchMode::Manual,
-        timeout: TimeoutSecs::try_new(60).expect("positive"),
-        environment_profile: NonEmptyString::try_new("default".to_owned()).expect("non-empty"),
-        gate_cmd: None,
-        context: None,
-        model: None,
-        project_env: ConfigEnv::default(),
-        required_secrets: vec![],
-        preserve_on_failure: false,
-    }
-}
 
 async fn setup() -> Orchestrator<Store> {
     let store = Store::open_and_migrate("sqlite::memory:")
@@ -46,14 +20,15 @@ async fn setup() -> Orchestrator<Store> {
     Orchestrator::new(store, policy)
 }
 
-// -- Create + Get round-trip ------------------------------------------------
-
 #[tokio::test]
 async fn create_dispatch_returns_pending_view() {
     let orch = setup().await;
     let actor = sample_actor();
     let cmd = sample_command(actor.clone());
-    let view = orch.create_dispatch(cmd).await.expect("create");
+    let view = orch
+        .create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     assert_eq!(view.status, DispatchStatus::Pending);
     assert_eq!(view.dispatch.project.as_str(), "test-project");
@@ -67,7 +42,10 @@ async fn get_dispatch_after_create() {
     let orch = setup().await;
     let actor = sample_actor();
     let cmd = sample_command(actor.clone());
-    let created = orch.create_dispatch(cmd).await.expect("create");
+    let created = orch
+        .create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     let fetched = orch
         .get_dispatch_for_actor(&created.dispatch_id, &actor)
@@ -89,14 +67,15 @@ async fn get_nonexistent_dispatch_returns_none() {
     assert!(result.is_none());
 }
 
-// -- Create enqueues provision step -----------------------------------------
-
 #[tokio::test]
 async fn create_dispatch_enqueues_provision_step() {
     let orch = setup().await;
     let actor = sample_actor();
     let cmd = sample_command(actor);
-    let created = orch.create_dispatch(cmd).await.expect("create");
+    let created = orch
+        .create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     let steps = orch
         .store()
@@ -113,8 +92,6 @@ async fn create_dispatch_enqueues_provision_step() {
     assert_eq!(step.ready_state, StepReadyState::Ready);
 }
 
-// -- List -------------------------------------------------------------------
-
 #[tokio::test]
 async fn list_dispatches_returns_created() {
     let orch = setup().await;
@@ -122,7 +99,9 @@ async fn list_dispatches_returns_created() {
 
     for _ in 0..3 {
         let cmd = sample_command(actor.clone());
-        orch.create_dispatch(cmd).await.expect("create");
+        orch.create_dispatch(cmd, sample_replay_guard())
+            .await
+            .expect("create");
     }
 
     let list = orch
@@ -140,11 +119,15 @@ async fn list_dispatches_with_project_filter() {
     let list_actor = actor.clone();
 
     let cmd = sample_command(actor.clone());
-    orch.create_dispatch(cmd).await.expect("create");
+    orch.create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     let mut cmd2 = sample_command(actor);
     cmd2.project = NonEmptyString::try_new("other-project".to_owned()).expect("non-empty");
-    orch.create_dispatch(cmd2).await.expect("create");
+    orch.create_dispatch(cmd2, sample_replay_guard())
+        .await
+        .expect("create");
 
     let mut filter = DispatchFilter::new();
     filter.project = Some("test-project".to_owned());
@@ -167,22 +150,25 @@ async fn list_empty_returns_empty_vec() {
     assert!(list.next_cursor.is_none());
 }
 
-// -- Cancel -----------------------------------------------------------------
-
 #[tokio::test]
 async fn cancel_dispatch_transitions_to_cancelled() {
     let orch = setup().await;
     let actor = sample_actor();
     let read_actor = actor.clone();
     let cmd = sample_command(actor.clone());
-    let created = orch.create_dispatch(cmd).await.expect("create");
+    let created = orch
+        .create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     let cancel_cmd = CancelDispatch {
         actor,
         dispatch_id: created.dispatch_id,
         reason: Some("test cancel".to_owned()),
     };
-    orch.cancel_dispatch(cancel_cmd).await.expect("cancel");
+    orch.cancel_dispatch(cancel_cmd, sample_replay_guard())
+        .await
+        .expect("cancel");
 
     let view = orch
         .get_dispatch_for_actor(&created.dispatch_id, &read_actor)
@@ -197,14 +183,19 @@ async fn cancel_already_cancelled_returns_error() {
     let orch = setup().await;
     let actor = sample_actor();
     let cmd = sample_command(actor.clone());
-    let created = orch.create_dispatch(cmd).await.expect("create");
+    let created = orch
+        .create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     let cancel1 = CancelDispatch {
         actor: actor.clone(),
         dispatch_id: created.dispatch_id,
         reason: None,
     };
-    orch.cancel_dispatch(cancel1).await.expect("first cancel");
+    orch.cancel_dispatch(cancel1, sample_replay_guard())
+        .await
+        .expect("first cancel");
 
     let cancel2 = CancelDispatch {
         actor,
@@ -212,7 +203,7 @@ async fn cancel_already_cancelled_returns_error() {
         reason: None,
     };
     let err = orch
-        .cancel_dispatch(cancel2)
+        .cancel_dispatch(cancel2, sample_replay_guard())
         .await
         .expect_err("second cancel should fail");
 
@@ -234,7 +225,7 @@ async fn cancel_nonexistent_dispatch_returns_not_found() {
         reason: None,
     };
     let err = orch
-        .cancel_dispatch(cancel_cmd)
+        .cancel_dispatch(cancel_cmd, sample_replay_guard())
         .await
         .expect_err("should fail");
 
@@ -244,14 +235,15 @@ async fn cancel_nonexistent_dispatch_returns_not_found() {
     );
 }
 
-// -- Terminal-event emission rule -------------------------------------------
-
 #[tokio::test]
 async fn create_emits_dispatch_created_and_step_enqueued() {
     let orch = setup().await;
     let actor = sample_actor();
     let cmd = sample_command(actor);
-    let created = orch.create_dispatch(cmd).await.expect("create");
+    let created = orch
+        .create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     let filter = EventFilter {
         entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
@@ -259,7 +251,6 @@ async fn create_emits_dispatch_created_and_step_enqueued() {
     };
     let result = orch.store().query_events(&filter).await.expect("events");
 
-    // Create emits DispatchCreated + StepEnqueued = 2 events
     assert_eq!(
         result.events.len(),
         2,
@@ -289,14 +280,19 @@ async fn cancel_emits_dispatch_cancelled_not_failed() {
     let orch = setup().await;
     let actor = sample_actor();
     let cmd = sample_command(actor.clone());
-    let created = orch.create_dispatch(cmd).await.expect("create");
+    let created = orch
+        .create_dispatch(cmd, sample_replay_guard())
+        .await
+        .expect("create");
 
     let cancel_cmd = CancelDispatch {
         actor,
         dispatch_id: created.dispatch_id,
         reason: Some("test".to_owned()),
     };
-    orch.cancel_dispatch(cancel_cmd).await.expect("cancel");
+    orch.cancel_dispatch(cancel_cmd, sample_replay_guard())
+        .await
+        .expect("cancel");
 
     let filter = EventFilter {
         entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
@@ -340,7 +336,7 @@ async fn finalize_success_emits_dispatch_completed() {
     let orch = setup().await;
     let actor = sample_actor();
     let created = orch
-        .create_dispatch(sample_command(actor.clone()))
+        .create_dispatch(sample_command(actor.clone()), sample_replay_guard())
         .await
         .expect("create");
     orch.start_dispatch(created.dispatch_id)
@@ -396,7 +392,7 @@ async fn finalize_non_success_outcomes_emit_dispatch_failed() {
         let orch = setup().await;
         let actor = sample_actor();
         let created = orch
-            .create_dispatch(sample_command(actor.clone()))
+            .create_dispatch(sample_command(actor.clone()), sample_replay_guard())
             .await
             .expect("create");
         orch.start_dispatch(created.dispatch_id)
@@ -441,7 +437,7 @@ async fn finalize_non_success_outcomes_emit_dispatch_failed() {
 async fn finalize_without_running_state_rejected() {
     let orch = setup().await;
     let created = orch
-        .create_dispatch(sample_command(sample_actor()))
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
         .await
         .expect("create");
     let err = orch

@@ -1,5 +1,8 @@
 use async_trait::async_trait;
-use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DatabaseTransaction, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 
 use crate::StoreError;
 use crate::db_error_codes::{
@@ -7,7 +10,7 @@ use crate::db_error_codes::{
 };
 use crate::entity::actor_token_replay;
 use crate::errors::StoreResult;
-use crate::params::{ConsumeActorTokenJtiParams, PurgeExpiredActorTokenJtisParams};
+use crate::params::{ConsumeActorTokenJtiParams, PurgeExpiredActorTokenJtisParams, ReplayGuard};
 use crate::store::Store;
 
 #[async_trait]
@@ -34,31 +37,7 @@ impl TokenReplayStore for Store {
         &self,
         params: ConsumeActorTokenJtiParams,
     ) -> StoreResult<bool> {
-        let row = actor_token_replay::ActiveModel {
-            issuer: sea_orm::ActiveValue::Set(params.issuer),
-            audience: sea_orm::ActiveValue::Set(params.audience),
-            jti: sea_orm::ActiveValue::Set(params.jti),
-            iat_unix: sea_orm::ActiveValue::Set(params.iat_unix),
-            exp_unix: sea_orm::ActiveValue::Set(params.exp_unix),
-            consumed_at: sea_orm::ActiveValue::Set(params.consumed_at),
-        };
-
-        match actor_token_replay::Entity::insert(row)
-            .exec(self.conn())
-            .await
-        {
-            Ok(_) => Ok(true),
-            Err(err) => {
-                let code = extract_db_error_code(&err);
-                if code.as_deref().is_some_and(|c| {
-                    is_sqlite_unique_violation_code(c) || is_postgres_unique_violation_code(c)
-                }) {
-                    Ok(false)
-                } else {
-                    Err(StoreError::from(err))
-                }
-            }
-        }
+        consume_actor_token_jti_once(self.conn(), params).await
     }
 
     async fn purge_expired_actor_token_jtis(
@@ -95,6 +74,50 @@ impl TokenReplayStore for Store {
             .exec(self.conn())
             .await?;
         Ok(result.rows_affected)
+    }
+}
+
+pub(crate) async fn consume_replay_guard_once(
+    txn: &DatabaseTransaction,
+    replay_guard: ReplayGuard,
+) -> StoreResult<()> {
+    let params = replay_guard.into_consume_params(chrono::Utc::now());
+    let inserted = consume_actor_token_jti_once(txn, params).await?;
+    if inserted {
+        Ok(())
+    } else {
+        Err(StoreError::ReplayRejected)
+    }
+}
+
+async fn consume_actor_token_jti_once<C>(
+    conn: &C,
+    params: ConsumeActorTokenJtiParams,
+) -> StoreResult<bool>
+where
+    C: ConnectionTrait,
+{
+    let row = actor_token_replay::ActiveModel {
+        issuer: sea_orm::ActiveValue::Set(params.issuer),
+        audience: sea_orm::ActiveValue::Set(params.audience),
+        jti: sea_orm::ActiveValue::Set(params.jti),
+        iat_unix: sea_orm::ActiveValue::Set(params.iat_unix),
+        exp_unix: sea_orm::ActiveValue::Set(params.exp_unix),
+        consumed_at: sea_orm::ActiveValue::Set(params.consumed_at),
+    };
+
+    match actor_token_replay::Entity::insert(row).exec(conn).await {
+        Ok(_) => Ok(true),
+        Err(err) => {
+            let code = extract_db_error_code(&err);
+            if code.as_deref().is_some_and(|c| {
+                is_sqlite_unique_violation_code(c) || is_postgres_unique_violation_code(c)
+            }) {
+                Ok(false)
+            } else {
+                Err(StoreError::from(err))
+            }
+        }
     }
 }
 

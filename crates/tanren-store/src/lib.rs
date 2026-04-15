@@ -45,7 +45,7 @@ pub use params::{
     ConsumeActorTokenJtiParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
     DEFAULT_QUERY_LIMIT, DequeueParams, DispatchCursor, DispatchFilter, DispatchQueryPage,
     EnqueueStepParams, EventFilter, MAX_DISPATCH_QUERY_LIMIT, NackParams,
-    PurgeExpiredActorTokenJtisParams, QueuedStep, UpdateDispatchStatusParams,
+    PurgeExpiredActorTokenJtisParams, QueuedStep, ReplayGuard, UpdateDispatchStatusParams,
 };
 pub use state_store::StateStore;
 #[cfg(feature = "test-hooks")]

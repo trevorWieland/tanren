@@ -17,6 +17,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
 use tanren_app_services::ActorTokenVerifier;
 use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS;
+use tanren_app_services::compose::Service;
 use tanren_contract::{ContractError, ErrorCode, ErrorDetails, ErrorResponse};
 use tanren_observability::{
     ObservabilityError, emit_correlated_internal_error, init_tracing_for_contract_io,
@@ -163,33 +164,44 @@ async fn run() -> Result<()> {
                 token_audience.as_deref(),
                 actor_token_max_ttl_secs,
             )?;
-            let store = if cmd.requires_write_store() {
-                tanren_app_services::compose::open_store_for_write(&database_url)
-                    .await
-                    .map_err(|err| {
-                        anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
-                    })?
-            } else {
-                let store = tanren_app_services::compose::open_store_for_read(&database_url)
-                    .await
-                    .map_err(|err| {
-                        anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
-                    })?;
-                store.assert_schema_ready().await.map_err(|err| {
-                    anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
-                })?;
-                store
+            let token_ctx = verifier
+                .verify(token.as_str())
+                .map_err(|err| anyhow::Error::new(ErrorResponse::from(ContractError::from(err))))?;
+            let (context, replay_guard) = token_ctx.into_parts();
+
+            let service = match cmd.store_access() {
+                commands::dispatch::DispatchStoreAccess::ReadOnly => {
+                    tanren_app_services::compose::build_dispatch_service_for_read(&database_url)
+                        .await
+                        .map_err(|err| {
+                            anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
+                        })?
+                }
+                commands::dispatch::DispatchStoreAccess::Mutating => {
+                    tanren_app_services::compose::build_dispatch_service_for_write(&database_url)
+                        .await
+                        .map_err(|err| {
+                            anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
+                        })?
+                }
             };
-            let context = verifier
-                .verify_and_consume(token.as_str(), &store)
-                .await
-                .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)))?;
-            let policy = tanren_app_services::compose::build_policy_engine();
-            let orchestrator = tanren_app_services::compose::build_orchestrator(store, policy);
-            let service = tanren_app_services::compose::build_dispatch_service(orchestrator);
-            commands::dispatch::handle(cmd, &service, &context).await
+
+            dispatch_handle_with_policy(cmd, &service, &context, &replay_guard).await
         }
     }
+}
+
+async fn dispatch_handle_with_policy(
+    cmd: commands::dispatch::DispatchCommand,
+    service: &Service,
+    context: &tanren_app_services::RequestContext,
+    replay_guard: &tanren_app_services::ReplayGuard,
+) -> Result<()> {
+    let replay_guard = match cmd.replay_policy() {
+        commands::dispatch::DispatchReplayPolicy::VerifyOnly => None,
+        commands::dispatch::DispatchReplayPolicy::ConsumeOnce => Some(replay_guard),
+    };
+    commands::dispatch::handle(cmd, service, context, replay_guard).await
 }
 
 fn resolve_actor_token_verifier(

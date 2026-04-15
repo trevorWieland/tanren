@@ -11,6 +11,8 @@ use tanren_orchestrator::OrchestratorError;
 use tanren_store::{StoreConflictClass, StoreError};
 use uuid::Uuid;
 
+use crate::auth::AuthFailureKind;
+
 type EmitCorrelatedInternalError = fn(&str, &str, Uuid, &str) -> Result<(), ObservabilityError>;
 
 /// Map an orchestrator error to a wire-safe contract error response.
@@ -66,12 +68,29 @@ pub fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
                 reason: reason.clone(),
             })
         }
+        StoreError::ReplayRejected => auth_failure_response(AuthFailureKind::ReplayRejected),
         StoreError::Database(_)
         | StoreError::Migration(_)
         | StoreError::Conversion { .. }
         | StoreError::Json(_) => {
             correlated_internal_error_response("tanren_app_services", "internal", &err.to_string())
         }
+    }
+}
+
+fn auth_failure_response(kind: AuthFailureKind) -> tanren_contract::ErrorResponse {
+    match kind {
+        AuthFailureKind::InvalidToken | AuthFailureKind::ReplayRejected => {
+            tanren_contract::ErrorResponse::from(ContractError::InvalidField {
+                field: "actor_token".to_owned(),
+                reason: "token validation failed".to_owned(),
+            })
+        }
+        AuthFailureKind::BackendFailure => tanren_contract::ErrorResponse {
+            code: tanren_contract::ErrorCode::Internal,
+            message: "internal error".to_owned(),
+            details: None,
+        },
     }
 }
 
@@ -284,5 +303,16 @@ mod tests {
         });
         let mapped = map_orchestrator_error(err);
         assert_eq!(mapped.code, tanren_contract::ErrorCode::SchemaNotReady);
+    }
+
+    #[test]
+    fn replay_rejected_maps_to_generic_invalid_actor_token() {
+        let err = OrchestratorError::Store(StoreError::ReplayRejected);
+        let mapped = map_orchestrator_error(err);
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::InvalidInput);
+        assert_eq!(
+            mapped.message,
+            "invalid field `actor_token`: token validation failed"
+        );
     }
 }

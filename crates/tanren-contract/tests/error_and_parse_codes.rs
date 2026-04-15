@@ -41,6 +41,16 @@ fn policy_denied_maps_to_canonical_wire_shape() {
 }
 
 #[test]
+fn internal_error_mapping_is_canonical_without_detail_text() {
+    let err = ContractError::Internal {
+        message: "database crashed".to_owned(),
+    };
+    let resp = ErrorResponse::from(err);
+    assert_eq!(resp.code, ErrorCode::Internal);
+    assert_eq!(resp.message, "internal error");
+}
+
+#[test]
 fn parse_project_env_entries_accepts_empty_values() {
     let env = parse_project_env_entries(vec!["KEY=".to_owned()]).expect("parse");
     assert_eq!(env.get("KEY"), Some(&String::new()));

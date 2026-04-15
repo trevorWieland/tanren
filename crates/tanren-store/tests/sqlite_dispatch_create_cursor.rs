@@ -8,7 +8,7 @@ use tanren_domain::{
 };
 use tanren_store::{
     CreateDispatchParams, CreateDispatchWithInitialStepParams, DispatchFilter, EventFilter,
-    EventStore, JobQueue, StateStore, Store,
+    EventStore, JobQueue, ReplayGuard, StateStore, Store, StoreError,
 };
 use uuid::Uuid;
 
@@ -113,6 +113,20 @@ fn provision_step(
     }
 }
 
+fn replay_guard_with_jti(jti: String) -> ReplayGuard {
+    ReplayGuard {
+        issuer: "tanren-test".to_owned(),
+        audience: "tanren-cli".to_owned(),
+        jti,
+        iat_unix: 1,
+        exp_unix: 2,
+    }
+}
+
+fn replay_guard() -> ReplayGuard {
+    replay_guard_with_jti(Uuid::now_v7().to_string())
+}
+
 #[tokio::test]
 async fn query_dispatches_cursor_paginates_stably() {
     let store = fresh_store().await;
@@ -170,6 +184,7 @@ async fn create_dispatch_with_initial_step_rolls_back_on_step_conflict() {
                 create_b.dispatch.clone(),
                 Lane::Impl,
             ),
+            replay_guard: replay_guard(),
         })
         .await;
     assert!(result.is_err(), "expected step PK conflict");
@@ -193,5 +208,75 @@ async fn create_dispatch_with_initial_step_rolls_back_on_step_conflict() {
         events.total_count,
         Some(0),
         "events must roll back with projection"
+    );
+}
+
+#[tokio::test]
+async fn create_dispatch_replay_rejection_rolls_back_projection_step_and_events() {
+    let store = fresh_store().await;
+    let replay = replay_guard_with_jti("replay-jti".to_owned());
+
+    let create_a = create_dispatch_params("alpha", Lane::Impl);
+    let dispatch_a = create_a.dispatch_id;
+    store
+        .create_dispatch_with_initial_step(CreateDispatchWithInitialStepParams {
+            dispatch: create_a.clone(),
+            initial_step: provision_step(
+                dispatch_a,
+                StepId::new(),
+                create_a.dispatch.clone(),
+                Lane::Impl,
+            ),
+            replay_guard: replay.clone(),
+        })
+        .await
+        .expect("first create succeeds");
+
+    let create_b = create_dispatch_params("beta", Lane::Impl);
+    let dispatch_b = create_b.dispatch_id;
+    let err = store
+        .create_dispatch_with_initial_step(CreateDispatchWithInitialStepParams {
+            dispatch: create_b.clone(),
+            initial_step: provision_step(
+                dispatch_b,
+                StepId::new(),
+                create_b.dispatch.clone(),
+                Lane::Impl,
+            ),
+            replay_guard: replay,
+        })
+        .await
+        .expect_err("second create with same replay guard must fail");
+    assert!(matches!(err, StoreError::ReplayRejected));
+
+    let view_b = store
+        .get_dispatch(&dispatch_b)
+        .await
+        .expect("get dispatch b");
+    assert!(
+        view_b.is_none(),
+        "replay rejection must rollback dispatch projection"
+    );
+    let steps_b = store
+        .get_steps_for_dispatch(&dispatch_b)
+        .await
+        .expect("steps for dispatch b");
+    assert!(
+        steps_b.is_empty(),
+        "replay rejection must rollback initial step"
+    );
+    let events_b = store
+        .query_events(&EventFilter {
+            entity_ref: Some(EntityRef::Dispatch(dispatch_b)),
+            limit: 10,
+            include_total_count: true,
+            ..EventFilter::new()
+        })
+        .await
+        .expect("events for dispatch b");
+    assert_eq!(
+        events_b.total_count,
+        Some(0),
+        "replay rejection must rollback events"
     );
 }

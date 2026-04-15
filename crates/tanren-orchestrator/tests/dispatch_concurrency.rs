@@ -8,7 +8,8 @@ use tanren_domain::{
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
-use tanren_store::{DispatchFilter, Store};
+use tanren_store::{DispatchFilter, ReplayGuard, Store};
+use uuid::Uuid;
 
 fn sample_actor() -> ActorContext {
     ActorContext::new(OrgId::new(), UserId::new())
@@ -36,6 +37,16 @@ fn sample_command(actor: ActorContext) -> CreateDispatch {
     }
 }
 
+fn sample_replay_guard() -> ReplayGuard {
+    ReplayGuard {
+        issuer: "tanren-tests".to_owned(),
+        audience: "tanren-cli".to_owned(),
+        jti: Uuid::now_v7().to_string(),
+        iat_unix: 10,
+        exp_unix: 20,
+    }
+}
+
 async fn setup() -> Orchestrator<Store> {
     let store = Store::open_and_migrate("sqlite::memory:")
         .await
@@ -55,7 +66,7 @@ async fn concurrent_create_and_list_is_stable() {
         let actor = actor.clone();
         tasks.push(tokio::spawn(async move {
             let cmd = sample_command(actor);
-            orch.create_dispatch(cmd).await
+            orch.create_dispatch(cmd, sample_replay_guard()).await
         }));
     }
 
@@ -98,7 +109,7 @@ async fn concurrent_cancel_results_in_single_success_path() {
     let orch = Arc::new(setup().await);
     let actor = sample_actor();
     let created = orch
-        .create_dispatch(sample_command(actor.clone()))
+        .create_dispatch(sample_command(actor.clone()), sample_replay_guard())
         .await
         .expect("create");
 
@@ -108,11 +119,14 @@ async fn concurrent_cancel_results_in_single_success_path() {
         let actor = actor.clone();
         let dispatch_id = created.dispatch_id;
         tasks.push(tokio::spawn(async move {
-            orch.cancel_dispatch(CancelDispatch {
-                actor,
-                dispatch_id,
-                reason: Some("parallel cancel".to_owned()),
-            })
+            orch.cancel_dispatch(
+                CancelDispatch {
+                    actor,
+                    dispatch_id,
+                    reason: Some("parallel cancel".to_owned()),
+                },
+                sample_replay_guard(),
+            )
             .await
         }));
     }
@@ -157,15 +171,18 @@ async fn cancel_after_concurrent_cancels_reads_cancelled() {
     let actor = sample_actor();
     let read_actor = actor.clone();
     let created = orch
-        .create_dispatch(sample_command(actor.clone()))
+        .create_dispatch(sample_command(actor.clone()), sample_replay_guard())
         .await
         .expect("create");
 
-    orch.cancel_dispatch(CancelDispatch {
-        actor,
-        dispatch_id: created.dispatch_id,
-        reason: Some("normal cancel".to_owned()),
-    })
+    orch.cancel_dispatch(
+        CancelDispatch {
+            actor,
+            dispatch_id: created.dispatch_id,
+            reason: Some("normal cancel".to_owned()),
+        },
+        sample_replay_guard(),
+    )
     .await
     .expect("cancel");
 
