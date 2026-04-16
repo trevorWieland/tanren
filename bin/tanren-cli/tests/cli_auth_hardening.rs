@@ -17,7 +17,7 @@ fn invalid_actor_token_error_is_generic_without_verification_details() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
@@ -55,7 +55,7 @@ fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "list",
         "--actor-token-file",
         missing_token_path.to_str().expect("utf8 path"),
@@ -89,7 +89,7 @@ fn oversized_actor_token_file_is_rejected_with_generic_error() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
@@ -122,7 +122,7 @@ fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
@@ -156,7 +156,7 @@ fn actor_public_key_parse_failure_is_generic_without_parser_details() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
@@ -188,7 +188,7 @@ fn token_without_kid_header_is_accepted_with_static_public_key() {
     std::fs::write(&auth.actor_token_file, token).expect("write token");
 
     let mut cmd = support::auth::cli();
-    cmd.args(["--database-url", &db_url, "dispatch-read", "list"]);
+    cmd.args(["--database-url", &db_url, "dispatch", "list"]);
     add_auth_args(&mut cmd, &auth);
 
     let output = cmd.output().expect("execute");
@@ -206,7 +206,7 @@ fn token_missing_jti_claim_is_rejected() {
     std::fs::write(&auth.actor_token_file, token).expect("write token");
 
     let mut cmd = support::auth::cli();
-    cmd.args(["--database-url", &db_url, "dispatch-read", "list"]);
+    cmd.args(["--database-url", &db_url, "dispatch", "list"]);
     add_auth_args(&mut cmd, &auth);
 
     let output = cmd.output().expect("execute");
@@ -225,13 +225,13 @@ fn read_commands_verify_only_allow_immediate_token_reuse() {
     support::auth::migrate(&db_url);
 
     let mut first = support::auth::cli();
-    first.args(["--database-url", &db_url, "dispatch-read", "list"]);
+    first.args(["--database-url", &db_url, "dispatch", "list"]);
     add_auth_args(&mut first, &auth);
     let first_output = first.output().expect("first execute");
     assert!(first_output.status.success(), "first call should pass");
 
     let mut second = support::auth::cli();
-    second.args(["--database-url", &db_url, "dispatch-read", "list"]);
+    second.args(["--database-url", &db_url, "dispatch", "list"]);
     add_auth_args(&mut second, &auth);
     let second_output = second.output().expect("second execute");
     assert!(second_output.status.success(), "second read should pass");
@@ -247,7 +247,7 @@ fn mutating_commands_consume_replay_and_reject_second_use() {
     first.args([
         "--database-url",
         &db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -274,7 +274,7 @@ fn mutating_commands_consume_replay_and_reject_second_use() {
     second.args([
         "--database-url",
         &db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -314,7 +314,7 @@ fn invalid_token_fails_before_read_store_open() {
     cmd.args([
         "--database-url",
         "sqlite:/dev/null/tanren.db?mode=rwc",
-        "dispatch-read",
+        "dispatch",
         "list",
         "--actor-token-file",
         auth.actor_token_file.to_str().expect("utf8 path"),
@@ -340,7 +340,7 @@ fn invalid_token_fails_before_write_store_open_and_migrate() {
     cmd.args([
         "--database-url",
         "sqlite:/dev/null/tanren.db?mode=rwc",
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -378,7 +378,7 @@ fn valid_token_write_backend_failure_maps_to_internal_not_invalid_input() {
     cmd.args([
         "--database-url",
         "sqlite:/dev/null/tanren.db?mode=rwc",
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -409,7 +409,7 @@ fn actor_token_max_ttl_is_enforced() {
     let auth = auth_harness();
 
     let mut cmd = support::auth::cli();
-    cmd.args(["--database-url", &db_url, "dispatch-read", "list"]);
+    cmd.args(["--database-url", &db_url, "dispatch", "list"]);
     add_auth_args_with_ttl(&mut cmd, &auth, 30);
 
     let output = cmd.output().expect("execute");
@@ -435,7 +435,7 @@ fn internal_failure_omits_correlation_id_when_sink_persist_fails() {
     cmd.args([
         "--database-url",
         "sqlite:/dev/null/tanren.db?mode=rwc",
-        "dispatch-read",
+        "dispatch",
         "list",
     ]);
     add_auth_args(&mut cmd, &auth);

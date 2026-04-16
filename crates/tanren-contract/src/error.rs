@@ -38,6 +38,57 @@ impl std::fmt::Display for ErrorCode {
     }
 }
 
+/// Machine-safe classification of CLI argument-parsing failures.
+///
+/// Produced by transport binaries when a clap (or equivalent) parser
+/// rejects user input. The wire payload is stable across clap
+/// versions because the transport maps `clap::error::ErrorKind` →
+/// this enum rather than shipping raw parser prose. Raw user input
+/// (which may contain secrets typed into the wrong slot) is never
+/// echoed into the wire body via this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CliParseReasonCode {
+    /// A required argument was not supplied.
+    MissingRequiredArgument,
+    /// A value did not match the argument's declared type or allowlist.
+    InvalidValue,
+    /// The subcommand path was unrecognized.
+    InvalidSubcommand,
+    /// An unknown argument/flag was supplied.
+    UnknownArgument,
+    /// Two arguments conflicted.
+    ArgumentConflict,
+    /// Too many values supplied for a single argument.
+    TooManyValues,
+    /// Not enough values supplied for an argument that requires multiple.
+    TooFewValues,
+    /// A custom value-validator rejected the input.
+    ValueValidation,
+    /// `--flag=` syntax expected but missing `=`.
+    NoEquals,
+    /// Any other clap parser failure that does not map to a more specific code.
+    Format,
+}
+
+impl std::fmt::Display for CliParseReasonCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Self::MissingRequiredArgument => "missing_required_argument",
+            Self::InvalidValue => "invalid_value",
+            Self::InvalidSubcommand => "invalid_subcommand",
+            Self::UnknownArgument => "unknown_argument",
+            Self::ArgumentConflict => "argument_conflict",
+            Self::TooManyValues => "too_many_values",
+            Self::TooFewValues => "too_few_values",
+            Self::ValueValidation => "value_validation",
+            Self::NoEquals => "no_equals",
+            Self::Format => "format",
+        };
+        f.write_str(text)
+    }
+}
+
 /// Typed contract-level error.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ContractError {
@@ -48,6 +99,20 @@ pub enum ContractError {
         field: String,
         /// Why the value was rejected.
         reason: String,
+    },
+
+    /// A transport-level argument parser rejected the input.
+    ///
+    /// Unlike [`Self::InvalidField`], this variant does not carry any
+    /// user-typed text in the wire message. `field` must already be
+    /// allowlisted by the caller against the set of known long flag
+    /// names — untrusted strings stay at the transport boundary.
+    #[error("invalid cli args")]
+    InvalidArgs {
+        /// Allowlisted long-flag name the parser rejected, if known.
+        field: Option<String>,
+        /// Machine-safe classification of the parser failure.
+        reason_code: CliParseReasonCode,
     },
 
     /// The requested entity was not found.
@@ -124,8 +189,20 @@ pub struct ErrorResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ErrorDetails {
-    PolicyDenied { reason_code: PolicyReasonCode },
-    Internal { correlation_id: Uuid },
+    PolicyDenied {
+        reason_code: PolicyReasonCode,
+    },
+    Internal {
+        correlation_id: Uuid,
+    },
+    /// CLI/API argument-parser rejection; stable wire shape.
+    InvalidArgs {
+        /// Allowlisted long-flag name the parser rejected, if known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        field: Option<String>,
+        /// Machine-safe classification of the parser failure.
+        reason_code: CliParseReasonCode,
+    },
 }
 
 /// Build a canonical internal error response with optional correlation details.
@@ -164,6 +241,11 @@ impl From<ContractError> for ErrorResponse {
                 code: ErrorCode::InvalidInput,
                 message: format!("invalid field `{field}`: {reason}"),
                 details: None,
+            },
+            ContractError::InvalidArgs { field, reason_code } => Self {
+                code: ErrorCode::InvalidInput,
+                message: "invalid cli args".to_owned(),
+                details: Some(ErrorDetails::InvalidArgs { field, reason_code }),
             },
             ContractError::NotFound { entity, id } => Self {
                 code: ErrorCode::NotFound,
@@ -253,7 +335,8 @@ fn entity_ref_id(entity: &EntityRef) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ContractError, ErrorCode, ErrorResponse, internal_error_response_with_correlation,
+        CliParseReasonCode, ContractError, ErrorCode, ErrorDetails, ErrorResponse,
+        internal_error_response_with_correlation,
     };
     use tanren_domain::{DispatchId, DomainError, EntityRef};
 
@@ -277,7 +360,7 @@ mod tests {
         assert_eq!(response.message, "internal error");
         assert!(matches!(
             response.details,
-            Some(super::ErrorDetails::Internal { correlation_id })
+            Some(ErrorDetails::Internal { correlation_id })
                 if correlation_id != uuid::Uuid::nil()
         ));
     }
@@ -289,5 +372,53 @@ mod tests {
         assert_eq!(response.code, ErrorCode::Internal);
         assert_eq!(response.message, "internal error");
         assert!(response.details.is_none());
+    }
+
+    #[test]
+    fn invalid_args_wire_shape_is_stable_and_field_optional() {
+        let err = ContractError::InvalidArgs {
+            field: Some("project".to_owned()),
+            reason_code: CliParseReasonCode::MissingRequiredArgument,
+        };
+        let wire = ErrorResponse::from(err);
+        assert_eq!(wire.code, ErrorCode::InvalidInput);
+        assert_eq!(wire.message, "invalid cli args");
+        let json = serde_json::to_value(&wire).expect("serialize");
+        assert_eq!(json["code"], "invalid_input");
+        assert_eq!(json["message"], "invalid cli args");
+        assert_eq!(json["details"]["type"], "invalid_args");
+        assert_eq!(json["details"]["field"], "project");
+        assert_eq!(json["details"]["reason_code"], "missing_required_argument");
+    }
+
+    #[test]
+    fn invalid_args_omits_field_when_unknown() {
+        let err = ContractError::InvalidArgs {
+            field: None,
+            reason_code: CliParseReasonCode::InvalidSubcommand,
+        };
+        let wire = ErrorResponse::from(err);
+        let json = serde_json::to_value(&wire).expect("serialize");
+        // `skip_serializing_if` keeps the field absent rather than null.
+        assert!(
+            json["details"].get("field").is_none(),
+            "field should be absent when unknown: {json}"
+        );
+        assert_eq!(json["details"]["reason_code"], "invalid_subcommand");
+    }
+
+    #[test]
+    fn invalid_args_round_trip_through_serde() {
+        let original = ErrorResponse {
+            code: ErrorCode::InvalidInput,
+            message: "invalid cli args".to_owned(),
+            details: Some(ErrorDetails::InvalidArgs {
+                field: Some("phase".to_owned()),
+                reason_code: CliParseReasonCode::InvalidValue,
+            }),
+        };
+        let bytes = serde_json::to_vec(&original).expect("serialize");
+        let decoded: ErrorResponse = serde_json::from_slice(&bytes).expect("deserialize");
+        assert_eq!(original, decoded);
     }
 }

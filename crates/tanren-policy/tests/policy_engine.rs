@@ -279,6 +279,65 @@ fn dispatch_read_scope_is_derived_directly_from_actor() {
 }
 
 #[test]
+fn phase_cli_mode_matrix_is_exhaustively_enforced() {
+    // Every (Phase, Cli, DispatchMode) triple must produce the
+    // expected disposition. The policy engine is refactored to use an
+    // exhaustive match at compile time, so this runtime sweep is a
+    // belt-and-braces check that the documented rules (auto forbidden
+    // for lifecycle/audit phases; bash forbidden for audit-spec/gate)
+    // match what the code actually does.
+    let phases = [
+        (Phase::DoTask, false, false),
+        (Phase::AuditTask, false, false),
+        (Phase::RunDemo, false, false),
+        (Phase::AuditSpec, true, true), // auto-forbidden, bash-forbidden
+        (Phase::Investigate, true, false),
+        (Phase::Gate, true, true),
+        (Phase::Setup, true, false),
+        (Phase::Cleanup, true, false),
+    ];
+    let clis = [Cli::Claude, Cli::Codex, Cli::OpenCode, Cli::Bash];
+    let modes = [DispatchMode::Auto, DispatchMode::Manual];
+
+    for (phase, auto_forbidden, bash_forbidden) in phases {
+        for cli in clis {
+            for mode in modes {
+                let mut cmd = sample_command();
+                cmd.phase = phase;
+                cmd.cli = cli;
+                cmd.mode = mode;
+                // `preserve_on_failure` defaults to false in `sample_command`.
+                let denied_by_mode = matches!(mode, DispatchMode::Auto) && auto_forbidden;
+                let denied_by_cli = matches!(cli, Cli::Bash) && bash_forbidden;
+                let expect_denied = denied_by_mode || denied_by_cli;
+
+                let decision = PolicyEngine::new()
+                    .check_dispatch_allowed(&cmd, DispatchId::new())
+                    .expect("policy should not error");
+                if expect_denied {
+                    assert_eq!(
+                        decision.outcome,
+                        PolicyOutcome::Denied,
+                        "(phase={phase}, cli={cli}, mode={mode}) should be denied"
+                    );
+                    assert_eq!(
+                        decision.reason_code,
+                        Some(PolicyReasonCode::PhaseCliModeDisallowed),
+                        "(phase={phase}, cli={cli}, mode={mode}) reason_code mismatch"
+                    );
+                } else {
+                    assert_eq!(
+                        decision.outcome,
+                        PolicyOutcome::Allowed,
+                        "(phase={phase}, cli={cli}, mode={mode}) should be allowed"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn cancel_missing_dispatch_is_denied_with_not_found_reason_code() {
     let engine = PolicyEngine::new();
     let cmd = CancelDispatch {

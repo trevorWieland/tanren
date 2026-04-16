@@ -246,16 +246,15 @@ impl PolicyEngine {
     }
 
     fn check_phase_cli_mode(cmd: &CreateDispatch) -> Option<PolicyViolation> {
-        if is_allowed_phase_cli_mode(cmd.phase, cmd.cli, cmd.mode) {
-            None
-        } else {
-            Some(PolicyViolation::new(
+        match phase_cli_mode_disposition(cmd.phase, cmd.cli, cmd.mode) {
+            PhaseCliModeDisposition::Allowed => None,
+            PhaseCliModeDisposition::Disallowed => Some(PolicyViolation::new(
                 PolicyReasonCode::PhaseCliModeDisallowed,
                 format!(
                     "phase={}, cli={}, mode={} is not permitted",
                     cmd.phase, cmd.cli, cmd.mode
                 ),
-            ))
+            )),
         }
     }
 
@@ -302,15 +301,105 @@ impl Default for PolicyEngine {
     }
 }
 
-fn is_allowed_phase_cli_mode(phase: Phase, cli: Cli, mode: DispatchMode) -> bool {
-    !matches!(
-        (phase, cli, mode),
+/// Disposition of a `(Phase, DispatchMode)` or `(Phase, Cli)` check.
+///
+/// Kept private so callers go through the exhaustive
+/// [`phase_cli_mode_disposition`] combinator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PhaseModeDisposition {
+    Allowed,
+    Disallowed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PhaseCliDisposition {
+    Allowed,
+    Disallowed,
+}
+
+/// Final disposition returned to policy callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PhaseCliModeDisposition {
+    Allowed,
+    Disallowed,
+}
+
+/// Compile-time-exhaustive policy matrix for `(Phase, Cli, DispatchMode)`.
+///
+/// The Rust exhaustiveness checker forces every new `Phase`, `Cli`, or
+/// `DispatchMode` variant to receive an explicit decision before the
+/// crate compiles. No top-level wildcard (`_`) is used.
+fn phase_cli_mode_disposition(
+    phase: Phase,
+    cli: Cli,
+    mode: DispatchMode,
+) -> PhaseCliModeDisposition {
+    match (
+        phase_mode_disposition(phase, mode),
+        phase_cli_disposition(phase, cli),
+    ) {
+        (PhaseModeDisposition::Allowed, PhaseCliDisposition::Allowed) => {
+            PhaseCliModeDisposition::Allowed
+        }
+        (PhaseModeDisposition::Disallowed, _) | (_, PhaseCliDisposition::Disallowed) => {
+            PhaseCliModeDisposition::Disallowed
+        }
+    }
+}
+
+/// Per-`(Phase, DispatchMode)` disposition — exhaustive over both enums.
+///
+/// A new `Phase` or `DispatchMode` variant fails to compile until it's
+/// given an explicit arm. Same-body arms are collapsed into nested
+/// OR-patterns (`match_same_arms` + `unnested_or_patterns`-friendly)
+/// so clippy passes cleanly without any crate-level lint override.
+fn phase_mode_disposition(phase: Phase, mode: DispatchMode) -> PhaseModeDisposition {
+    match (phase, mode) {
+        // Lifecycle and audit phases never run in auto mode.
         (
             Phase::Setup | Phase::Cleanup | Phase::AuditSpec | Phase::Gate | Phase::Investigate,
-            _,
-            DispatchMode::Auto
-        ) | (Phase::AuditSpec | Phase::Gate, Cli::Bash, _)
-    )
+            DispatchMode::Auto,
+        ) => PhaseModeDisposition::Disallowed,
+        // All remaining (phase, mode) pairs are allowed. Enumerated
+        // explicitly so a new variant is a compile error, not a
+        // silent allow.
+        (Phase::DoTask | Phase::AuditTask | Phase::RunDemo, DispatchMode::Auto)
+        | (
+            Phase::DoTask
+            | Phase::AuditTask
+            | Phase::RunDemo
+            | Phase::AuditSpec
+            | Phase::Investigate
+            | Phase::Gate
+            | Phase::Setup
+            | Phase::Cleanup,
+            DispatchMode::Manual,
+        ) => PhaseModeDisposition::Allowed,
+    }
+}
+
+/// Per-`(Phase, Cli)` disposition — exhaustive over both enums.
+fn phase_cli_disposition(phase: Phase, cli: Cli) -> PhaseCliDisposition {
+    match (phase, cli) {
+        // Bash is not trusted to drive audit-spec or gate phases.
+        (Phase::AuditSpec | Phase::Gate, Cli::Bash) => PhaseCliDisposition::Disallowed,
+        // All other (phase, cli) pairs are allowed. Enumerated
+        // explicitly over every variant — no `_` fallback, so a new
+        // `Phase` or `Cli` variant is a compile error rather than a
+        // silent allow.
+        (
+            Phase::DoTask
+            | Phase::AuditTask
+            | Phase::RunDemo
+            | Phase::Investigate
+            | Phase::Setup
+            | Phase::Cleanup,
+            Cli::Claude | Cli::Codex | Cli::OpenCode | Cli::Bash,
+        )
+        | (Phase::AuditSpec | Phase::Gate, Cli::Claude | Cli::Codex | Cli::OpenCode) => {
+            PhaseCliDisposition::Allowed
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

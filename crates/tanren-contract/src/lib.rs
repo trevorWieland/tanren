@@ -26,7 +26,8 @@ pub use enums::{
     StepType,
 };
 pub use error::{
-    ContractError, ErrorCode, ErrorDetails, ErrorResponse, internal_error_response_with_correlation,
+    CliParseReasonCode, ContractError, ErrorCode, ErrorDetails, ErrorResponse,
+    internal_error_response_with_correlation,
 };
 pub use request::{
     CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,

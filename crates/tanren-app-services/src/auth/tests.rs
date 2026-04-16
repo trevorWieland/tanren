@@ -46,11 +46,16 @@ struct MissingJtiClaims {
 }
 
 fn verifier(max_ttl_secs: u64) -> ActorTokenVerifier {
+    verifier_with_byte_ceiling(max_ttl_secs, DEFAULT_ACTOR_TOKEN_MAX_BYTES)
+}
+
+fn verifier_with_byte_ceiling(max_ttl_secs: u64, max_token_bytes: usize) -> ActorTokenVerifier {
     ActorTokenVerifier::from_public_key_pem(
         TEST_ED25519_PUBLIC_KEY_PEM,
         "tanren-tests",
         "tanren-cli",
         max_ttl_secs,
+        max_token_bytes,
     )
     .expect("verifier")
 }
@@ -229,4 +234,59 @@ fn verify_rejects_oversized_jti_claim() {
         .verify(&token)
         .expect_err("oversized jti must fail");
     assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn verify_rejects_token_exceeding_max_bytes_before_decode() {
+    // Sign a legitimate token, then pad a bogus suffix so its byte
+    // length exceeds the configured ceiling. The verifier must reject
+    // on size before touching the JWT decoder, so padding the token
+    // makes the signature invalid as a side-effect — but the failure
+    // mode we assert is the size guard, not signature failure.
+    let now = Utc::now().timestamp();
+    let claims = base_claims(now);
+    let base_token = sign(&claims, Some("kid-1"));
+    let tiny_limit = 128usize;
+    assert!(
+        base_token.len() > tiny_limit,
+        "test token already oversized"
+    );
+    let verifier = verifier_with_byte_ceiling(300, tiny_limit);
+    let err = verifier
+        .verify(&base_token)
+        .expect_err("oversized token must fail");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn verify_accepts_token_exactly_at_max_bytes_boundary() {
+    let now = Utc::now().timestamp();
+    let claims = base_claims(now);
+    let token = sign(&claims, Some("kid-1"));
+    // Ceiling equal to token length must pass; ceiling one below must fail.
+    let verifier_ok = verifier_with_byte_ceiling(300, token.len());
+    verifier_ok.verify(&token).expect("boundary token accepted");
+
+    let verifier_reject = verifier_with_byte_ceiling(300, token.len() - 1);
+    let err = verifier_reject
+        .verify(&token)
+        .expect_err("one byte below ceiling must reject");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn constructors_reject_zero_max_token_bytes() {
+    let err = ActorTokenVerifier::from_public_key_pem(
+        TEST_ED25519_PUBLIC_KEY_PEM,
+        "tanren-tests",
+        "tanren-cli",
+        300,
+        0,
+    )
+    .expect_err("zero max_token_bytes must fail");
+    assert!(matches!(
+        err,
+        ContractError::InvalidField { ref field, .. }
+            if field == "actor_token_max_bytes"
+    ));
 }

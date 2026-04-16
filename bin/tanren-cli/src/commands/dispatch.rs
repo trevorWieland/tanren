@@ -1,11 +1,13 @@
-//! `tanren dispatch-read` and `tanren dispatch-mutation` subcommand handlers.
+//! `tanren dispatch` subcommand handlers.
 //!
-//! The CLI exposes dispatch operations as two disjoint top-level
-//! subcommand groups so mutating and reading are type-safe at compile
-//! time:
+//! The public CLI surface is `tanren dispatch {create|get|list|cancel}`
+//! per the lane 0.4 spec (see
+//! `docs/rewrite/tasks/LANE-0.4-CLI-WIRING.md`). Internally, that flat
+//! parser is projected into two **type-distinct** request kinds before
+//! any handler runs:
 //!
 //! - [`DispatchReadCommand`] — read-only (`get`, `list`). No replay
-//!   guard is consumed; handler signature has no `ReplayGuard`
+//!   guard is consumed; the handler signature has no `ReplayGuard`
 //!   parameter at all.
 //! - [`DispatchMutationCommand`] — state-changing (`create`, `cancel`).
 //!   The handler requires `&ReplayGuard` by its type; the replay guard
@@ -13,9 +15,15 @@
 //!   the mutation (success) or with the policy-decision audit event
 //!   (denied).
 //!
-//! A new mutating variant added to the enum cannot compile without
-//! threading the replay guard through its handler — there is no
-//! runtime `Option<&ReplayGuard>` fallback.
+//! A new mutating variant added to the mutation enum cannot compile
+//! without threading the replay guard through its handler — there is
+//! no runtime `Option<&ReplayGuard>` fallback.
+//!
+//! The external `dispatch-read` / `dispatch-mutation` verbs that
+//! briefly leaked this internal split are **not** exposed. Callers
+//! type `tanren dispatch <verb>`; the split is an internal wiring
+//! detail, preserved at the type level inside
+//! [`DispatchCommand::split`].
 
 use std::io::Write as _;
 
@@ -28,25 +36,61 @@ use tanren_contract::{
 };
 use uuid::Uuid;
 
-/// Read-only dispatch subcommands (no replay consumption).
+use super::enums::{AuthModeArg, CliArg, DispatchModeArg, DispatchStatusArg, LaneArg, PhaseArg};
+
+/// Public `tanren dispatch <verb>` parser.
+///
+/// This is the external CLI surface. Internally it projects to
+/// [`DispatchRequest`] which is the type-safe wiring boundary that
+/// separates read from mutation.
 #[derive(Debug, Subcommand)]
-pub(crate) enum DispatchReadCommand {
+pub(crate) enum DispatchCommand {
+    /// Create a new dispatch.
+    Create(Box<CreateArgs>),
     /// Get a dispatch by ID.
     Get(GetArgs),
     /// List dispatches.
     List(ListArgs),
-}
-
-/// Mutating dispatch subcommands (consume replay guard exactly once).
-#[derive(Debug, Subcommand)]
-pub(crate) enum DispatchMutationCommand {
-    /// Create a new dispatch.
-    Create(Box<CreateArgs>),
     /// Cancel a dispatch.
     Cancel(CancelArgs),
 }
 
-/// Arguments for `dispatch-mutation create`.
+/// Type-distinct projection of a parsed [`DispatchCommand`].
+///
+/// `Read` variants never carry a replay guard obligation; `Mutation`
+/// variants must thread one. The compile-time signature checks in
+/// the test module below lock this invariant in place.
+pub(crate) enum DispatchRequest {
+    Read(DispatchReadCommand),
+    Mutation(DispatchMutationCommand),
+}
+
+impl DispatchCommand {
+    /// Project the flat public command into a type-safe read/mutation
+    /// request.
+    pub(crate) fn split(self) -> DispatchRequest {
+        match self {
+            Self::Create(args) => DispatchRequest::Mutation(DispatchMutationCommand::Create(args)),
+            Self::Get(args) => DispatchRequest::Read(DispatchReadCommand::Get(args)),
+            Self::List(args) => DispatchRequest::Read(DispatchReadCommand::List(args)),
+            Self::Cancel(args) => DispatchRequest::Mutation(DispatchMutationCommand::Cancel(args)),
+        }
+    }
+}
+
+/// Read-only dispatch subcommands (no replay consumption).
+pub(crate) enum DispatchReadCommand {
+    Get(GetArgs),
+    List(ListArgs),
+}
+
+/// Mutating dispatch subcommands (consume replay guard exactly once).
+pub(crate) enum DispatchMutationCommand {
+    Create(Box<CreateArgs>),
+    Cancel(CancelArgs),
+}
+
+/// Arguments for `dispatch create`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct CreateArgs {
     /// Project name.
@@ -54,10 +98,10 @@ pub(crate) struct CreateArgs {
     pub project: String,
     /// Phase of work.
     #[arg(long)]
-    pub phase: tanren_contract::Phase,
+    pub phase: PhaseArg,
     /// CLI harness.
     #[arg(long)]
-    pub cli: tanren_contract::Cli,
+    pub cli: CliArg,
     /// Git branch.
     #[arg(long)]
     pub branch: String,
@@ -69,7 +113,7 @@ pub(crate) struct CreateArgs {
     pub workflow_id: String,
     /// Dispatch mode.
     #[arg(long, default_value = "manual")]
-    pub mode: tanren_contract::DispatchMode,
+    pub mode: DispatchModeArg,
     /// Timeout in seconds.
     #[arg(long, default_value = "300")]
     pub timeout: u64,
@@ -78,7 +122,7 @@ pub(crate) struct CreateArgs {
     pub environment_profile: String,
     /// Authentication mode.
     #[arg(long, default_value = "api_key")]
-    pub auth_mode: tanren_contract::AuthMode,
+    pub auth_mode: AuthModeArg,
     /// Gate command.
     #[arg(long)]
     pub gate_cmd: Option<String>,
@@ -99,7 +143,7 @@ pub(crate) struct CreateArgs {
     pub preserve_on_failure: bool,
 }
 
-/// Arguments for `dispatch-read get`.
+/// Arguments for `dispatch get`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct GetArgs {
     /// Dispatch UUID.
@@ -107,15 +151,15 @@ pub(crate) struct GetArgs {
     pub id: Uuid,
 }
 
-/// Arguments for `dispatch-read list`.
+/// Arguments for `dispatch list`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct ListArgs {
     /// Filter by status.
     #[arg(long)]
-    pub status: Option<tanren_contract::DispatchStatus>,
+    pub status: Option<DispatchStatusArg>,
     /// Filter by lane.
     #[arg(long)]
-    pub lane: Option<tanren_contract::Lane>,
+    pub lane: Option<LaneArg>,
     /// Filter by project.
     #[arg(long)]
     pub project: Option<String>,
@@ -127,7 +171,7 @@ pub(crate) struct ListArgs {
     pub cursor: Option<String>,
 }
 
-/// Arguments for `dispatch-mutation cancel`.
+/// Arguments for `dispatch cancel`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct CancelArgs {
     /// Dispatch UUID to cancel.
@@ -183,15 +227,15 @@ async fn handle_create(
     let project_env = parse_project_env_entries(args.project_env).map_err(ErrorResponse::from)?;
     let req = CreateDispatchRequest {
         project: args.project,
-        phase: args.phase,
-        cli: args.cli,
+        phase: args.phase.into(),
+        cli: args.cli.into(),
         branch: args.branch,
         spec_folder: args.spec_folder,
         workflow_id: args.workflow_id,
-        mode: args.mode,
+        mode: args.mode.into(),
         timeout_secs: args.timeout,
         environment_profile: args.environment_profile,
-        auth_mode: args.auth_mode,
+        auth_mode: args.auth_mode.into(),
         gate_cmd: args.gate_cmd,
         context: args.context,
         model: args.model,
@@ -216,8 +260,8 @@ async fn handle_list(args: ListArgs, service: &Service, context: &RequestContext
         .transpose()?;
 
     let filter = DispatchListFilter {
-        status: args.status,
-        lane: args.lane,
+        status: args.status.map(Into::into),
+        lane: args.lane.map(Into::into),
         project: args.project,
         limit: args.limit,
         cursor,

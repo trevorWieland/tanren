@@ -8,25 +8,25 @@
 //! on stderr and a non-zero exit code.
 #![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
+mod actor_token;
+mod clap_error;
 mod commands;
 
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
-use tanren_app_services::ActorTokenVerifier;
 use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS;
 use tanren_app_services::compose::Service;
 use tanren_contract::{ContractError, ErrorCode, ErrorResponse};
 use tanren_observability::{
-    ObservabilityError, emit_and_build_internal_error_response, emit_correlated_internal_error,
-    init_tracing_for_contract_io,
+    ObservabilityError, emit_and_build_internal_error_response, init_tracing_for_contract_io,
 };
-use uuid::Uuid;
 
-const ACTOR_TOKEN_ENV_VAR: &str = "TANREN_ACTOR_TOKEN";
-const ACTOR_TOKEN_MAX_BYTES: usize = 16 * 1024;
+use actor_token::{resolve_actor_token, resolve_actor_token_verifier};
+use clap_error::clap_error_to_response;
+use commands::dispatch::{DispatchCommand, DispatchRequest};
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
@@ -74,12 +74,9 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Query dispatches (read-only, no replay guard consumed).
-    #[command(subcommand, name = "dispatch-read")]
-    DispatchRead(commands::dispatch::DispatchReadCommand),
-    /// Mutate dispatches (consumes replay guard atomically).
-    #[command(subcommand, name = "dispatch-mutation")]
-    DispatchMutation(commands::dispatch::DispatchMutationCommand),
+    /// Dispatch lifecycle operations.
+    #[command(subcommand)]
+    Dispatch(DispatchCommand),
     /// Manage database schema.
     #[command(subcommand)]
     Db(DbCommand),
@@ -160,19 +157,7 @@ async fn run() -> Result<()> {
                 })?;
             print_json(&serde_json::json!({ "status": "migrated" }))
         }
-        Commands::DispatchRead(cmd) => {
-            let (context, _replay_guard) = authenticate(
-                actor_token_stdin,
-                actor_token_file.as_ref(),
-                actor_public_key_file.as_ref(),
-                token_issuer.as_deref(),
-                token_audience.as_deref(),
-                actor_token_max_ttl_secs,
-            )?;
-            let service = build_read_service(&database_url).await?;
-            commands::dispatch::handle_read(cmd, &service, &context).await
-        }
-        Commands::DispatchMutation(cmd) => {
+        Commands::Dispatch(dispatch_cmd) => {
             let (context, replay_guard) = authenticate(
                 actor_token_stdin,
                 actor_token_file.as_ref(),
@@ -181,8 +166,17 @@ async fn run() -> Result<()> {
                 token_audience.as_deref(),
                 actor_token_max_ttl_secs,
             )?;
-            let service = build_write_service(&database_url).await?;
-            commands::dispatch::handle_mutation(cmd, &service, &context, &replay_guard).await
+            match dispatch_cmd.split() {
+                DispatchRequest::Read(cmd) => {
+                    let service = build_read_service(&database_url).await?;
+                    commands::dispatch::handle_read(cmd, &service, &context).await
+                }
+                DispatchRequest::Mutation(cmd) => {
+                    let service = build_write_service(&database_url).await?;
+                    commands::dispatch::handle_mutation(cmd, &service, &context, &replay_guard)
+                        .await
+                }
+            }
         }
     }
 }
@@ -223,174 +217,6 @@ async fn build_write_service(database_url: &str) -> Result<Service> {
         .map_err(|err| anyhow::Error::new(tanren_app_services::error::map_store_error(&err)))
 }
 
-fn resolve_actor_token_verifier(
-    actor_public_key_file: Option<&PathBuf>,
-    token_issuer: Option<&str>,
-    token_audience: Option<&str>,
-    actor_token_max_ttl_secs: u64,
-) -> Result<ActorTokenVerifier, anyhow::Error> {
-    let issuer = token_issuer.ok_or_else(|| {
-        anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
-            field: "token_issuer".to_owned(),
-            reason: "missing required --token-issuer".to_owned(),
-        }))
-    })?;
-    let audience = token_audience.ok_or_else(|| {
-        anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
-            field: "token_audience".to_owned(),
-            reason: "missing required --token-audience".to_owned(),
-        }))
-    })?;
-    if actor_token_max_ttl_secs == 0 {
-        return Err(anyhow::Error::new(ErrorResponse::from(
-            ContractError::InvalidField {
-                field: "actor_token_max_ttl_secs".to_owned(),
-                reason: "must be >= 1".to_owned(),
-            },
-        )));
-    }
-
-    if let Some(path) = actor_public_key_file {
-        return ActorTokenVerifier::from_public_key_file(
-            path,
-            issuer,
-            audience,
-            actor_token_max_ttl_secs,
-        )
-        .map_err(|err| anyhow::Error::new(ErrorResponse::from(err)));
-    }
-
-    Err(anyhow::Error::new(ErrorResponse::from(
-        ContractError::InvalidField {
-            field: "actor_public_key".to_owned(),
-            reason: "missing required --actor-public-key-file".to_owned(),
-        },
-    )))
-}
-
-fn resolve_actor_token(
-    actor_token_stdin: bool,
-    actor_token_file: Option<&PathBuf>,
-) -> Result<String, anyhow::Error> {
-    let env_token = std::env::var(ACTOR_TOKEN_ENV_VAR)
-        .ok()
-        .filter(|token| !token.trim().is_empty());
-    let selected_source_count = u8::from(actor_token_stdin)
-        + u8::from(actor_token_file.is_some())
-        + u8::from(env_token.is_some());
-
-    if selected_source_count > 1 {
-        return Err(anyhow::Error::new(ErrorResponse::from(
-            ContractError::InvalidField {
-                field: "actor_token".to_owned(),
-                reason: format!(
-                    "exactly one token source is allowed; choose one of --actor-token-stdin, --actor-token-file, or {ACTOR_TOKEN_ENV_VAR}"
-                ),
-            },
-        )));
-    }
-
-    if actor_token_stdin {
-        let token = read_actor_token_from_stdin()?;
-        return normalize_actor_token(&token);
-    }
-
-    if let Some(path) = actor_token_file {
-        let token = read_actor_token_from_file(path)?;
-        return normalize_actor_token(&token);
-    }
-
-    if let Some(token) = env_token {
-        return normalize_actor_token(&token);
-    }
-
-    Err(anyhow::Error::new(ErrorResponse::from(
-        ContractError::InvalidField {
-            field: "actor_token".to_owned(),
-            reason: format!(
-                "missing actor token source (use --actor-token-stdin, --actor-token-file, or {ACTOR_TOKEN_ENV_VAR})"
-            ),
-        },
-    )))
-}
-
-fn read_actor_token_from_file(path: &PathBuf) -> Result<String, anyhow::Error> {
-    let mut file = std::fs::File::open(path).map_err(|err| {
-        actor_token_source_error(
-            "invalid_actor_token_source",
-            &format!(
-                "failed to read actor token file `{}`: {err}",
-                path.display()
-            ),
-        )
-    })?;
-    read_actor_token_from_reader_with_source(&mut file, &format!("file `{}`", path.display()))
-}
-
-fn read_actor_token_from_stdin() -> Result<String, anyhow::Error> {
-    let mut stdin = std::io::stdin();
-    read_actor_token_from_reader_with_source(&mut stdin, "stdin")
-}
-
-#[cfg(test)]
-fn read_actor_token_from_reader(reader: &mut dyn std::io::Read) -> Result<String, anyhow::Error> {
-    read_actor_token_from_reader_with_source(reader, "stdin")
-}
-
-fn read_actor_token_from_reader_with_source(
-    reader: &mut dyn std::io::Read,
-    source: &str,
-) -> Result<String, anyhow::Error> {
-    let mut limited = reader.take((ACTOR_TOKEN_MAX_BYTES as u64).saturating_add(1));
-    let mut token_bytes = Vec::new();
-    limited.read_to_end(&mut token_bytes).map_err(|err| {
-        actor_token_source_error(
-            "invalid_actor_token_source",
-            &format!("failed to read actor token from {source}: {err}"),
-        )
-    })?;
-    if token_bytes.len() > ACTOR_TOKEN_MAX_BYTES {
-        return Err(actor_token_source_error(
-            "invalid_actor_token_source",
-            &format!("actor token from {source} exceeds {ACTOR_TOKEN_MAX_BYTES} bytes"),
-        ));
-    }
-    String::from_utf8(token_bytes).map_err(|err| {
-        actor_token_source_error(
-            "invalid_actor_token_source",
-            &format!("actor token from {source} is not valid utf-8: {err}"),
-        )
-    })
-}
-
-fn actor_token_source_error(error_code: &str, raw_error: &str) -> anyhow::Error {
-    let _ = emit_correlated_internal_error("tanren_cli", error_code, Uuid::now_v7(), raw_error);
-    anyhow::Error::new(ErrorResponse::from(ContractError::InvalidField {
-        field: "actor_token".to_owned(),
-        reason: "invalid actor token source".to_owned(),
-    }))
-}
-
-fn normalize_actor_token(token: &str) -> Result<String, anyhow::Error> {
-    let token = token.trim().to_owned();
-    if token.is_empty() {
-        return Err(anyhow::Error::new(ErrorResponse::from(
-            ContractError::InvalidField {
-                field: "actor_token".to_owned(),
-                reason: "actor token source resolved to an empty token".to_owned(),
-            },
-        )));
-    }
-    if token.len() > ACTOR_TOKEN_MAX_BYTES {
-        return Err(actor_token_source_error(
-            "invalid_actor_token_source",
-            &format!("actor token exceeds {ACTOR_TOKEN_MAX_BYTES} bytes after normalization"),
-        ));
-    }
-
-    Ok(token)
-}
-
 fn into_error_response(err: anyhow::Error) -> ErrorResponse {
     match err.downcast::<ErrorResponse>() {
         Ok(er) => er,
@@ -398,13 +224,6 @@ fn into_error_response(err: anyhow::Error) -> ErrorResponse {
             emit_and_build_internal_error_response("tanren_cli", "internal", &other.to_string())
         }
     }
-}
-
-fn clap_error_to_response(err: &clap::Error) -> ErrorResponse {
-    ErrorResponse::from(ContractError::InvalidField {
-        field: "cli_args".to_owned(),
-        reason: err.to_string(),
-    })
 }
 
 fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
@@ -417,9 +236,13 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
 mod tests {
     use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read};
 
-    use tanren_contract::ErrorCode;
+    use clap::{CommandFactory, Parser};
+    use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_BYTES;
+    use tanren_contract::{CliParseReasonCode, ErrorCode, ErrorDetails};
 
-    use super::{ACTOR_TOKEN_MAX_BYTES, into_error_response, read_actor_token_from_reader};
+    use super::actor_token::read_actor_token_from_reader;
+    use super::clap_error::{ALLOWED_ARG_FIELDS, clap_error_to_response};
+    use super::{Cli, into_error_response};
 
     struct FailingReader;
 
@@ -446,11 +269,110 @@ mod tests {
 
     #[test]
     fn actor_token_stdin_overflow_is_generic_and_invalid_input() {
-        let oversized = "x".repeat(ACTOR_TOKEN_MAX_BYTES + 1);
+        let oversized = "x".repeat(DEFAULT_ACTOR_TOKEN_MAX_BYTES + 1);
         let mut reader = std::io::Cursor::new(oversized);
         let err = read_actor_token_from_reader(&mut reader).expect_err("oversized input");
         let response = into_error_response(err);
         assert_eq!(response.code, ErrorCode::InvalidInput);
         assert!(response.message.contains("invalid actor token source"));
+    }
+
+    #[test]
+    fn allowed_arg_fields_covers_every_declared_long_flag() {
+        use std::collections::BTreeSet;
+
+        fn collect_longs(cmd: &clap::Command, acc: &mut BTreeSet<String>) {
+            for arg in cmd.get_arguments() {
+                if let Some(long) = arg.get_long() {
+                    acc.insert(long.replace('-', "_"));
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                collect_longs(sub, acc);
+            }
+        }
+
+        let mut declared = BTreeSet::new();
+        collect_longs(&Cli::command(), &mut declared);
+
+        let allowlist: BTreeSet<String> =
+            ALLOWED_ARG_FIELDS.iter().map(|s| (*s).to_owned()).collect();
+
+        for long in &declared {
+            assert!(
+                allowlist.contains(long),
+                "declared flag --{long} is not listed in ALLOWED_ARG_FIELDS"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_required_argument_maps_to_safe_wire_response() {
+        let err = Cli::try_parse_from(["tanren", "dispatch", "create"])
+            .expect_err("missing --project must fail");
+        let response = clap_error_to_response(&err);
+        assert_eq!(response.code, ErrorCode::InvalidInput);
+        assert_eq!(response.message, "invalid cli args");
+        assert!(
+            matches!(
+                &response.details,
+                Some(ErrorDetails::InvalidArgs { reason_code, .. })
+                    if *reason_code == CliParseReasonCode::MissingRequiredArgument
+            ),
+            "expected missing_required_argument details, got {:?}",
+            response.details
+        );
+    }
+
+    #[test]
+    fn invalid_value_does_not_echo_user_input_on_wire() {
+        // User supplies a made-up phase value that also contains a
+        // pretend-secret-shaped token. The wire payload must not
+        // include any of that text.
+        let err = Cli::try_parse_from([
+            "tanren",
+            "dispatch",
+            "create",
+            "--project",
+            "p",
+            "--phase",
+            "sk-super-secret-value",
+            "--cli",
+            "claude",
+            "--branch",
+            "b",
+            "--spec-folder",
+            "s",
+            "--workflow-id",
+            "w",
+        ])
+        .expect_err("invalid --phase value must fail");
+        let response = clap_error_to_response(&err);
+        let json = serde_json::to_string(&response).expect("serialize");
+        assert!(
+            !json.contains("sk-super-secret-value"),
+            "raw user value leaked into wire: {json}"
+        );
+        assert!(
+            !json.contains("super-secret"),
+            "raw user value leaked into wire: {json}"
+        );
+        assert_eq!(response.code, ErrorCode::InvalidInput);
+        assert_eq!(response.message, "invalid cli args");
+    }
+
+    #[test]
+    fn unknown_argument_with_secret_value_is_not_echoed() {
+        let err = Cli::try_parse_from(["tanren", "dispatch", "list", "--secret-value=sk-1234"])
+            .expect_err("unknown --secret-value must fail");
+        let response = clap_error_to_response(&err);
+        let json = serde_json::to_string(&response).expect("serialize");
+        assert!(!json.contains("sk-1234"), "raw secret leaked: {json}");
+        assert!(
+            !json.contains("secret-value"),
+            "unknown flag name not allowlisted must not reach wire: {json}"
+        );
+        assert_eq!(response.code, ErrorCode::InvalidInput);
+        assert_eq!(response.message, "invalid cli args");
     }
 }

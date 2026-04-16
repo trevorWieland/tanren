@@ -16,7 +16,7 @@ fn actor_token_cli_arg_is_rejected() {
             &db_url,
             "--actor-token",
             &auth.token,
-            "dispatch-read",
+            "dispatch",
             "list",
         ])
         .output()
@@ -26,11 +26,19 @@ fn actor_token_cli_arg_is_rejected() {
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v: Value = serde_json::from_str(&stderr).expect("json");
     assert_eq!(v["code"], "invalid_input");
+    // The canonical wire response never echoes user-typed flag text or
+    // the token value. We expect `invalid cli args` with a machine-safe
+    // `unknown_argument` reason code and no trace of the JWT bytes.
+    assert_eq!(v["message"], "invalid cli args");
+    assert_eq!(v["details"]["type"], "invalid_args");
+    assert_eq!(v["details"]["reason_code"], "unknown_argument");
     assert!(
-        v["message"]
-            .as_str()
-            .expect("msg")
-            .contains("--actor-token")
+        !stderr.contains(&auth.token),
+        "actor token bytes must not leak to stderr"
+    );
+    assert!(
+        !stderr.contains("--actor-token "),
+        "raw flag text must not leak: {stderr}"
     );
 }
 
@@ -51,7 +59,7 @@ fn actor_token_can_be_read_from_stdin() {
         &auth.issuer,
         "--token-audience",
         &auth.audience,
-        "dispatch-read",
+        "dispatch",
         "list",
     ]);
     cmd.write_stdin(format!("{}\n", auth.token));
@@ -75,7 +83,7 @@ fn oversized_actor_token_from_stdin_is_rejected() {
         &auth.issuer,
         "--token-audience",
         &auth.audience,
-        "dispatch-read",
+        "dispatch",
         "list",
     ]);
     cmd.write_stdin(format!("{}\n", "x".repeat((16 * 1024) + 1)));
@@ -110,7 +118,7 @@ fn actor_token_can_be_read_from_env() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch-read",
+            "dispatch",
             "list",
         ])
         .output()
@@ -136,7 +144,7 @@ fn token_source_conflict_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch-read",
+            "dispatch",
             "list",
         ])
         .output()
@@ -169,7 +177,7 @@ fn token_source_conflict_env_plus_file_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch-read",
+            "dispatch",
             "list",
         ])
         .output()
@@ -201,7 +209,7 @@ fn empty_env_token_is_treated_as_absent_for_source_selection() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch-read",
+            "dispatch",
             "list",
         ])
         .output()
@@ -229,7 +237,7 @@ fn token_source_conflict_env_plus_stdin_is_rejected() {
         &auth.issuer,
         "--token-audience",
         &auth.audience,
-        "dispatch-read",
+        "dispatch",
         "list",
     ]);
     cmd.write_stdin(format!("{}\n", auth.token));
@@ -259,7 +267,7 @@ fn legacy_actor_jwks_file_flag_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch-read",
+            "dispatch",
             "list",
         ])
         .output()
@@ -269,11 +277,12 @@ fn legacy_actor_jwks_file_flag_is_rejected() {
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v: Value = serde_json::from_str(&stderr).expect("json");
     assert_eq!(v["code"], "invalid_input");
+    assert_eq!(v["message"], "invalid cli args");
+    assert_eq!(v["details"]["type"], "invalid_args");
+    assert_eq!(v["details"]["reason_code"], "unknown_argument");
     assert!(
-        v["message"]
-            .as_str()
-            .expect("msg")
-            .contains("--actor-jwks-file")
+        !stderr.contains("--actor-jwks-file"),
+        "removed legacy flag name must not leak to wire: {stderr}"
     );
 }
 
@@ -294,7 +303,7 @@ fn legacy_actor_jwks_url_flag_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch-read",
+            "dispatch",
             "list",
         ])
         .output()
@@ -304,11 +313,16 @@ fn legacy_actor_jwks_url_flag_is_rejected() {
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v: Value = serde_json::from_str(&stderr).expect("json");
     assert_eq!(v["code"], "invalid_input");
+    assert_eq!(v["message"], "invalid cli args");
+    assert_eq!(v["details"]["type"], "invalid_args");
+    assert_eq!(v["details"]["reason_code"], "unknown_argument");
     assert!(
-        v["message"]
-            .as_str()
-            .expect("msg")
-            .contains("--actor-jwks-url")
+        !stderr.contains("--actor-jwks-url"),
+        "removed legacy flag name must not leak to wire: {stderr}"
+    );
+    assert!(
+        !stderr.contains("example.com"),
+        "legacy flag value must not leak to wire: {stderr}"
     );
 }
 

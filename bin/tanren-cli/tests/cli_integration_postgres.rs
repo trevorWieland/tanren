@@ -123,7 +123,7 @@ fn create_dispatch(db_url: &str, auth: &support::auth::AuthHarness) -> String {
     cmd.args([
         "--database-url",
         db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "postgres-e2e",
@@ -154,7 +154,7 @@ fn get_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHarne
     cmd.args([
         "--database-url",
         db_url,
-        "dispatch-read",
+        "dispatch",
         "get",
         "--id",
         dispatch_id,
@@ -171,7 +171,7 @@ fn get_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHarne
 
 fn list_dispatches(db_url: &str, auth: &support::auth::AuthHarness) -> Value {
     let mut cmd: Command = cli();
-    cmd.args(["--database-url", db_url, "dispatch-read", "list"]);
+    cmd.args(["--database-url", db_url, "dispatch", "list"]);
     add_auth_args(&mut cmd, auth);
     let output = cmd.output().expect("execute");
     assert!(
@@ -187,7 +187,7 @@ fn cancel_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHa
     cmd.args([
         "--database-url",
         db_url,
-        "dispatch-mutation",
+        "dispatch",
         "cancel",
         "--id",
         dispatch_id,
@@ -268,7 +268,7 @@ async fn postgres_unauthorized_get_is_hidden_as_not_found() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "get",
         "--id",
         dispatch_id,

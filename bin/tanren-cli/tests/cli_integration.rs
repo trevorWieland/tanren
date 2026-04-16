@@ -17,7 +17,7 @@ fn create_dispatch(db_url: &str, auth: &support::auth::AuthHarness) -> String {
     cmd.args([
         "--database-url",
         db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -49,7 +49,7 @@ fn get_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHarne
     cmd.args([
         "--database-url",
         db_url,
-        "dispatch-read",
+        "dispatch",
         "get",
         "--id",
         dispatch_id,
@@ -66,7 +66,7 @@ fn get_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHarne
 
 fn list_dispatches(db_url: &str, auth: &support::auth::AuthHarness) -> Value {
     let mut cmd = cli();
-    cmd.args(["--database-url", db_url, "dispatch-read", "list"]);
+    cmd.args(["--database-url", db_url, "dispatch", "list"]);
     add_auth_args(&mut cmd, auth);
     let output = cmd.output().expect("execute");
     assert!(
@@ -82,7 +82,7 @@ fn cancel_dispatch(db_url: &str, dispatch_id: &str, auth: &support::auth::AuthHa
     cmd.args([
         "--database-url",
         db_url,
-        "dispatch-mutation",
+        "dispatch",
         "cancel",
         "--id",
         dispatch_id,
@@ -131,7 +131,7 @@ fn get_nonexistent_outputs_not_found_json_on_stderr_and_exits_1() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "get",
         "--id",
         &fake_id.to_string(),
@@ -158,7 +158,7 @@ fn get_unauthorized_dispatch_is_hidden_as_not_found() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "get",
         "--id",
         dispatch_id,
@@ -185,7 +185,7 @@ fn cancel_unauthorized_dispatch_is_hidden_as_not_found() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-mutation",
+        "dispatch",
         "cancel",
         "--id",
         dispatch_id,

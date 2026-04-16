@@ -23,7 +23,7 @@ use tanren_contract::{ErrorResponse, internal_error_response_with_correlation};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
-pub use internal_error_sink::INTERNAL_ERROR_SINK_PATH_ENV_VAR;
+pub use internal_error_sink::{INTERNAL_ERROR_SINK_PATH_ENV_VAR, spill_drop_count};
 
 /// Errors that can occur during observability initialization.
 #[derive(Debug, thiserror::Error)]

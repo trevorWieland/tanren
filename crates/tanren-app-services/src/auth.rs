@@ -20,6 +20,16 @@ use uuid::Uuid;
 /// Default hard ceiling for accepted actor token lifetime (`exp - iat`).
 pub const DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS: u64 = 900;
 
+/// Default hard ceiling for accepted actor token byte length.
+///
+/// The verifier enforces this inside [`ActorTokenVerifier::verify`]
+/// so every transport (CLI today; API/MCP/TUI in future lanes)
+/// inherits the same OOM/compute-budget guard without each transport
+/// needing to re-implement it. Transport layers may add their own
+/// defense-in-depth byte checks in front of the verifier — the CLI
+/// already does.
+pub const DEFAULT_ACTOR_TOKEN_MAX_BYTES: usize = 16 * 1024;
+
 /// Allowed positive clock skew for `iat` relative to local wall clock.
 const DEFAULT_IAT_FUTURE_SKEW_SECS: i64 = 30;
 const MAX_ISS_CLAIM_LEN: usize = 256;
@@ -153,6 +163,7 @@ pub struct ActorTokenVerifier {
     validation: Validation,
     max_token_ttl_secs: i64,
     iat_future_skew_secs: i64,
+    max_token_bytes: usize,
 }
 
 impl std::fmt::Debug for ActorTokenVerifier {
@@ -162,6 +173,7 @@ impl std::fmt::Debug for ActorTokenVerifier {
             .field("validation", &self.validation)
             .field("max_token_ttl_secs", &self.max_token_ttl_secs)
             .field("iat_future_skew_secs", &self.iat_future_skew_secs)
+            .field("max_token_bytes", &self.max_token_bytes)
             .finish()
     }
 }
@@ -173,7 +185,19 @@ impl ActorTokenVerifier {
         issuer: &str,
         audience: &str,
         max_token_ttl_secs: u64,
+        max_token_bytes: usize,
     ) -> Result<Self, ContractError> {
+        if max_token_bytes == 0 {
+            emit_auth_boundary_internal_error(
+                "invalid_actor_public_key",
+                "max_token_bytes must be >= 1",
+            );
+            return Err(ContractError::InvalidField {
+                field: "actor_token_max_bytes".to_owned(),
+                reason: "must be >= 1".to_owned(),
+            });
+        }
+
         let decoding_key = DecodingKey::from_ed_pem(public_key_pem.as_bytes()).map_err(|err| {
             emit_auth_boundary_internal_error("invalid_actor_public_key", &err.to_string());
             ContractError::InvalidField {
@@ -187,6 +211,7 @@ impl ActorTokenVerifier {
             validation: build_validation(issuer, audience),
             max_token_ttl_secs: i64::try_from(max_token_ttl_secs).unwrap_or(i64::MAX),
             iat_future_skew_secs: DEFAULT_IAT_FUTURE_SKEW_SECS,
+            max_token_bytes,
         })
     }
 
@@ -196,6 +221,7 @@ impl ActorTokenVerifier {
         issuer: &str,
         audience: &str,
         max_token_ttl_secs: u64,
+        max_token_bytes: usize,
     ) -> Result<Self, ContractError> {
         let public_key_pem = std::fs::read_to_string(path).map_err(|err| {
             emit_auth_boundary_internal_error("invalid_actor_public_key", &err.to_string());
@@ -204,11 +230,29 @@ impl ActorTokenVerifier {
                 reason: "invalid actor public key".to_owned(),
             }
         })?;
-        Self::from_public_key_pem(&public_key_pem, issuer, audience, max_token_ttl_secs)
+        Self::from_public_key_pem(
+            &public_key_pem,
+            issuer,
+            audience,
+            max_token_ttl_secs,
+            max_token_bytes,
+        )
     }
 
     /// Verify a signed actor token and return trusted context + replay guard.
     pub fn verify(&self, token: &str) -> Result<VerifiedActorToken, TokenVerificationError> {
+        if token.len() > self.max_token_bytes {
+            emit_auth_boundary_internal_error(
+                "actor_token_size_violation",
+                &format!(
+                    "token length {} exceeds max_token_bytes {}",
+                    token.len(),
+                    self.max_token_bytes
+                ),
+            );
+            return Err(token_validation_error());
+        }
+
         Self::validate_header(token)?;
 
         let claims = decode::<ActorTokenClaims>(token, &self.decoding_key, &self.validation)

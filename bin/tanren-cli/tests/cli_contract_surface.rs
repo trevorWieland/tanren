@@ -16,7 +16,7 @@ fn create_accepts_contract_surface_fields_and_get_reflects_them() {
     create_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -64,7 +64,7 @@ fn create_accepts_contract_surface_fields_and_get_reflects_them() {
     get_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "get",
         "--id",
         dispatch_id,
@@ -98,7 +98,7 @@ fn create_rejects_invalid_secret_names() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -132,7 +132,7 @@ fn create_rejects_duplicate_project_env_keys() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -169,7 +169,7 @@ fn list_rejects_invalid_cursor_token() {
     create_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-mutation",
+        "dispatch",
         "create",
         "--project",
         "test-project",
@@ -195,7 +195,7 @@ fn list_rejects_invalid_cursor_token() {
     list_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch-read",
+        "dispatch",
         "list",
         "--cursor",
         "v9|bad",
@@ -207,4 +207,80 @@ fn list_rejects_invalid_cursor_token() {
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let v: Value = serde_json::from_str(&stderr).expect("json");
     assert_eq!(v["code"], "invalid_input");
+}
+
+#[test]
+fn dispatch_create_missing_required_flag_yields_canonical_invalid_args_wire_shape() {
+    // No `--project` → clap emits MissingRequiredArgument; the CLI
+    // must map that to the stable `invalid_args` wire shape with an
+    // allowlisted field and a machine-safe reason code. The raw clap
+    // message (which varies by version) must not leak into the wire.
+    let mut cmd = cli();
+    cmd.args([
+        "dispatch",
+        "create",
+        "--phase",
+        "do_task",
+        "--cli",
+        "claude",
+        "--branch",
+        "main",
+        "--spec-folder",
+        "spec",
+        "--workflow-id",
+        "wf-1",
+    ]);
+    let output = cmd.output().expect("execute");
+    assert!(
+        !output.status.success(),
+        "missing --project must fail. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "invalid_input");
+    assert_eq!(v["message"], "invalid cli args");
+    assert_eq!(v["details"]["type"], "invalid_args");
+    assert_eq!(v["details"]["reason_code"], "missing_required_argument");
+    // Field may or may not be populated depending on clap context
+    // availability. If present, it must be the allowlisted
+    // snake_case name — never raw user text.
+    if let Some(field) = v["details"]["field"].as_str() {
+        assert_eq!(field, "project");
+    }
+}
+
+#[test]
+fn dispatch_create_invalid_value_does_not_echo_raw_input_to_wire() {
+    // Craft a phase value that looks like a secret. The mapper must
+    // not echo the raw string into `message` or `details`.
+    let mut cmd = cli();
+    cmd.args([
+        "dispatch",
+        "create",
+        "--project",
+        "p",
+        "--phase",
+        "sk-secret-looking-value",
+        "--cli",
+        "claude",
+        "--branch",
+        "main",
+        "--spec-folder",
+        "spec",
+        "--workflow-id",
+        "wf-1",
+    ]);
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "invalid phase value must fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "invalid_input");
+    assert_eq!(v["message"], "invalid cli args");
+    assert_eq!(v["details"]["type"], "invalid_args");
+    assert_eq!(v["details"]["reason_code"], "invalid_value");
+    assert!(
+        !stderr.contains("sk-secret-looking-value"),
+        "raw user value leaked into wire: {stderr}"
+    );
 }

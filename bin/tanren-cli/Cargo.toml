@@ -23,7 +23,7 @@ path = "tests/cli_integration_postgres.rs"
 required-features = ["postgres-integration"]
 
 [dependencies]
-tanren-contract = { path = "../../crates/tanren-contract", features = ["clap"] }
+tanren-contract = { path = "../../crates/tanren-contract" }
 tanren-app-services = { path = "../../crates/tanren-app-services" }
 tanren-observability = { path = "../../crates/tanren-observability" }
 anyhow.workspace = true

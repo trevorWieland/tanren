@@ -10,10 +10,6 @@ description = "External contract representation — API/CLI/MCP/TUI schema gener
 [lints]
 workspace = true
 
-[features]
-default = []
-clap = ["dep:clap"]
-
 [dependencies]
 tanren-domain = { path = "../tanren-domain" }
 chrono.workspace = true
@@ -21,7 +17,6 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-clap = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
