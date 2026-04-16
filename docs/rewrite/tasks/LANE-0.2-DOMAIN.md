@@ -113,7 +113,8 @@ Consider a shared `EventEnvelope` wrapper: `{ event_id: EventId, timestamp: Date
 ### 5. Step Payloads (`payloads.rs`)
 
 Input payloads (what the worker receives):
-- `ProvisionPayload` — dispatch snapshot
+- `ProvisionPayload` — embedded dispatch snapshot (legacy-compatible form)
+- `ProvisionRefPayload` — typed dispatch snapshot reference (`dispatch_id`)
 - `ExecutePayload` — dispatch snapshot + environment handle
 - `TeardownPayload` — dispatch snapshot + environment handle + preserve flag
 - `DryRunPayload` — dispatch snapshot

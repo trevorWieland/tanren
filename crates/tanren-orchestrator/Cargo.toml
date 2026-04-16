@@ -10,6 +10,21 @@ description = "Control-plane orchestration engine — planner/scheduler/policy/s
 [lints]
 workspace = true
 
+[features]
+default = []
+# Exposes the `Orchestrator::store_for_tests` escape hatch for integration
+# tests that need raw access to the underlying store trait object.
+# Production builds must not enable this feature.
+test-hooks = []
+
 [dependencies]
+tanren-domain = { path = "../tanren-domain" }
+tanren-store = { path = "../tanren-store" }
+tanren-policy = { path = "../tanren-policy" }
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+async-trait.workspace = true

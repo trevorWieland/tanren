@@ -49,6 +49,16 @@ Any inversion here is a blocker because it recreates the drift the rewrite exist
 
 - `create_dispatch` creates the projection, emits `DispatchCreated`, and enqueues the initial step through the store contract.
 - `cancel_dispatch` cancels pending steps, updates status, and emits `DispatchCancelled`.
+- Unauthorized `cancel_dispatch` attempts are hidden as `not_found`
+  (no cross-scope existence oracle).
+- Missing-dispatch and unauthorized cancel attempts both append
+  internal `policy_decision` audit events before returning `not_found`.
+- Actor-scoped `get` uses scope-predicate-first store reads.
+- `cancel_dispatch` authorization is enforced via typed policy checks and
+  denied decisions are internally audited before returning masked `not_found`.
+- `StateStore::get_dispatch_scoped` is trait-required for every backend
+  (no default unscoped fallback implementation).
+- Denied create/cancel decisions emit internal `policy_decision` audit events.
 - The orchestrator enforces the single-path terminal-event rule:
   - `DispatchCompleted` only for `Outcome::Success`
   - `DispatchFailed` for all other non-cancel terminal outcomes
@@ -58,6 +68,16 @@ Any inversion here is a blocker because it recreates the drift the rewrite exist
 
 - Domain/store/policy errors are converted into stable contract error responses.
 - The CLI prints deterministic JSON on success and failure.
+- On failure, stderr contains only a single JSON document (no log prefix/suffix contamination).
+- `policy_denied` details are minimized and do not expose resource metadata.
+- JWT verification failures returned to clients are generic and do not expose
+  issuer/audience/expiry/signature-specific diagnostics.
+- Internal `correlation_id` values returned to clients are traceable via
+  machine-readable local sink events in CLI mode.
+- Internal failures omit `correlation_id` when sink persistence fails.
+- Actor token source resolution enforces true one-of across stdin/file/env.
+- Scoped-read query/index strategy has backend-native `EXPLAIN` validation
+  for both SQLite and Postgres.
 - Libraries use `thiserror`; `anyhow` appears only in binaries.
 
 ### 5. Test Quality

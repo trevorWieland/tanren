@@ -337,6 +337,7 @@ snapshot_event!(
             resource: PolicyResourceRef::Dispatch { dispatch_id: did() },
             scope: PolicyScope::new(actor()),
             outcome: PolicyOutcome::Allowed,
+            reason_code: None,
             reason: Some("within monthly budget".into()),
         }),
     }

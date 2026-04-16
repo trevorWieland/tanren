@@ -7,14 +7,18 @@
 //! `migration::m_0001_init`, so no scan-heavy paths exist here.
 
 use async_trait::async_trait;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
-use tanren_domain::EventQueryResult;
+use sea_orm::{
+    ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    TransactionTrait,
+};
+use tanren_domain::{DomainEvent, EventCursor, EventEnvelope, EventQueryResult};
 
 use crate::converters::events as event_converters;
 use crate::entity::events;
-use crate::errors::StoreResult;
-use crate::params::EventFilter;
+use crate::errors::{StoreError, StoreResult};
+use crate::params::{EventFilter, ReplayGuard};
 use crate::store::Store;
+use crate::token_replay_store::consume_replay_guard_once;
 
 /// Append-only event log interface.
 ///
@@ -29,6 +33,28 @@ use crate::store::Store;
 pub trait EventStore: Send + Sync {
     /// Query events by filter dimensions. Indexed; no table scans.
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult>;
+
+    /// Append a typed policy-decision audit event.
+    ///
+    /// Only `DomainEvent::PolicyDecision` payloads are accepted.
+    async fn append_policy_decision_event(&self, event: &EventEnvelope) -> StoreResult<()>;
+
+    /// Append a typed policy-decision audit event **and** consume a
+    /// caller-supplied replay guard atomically in one transaction.
+    ///
+    /// This is the single entry point for recording mutating-command
+    /// denial decisions: the replay key must be consumed regardless of
+    /// whether the mutation is carried out, so denied requests cannot
+    /// be replayed repeatedly for the same signed actor token.
+    ///
+    /// Only `DomainEvent::PolicyDecision` payloads are accepted. If the
+    /// replay key has already been consumed this call returns
+    /// [`StoreError::ReplayRejected`] and does not append the event.
+    async fn record_policy_decision_with_replay(
+        &self,
+        event: &EventEnvelope,
+        replay_guard: ReplayGuard,
+    ) -> StoreResult<()>;
 }
 
 /// Direct event-append methods — available for testing and migration
@@ -41,7 +67,7 @@ pub trait EventStore: Send + Sync {
 impl Store {
     /// Append a single event. Bypasses projection consistency — use
     /// co-transactional trait methods for operational writes.
-    pub async fn append(&self, event: &tanren_domain::EventEnvelope) -> StoreResult<()> {
+    pub async fn append(&self, event: &EventEnvelope) -> StoreResult<()> {
         let model = event_converters::envelope_to_active_model(event)?;
         events::Entity::insert(model).exec(self.conn()).await?;
         Ok(())
@@ -49,10 +75,7 @@ impl Store {
 
     /// Append a batch of events. Bypasses projection consistency —
     /// use co-transactional trait methods for operational writes.
-    pub async fn append_batch(
-        &self,
-        envelopes: &[tanren_domain::EventEnvelope],
-    ) -> StoreResult<()> {
+    pub async fn append_batch(&self, envelopes: &[EventEnvelope]) -> StoreResult<()> {
         if envelopes.is_empty() {
             return Ok(());
         }
@@ -69,46 +92,126 @@ impl Store {
 impl EventStore for Store {
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult> {
         let conn = self.conn();
-        let total_count = build_count_query(filter).count(conn).await?;
+        // `total_count` describes the full filtered result set, not the
+        // post-cursor remainder — pagination must not change the count.
+        let total_count = if filter.include_total_count {
+            Some(build_count_query(filter).count(conn).await?)
+        } else {
+            None
+        };
 
-        let rows = build_select_query(filter)
-            .limit(filter.limit)
-            .offset(filter.offset)
+        // Explicit empty-page case: a caller asking for `limit = 0`
+        // gets back an empty page with `has_more = false` and
+        // `next_cursor = None` regardless of how many rows match.
+        if filter.limit == 0 {
+            return Ok(EventQueryResult {
+                events: Vec::new(),
+                total_count,
+                has_more: false,
+                next_cursor: None,
+            });
+        }
+
+        let mut rows = build_select_query(filter)
             .order_by_asc(events::Column::Timestamp)
             .order_by_asc(events::Column::Id)
+            .limit(filter.limit.saturating_add(1))
             .all(conn)
             .await?;
+        let page_size = usize::try_from(filter.limit).unwrap_or(usize::MAX);
+        let has_more = rows.len() > page_size;
+        if has_more {
+            rows.truncate(page_size);
+        }
+        let next_cursor = if has_more {
+            rows.last().map(|row| EventCursor {
+                timestamp: row.timestamp,
+                id: row.id,
+            })
+        } else {
+            None
+        };
 
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             out.push(event_converters::model_to_envelope(row)?);
         }
 
-        let has_more = filter
-            .offset
-            .saturating_add(u64::try_from(out.len()).unwrap_or(u64::MAX))
-            < total_count;
-
         Ok(EventQueryResult {
             events: out,
             total_count,
             has_more,
+            next_cursor,
         })
+    }
+
+    async fn append_policy_decision_event(&self, event: &EventEnvelope) -> StoreResult<()> {
+        ensure_policy_decision_payload(event)?;
+        let row = event_converters::envelope_to_active_model(event)?;
+        events::Entity::insert(row).exec(self.conn()).await?;
+        Ok(())
+    }
+
+    async fn record_policy_decision_with_replay(
+        &self,
+        event: &EventEnvelope,
+        replay_guard: ReplayGuard,
+    ) -> StoreResult<()> {
+        ensure_policy_decision_payload(event)?;
+        let row = event_converters::envelope_to_active_model(event)?;
+
+        self.conn()
+            .transaction::<_, (), StoreError>(move |txn| {
+                Box::pin(async move {
+                    consume_replay_guard_once(txn, replay_guard).await?;
+                    events::Entity::insert(row).exec(txn).await?;
+                    Ok(())
+                })
+            })
+            .await?;
+        Ok(())
     }
 }
 
-fn build_select_query(filter: &EventFilter) -> sea_orm::Select<events::Entity> {
-    apply_filters(events::Entity::find(), filter)
+fn ensure_policy_decision_payload(event: &EventEnvelope) -> StoreResult<()> {
+    if matches!(event.payload, DomainEvent::PolicyDecision { .. }) {
+        return Ok(());
+    }
+    Err(crate::errors::StoreError::Conversion {
+        context: "event_store::append_policy_decision_event",
+        reason: "expected DomainEvent::PolicyDecision payload".to_owned(),
+    })
 }
 
+fn build_select_query(filter: &EventFilter) -> sea_orm::Select<events::Entity> {
+    apply_filters(
+        events::Entity::find(),
+        filter,
+        /* include_cursor */ true,
+    )
+}
+
+/// Count query intentionally **omits** the cursor predicate so that
+/// `total_count` reports the total number of rows matching the
+/// caller's filter — independent of which page the caller is on.
+/// Including the cursor would make `total_count` shrink as the
+/// caller paginates, which is not what callers expect from a
+/// "total" field.
 fn build_count_query(filter: &EventFilter) -> sea_orm::Select<events::Entity> {
-    apply_filters(events::Entity::find(), filter)
+    apply_filters(
+        events::Entity::find(),
+        filter,
+        /* include_cursor */ false,
+    )
 }
 
 fn apply_filters(
     mut query: sea_orm::Select<events::Entity>,
     filter: &EventFilter,
+    include_cursor: bool,
 ) -> sea_orm::Select<events::Entity> {
+    use sea_orm::sea_query::Condition;
+
     // Typed entity references must constrain both `entity_kind` and
     // `entity_id`. A bare `entity_id` filter would return events
     // from a different entity kind that happens to share the same
@@ -132,6 +235,19 @@ fn apply_filters(
     }
     if let Some(until) = filter.until {
         query = query.filter(events::Column::Timestamp.lt(until));
+    }
+    if include_cursor {
+        if let Some(cursor) = filter.cursor {
+            query = query.filter(
+                Condition::any()
+                    .add(events::Column::Timestamp.gt(cursor.timestamp))
+                    .add(
+                        Condition::all()
+                            .add(events::Column::Timestamp.eq(cursor.timestamp))
+                            .add(events::Column::Id.gt(cursor.id)),
+                    ),
+            );
+        }
     }
     query
 }
@@ -305,6 +421,32 @@ mod tests {
         };
         let sql = filter_sql(&filter);
         assert!(sql.contains("\"timestamp\" <"), "missing until: {sql}");
+    }
+
+    #[test]
+    fn count_query_omits_cursor_predicate_so_total_is_pagination_independent() {
+        // Build a select that DOES include the cursor and a count
+        // that does NOT, then compare emitted SQL: the select must
+        // mention `id >` (the cursor tiebreaker) and the count must
+        // not.
+        let cursor = EventCursor {
+            timestamp: Utc.timestamp_opt(1_700_000_000, 0).single().expect("ts"),
+            id: 42,
+        };
+        let filter = EventFilter {
+            cursor: Some(cursor),
+            ..EventFilter::new()
+        };
+        let select_sql = build_select_query(&filter).build(DbBackend::Postgres).sql;
+        let count_sql = build_count_query(&filter).build(DbBackend::Postgres).sql;
+        assert!(
+            select_sql.contains("\"id\" >"),
+            "select must include cursor: {select_sql}"
+        );
+        assert!(
+            !count_sql.contains("\"id\" >"),
+            "count must omit cursor predicate so total is pagination independent: {count_sql}"
+        );
     }
 
     #[test]

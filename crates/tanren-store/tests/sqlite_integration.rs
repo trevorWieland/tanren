@@ -11,8 +11,8 @@ use common::{
     seed_steps, snapshot, step_completed_event, try_dequeue, update_dispatch_status_params,
 };
 use tanren_domain::{
-    DispatchStatus, DomainEvent, EntityKind, EntityRef, Lane, Outcome, StepId, StepPayload,
-    StepStatus, StepType,
+    DispatchStatus, DomainEvent, EntityKind, EntityRef, EventEnvelope, EventId, Lane, Outcome,
+    StepId, StepPayload, StepStatus, StepType,
 };
 use tanren_store::{
     DispatchFilter, EventFilter, EventStore, JobQueue, NackParams, StateStore, Store,
@@ -93,8 +93,8 @@ async fn query_dispatches_filters_by_lane_and_user() {
         })
         .await
         .expect("by lane");
-    assert_eq!(by_lane.len(), 1);
-    assert_eq!(by_lane[0].dispatch_id, id_a);
+    assert_eq!(by_lane.dispatches.len(), 1);
+    assert_eq!(by_lane.dispatches[0].dispatch_id, id_a);
 
     let by_user = store
         .query_dispatches(&DispatchFilter {
@@ -104,8 +104,8 @@ async fn query_dispatches_filters_by_lane_and_user() {
         })
         .await
         .expect("by user");
-    assert_eq!(by_user.len(), 1);
-    assert_eq!(by_user[0].actor.user_id, actor_b_user);
+    assert_eq!(by_user.dispatches.len(), 1);
+    assert_eq!(by_user.dispatches[0].actor.user_id, actor_b_user);
 }
 
 #[tokio::test]
@@ -119,8 +119,8 @@ async fn event_append_query_and_filter() {
         .await
         .expect("create");
 
-    let started = tanren_domain::EventEnvelope::new(
-        tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
+    let started = EventEnvelope::new(
+        EventId::from_uuid(uuid::Uuid::now_v7()),
         now(),
         DomainEvent::DispatchStarted { dispatch_id },
     );
@@ -140,11 +140,12 @@ async fn event_append_query_and_filter() {
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(dispatch_id)),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("by ref");
-    assert_eq!(by_ref.total_count, 3); // creation + started + completed (all route to Dispatch)
+    assert_eq!(by_ref.total_count, Some(3)); // creation + started + completed (all route to Dispatch)
     assert!(!by_ref.has_more);
     let ids: Vec<_> = by_ref.events.iter().map(|e| e.event_id).collect();
     assert!(ids.contains(&creation_event_id));
@@ -154,21 +155,23 @@ async fn event_append_query_and_filter() {
         .query_events(&EventFilter {
             entity_kind: Some(EntityKind::Dispatch),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("by kind");
-    assert_eq!(by_kind.total_count, 3);
+    assert_eq!(by_kind.total_count, Some(3));
 
     let by_type = store
         .query_events(&EventFilter {
             event_type: Some("step_completed".to_owned()),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("by type");
-    assert_eq!(by_type.total_count, 1);
+    assert_eq!(by_type.total_count, Some(1));
 }
 
 #[tokio::test]
@@ -281,11 +284,12 @@ async fn ack_and_enqueue_is_atomic() {
     let events = store
         .query_events(&EventFilter {
             limit: 100,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query");
-    assert_eq!(events.total_count, 5);
+    assert_eq!(events.total_count, Some(5));
 }
 
 #[tokio::test]
@@ -346,11 +350,12 @@ async fn ack_and_enqueue_rolls_back_on_pk_collision() {
         .query_events(&EventFilter {
             event_type: Some("step_completed".to_owned()),
             limit: 10,
+            include_total_count: true,
             ..EventFilter::new()
         })
         .await
         .expect("query");
-    assert_eq!(events.total_count, 0);
+    assert_eq!(events.total_count, Some(0));
 }
 
 #[tokio::test]
@@ -422,8 +427,8 @@ async fn nack_retry_resets_to_pending_and_bumps_count() {
         .await
         .expect("dequeue");
 
-    let failure_event = tanren_domain::EventEnvelope::new(
-        tanren_domain::EventId::from_uuid(uuid::Uuid::now_v7()),
+    let failure_event = EventEnvelope::new(
+        EventId::from_uuid(uuid::Uuid::now_v7()),
         now(),
         DomainEvent::StepFailed {
             dispatch_id: id,

@@ -30,6 +30,121 @@ built against the store traits (not the implementation).
   listing, and status queries (no execution)
 - **Trait-based store dependency** — the CLI takes a `Store` via dependency
   injection (constructor), not a hardcoded implementation
+- **No methodology templating or self-hosting mechanics** — command rendering,
+  workflow-context artifacts, issue-source-backed workflow prep, and manual
+  Tanren-in-Tanren flow are lane 0.5 concerns
+
+## Hardening Baseline (Post-Audit)
+
+These are mandatory lane-0.4 behaviors for parity/security/stability:
+
+1. **Canonical input semantics live in contract conversion**
+   - Request-shape validation (`project_env` key format, `required_secrets`
+     name format, duplicate secret rejection) is enforced in
+     `tanren-contract` conversion logic.
+   - Empty `project_env` values (`KEY=`) are valid.
+   - Interface binaries (CLI/API/MCP/TUI) must not implement divergent
+     business semantics; they only parse transport shape.
+
+2. **Cancel authorization is explicit and typed**
+   - `tanren-policy` exposes a typed cancel decision path.
+   - Orchestrator enforces cancel policy before store mutation.
+   - Unauthorized cancel attempts are hidden as `not_found` to avoid
+     cross-scope existence disclosure.
+   - Scope-match model: org must match; if dispatch actor has
+     `project_id`/`team_id`/`api_key_id`, canceller must match each present scope.
+
+3. **Cancel transition truth lives in the store transaction**
+   - Orchestrator does not pre-check cancel transitions.
+   - Store CAS and transition checks are the source of truth.
+   - Contention/lock DB errors in cancel path are normalized to stable conflict
+     semantics at the store boundary (no backend-specific lock errors leaking up).
+   - Normalization uses backend-typed DB codes, not substring matching:
+     SQLite `BUSY/LOCKED` code families, Postgres SQLSTATE `40P01/40001/55P03`.
+
+5. **Typed conflict wire codes are deterministic**
+   - `invalid_transition` and `contention_conflict` are distinct machine codes.
+   - Generic `conflict` is reserved for uncategorized legacy conflict paths.
+
+4. **Step response is enum-typed**
+   - Contract `StepResponse` uses enums for step type/status/ready-state/lane.
+   - Wire shape remains snake_case for backward-compatible JSON contracts.
+
+6. **Trusted actor context is token-derived (breaking)**
+   - `CreateDispatchRequest` and `CancelDispatchRequest` no longer carry
+     actor identity fields.
+   - CLI requires a signed actor JWT and Ed25519 public-key verification
+     inputs (`--actor-token-stdin` or `--actor-token-file` or
+     `TANREN_ACTOR_TOKEN`, plus `--actor-public-key-file`,
+     `--token-issuer`, `--token-audience`).
+   - Missing/invalid tokens fail closed; there is no insecure fallback.
+   - Token source resolution is strict one-of across all three sources:
+     `--actor-token-stdin`, `--actor-token-file`, `TANREN_ACTOR_TOKEN`.
+     Any multi-source combination is rejected.
+   - Verification failure responses are generic at the wire boundary
+     (`token validation failed`); detailed JWT failure causes stay internal.
+   - `get`/`list` are policy-scoped by trusted actor context, not open reads.
+   - Actor-token signature/claim verification runs before any store open,
+     migration, or schema-readiness work on both read and write command paths.
+   - Replay semantics are command-policy aware:
+     - `dispatch get/list`: verify-only (no replay consumption write)
+     - `dispatch create/cancel`: single-use replay consumption
+       atomically within the mutation transaction.
+
+7. **Migration behavior is explicit**
+   - Read commands (`dispatch get/list`) open DB without running migrations.
+   - Write commands (`dispatch create/cancel`) run migrate-before-write,
+     but only after actor-token verification succeeds.
+   - `tanren db migrate` is the explicit schema mutation command.
+   - Read commands against non-ready schema return `schema_not_ready`.
+
+8. **CLI failure output is deterministic JSON-only**
+   - On non-zero exit, stderr is a single JSON document and contains no
+     tracing/log prefix/suffix bytes.
+   - Internal/store failures preserve `code = internal`, generic
+     `message = "internal error"`.
+   - `details.correlation_id` is returned only when correlated sink
+     persistence succeeds; if sink persistence fails, `correlation_id`
+     is omitted.
+   - Correlated internal error events use deterministic sink path
+     derivation in this order:
+     - `$TANREN_INTERNAL_ERROR_SINK_PATH` (explicit override)
+     - `$XDG_STATE_HOME/tanren/internal-errors.jsonl`
+     - `$HOME/.local/state/tanren/internal-errors.jsonl`
+     - fail closed when none are derivable (no temp-dir fallback).
+   - Sink persistence is durable under stress:
+     queue saturation/ack-timeout paths spill to a local spool file in
+     the same state directory, and worker drain attempts replay spooled
+     records to the primary sink.
+
+9. **Policy-denied wire details are minimized**
+   - `policy_denied` details expose only machine-safe
+     `reason_code` (when available).
+   - Resource identifiers and internal decision metadata are not exposed.
+
+10. **Scoped dispatch list uses one predicate query**
+   - Policy-scoped dispatch reads execute as a single query with
+     tuple-aware null-or-exact scope predicates.
+   - Single-dispatch reads used by actor-scoped `get` are
+     scope-predicate-first.
+   - `cancel` authorization is enforced by typed policy checks against
+     dispatch ownership scope; denied decisions are audited and still
+     returned as masked `not_found`.
+   - `StateStore::get_dispatch_scoped` is a required backend contract
+     (no default fallback to unscoped read + in-memory filtering).
+   - Cursor filtering and ordering stay in SQL
+     (`created_at DESC, dispatch_id DESC`) without in-memory fan-out merge/dedupe.
+   - Index strategy is validated with backend-native `EXPLAIN` coverage
+     for both `SQLite` and `Postgres`.
+
+11. **Denied policy decisions are internally auditable**
+   - Denied create/cancel decisions append `DomainEvent::PolicyDecision`
+     records to the event log.
+   - Both unauthorized cancel attempts and missing-dispatch cancel attempts
+     are internally audited, while the wire response remains masked
+     `not_found`.
+   - Wire responses remain minimized (`policy_denied` details and masked
+     `not_found` for unauthorized cancel).
 
 ## Deliverables
 
@@ -69,9 +184,15 @@ pub struct DispatchListResponse {
 pub struct StepResponse { ... }
 
 pub struct ErrorResponse {
-    pub code: String,       // stable error code
+    pub code: ErrorCode,    // serde snake_case (invalid_transition, contention_conflict, ...)
     pub message: String,
-    pub details: Option<serde_json::Value>,
+    pub details: Option<ErrorDetails>,
+}
+
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ErrorDetails {
+    PolicyDenied { reason_code: PolicyReasonCode },
+    Internal { correlation_id: Uuid },
 }
 ```
 
@@ -202,18 +323,24 @@ Enough to get structured logs in the CLI. Full OpenTelemetry integration is Phas
 Clap-based CLI with these subcommands:
 
 ```
-tanren dispatch create  --project <P> --phase <PH> --cli <C> --branch <B> ...
-tanren dispatch get     --id <ID>
-tanren dispatch list    [--status <S>] [--limit <N>]
-tanren dispatch cancel  --id <ID> [--reason <R>]
+tanren dispatch create  --project <P> --phase <PH> --cli <C> --branch <B> ... \
+  --actor-token-file <PATH> --actor-public-key-file <PEM> \
+  --token-issuer <ISS> --token-audience <AUD>
+tanren dispatch get     --id <ID> --actor-token-file <PATH> ...
+tanren dispatch list    [--status <S>] [--limit <N>] --actor-token-file <PATH> ...
+tanren dispatch cancel  --id <ID> [--reason <R>] --actor-token-file <PATH> ...
+tanren db migrate
 ```
 
 The CLI:
 1. Reads `--database-url` flag (default: `sqlite:tanren.db`)
-2. Creates a `Store` from the URL
-3. Creates the service stack: `Store → Orchestrator → DispatchService`
-4. Runs the requested command
-5. Prints results as JSON to stdout
+2. For `dispatch` commands, verifies a signed actor JWT into trusted request context
+3. Opens store based on command mutability:
+   - read (`get/list`): open-only + schema readiness check
+   - write (`create/cancel`): migrate-before-write
+4. Creates the service stack: `Store → Orchestrator → DispatchService`
+5. Runs the requested command
+6. Prints results as JSON to stdout
 
 This proves the full pipeline: CLI args → contract types → domain commands →
 orchestrator → store → query → contract response → CLI output.

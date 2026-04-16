@@ -14,6 +14,7 @@
 //! [`StoreError::Conversion`]: crate::StoreError::Conversion
 
 pub(crate) mod dispatch;
+pub(crate) mod dispatch_summary;
 pub(crate) mod events;
 pub(crate) mod step;
 pub(crate) mod validate;

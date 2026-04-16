@@ -17,6 +17,43 @@
 //! [`DbErr`]: sea_orm::DbErr
 
 use sea_orm::DbErr;
+use tanren_domain::EntityKind;
+
+/// Store operation that raised a conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreOperation {
+    /// Conflict while cancelling a dispatch.
+    CancelDispatch,
+    /// Conflict while updating dispatch status.
+    UpdateDispatchStatus,
+}
+
+impl std::fmt::Display for StoreOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CancelDispatch => f.write_str("cancel_dispatch"),
+            Self::UpdateDispatchStatus => f.write_str("update_dispatch_status"),
+        }
+    }
+}
+
+/// Machine-classified store conflict kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreConflictClass {
+    /// Contention conflict (lock/contention/serialization losers).
+    Contention,
+    /// Uncategorized conflict (legacy/other conflict semantics).
+    Other,
+}
+
+impl std::fmt::Display for StoreConflictClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Contention => f.write_str("contention"),
+            Self::Other => f.write_str("other"),
+        }
+    }
+}
 
 /// All errors raised by the store layer.
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +67,13 @@ pub enum StoreError {
     /// dependency on `sea-orm-migration`.
     #[error("migration error: {0}")]
     Migration(String),
+
+    /// The schema is not at the expected version for read operations.
+    #[error("schema not ready: {reason}")]
+    SchemaNotReady {
+        /// Why the schema cannot be used safely for this operation.
+        reason: String,
+    },
 
     /// A JSON round-trip between an entity model and a domain type
     /// failed. `context` is a stable `&'static str` identifying the
@@ -49,12 +93,13 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
 
     /// The caller asked for an entity that does not exist. The
-    /// `entity` field is an already-rendered identifier (never raw
-    /// user input).
-    #[error("entity not found: {entity}")]
+    /// identifier is a stable contract-level representation.
+    #[error("{entity_kind} not found: {id}")]
     NotFound {
-        /// Already-rendered identifier describing what was missing.
-        entity: String,
+        /// Kind of the missing entity.
+        entity_kind: EntityKind,
+        /// Identifier of the missing entity.
+        id: String,
     },
 
     /// A projection row was found in an unexpected state for the
@@ -70,10 +115,20 @@ pub enum StoreError {
         to: String,
     },
 
-    /// A concurrency conflict — e.g., `ack_and_enqueue` found the
-    /// current step already completed by another worker.
-    #[error("concurrency conflict: {0}")]
-    Conflict(String),
+    /// A typed concurrency conflict.
+    #[error("{operation} {class} conflict: {reason}")]
+    Conflict {
+        /// The conflict class.
+        class: StoreConflictClass,
+        /// The operation that observed the conflict.
+        operation: StoreOperation,
+        /// Human-readable conflict description.
+        reason: String,
+    },
+
+    /// Replay guard key was already consumed.
+    #[error("actor token replay rejected")]
+    ReplayRejected,
 }
 
 /// Convenient alias used throughout the store crate.

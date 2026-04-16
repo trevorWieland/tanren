@@ -11,6 +11,26 @@ use crate::payloads::{DispatchSnapshot, StepPayload, StepResult};
 use crate::status::{
     DispatchMode, DispatchStatus, Lane, Outcome, StepReadyState, StepStatus, StepType,
 };
+use crate::validated::NonEmptyString;
+
+/// Lean read projection of a dispatch for list paths.
+///
+/// Intentionally **does not** carry the full [`DispatchSnapshot`] or
+/// [`ActorContext`] — list queries pay no JSON decode cost per row.
+/// Detail views (see [`DispatchView`]) continue to carry the full
+/// snapshot for single-entity reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchSummary {
+    pub dispatch_id: DispatchId,
+    pub mode: DispatchMode,
+    pub status: DispatchStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+    pub lane: Lane,
+    pub project: NonEmptyString,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
 
 /// Read projection of a dispatch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,9 +83,19 @@ pub struct StepView {
 }
 
 /// Paginated query result for events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventCursor {
+    pub timestamp: DateTime<Utc>,
+    pub id: i64,
+}
+
+/// Paginated query result for events.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventQueryResult {
     pub events: Vec<EventEnvelope>,
-    pub total_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<u64>,
     pub has_more: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<EventCursor>,
 }

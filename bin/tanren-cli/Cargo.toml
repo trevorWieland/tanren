@@ -10,6 +10,49 @@ description = "Tanren CLI — clap-based command-line interface for local operat
 [lints]
 workspace = true
 
+[features]
+default = []
+# Enables the Postgres-backed CLI integration suite. Gated so the
+# default `cargo nextest run -p tanren-cli` path stays SQLite-only and
+# does not require a running Postgres instance.
+postgres-integration = []
+
+[[test]]
+name = "cli_integration_postgres"
+path = "tests/cli_integration_postgres.rs"
+required-features = ["postgres-integration"]
+
 [dependencies]
+tanren-contract = { path = "../../crates/tanren-contract" }
+tanren-app-services = { path = "../../crates/tanren-app-services" }
+tanren-observability = { path = "../../crates/tanren-observability" }
+anyhow.workspace = true
+serde.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
+assert_cmd = "2"
+serde_json = { workspace = true }
+tempfile = "3"
+uuid.workspace = true
+chrono.workspace = true
+jsonwebtoken.workspace = true
+wiremock.workspace = true
+# Mints fresh Ed25519 keypairs for the actor-JWT test harness so no
+# private-key PEM material is committed to the repo.
+ed25519-dalek = { workspace = true }
+rand_core = { workspace = true }
+# tanren-store is a dev-dep for seeding replay-ledger fixtures in the
+# `cli_replay_purge` integration test. Production binary still has
+# zero direct dependency on the store crate.
+tanren-store = { path = "../../crates/tanren-store" }
+# Postgres integration test dependencies (only exercised when running the
+# `postgres-integration`-gated test binary; transport-dep hygiene is still
+# fine because these are dev-only and don't land in the binary itself).
+tokio = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+sea-orm = { workspace = true }

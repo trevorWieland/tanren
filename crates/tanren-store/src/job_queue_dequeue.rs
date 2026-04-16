@@ -68,10 +68,9 @@ const ADVISORY_LOCK_NAMESPACE: i32 = 42;
 /// parallel.
 const ADVISORY_LOCK_GLOBAL: i32 = 0;
 
-// Domain-enum string literals for raw SQL; drift caught by test below.
-const STATUS_PENDING: &str = "pending";
-const STATUS_RUNNING: &str = "running";
-const READY_STATE_READY: &str = "ready";
+// Domain-enum string literals for raw SQL; drift is caught at
+// compile time via the exhaustive-match guard in `crate::sql_tags`.
+use crate::sql_tags::{READY_STATE_READY, STATUS_PENDING, STATUS_RUNNING};
 
 const RETURNING_COLS: &str = "\
 RETURNING step_id, dispatch_id, step_type, step_sequence, lane, status, \
@@ -488,13 +487,5 @@ mod tests {
             matches!(err, StoreError::Conversion { .. }),
             "expected Conversion, got {err:?}"
         );
-    }
-
-    #[test]
-    fn sql_literals_match_domain_enums() {
-        use tanren_domain::{StepReadyState, StepStatus};
-        assert_eq!(STATUS_PENDING, StepStatus::Pending.to_string());
-        assert_eq!(STATUS_RUNNING, StepStatus::Running.to_string());
-        assert_eq!(READY_STATE_READY, StepReadyState::Ready.to_string());
     }
 }

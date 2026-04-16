@@ -23,6 +23,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 cargo := env("CARGO", "cargo")
 max_lines := "500"
+nextest_quiet_flags := "--status-level fail --final-status-level fail --success-output never --failure-output immediate-final --cargo-quiet"
 
 # ============================================================================
 # Setup
@@ -148,7 +149,7 @@ build:
 
 # Type-check all workspace crates
 check:
-    @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks --quiet
+    @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet
 
 # ============================================================================
 # Test
@@ -156,11 +157,11 @@ check:
 
 # Run all tests via nextest (pass extra args after --)
 test *args:
-    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks {{ args }}
+    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks,tanren-orchestrator/test-hooks {{ nextest_quiet_flags }} {{ args }}
 
 # Generate code coverage report (lcov)
 coverage:
-    @{{ cargo }} llvm-cov nextest --workspace --features tanren-store/test-hooks --lcov --output-path lcov.info --no-tests=pass
+    @{{ cargo }} llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --lcov --output-path lcov.info --no-tests=pass
     @echo "Coverage report: lcov.info"
 
 # ============================================================================
@@ -169,7 +170,7 @@ coverage:
 
 # Run clippy with deny warnings
 lint:
-    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks --quiet -- -D warnings
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings
 
 # Glob for Rust workspace TOML files (excludes Python pyproject.toml)
 toml_globs := "Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml lefthook.yml"
@@ -188,7 +189,7 @@ fmt-fix:
 fix:
     @{{ cargo }} fmt
     @RUST_LOG=error taplo fmt {{ toml_globs }}
-    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks --fix --allow-dirty --allow-staged --quiet -- -D warnings
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --fix --allow-dirty --allow-staged --quiet -- -D warnings
 
 # ============================================================================
 # Audit & Analysis
@@ -263,9 +264,13 @@ check-deps:
     failed=0
     metadata=$({{ cargo }} metadata --format-version 1 --no-deps 2>/dev/null)
 
+    # Normal (non-dev, non-build) dependencies only. `cargo metadata`
+    # tags dev-dependencies with `kind="dev"` — those are test-only
+    # and never land in the shipped binary, so they do not constitute
+    # a layering violation.
     for fnd in "${foundation[@]}"; do
         deps=$(echo "$metadata" \
-            | jq -r ".packages[] | select(.name == \"$fnd\") | .dependencies[].name" 2>/dev/null || true)
+            | jq -r ".packages[] | select(.name == \"$fnd\") | .dependencies[] | select(.kind == null) | .name" 2>/dev/null || true)
         for cap in "${capability[@]}"; do
             if echo "$deps" | grep -qx "$cap"; then
                 echo "FAIL: foundation crate '$fnd' depends on capability crate '$cap'"
@@ -274,11 +279,67 @@ check-deps:
         done
     done
 
+    # Transport binaries must stay thin: no direct core/capability deps.
+    transport=(
+        "tanren-cli"
+        "tanren-api"
+        "tanren-mcp"
+        "tanren-tui"
+    )
+    forbidden_transport=(
+        "tanren-domain"
+        "tanren-policy"
+        "tanren-store"
+        "tanren-planner"
+        "tanren-scheduler"
+        "tanren-orchestrator"
+    )
+    for bin in "${transport[@]}"; do
+        deps=$(echo "$metadata" \
+            | jq -r ".packages[] | select(.name == \"$bin\") | .dependencies[] | select(.kind == null) | .name" 2>/dev/null || true)
+        for forbidden in "${forbidden_transport[@]}"; do
+            if echo "$deps" | grep -qx "$forbidden"; then
+                echo "FAIL: transport binary '$bin' depends directly on '$forbidden'"
+                failed=1
+            fi
+        done
+    done
+
+    # Store row-shape entities must remain crate-internal.
+    if grep -Eq '^[[:space:]]*pub mod entity;' crates/tanren-store/src/lib.rs; then
+        echo "FAIL: crates/tanren-store/src/lib.rs exports 'pub mod entity;'"
+        failed=1
+    fi
+    if grep -Eq '^[[:space:]]*pub mod (dispatch_projection|events|step_projection);' crates/tanren-store/src/entity/mod.rs; then
+        echo "FAIL: crates/tanren-store/src/entity/mod.rs exposes row-shape modules publicly"
+        failed=1
+    fi
+    if ! awk '
+        prev_cfg && /^[[:space:]]*pub use state_store::dispatch_query_statement_for_backend;/ {ok=1}
+        { prev_cfg = ($0 ~ /^[[:space:]]*#\[cfg\(feature = "test-hooks"\)\][[:space:]]*$/) }
+        END { exit ok ? 0 : 1 }
+    ' crates/tanren-store/src/lib.rs; then
+        echo "FAIL: dispatch_query_statement_for_backend re-export must be gated by #[cfg(feature = \"test-hooks\")]"
+        failed=1
+    fi
+    if ! awk '
+        prev_cfg && /^[[:space:]]*pub fn dispatch_query_statement_for_backend\(/ {ok=1}
+        { prev_cfg = ($0 ~ /^[[:space:]]*#\[cfg\(feature = "test-hooks"\)\][[:space:]]*$/) }
+        END { exit ok ? 0 : 1 }
+    ' crates/tanren-store/src/state_store.rs; then
+        echo "FAIL: dispatch_query_statement_for_backend function must be gated by #[cfg(feature = \"test-hooks\")]"
+        failed=1
+    fi
+
     if [[ "$failed" -eq 1 ]]; then
-        echo "Crate layering violation detected. Foundation crates must not depend on capability crates."
+        echo "Dependency/boundary rule violations detected."
         exit 1
     fi
     echo "Crate layering rules pass."
+
+# Verify local CI recipes stay aligned with workflow strict rust commands.
+check-ci-parity:
+    @uv run python scripts/check_ci_parity.py
 
 # Prohibit inline lint suppression (#[allow/expect])
 check-suppression:
@@ -321,6 +382,33 @@ clean:
 # CI
 # ============================================================================
 
-# Run full CI check locally
-ci: fmt lint check check-lines check-suppression check-deps deny test doc machete
+# Run workflow-equivalent strict Rust checks locally.
+ci-rust-strict:
+    @echo "==> Clippy"
+    @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings
+    @echo "==> Workspace tests"
+    @RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --no-tests=pass {{ nextest_quiet_flags }}
+    @echo "==> Postgres integration"
+    @./scripts/run_postgres_integration.sh
+
+# Run full CI check locally.
+ci:
+    @echo "==> Format"
+    @just fmt
+    @echo "==> File length guard"
+    @just check-lines
+    @echo "==> Lint suppression guard"
+    @just check-suppression
+    @echo "==> Dependency layering guard"
+    @just check-deps
+    @echo "==> CI parity guard"
+    @just check-ci-parity
+    @echo "==> Dependency audit"
+    @just deny
+    @echo "==> Docs"
+    @just doc
+    @echo "==> Unused dependency audit"
+    @just machete
+    @echo "==> Strict Rust CI"
+    @just ci-rust-strict
     @echo "==> All CI checks passed!"

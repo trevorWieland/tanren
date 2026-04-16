@@ -8,5 +8,6 @@
 //! - API key authentication and scoped access
 //!
 //! Contract-generated/validated against the shared domain model.
+#![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
 fn main() {}

@@ -13,9 +13,12 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, Condition, EntityTrait, QueryFilter, TransactionTrait,
 };
-use tanren_domain::{DomainEvent, EventEnvelope, EventId, StepId, StepStatus, StepType};
+use tanren_domain::{
+    DomainEvent, EntityKind, EventEnvelope, EventId, StepId, StepStatus, StepType,
+};
 
 use crate::converters::{events as event_converters, step as step_converters, validate};
+use crate::entity::enums::{StepStatusModel, StepTypeModel};
 use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreError, StoreResult};
 use crate::params::{
@@ -98,7 +101,8 @@ impl JobQueue for Store {
                         .await?;
                     if exists.is_none() {
                         return Err(StoreError::NotFound {
-                            entity: format!("dispatch {dispatch_id_display}"),
+                            entity_kind: EntityKind::Dispatch,
+                            id: dispatch_id_display.to_string(),
                         });
                     }
                     step_projection::Entity::insert(row).exec(txn).await?;
@@ -123,14 +127,14 @@ impl JobQueue for Store {
         let step_id = params.step_id;
         let step_id_uuid = step_id.into_uuid();
         let dispatch_id_uuid = params.dispatch_id.into_uuid();
-        let step_type_string = params.step_type.to_string();
+        let step_type = StepTypeModel::from(params.step_type);
 
         self.conn()
             .transaction::<_, (), StoreError>(move |txn| {
                 Box::pin(async move {
                     let update = step_projection::ActiveModel {
                         step_id: Set(step_id_uuid),
-                        status: Set(StepStatus::Completed.to_string()),
+                        status: Set(StepStatusModel::Completed),
                         result: Set(Some(result_value)),
                         error: Set(None),
                         updated_at: Set(now),
@@ -140,8 +144,8 @@ impl JobQueue for Store {
                     let outcome = step_projection::Entity::update(update)
                         .filter(step_projection::Column::StepId.eq(step_id_uuid))
                         .filter(step_projection::Column::DispatchId.eq(dispatch_id_uuid))
-                        .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
-                        .filter(step_projection::Column::StepType.eq(step_type_string.as_str()))
+                        .filter(step_projection::Column::Status.eq(StepStatusModel::Running))
+                        .filter(step_projection::Column::StepType.eq(step_type))
                         .exec(txn)
                         .await;
                     match outcome {
@@ -172,7 +176,7 @@ impl JobQueue for Store {
         let step_id_uuid = params.step_id.into_uuid();
         let dispatch_id_uuid = params.dispatch_id.into_uuid();
         let step_id_display = params.step_id.to_string();
-        let step_type_string = params.step_type.to_string();
+        let step_type = StepTypeModel::from(params.step_type);
 
         let next = match params.next_step {
             Some(step) => {
@@ -188,7 +192,7 @@ impl JobQueue for Store {
                 Box::pin(async move {
                     let update = step_projection::ActiveModel {
                         step_id: Set(step_id_uuid),
-                        status: Set(StepStatus::Completed.to_string()),
+                        status: Set(StepStatusModel::Completed),
                         result: Set(Some(result_value)),
                         error: Set(None),
                         updated_at: Set(now),
@@ -198,8 +202,8 @@ impl JobQueue for Store {
                     let result = step_projection::Entity::update(update)
                         .filter(step_projection::Column::StepId.eq(step_id_uuid))
                         .filter(step_projection::Column::DispatchId.eq(dispatch_id_uuid))
-                        .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
-                        .filter(step_projection::Column::StepType.eq(step_type_string.as_str()))
+                        .filter(step_projection::Column::Status.eq(StepStatusModel::Running))
+                        .filter(step_projection::Column::StepType.eq(step_type))
                         .exec(txn)
                         .await;
                     match result {
@@ -249,14 +253,12 @@ impl JobQueue for Store {
                     let result = step_projection::Entity::update_many()
                         .col_expr(
                             step_projection::Column::Status,
-                            Expr::value(StepStatus::Cancelled.to_string()),
+                            Expr::value(StepStatusModel::Cancelled),
                         )
                         .col_expr(step_projection::Column::UpdatedAt, Expr::value(timestamp))
                         .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-                        .filter(step_projection::Column::Status.eq(StepStatus::Pending.to_string()))
-                        .filter(
-                            step_projection::Column::StepType.ne(StepType::Teardown.to_string()),
-                        )
+                        .filter(step_projection::Column::Status.eq(StepStatusModel::Pending))
+                        .filter(step_projection::Column::StepType.ne(StepTypeModel::Teardown))
                         .exec(txn)
                         .await?;
 
@@ -271,13 +273,9 @@ impl JobQueue for Store {
                     // so no TOCTOU window exists.
                     let rows = step_projection::Entity::find()
                         .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-                        .filter(
-                            step_projection::Column::Status.eq(StepStatus::Cancelled.to_string()),
-                        )
+                        .filter(step_projection::Column::Status.eq(StepStatusModel::Cancelled))
                         .filter(step_projection::Column::UpdatedAt.eq(timestamp))
-                        .filter(
-                            step_projection::Column::StepType.ne(StepType::Teardown.to_string()),
-                        )
+                        .filter(step_projection::Column::StepType.ne(StepTypeModel::Teardown))
                         .all(txn)
                         .await?;
 
@@ -310,7 +308,7 @@ impl JobQueue for Store {
         let step_id_uuid = params.step_id.into_uuid();
         let dispatch_id_uuid = params.dispatch_id.into_uuid();
         let step_id_display = params.step_id.to_string();
-        let step_type_string = params.step_type.to_string();
+        let step_type = StepTypeModel::from(params.step_type);
         let error = params.error.clone();
         let retry = params.retry;
 
@@ -324,7 +322,7 @@ impl JobQueue for Store {
                     };
                     let active = step_projection::ActiveModel {
                         step_id: Set(step_id_uuid),
-                        status: Set(status.to_string()),
+                        status: Set(StepStatusModel::from(status)),
                         updated_at: Set(now),
                         error: Set(error_value),
                         worker_id: Set(None),
@@ -337,8 +335,8 @@ impl JobQueue for Store {
                     let result = step_projection::Entity::update(active)
                         .filter(step_projection::Column::StepId.eq(step_id_uuid))
                         .filter(step_projection::Column::DispatchId.eq(dispatch_id_uuid))
-                        .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
-                        .filter(step_projection::Column::StepType.eq(step_type_string.as_str()))
+                        .filter(step_projection::Column::Status.eq(StepStatusModel::Running))
+                        .filter(step_projection::Column::StepType.eq(step_type))
                         .exec(txn)
                         .await;
                     match result {
@@ -384,7 +382,7 @@ impl JobQueue for Store {
         };
         let outcome = step_projection::Entity::update(update)
             .filter(step_projection::Column::StepId.eq(step_id.into_uuid()))
-            .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
+            .filter(step_projection::Column::Status.eq(StepStatusModel::Running))
             .exec(self.conn())
             .await;
         match outcome {
@@ -406,7 +404,7 @@ impl JobQueue for Store {
         let result = step_projection::Entity::update_many()
             .col_expr(
                 step_projection::Column::Status,
-                Expr::value(StepStatus::Pending.to_string()),
+                Expr::value(StepStatusModel::Pending),
             )
             .col_expr(
                 step_projection::Column::WorkerId,
@@ -417,7 +415,7 @@ impl JobQueue for Store {
                 Expr::value(Option::<chrono::DateTime<Utc>>::None),
             )
             .col_expr(step_projection::Column::UpdatedAt, Expr::value(Utc::now()))
-            .filter(step_projection::Column::Status.eq(StepStatus::Running.to_string()))
+            .filter(step_projection::Column::Status.eq(StepStatusModel::Running))
             // Reclaim rows whose heartbeat is older than the
             // threshold OR has never been set (NULL). Rows whose
             // heartbeat was refreshed within the window stay
@@ -445,7 +443,7 @@ fn mint_step_cancelled(
     timestamp: chrono::DateTime<Utc>,
 ) -> Result<events::ActiveModel, StoreError> {
     let step_id = StepId::from_uuid(row.step_id);
-    let step_type = step_converters::parse_step_type(&row.step_type)?;
+    let step_type = StepType::from(row.step_type);
     let envelope = EventEnvelope::new(
         EventId::from_uuid(uuid::Uuid::now_v7()),
         timestamp,

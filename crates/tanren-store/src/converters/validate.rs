@@ -21,6 +21,13 @@ use crate::params::{
     UpdateDispatchStatusParams,
 };
 
+#[path = "validate_cancel_dispatch.rs"]
+mod validate_cancel_dispatch;
+#[path = "validate_create_with_initial_step.rs"]
+mod validate_create_with_initial_step;
+pub(crate) use self::validate_cancel_dispatch::validate_cancel_dispatch;
+pub(crate) use self::validate_create_with_initial_step::validate_create_dispatch_with_initial_step;
+
 /// Validate that an [`EnqueueStepParams`]'s envelope carries a
 /// `StepEnqueued` payload whose fields match the params that build the
 /// projection row.

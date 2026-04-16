@@ -8,7 +8,7 @@ pre-commit:
     clippy:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
-        cargo clippy --workspace --all-targets --quiet -- -D warnings
+        cargo clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings
     taplo:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"

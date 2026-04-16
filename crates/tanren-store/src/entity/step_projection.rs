@@ -9,40 +9,40 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::enums::{LaneModel, StepReadyStateModel, StepStatusModel, StepTypeModel};
+
 /// Row shape of the `step_projection` table.
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "step_projection")]
 pub struct Model {
-    /// Step identifier — same UUID as the domain [`StepId`].
-    ///
-    /// [`StepId`]: tanren_domain::StepId
+    /// Step identifier — same UUID as the domain step ID.
     #[sea_orm(primary_key, auto_increment = false)]
     pub step_id: Uuid,
 
     /// Owning dispatch.
     pub dispatch_id: Uuid,
 
-    /// Snake-case tag of the [`StepType`](tanren_domain::StepType).
-    pub step_type: String,
+    /// Snake-case tag of the step-type enum.
+    pub step_type: StepTypeModel,
 
     /// Monotonic sequence number within the dispatch. Stored as `i32`
     /// for cross-backend compatibility.
     pub step_sequence: i32,
 
-    /// Snake-case tag of the [`Lane`](tanren_domain::Lane), or `NULL`
+    /// Snake-case tag of the lane enum, or `NULL`
     /// for free-floating steps.
-    pub lane: Option<String>,
+    pub lane: Option<LaneModel>,
 
-    /// Snake-case tag of the [`StepStatus`](tanren_domain::StepStatus).
-    pub status: String,
+    /// Snake-case tag of the step status enum.
+    pub status: StepStatusModel,
 
     /// Snake-case tag of the
-    /// [`StepReadyState`](tanren_domain::StepReadyState) — distinct
+    /// Step ready-state enum — distinct
     /// from `status` so the scheduler can look at dependency
     /// readiness without querying the dependency graph.
-    pub ready_state: String,
+    pub ready_state: StepReadyStateModel,
 
-    /// Dependency list — a JSON array of [`StepId`](tanren_domain::StepId)
+    /// Dependency list — a JSON array of step IDs
     /// UUIDs. Persisted as JSON to avoid a second join table for a
     /// rarely-scanned field.
     #[sea_orm(column_type = "JsonBinary")]
@@ -54,11 +54,11 @@ pub struct Model {
     /// The worker currently holding the claim, if `status = 'running'`.
     pub worker_id: Option<String>,
 
-    /// Serialized [`StepPayload`](tanren_domain::StepPayload).
+    /// Serialized step payload.
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub payload: Option<Json>,
 
-    /// Serialized [`StepResult`](tanren_domain::StepResult), populated
+    /// Serialized step result, populated
     /// only after the step reaches a terminal state.
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub result: Option<Json>,

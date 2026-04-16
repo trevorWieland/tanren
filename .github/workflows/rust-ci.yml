@@ -41,7 +41,7 @@ jobs:
         run: taplo fmt --check Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --features tanren-store/test-hooks -- -D warnings
+        run: cargo clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks -- -D warnings
 
   # ============================================================
   # Test
@@ -65,7 +65,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Run tests
-        run: cargo nextest run --workspace --features tanren-store/test-hooks --profile ci --no-tests=pass
+        run: cargo nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --no-tests=pass
 
   # ============================================================
   # Integration — Postgres
@@ -99,10 +99,15 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Run Postgres integration tests
+      - name: Run Postgres integration tests (store)
         env:
           TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-        run: cargo nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration
+        run: cargo nextest run -j1 -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
+
+      - name: Run Postgres integration tests (cli)
+        env:
+          TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
+        run: cargo nextest run -j1 -p tanren-cli --features tanren-cli/postgres-integration --no-tests=pass
 
   # ============================================================
   # Coverage (Linux only)
@@ -124,7 +129,7 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
 
       - name: Generate coverage
-        run: cargo llvm-cov nextest --workspace --features tanren-store/test-hooks --lcov --output-path lcov.info --no-tests=pass
+        run: cargo llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --lcov --output-path lcov.info --no-tests=pass
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
@@ -197,6 +202,8 @@ jobs:
         with:
           tool: just
 
+      - uses: astral-sh/setup-uv@v6
+
       - name: Check file line counts
         run: just check-lines
 
@@ -205,3 +212,6 @@ jobs:
 
       - name: Check crate dependency layering
         run: just check-deps
+
+      - name: Check local/workflow CI parity rules
+        run: just check-ci-parity

@@ -127,7 +127,8 @@ Owns external contract representation and versioning:
 - CLI command schema mapping
 - compatibility/version policy
 
-Must not own business logic.
+Must not own business logic. Actor identity is not request-payload data;
+trusted actor context is supplied separately by interface auth boundaries.
 
 ### `policy`
 
@@ -209,6 +210,8 @@ Owns interface-facing application service layer:
 
 - stable use-case APIs for API/CLI/MCP/TUI
 - input mapping and output shaping
+- trusted request-context intake (e.g., verified actor token context)
+- workflow-context and methodology-boundary resolution for interface-facing operations
 - no direct transport assumptions
 
 ## Linking Rules
@@ -219,7 +222,9 @@ Owns interface-facing application service layer:
 4. Runtime rule: environment and harness crates never own policy decisions.
 5. Policy rule: policy returns typed decisions, never transport-layer errors.
 6. Contract rule: contract crate is serialization/schema only, no orchestration logic.
-7. Observability rule: no crate emits unstructured logs without correlation context.
+7. Methodology rule: command rendering and workflow-context resolution are
+   control-plane/application concerns, not prompt-local logic.
+8. Observability rule: no crate emits unstructured logs without correlation context.
 
 ## Workspace and Version Management
 

@@ -50,16 +50,19 @@ pub use self::ids::{
     ApiKeyId, DispatchId, EventId, LeaseId, OrgId, ProjectId, StepId, TeamId, UserId,
 };
 pub use self::payloads::{
-    ConfigEnv, ConfigKeys, DispatchSnapshot, DryRunPayload, DryRunResult, EnvironmentHandle,
-    ExecutePayload, ExecuteResult, Finding, FindingSeverity, ProvisionPayload, ProvisionResult,
-    StepPayload, StepResult, TeardownPayload, TeardownResult, TokenUsage,
+    ConfigEnv, ConfigKeys, DispatchSnapshot, DispatchSnapshotRef, DryRunPayload, DryRunResult,
+    EnvironmentHandle, ExecutePayload, ExecuteResult, Finding, FindingSeverity, ProvisionPayload,
+    ProvisionRefPayload, ProvisionResult, StepPayload, StepResult, TeardownPayload, TeardownResult,
+    TokenUsage,
 };
 pub use self::policy::{
-    PolicyDecisionKind, PolicyDecisionRecord, PolicyOutcome, PolicyResourceRef, PolicyScope,
+    DispatchReadScope, DispatchScopeMismatch, PolicyDecisionKind, PolicyDecisionRecord,
+    PolicyOutcome, PolicyReasonCode, PolicyResourceRef, PolicyScope, actor_matches_dispatch_scope,
+    read_scope_allows_dispatch_actor,
 };
 pub use self::status::{
     AuthMode, Cli, DispatchMode, DispatchStatus, Lane, LeaseStatus, Outcome, Phase, StepReadyState,
     StepStatus, StepType, cli_to_lane,
 };
 pub use self::validated::{FiniteF64, NonEmptyString, TimeoutSecs};
-pub use self::views::{DispatchView, EventQueryResult, StepView};
+pub use self::views::{DispatchSummary, DispatchView, EventCursor, EventQueryResult, StepView};

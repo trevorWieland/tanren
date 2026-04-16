@@ -19,6 +19,7 @@ developed in parallel. Integration happens at phase boundaries.
 | 0.2 | Domain Contract | Canonical entities/commands/events/errors with versioning strategy and compatibility policy. |
 | 0.3 | Store Core | Event log + projection model with transactional append/ack semantics and migration framework. |
 | 0.4 | Interface Schema | Contract-derived schema generation pipeline for CLI/API/MCP/TUI bindings. |
+| 0.5 | Methodology Boundary | Command-template architecture, workflow-context boundary, and manual self-hosting bootstrap. |
 
 ### Exit Criteria
 
@@ -26,6 +27,8 @@ developed in parallel. Integration happens at phase boundaries.
 - Domain model includes explicit state transition rules and error taxonomy.
 - Event append and projection updates are transactional.
 - At least one generated interface surface is running from the shared contract.
+- Methodology ownership is explicit: workflow mechanics live in code and
+  command markdown remains an agent-behavior layer.
 
 ## Phase 1 - Runtime Substrate Core
 

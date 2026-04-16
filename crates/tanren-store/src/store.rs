@@ -8,10 +8,11 @@
 //! definition, the constructor, the migration runner, and a
 //! crate-internal accessor for the underlying connection.
 
-use sea_orm::{DatabaseConnection, DbErr};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, DbErr, Statement};
 use sea_orm_migration::MigratorTrait;
 
 use crate::connection::{self, ConnectConfig};
+use crate::db_error_codes::{extract_db_error_code, is_postgres_undefined_table_code};
 use crate::errors::{StoreError, StoreResult};
 use crate::migration::Migrator;
 
@@ -89,6 +90,68 @@ impl Store {
             .map_err(|err: DbErr| StoreError::Migration(err.to_string()))
     }
 
+    /// Verify schema readiness for read-only operations.
+    ///
+    /// Read commands should not perform implicit schema writes. This
+    /// preflight enforces that the database has already been migrated
+    /// to the latest expected revision.
+    pub async fn assert_schema_ready(&self) -> StoreResult<()> {
+        let backend = self.conn.get_database_backend();
+        if backend == DbBackend::Sqlite && !self.sqlite_has_migration_metadata_table().await? {
+            return Err(StoreError::SchemaNotReady {
+                reason: "missing migration metadata table".to_owned(),
+            });
+        }
+        let rows = self
+            .conn
+            .query_all(Statement::from_string(
+                backend,
+                "SELECT version FROM seaql_migrations ORDER BY version DESC LIMIT 1",
+            ))
+            .await
+            .map_err(|err| {
+                if backend == DbBackend::Postgres
+                    && extract_db_error_code(&err)
+                        .as_deref()
+                        .is_some_and(is_postgres_undefined_table_code)
+                {
+                    StoreError::SchemaNotReady {
+                        reason: "missing migration metadata table".to_owned(),
+                    }
+                } else {
+                    StoreError::from(err)
+                }
+            })?;
+
+        let current = rows
+            .first()
+            .and_then(|row| row.try_get::<String>("", "version").ok())
+            .ok_or_else(|| StoreError::SchemaNotReady {
+                reason: "no applied migrations recorded".to_owned(),
+            })?;
+
+        if current != Migrator::LATEST_MIGRATION_NAME {
+            return Err(StoreError::SchemaNotReady {
+                reason: format!(
+                    "expected latest migration `{}`, found `{current}`",
+                    Migrator::LATEST_MIGRATION_NAME
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    async fn sqlite_has_migration_metadata_table(&self) -> StoreResult<bool> {
+        let rows = self
+            .conn
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'seaql_migrations' LIMIT 1",
+            ))
+            .await?;
+        Ok(!rows.is_empty())
+    }
+
     /// Close the underlying connection pool.
     ///
     /// # Errors
@@ -146,5 +209,26 @@ mod tests {
             .await
             .expect("open_and_migrate");
         assert_eq!(store.conn().get_database_backend(), DbBackend::Sqlite);
+    }
+
+    #[tokio::test]
+    async fn assert_schema_ready_fails_before_migrate() {
+        let store = Store::new("sqlite::memory:").await.expect("open");
+        let err = store
+            .assert_schema_ready()
+            .await
+            .expect_err("schema should not be ready");
+        assert!(
+            matches!(err, StoreError::SchemaNotReady { .. }),
+            "expected schema not ready, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn assert_schema_ready_passes_after_migrate() {
+        let store = Store::open_and_migrate("sqlite::memory:")
+            .await
+            .expect("open_and_migrate");
+        store.assert_schema_ready().await.expect("schema ready");
     }
 }

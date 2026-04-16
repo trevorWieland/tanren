@@ -48,11 +48,11 @@ What slice of the work the phase operates on.
 | setup | AUTOMATED | INFRA | INFRA |
 | cleanup | AUTOMATED | INFRA | INFRA |
 
-## Gate Command Resolution
+## Verification Hook Resolution
 
-The **Scope** axis determines which gate command is used. Fast task-level gates
-(~2 min: lint, type-check, unit tests) run after task work. Thorough spec-level
-gates (~15 min: integration, e2e) run after spec-level validation.
+The workflow layer resolves verification hooks by **command/phase key**, not
+by prompt-local convention. Shared markdown should refer only to the resolved
+verification hook for the active workflow state.
 
 ### tanren.yml Configuration
 
@@ -62,26 +62,32 @@ environment:
     gate_cmd: make check          # fallback for all phases
     task_gate_cmd: make unit      # used for task-scoped gates
     spec_gate_cmd: make e2e       # used for spec-scoped gates
+    verification_hooks:
+      do-task: just check
+      audit-task: just check
+      run-demo: just ci
+      audit-spec: just ci
 ```
 
-All three fields are optional. `gate_cmd` defaults to `make check`.
-`task_gate_cmd` and `spec_gate_cmd` default to `null` (fall back to `gate_cmd`).
+`verification_hooks` is the preferred shape because it keys directly by the
+logical phase whose work is being verified. The older `task_gate_cmd` and
+`spec_gate_cmd` fields remain compatibility shims for now.
 
 ### Resolution Rules
 
-The triggering phase (the logical phase whose work is being gated, not
-necessarily the dispatch's own phase) determines which command is resolved:
+The triggering phase (the logical phase whose work is being verified, not
+necessarily the dispatch's own `gate` dispatch) determines which command is
+resolved:
 
-| Triggering Phase | Resolution |
+| Priority | Resolution |
 |---|---|
-| do-task, gate, audit-task | `task_gate_cmd` if set, else `gate_cmd` |
-| run-demo, audit-spec | `spec_gate_cmd` if set, else `gate_cmd` |
-| setup, cleanup, investigate | `gate_cmd` |
+| 1 | `verification_hooks[triggering_phase]` |
+| 2 | legacy scoped field (`task_gate_cmd` / `spec_gate_cmd`) when applicable |
+| 3 | `verification_hooks.default` |
+| 4 | `gate_cmd` |
 
-Note: both `task_gate` and `spec_gate` are dispatched as `phase=gate`. The
-coordinator knows the gate scope from its state machine sub-state and passes
-the appropriate triggering phase (e.g. `Phase.DO_TASK` for task gates,
-`Phase.RUN_DEMO` for spec gates).
+Note: both task-scope and spec-scope verification may still be dispatched as
+`phase=gate`; the workflow layer carries the logical triggering phase.
 
 ### Priority Chain
 
@@ -89,12 +95,13 @@ Highest priority wins:
 
 1. CLI `--gate-cmd` flag (explicit user override)
 2. `GateExpectation.gate_command_override` (per-task override from shape-spec)
-3. Phase-specific field (`task_gate_cmd` or `spec_gate_cmd`)
-4. `gate_cmd` (profile default)
+3. Phase-keyed verification hook (`verification_hooks.<phase>`)
+4. Legacy scoped field (`task_gate_cmd` or `spec_gate_cmd`)
+5. `verification_hooks.default`
+6. `gate_cmd`
 
-Implementation:
-`tanren_core.env.gates.resolve_gate_cmd(profile, triggering_phase)`
-handles steps 3-4. Steps 1-2 are caller responsibilities.
+Tanren code is responsible for this resolution. Shared command markdown should
+never embed a literal verification command.
 
 ## Open Questions
 

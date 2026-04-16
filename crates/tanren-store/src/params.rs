@@ -17,9 +17,10 @@
 
 use chrono::{DateTime, Utc};
 use tanren_domain::{
-    ActorContext, DispatchId, DispatchMode, DispatchSnapshot, DispatchStatus, EntityKind,
-    EntityRef, ErrorClass, EventEnvelope, GraphRevision, Lane, Outcome, StepId, StepPayload,
-    StepReadyState, StepResult, StepType, UserId,
+    ActorContext, DispatchId, DispatchMode, DispatchReadScope, DispatchSnapshot, DispatchStatus,
+    DispatchSummary, DispatchView, EntityKind, EntityRef, ErrorClass, EventCursor, EventEnvelope,
+    GraphRevision, Lane, Outcome, StepId, StepPayload, StepReadyState, StepResult, StepType,
+    UserId,
 };
 
 // ---------------------------------------------------------------------------
@@ -28,11 +29,13 @@ use tanren_domain::{
 
 /// Default page size for paginated queries.
 pub const DEFAULT_QUERY_LIMIT: u64 = 100;
+/// Maximum page size accepted for dispatch queries.
+pub const MAX_DISPATCH_QUERY_LIMIT: u64 = 500;
 
 /// Filter passed to [`EventStore::query_events`](crate::EventStore::query_events).
 ///
 /// Fields use `Option` for "unfiltered on this dimension". `limit`
-/// defaults to [`DEFAULT_QUERY_LIMIT`]; `offset` defaults to `0`. Each
+/// defaults to [`DEFAULT_QUERY_LIMIT`]. Each
 /// filter dimension is backed by an index on the `events` table — see
 /// `migration::m_0001_init`.
 #[derive(Debug, Clone, Default)]
@@ -49,14 +52,16 @@ pub struct EventFilter {
     pub since: Option<DateTime<Utc>>,
     /// Latest event timestamp (exclusive).
     pub until: Option<DateTime<Utc>>,
+    /// Return rows after this cursor key (keyset pagination).
+    pub cursor: Option<EventCursor>,
     /// Max rows to return.
     pub limit: u64,
-    /// Zero-based offset into the result set.
-    pub offset: u64,
+    /// Compute total count as a separate query.
+    pub include_total_count: bool,
 }
 
 impl EventFilter {
-    /// Construct an empty filter with the default limit and zero offset.
+    /// Construct an empty filter with the default limit.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -66,8 +71,9 @@ impl EventFilter {
             event_type: None,
             since: None,
             until: None,
+            cursor: None,
             limit: DEFAULT_QUERY_LIMIT,
-            offset: 0,
+            include_total_count: false,
         }
     }
 }
@@ -86,18 +92,20 @@ pub struct DispatchFilter {
     pub project: Option<String>,
     /// Restrict to dispatches submitted by a particular user.
     pub user_id: Option<UserId>,
+    /// Restrict reads to policy-authorized actor scope.
+    pub read_scope: Option<DispatchReadScope>,
     /// Earliest dispatch creation time (inclusive).
     pub since: Option<DateTime<Utc>>,
     /// Latest dispatch creation time (exclusive).
     pub until: Option<DateTime<Utc>>,
+    /// Return rows after this cursor key (keyset pagination).
+    pub cursor: Option<DispatchCursor>,
     /// Max rows to return.
     pub limit: u64,
-    /// Zero-based offset into the result set.
-    pub offset: u64,
 }
 
 impl DispatchFilter {
-    /// Construct an empty filter with the default limit and zero offset.
+    /// Construct an empty filter with the default limit.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -105,12 +113,46 @@ impl DispatchFilter {
             lane: None,
             project: None,
             user_id: None,
+            read_scope: None,
             since: None,
             until: None,
+            cursor: None,
             limit: DEFAULT_QUERY_LIMIT,
-            offset: 0,
         }
     }
+}
+
+/// Cursor key for dispatch list pagination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DispatchCursor {
+    /// Primary ordering key.
+    pub created_at: DateTime<Utc>,
+    /// Tie-breaker key for deterministic ordering.
+    pub dispatch_id: DispatchId,
+}
+
+/// Paginated dispatch query result.
+#[derive(Debug, Clone)]
+pub struct DispatchQueryPage {
+    /// Current page of dispatches.
+    pub dispatches: Vec<DispatchView>,
+    /// Cursor for the next page, if more rows are available.
+    pub next_cursor: Option<DispatchCursor>,
+}
+
+/// Paginated lean dispatch summary query result.
+///
+/// Returned by
+/// [`StateStore::query_dispatch_summaries`](crate::StateStore::query_dispatch_summaries).
+/// Unlike [`DispatchQueryPage`], each row carries only the scalar
+/// dispatch fields present on the projection table — no JSON decode
+/// runs per row.
+#[derive(Debug, Clone)]
+pub struct DispatchSummaryQueryPage {
+    /// Current page of dispatch summaries.
+    pub summaries: Vec<DispatchSummary>,
+    /// Cursor for the next page, if more rows are available.
+    pub next_cursor: Option<DispatchCursor>,
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +311,28 @@ pub struct CancelPendingStepsParams {
     pub reason: Option<String>,
 }
 
+/// Parameters for an atomic dispatch cancellation transaction.
+///
+/// This operation:
+/// 1. validates the dispatch transition to `cancelled`
+/// 2. cancels pending non-teardown steps
+/// 3. appends per-step `StepCancelled` events
+/// 4. updates the dispatch status
+/// 5. appends the `DispatchCancelled` event
+#[derive(Debug, Clone)]
+pub struct CancelDispatchParams {
+    /// Owning dispatch.
+    pub dispatch_id: DispatchId,
+    /// Actor initiating the cancellation.
+    pub actor: ActorContext,
+    /// Human-readable reason.
+    pub reason: Option<String>,
+    /// `DispatchCancelled` lifecycle event appended co-transactionally.
+    pub status_event: EventEnvelope,
+    /// Replay guard key consumed atomically with the cancellation.
+    pub replay_guard: ReplayGuard,
+}
+
 /// Parameters for
 /// [`StateStore::update_dispatch_status`](crate::StateStore::update_dispatch_status).
 ///
@@ -312,4 +376,78 @@ pub struct CreateDispatchParams {
     pub created_at: DateTime<Utc>,
     /// `DispatchCreated` envelope appended co-transactionally.
     pub creation_event: EventEnvelope,
+}
+
+/// Parameters for a single transaction that:
+/// 1. creates a dispatch projection
+/// 2. inserts the initial step projection row
+/// 3. appends `DispatchCreated` + `StepEnqueued` events.
+#[derive(Debug, Clone)]
+pub struct CreateDispatchWithInitialStepParams {
+    /// Dispatch creation params.
+    pub dispatch: CreateDispatchParams,
+    /// Initial step params (must be the provision step at sequence 0).
+    pub initial_step: EnqueueStepParams,
+    /// Replay guard key consumed atomically with the create path.
+    pub replay_guard: ReplayGuard,
+}
+
+/// Parameters for replay-protected actor-token consumption.
+#[derive(Debug, Clone)]
+pub struct ConsumeActorTokenJtiParams {
+    /// JWT issuer claim.
+    pub issuer: String,
+    /// JWT audience claim.
+    pub audience: String,
+    /// JWT ID claim (`jti`).
+    pub jti: String,
+    /// Issued-at unix timestamp (`iat`).
+    pub iat_unix: i64,
+    /// Expiry unix timestamp (`exp`).
+    pub exp_unix: i64,
+    /// Wall-clock consumed-at time.
+    pub consumed_at: DateTime<Utc>,
+}
+
+/// Replay guard materialized from a verified actor token.
+///
+/// Mutating store operations consume this key atomically with their
+/// dispatch mutation so replay rejection cannot race the write path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayGuard {
+    /// JWT issuer claim.
+    pub issuer: String,
+    /// JWT audience claim.
+    pub audience: String,
+    /// JWT ID claim (`jti`).
+    pub jti: String,
+    /// Issued-at unix timestamp (`iat`).
+    pub iat_unix: i64,
+    /// Expiry unix timestamp (`exp`).
+    pub exp_unix: i64,
+}
+
+impl ReplayGuard {
+    /// Convert this replay guard into insert params with a concrete
+    /// `consumed_at` timestamp.
+    #[must_use]
+    pub fn into_consume_params(self, consumed_at: DateTime<Utc>) -> ConsumeActorTokenJtiParams {
+        ConsumeActorTokenJtiParams {
+            issuer: self.issuer,
+            audience: self.audience,
+            jti: self.jti,
+            iat_unix: self.iat_unix,
+            exp_unix: self.exp_unix,
+            consumed_at,
+        }
+    }
+}
+
+/// Parameters for bounded replay-ledger cleanup.
+#[derive(Debug, Clone, Copy)]
+pub struct PurgeExpiredActorTokenJtisParams {
+    /// Remove rows with `exp_unix < expires_before_unix`.
+    pub expires_before_unix: i64,
+    /// Maximum rows to delete this run.
+    pub limit: u64,
 }
