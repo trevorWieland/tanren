@@ -25,7 +25,9 @@ pub use enums::{
     AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Outcome, Phase, StepReadyState, StepStatus,
     StepType,
 };
-pub use error::{ContractError, ErrorCode, ErrorDetails, ErrorResponse};
+pub use error::{
+    ContractError, ErrorCode, ErrorDetails, ErrorResponse, internal_error_response_with_correlation,
+};
 pub use request::{
     CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
     parse_project_env_entries,

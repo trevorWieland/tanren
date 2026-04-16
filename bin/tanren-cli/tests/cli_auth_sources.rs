@@ -60,6 +60,40 @@ fn actor_token_can_be_read_from_stdin() {
 }
 
 #[test]
+fn oversized_actor_token_from_stdin_is_rejected() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+
+    let mut cmd = cli();
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "--actor-token-stdin",
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
+        "--token-issuer",
+        &auth.issuer,
+        "--token-audience",
+        &auth.audience,
+        "dispatch",
+        "list",
+    ]);
+    cmd.write_stdin(format!("{}\n", "x".repeat((16 * 1024) + 1)));
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "oversized stdin token must fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v: Value = serde_json::from_str(&stderr).expect("json");
+    assert_eq!(v["code"], "invalid_input");
+    assert!(
+        v["message"]
+            .as_str()
+            .expect("message")
+            .contains("invalid actor token source")
+    );
+}
+
+#[test]
 fn actor_token_can_be_read_from_env() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();

@@ -106,9 +106,16 @@ These are mandatory lane-0.4 behaviors for parity/security/stability:
    - `details.correlation_id` is returned only when correlated sink
      persistence succeeds; if sink persistence fails, `correlation_id`
      is omitted.
-   - Correlated internal error events are emitted to default JSONL sink:
-     `$XDG_STATE_HOME/tanren/internal-errors.jsonl` (fallback:
-     `$HOME/.local/state/tanren/internal-errors.jsonl`).
+   - Correlated internal error events use deterministic sink path
+     derivation in this order:
+     - `$TANREN_INTERNAL_ERROR_SINK_PATH` (explicit override)
+     - `$XDG_STATE_HOME/tanren/internal-errors.jsonl`
+     - `$HOME/.local/state/tanren/internal-errors.jsonl`
+     - fail closed when none are derivable (no temp-dir fallback).
+   - Sink persistence is durable under stress:
+     queue saturation/ack-timeout paths spill to a local spool file in
+     the same state directory, and worker drain attempts replay spooled
+     records to the primary sink.
 
 9. **Policy-denied wire details are minimized**
    - `policy_denied` details expose only machine-safe

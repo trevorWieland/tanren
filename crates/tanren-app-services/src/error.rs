@@ -5,7 +5,7 @@
 //! mapping `OrchestratorError` (which wraps `StoreError` and
 //! `DomainError`) to `ContractError`.
 
-use tanren_contract::{ContractError, ErrorDetails};
+use tanren_contract::{ContractError, internal_error_response_with_correlation};
 use tanren_observability::{ObservabilityError, emit_correlated_internal_error};
 use tanren_orchestrator::OrchestratorError;
 use tanren_store::{StoreConflictClass, StoreError};
@@ -113,18 +113,9 @@ fn correlated_internal_error_response_with_emitter(
     raw_error: &str,
     emitter: EmitCorrelatedInternalError,
 ) -> tanren_contract::ErrorResponse {
-    let correlation_id = Uuid::now_v7();
-    let details = if emitter(component, error_code, correlation_id, raw_error).is_ok() {
-        Some(ErrorDetails::Internal { correlation_id })
-    } else {
-        None
-    };
-
-    tanren_contract::ErrorResponse {
-        code: tanren_contract::ErrorCode::Internal,
-        message: "internal error".to_owned(),
-        details,
-    }
+    internal_error_response_with_correlation::<ObservabilityError>(|correlation_id| {
+        emitter(component, error_code, correlation_id, raw_error)
+    })
 }
 
 #[cfg(test)]

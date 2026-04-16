@@ -80,6 +80,37 @@ fn actor_token_file_read_failure_is_generic_without_path_or_io_details() {
 }
 
 #[test]
+fn oversized_actor_token_file_is_rejected_with_generic_error() {
+    let (db_url, _dir) = temp_db();
+    let auth = auth_harness();
+    std::fs::write(&auth.actor_token_file, "x".repeat((16 * 1024) + 1)).expect("write token");
+
+    let mut cmd = support::auth::cli();
+    cmd.args([
+        "--database-url",
+        &db_url,
+        "dispatch",
+        "list",
+        "--actor-token-file",
+        auth.actor_token_file.to_str().expect("utf8 path"),
+        "--actor-public-key-file",
+        auth.actor_public_key_file.to_str().expect("utf8 path"),
+        "--token-issuer",
+        "tanren-tests",
+        "--token-audience",
+        &auth.audience,
+    ]);
+
+    let output = cmd.output().expect("execute");
+    assert!(!output.status.success(), "oversized token file must fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    let v = assert_stderr_is_single_json(&stderr);
+    assert_eq!(v["code"], "invalid_input");
+    let message = v["message"].as_str().expect("message");
+    assert!(message.contains("invalid actor token source"));
+}
+
+#[test]
 fn actor_public_key_file_read_failure_is_generic_without_path_or_io_details() {
     let (db_url, _dir) = temp_db();
     let auth = auth_harness();
@@ -398,7 +429,9 @@ fn actor_token_max_ttl_is_enforced() {
 fn internal_failure_omits_correlation_id_when_sink_persist_fails() {
     let auth = auth_harness();
     let mut cmd = support::auth::cli();
-    cmd.env("XDG_STATE_HOME", "/dev/null");
+    cmd.env_remove("TANREN_INTERNAL_ERROR_SINK_PATH");
+    cmd.env_remove("XDG_STATE_HOME");
+    cmd.env_remove("HOME");
     cmd.args([
         "--database-url",
         "sqlite:/dev/null/tanren.db?mode=rwc",

@@ -11,8 +11,7 @@ use chrono::Utc;
 use tanren_domain::{
     ActorContext, CancelDispatch, CreateDispatch, DispatchId, DispatchSnapshot,
     DispatchSnapshotRef, DispatchStatus, DispatchView, DomainError, DomainEvent, EntityRef,
-    EventEnvelope, EventId, FiniteF64, GraphRevision, Outcome, PolicyDecisionKind,
-    PolicyDecisionRecord, PolicyOutcome, PolicyReasonCode, PolicyResourceRef, PolicyScope,
+    EventEnvelope, EventId, FiniteF64, GraphRevision, Outcome, PolicyDecisionRecord, PolicyOutcome,
     ProvisionRefPayload, StepId, StepPayload, StepReadyState, StepType, cli_to_lane,
 };
 use tanren_store::{
@@ -145,20 +144,14 @@ where
         cmd: CancelDispatch,
         replay_guard: ReplayGuard,
     ) -> Result<(), OrchestratorError> {
-        let view = self.store.get_dispatch(&cmd.dispatch_id).await?;
-        if view.is_none() {
-            let audit_event = policy_decision_event(cmd.dispatch_id, missing_cancel_decision(&cmd));
-            self.store
-                .append_policy_decision_event(&audit_event)
-                .await?;
-            return Err(OrchestratorError::Domain(DomainError::NotFound {
-                entity: EntityRef::Dispatch(cmd.dispatch_id),
-            }));
-        }
+        let dispatch_actor = self
+            .store
+            .get_dispatch_actor_context_for_cancel_auth(&cmd.dispatch_id)
+            .await?;
 
         let decision = self
             .policy
-            .check_cancel_allowed(&cmd, view.as_ref().map(|dispatch| &dispatch.actor))?;
+            .check_cancel_allowed(&cmd, dispatch_actor.as_ref())?;
         if decision.outcome == PolicyOutcome::Denied {
             let audit_event = policy_decision_event(cmd.dispatch_id, decision);
             self.store
@@ -202,19 +195,6 @@ fn policy_decision_event(dispatch_id: DispatchId, decision: PolicyDecisionRecord
             decision: Box::new(decision),
         },
     )
-}
-
-fn missing_cancel_decision(cmd: &CancelDispatch) -> PolicyDecisionRecord {
-    PolicyDecisionRecord {
-        kind: PolicyDecisionKind::Authz,
-        resource: PolicyResourceRef::Dispatch {
-            dispatch_id: cmd.dispatch_id,
-        },
-        scope: PolicyScope::new(cmd.actor.clone()),
-        outcome: PolicyOutcome::Denied,
-        reason_code: Some(PolicyReasonCode::CancelDispatchNotFound),
-        reason: Some("dispatch not found".to_owned()),
-    }
 }
 
 fn build_create_dispatch_artifacts(

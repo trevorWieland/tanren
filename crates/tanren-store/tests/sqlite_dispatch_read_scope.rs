@@ -235,6 +235,34 @@ async fn get_dispatch_scoped_enforces_scope_and_keeps_unscoped_visibility() {
 }
 
 #[tokio::test]
+async fn get_dispatch_actor_context_for_cancel_auth_returns_scope_fields_only() {
+    let store = fresh_store().await;
+    let actor = ActorContext {
+        org_id: OrgId::new(),
+        user_id: UserId::new(),
+        team_id: Some(tanren_domain::TeamId::new()),
+        api_key_id: Some(tanren_domain::ApiKeyId::new()),
+        project_id: Some(ProjectId::new()),
+    };
+    let dispatch_id = create_dispatch(&store, "alpha", actor.clone(), Lane::Impl)
+        .await
+        .expect("create");
+
+    let fetched = store
+        .get_dispatch_actor_context_for_cancel_auth(&dispatch_id)
+        .await
+        .expect("lookup")
+        .expect("dispatch must exist");
+    assert_eq!(fetched, actor);
+
+    let missing = store
+        .get_dispatch_actor_context_for_cancel_auth(&DispatchId::new())
+        .await
+        .expect("lookup missing");
+    assert!(missing.is_none());
+}
+
+#[tokio::test]
 async fn query_dispatches_respects_full_scope_tuple_matching() {
     let store = fresh_store().await;
     let fixture = seed_full_scope_fixture(&store).await;

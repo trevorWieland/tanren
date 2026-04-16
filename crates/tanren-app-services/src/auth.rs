@@ -22,6 +22,9 @@ pub const DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS: u64 = 900;
 
 /// Allowed positive clock skew for `iat` relative to local wall clock.
 const DEFAULT_IAT_FUTURE_SKEW_SECS: i64 = 30;
+const MAX_ISS_CLAIM_LEN: usize = 256;
+const MAX_AUD_CLAIM_LEN: usize = 256;
+const MAX_JTI_CLAIM_LEN: usize = 512;
 
 /// Trusted request context for service and orchestrator entrypoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,6 +256,10 @@ impl ActorTokenVerifier {
         &self,
         claims: &ActorTokenClaims,
     ) -> Result<(), TokenVerificationError> {
+        validate_claim_string("iss", &claims.iss, MAX_ISS_CLAIM_LEN)?;
+        validate_claim_string("aud", &claims.aud, MAX_AUD_CLAIM_LEN)?;
+        validate_claim_string("jti", &claims.jti, MAX_JTI_CLAIM_LEN)?;
+
         let token_ttl = claims.exp.saturating_sub(claims.iat);
         if token_ttl <= 0 || token_ttl > self.max_token_ttl_secs {
             emit_auth_boundary_internal_error(
@@ -298,6 +305,28 @@ impl ActorTokenVerifier {
 
         Ok(())
     }
+}
+
+fn validate_claim_string(
+    field: &str,
+    value: &str,
+    max_len: usize,
+) -> Result<(), TokenVerificationError> {
+    if value.trim().is_empty() {
+        emit_auth_boundary_internal_error(
+            "actor_token_claim_invalid",
+            &format!("{field} must be non-empty"),
+        );
+        return Err(token_validation_error());
+    }
+    if value.len() > max_len {
+        emit_auth_boundary_internal_error(
+            "actor_token_claim_invalid",
+            &format!("{field} exceeds max length {max_len}"),
+        );
+        return Err(token_validation_error());
+    }
+    Ok(())
 }
 
 fn build_validation(issuer: &str, audience: &str) -> Validation {

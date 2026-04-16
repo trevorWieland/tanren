@@ -10,7 +10,7 @@
 
 mod commands;
 
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -18,13 +18,16 @@ use clap::{Parser, Subcommand, error::ErrorKind};
 use tanren_app_services::ActorTokenVerifier;
 use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS;
 use tanren_app_services::compose::Service;
-use tanren_contract::{ContractError, ErrorCode, ErrorDetails, ErrorResponse};
+use tanren_contract::{
+    ContractError, ErrorCode, ErrorResponse, internal_error_response_with_correlation,
+};
 use tanren_observability::{
     ObservabilityError, emit_correlated_internal_error, init_tracing_for_contract_io,
 };
 use uuid::Uuid;
 
 const ACTOR_TOKEN_ENV_VAR: &str = "TANREN_ACTOR_TOKEN";
+const ACTOR_TOKEN_MAX_BYTES: usize = 16 * 1024;
 type EmitCorrelatedInternalError = fn(&str, &str, Uuid, &str) -> Result<(), ObservabilityError>;
 
 /// Tanren — agent orchestration control plane.
@@ -296,7 +299,7 @@ fn resolve_actor_token(
 }
 
 fn read_actor_token_from_file(path: &PathBuf) -> Result<String, anyhow::Error> {
-    std::fs::read_to_string(path).map_err(|err| {
+    let mut file = std::fs::File::open(path).map_err(|err| {
         actor_token_source_error(
             "invalid_actor_token_source",
             &format!(
@@ -304,23 +307,44 @@ fn read_actor_token_from_file(path: &PathBuf) -> Result<String, anyhow::Error> {
                 path.display()
             ),
         )
-    })
+    })?;
+    read_actor_token_from_reader_with_source(&mut file, &format!("file `{}`", path.display()))
 }
 
 fn read_actor_token_from_stdin() -> Result<String, anyhow::Error> {
     let mut stdin = std::io::stdin();
-    read_actor_token_from_reader(&mut stdin)
+    read_actor_token_from_reader_with_source(&mut stdin, "stdin")
 }
 
+#[cfg(test)]
 fn read_actor_token_from_reader(reader: &mut dyn std::io::Read) -> Result<String, anyhow::Error> {
-    let mut token = String::new();
-    reader.read_to_string(&mut token).map_err(|err| {
+    read_actor_token_from_reader_with_source(reader, "stdin")
+}
+
+fn read_actor_token_from_reader_with_source(
+    reader: &mut dyn std::io::Read,
+    source: &str,
+) -> Result<String, anyhow::Error> {
+    let mut limited = reader.take((ACTOR_TOKEN_MAX_BYTES as u64).saturating_add(1));
+    let mut token_bytes = Vec::new();
+    limited.read_to_end(&mut token_bytes).map_err(|err| {
         actor_token_source_error(
             "invalid_actor_token_source",
-            &format!("failed to read actor token from stdin: {err}"),
+            &format!("failed to read actor token from {source}: {err}"),
         )
     })?;
-    Ok(token)
+    if token_bytes.len() > ACTOR_TOKEN_MAX_BYTES {
+        return Err(actor_token_source_error(
+            "invalid_actor_token_source",
+            &format!("actor token from {source} exceeds {ACTOR_TOKEN_MAX_BYTES} bytes"),
+        ));
+    }
+    String::from_utf8(token_bytes).map_err(|err| {
+        actor_token_source_error(
+            "invalid_actor_token_source",
+            &format!("actor token from {source} is not valid utf-8: {err}"),
+        )
+    })
 }
 
 fn actor_token_source_error(error_code: &str, raw_error: &str) -> anyhow::Error {
@@ -340,6 +364,12 @@ fn normalize_actor_token(token: &str) -> Result<String, anyhow::Error> {
                 reason: "actor token source resolved to an empty token".to_owned(),
             },
         )));
+    }
+    if token.len() > ACTOR_TOKEN_MAX_BYTES {
+        return Err(actor_token_source_error(
+            "invalid_actor_token_source",
+            &format!("actor token exceeds {ACTOR_TOKEN_MAX_BYTES} bytes after normalization"),
+        ));
     }
 
     Ok(token)
@@ -363,18 +393,9 @@ fn correlated_internal_error_response_with_emitter(
     raw_error: &str,
     emitter: EmitCorrelatedInternalError,
 ) -> ErrorResponse {
-    let correlation_id = Uuid::now_v7();
-    let details = if emitter(component, error_code, correlation_id, raw_error).is_ok() {
-        Some(ErrorDetails::Internal { correlation_id })
-    } else {
-        None
-    };
-
-    ErrorResponse {
-        code: ErrorCode::Internal,
-        message: "internal error".to_owned(),
-        details,
-    }
+    internal_error_response_with_correlation::<ObservabilityError>(|correlation_id| {
+        emitter(component, error_code, correlation_id, raw_error)
+    })
 }
 
 fn clap_error_to_response(err: &clap::Error) -> ErrorResponse {
@@ -396,7 +417,7 @@ mod tests {
 
     use tanren_contract::ErrorCode;
 
-    use super::{into_error_response, read_actor_token_from_reader};
+    use super::{ACTOR_TOKEN_MAX_BYTES, into_error_response, read_actor_token_from_reader};
 
     struct FailingReader;
 
@@ -419,5 +440,15 @@ mod tests {
         assert!(!response.message.contains("stdin"));
         assert!(!response.message.contains("PermissionDenied"));
         assert!(!response.message.contains("redacted-test-io-detail"));
+    }
+
+    #[test]
+    fn actor_token_stdin_overflow_is_generic_and_invalid_input() {
+        let oversized = "x".repeat(ACTOR_TOKEN_MAX_BYTES + 1);
+        let mut reader = std::io::Cursor::new(oversized);
+        let err = read_actor_token_from_reader(&mut reader).expect_err("oversized input");
+        let response = into_error_response(err);
+        assert_eq!(response.code, ErrorCode::InvalidInput);
+        assert!(response.message.contains("invalid actor token source"));
     }
 }

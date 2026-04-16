@@ -170,6 +170,17 @@ fn dispatch_list_filter_roundtrip() {
 }
 
 #[test]
+fn dispatch_list_filter_rejects_unknown_fields() {
+    let json = serde_json::json!({
+        "status": "running",
+        "unexpected": "value",
+    });
+
+    let err = serde_json::from_value::<DispatchListFilter>(json).expect_err("must fail");
+    assert!(err.to_string().contains("unknown field"));
+}
+
+#[test]
 fn dispatch_list_response_roundtrip() {
     let resp = DispatchListResponse {
         dispatches: vec![sample_dispatch_response()],

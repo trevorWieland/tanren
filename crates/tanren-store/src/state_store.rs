@@ -15,7 +15,7 @@ use sea_orm::{
 #[cfg(feature = "test-hooks")]
 use sea_orm::{DbBackend, QueryTrait, Statement};
 use tanren_domain::{
-    DispatchId, DispatchReadScope, DispatchView, EntityKind, Lane, StepId, StepView,
+    ActorContext, DispatchId, DispatchReadScope, DispatchView, EntityKind, Lane, StepId, StepView,
 };
 
 use crate::converters::{
@@ -39,6 +39,12 @@ use crate::token_replay_store::consume_replay_guard_once;
 pub trait StateStore: Send + Sync {
     /// Look up a dispatch by id.
     async fn get_dispatch(&self, id: &DispatchId) -> StoreResult<Option<DispatchView>>;
+
+    /// Look up minimal ownership fields for cancel authorization checks.
+    async fn get_dispatch_actor_context_for_cancel_auth(
+        &self,
+        id: &DispatchId,
+    ) -> StoreResult<Option<ActorContext>>;
 
     /// Look up a dispatch by id within an actor-derived read scope.
     async fn get_dispatch_scoped(
@@ -90,6 +96,45 @@ impl StateStore for Store {
             .one(self.conn())
             .await?;
         row.map(dispatch_converters::model_to_view).transpose()
+    }
+
+    async fn get_dispatch_actor_context_for_cancel_auth(
+        &self,
+        id: &DispatchId,
+    ) -> StoreResult<Option<ActorContext>> {
+        let row = dispatch_projection::Entity::find_by_id(id.into_uuid())
+            .select_only()
+            .column(dispatch_projection::Column::UserId)
+            .column(dispatch_projection::Column::OrgId)
+            .column(dispatch_projection::Column::ScopeProjectId)
+            .column(dispatch_projection::Column::ScopeTeamId)
+            .column(dispatch_projection::Column::ScopeApiKeyId)
+            .into_tuple::<(
+                uuid::Uuid,
+                Option<uuid::Uuid>,
+                Option<uuid::Uuid>,
+                Option<uuid::Uuid>,
+                Option<uuid::Uuid>,
+            )>()
+            .one(self.conn())
+            .await?;
+
+        row.map(
+            |(user_id, org_id, project_id, team_id, api_key_id)| -> StoreResult<ActorContext> {
+                let org_id = org_id.ok_or_else(|| StoreError::Conversion {
+                    context: "state_store::get_dispatch_actor_context_for_cancel_auth",
+                    reason: format!("dispatch {id} missing org_id scope"),
+                })?;
+                Ok(ActorContext {
+                    org_id: tanren_domain::OrgId::from_uuid(org_id),
+                    user_id: tanren_domain::UserId::from_uuid(user_id),
+                    team_id: team_id.map(tanren_domain::TeamId::from_uuid),
+                    api_key_id: api_key_id.map(tanren_domain::ApiKeyId::from_uuid),
+                    project_id: project_id.map(tanren_domain::ProjectId::from_uuid),
+                })
+            },
+        )
+        .transpose()
     }
 
     async fn get_dispatch_scoped(

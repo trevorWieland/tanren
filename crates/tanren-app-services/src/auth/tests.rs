@@ -152,3 +152,81 @@ fn verify_rejects_token_ttl_above_configured_max() {
 
     assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
 }
+
+#[test]
+fn verify_rejects_empty_issuer_claim() {
+    let now = Utc::now().timestamp();
+    let mut claims = base_claims(now);
+    claims.iss = "  ".to_owned();
+    let token = sign(&claims, Some("kid-1"));
+
+    let verifier = verifier(300);
+    let err = verifier.verify(&token).expect_err("empty iss must fail");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn verify_rejects_oversized_issuer_claim() {
+    let now = Utc::now().timestamp();
+    let mut claims = base_claims(now);
+    claims.iss = "i".repeat(MAX_ISS_CLAIM_LEN + 1);
+    let token = sign(&claims, Some("kid-1"));
+
+    let verifier = verifier(300);
+    let err = verifier
+        .verify(&token)
+        .expect_err("oversized iss must fail");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn verify_rejects_empty_audience_claim() {
+    let now = Utc::now().timestamp();
+    let mut claims = base_claims(now);
+    claims.aud = String::new();
+    let token = sign(&claims, Some("kid-1"));
+
+    let verifier = verifier(300);
+    let err = verifier.verify(&token).expect_err("empty aud must fail");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn verify_rejects_oversized_audience_claim() {
+    let now = Utc::now().timestamp();
+    let mut claims = base_claims(now);
+    claims.aud = "a".repeat(MAX_AUD_CLAIM_LEN + 1);
+    let token = sign(&claims, Some("kid-1"));
+
+    let verifier = verifier(300);
+    let err = verifier
+        .verify(&token)
+        .expect_err("oversized aud must fail");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn verify_rejects_empty_jti_claim() {
+    let now = Utc::now().timestamp();
+    let mut claims = base_claims(now);
+    claims.jti = "\n".to_owned();
+    let token = sign(&claims, Some("kid-1"));
+
+    let verifier = verifier(300);
+    let err = verifier.verify(&token).expect_err("empty jti must fail");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}
+
+#[test]
+fn verify_rejects_oversized_jti_claim() {
+    let now = Utc::now().timestamp();
+    let mut claims = base_claims(now);
+    claims.jti = "j".repeat(MAX_JTI_CLAIM_LEN + 1);
+    let token = sign(&claims, Some("kid-1"));
+
+    let verifier = verifier(300);
+    let err = verifier
+        .verify(&token)
+        .expect_err("oversized jti must fail");
+    assert_eq!(err.kind(), AuthFailureKind::InvalidToken);
+}

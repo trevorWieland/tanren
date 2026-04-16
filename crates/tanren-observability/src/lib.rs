@@ -12,16 +12,17 @@
 //! - All telemetry uses structured tracing, never `println!` or `eprintln!`
 //! - Binary crates call [`init_tracing`] or [`init_tracing_for_contract_io`] once at startup
 
-use std::io::Write as _;
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::sync::mpsc::{RecvTimeoutError, SyncSender, TrySendError, sync_channel};
-use std::time::Duration;
+mod internal_error_sink;
+
+#[cfg(test)]
+use std::path::Path;
 
 use chrono::Utc;
 use serde::Serialize;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
+
+pub use internal_error_sink::INTERNAL_ERROR_SINK_PATH_ENV_VAR;
 
 /// Errors that can occur during observability initialization.
 #[derive(Debug, thiserror::Error)]
@@ -41,120 +42,6 @@ pub enum ObservabilityError {
     /// A correlated error event could not be written.
     #[error("failed to write correlated error event: {0}")]
     SinkIo(String),
-}
-
-#[derive(Debug)]
-struct SinkWriteRequest {
-    path: PathBuf,
-    line: String,
-    ack: SyncSender<Result<(), ObservabilityError>>,
-}
-
-#[derive(Debug)]
-struct CorrelatedErrorSink {
-    tx: SyncSender<SinkWriteRequest>,
-    ack_timeout: Duration,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone)]
-struct SinkWorkerControl {
-    received: std::sync::Arc<std::sync::Barrier>,
-    release: std::sync::Arc<std::sync::Barrier>,
-}
-
-#[cfg(test)]
-impl SinkWorkerControl {
-    fn new() -> Self {
-        Self {
-            received: std::sync::Arc::new(std::sync::Barrier::new(2)),
-            release: std::sync::Arc::new(std::sync::Barrier::new(2)),
-        }
-    }
-}
-
-impl CorrelatedErrorSink {
-    fn with_capacity(capacity: usize, ack_timeout: Duration, write_delay: Duration) -> Self {
-        Self::with_capacity_inner(
-            capacity,
-            ack_timeout,
-            write_delay,
-            #[cfg(test)]
-            None,
-        )
-    }
-
-    #[cfg(test)]
-    fn with_capacity_for_test(
-        capacity: usize,
-        ack_timeout: Duration,
-        write_delay: Duration,
-        control: SinkWorkerControl,
-    ) -> Self {
-        Self::with_capacity_inner(capacity, ack_timeout, write_delay, Some(control))
-    }
-
-    fn with_capacity_inner(
-        capacity: usize,
-        ack_timeout: Duration,
-        write_delay: Duration,
-        #[cfg(test)] control: Option<SinkWorkerControl>,
-    ) -> Self {
-        let (tx, rx) = sync_channel::<SinkWriteRequest>(capacity);
-        std::thread::Builder::new()
-            .name("tanren-internal-error-sink".to_owned())
-            .spawn(move || {
-                while let Ok(req) = rx.recv() {
-                    #[cfg(test)]
-                    if let Some(control) = &control {
-                        control.received.wait();
-                        control.release.wait();
-                    }
-                    if !write_delay.is_zero() {
-                        std::thread::sleep(write_delay);
-                    }
-                    let result = append_jsonl_line(&req.path, &req.line);
-                    let _ = req.ack.send(result);
-                }
-            })
-            .expect("internal-error sink worker thread must spawn");
-        Self { tx, ack_timeout }
-    }
-
-    fn emit(&self, path: &Path, line: String) -> Result<(), ObservabilityError> {
-        let (ack_tx, ack_rx) = sync_channel(1);
-        let req = SinkWriteRequest {
-            path: path.to_path_buf(),
-            line,
-            ack: ack_tx,
-        };
-
-        self.tx.try_send(req).map_err(|err| match err {
-            TrySendError::Full(_) => {
-                ObservabilityError::SinkIo("internal error sink queue saturated".to_owned())
-            }
-            TrySendError::Disconnected(_) => {
-                ObservabilityError::SinkIo("internal error sink worker unavailable".to_owned())
-            }
-        })?;
-
-        match ack_rx.recv_timeout(self.ack_timeout) {
-            Ok(write_result) => write_result,
-            Err(RecvTimeoutError::Timeout) => Err(ObservabilityError::SinkIo(
-                "internal error sink write timed out".to_owned(),
-            )),
-            Err(RecvTimeoutError::Disconnected) => Err(ObservabilityError::SinkIo(
-                "internal error sink worker unavailable".to_owned(),
-            )),
-        }
-    }
-}
-
-fn global_correlated_error_sink() -> &'static CorrelatedErrorSink {
-    static SINK: OnceLock<CorrelatedErrorSink> = OnceLock::new();
-    SINK.get_or_init(|| {
-        CorrelatedErrorSink::with_capacity(512, Duration::from_millis(75), Duration::ZERO)
-    })
 }
 
 /// Initialize the global tracing subscriber with the given filter level.
@@ -203,22 +90,22 @@ pub fn init_tracing_for_contract_io(level: &str) -> Result<(), ObservabilityErro
 
 /// Emit an internal error event to the default JSONL sink.
 ///
-/// This is best-effort telemetry for correlation IDs returned in wire
-/// responses. It never writes to stdout/stderr.
+/// This writes through a durable sink path. Correlation IDs should only
+/// be returned to callers when this function returns `Ok(())`.
 pub fn emit_correlated_internal_error(
     component: &str,
     error_code: &str,
     correlation_id: Uuid,
     raw_error: &str,
 ) -> Result<(), ObservabilityError> {
-    let path = default_internal_error_sink_path();
+    let paths = internal_error_sink::default_internal_error_sink_paths()?;
     let line = build_correlated_internal_error_jsonl_line(
         component,
         error_code,
         correlation_id,
         raw_error,
     )?;
-    global_correlated_error_sink().emit(&path, line)
+    internal_error_sink::global_correlated_error_sink().emit(&paths, line)
 }
 
 /// Sanitize error text before structured logging.
@@ -292,30 +179,6 @@ fn redact_after_prefix(input: &str, prefix: &str) -> String {
     out
 }
 
-fn default_internal_error_sink_path() -> PathBuf {
-    if let Ok(xdg_state_home) = std::env::var("XDG_STATE_HOME")
-        && !xdg_state_home.trim().is_empty()
-    {
-        return PathBuf::from(xdg_state_home)
-            .join("tanren")
-            .join("internal-errors.jsonl");
-    }
-
-    if let Ok(home) = std::env::var("HOME")
-        && !home.trim().is_empty()
-    {
-        return PathBuf::from(home)
-            .join(".local")
-            .join("state")
-            .join("tanren")
-            .join("internal-errors.jsonl");
-    }
-
-    std::env::temp_dir()
-        .join("tanren")
-        .join("internal-errors.jsonl")
-}
-
 #[cfg(test)]
 fn emit_correlated_internal_error_to_path(
     path: &Path,
@@ -330,7 +193,7 @@ fn emit_correlated_internal_error_to_path(
         correlation_id,
         raw_error,
     )?;
-    append_jsonl_line(path, &line)
+    internal_error_sink::append_jsonl_line(path, &line)
 }
 
 fn build_correlated_internal_error_jsonl_line(
@@ -349,22 +212,6 @@ fn build_correlated_internal_error_jsonl_line(
     serde_json::to_string(&record).map_err(|err| ObservabilityError::SinkSerialize(err.to_string()))
 }
 
-fn append_jsonl_line(path: &Path, line: &str) -> Result<(), ObservabilityError> {
-    let parent = path.parent().ok_or_else(|| {
-        ObservabilityError::SinkIo(format!("missing parent directory for {}", path.display()))
-    })?;
-    std::fs::create_dir_all(parent).map_err(|err| {
-        ObservabilityError::SinkIo(format!("create_dir_all {}: {err}", parent.display()))
-    })?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|err| ObservabilityError::SinkIo(format!("open {}: {err}", path.display())))?;
-    writeln!(file, "{line}")
-        .map_err(|err| ObservabilityError::SinkIo(format!("write {}: {err}", path.display())))
-}
-
 #[derive(Debug, Serialize)]
 struct CorrelatedInternalErrorRecord<'a> {
     timestamp_utc: String,
@@ -376,13 +223,7 @@ struct CorrelatedInternalErrorRecord<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use super::{
-        CorrelatedErrorSink, ObservabilityError, SinkWorkerControl,
-        emit_correlated_internal_error_to_path, sanitize_error_for_log,
-    };
+    use super::{emit_correlated_internal_error_to_path, sanitize_error_for_log};
     use uuid::Uuid;
 
     #[test]
@@ -432,52 +273,6 @@ mod tests {
         assert!(!message.contains("alice:secret"));
         assert!(!message.contains("abc123"));
 
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn correlated_error_sink_times_out_on_slow_worker() {
-        let sink = CorrelatedErrorSink::with_capacity(
-            1,
-            Duration::from_millis(5),
-            Duration::from_millis(50),
-        );
-        let path =
-            std::env::temp_dir().join(format!("tanren-observability-{}.jsonl", Uuid::now_v7()));
-        let err = sink
-            .emit(&path, "{\"k\":\"v\"}".to_owned())
-            .expect_err("slow sink must time out");
-        assert!(matches!(err, ObservabilityError::SinkIo(msg) if msg.contains("timed out")));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn correlated_error_sink_rejects_when_queue_saturated() {
-        let control = SinkWorkerControl::new();
-        let sink = Arc::new(CorrelatedErrorSink::with_capacity_for_test(
-            0,
-            Duration::from_secs(1),
-            Duration::ZERO,
-            control.clone(),
-        ));
-        let path =
-            std::env::temp_dir().join(format!("tanren-observability-{}.jsonl", Uuid::now_v7()));
-        let first_sink = Arc::clone(&sink);
-        let first_path = path.clone();
-        let first =
-            std::thread::spawn(move || first_sink.emit(&first_path, "{\"first\":1}".to_owned()));
-        control.received.wait();
-
-        let err = sink
-            .emit(&path, "{\"second\":2}".to_owned())
-            .expect_err("queue saturation must fail fast");
-        assert!(matches!(err, ObservabilityError::SinkIo(msg) if msg.contains("queue saturated")));
-        control.release.wait();
-        let first_result = first.join().expect("first sender thread should join");
-        assert!(
-            first_result.is_ok(),
-            "first sender should complete once worker is released"
-        );
         let _ = std::fs::remove_file(&path);
     }
 }

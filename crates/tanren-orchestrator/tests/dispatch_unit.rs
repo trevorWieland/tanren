@@ -1,7 +1,6 @@
 //! Unit-level orchestrator tests with a recording store.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[path = "support/dispatch_fixtures.rs"]
 mod dispatch_fixtures;
@@ -24,6 +23,7 @@ use tanren_store::{
     UpdateDispatchStatusParams,
 };
 use tokio::sync::Mutex;
+
 #[derive(Debug, Default)]
 struct RecordingState {
     created_dispatches: Vec<CreateDispatchWithInitialStepParams>,
@@ -37,7 +37,6 @@ struct RecordingState {
 struct RecordingStore {
     state: Arc<Mutex<RecordingState>>,
 }
-
 impl RecordingStore {
     async fn snapshot(&self) -> RecordingStateSnapshot {
         let state = self.state.lock().await;
@@ -59,7 +58,6 @@ struct RecordingStateSnapshot {
     policy_decision_events: Vec<tanren_domain::EventEnvelope>,
     dispatches: HashMap<DispatchId, DispatchView>,
 }
-
 #[async_trait]
 impl EventStore for RecordingStore {
     async fn query_events(&self, _filter: &EventFilter) -> Result<EventQueryResult, StoreError> {
@@ -124,6 +122,17 @@ impl StateStore for RecordingStore {
     async fn get_dispatch(&self, id: &DispatchId) -> Result<Option<DispatchView>, StoreError> {
         let state = self.state.lock().await;
         Ok(state.dispatches.get(id).cloned())
+    }
+
+    async fn get_dispatch_actor_context_for_cancel_auth(
+        &self,
+        id: &DispatchId,
+    ) -> Result<Option<ActorContext>, StoreError> {
+        let state = self.state.lock().await;
+        Ok(state
+            .dispatches
+            .get(id)
+            .map(|dispatch| dispatch.actor.clone()))
     }
 
     async fn get_dispatch_scoped(
@@ -448,15 +457,12 @@ async fn cancel_dispatch_hides_actor_scope_mismatch_as_not_found() {
         )
         .await
         .expect_err("cancel should fail");
-    assert!(
-        matches!(
-            err,
-            OrchestratorError::Domain(DomainError::NotFound {
-                entity: EntityRef::Dispatch(_),
-            })
-        ),
-        "expected hidden not-found, got: {err:?}"
-    );
+    assert!(matches!(
+        err,
+        OrchestratorError::Domain(DomainError::NotFound {
+            entity: EntityRef::Dispatch(_),
+        })
+    ));
 
     let snapshot = store.snapshot().await;
     assert_eq!(snapshot.policy_decision_events.len(), 1);

@@ -128,6 +128,27 @@ pub enum ErrorDetails {
     Internal { correlation_id: Uuid },
 }
 
+/// Build a canonical internal error response with optional correlation details.
+///
+/// The callback should persist correlation metadata and return `Ok(())` only
+/// when the correlation ID is durably recorded.
+pub fn internal_error_response_with_correlation<E>(
+    emit: impl FnOnce(Uuid) -> Result<(), E>,
+) -> ErrorResponse {
+    let correlation_id = Uuid::now_v7();
+    let details = if emit(correlation_id).is_ok() {
+        Some(ErrorDetails::Internal { correlation_id })
+    } else {
+        None
+    };
+
+    ErrorResponse {
+        code: ErrorCode::Internal,
+        message: "internal error".to_owned(),
+        details,
+    }
+}
+
 impl std::fmt::Display for ErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.code, self.message)
@@ -231,7 +252,9 @@ fn entity_ref_id(entity: &EntityRef) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContractError, ErrorCode, ErrorResponse};
+    use super::{
+        ContractError, ErrorCode, ErrorResponse, internal_error_response_with_correlation,
+    };
     use tanren_domain::{DispatchId, DomainError, EntityRef};
 
     #[test]
@@ -245,5 +268,26 @@ mod tests {
         assert_eq!(wire.code, ErrorCode::NotFound);
         assert_eq!(wire.message, format!("dispatch not found: {id}"));
         assert!(!wire.message.contains("dispatch dispatch"));
+    }
+
+    #[test]
+    fn internal_error_response_includes_correlation_id_when_emitter_succeeds() {
+        let response = internal_error_response_with_correlation::<()>(|_| Ok(()));
+        assert_eq!(response.code, ErrorCode::Internal);
+        assert_eq!(response.message, "internal error");
+        assert!(matches!(
+            response.details,
+            Some(super::ErrorDetails::Internal { correlation_id })
+                if correlation_id != uuid::Uuid::nil()
+        ));
+    }
+
+    #[test]
+    fn internal_error_response_omits_correlation_id_when_emitter_fails() {
+        let response =
+            internal_error_response_with_correlation::<&'static str>(|_| Err("sink failure"));
+        assert_eq!(response.code, ErrorCode::Internal);
+        assert_eq!(response.message, "internal error");
+        assert!(response.details.is_none());
     }
 }

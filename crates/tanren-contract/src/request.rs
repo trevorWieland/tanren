@@ -56,6 +56,7 @@ pub struct CreateDispatchRequest {
 
 /// Filter parameters for listing dispatches.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DispatchListFilter {
     /// Filter by dispatch status.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -131,6 +131,17 @@ impl StateStore for ContentionStore {
         }))
     }
 
+    async fn get_dispatch_actor_context_for_cancel_auth(
+        &self,
+        id: &DispatchId,
+    ) -> Result<Option<ActorContext>, StoreError> {
+        Ok(if *id == self.dispatch_id {
+            Some(self.actor.clone())
+        } else {
+            None
+        })
+    }
+
     async fn get_dispatch_scoped(
         &self,
         id: &DispatchId,
