@@ -263,9 +263,13 @@ check-deps:
     failed=0
     metadata=$({{ cargo }} metadata --format-version 1 --no-deps 2>/dev/null)
 
+    # Normal (non-dev, non-build) dependencies only. `cargo metadata`
+    # tags dev-dependencies with `kind="dev"` — those are test-only
+    # and never land in the shipped binary, so they do not constitute
+    # a layering violation.
     for fnd in "${foundation[@]}"; do
         deps=$(echo "$metadata" \
-            | jq -r ".packages[] | select(.name == \"$fnd\") | .dependencies[].name" 2>/dev/null || true)
+            | jq -r ".packages[] | select(.name == \"$fnd\") | .dependencies[] | select(.kind == null) | .name" 2>/dev/null || true)
         for cap in "${capability[@]}"; do
             if echo "$deps" | grep -qx "$cap"; then
                 echo "FAIL: foundation crate '$fnd' depends on capability crate '$cap'"
@@ -291,7 +295,7 @@ check-deps:
     )
     for bin in "${transport[@]}"; do
         deps=$(echo "$metadata" \
-            | jq -r ".packages[] | select(.name == \"$bin\") | .dependencies[].name" 2>/dev/null || true)
+            | jq -r ".packages[] | select(.name == \"$bin\") | .dependencies[] | select(.kind == null) | .name" 2>/dev/null || true)
         for forbidden in "${forbidden_transport[@]}"; do
             if echo "$deps" | grep -qx "$forbidden"; then
                 echo "FAIL: transport binary '$bin' depends directly on '$forbidden'"

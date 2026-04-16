@@ -159,7 +159,8 @@ async fn postgres_projection_constraints_reject_invalid_enum_values() {
 
     let dispatch_err = conn
         .execute_unprepared(&format!(
-            "INSERT INTO dispatch_projection (dispatch_id, mode, status, outcome, lane, dispatch, actor, graph_revision, user_id, project, created_at, updated_at) VALUES ('{}', 'manual', 'bogus', NULL, 'impl', '{{}}', '{{}}', 1, '{}', 'proj', NOW(), NOW())",
+            "INSERT INTO dispatch_projection (dispatch_id, mode, status, outcome, lane, dispatch, actor, graph_revision, user_id, org_id, project, created_at, updated_at) VALUES ('{}', 'manual', 'bogus', NULL, 'impl', '{{}}', '{{}}', 1, '{}', '{}', 'proj', NOW(), NOW())",
+            uuid::Uuid::now_v7(),
             uuid::Uuid::now_v7(),
             uuid::Uuid::now_v7(),
         ))
