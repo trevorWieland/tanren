@@ -35,7 +35,7 @@ pub(crate) fn params_to_active_model(
         actor: Set(actor_value),
         graph_revision: Set(graph_revision),
         user_id: Set(params.actor.user_id.into_uuid()),
-        org_id: Set(Some(params.actor.org_id.into_uuid())),
+        org_id: Set(params.actor.org_id.into_uuid()),
         scope_project_id: Set(params
             .actor
             .project_id

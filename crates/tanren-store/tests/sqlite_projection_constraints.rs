@@ -14,7 +14,8 @@ async fn sqlite_projection_guards_reject_invalid_enum_values() {
 
     let dispatch_err = conn
         .execute_unprepared(&format!(
-            "INSERT INTO dispatch_projection (dispatch_id, mode, status, outcome, lane, dispatch, actor, graph_revision, user_id, project, created_at, updated_at) VALUES ('{}', 'manual', 'bogus', NULL, 'impl', '{{}}', '{{}}', 1, '{}', 'proj', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            "INSERT INTO dispatch_projection (dispatch_id, mode, status, outcome, lane, dispatch, actor, graph_revision, user_id, org_id, project, created_at, updated_at) VALUES ('{}', 'manual', 'bogus', NULL, 'impl', '{{}}', '{{}}', 1, '{}', '{}', 'proj', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            uuid::Uuid::now_v7(),
             uuid::Uuid::now_v7(),
             uuid::Uuid::now_v7(),
         ))

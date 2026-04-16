@@ -55,7 +55,13 @@ pub struct Model {
     pub user_id: Uuid,
 
     /// Denormalized `actor.org_id` for policy-scoped reads.
-    pub org_id: Option<Uuid>,
+    ///
+    /// Enforced `NOT NULL` at the database level by
+    /// `m_0011_dispatch_projection_org_id_not_null` on both Postgres
+    /// and `SQLite` backends. The domain `ActorContext` always
+    /// carries an `org_id`, so this column is always populated by
+    /// the current converter.
+    pub org_id: Uuid,
 
     /// Denormalized `actor.project_id` for policy-scoped reads.
     pub scope_project_id: Option<Uuid>,

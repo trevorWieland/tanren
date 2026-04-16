@@ -111,7 +111,7 @@ impl StateStore for Store {
             .column(dispatch_projection::Column::ScopeApiKeyId)
             .into_tuple::<(
                 uuid::Uuid,
-                Option<uuid::Uuid>,
+                uuid::Uuid,
                 Option<uuid::Uuid>,
                 Option<uuid::Uuid>,
                 Option<uuid::Uuid>,
@@ -119,22 +119,15 @@ impl StateStore for Store {
             .one(self.conn())
             .await?;
 
-        row.map(
-            |(user_id, org_id, project_id, team_id, api_key_id)| -> StoreResult<ActorContext> {
-                let org_id = org_id.ok_or_else(|| StoreError::Conversion {
-                    context: "state_store::get_dispatch_actor_context_for_cancel_auth",
-                    reason: format!("dispatch {id} missing org_id scope"),
-                })?;
-                Ok(ActorContext {
-                    org_id: tanren_domain::OrgId::from_uuid(org_id),
-                    user_id: tanren_domain::UserId::from_uuid(user_id),
-                    team_id: team_id.map(tanren_domain::TeamId::from_uuid),
-                    api_key_id: api_key_id.map(tanren_domain::ApiKeyId::from_uuid),
-                    project_id: project_id.map(tanren_domain::ProjectId::from_uuid),
-                })
+        Ok(row.map(
+            |(user_id, org_id, project_id, team_id, api_key_id)| ActorContext {
+                org_id: tanren_domain::OrgId::from_uuid(org_id),
+                user_id: tanren_domain::UserId::from_uuid(user_id),
+                team_id: team_id.map(tanren_domain::TeamId::from_uuid),
+                api_key_id: api_key_id.map(tanren_domain::ApiKeyId::from_uuid),
+                project_id: project_id.map(tanren_domain::ProjectId::from_uuid),
             },
-        )
-        .transpose()
+        ))
     }
 
     async fn get_dispatch_scoped(
