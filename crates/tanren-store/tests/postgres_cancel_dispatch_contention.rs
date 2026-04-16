@@ -383,7 +383,7 @@ async fn scoped_dispatch_query_plan_uses_scope_indexes_postgres_natural_planner(
         .expect("create target scoped dispatch");
     }
 
-    for _ in 0..600 {
+    for _ in 0..900 {
         create_dispatch(
             store,
             "scope-plan-target-project",
@@ -400,7 +400,10 @@ async fn scoped_dispatch_query_plan_uses_scope_indexes_postgres_natural_planner(
         .expect("create target projected dispatch");
     }
 
-    for _ in 0..1200 {
+    // Keep a large, newer non-matching tail so the natural planner strongly
+    // prefers the org-scoped tuple over scanning the global created index and
+    // filtering thousands of rows to satisfy the limit.
+    for _ in 0..6000 {
         create_dispatch(
             store,
             "scope-plan-background",
