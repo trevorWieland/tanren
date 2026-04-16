@@ -41,6 +41,10 @@ uuid.workspace = true
 chrono.workspace = true
 jsonwebtoken.workspace = true
 wiremock.workspace = true
+# tanren-store is a dev-dep for seeding replay-ledger fixtures in the
+# `cli_replay_purge` integration test. Production binary still has
+# zero direct dependency on the store crate.
+tanren-store = { path = "../../crates/tanren-store" }
 # Postgres integration test dependencies (only exercised when running the
 # `postgres-integration`-gated test binary; transport-dep hygiene is still
 # fine because these are dev-only and don't land in the binary itself).

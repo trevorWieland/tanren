@@ -23,6 +23,9 @@ serde.workspace = true
 jsonwebtoken.workspace = true
 thiserror.workspace = true
 
+# `spawn_replay_purge` spawns the long-running purge loop for the
+# future `tanren-daemon` binary; JoinHandle is a tokio primitive.
+tokio = { workspace = true }
+
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 async-trait.workspace = true

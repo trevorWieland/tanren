@@ -97,8 +97,15 @@ async-trait = { workspace = true }
 
 tracing = { workspace = true }
 
-[dev-dependencies]
+# `token_replay_purge` uses tokio::spawn / tokio::time::timeout as
+# production surface; keep the same `workspace = true` constraint as
+# every other async-aware crate in the workspace.
 tokio = { workspace = true }
+
+# Purge stats are serialized to JSON by the CLI maintenance command.
+serde = { workspace = true }
+
+[dev-dependencies]
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 # Test-only: enable SeaORM's `mock` feature so unit tests can use

@@ -36,6 +36,7 @@ mod state_store;
 mod state_store_cancel;
 mod state_store_summary;
 mod store;
+mod token_replay_purge;
 mod token_replay_store;
 
 pub use connection::ConnectConfig;
@@ -53,4 +54,7 @@ pub use state_store::StateStore;
 #[cfg(feature = "test-hooks")]
 pub use state_store::dispatch_query_statement_for_backend;
 pub use store::Store;
+pub use token_replay_purge::{
+    ReplayPurgeConfig, ReplayPurgeService, ReplayPurgeStats, spawn_replay_purge,
+};
 pub use token_replay_store::TokenReplayStore;

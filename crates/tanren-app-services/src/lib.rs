@@ -27,3 +27,8 @@ pub use auth::{
     VerifiedActorToken,
 };
 pub use dispatch_service::DispatchService;
+
+/// Replay-purge knobs re-exported for CLI/API/daemon callers so they
+/// do not need to depend on `tanren-store` directly. Keeps the
+/// interface-crate thinness rule intact.
+pub use tanren_store::{ReplayPurgeConfig, ReplayPurgeStats};

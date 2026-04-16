@@ -4,9 +4,13 @@
 //! [`DispatchService`] without directly depending on store, policy,
 //! or orchestrator crates.
 
+use std::future::Future;
+use std::sync::Arc;
+
 use tanren_orchestrator::Orchestrator;
 use tanren_policy::PolicyEngine;
-use tanren_store::{Store, StoreError};
+use tanren_store::{ReplayPurgeConfig, ReplayPurgeService, ReplayPurgeStats, Store, StoreError};
+use tokio::task::JoinHandle;
 
 use crate::DispatchService;
 
@@ -67,4 +71,31 @@ pub async fn build_dispatch_service_for_write(database_url: &str) -> Result<Serv
     let policy = build_policy_engine();
     let orchestrator = build_orchestrator(store, policy);
     Ok(build_dispatch_service(orchestrator))
+}
+
+/// Run a single bounded replay-ledger purge cycle and return its
+/// stats.
+///
+/// Thin composition-root wrapper over
+/// [`ReplayPurgeService::run_once`]. The CLI's
+/// `tanren db purge-replay` subcommand is the canonical caller.
+pub async fn purge_replay_tokens_once(
+    database_url: &str,
+    cfg: ReplayPurgeConfig,
+) -> Result<ReplayPurgeStats, StoreError> {
+    let store = Arc::new(open_store_for_read(database_url).await?);
+    store.assert_schema_ready().await?;
+    let service = ReplayPurgeService::new(store, cfg);
+    service.run_once().await
+}
+
+/// Spawn a long-running replay-purge loop onto the current tokio
+/// runtime. Intended for the future `tanren-daemon` binary.
+pub fn spawn_replay_purge(
+    store: Arc<Store>,
+    cfg: ReplayPurgeConfig,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> JoinHandle<()> {
+    let service = ReplayPurgeService::new(store, cfg);
+    tanren_store::spawn_replay_purge(service, shutdown)
 }

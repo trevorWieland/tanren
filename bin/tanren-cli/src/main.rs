@@ -86,6 +86,20 @@ enum Commands {
 enum DbCommand {
     /// Apply all pending schema migrations.
     Migrate,
+    /// Purge expired replay-ledger rows in bounded batches.
+    ///
+    /// Runs a single cycle of `ReplayPurgeService::run_once` against
+    /// the configured database. Prints JSON stats on success. Safe
+    /// to invoke from a cron.
+    PurgeReplay {
+        /// Max rows deleted per internal batch.
+        #[arg(long, default_value_t = 1_000)]
+        batch_limit: u64,
+        /// Minimum age (in seconds) an expired row must have before
+        /// it is eligible for deletion.
+        #[arg(long, default_value_t = 86_400)]
+        retention_secs: u64,
+    },
 }
 
 #[tokio::main]
@@ -156,6 +170,22 @@ async fn run() -> Result<()> {
                     anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
                 })?;
             print_json(&serde_json::json!({ "status": "migrated" }))
+        }
+        Commands::Db(DbCommand::PurgeReplay {
+            batch_limit,
+            retention_secs,
+        }) => {
+            let cfg = tanren_app_services::ReplayPurgeConfig {
+                batch_limit,
+                retention: std::time::Duration::from_secs(retention_secs),
+                ..tanren_app_services::ReplayPurgeConfig::default()
+            };
+            let stats = tanren_app_services::compose::purge_replay_tokens_once(&database_url, cfg)
+                .await
+                .map_err(|err| {
+                    anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
+                })?;
+            print_json(&stats)
         }
         Commands::Dispatch(dispatch_cmd) => {
             let (context, replay_guard) = authenticate(
