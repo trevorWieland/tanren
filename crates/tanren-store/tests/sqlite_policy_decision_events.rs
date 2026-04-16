@@ -184,3 +184,82 @@ async fn record_policy_decision_with_replay_rejects_non_policy_payload() {
         .expect_err("non-policy payload must be rejected");
     assert!(matches!(err, StoreError::Conversion { .. }));
 }
+
+/// Append three policy-decision events for a single dispatch and
+/// confirm:
+/// - `limit = 0` returns an empty page with `next_cursor = None` and
+///   `has_more = false`, but `total_count` still reflects all rows;
+/// - paginating past the first row keeps `total_count` constant
+///   instead of reporting only the post-cursor remainder.
+#[tokio::test]
+async fn query_events_total_count_is_pagination_independent_and_limit_zero_short_circuits() {
+    let store = fresh_store().await;
+    let dispatch_id = DispatchId::new();
+
+    for _ in 0..3 {
+        let decision = PolicyDecisionRecord {
+            kind: PolicyDecisionKind::Authz,
+            resource: PolicyResourceRef::Dispatch { dispatch_id },
+            scope: PolicyScope::new(actor()),
+            outcome: PolicyOutcome::Denied,
+            reason_code: Some(PolicyReasonCode::CancelOrgMismatch),
+            reason: Some("denied".to_owned()),
+        };
+        let event = EventEnvelope::new(
+            EventId::from_uuid(uuid::Uuid::now_v7()),
+            now(),
+            DomainEvent::PolicyDecision {
+                dispatch_id,
+                decision: Box::new(decision),
+            },
+        );
+        store
+            .append_policy_decision_event(&event)
+            .await
+            .expect("append");
+    }
+
+    let zero_page = store
+        .query_events(&EventFilter {
+            entity_ref: Some(EntityRef::Dispatch(dispatch_id)),
+            include_total_count: true,
+            limit: 0,
+            ..EventFilter::new()
+        })
+        .await
+        .expect("limit 0 page");
+    assert!(zero_page.events.is_empty());
+    assert!(!zero_page.has_more);
+    assert!(zero_page.next_cursor.is_none());
+    assert_eq!(zero_page.total_count, Some(3));
+
+    let first_page = store
+        .query_events(&EventFilter {
+            entity_ref: Some(EntityRef::Dispatch(dispatch_id)),
+            include_total_count: true,
+            limit: 1,
+            ..EventFilter::new()
+        })
+        .await
+        .expect("first page");
+    assert_eq!(first_page.events.len(), 1);
+    assert!(first_page.has_more);
+    assert_eq!(first_page.total_count, Some(3));
+    let cursor = first_page.next_cursor.expect("next cursor on first page");
+
+    let second_page = store
+        .query_events(&EventFilter {
+            entity_ref: Some(EntityRef::Dispatch(dispatch_id)),
+            include_total_count: true,
+            limit: 10,
+            cursor: Some(cursor),
+            ..EventFilter::new()
+        })
+        .await
+        .expect("post-cursor page");
+    assert_eq!(second_page.events.len(), 2);
+    assert!(!second_page.has_more);
+    // `total_count` must reflect the full filtered set, not the
+    // 2-row remainder visible after the cursor.
+    assert_eq!(second_page.total_count, Some(3));
+}

@@ -30,9 +30,20 @@ pub(crate) fn is_postgres_undefined_table_code(code: &str) -> bool {
 }
 
 pub(crate) fn is_sqlite_unique_violation_code(code: &str) -> bool {
-    // SQLITE_CONSTRAINT primary class (19), including extended codes
-    // like 2067 for UNIQUE.
-    code.parse::<i32>().is_ok_and(|raw| (raw & 0xFF) == 19)
+    // SQLite reports the extended constraint code (primary class 19
+    // OR'd with a subclass in the high byte). We only classify the
+    // uniqueness-style subclasses as "unique violations":
+    //
+    //   SQLITE_CONSTRAINT_PRIMARYKEY = 1555  (SQLITE_CONSTRAINT | 6<<8)
+    //   SQLITE_CONSTRAINT_UNIQUE     = 2067  (SQLITE_CONSTRAINT | 8<<8)
+    //   SQLITE_CONSTRAINT_ROWID      = 2579  (SQLITE_CONSTRAINT | 10<<8)
+    //
+    // The bare primary class (19) is intentionally NOT classified
+    // because it also covers NOT NULL, FOREIGN KEY, CHECK, TRIGGER,
+    // and FUNCTION violations — those must surface as their own
+    // typed errors instead of being silently treated as "the row
+    // already exists" by the replay-store code path.
+    matches!(code.parse::<i32>().ok(), Some(1555 | 2067 | 2579))
 }
 
 pub(crate) fn is_postgres_unique_violation_code(code: &str) -> bool {
@@ -83,10 +94,36 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_unique_code_detects_constraint_class() {
-        assert!(is_sqlite_unique_violation_code("19"));
-        assert!(is_sqlite_unique_violation_code("2067"));
-        assert!(!is_sqlite_unique_violation_code("5"));
+    fn sqlite_unique_code_only_matches_uniqueness_subclasses() {
+        // Uniqueness-style extended codes must classify as unique.
+        assert!(
+            is_sqlite_unique_violation_code("1555"),
+            "PRIMARYKEY extended code"
+        );
+        assert!(
+            is_sqlite_unique_violation_code("2067"),
+            "UNIQUE extended code"
+        );
+        assert!(
+            is_sqlite_unique_violation_code("2579"),
+            "ROWID extended code"
+        );
+
+        // Bare primary class 19 covers many constraint kinds. It
+        // must NOT be treated as a unique violation — that was the
+        // bug the lane-0.4 review flagged.
+        assert!(!is_sqlite_unique_violation_code("19"), "bare CONSTRAINT");
+
+        // Non-uniqueness constraint subclasses must reject too.
+        assert!(!is_sqlite_unique_violation_code("275"), "CHECK = 275");
+        assert!(!is_sqlite_unique_violation_code("787"), "FOREIGNKEY = 787");
+        assert!(!is_sqlite_unique_violation_code("1043"), "FUNCTION = 1043");
+        assert!(!is_sqlite_unique_violation_code("1299"), "NOTNULL = 1299");
+        assert!(!is_sqlite_unique_violation_code("1811"), "TRIGGER = 1811");
+
+        // Non-constraint codes must reject.
+        assert!(!is_sqlite_unique_violation_code("5"), "BUSY");
+        assert!(!is_sqlite_unique_violation_code("6"), "LOCKED");
     }
 
     #[test]

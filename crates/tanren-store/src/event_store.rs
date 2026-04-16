@@ -92,11 +92,25 @@ impl Store {
 impl EventStore for Store {
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult> {
         let conn = self.conn();
+        // `total_count` describes the full filtered result set, not the
+        // post-cursor remainder — pagination must not change the count.
         let total_count = if filter.include_total_count {
             Some(build_count_query(filter).count(conn).await?)
         } else {
             None
         };
+
+        // Explicit empty-page case: a caller asking for `limit = 0`
+        // gets back an empty page with `has_more = false` and
+        // `next_cursor = None` regardless of how many rows match.
+        if filter.limit == 0 {
+            return Ok(EventQueryResult {
+                events: Vec::new(),
+                total_count,
+                has_more: false,
+                next_cursor: None,
+            });
+        }
 
         let mut rows = build_select_query(filter)
             .order_by_asc(events::Column::Timestamp)
@@ -170,16 +184,31 @@ fn ensure_policy_decision_payload(event: &EventEnvelope) -> StoreResult<()> {
 }
 
 fn build_select_query(filter: &EventFilter) -> sea_orm::Select<events::Entity> {
-    apply_filters(events::Entity::find(), filter)
+    apply_filters(
+        events::Entity::find(),
+        filter,
+        /* include_cursor */ true,
+    )
 }
 
+/// Count query intentionally **omits** the cursor predicate so that
+/// `total_count` reports the total number of rows matching the
+/// caller's filter — independent of which page the caller is on.
+/// Including the cursor would make `total_count` shrink as the
+/// caller paginates, which is not what callers expect from a
+/// "total" field.
 fn build_count_query(filter: &EventFilter) -> sea_orm::Select<events::Entity> {
-    apply_filters(events::Entity::find(), filter)
+    apply_filters(
+        events::Entity::find(),
+        filter,
+        /* include_cursor */ false,
+    )
 }
 
 fn apply_filters(
     mut query: sea_orm::Select<events::Entity>,
     filter: &EventFilter,
+    include_cursor: bool,
 ) -> sea_orm::Select<events::Entity> {
     use sea_orm::sea_query::Condition;
 
@@ -207,16 +236,18 @@ fn apply_filters(
     if let Some(until) = filter.until {
         query = query.filter(events::Column::Timestamp.lt(until));
     }
-    if let Some(cursor) = filter.cursor {
-        query = query.filter(
-            Condition::any()
-                .add(events::Column::Timestamp.gt(cursor.timestamp))
-                .add(
-                    Condition::all()
-                        .add(events::Column::Timestamp.eq(cursor.timestamp))
-                        .add(events::Column::Id.gt(cursor.id)),
-                ),
-        );
+    if include_cursor {
+        if let Some(cursor) = filter.cursor {
+            query = query.filter(
+                Condition::any()
+                    .add(events::Column::Timestamp.gt(cursor.timestamp))
+                    .add(
+                        Condition::all()
+                            .add(events::Column::Timestamp.eq(cursor.timestamp))
+                            .add(events::Column::Id.gt(cursor.id)),
+                    ),
+            );
+        }
     }
     query
 }
@@ -390,6 +421,32 @@ mod tests {
         };
         let sql = filter_sql(&filter);
         assert!(sql.contains("\"timestamp\" <"), "missing until: {sql}");
+    }
+
+    #[test]
+    fn count_query_omits_cursor_predicate_so_total_is_pagination_independent() {
+        // Build a select that DOES include the cursor and a count
+        // that does NOT, then compare emitted SQL: the select must
+        // mention `id >` (the cursor tiebreaker) and the count must
+        // not.
+        let cursor = EventCursor {
+            timestamp: Utc.timestamp_opt(1_700_000_000, 0).single().expect("ts"),
+            id: 42,
+        };
+        let filter = EventFilter {
+            cursor: Some(cursor),
+            ..EventFilter::new()
+        };
+        let select_sql = build_select_query(&filter).build(DbBackend::Postgres).sql;
+        let count_sql = build_count_query(&filter).build(DbBackend::Postgres).sql;
+        assert!(
+            select_sql.contains("\"id\" >"),
+            "select must include cursor: {select_sql}"
+        );
+        assert!(
+            !count_sql.contains("\"id\" >"),
+            "count must omit cursor predicate so total is pagination independent: {count_sql}"
+        );
     }
 
     #[test]

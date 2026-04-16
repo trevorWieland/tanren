@@ -1,8 +1,5 @@
 use async_trait::async_trait;
-use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, DatabaseTransaction, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect,
-};
+use sea_orm::{ConnectionTrait, DatabaseTransaction, DbBackend, EntityTrait, Statement};
 
 use crate::StoreError;
 use crate::db_error_codes::{
@@ -47,34 +44,64 @@ impl TokenReplayStore for Store {
         if params.limit == 0 {
             return Ok(0);
         }
-
-        let rows = actor_token_replay::Entity::find()
-            .filter(actor_token_replay::Column::ExpUnix.lt(params.expires_before_unix))
-            .order_by_asc(actor_token_replay::Column::ExpUnix)
-            .limit(params.limit)
-            .all(self.conn())
-            .await?;
-
-        if rows.is_empty() {
-            return Ok(0);
-        }
-
-        let mut cond = Condition::any();
-        for row in rows {
-            cond = cond.add(
-                Condition::all()
-                    .add(actor_token_replay::Column::Issuer.eq(row.issuer))
-                    .add(actor_token_replay::Column::Audience.eq(row.audience))
-                    .add(actor_token_replay::Column::Jti.eq(row.jti)),
-            );
-        }
-
-        let result = actor_token_replay::Entity::delete_many()
-            .filter(cond)
-            .exec(self.conn())
-            .await?;
-        Ok(result.rows_affected)
+        let conn = self.conn();
+        let backend = conn.get_database_backend();
+        // Delete the bounded set of expired rows in a single
+        // statement that always uses exactly two binds, regardless
+        // of batch size. The previous OR-of-composite-key form
+        // emitted three binds per row and could exceed the
+        // SQLite bind-variable ceiling on large batches.
+        //
+        // The SELECT subquery picks the same rows the previous
+        // implementation did (oldest expired first, capped at
+        // `limit`); the outer DELETE removes exactly that set via
+        // their composite primary key, so behavior is equivalent.
+        let limit = i64::try_from(params.limit).map_err(|_| StoreError::Conversion {
+            context: "token_replay_store::purge_expired_actor_token_jtis",
+            reason: "limit exceeds i64::MAX".to_owned(),
+        })?;
+        let stmt = build_purge_statement(backend, params.expires_before_unix, limit)?;
+        let result = conn.execute(stmt).await?;
+        Ok(result.rows_affected())
     }
+}
+
+fn build_purge_statement(
+    backend: DbBackend,
+    expires_before_unix: i64,
+    limit: i64,
+) -> StoreResult<Statement> {
+    let sql = match backend {
+        DbBackend::Postgres => {
+            "DELETE FROM actor_token_replay \
+             WHERE (issuer, audience, jti) IN ( \
+                 SELECT issuer, audience, jti FROM actor_token_replay \
+                 WHERE exp_unix < $1 \
+                 ORDER BY exp_unix ASC \
+                 LIMIT $2 \
+             )"
+        }
+        DbBackend::Sqlite => {
+            "DELETE FROM actor_token_replay \
+             WHERE (issuer, audience, jti) IN ( \
+                 SELECT issuer, audience, jti FROM actor_token_replay \
+                 WHERE exp_unix < ? \
+                 ORDER BY exp_unix ASC \
+                 LIMIT ? \
+             )"
+        }
+        DbBackend::MySql => {
+            return Err(StoreError::Conversion {
+                context: "token_replay_store::build_purge_statement",
+                reason: "MySQL is not a supported backend".to_owned(),
+            });
+        }
+    };
+    Ok(Statement::from_sql_and_values(
+        backend,
+        sql,
+        vec![expires_before_unix.into(), limit.into()],
+    ))
 }
 
 pub(crate) async fn consume_replay_guard_once(
@@ -178,5 +205,42 @@ mod tests {
             .await
             .expect("purge");
         assert_eq!(deleted, 2);
+    }
+
+    /// The previous OR-of-composite-key purge encoded three binds per
+    /// row; a batch of 5000 rows would emit 15 000 binds and exceed
+    /// the default `SQLite` bind-variable ceiling on older builds. The
+    /// rewritten single-statement DELETE always uses exactly two
+    /// binds, so a batch of any reasonable size must succeed.
+    #[tokio::test]
+    async fn purge_actor_tokens_handles_large_batches_without_bind_explosion() {
+        const ROW_COUNT: usize = 5_000;
+        let store = Store::open_and_migrate("sqlite::memory:")
+            .await
+            .expect("store");
+        let now = Utc::now();
+        for idx in 0..ROW_COUNT {
+            let _ = store
+                .consume_actor_token_jti(ConsumeActorTokenJtiParams {
+                    issuer: "iss".to_owned(),
+                    audience: "aud".to_owned(),
+                    jti: format!("jti-{idx}"),
+                    iat_unix: 10,
+                    exp_unix: 20,
+                    consumed_at: now,
+                })
+                .await
+                .expect("insert");
+        }
+        // Cap the batch so the new bind-safe statement is exercised
+        // with a non-trivial limit (still 2 binds total).
+        let deleted = store
+            .purge_expired_actor_token_jtis(PurgeExpiredActorTokenJtisParams {
+                expires_before_unix: 30,
+                limit: ROW_COUNT as u64,
+            })
+            .await
+            .expect("purge");
+        assert_eq!(deleted, ROW_COUNT as u64);
     }
 }

@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use super::{
     CorrelatedErrorSink, SPILL_DROP_COUNT, SinkPaths, SinkWorkerControl, SpillWorkerControl,
-    derive_internal_error_sink_primary_path, spill_drop_count,
+    decide_safe_to_remove_draining, derive_internal_error_sink_primary_path, spill_drop_count,
 };
 
 fn temp_sink_paths() -> SinkPaths {
@@ -66,6 +66,45 @@ fn derive_sink_path_fails_closed_when_no_base_dir_exists() {
         err,
         crate::ObservabilityError::SinkIo(msg) if msg.contains("undefined")
     ));
+}
+
+#[test]
+fn safe_to_remove_draining_when_flush_succeeds() {
+    let recover_called = std::cell::Cell::new(false);
+    let safe = decide_safe_to_remove_draining(&Ok(()), || {
+        recover_called.set(true);
+        Ok(())
+    });
+    assert!(safe, "successful flush must allow removal");
+    assert!(
+        !recover_called.get(),
+        "successful flush must not invoke recovery"
+    );
+}
+
+#[test]
+fn safe_to_remove_draining_when_flush_fails_but_recovery_succeeds() {
+    let safe = decide_safe_to_remove_draining(
+        &Err(crate::ObservabilityError::SinkIo("primary down".to_owned())),
+        || Ok(()),
+    );
+    assert!(safe, "recovery to spool guarantees data is durable");
+}
+
+#[test]
+fn unsafe_to_remove_draining_when_both_flush_and_recovery_fail() {
+    // Regression: the prior implementation unconditionally deleted
+    // the `.draining` file, silently discarding records when both
+    // primary and spool were unwritable. The decision helper must
+    // refuse removal so the next drain cycle can retry.
+    let safe = decide_safe_to_remove_draining(
+        &Err(crate::ObservabilityError::SinkIo("primary down".to_owned())),
+        || Err(crate::ObservabilityError::SinkIo("spool down".to_owned())),
+    );
+    assert!(
+        !safe,
+        "must preserve draining file when both flush and recovery fail"
+    );
 }
 
 fn wait_until_spool_contains(path: &std::path::Path, needle: &str) -> bool {

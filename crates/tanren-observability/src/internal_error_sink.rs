@@ -332,12 +332,39 @@ fn drain_spool(paths: &SinkPaths) -> Result<(), ObservabilityError> {
     }
 
     let flush_result = flush_draining_to_primary(&draining_path, &paths.primary);
-    if flush_result.is_err() {
-        let _ = recover_draining_back_to_spool(&draining_path, &paths.spool);
-    }
+    let safe_to_remove = decide_safe_to_remove_draining(&flush_result, || {
+        recover_draining_back_to_spool(&draining_path, &paths.spool)
+    });
 
-    let _ = std::fs::remove_file(&draining_path);
+    if safe_to_remove {
+        let _ = std::fs::remove_file(&draining_path);
+    }
     flush_result
+}
+
+/// The `.draining` file may only be deleted once the records it
+/// holds are durably accounted for somewhere else — either:
+///
+/// - the primary flush succeeded (records are now in primary), OR
+/// - the flush failed but recovery copied them back to the spool
+///   (the next drain cycle will pick them up).
+///
+/// If BOTH the flush and the recovery fail, the `.draining` file is
+/// the sole surviving copy and must be preserved so the next drain
+/// attempt can retry. Deleting it here would silently discard
+/// correlated error events, breaking the durability contract
+/// callers rely on.
+fn decide_safe_to_remove_draining<F>(
+    flush_result: &Result<(), ObservabilityError>,
+    recover: F,
+) -> bool
+where
+    F: FnOnce() -> Result<(), ObservabilityError>,
+{
+    match flush_result {
+        Ok(()) => true,
+        Err(_) => recover().is_ok(),
+    }
 }
 
 fn flush_draining_to_primary(draining: &Path, primary: &Path) -> Result<(), ObservabilityError> {

@@ -114,6 +114,28 @@ impl ReplayPurgeService {
         let retention_secs = i64::try_from(self.cfg.retention.as_secs()).unwrap_or(i64::MAX);
         let expires_before_unix = now.timestamp().saturating_sub(retention_secs);
 
+        // A `batch_limit` of zero means the underlying purge call
+        // would always delete zero rows. Looping until `batch <
+        // batch_limit` (`0 < 0`) would never terminate, so we
+        // short-circuit to a no-op cycle. Operators that want to
+        // disable purges should not be configurable into a busy
+        // loop. The CLI also rejects `--batch-limit 0` at parse time
+        // so this guard is defense-in-depth against programmatic
+        // callers and the `Default` impl drifting.
+        if self.cfg.batch_limit == 0 {
+            let (remaining_expired, lag_seconds) =
+                replay_retention_lag(self.store.as_ref(), expires_before_unix, now.timestamp())
+                    .await?;
+            let stats = ReplayPurgeStats {
+                deleted: 0,
+                remaining_expired,
+                lag_seconds,
+                batches: 0,
+            };
+            emit_tick_metrics(&stats, 0);
+            return Ok(stats);
+        }
+
         let mut deleted: u64 = 0;
         let mut batches: u64 = 0;
         for _ in 0..MAX_LOOP_ITER {
@@ -323,6 +345,38 @@ mod tests {
         assert_eq!(stats.deleted, 250);
         assert_eq!(stats.remaining_expired, 0);
         assert!(stats.batches >= 3);
+    }
+
+    /// Regression: a `batch_limit` of 0 must not loop. Before the
+    /// guard, `0 < 0` would never break the inner loop and the
+    /// service would issue `MAX_LOOP_ITER` no-op queries before
+    /// returning. The new behavior short-circuits to a single
+    /// no-op stats record.
+    #[tokio::test]
+    async fn run_once_short_circuits_on_zero_batch_limit() {
+        let store = Arc::new(
+            Store::open_and_migrate("sqlite::memory:")
+                .await
+                .expect("store"),
+        );
+        seed_expired_rows(&store, 25, 1).await;
+
+        let service = ReplayPurgeService::new(
+            store,
+            ReplayPurgeConfig {
+                interval: std::time::Duration::from_secs(10),
+                retention: std::time::Duration::from_secs(1),
+                batch_limit: 0,
+                startup_cooldown: std::time::Duration::from_millis(0),
+            },
+        );
+        let stats = service.run_once().await.expect("run_once");
+        assert_eq!(stats.deleted, 0);
+        assert_eq!(stats.batches, 0);
+        // Lag and remaining_expired must still be reported truthfully
+        // — the operator can see "ledger not draining" even when the
+        // purge knob is mis-set.
+        assert_eq!(stats.remaining_expired, 25);
     }
 
     #[tokio::test]

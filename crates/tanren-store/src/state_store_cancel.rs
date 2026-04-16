@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use chrono::Utc;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseTransaction, DbBackend, DbErr, EntityTrait, QueryFilter,
@@ -23,6 +25,22 @@ use crate::sql_tags::{
 use crate::token_replay_store::consume_replay_guard_once;
 
 const CANCEL_BATCH_SIZE: u64 = 500;
+/// Hard cap on how many `cancel` batches a single transaction may
+/// issue. Bounds the worst case where every batch returns the
+/// maximum row count: `MAX_CANCEL_OUTER_BATCHES * CANCEL_BATCH_SIZE`
+/// is the largest dispatch we will ever fully cancel in one txn.
+const MAX_CANCEL_OUTER_BATCHES: u32 = 1_024;
+/// Maximum times we will retry an *empty* `SKIP LOCKED` batch when
+/// pending rows still exist (i.e. they are merely locked by a
+/// concurrent dequeue). After this many consecutive empty-but-not-
+/// drained iterations, we surface a typed contention conflict so the
+/// caller can decide whether to retry the whole cancel.
+const MAX_CANCEL_LOCK_RETRIES: u32 = 8;
+/// Base back-off between lock-contention retries. Doubles each
+/// retry, capped at [`LOCK_RETRY_CAP`]. With base 5 ms and cap
+/// 1 s the worst-case wall-clock budget is roughly 1.3 s.
+const LOCK_RETRY_BASE: Duration = Duration::from_millis(5);
+const LOCK_RETRY_CAP: Duration = Duration::from_secs(1);
 
 pub(crate) struct CancelDispatchTxnInput {
     pub(crate) dispatch_id: DispatchId,
@@ -142,31 +160,122 @@ async fn cancel_pending_steps_and_emit_events(
 ) -> Result<u64, StoreError> {
     let backend = txn.get_database_backend();
     let mut total_cancelled = 0_u64;
+    // `SKIP LOCKED` (Postgres path) returns an empty result both
+    // when there are genuinely no eligible rows AND when every
+    // candidate row is currently locked by a concurrent dequeue.
+    // Treating "empty batch" as "done" silently skips locked rows
+    // and leaves a half-cancelled dispatch behind. Track empty
+    // batches and verify with a separate predicate before exiting.
+    let mut lock_retries = 0_u32;
 
-    loop {
+    for _ in 0..MAX_CANCEL_OUTER_BATCHES {
         let rows = cancel_pending_steps_batch_returning(backend, txn, dispatch_uuid, now).await?;
-        if rows.is_empty() {
-            break;
+        if !rows.is_empty() {
+            let mut events_to_insert = Vec::with_capacity(rows.len());
+            for (step_id_uuid, step_type_model) in &rows {
+                events_to_insert.push(mint_step_cancelled(
+                    dispatch_id,
+                    *step_id_uuid,
+                    *step_type_model,
+                    actor,
+                    reason,
+                    step_event_timestamp,
+                )?);
+            }
+            events::Entity::insert_many(events_to_insert)
+                .exec(txn)
+                .await?;
+            total_cancelled = total_cancelled.saturating_add(rows.len() as u64);
+            // Progress was made; reset the lock-retry budget.
+            lock_retries = 0;
+            continue;
         }
 
-        let mut events_to_insert = Vec::with_capacity(rows.len());
-        for (step_id_uuid, step_type_model) in &rows {
-            events_to_insert.push(mint_step_cancelled(
-                dispatch_id,
-                *step_id_uuid,
-                *step_type_model,
-                actor,
-                reason,
-                step_event_timestamp,
-            )?);
+        // Empty batch — distinguish "drained" from "locked".
+        if !pending_non_teardown_steps_exist(backend, txn, dispatch_uuid).await? {
+            return Ok(total_cancelled);
         }
-        events::Entity::insert_many(events_to_insert)
-            .exec(txn)
-            .await?;
-        total_cancelled = total_cancelled.saturating_add(rows.len() as u64);
+
+        lock_retries = lock_retries.saturating_add(1);
+        if lock_retries >= MAX_CANCEL_LOCK_RETRIES {
+            return Err(StoreError::Conflict {
+                class: StoreConflictClass::Contention,
+                operation: StoreOperation::CancelDispatch,
+                reason: format!(
+                    "dispatch {dispatch_id}: pending steps remained locked across {MAX_CANCEL_LOCK_RETRIES} cancel retries"
+                ),
+            });
+        }
+        tokio::time::sleep(lock_backoff(lock_retries)).await;
     }
 
-    Ok(total_cancelled)
+    // The outer loop should never exhaust under normal operation
+    // — `MAX_CANCEL_OUTER_BATCHES * CANCEL_BATCH_SIZE` is far above
+    // any realistic dispatch graph. Hitting it indicates either a
+    // pathological dispatch shape or a logic regression; surface
+    // it as typed contention rather than silently returning a
+    // partial count.
+    Err(StoreError::Conflict {
+        class: StoreConflictClass::Contention,
+        operation: StoreOperation::CancelDispatch,
+        reason: format!(
+            "dispatch {dispatch_id}: cancel loop exceeded {MAX_CANCEL_OUTER_BATCHES} batches"
+        ),
+    })
+}
+
+fn lock_backoff(retry: u32) -> Duration {
+    // 5ms, 10ms, 20ms, … capped at LOCK_RETRY_CAP.
+    let shift = retry.saturating_sub(1).min(20);
+    let scaled = LOCK_RETRY_BASE
+        .checked_mul(1u32.checked_shl(shift).unwrap_or(u32::MAX))
+        .unwrap_or(LOCK_RETRY_CAP);
+    scaled.min(LOCK_RETRY_CAP)
+}
+
+async fn pending_non_teardown_steps_exist(
+    backend: DbBackend,
+    txn: &DatabaseTransaction,
+    dispatch_uuid: uuid::Uuid,
+) -> Result<bool, StoreError> {
+    // Plain `SELECT` (no `FOR UPDATE`) — we only need to know
+    // whether any matching row is visible at all, including rows
+    // currently row-locked by another transaction. In Postgres
+    // READ COMMITTED, plain reads see all committed data and are
+    // not blocked by row-level locks held by other writers, so
+    // this returns `true` exactly when an eligible cancellable
+    // row exists somewhere in the table.
+    let stmt = match backend {
+        DbBackend::Postgres => Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT 1 AS one FROM step_projection \
+             WHERE dispatch_id = $1 AND status = $2 AND step_type <> $3 \
+             LIMIT 1",
+            vec![
+                dispatch_uuid.into(),
+                STEP_STATUS_PENDING.into(),
+                STEP_TYPE_TEARDOWN.into(),
+            ],
+        ),
+        DbBackend::Sqlite => Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT 1 AS one FROM step_projection \
+             WHERE dispatch_id = ? AND status = ? AND step_type <> ? \
+             LIMIT 1",
+            vec![
+                dispatch_uuid.into(),
+                STEP_STATUS_PENDING.into(),
+                STEP_TYPE_TEARDOWN.into(),
+            ],
+        ),
+        DbBackend::MySql => {
+            return Err(StoreError::Conversion {
+                context: "state_store_cancel::pending_non_teardown_steps_exist",
+                reason: "MySQL is not a supported backend".to_owned(),
+            });
+        }
+    };
+    Ok(txn.query_one(stmt).await?.is_some())
 }
 
 /// Cancel one batch of pending non-teardown steps for a dispatch and

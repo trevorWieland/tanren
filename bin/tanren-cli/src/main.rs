@@ -92,8 +92,10 @@ enum DbCommand {
     /// the configured database. Prints JSON stats on success. Safe
     /// to invoke from a cron.
     PurgeReplay {
-        /// Max rows deleted per internal batch.
-        #[arg(long, default_value_t = 1_000)]
+        /// Max rows deleted per internal batch. Must be at least 1
+        /// — a zero limit would produce a busy no-op loop in the
+        /// purge runner.
+        #[arg(long, default_value_t = 1_000, value_parser = clap::value_parser!(u64).range(1..))]
         batch_limit: u64,
         /// Minimum age (in seconds) an expired row must have before
         /// it is eligible for deletion.
