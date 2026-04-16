@@ -18,17 +18,15 @@ use clap::{Parser, Subcommand, error::ErrorKind};
 use tanren_app_services::ActorTokenVerifier;
 use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_TTL_SECS;
 use tanren_app_services::compose::Service;
-use tanren_contract::{
-    ContractError, ErrorCode, ErrorResponse, internal_error_response_with_correlation,
-};
+use tanren_contract::{ContractError, ErrorCode, ErrorResponse};
 use tanren_observability::{
-    ObservabilityError, emit_correlated_internal_error, init_tracing_for_contract_io,
+    ObservabilityError, emit_and_build_internal_error_response, emit_correlated_internal_error,
+    init_tracing_for_contract_io,
 };
 use uuid::Uuid;
 
 const ACTOR_TOKEN_ENV_VAR: &str = "TANREN_ACTOR_TOKEN";
 const ACTOR_TOKEN_MAX_BYTES: usize = 16 * 1024;
-type EmitCorrelatedInternalError = fn(&str, &str, Uuid, &str) -> Result<(), ObservabilityError>;
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
@@ -76,9 +74,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Manage dispatches.
-    #[command(subcommand)]
-    Dispatch(commands::dispatch::DispatchCommand),
+    /// Query dispatches (read-only, no replay guard consumed).
+    #[command(subcommand, name = "dispatch-read")]
+    DispatchRead(commands::dispatch::DispatchReadCommand),
+    /// Mutate dispatches (consumes replay guard atomically).
+    #[command(subcommand, name = "dispatch-mutation")]
+    DispatchMutation(commands::dispatch::DispatchMutationCommand),
     /// Manage database schema.
     #[command(subcommand)]
     Db(DbCommand),
@@ -159,52 +160,67 @@ async fn run() -> Result<()> {
                 })?;
             print_json(&serde_json::json!({ "status": "migrated" }))
         }
-        Commands::Dispatch(cmd) => {
-            let token = resolve_actor_token(actor_token_stdin, actor_token_file.as_ref())?;
-            let verifier = resolve_actor_token_verifier(
+        Commands::DispatchRead(cmd) => {
+            let (context, _replay_guard) = authenticate(
+                actor_token_stdin,
+                actor_token_file.as_ref(),
                 actor_public_key_file.as_ref(),
                 token_issuer.as_deref(),
                 token_audience.as_deref(),
                 actor_token_max_ttl_secs,
             )?;
-            let token_ctx = verifier
-                .verify(token.as_str())
-                .map_err(|err| anyhow::Error::new(ErrorResponse::from(ContractError::from(err))))?;
-            let (context, replay_guard) = token_ctx.into_parts();
-
-            let service = match cmd.store_access() {
-                commands::dispatch::DispatchStoreAccess::ReadOnly => {
-                    tanren_app_services::compose::build_dispatch_service_for_read(&database_url)
-                        .await
-                        .map_err(|err| {
-                            anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
-                        })?
-                }
-                commands::dispatch::DispatchStoreAccess::Mutating => {
-                    tanren_app_services::compose::build_dispatch_service_for_write(&database_url)
-                        .await
-                        .map_err(|err| {
-                            anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
-                        })?
-                }
-            };
-
-            dispatch_handle_with_policy(cmd, &service, &context, &replay_guard).await
+            let service = build_read_service(&database_url).await?;
+            commands::dispatch::handle_read(cmd, &service, &context).await
+        }
+        Commands::DispatchMutation(cmd) => {
+            let (context, replay_guard) = authenticate(
+                actor_token_stdin,
+                actor_token_file.as_ref(),
+                actor_public_key_file.as_ref(),
+                token_issuer.as_deref(),
+                token_audience.as_deref(),
+                actor_token_max_ttl_secs,
+            )?;
+            let service = build_write_service(&database_url).await?;
+            commands::dispatch::handle_mutation(cmd, &service, &context, &replay_guard).await
         }
     }
 }
 
-async fn dispatch_handle_with_policy(
-    cmd: commands::dispatch::DispatchCommand,
-    service: &Service,
-    context: &tanren_app_services::RequestContext,
-    replay_guard: &tanren_app_services::ReplayGuard,
-) -> Result<()> {
-    let replay_guard = match cmd.replay_policy() {
-        commands::dispatch::DispatchReplayPolicy::VerifyOnly => None,
-        commands::dispatch::DispatchReplayPolicy::ConsumeOnce => Some(replay_guard),
-    };
-    commands::dispatch::handle(cmd, service, context, replay_guard).await
+fn authenticate(
+    actor_token_stdin: bool,
+    actor_token_file: Option<&PathBuf>,
+    actor_public_key_file: Option<&PathBuf>,
+    token_issuer: Option<&str>,
+    token_audience: Option<&str>,
+    actor_token_max_ttl_secs: u64,
+) -> Result<(
+    tanren_app_services::RequestContext,
+    tanren_app_services::ReplayGuard,
+)> {
+    let token = resolve_actor_token(actor_token_stdin, actor_token_file)?;
+    let verifier = resolve_actor_token_verifier(
+        actor_public_key_file,
+        token_issuer,
+        token_audience,
+        actor_token_max_ttl_secs,
+    )?;
+    let token_ctx = verifier
+        .verify(token.as_str())
+        .map_err(|err| anyhow::Error::new(ErrorResponse::from(ContractError::from(err))))?;
+    Ok(token_ctx.into_parts())
+}
+
+async fn build_read_service(database_url: &str) -> Result<Service> {
+    tanren_app_services::compose::build_dispatch_service_for_read(database_url)
+        .await
+        .map_err(|err| anyhow::Error::new(tanren_app_services::error::map_store_error(&err)))
+}
+
+async fn build_write_service(database_url: &str) -> Result<Service> {
+    tanren_app_services::compose::build_dispatch_service_for_write(database_url)
+        .await
+        .map_err(|err| anyhow::Error::new(tanren_app_services::error::map_store_error(&err)))
 }
 
 fn resolve_actor_token_verifier(
@@ -378,24 +394,10 @@ fn normalize_actor_token(token: &str) -> Result<String, anyhow::Error> {
 fn into_error_response(err: anyhow::Error) -> ErrorResponse {
     match err.downcast::<ErrorResponse>() {
         Ok(er) => er,
-        Err(other) => correlated_internal_error_response_with_emitter(
-            "tanren_cli",
-            "internal",
-            &other.to_string(),
-            emit_correlated_internal_error,
-        ),
+        Err(other) => {
+            emit_and_build_internal_error_response("tanren_cli", "internal", &other.to_string())
+        }
     }
-}
-
-fn correlated_internal_error_response_with_emitter(
-    component: &str,
-    error_code: &str,
-    raw_error: &str,
-    emitter: EmitCorrelatedInternalError,
-) -> ErrorResponse {
-    internal_error_response_with_correlation::<ObservabilityError>(|correlation_id| {
-        emitter(component, error_code, correlation_id, raw_error)
-    })
 }
 
 fn clap_error_to_response(err: &clap::Error) -> ErrorResponse {

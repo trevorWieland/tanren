@@ -6,7 +6,7 @@ use tanren_domain::{
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
-use tanren_store::{EventFilter, EventStore, ReplayGuard, Store};
+use tanren_store::{EventFilter, ReplayGuard, Store, StoreError};
 use uuid::Uuid;
 
 fn sample_actor() -> ActorContext {
@@ -73,7 +73,6 @@ async fn denied_create_emits_policy_decision_event() {
     };
 
     let events = orch
-        .store()
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(dispatch_id)),
             ..EventFilter::new()
@@ -114,7 +113,6 @@ async fn denied_cancel_emits_policy_decision_event_and_returns_not_found() {
     ));
 
     let events = orch
-        .store()
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
             ..EventFilter::new()
@@ -161,7 +159,6 @@ async fn missing_cancel_emits_policy_decision_event_and_returns_not_found() {
     ));
 
     let events = orch
-        .store()
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(missing_id)),
             ..EventFilter::new()
@@ -186,5 +183,103 @@ async fn missing_cancel_emits_policy_decision_event_and_returns_not_found() {
             tanren_domain::DomainEvent::DispatchCancelled { .. }
         )),
         "missing cancel attempts must not append DispatchCancelled events"
+    );
+}
+
+#[tokio::test]
+async fn denied_create_consumes_replay_guard_in_sqlite_store() {
+    let orch = setup().await;
+    let replay = sample_replay_guard();
+    let mut cmd = sample_command(sample_actor());
+    cmd.mode = DispatchMode::Auto;
+    cmd.preserve_on_failure = true;
+
+    let _first = orch
+        .create_dispatch(cmd.clone(), replay.clone())
+        .await
+        .expect_err("first denied create");
+
+    let second = orch
+        .create_dispatch(cmd, replay)
+        .await
+        .expect_err("second attempt reusing jti must be replay-rejected");
+    assert!(
+        matches!(second, OrchestratorError::Store(StoreError::ReplayRejected)),
+        "expected ReplayRejected on reuse, got {second:?}"
+    );
+}
+
+#[tokio::test]
+async fn denied_cancel_consumes_replay_guard_in_sqlite_store() {
+    let orch = setup().await;
+    let created = orch
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
+        .await
+        .expect("create");
+
+    let replay = sample_replay_guard();
+    let foreign_actor = ActorContext::new(OrgId::new(), UserId::new());
+
+    let _first = orch
+        .cancel_dispatch(
+            tanren_domain::CancelDispatch {
+                actor: foreign_actor.clone(),
+                dispatch_id: created.dispatch_id,
+                reason: Some("forbidden 1".to_owned()),
+            },
+            replay.clone(),
+        )
+        .await
+        .expect_err("first denied cancel");
+
+    let second = orch
+        .cancel_dispatch(
+            tanren_domain::CancelDispatch {
+                actor: foreign_actor,
+                dispatch_id: created.dispatch_id,
+                reason: Some("forbidden 2".to_owned()),
+            },
+            replay,
+        )
+        .await
+        .expect_err("second denied cancel");
+    assert!(
+        matches!(second, OrchestratorError::Store(StoreError::ReplayRejected)),
+        "expected ReplayRejected on reuse, got {second:?}"
+    );
+}
+
+#[tokio::test]
+async fn missing_cancel_consumes_replay_guard_in_sqlite_store() {
+    let orch = setup().await;
+    let missing_id = tanren_domain::DispatchId::new();
+    let replay = sample_replay_guard();
+
+    let _first = orch
+        .cancel_dispatch(
+            tanren_domain::CancelDispatch {
+                actor: sample_actor(),
+                dispatch_id: missing_id,
+                reason: Some("missing 1".to_owned()),
+            },
+            replay.clone(),
+        )
+        .await
+        .expect_err("first missing cancel");
+
+    let second = orch
+        .cancel_dispatch(
+            tanren_domain::CancelDispatch {
+                actor: sample_actor(),
+                dispatch_id: missing_id,
+                reason: Some("missing 2".to_owned()),
+            },
+            replay,
+        )
+        .await
+        .expect_err("second missing cancel");
+    assert!(
+        matches!(second, OrchestratorError::Store(StoreError::ReplayRejected)),
+        "expected ReplayRejected on reuse, got {second:?}"
     );
 }

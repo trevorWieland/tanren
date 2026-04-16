@@ -11,6 +11,7 @@ description = "Shared telemetry primitives — tracing context, metrics registry
 workspace = true
 
 [dependencies]
+tanren-contract = { path = "../tanren-contract" }
 tracing-subscriber.workspace = true
 thiserror.workspace = true
 chrono.workspace = true

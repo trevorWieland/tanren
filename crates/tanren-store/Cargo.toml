@@ -36,6 +36,11 @@ path = "tests/sqlite_cancel_dispatch_atomic.rs"
 required-features = ["test-hooks"]
 
 [[test]]
+name = "sqlite_cancel_large_fanout"
+path = "tests/sqlite_cancel_large_fanout.rs"
+required-features = ["test-hooks"]
+
+[[test]]
 name = "postgres_integration"
 path = "tests/postgres_integration.rs"
 required-features = ["test-hooks", "postgres-integration"]

@@ -7,14 +7,18 @@
 //! `migration::m_0001_init`, so no scan-heavy paths exist here.
 
 use async_trait::async_trait;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    TransactionTrait,
+};
 use tanren_domain::{DomainEvent, EventCursor, EventEnvelope, EventQueryResult};
 
 use crate::converters::events as event_converters;
 use crate::entity::events;
-use crate::errors::StoreResult;
-use crate::params::EventFilter;
+use crate::errors::{StoreError, StoreResult};
+use crate::params::{EventFilter, ReplayGuard};
 use crate::store::Store;
+use crate::token_replay_store::consume_replay_guard_once;
 
 /// Append-only event log interface.
 ///
@@ -34,6 +38,23 @@ pub trait EventStore: Send + Sync {
     ///
     /// Only `DomainEvent::PolicyDecision` payloads are accepted.
     async fn append_policy_decision_event(&self, event: &EventEnvelope) -> StoreResult<()>;
+
+    /// Append a typed policy-decision audit event **and** consume a
+    /// caller-supplied replay guard atomically in one transaction.
+    ///
+    /// This is the single entry point for recording mutating-command
+    /// denial decisions: the replay key must be consumed regardless of
+    /// whether the mutation is carried out, so denied requests cannot
+    /// be replayed repeatedly for the same signed actor token.
+    ///
+    /// Only `DomainEvent::PolicyDecision` payloads are accepted. If the
+    /// replay key has already been consumed this call returns
+    /// [`StoreError::ReplayRejected`] and does not append the event.
+    async fn record_policy_decision_with_replay(
+        &self,
+        event: &EventEnvelope,
+        replay_guard: ReplayGuard,
+    ) -> StoreResult<()>;
 }
 
 /// Direct event-append methods — available for testing and migration
@@ -114,6 +135,26 @@ impl EventStore for Store {
         ensure_policy_decision_payload(event)?;
         let row = event_converters::envelope_to_active_model(event)?;
         events::Entity::insert(row).exec(self.conn()).await?;
+        Ok(())
+    }
+
+    async fn record_policy_decision_with_replay(
+        &self,
+        event: &EventEnvelope,
+        replay_guard: ReplayGuard,
+    ) -> StoreResult<()> {
+        ensure_policy_decision_payload(event)?;
+        let row = event_converters::envelope_to_active_model(event)?;
+
+        self.conn()
+            .transaction::<_, (), StoreError>(move |txn| {
+                Box::pin(async move {
+                    consume_replay_guard_once(txn, replay_guard).await?;
+                    events::Entity::insert(row).exec(txn).await?;
+                    Ok(())
+                })
+            })
+            .await?;
         Ok(())
     }
 }

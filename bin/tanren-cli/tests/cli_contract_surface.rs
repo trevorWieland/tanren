@@ -16,7 +16,7 @@ fn create_accepts_contract_surface_fields_and_get_reflects_them() {
     create_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch",
+        "dispatch-mutation",
         "create",
         "--project",
         "test-project",
@@ -64,7 +64,7 @@ fn create_accepts_contract_surface_fields_and_get_reflects_them() {
     get_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch",
+        "dispatch-read",
         "get",
         "--id",
         dispatch_id,
@@ -98,7 +98,7 @@ fn create_rejects_invalid_secret_names() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch",
+        "dispatch-mutation",
         "create",
         "--project",
         "test-project",
@@ -132,7 +132,7 @@ fn create_rejects_duplicate_project_env_keys() {
     cmd.args([
         "--database-url",
         &db_url,
-        "dispatch",
+        "dispatch-mutation",
         "create",
         "--project",
         "test-project",
@@ -169,7 +169,7 @@ fn list_rejects_invalid_cursor_token() {
     create_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch",
+        "dispatch-mutation",
         "create",
         "--project",
         "test-project",
@@ -195,7 +195,7 @@ fn list_rejects_invalid_cursor_token() {
     list_cmd.args([
         "--database-url",
         &db_url,
-        "dispatch",
+        "dispatch-read",
         "list",
         "--cursor",
         "v9|bad",

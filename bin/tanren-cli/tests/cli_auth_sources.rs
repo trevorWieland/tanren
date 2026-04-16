@@ -16,7 +16,7 @@ fn actor_token_cli_arg_is_rejected() {
             &db_url,
             "--actor-token",
             &auth.token,
-            "dispatch",
+            "dispatch-read",
             "list",
         ])
         .output()
@@ -51,7 +51,7 @@ fn actor_token_can_be_read_from_stdin() {
         &auth.issuer,
         "--token-audience",
         &auth.audience,
-        "dispatch",
+        "dispatch-read",
         "list",
     ]);
     cmd.write_stdin(format!("{}\n", auth.token));
@@ -75,7 +75,7 @@ fn oversized_actor_token_from_stdin_is_rejected() {
         &auth.issuer,
         "--token-audience",
         &auth.audience,
-        "dispatch",
+        "dispatch-read",
         "list",
     ]);
     cmd.write_stdin(format!("{}\n", "x".repeat((16 * 1024) + 1)));
@@ -110,7 +110,7 @@ fn actor_token_can_be_read_from_env() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch",
+            "dispatch-read",
             "list",
         ])
         .output()
@@ -136,7 +136,7 @@ fn token_source_conflict_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch",
+            "dispatch-read",
             "list",
         ])
         .output()
@@ -169,7 +169,7 @@ fn token_source_conflict_env_plus_file_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch",
+            "dispatch-read",
             "list",
         ])
         .output()
@@ -201,7 +201,7 @@ fn empty_env_token_is_treated_as_absent_for_source_selection() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch",
+            "dispatch-read",
             "list",
         ])
         .output()
@@ -229,7 +229,7 @@ fn token_source_conflict_env_plus_stdin_is_rejected() {
         &auth.issuer,
         "--token-audience",
         &auth.audience,
-        "dispatch",
+        "dispatch-read",
         "list",
     ]);
     cmd.write_stdin(format!("{}\n", auth.token));
@@ -259,7 +259,7 @@ fn legacy_actor_jwks_file_flag_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch",
+            "dispatch-read",
             "list",
         ])
         .output()
@@ -294,7 +294,7 @@ fn legacy_actor_jwks_url_flag_is_rejected() {
             &auth.issuer,
             "--token-audience",
             &auth.audience,
-            "dispatch",
+            "dispatch-read",
             "list",
         ])
         .output()

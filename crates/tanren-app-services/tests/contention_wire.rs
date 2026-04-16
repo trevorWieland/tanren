@@ -52,6 +52,14 @@ impl EventStore for ContentionStore {
     async fn append_policy_decision_event(&self, _event: &EventEnvelope) -> Result<(), StoreError> {
         Ok(())
     }
+
+    async fn record_policy_decision_with_replay(
+        &self,
+        _event: &EventEnvelope,
+        _replay_guard: tanren_store::ReplayGuard,
+    ) -> Result<(), StoreError> {
+        Ok(())
+    }
 }
 
 #[async_trait]

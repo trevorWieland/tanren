@@ -1,4 +1,21 @@
-//! `tanren dispatch` subcommands — create, get, list, cancel.
+//! `tanren dispatch-read` and `tanren dispatch-mutation` subcommand handlers.
+//!
+//! The CLI exposes dispatch operations as two disjoint top-level
+//! subcommand groups so mutating and reading are type-safe at compile
+//! time:
+//!
+//! - [`DispatchReadCommand`] — read-only (`get`, `list`). No replay
+//!   guard is consumed; handler signature has no `ReplayGuard`
+//!   parameter at all.
+//! - [`DispatchMutationCommand`] — state-changing (`create`, `cancel`).
+//!   The handler requires `&ReplayGuard` by its type; the replay guard
+//!   is passed by value to the store which consumes it atomically with
+//!   the mutation (success) or with the policy-decision audit event
+//!   (denied).
+//!
+//! A new mutating variant added to the enum cannot compile without
+//! threading the replay guard through its handler — there is no
+//! runtime `Option<&ReplayGuard>` fallback.
 
 use std::io::Write as _;
 
@@ -6,57 +23,30 @@ use anyhow::Result;
 use clap::Subcommand;
 use tanren_app_services::{ReplayGuard, RequestContext, compose::Service};
 use tanren_contract::{
-    CancelDispatchRequest, ContractError, CreateDispatchRequest, DispatchCursorToken,
-    DispatchListFilter, ErrorResponse, parse_project_env_entries,
+    CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
+    ErrorResponse, parse_project_env_entries,
 };
 use uuid::Uuid;
 
-/// Dispatch management commands.
+/// Read-only dispatch subcommands (no replay consumption).
 #[derive(Debug, Subcommand)]
-pub(crate) enum DispatchCommand {
-    /// Create a new dispatch.
-    Create(Box<CreateArgs>),
+pub(crate) enum DispatchReadCommand {
     /// Get a dispatch by ID.
     Get(GetArgs),
     /// List dispatches.
     List(ListArgs),
+}
+
+/// Mutating dispatch subcommands (consume replay guard exactly once).
+#[derive(Debug, Subcommand)]
+pub(crate) enum DispatchMutationCommand {
+    /// Create a new dispatch.
+    Create(Box<CreateArgs>),
     /// Cancel a dispatch.
     Cancel(CancelArgs),
 }
 
-impl DispatchCommand {
-    /// Storage access profile for this command.
-    #[must_use]
-    pub(crate) const fn store_access(&self) -> DispatchStoreAccess {
-        match self {
-            Self::Create(_) | Self::Cancel(_) => DispatchStoreAccess::Mutating,
-            Self::Get(_) | Self::List(_) => DispatchStoreAccess::ReadOnly,
-        }
-    }
-
-    /// Replay consumption policy for this command.
-    #[must_use]
-    pub(crate) const fn replay_policy(&self) -> DispatchReplayPolicy {
-        match self {
-            Self::Create(_) | Self::Cancel(_) => DispatchReplayPolicy::ConsumeOnce,
-            Self::Get(_) | Self::List(_) => DispatchReplayPolicy::VerifyOnly,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DispatchStoreAccess {
-    ReadOnly,
-    Mutating,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DispatchReplayPolicy {
-    VerifyOnly,
-    ConsumeOnce,
-}
-
-/// Arguments for `dispatch create`.
+/// Arguments for `dispatch-mutation create`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct CreateArgs {
     /// Project name.
@@ -109,7 +99,7 @@ pub(crate) struct CreateArgs {
     pub preserve_on_failure: bool,
 }
 
-/// Arguments for `dispatch get`.
+/// Arguments for `dispatch-read get`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct GetArgs {
     /// Dispatch UUID.
@@ -117,7 +107,7 @@ pub(crate) struct GetArgs {
     pub id: Uuid,
 }
 
-/// Arguments for `dispatch list`.
+/// Arguments for `dispatch-read list`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct ListArgs {
     /// Filter by status.
@@ -137,7 +127,7 @@ pub(crate) struct ListArgs {
     pub cursor: Option<String>,
 }
 
-/// Arguments for `dispatch cancel`.
+/// Arguments for `dispatch-mutation cancel`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct CancelArgs {
     /// Dispatch UUID to cancel.
@@ -148,30 +138,37 @@ pub(crate) struct CancelArgs {
     pub reason: Option<String>,
 }
 
-/// Handle a dispatch subcommand.
-pub(crate) async fn handle(
-    cmd: DispatchCommand,
+/// Handle a read-only dispatch subcommand.
+///
+/// The signature intentionally has no replay guard parameter — read
+/// commands cannot consume replay state.
+pub(crate) async fn handle_read(
+    cmd: DispatchReadCommand,
     service: &Service,
     context: &RequestContext,
-    replay_guard: Option<&ReplayGuard>,
 ) -> Result<()> {
     match cmd {
-        DispatchCommand::Create(args) => {
-            let replay_guard = replay_guard.ok_or_else(|| {
-                anyhow::Error::new(ErrorResponse::from(ContractError::Internal {
-                    message: "missing replay guard for mutating command".to_owned(),
-                }))
-            })?;
+        DispatchReadCommand::Get(args) => handle_get(args, service, context).await,
+        DispatchReadCommand::List(args) => handle_list(args, service, context).await,
+    }
+}
+
+/// Handle a mutating dispatch subcommand.
+///
+/// The `&ReplayGuard` parameter is not `Option`: every mutating command
+/// requires the caller to thread a verified replay guard from the
+/// signed actor token. The store consumes the guard atomically.
+pub(crate) async fn handle_mutation(
+    cmd: DispatchMutationCommand,
+    service: &Service,
+    context: &RequestContext,
+    replay_guard: &ReplayGuard,
+) -> Result<()> {
+    match cmd {
+        DispatchMutationCommand::Create(args) => {
             handle_create(*args, service, context, replay_guard).await
         }
-        DispatchCommand::Get(args) => handle_get(args, service, context).await,
-        DispatchCommand::List(args) => handle_list(args, service, context).await,
-        DispatchCommand::Cancel(args) => {
-            let replay_guard = replay_guard.ok_or_else(|| {
-                anyhow::Error::new(ErrorResponse::from(ContractError::Internal {
-                    message: "missing replay guard for mutating command".to_owned(),
-                }))
-            })?;
+        DispatchMutationCommand::Cancel(args) => {
             handle_cancel(args, service, context, replay_guard).await
         }
     }
@@ -250,4 +247,58 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
     let json = serde_json::to_string_pretty(value)?;
     writeln!(std::io::stdout(), "{json}")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod compile_time_signature_checks {
+    //! Compile-time assertions that the mutating handler requires
+    //! `&ReplayGuard` and the read handler does not have a replay
+    //! guard parameter. If someone refactors either handler to take
+    //! `Option<&ReplayGuard>` or drop the guard parameter, the type
+    //! of the extracted function pointer will change and these
+    //! assertions will fail to compile.
+    //!
+    //! This is the lane 0.4 audit finding #4 fix at the type level:
+    //! "mutating command implies replay guard consumed" is enforced
+    //! by the type system, not by a runtime `Option::ok_or_else`
+    //! fallback that a future refactor can silently break.
+
+    use std::future::Future;
+    use std::pin::Pin;
+
+    use tanren_app_services::{ReplayGuard, RequestContext, compose::Service};
+
+    use super::{DispatchMutationCommand, DispatchReadCommand};
+
+    type ReadHandlerFn =
+        for<'a> fn(
+            DispatchReadCommand,
+            &'a Service,
+            &'a RequestContext,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
+
+    type MutationHandlerFn =
+        for<'a> fn(
+            DispatchMutationCommand,
+            &'a Service,
+            &'a RequestContext,
+            &'a ReplayGuard,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
+
+    #[test]
+    fn read_handler_signature_excludes_replay_guard() {
+        let handler: ReadHandlerFn =
+            |cmd, service, context| Box::pin(super::handle_read(cmd, service, context));
+        // Evaluate at runtime so the type assertion is load-bearing
+        // rather than dead code that inline-suppression rules flag.
+        assert_eq!(size_of_val(&handler), size_of::<usize>());
+    }
+
+    #[test]
+    fn mutation_handler_signature_requires_replay_guard() {
+        let handler: MutationHandlerFn = |cmd, service, context, replay_guard| {
+            Box::pin(super::handle_mutation(cmd, service, context, replay_guard))
+        };
+        assert_eq!(size_of_val(&handler), size_of::<usize>());
+    }
 }

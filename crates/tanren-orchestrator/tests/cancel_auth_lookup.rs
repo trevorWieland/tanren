@@ -58,6 +58,14 @@ impl EventStore for PanicOnGetDispatchStore {
     ) -> Result<(), StoreError> {
         Ok(())
     }
+
+    async fn record_policy_decision_with_replay(
+        &self,
+        _event: &tanren_domain::EventEnvelope,
+        _replay_guard: tanren_store::ReplayGuard,
+    ) -> Result<(), StoreError> {
+        Ok(())
+    }
 }
 
 #[async_trait]

@@ -10,35 +10,57 @@ from pathlib import Path
 
 WORKFLOW_PATH = Path(".github/workflows/rust-ci.yml")
 JUSTFILE_PATH = Path("justfile")
+WRAPPER_PATH = Path("scripts/run_postgres_integration.sh")
 
 WORKFLOW_REQUIRED = [
     'RUSTFLAGS: "-D warnings"',
-    ("cargo clippy --workspace --all-targets --features tanren-store/test-hooks -- -D warnings"),
     (
-        "cargo nextest run --workspace --features tanren-store/test-hooks "
+        "cargo clippy --workspace --all-targets "
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
+        "-- -D warnings"
+    ),
+    (
+        "cargo nextest run --workspace "
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
         "--profile ci --no-tests=pass"
     ),
     (
         "cargo nextest run -p tanren-store --features "
         "tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass"
     ),
+    (
+        "cargo nextest run -p tanren-cli "
+        "--features tanren-cli/postgres-integration --no-tests=pass"
+    ),
 ]
 
 JUST_REQUIRED = [
     (
         'RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets '
-        "--features tanren-store/test-hooks -- -D warnings"
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks -- -D warnings"
     ),
     (
         'RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace '
-        "--features tanren-store/test-hooks --profile ci --no-tests=pass"
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
+        "--profile ci --no-tests=pass"
+    ),
+    "./scripts/run_postgres_integration.sh",
+    "check-ci-parity:",
+]
+
+WRAPPER_REQUIRED = [
+    (
+        '"${CARGO}" nextest run \\\n'
+        "            -p tanren-store \\\n"
+        "            --features tanren-store/test-hooks,tanren-store/postgres-integration \\\n"
+        "            --no-tests=pass"
     ),
     (
-        'RUSTFLAGS="-D warnings" {{ cargo }} nextest run -p tanren-store '
-        "--features tanren-store/test-hooks,tanren-store/postgres-integration "
-        "--no-tests=pass"
+        '"${CARGO}" nextest run \\\n'
+        "            -p tanren-cli \\\n"
+        "            --features tanren-cli/postgres-integration \\\n"
+        "            --no-tests=pass"
     ),
-    "check-ci-parity:",
 ]
 
 
@@ -48,18 +70,20 @@ def missing_snippets(content: str, snippets: list[str]) -> list[str]:
 
 
 def main() -> int:
-    """Validate parity-critical command snippets in CI and justfile.
+    """Validate parity-critical command snippets in CI, justfile, and wrapper.
 
     Returns:
         Exit status code (0 on success, 1 when required snippets are missing).
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     justfile = JUSTFILE_PATH.read_text(encoding="utf-8")
+    wrapper = WRAPPER_PATH.read_text(encoding="utf-8")
 
     missing_workflow = missing_snippets(workflow, WORKFLOW_REQUIRED)
     missing_just = missing_snippets(justfile, JUST_REQUIRED)
+    missing_wrapper = missing_snippets(wrapper, WRAPPER_REQUIRED)
 
-    if missing_workflow or missing_just:
+    if missing_workflow or missing_just or missing_wrapper:
         print("ERROR: CI parity drift detected.")
         if missing_workflow:
             print("\nMissing from workflow:")
@@ -68,6 +92,10 @@ def main() -> int:
         if missing_just:
             print("\nMissing from justfile:")
             for snippet in missing_just:
+                print(f"  - {snippet}")
+        if missing_wrapper:
+            print("\nMissing from scripts/run_postgres_integration.sh:")
+            for snippet in missing_wrapper:
                 print(f"  - {snippet}")
         return 1
 

@@ -49,7 +49,7 @@ where
         if decision.outcome == PolicyOutcome::Denied {
             let audit_event = policy_decision_event(dispatch_id, decision.clone());
             self.store
-                .append_policy_decision_event(&audit_event)
+                .record_policy_decision_with_replay(&audit_event, replay_guard)
                 .await?;
             return Err(OrchestratorError::PolicyDenied {
                 decision: Box::new(decision),
@@ -155,7 +155,7 @@ where
         if decision.outcome == PolicyOutcome::Denied {
             let audit_event = policy_decision_event(cmd.dispatch_id, decision);
             self.store
-                .append_policy_decision_event(&audit_event)
+                .record_policy_decision_with_replay(&audit_event, replay_guard)
                 .await?;
             return Err(OrchestratorError::Domain(DomainError::NotFound {
                 entity: EntityRef::Dispatch(cmd.dispatch_id),

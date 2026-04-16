@@ -193,7 +193,9 @@ pub(crate) fn assert_stderr_is_single_json(stderr: &str) -> Value {
 
 pub(crate) fn lint_anchor(auth: &AuthHarness) {
     let _ = &auth.token;
+    let _ = temp_db as fn() -> (String, tempfile::TempDir);
     let _ = migrate as fn(&str);
+    let _ = auth_harness as fn() -> AuthHarness;
     let _ = base_claims_with_org as fn(Uuid) -> ActorClaims;
     let _ = claims_missing_jti as fn() -> ActorClaimsMissingJti;
     let _ = auth_harness_with_org as fn(Uuid) -> AuthHarness;

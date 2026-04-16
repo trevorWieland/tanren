@@ -19,6 +19,7 @@ use std::path::Path;
 
 use chrono::Utc;
 use serde::Serialize;
+use tanren_contract::{ErrorResponse, internal_error_response_with_correlation};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
@@ -106,6 +107,42 @@ pub fn emit_correlated_internal_error(
         raw_error,
     )?;
     internal_error_sink::global_correlated_error_sink().emit(&paths, line)
+}
+
+/// Build a canonical internal-error `ErrorResponse` after emitting a
+/// correlated entry to the default JSONL sink.
+///
+/// On sink-emission success, the response carries
+/// [`ErrorDetails::Internal { correlation_id }`] so operators can trace
+/// it back to its sink record. On sink failure, the response omits the
+/// correlation id — we never surface an id the caller cannot look up.
+///
+/// [`ErrorDetails::Internal { correlation_id }`]: tanren_contract::ErrorDetails::Internal
+pub fn emit_and_build_internal_error_response(
+    component: &str,
+    error_code: &str,
+    raw_error: &str,
+) -> ErrorResponse {
+    emit_and_build_internal_error_response_with_emitter(
+        component,
+        error_code,
+        raw_error,
+        emit_correlated_internal_error,
+    )
+}
+
+/// Testable variant of [`emit_and_build_internal_error_response`] that
+/// accepts an injected emitter. Production callers should use the
+/// non-`with_emitter` variant.
+pub fn emit_and_build_internal_error_response_with_emitter(
+    component: &str,
+    error_code: &str,
+    raw_error: &str,
+    emitter: fn(&str, &str, Uuid, &str) -> Result<(), ObservabilityError>,
+) -> ErrorResponse {
+    internal_error_response_with_correlation::<ObservabilityError>(|correlation_id| {
+        emitter(component, error_code, correlation_id, raw_error)
+    })
 }
 
 /// Sanitize error text before structured logging.

@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, DatabaseTransaction, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseTransaction, DbBackend, DbErr, EntityTrait, QueryFilter,
+    Statement, sea_query::Expr,
 };
 use tanren_domain::{
     ActorContext, DispatchId, DispatchStatus, DomainEvent, EntityKind, EventEnvelope, EventId,
@@ -12,13 +12,16 @@ use crate::converters::events as event_converters;
 use crate::db_error_codes::{
     extract_db_error_code, is_postgres_contention_code, is_sqlite_contention_code,
 };
-use crate::entity::enums::{DispatchStatusModel, OutcomeModel, StepStatusModel, StepTypeModel};
-use crate::entity::{dispatch_projection, events, step_projection};
+use crate::entity::enums::{DispatchStatusModel, OutcomeModel, StepTypeModel};
+use crate::entity::{dispatch_projection, events};
 use crate::errors::{StoreConflictClass, StoreError, StoreOperation};
 use crate::params::ReplayGuard;
 use crate::token_replay_store::consume_replay_guard_once;
 
 const CANCEL_BATCH_SIZE: u64 = 500;
+const STEP_STATUS_PENDING: &str = "pending";
+const STEP_STATUS_CANCELLED: &str = "cancelled";
+const STEP_TYPE_TEARDOWN: &str = "teardown";
 
 pub(crate) struct CancelDispatchTxnInput {
     pub(crate) dispatch_id: DispatchId,
@@ -136,58 +139,21 @@ async fn cancel_pending_steps_and_emit_events(
     now: chrono::DateTime<Utc>,
     step_event_timestamp: chrono::DateTime<Utc>,
 ) -> Result<u64, StoreError> {
+    let backend = txn.get_database_backend();
     let mut total_cancelled = 0_u64;
 
     loop {
-        let rows: Vec<(uuid::Uuid, StepTypeModel)> = step_projection::Entity::find()
-            .select_only()
-            .column(step_projection::Column::StepId)
-            .column(step_projection::Column::StepType)
-            .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-            .filter(step_projection::Column::Status.eq(StepStatusModel::Pending))
-            .filter(step_projection::Column::StepType.ne(StepTypeModel::Teardown))
-            .order_by_asc(step_projection::Column::StepId)
-            .limit(CANCEL_BATCH_SIZE)
-            .into_tuple()
-            .all(txn)
-            .await?;
+        let rows = cancel_pending_steps_batch_returning(backend, txn, dispatch_uuid, now).await?;
         if rows.is_empty() {
             break;
         }
 
-        let step_ids: Vec<_> = rows.iter().map(|(step_id, _)| *step_id).collect();
-        let cancelled = step_projection::Entity::update_many()
-            .col_expr(
-                step_projection::Column::Status,
-                Expr::value(StepStatusModel::Cancelled),
-            )
-            .col_expr(step_projection::Column::UpdatedAt, Expr::value(now))
-            .filter(step_projection::Column::DispatchId.eq(dispatch_uuid))
-            .filter(step_projection::Column::StepId.is_in(step_ids))
-            .filter(step_projection::Column::Status.eq(StepStatusModel::Pending))
-            .filter(step_projection::Column::StepType.ne(StepTypeModel::Teardown))
-            .exec(txn)
-            .await?;
-
-        let cancelled_count = cancelled.rows_affected;
-        let expected_count = rows.len() as u64;
-        if cancelled_count != expected_count {
-            return Err(StoreError::Conflict {
-                class: StoreConflictClass::Contention,
-                operation: StoreOperation::CancelDispatch,
-                reason: format!(
-                    "step contention during cancel for dispatch {dispatch_id}: \
-                     expected {expected_count} cancelled rows, observed {cancelled_count}"
-                ),
-            });
-        }
-
         let mut events_to_insert = Vec::with_capacity(rows.len());
-        for (step_id, step_type_raw) in rows {
+        for (step_id_uuid, step_type_model) in &rows {
             events_to_insert.push(mint_step_cancelled(
                 dispatch_id,
-                step_id,
-                step_type_raw,
+                *step_id_uuid,
+                *step_type_model,
                 actor,
                 reason,
                 step_event_timestamp,
@@ -196,10 +162,137 @@ async fn cancel_pending_steps_and_emit_events(
         events::Entity::insert_many(events_to_insert)
             .exec(txn)
             .await?;
-        total_cancelled += cancelled_count;
+        total_cancelled = total_cancelled.saturating_add(rows.len() as u64);
     }
 
     Ok(total_cancelled)
+}
+
+/// Cancel one batch of pending non-teardown steps for a dispatch and
+/// return the affected `(step_id, step_type)` tuples in a single
+/// round trip via `UPDATE ... RETURNING`.
+///
+/// Backend dispatch chooses between a Postgres variant using
+/// `FOR UPDATE SKIP LOCKED` in the selector subquery (so concurrent
+/// dequeue races yield to the cancel transaction) and a `SQLite` variant
+/// that relies on `BEGIN IMMEDIATE` write-lock semantics.
+async fn cancel_pending_steps_batch_returning(
+    backend: DbBackend,
+    txn: &DatabaseTransaction,
+    dispatch_uuid: uuid::Uuid,
+    now: chrono::DateTime<Utc>,
+) -> Result<Vec<(uuid::Uuid, StepTypeModel)>, StoreError> {
+    let limit = i64::try_from(CANCEL_BATCH_SIZE).map_err(|_| StoreError::Conversion {
+        context: "state_store_cancel::cancel_pending_steps_batch_returning",
+        reason: "CANCEL_BATCH_SIZE exceeds i64::MAX".to_owned(),
+    })?;
+
+    let stmt = match backend {
+        DbBackend::Postgres => postgres_cancel_batch_returning_statement(dispatch_uuid, now, limit),
+        DbBackend::Sqlite => sqlite_cancel_batch_returning_statement(dispatch_uuid, now, limit),
+        DbBackend::MySql => {
+            return Err(StoreError::Conversion {
+                context: "state_store_cancel::cancel_pending_steps_batch_returning",
+                reason: "MySQL is not a supported backend".to_owned(),
+            });
+        }
+    };
+
+    let rows = txn.query_all(stmt).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let step_id: uuid::Uuid = row.try_get("", "step_id")?;
+        let step_type_raw: String = row.try_get("", "step_type")?;
+        let step_type_model = parse_step_type_model(&step_type_raw)?;
+        out.push((step_id, step_type_model));
+    }
+    Ok(out)
+}
+
+fn postgres_cancel_batch_returning_statement(
+    dispatch_uuid: uuid::Uuid,
+    now: chrono::DateTime<Utc>,
+    limit: i64,
+) -> Statement {
+    const SQL: &str = "UPDATE step_projection \
+         SET status = $1, updated_at = $2 \
+         WHERE dispatch_id = $3 \
+           AND status = $4 \
+           AND step_type <> $5 \
+           AND step_id IN ( \
+             SELECT step_id FROM step_projection \
+             WHERE dispatch_id = $3 \
+               AND status = $4 \
+               AND step_type <> $5 \
+             ORDER BY step_id \
+             LIMIT $6 \
+             FOR UPDATE SKIP LOCKED \
+           ) \
+         RETURNING step_id, step_type";
+    Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        SQL,
+        vec![
+            STEP_STATUS_CANCELLED.into(),
+            now.into(),
+            dispatch_uuid.into(),
+            STEP_STATUS_PENDING.into(),
+            STEP_TYPE_TEARDOWN.into(),
+            limit.into(),
+        ],
+    )
+}
+
+fn sqlite_cancel_batch_returning_statement(
+    dispatch_uuid: uuid::Uuid,
+    now: chrono::DateTime<Utc>,
+    limit: i64,
+) -> Statement {
+    // SQLite 3.35+ supports RETURNING. BEGIN IMMEDIATE held by the
+    // surrounding txn serializes writers, so no FOR UPDATE equivalent
+    // is needed here.
+    const SQL: &str = "UPDATE step_projection \
+         SET status = ?, updated_at = ? \
+         WHERE dispatch_id = ? \
+           AND status = ? \
+           AND step_type <> ? \
+           AND step_id IN ( \
+             SELECT step_id FROM step_projection \
+             WHERE dispatch_id = ? \
+               AND status = ? \
+               AND step_type <> ? \
+             ORDER BY step_id \
+             LIMIT ? \
+           ) \
+         RETURNING step_id, step_type";
+    Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        SQL,
+        vec![
+            STEP_STATUS_CANCELLED.into(),
+            now.into(),
+            dispatch_uuid.into(),
+            STEP_STATUS_PENDING.into(),
+            STEP_TYPE_TEARDOWN.into(),
+            dispatch_uuid.into(),
+            STEP_STATUS_PENDING.into(),
+            STEP_TYPE_TEARDOWN.into(),
+            limit.into(),
+        ],
+    )
+}
+
+fn parse_step_type_model(raw: &str) -> Result<StepTypeModel, StoreError> {
+    match raw {
+        "provision" => Ok(StepTypeModel::Provision),
+        "execute" => Ok(StepTypeModel::Execute),
+        "teardown" => Ok(StepTypeModel::Teardown),
+        "dry_run" => Ok(StepTypeModel::DryRun),
+        other => Err(StoreError::Conversion {
+            context: "state_store_cancel::parse_step_type_model",
+            reason: format!("unrecognized step_type string `{other}` in RETURNING"),
+        }),
+    }
 }
 
 fn mint_step_cancelled(

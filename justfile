@@ -148,7 +148,7 @@ build:
 
 # Type-check all workspace crates
 check:
-    @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks --quiet
+    @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet
 
 # ============================================================================
 # Test
@@ -156,11 +156,11 @@ check:
 
 # Run all tests via nextest (pass extra args after --)
 test *args:
-    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks {{ args }}
+    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks,tanren-orchestrator/test-hooks {{ args }}
 
 # Generate code coverage report (lcov)
 coverage:
-    @{{ cargo }} llvm-cov nextest --workspace --features tanren-store/test-hooks --lcov --output-path lcov.info --no-tests=pass
+    @{{ cargo }} llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --lcov --output-path lcov.info --no-tests=pass
     @echo "Coverage report: lcov.info"
 
 # ============================================================================
@@ -169,7 +169,7 @@ coverage:
 
 # Run clippy with deny warnings
 lint:
-    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks --quiet -- -D warnings
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings
 
 # Glob for Rust workspace TOML files (excludes Python pyproject.toml)
 toml_globs := "Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml lefthook.yml"
@@ -188,7 +188,7 @@ fmt-fix:
 fix:
     @{{ cargo }} fmt
     @RUST_LOG=error taplo fmt {{ toml_globs }}
-    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks --fix --allow-dirty --allow-staged --quiet -- -D warnings
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --fix --allow-dirty --allow-staged --quiet -- -D warnings
 
 # ============================================================================
 # Audit & Analysis
@@ -379,9 +379,9 @@ clean:
 
 # Run workflow-equivalent strict Rust checks locally.
 ci-rust-strict:
-    @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks -- -D warnings
-    @RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks --profile ci --no-tests=pass
-    @PGSSLMODE="${PGSSLMODE:-disable}" RUSTFLAGS="-D warnings" {{ cargo }} nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
+    @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks -- -D warnings
+    @RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --no-tests=pass
+    @./scripts/run_postgres_integration.sh
 
 # Run full CI check locally.
 ci: fmt check-lines check-suppression check-deps check-ci-parity deny doc machete ci-rust-strict

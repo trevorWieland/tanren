@@ -1,300 +1,19 @@
 //! Unit-level orchestrator tests with a recording store.
 
-use std::{collections::HashMap, sync::Arc};
-
 #[path = "support/dispatch_fixtures.rs"]
 mod dispatch_fixtures;
+#[path = "support/recording_store.rs"]
+mod recording_store;
 
-use async_trait::async_trait;
-use chrono::Utc;
 use dispatch_fixtures::{sample_actor, sample_command, sample_replay_guard};
+use recording_store::RecordingStore;
 use tanren_domain::{
-    ActorContext, CancelDispatch, Cli, DispatchId, DispatchStatus, DispatchView, DomainError,
-    EntityKind, EntityRef, EventQueryResult, FiniteF64, Lane, OrgId, Outcome, StepPayload,
-    StepReadyState, StepType, UserId, cli_to_lane, read_scope_allows_dispatch_actor,
+    CancelDispatch, Cli, DispatchStatus, DomainError, EntityRef, FiniteF64, Outcome, StepPayload,
+    StepReadyState, StepType, cli_to_lane,
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
-use tanren_store::{
-    AckAndEnqueueParams, AckParams, CancelDispatchParams, CancelPendingStepsParams,
-    CreateDispatchParams, CreateDispatchWithInitialStepParams, DequeueParams, DispatchCursor,
-    DispatchFilter, DispatchQueryPage, EnqueueStepParams, EventFilter, EventStore, JobQueue,
-    NackParams, QueuedStep, StateStore, StoreConflictClass, StoreError, StoreOperation,
-    UpdateDispatchStatusParams,
-};
-use tokio::sync::Mutex;
-
-#[derive(Debug, Default)]
-struct RecordingState {
-    created_dispatches: Vec<CreateDispatchWithInitialStepParams>,
-    cancelled_dispatches: Vec<CancelDispatchParams>,
-    dispatch_status_updates: Vec<UpdateDispatchStatusParams>,
-    policy_decision_events: Vec<tanren_domain::EventEnvelope>,
-    dispatches: HashMap<DispatchId, DispatchView>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct RecordingStore {
-    state: Arc<Mutex<RecordingState>>,
-}
-impl RecordingStore {
-    async fn snapshot(&self) -> RecordingStateSnapshot {
-        let state = self.state.lock().await;
-        RecordingStateSnapshot {
-            created_dispatches: state.created_dispatches.clone(),
-            cancelled_dispatches: state.cancelled_dispatches.clone(),
-            dispatch_status_updates: state.dispatch_status_updates.clone(),
-            policy_decision_events: state.policy_decision_events.clone(),
-            dispatches: state.dispatches.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct RecordingStateSnapshot {
-    created_dispatches: Vec<CreateDispatchWithInitialStepParams>,
-    cancelled_dispatches: Vec<CancelDispatchParams>,
-    dispatch_status_updates: Vec<UpdateDispatchStatusParams>,
-    policy_decision_events: Vec<tanren_domain::EventEnvelope>,
-    dispatches: HashMap<DispatchId, DispatchView>,
-}
-#[async_trait]
-impl EventStore for RecordingStore {
-    async fn query_events(&self, _filter: &EventFilter) -> Result<EventQueryResult, StoreError> {
-        Ok(EventQueryResult {
-            events: vec![],
-            total_count: None,
-            has_more: false,
-            next_cursor: None,
-        })
-    }
-
-    async fn append_policy_decision_event(
-        &self,
-        event: &tanren_domain::EventEnvelope,
-    ) -> Result<(), StoreError> {
-        let mut state = self.state.lock().await;
-        state.policy_decision_events.push(event.clone());
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl JobQueue for RecordingStore {
-    async fn enqueue_step(&self, _params: EnqueueStepParams) -> Result<(), StoreError> {
-        Ok(())
-    }
-
-    async fn dequeue(&self, _params: DequeueParams) -> Result<Option<QueuedStep>, StoreError> {
-        Ok(None)
-    }
-
-    async fn ack(&self, _params: AckParams) -> Result<(), StoreError> {
-        Ok(())
-    }
-
-    async fn ack_and_enqueue(&self, _params: AckAndEnqueueParams) -> Result<(), StoreError> {
-        Ok(())
-    }
-
-    async fn cancel_pending_steps(
-        &self,
-        _params: CancelPendingStepsParams,
-    ) -> Result<u64, StoreError> {
-        Ok(0)
-    }
-
-    async fn nack(&self, _params: NackParams) -> Result<(), StoreError> {
-        Ok(())
-    }
-
-    async fn heartbeat_step(&self, _step_id: &tanren_domain::StepId) -> Result<(), StoreError> {
-        Ok(())
-    }
-
-    async fn recover_stale_steps(&self, _timeout_secs: u64) -> Result<u64, StoreError> {
-        Ok(0)
-    }
-}
-
-#[async_trait]
-impl StateStore for RecordingStore {
-    async fn get_dispatch(&self, id: &DispatchId) -> Result<Option<DispatchView>, StoreError> {
-        let state = self.state.lock().await;
-        Ok(state.dispatches.get(id).cloned())
-    }
-
-    async fn get_dispatch_actor_context_for_cancel_auth(
-        &self,
-        id: &DispatchId,
-    ) -> Result<Option<ActorContext>, StoreError> {
-        let state = self.state.lock().await;
-        Ok(state
-            .dispatches
-            .get(id)
-            .map(|dispatch| dispatch.actor.clone()))
-    }
-
-    async fn get_dispatch_scoped(
-        &self,
-        id: &DispatchId,
-        scope: tanren_domain::DispatchReadScope,
-    ) -> Result<Option<DispatchView>, StoreError> {
-        let state = self.state.lock().await;
-        Ok(state
-            .dispatches
-            .get(id)
-            .cloned()
-            .filter(|view| read_scope_allows_dispatch_actor(scope, &view.actor)))
-    }
-
-    async fn query_dispatches(
-        &self,
-        filter: &DispatchFilter,
-    ) -> Result<DispatchQueryPage, StoreError> {
-        let state = self.state.lock().await;
-        let mut dispatches: Vec<DispatchView> = state.dispatches.values().cloned().collect();
-        if let Some(status) = filter.status {
-            dispatches.retain(|view| view.status == status);
-        }
-        if let Some(lane) = filter.lane {
-            dispatches.retain(|view| view.lane == lane);
-        }
-        if let Some(ref project) = filter.project {
-            dispatches.retain(|view| view.dispatch.project.as_str() == project.as_str());
-        }
-        if let Some(user_id) = filter.user_id {
-            dispatches.retain(|view| view.actor.user_id == user_id);
-        }
-        if let Some(scope) = filter.read_scope {
-            dispatches.retain(|view| read_scope_allows_dispatch_actor(scope, &view.actor));
-        }
-        dispatches.sort_by(|a, b| {
-            b.created_at
-                .cmp(&a.created_at)
-                .then_with(|| b.dispatch_id.into_uuid().cmp(&a.dispatch_id.into_uuid()))
-        });
-
-        if let Some(cursor) = filter.cursor {
-            dispatches.retain(|view| {
-                view.created_at < cursor.created_at
-                    || (view.created_at == cursor.created_at
-                        && view.dispatch_id.into_uuid() < cursor.dispatch_id.into_uuid())
-            });
-        }
-
-        let limit = usize::try_from(filter.limit).unwrap_or(usize::MAX);
-        let mut next_cursor = None;
-        if dispatches.len() > limit {
-            let cursor_row = dispatches
-                .get(limit.saturating_sub(1))
-                .expect("limit > 0 guarded by default filter");
-            next_cursor = Some(DispatchCursor {
-                created_at: cursor_row.created_at,
-                dispatch_id: cursor_row.dispatch_id,
-            });
-            dispatches.truncate(limit);
-        }
-
-        Ok(DispatchQueryPage {
-            dispatches,
-            next_cursor,
-        })
-    }
-
-    async fn get_step(
-        &self,
-        _id: &tanren_domain::StepId,
-    ) -> Result<Option<tanren_domain::StepView>, StoreError> {
-        Ok(None)
-    }
-
-    async fn get_steps_for_dispatch(
-        &self,
-        _dispatch_id: &DispatchId,
-    ) -> Result<Vec<tanren_domain::StepView>, StoreError> {
-        Ok(vec![])
-    }
-
-    async fn count_running_steps(&self, _lane: Option<&Lane>) -> Result<u64, StoreError> {
-        Ok(0)
-    }
-
-    async fn create_dispatch_projection(
-        &self,
-        _params: CreateDispatchParams,
-    ) -> Result<(), StoreError> {
-        Err(StoreError::Conflict {
-            class: StoreConflictClass::Contention,
-            operation: StoreOperation::UpdateDispatchStatus,
-            reason: "unexpected path: create_dispatch_projection".to_owned(),
-        })
-    }
-
-    async fn create_dispatch_with_initial_step(
-        &self,
-        params: CreateDispatchWithInitialStepParams,
-    ) -> Result<(), StoreError> {
-        let mut state = self.state.lock().await;
-        state.created_dispatches.push(params.clone());
-        let dispatch = &params.dispatch;
-        let view = DispatchView {
-            dispatch_id: dispatch.dispatch_id,
-            mode: dispatch.mode,
-            status: DispatchStatus::Pending,
-            outcome: None,
-            lane: dispatch.lane,
-            dispatch: Box::new(dispatch.dispatch.clone()),
-            actor: dispatch.actor.clone(),
-            graph_revision: dispatch.graph_revision,
-            created_at: dispatch.created_at,
-            updated_at: dispatch.created_at,
-        };
-        state.dispatches.insert(dispatch.dispatch_id, view);
-        Ok(())
-    }
-
-    async fn cancel_dispatch(&self, params: CancelDispatchParams) -> Result<u64, StoreError> {
-        let mut state = self.state.lock().await;
-        let view = state
-            .dispatches
-            .get_mut(&params.dispatch_id)
-            .ok_or(StoreError::NotFound {
-                entity_kind: EntityKind::Dispatch,
-                id: params.dispatch_id.to_string(),
-            })?;
-        view.status = DispatchStatus::Cancelled;
-        view.updated_at = Utc::now();
-        state.cancelled_dispatches.push(params);
-        Ok(1)
-    }
-
-    async fn update_dispatch_status(
-        &self,
-        params: UpdateDispatchStatusParams,
-    ) -> Result<(), StoreError> {
-        let mut state = self.state.lock().await;
-        let view = state
-            .dispatches
-            .get_mut(&params.dispatch_id)
-            .ok_or(StoreError::NotFound {
-                entity_kind: EntityKind::Dispatch,
-                id: params.dispatch_id.to_string(),
-            })?;
-        if !view.status.can_transition_to(params.status) {
-            return Err(StoreError::InvalidTransition {
-                entity: format!("dispatch {}", params.dispatch_id),
-                from: view.status.to_string(),
-                to: params.status.to_string(),
-            });
-        }
-        view.status = params.status;
-        view.outcome = params.outcome;
-        view.updated_at = Utc::now();
-        state.dispatch_status_updates.push(params);
-        Ok(())
-    }
-}
+use tanren_store::{DispatchFilter, StoreError};
 
 #[tokio::test]
 async fn create_dispatch_records_atomic_store_operation() {
@@ -414,7 +133,7 @@ async fn cancel_nonexistent_dispatch_returns_not_found() {
         .cancel_dispatch(
             CancelDispatch {
                 actor: sample_actor(),
-                dispatch_id: DispatchId::new(),
+                dispatch_id: tanren_domain::DispatchId::new(),
                 reason: None,
             },
             sample_replay_guard(),
@@ -449,7 +168,10 @@ async fn cancel_dispatch_hides_actor_scope_mismatch_as_not_found() {
     let err = orch
         .cancel_dispatch(
             CancelDispatch {
-                actor: ActorContext::new(OrgId::new(), UserId::new()),
+                actor: tanren_domain::ActorContext::new(
+                    tanren_domain::OrgId::new(),
+                    tanren_domain::UserId::new(),
+                ),
                 dispatch_id: created.dispatch_id,
                 reason: Some("mismatch".to_owned()),
             },
@@ -495,4 +217,166 @@ async fn list_dispatches_applies_filters_without_store_sql_knowledge() {
     assert_eq!(page.dispatches.len(), 1);
     assert_eq!(page.dispatches[0].dispatch_id, created.dispatch_id);
     assert_eq!(page.dispatches[0].status, DispatchStatus::Pending);
+}
+
+#[tokio::test]
+async fn denied_create_consumes_replay_guard_atomically() {
+    let store = RecordingStore::default();
+    let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
+
+    let mut cmd = sample_command(sample_actor());
+    cmd.mode = tanren_domain::DispatchMode::Auto;
+    cmd.preserve_on_failure = true;
+
+    let replay = sample_replay_guard();
+    let err = orch
+        .create_dispatch(cmd, replay.clone())
+        .await
+        .expect_err("policy should deny");
+    assert!(matches!(err, OrchestratorError::PolicyDenied { .. }));
+
+    let snapshot = store.snapshot().await;
+    assert_eq!(snapshot.policy_decision_events.len(), 1);
+    assert!(
+        snapshot.consumed_replay_jtis.contains(&replay.jti),
+        "denied create must consume replay jti"
+    );
+}
+
+#[tokio::test]
+async fn denied_create_replayed_jti_is_rejected_as_replay() {
+    let store = RecordingStore::default();
+    let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
+    let replay = sample_replay_guard();
+
+    let mut cmd = sample_command(sample_actor());
+    cmd.mode = tanren_domain::DispatchMode::Auto;
+    cmd.preserve_on_failure = true;
+
+    let _first = orch
+        .create_dispatch(cmd.clone(), replay.clone())
+        .await
+        .expect_err("first denied call");
+
+    let second = orch
+        .create_dispatch(cmd, replay)
+        .await
+        .expect_err("second call reusing jti must be replay-rejected");
+    assert!(
+        matches!(second, OrchestratorError::Store(StoreError::ReplayRejected)),
+        "expected ReplayRejected, got {second:?}"
+    );
+
+    let snapshot = store.snapshot().await;
+    assert_eq!(snapshot.policy_decision_events.len(), 1);
+}
+
+#[tokio::test]
+async fn denied_cancel_consumes_replay_guard_atomically() {
+    let store = RecordingStore::default();
+    let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
+    let created = orch
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
+        .await
+        .expect("create");
+
+    let replay = sample_replay_guard();
+    let err = orch
+        .cancel_dispatch(
+            CancelDispatch {
+                actor: tanren_domain::ActorContext::new(
+                    tanren_domain::OrgId::new(),
+                    tanren_domain::UserId::new(),
+                ),
+                dispatch_id: created.dispatch_id,
+                reason: Some("mismatch".to_owned()),
+            },
+            replay.clone(),
+        )
+        .await
+        .expect_err("cancel should fail");
+    assert!(matches!(
+        err,
+        OrchestratorError::Domain(DomainError::NotFound {
+            entity: EntityRef::Dispatch(_),
+        })
+    ));
+
+    let snapshot = store.snapshot().await;
+    assert!(snapshot.consumed_replay_jtis.contains(&replay.jti));
+    assert!(snapshot.cancelled_dispatches.is_empty());
+}
+
+#[tokio::test]
+async fn denied_cancel_replayed_jti_is_rejected_as_replay() {
+    let store = RecordingStore::default();
+    let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
+    let created = orch
+        .create_dispatch(sample_command(sample_actor()), sample_replay_guard())
+        .await
+        .expect("create");
+
+    let replay = sample_replay_guard();
+    let foreign_actor =
+        tanren_domain::ActorContext::new(tanren_domain::OrgId::new(), tanren_domain::UserId::new());
+
+    let _first = orch
+        .cancel_dispatch(
+            CancelDispatch {
+                actor: foreign_actor.clone(),
+                dispatch_id: created.dispatch_id,
+                reason: Some("denied first".to_owned()),
+            },
+            replay.clone(),
+        )
+        .await
+        .expect_err("first denied cancel");
+
+    let second = orch
+        .cancel_dispatch(
+            CancelDispatch {
+                actor: foreign_actor,
+                dispatch_id: created.dispatch_id,
+                reason: Some("denied second".to_owned()),
+            },
+            replay,
+        )
+        .await
+        .expect_err("second denied cancel");
+    assert!(
+        matches!(second, OrchestratorError::Store(StoreError::ReplayRejected)),
+        "expected ReplayRejected, got {second:?}"
+    );
+
+    let snapshot = store.snapshot().await;
+    assert_eq!(snapshot.policy_decision_events.len(), 1);
+}
+
+#[tokio::test]
+async fn missing_cancel_consumes_replay_guard_atomically() {
+    let store = RecordingStore::default();
+    let orch = Orchestrator::new(store.clone(), PolicyEngine::new());
+
+    let replay = sample_replay_guard();
+    let err = orch
+        .cancel_dispatch(
+            CancelDispatch {
+                actor: sample_actor(),
+                dispatch_id: tanren_domain::DispatchId::new(),
+                reason: None,
+            },
+            replay.clone(),
+        )
+        .await
+        .expect_err("missing cancel should return not-found");
+    assert!(matches!(
+        err,
+        OrchestratorError::Domain(DomainError::NotFound {
+            entity: EntityRef::Dispatch(_),
+        })
+    ));
+
+    let snapshot = store.snapshot().await;
+    assert_eq!(snapshot.policy_decision_events.len(), 1);
+    assert!(snapshot.consumed_replay_jtis.contains(&replay.jti));
 }

@@ -25,7 +25,9 @@
 mod dispatch;
 pub mod error;
 
+use tanren_domain::EventQueryResult;
 use tanren_policy::PolicyEngine;
+use tanren_store::{EventFilter, EventStore};
 
 pub use error::OrchestratorError;
 
@@ -45,11 +47,36 @@ impl<S> Orchestrator<S> {
     pub fn new(store: S, policy: PolicyEngine) -> Self {
         Self { store, policy }
     }
+}
 
-    /// Borrow the underlying store.
+impl<S> Orchestrator<S>
+where
+    S: EventStore,
+{
+    /// Read-only projection over the audit event log, scoped by filter.
     ///
-    /// Useful for the composition root and for querying events in tests.
-    pub fn store(&self) -> &S {
+    /// This is the only domain-safe way to reach the event log from
+    /// outside the orchestrator. Callers cannot bypass policy or
+    /// lifecycle invariants through this API because `EventStore` is a
+    /// read-only trait surface.
+    pub async fn query_events(
+        &self,
+        filter: &EventFilter,
+    ) -> Result<EventQueryResult, OrchestratorError> {
+        Ok(self.store.query_events(filter).await?)
+    }
+}
+
+#[cfg(feature = "test-hooks")]
+impl<S> Orchestrator<S> {
+    /// Test-only escape hatch returning the raw store handle.
+    ///
+    /// This bypasses the orchestrator's policy/lifecycle invariants and
+    /// must never be enabled in production. It is gated behind the
+    /// crate-level `test-hooks` feature so downstream callers cannot
+    /// accidentally reach it.
+    #[must_use]
+    pub const fn store_for_tests(&self) -> &S {
         &self.store
     }
 }

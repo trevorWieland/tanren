@@ -5,15 +5,18 @@
 //! mapping `OrchestratorError` (which wraps `StoreError` and
 //! `DomainError`) to `ContractError`.
 
-use tanren_contract::{ContractError, internal_error_response_with_correlation};
-use tanren_observability::{ObservabilityError, emit_correlated_internal_error};
+use tanren_contract::ContractError;
+use tanren_observability::{
+    ObservabilityError, emit_and_build_internal_error_response,
+    emit_and_build_internal_error_response_with_emitter,
+};
 use tanren_orchestrator::OrchestratorError;
 use tanren_store::{StoreConflictClass, StoreError};
-use uuid::Uuid;
 
 use crate::auth::AuthFailureKind;
 
-type EmitCorrelatedInternalError = fn(&str, &str, Uuid, &str) -> Result<(), ObservabilityError>;
+type EmitCorrelatedInternalError =
+    fn(&str, &str, uuid::Uuid, &str) -> Result<(), ObservabilityError>;
 
 /// Map an orchestrator error to a wire-safe contract error response.
 pub fn map_orchestrator_error(err: OrchestratorError) -> tanren_contract::ErrorResponse {
@@ -79,6 +82,13 @@ pub fn map_store_error(err: &StoreError) -> tanren_contract::ErrorResponse {
 }
 
 fn auth_failure_response(kind: AuthFailureKind) -> tanren_contract::ErrorResponse {
+    auth_failure_response_with_emitter(kind, tanren_observability::emit_correlated_internal_error)
+}
+
+fn auth_failure_response_with_emitter(
+    kind: AuthFailureKind,
+    emitter: EmitCorrelatedInternalError,
+) -> tanren_contract::ErrorResponse {
     match kind {
         AuthFailureKind::InvalidToken | AuthFailureKind::ReplayRejected => {
             tanren_contract::ErrorResponse::from(ContractError::InvalidField {
@@ -86,11 +96,12 @@ fn auth_failure_response(kind: AuthFailureKind) -> tanren_contract::ErrorRespons
                 reason: "token validation failed".to_owned(),
             })
         }
-        AuthFailureKind::BackendFailure => tanren_contract::ErrorResponse {
-            code: tanren_contract::ErrorCode::Internal,
-            message: "internal error".to_owned(),
-            details: None,
-        },
+        AuthFailureKind::BackendFailure => emit_and_build_internal_error_response_with_emitter(
+            "tanren_app_services",
+            "auth_backend_failure",
+            "auth backend failure",
+            emitter,
+        ),
     }
 }
 
@@ -99,23 +110,17 @@ fn correlated_internal_error_response(
     error_code: &str,
     raw_error: &str,
 ) -> tanren_contract::ErrorResponse {
-    correlated_internal_error_response_with_emitter(
-        component,
-        error_code,
-        raw_error,
-        emit_correlated_internal_error,
-    )
+    emit_and_build_internal_error_response(component, error_code, raw_error)
 }
 
+#[cfg(test)]
 fn correlated_internal_error_response_with_emitter(
     component: &str,
     error_code: &str,
     raw_error: &str,
     emitter: EmitCorrelatedInternalError,
 ) -> tanren_contract::ErrorResponse {
-    internal_error_response_with_correlation::<ObservabilityError>(|correlation_id| {
-        emitter(component, error_code, correlation_id, raw_error)
-    })
+    emit_and_build_internal_error_response_with_emitter(component, error_code, raw_error, emitter)
 }
 
 #[cfg(test)]
@@ -305,5 +310,74 @@ mod tests {
             mapped.message,
             "invalid field `actor_token`: token validation failed"
         );
+    }
+
+    /// Test emitter that fails only when given the sentinel raw-error
+    /// text, so both the sink-success and sink-failure paths can be
+    /// exercised from the same function pointer type (required by the
+    /// `fn` signature of the emitter).
+    fn sink_toggling_emitter(
+        _component: &str,
+        _error_code: &str,
+        _correlation_id: uuid::Uuid,
+        raw_error: &str,
+    ) -> Result<(), tanren_observability::ObservabilityError> {
+        if raw_error == "__force_sink_error__" {
+            return Err(tanren_observability::ObservabilityError::SinkIo(
+                "disk full".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn auth_backend_failure_emits_correlation_id_when_sink_persists() {
+        let mapped = super::auth_failure_response_with_emitter(
+            super::AuthFailureKind::BackendFailure,
+            sink_toggling_emitter,
+        );
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::Internal);
+        assert_eq!(mapped.message, "internal error");
+        let details = mapped.details.expect("details");
+        assert!(
+            matches!(
+                details,
+                tanren_contract::ErrorDetails::Internal { correlation_id }
+                if correlation_id != uuid::Uuid::nil()
+            ),
+            "expected typed internal details, got: {details:?}"
+        );
+    }
+
+    #[test]
+    fn auth_backend_failure_omits_correlation_id_when_sink_fails() {
+        // Build the same response via the consolidated observability
+        // helper's with_emitter hook, using an emitter that always
+        // reports a sink failure for a sentinel raw_error. We must go
+        // through the contract-level helper directly to exercise this
+        // path, because `auth_failure_response_with_emitter` constructs
+        // the raw_error internally.
+        let mapped = tanren_observability::emit_and_build_internal_error_response_with_emitter(
+            "tanren_app_services",
+            "auth_backend_failure",
+            "__force_sink_error__",
+            sink_toggling_emitter,
+        );
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::Internal);
+        assert_eq!(mapped.message, "internal error");
+        assert!(
+            mapped.details.is_none(),
+            "correlation_id must be omitted when sink persistence fails"
+        );
+    }
+
+    #[test]
+    fn auth_invalid_token_stays_generic_without_correlation() {
+        let mapped = super::auth_failure_response_with_emitter(
+            super::AuthFailureKind::InvalidToken,
+            sink_toggling_emitter,
+        );
+        assert_eq!(mapped.code, tanren_contract::ErrorCode::InvalidInput);
+        assert!(mapped.details.is_none());
     }
 }

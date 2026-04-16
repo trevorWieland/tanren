@@ -1,9 +1,13 @@
 #![cfg(all(feature = "test-hooks", feature = "postgres-integration"))]
 
+#[path = "common/support_postgres.rs"]
+mod support_postgres;
+
 use std::sync::Arc;
 
 use chrono::Utc;
 use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
+use support_postgres::postgres_fixture;
 use tanren_domain::{
     ActorContext, AuthMode, Cli, ConfigKeys, DispatchId, DispatchMode, DispatchReadScope,
     DispatchSnapshot, DispatchStatus, DomainEvent, EventEnvelope, EventId, GraphRevision, Lane,
@@ -15,55 +19,7 @@ use tanren_store::{
     ReplayGuard, StateStore, Store, StoreConflictClass, StoreError, UpdateDispatchStatusParams,
     dispatch_query_statement_for_backend,
 };
-use testcontainers::ContainerAsync;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres as PostgresImage;
 use uuid::Uuid;
-
-struct Fixture {
-    _container: Option<ContainerAsync<PostgresImage>>,
-    store: Store,
-    url: String,
-}
-
-async fn postgres_fixture() -> Fixture {
-    if let Ok(url) = std::env::var("TANREN_TEST_POSTGRES_URL") {
-        reset_schema(&url).await;
-        let store = migrate_fresh(&url).await;
-        Fixture {
-            _container: None,
-            store,
-            url,
-        }
-    } else {
-        let container = PostgresImage::default()
-            .start()
-            .await
-            .expect("start postgres container");
-        let host = container.get_host().await.expect("host");
-        let port = container.get_host_port_ipv4(5432).await.expect("port");
-        let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
-        let store = migrate_fresh(&url).await;
-        Fixture {
-            _container: Some(container),
-            store,
-            url,
-        }
-    }
-}
-
-async fn migrate_fresh(url: &str) -> Store {
-    let store = Store::new(url).await.expect("connect to postgres");
-    store.run_migrations().await.expect("run migrations");
-    store
-}
-
-async fn reset_schema(url: &str) {
-    let conn = Database::connect(url).await.expect("bootstrap connect");
-    conn.execute_unprepared("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
-        .await
-        .expect("reset schema");
-}
 
 fn actor() -> ActorContext {
     ActorContext::new(OrgId::new(), UserId::new())

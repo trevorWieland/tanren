@@ -10,7 +10,7 @@ use tanren_domain::{
 };
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
-use tanren_store::{DispatchFilter, EventFilter, EventStore, StateStore, Store, StoreError};
+use tanren_store::{DispatchFilter, EventFilter, StateStore, Store, StoreError};
 
 async fn setup() -> Orchestrator<Store> {
     let store = Store::open_and_migrate("sqlite::memory:")
@@ -78,7 +78,7 @@ async fn create_dispatch_enqueues_provision_step() {
         .expect("create");
 
     let steps = orch
-        .store()
+        .store_for_tests()
         .get_steps_for_dispatch(&created.dispatch_id)
         .await
         .expect("steps");
@@ -249,7 +249,7 @@ async fn create_emits_dispatch_created_and_step_enqueued() {
         entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
         ..EventFilter::new()
     };
-    let result = orch.store().query_events(&filter).await.expect("events");
+    let result = orch.query_events(&filter).await.expect("events");
 
     assert_eq!(
         result.events.len(),
@@ -298,7 +298,7 @@ async fn cancel_emits_dispatch_cancelled_not_failed() {
         entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
         ..EventFilter::new()
     };
-    let result = orch.store().query_events(&filter).await.expect("events");
+    let result = orch.query_events(&filter).await.expect("events");
 
     // Create: DispatchCreated + StepEnqueued
     // Cancel: StepCancelled + DispatchCancelled = 4 total
@@ -362,7 +362,6 @@ async fn finalize_success_emits_dispatch_completed() {
     assert_eq!(view.outcome, Some(Outcome::Success));
 
     let events = orch
-        .store()
         .query_events(&EventFilter {
             entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
             ..EventFilter::new()
@@ -418,7 +417,6 @@ async fn finalize_non_success_outcomes_emit_dispatch_failed() {
         assert_eq!(view.outcome, Some(outcome));
 
         let events = orch
-            .store()
             .query_events(&EventFilter {
                 entity_ref: Some(EntityRef::Dispatch(created.dispatch_id)),
                 ..EventFilter::new()

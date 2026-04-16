@@ -2,6 +2,9 @@
 
 mod common;
 
+#[path = "common/support_postgres.rs"]
+mod support_postgres;
+
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,56 +16,9 @@ use common::{
     seed_steps, snapshot, step_completed_event, try_dequeue, update_dispatch_status_params,
 };
 use sea_orm::{ConnectionTrait, Database};
+use support_postgres::postgres_fixture;
 use tanren_domain::{DispatchStatus, DomainEvent, Lane, StepId, StepPayload, StepType};
-use tanren_store::{EventFilter, EventStore, JobQueue, StateStore, Store};
-use testcontainers::ContainerAsync;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres as PostgresImage;
-
-struct Fixture {
-    _container: Option<ContainerAsync<PostgresImage>>,
-    url: String,
-    store: Store,
-}
-
-async fn postgres_fixture() -> Fixture {
-    if let Ok(url) = std::env::var("TANREN_TEST_POSTGRES_URL") {
-        reset_schema(&url).await;
-        let store = migrate_fresh(&url).await;
-        Fixture {
-            _container: None,
-            url,
-            store,
-        }
-    } else {
-        let container = PostgresImage::default()
-            .start()
-            .await
-            .expect("start postgres container");
-        let host = container.get_host().await.expect("host");
-        let port = container.get_host_port_ipv4(5432).await.expect("port");
-        let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
-        let store = migrate_fresh(&url).await;
-        Fixture {
-            _container: Some(container),
-            url,
-            store,
-        }
-    }
-}
-
-async fn migrate_fresh(url: &str) -> Store {
-    let store = Store::new(url).await.expect("connect to postgres");
-    store.run_migrations().await.expect("run migrations");
-    store
-}
-
-async fn reset_schema(url: &str) {
-    let conn = Database::connect(url).await.expect("bootstrap connect");
-    conn.execute_unprepared("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
-        .await
-        .expect("reset schema");
-}
+use tanren_store::{EventFilter, EventStore, JobQueue, StateStore};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn full_lifecycle_passes_on_postgres() {
