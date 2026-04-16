@@ -11,15 +11,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_domain::{
-    ActorContext, DispatchId, DispatchStatus, DispatchView, EntityKind, EventEnvelope,
-    EventQueryResult, Lane, read_scope_allows_dispatch_actor,
+    ActorContext, DispatchId, DispatchStatus, DispatchSummary, DispatchView, EntityKind,
+    EventEnvelope, EventQueryResult, Lane, read_scope_allows_dispatch_actor,
 };
 use tanren_store::{
     AckAndEnqueueParams, AckParams, CancelDispatchParams, CancelPendingStepsParams,
     CreateDispatchParams, CreateDispatchWithInitialStepParams, DequeueParams, DispatchCursor,
-    DispatchFilter, DispatchQueryPage, EnqueueStepParams, EventFilter, EventStore, JobQueue,
-    NackParams, QueuedStep, ReplayGuard, StateStore, StoreConflictClass, StoreError,
-    StoreOperation, UpdateDispatchStatusParams,
+    DispatchFilter, DispatchQueryPage, DispatchSummaryQueryPage, EnqueueStepParams, EventFilter,
+    EventStore, JobQueue, NackParams, QueuedStep, ReplayGuard, StateStore, StoreConflictClass,
+    StoreError, StoreOperation, UpdateDispatchStatusParams,
 };
 use tokio::sync::Mutex;
 
@@ -216,6 +216,17 @@ impl StateStore for RecordingStore {
         })
     }
 
+    async fn query_dispatch_summaries(
+        &self,
+        filter: &DispatchFilter,
+    ) -> Result<DispatchSummaryQueryPage, StoreError> {
+        let page = self.query_dispatches(filter).await?;
+        Ok(DispatchSummaryQueryPage {
+            summaries: page.dispatches.iter().map(view_to_summary).collect(),
+            next_cursor: page.next_cursor,
+        })
+    }
+
     async fn get_step(
         &self,
         _id: &tanren_domain::StepId,
@@ -319,5 +330,18 @@ impl StateStore for RecordingStore {
         view.updated_at = Utc::now();
         state.dispatch_status_updates.push(params);
         Ok(())
+    }
+}
+
+fn view_to_summary(view: &DispatchView) -> DispatchSummary {
+    DispatchSummary {
+        dispatch_id: view.dispatch_id,
+        mode: view.mode,
+        status: view.status,
+        outcome: view.outcome,
+        lane: view.lane,
+        project: view.dispatch.project.clone(),
+        created_at: view.created_at,
+        updated_at: view.updated_at,
     }
 }

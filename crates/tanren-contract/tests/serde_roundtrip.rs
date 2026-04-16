@@ -6,8 +6,9 @@ use chrono::Utc;
 use tanren_contract::{
     AuthMode, CancelDispatchRequest, Cli, ContractError, CreateDispatchRequest,
     DispatchCursorToken, DispatchListFilter, DispatchListResponse, DispatchMode, DispatchResponse,
-    DispatchStatus, ErrorCode, ErrorDetails, ErrorResponse, Lane, Outcome, Phase, StepReadyState,
-    StepResponse, StepStatus, StepType, cancel_dispatch_from_request, create_dispatch_from_request,
+    DispatchStatus, DispatchSummaryResponse, ErrorCode, ErrorDetails, ErrorResponse, Lane, Outcome,
+    Phase, StepReadyState, StepResponse, StepStatus, StepType, cancel_dispatch_from_request,
+    create_dispatch_from_request,
 };
 use tanren_domain::{ActorContext, OrgId, UserId};
 use uuid::Uuid;
@@ -58,6 +59,19 @@ fn sample_dispatch_response() -> DispatchResponse {
         project_env_keys: vec!["KEY".to_owned()],
         required_secrets: vec!["SECRET_1".to_owned()],
         preserve_on_failure: true,
+        outcome: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+fn sample_dispatch_summary_response() -> DispatchSummaryResponse {
+    DispatchSummaryResponse {
+        dispatch_id: Uuid::now_v7(),
+        status: DispatchStatus::Pending,
+        mode: DispatchMode::Manual,
+        lane: Lane::Impl,
+        project: "my-project".to_owned(),
         outcome: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -181,9 +195,27 @@ fn dispatch_list_filter_rejects_unknown_fields() {
 }
 
 #[test]
+fn dispatch_summary_response_roundtrip() {
+    let resp = sample_dispatch_summary_response();
+    let json = serde_json::to_string(&resp).expect("serialize");
+    let back: DispatchSummaryResponse = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(resp, back);
+}
+
+#[test]
+fn dispatch_summary_response_skips_none_outcome_on_serialize() {
+    let resp = sample_dispatch_summary_response();
+    let json = serde_json::to_string(&resp).expect("serialize");
+    assert!(
+        !json.contains("\"outcome\""),
+        "None outcome must be skipped on serialize: {json}"
+    );
+}
+
+#[test]
 fn dispatch_list_response_roundtrip() {
     let resp = DispatchListResponse {
-        dispatches: vec![sample_dispatch_response()],
+        dispatches: vec![sample_dispatch_summary_response()],
         next_cursor: Some(DispatchCursorToken::new(Utc::now(), Uuid::now_v7())),
     };
     let json = serde_json::to_string(&resp).expect("serialize");

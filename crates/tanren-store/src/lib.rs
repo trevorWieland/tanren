@@ -34,6 +34,7 @@ mod params;
 mod sql_tags;
 mod state_store;
 mod state_store_cancel;
+mod state_store_summary;
 mod store;
 mod token_replay_store;
 
@@ -45,7 +46,7 @@ pub use params::{
     AckAndEnqueueParams, AckParams, CancelDispatchParams, CancelPendingStepsParams,
     ConsumeActorTokenJtiParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
     DEFAULT_QUERY_LIMIT, DequeueParams, DispatchCursor, DispatchFilter, DispatchQueryPage,
-    EnqueueStepParams, EventFilter, MAX_DISPATCH_QUERY_LIMIT, NackParams,
+    DispatchSummaryQueryPage, EnqueueStepParams, EventFilter, MAX_DISPATCH_QUERY_LIMIT, NackParams,
     PurgeExpiredActorTokenJtisParams, QueuedStep, ReplayGuard, UpdateDispatchStatusParams,
 };
 pub use state_store::StateStore;

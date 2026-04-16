@@ -11,6 +11,26 @@ use crate::payloads::{DispatchSnapshot, StepPayload, StepResult};
 use crate::status::{
     DispatchMode, DispatchStatus, Lane, Outcome, StepReadyState, StepStatus, StepType,
 };
+use crate::validated::NonEmptyString;
+
+/// Lean read projection of a dispatch for list paths.
+///
+/// Intentionally **does not** carry the full [`DispatchSnapshot`] or
+/// [`ActorContext`] — list queries pay no JSON decode cost per row.
+/// Detail views (see [`DispatchView`]) continue to carry the full
+/// snapshot for single-entity reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchSummary {
+    pub dispatch_id: DispatchId,
+    pub mode: DispatchMode,
+    pub status: DispatchStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+    pub lane: Lane,
+    pub project: NonEmptyString,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
 
 /// Read projection of a dispatch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

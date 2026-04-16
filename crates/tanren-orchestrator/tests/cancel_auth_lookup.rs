@@ -18,8 +18,8 @@ use tanren_policy::PolicyEngine;
 use tanren_store::{
     AckAndEnqueueParams, AckParams, CancelDispatchParams, CancelPendingStepsParams,
     CreateDispatchParams, CreateDispatchWithInitialStepParams, DequeueParams, DispatchFilter,
-    DispatchQueryPage, EnqueueStepParams, EventFilter, EventStore, JobQueue, NackParams,
-    QueuedStep, StateStore, StoreConflictClass, StoreError, StoreOperation,
+    DispatchQueryPage, DispatchSummaryQueryPage, EnqueueStepParams, EventFilter, EventStore,
+    JobQueue, NackParams, QueuedStep, StateStore, StoreConflictClass, StoreError, StoreOperation,
     UpdateDispatchStatusParams,
 };
 use tokio::sync::Mutex;
@@ -146,6 +146,16 @@ impl StateStore for PanicOnGetDispatchStore {
     ) -> Result<DispatchQueryPage, StoreError> {
         Ok(DispatchQueryPage {
             dispatches: vec![],
+            next_cursor: None,
+        })
+    }
+
+    async fn query_dispatch_summaries(
+        &self,
+        _filter: &DispatchFilter,
+    ) -> Result<DispatchSummaryQueryPage, StoreError> {
+        Ok(DispatchSummaryQueryPage {
+            summaries: vec![],
             next_cursor: None,
         })
     }

@@ -226,6 +226,43 @@ fn sqlite_lifecycle_create_get_list_cancel_is_consistent() {
         .expect("created dispatch should be listed before cancel");
     assert_eq!(pending_entry["status"], "pending");
 
+    // The list wire shape is intentionally slim (DispatchSummaryResponse);
+    // heavy JSON-snapshot fields must only appear on `dispatch get`.
+    let expected_list_keys: std::collections::BTreeSet<&str> = [
+        "dispatch_id",
+        "status",
+        "mode",
+        "lane",
+        "project",
+        "outcome",
+        "created_at",
+        "updated_at",
+    ]
+    .into_iter()
+    .collect();
+    let actual_keys: std::collections::BTreeSet<&str> = pending_entry
+        .as_object()
+        .expect("summary object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert!(
+        actual_keys.is_subset(&expected_list_keys),
+        "list item contains heavy fields (JSON decode regression?): {actual_keys:?}"
+    );
+    for heavy in ["phase", "cli", "branch", "workflow_id", "project_env_keys"] {
+        assert!(
+            pending_entry.get(heavy).is_none(),
+            "list item must not carry heavy field `{heavy}`"
+        );
+    }
+
+    // `dispatch get` must still carry the full heavy payload.
+    assert!(
+        get_before_cancel.get("phase").is_some(),
+        "`dispatch get` must still return the full snapshot fields"
+    );
+
     let cancel_result = cancel_dispatch(&db_url, &dispatch_id, &auth_harness_with_org(org_id));
     assert_eq!(cancel_result["status"], "cancelled");
 

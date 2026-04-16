@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use tanren_domain::{DispatchView, StepView};
+use tanren_domain::{DispatchSummary, DispatchView, StepView};
 
 use crate::enums::{
     AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Outcome, Phase, StepReadyState, StepStatus,
@@ -50,10 +50,31 @@ pub struct DispatchResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Lean dispatch shape returned by list endpoints.
+///
+/// Carries only scalar dispatch fields that are already denormalized
+/// in the store projection table. Heavy snapshot fields (`phase`,
+/// `cli`, `branch`, `workflow_id`, …) are intentionally absent so
+/// list traffic does not pay a full JSON-snapshot decode per row.
+/// Use [`DispatchResponse`] (returned by `dispatch get`) when the
+/// full snapshot is required.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchSummaryResponse {
+    pub dispatch_id: Uuid,
+    pub status: DispatchStatus,
+    pub mode: DispatchMode,
+    pub lane: Lane,
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Response containing a list of dispatches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DispatchListResponse {
-    pub dispatches: Vec<DispatchResponse>,
+    pub dispatches: Vec<DispatchSummaryResponse>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<DispatchCursorToken>,
 }
@@ -103,6 +124,21 @@ impl From<DispatchView> for DispatchResponse {
             outcome: view.outcome.map(Into::into),
             created_at: view.created_at,
             updated_at: view.updated_at,
+        }
+    }
+}
+
+impl From<DispatchSummary> for DispatchSummaryResponse {
+    fn from(summary: DispatchSummary) -> Self {
+        Self {
+            dispatch_id: summary.dispatch_id.into_uuid(),
+            status: summary.status.into(),
+            mode: summary.mode.into(),
+            lane: summary.lane.into(),
+            project: summary.project.as_str().to_owned(),
+            outcome: summary.outcome.map(Into::into),
+            created_at: summary.created_at,
+            updated_at: summary.updated_at,
         }
     }
 }

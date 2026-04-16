@@ -33,4 +33,4 @@ pub use request::{
     CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
     parse_project_env_entries,
 };
-pub use response::{DispatchListResponse, DispatchResponse, StepResponse};
+pub use response::{DispatchListResponse, DispatchResponse, DispatchSummaryResponse, StepResponse};

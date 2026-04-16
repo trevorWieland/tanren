@@ -16,8 +16,8 @@ use tanren_domain::{
 };
 use tanren_store::{
     CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
-    DispatchFilter, DispatchQueryPage, EnqueueStepParams, EventStore, JobQueue, ReplayGuard,
-    StateStore, UpdateDispatchStatusParams,
+    DispatchFilter, DispatchQueryPage, DispatchSummaryQueryPage, EnqueueStepParams, EventStore,
+    JobQueue, ReplayGuard, StateStore, UpdateDispatchStatusParams,
 };
 use uuid::Uuid;
 
@@ -75,6 +75,11 @@ where
     }
 
     /// List dispatches within the actor's policy-derived read scope.
+    ///
+    /// Returns the heavyweight [`DispatchView`] projection including
+    /// the full JSON-backed snapshot. Prefer
+    /// [`list_dispatch_summaries_for_actor`](Self::list_dispatch_summaries_for_actor)
+    /// for list endpoints that only need scalar summary fields.
     pub async fn list_dispatches_for_actor(
         &self,
         mut filter: DispatchFilter,
@@ -82,6 +87,21 @@ where
     ) -> Result<DispatchQueryPage, OrchestratorError> {
         filter.read_scope = Some(self.policy.dispatch_read_scope(actor));
         Ok(self.store.query_dispatches(&filter).await?)
+    }
+
+    /// List lean dispatch summaries within the actor's policy-derived
+    /// read scope.
+    ///
+    /// Uses the store's scalar-only summary query path and skips the
+    /// per-row snapshot / actor JSON decode. This is the canonical
+    /// read path for paginated list APIs.
+    pub async fn list_dispatch_summaries_for_actor(
+        &self,
+        mut filter: DispatchFilter,
+        actor: &ActorContext,
+    ) -> Result<DispatchSummaryQueryPage, OrchestratorError> {
+        filter.read_scope = Some(self.policy.dispatch_read_scope(actor));
+        Ok(self.store.query_dispatch_summaries(&filter).await?)
     }
 
     /// Transition dispatch status to `Running`.

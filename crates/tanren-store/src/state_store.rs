@@ -26,7 +26,7 @@ use crate::entity::{dispatch_projection, events, step_projection};
 use crate::errors::{StoreConflictClass, StoreError, StoreOperation, StoreResult};
 use crate::params::{
     CancelDispatchParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
-    DispatchFilter, DispatchQueryPage, UpdateDispatchStatusParams,
+    DispatchFilter, DispatchQueryPage, DispatchSummaryQueryPage, UpdateDispatchStatusParams,
 };
 use crate::state_store_cancel::{
     CancelDispatchTxnInput, normalize_cancel_error, run_cancel_dispatch_transaction,
@@ -54,7 +54,17 @@ pub trait StateStore: Send + Sync {
     ) -> StoreResult<Option<DispatchView>>;
 
     /// Query dispatches by filter dimensions (status, lane, user, etc.).
+    /// Reads the full JSON-backed [`DispatchView`]; for high-volume
+    /// list traffic prefer
+    /// [`query_dispatch_summaries`](Self::query_dispatch_summaries).
     async fn query_dispatches(&self, filter: &DispatchFilter) -> StoreResult<DispatchQueryPage>;
+
+    /// Scalar-only list path — skips the per-row JSON decode. Wire
+    /// contracts exposing list APIs should consume this.
+    async fn query_dispatch_summaries(
+        &self,
+        filter: &DispatchFilter,
+    ) -> StoreResult<DispatchSummaryQueryPage>;
 
     /// Look up a single step by id.
     async fn get_step(&self, id: &StepId) -> StoreResult<Option<StepView>>;
@@ -156,6 +166,13 @@ impl StateStore for Store {
             .all(self.conn())
             .await?;
         build_dispatch_query_page(rows, page_size)
+    }
+
+    async fn query_dispatch_summaries(
+        &self,
+        filter: &DispatchFilter,
+    ) -> StoreResult<DispatchSummaryQueryPage> {
+        crate::state_store_summary::query_dispatch_summaries_impl(self.conn(), filter).await
     }
 
     async fn get_step(&self, id: &StepId) -> StoreResult<Option<StepView>> {
@@ -344,9 +361,12 @@ impl StateStore for Store {
     }
 }
 
-type DispatchProjectionSelect = Select<dispatch_projection::Entity>;
+pub(crate) type DispatchProjectionSelect = Select<dispatch_projection::Entity>;
 
-fn build_dispatch_query(filter: &DispatchFilter, page_size: u64) -> DispatchProjectionSelect {
+pub(crate) fn build_dispatch_query(
+    filter: &DispatchFilter,
+    page_size: u64,
+) -> DispatchProjectionSelect {
     let mut query = apply_common_dispatch_filters(dispatch_projection::Entity::find(), filter);
     if let Some(scope) = filter.read_scope {
         query = apply_scoped_dispatch_filter(query, scope);
@@ -376,7 +396,7 @@ pub fn dispatch_query_statement_for_backend(
     }
 }
 
-fn apply_scoped_dispatch_filter(
+pub(crate) fn apply_scoped_dispatch_filter(
     mut query: DispatchProjectionSelect,
     scope: DispatchReadScope,
 ) -> DispatchProjectionSelect {
@@ -409,7 +429,7 @@ fn apply_scope_dimension_filter(
     }
 }
 
-fn apply_common_dispatch_filters(
+pub(crate) fn apply_common_dispatch_filters(
     mut query: DispatchProjectionSelect,
     filter: &DispatchFilter,
 ) -> DispatchProjectionSelect {

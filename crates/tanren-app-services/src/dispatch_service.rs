@@ -6,8 +6,8 @@
 
 use tanren_contract::{
     CancelDispatchRequest, ContractError, DispatchCursorToken, DispatchListFilter,
-    DispatchListResponse, DispatchResponse, ErrorResponse, cancel_dispatch_from_request,
-    create_dispatch_from_request,
+    DispatchListResponse, DispatchResponse, DispatchSummaryResponse, ErrorResponse,
+    cancel_dispatch_from_request, create_dispatch_from_request,
 };
 use tanren_domain::DispatchId;
 use tanren_orchestrator::Orchestrator;
@@ -77,24 +77,28 @@ where
     }
 
     /// List dispatches matching the given filter.
+    ///
+    /// Uses the store's lean summary query path; the wire response
+    /// contains the scalar-only [`DispatchSummaryResponse`] shape so
+    /// no JSON snapshot decode runs per row.
     pub async fn list(
         &self,
         context: &RequestContext,
         filter: DispatchListFilter,
     ) -> Result<DispatchListResponse, ErrorResponse> {
         let store_filter = convert_list_filter(filter)?;
-        let views = self
+        let page = self
             .orchestrator
-            .list_dispatches_for_actor(store_filter, context.actor())
+            .list_dispatch_summaries_for_actor(store_filter, context.actor())
             .await
             .map_err(map_orchestrator_error)?;
         Ok(DispatchListResponse {
-            dispatches: views
-                .dispatches
+            dispatches: page
+                .summaries
                 .into_iter()
-                .map(DispatchResponse::from)
+                .map(DispatchSummaryResponse::from)
                 .collect(),
-            next_cursor: views.next_cursor.map(format_cursor),
+            next_cursor: page.next_cursor.map(format_cursor),
         })
     }
 

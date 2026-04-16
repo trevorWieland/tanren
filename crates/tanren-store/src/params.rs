@@ -18,8 +18,9 @@
 use chrono::{DateTime, Utc};
 use tanren_domain::{
     ActorContext, DispatchId, DispatchMode, DispatchReadScope, DispatchSnapshot, DispatchStatus,
-    DispatchView, EntityKind, EntityRef, ErrorClass, EventCursor, EventEnvelope, GraphRevision,
-    Lane, Outcome, StepId, StepPayload, StepReadyState, StepResult, StepType, UserId,
+    DispatchSummary, DispatchView, EntityKind, EntityRef, ErrorClass, EventCursor, EventEnvelope,
+    GraphRevision, Lane, Outcome, StepId, StepPayload, StepReadyState, StepResult, StepType,
+    UserId,
 };
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,21 @@ pub struct DispatchCursor {
 pub struct DispatchQueryPage {
     /// Current page of dispatches.
     pub dispatches: Vec<DispatchView>,
+    /// Cursor for the next page, if more rows are available.
+    pub next_cursor: Option<DispatchCursor>,
+}
+
+/// Paginated lean dispatch summary query result.
+///
+/// Returned by
+/// [`StateStore::query_dispatch_summaries`](crate::StateStore::query_dispatch_summaries).
+/// Unlike [`DispatchQueryPage`], each row carries only the scalar
+/// dispatch fields present on the projection table — no JSON decode
+/// runs per row.
+#[derive(Debug, Clone)]
+pub struct DispatchSummaryQueryPage {
+    /// Current page of dispatch summaries.
+    pub summaries: Vec<DispatchSummary>,
     /// Cursor for the next page, if more rows are available.
     pub next_cursor: Option<DispatchCursor>,
 }
