@@ -1,22 +1,47 @@
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use assert_cmd::Command;
 use chrono::Utc;
+use ed25519_dalek::SigningKey;
+use ed25519_dalek::pkcs8::{EncodePrivateKey, EncodePublicKey, spki::der::pem::LineEnding};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use rand_core::OsRng;
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-const TEST_ED25519_PRIVATE_KEY_PEM: &str = "\
------BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIAPLmow/yTJDEVu9jxvrdcEK0yfRG0bAzr3hnOrtggLP
------END PRIVATE KEY-----
-";
-const TEST_ED25519_PUBLIC_KEY_PEM: &str = "\
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA7jO4B+xp2yKG7Rh2aMFdyIsqxEMq8jYMO7b7HEZ6vLs=
------END PUBLIC KEY-----
-";
+/// Lazily-generated Ed25519 keypair for this test process.
+///
+/// Replaces the previously-committed private-key PEM literals so no
+/// secret-shaped material lands in source control (lane-0.4 audit
+/// follow-up; `GitGuardian` incident 30350537). The keypair is only
+/// ever used to sign and verify tokens within this test binary —
+/// there is no production code path that consumes either half — and
+/// each `cargo nextest run` invocation regenerates it.
+fn test_keypair_pems() -> &'static (String, String) {
+    static KEYS: OnceLock<(String, String)> = OnceLock::new();
+    KEYS.get_or_init(|| {
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let private_pem = signing_key
+            .to_pkcs8_pem(LineEnding::LF)
+            .expect("encode pkcs8 pem")
+            .to_string();
+        let public_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .expect("encode spki pem");
+        (private_pem, public_pem)
+    })
+}
+
+fn test_private_key_pem() -> &'static str {
+    test_keypair_pems().0.as_str()
+}
+
+fn test_public_key_pem() -> &'static str {
+    test_keypair_pems().1.as_str()
+}
 
 #[derive(Debug)]
 pub(crate) struct AuthHarness {
@@ -122,7 +147,7 @@ pub(crate) fn sign_with_kid<T: Serialize>(claims: &T, kid: Option<&str>) -> Stri
     encode(
         &header,
         claims,
-        &EncodingKey::from_ed_pem(TEST_ED25519_PRIVATE_KEY_PEM.as_bytes()).expect("encoding key"),
+        &EncodingKey::from_ed_pem(test_private_key_pem().as_bytes()).expect("encoding key"),
     )
     .expect("token")
 }
@@ -140,7 +165,7 @@ pub(crate) fn auth_harness_with_claims(claims: &ActorClaims) -> AuthHarness {
 
     let dir = tempfile::tempdir().expect("temp dir");
     let actor_public_key_file = dir.path().join("actor-public-key.pem");
-    std::fs::write(&actor_public_key_file, TEST_ED25519_PUBLIC_KEY_PEM).expect("write public key");
+    std::fs::write(&actor_public_key_file, test_public_key_pem()).expect("write public key");
     let actor_token_file = dir.path().join("actor-token.jwt");
     std::fs::write(&actor_token_file, &token).expect("write token");
 

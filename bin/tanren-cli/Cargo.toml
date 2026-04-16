@@ -41,6 +41,10 @@ uuid.workspace = true
 chrono.workspace = true
 jsonwebtoken.workspace = true
 wiremock.workspace = true
+# Mints fresh Ed25519 keypairs for the actor-JWT test harness so no
+# private-key PEM material is committed to the repo.
+ed25519-dalek = { workspace = true }
+rand_core = { workspace = true }
 # tanren-store is a dev-dep for seeding replay-ledger fixtures in the
 # `cli_replay_purge` integration test. Production binary still has
 # zero direct dependency on the store crate.

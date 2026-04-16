@@ -166,3 +166,12 @@ secrecy = "0.10"
 insta = { version = "1", features = ["yaml"] }
 proptest = "1"
 wiremock = "0.6"
+# Ed25519 keypair generation for tests that mint signed actor JWTs.
+# Used only as a dev-dependency so production binaries do not pull in
+# the dalek stack. The `pkcs8` + `pem` features provide one-call PEM
+# encoding compatible with `jsonwebtoken::EncodingKey::from_ed_pem`
+# and `ActorTokenVerifier::from_public_key_pem`.
+ed25519-dalek = { version = "2", features = ["pkcs8", "pem", "rand_core"] }
+# Provides `OsRng` for `ed25519_dalek::SigningKey::generate`. Pinned
+# to the `rand_core` major that ed25519-dalek 2.x links against.
+rand_core = { version = "0.6", features = ["getrandom"] }
