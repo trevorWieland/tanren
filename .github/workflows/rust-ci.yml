@@ -102,12 +102,12 @@ jobs:
       - name: Run Postgres integration tests (store)
         env:
           TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-        run: cargo nextest run -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
+        run: cargo nextest run -j1 -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
 
       - name: Run Postgres integration tests (cli)
         env:
           TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-        run: cargo nextest run -p tanren-cli --features tanren-cli/postgres-integration --no-tests=pass
+        run: cargo nextest run -j1 -p tanren-cli --features tanren-cli/postgres-integration --no-tests=pass
 
   # ============================================================
   # Coverage (Linux only)
@@ -201,6 +201,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+
+      - uses: astral-sh/setup-uv@v6
 
       - name: Check file line counts
         run: just check-lines

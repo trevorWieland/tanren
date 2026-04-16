@@ -134,7 +134,7 @@ fn convert_list_filter(filter: DispatchListFilter) -> Result<DispatchFilter, Err
         if limit > MAX_DISPATCH_QUERY_LIMIT {
             return Err(ErrorResponse::from(ContractError::InvalidField {
                 field: "limit".to_owned(),
-                reason: format!("must be <= {MAX_DISPATCH_QUERY_LIMIT} (received {limit})",),
+                reason: format!("must be <= {MAX_DISPATCH_QUERY_LIMIT} (received {limit})"),
             }));
         }
         f.limit = limit;

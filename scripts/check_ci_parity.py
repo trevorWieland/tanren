@@ -25,11 +25,11 @@ WORKFLOW_REQUIRED = [
         "--profile ci --no-tests=pass"
     ),
     (
-        "cargo nextest run -p tanren-store --features "
+        "cargo nextest run -j1 -p tanren-store --features "
         "tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass"
     ),
     (
-        "cargo nextest run -p tanren-cli "
+        "cargo nextest run -j1 -p tanren-cli "
         "--features tanren-cli/postgres-integration --no-tests=pass"
     ),
 ]
@@ -37,7 +37,7 @@ WORKFLOW_REQUIRED = [
 JUST_REQUIRED = [
     (
         'RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets '
-        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks -- -D warnings"
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings"
     ),
     (
         'RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace '
@@ -51,14 +51,18 @@ JUST_REQUIRED = [
 WRAPPER_REQUIRED = [
     (
         '"${CARGO}" nextest run \\\n'
+        "            -j1 \\\n"
         "            -p tanren-store \\\n"
         "            --features tanren-store/test-hooks,tanren-store/postgres-integration \\\n"
+        '            "${NEXTEST_QUIET_FLAGS[@]}" \\\n'
         "            --no-tests=pass"
     ),
     (
         '"${CARGO}" nextest run \\\n'
+        "            -j1 \\\n"
         "            -p tanren-cli \\\n"
         "            --features tanren-cli/postgres-integration \\\n"
+        '            "${NEXTEST_QUIET_FLAGS[@]}" \\\n'
         "            --no-tests=pass"
     ),
 ]

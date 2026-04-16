@@ -23,6 +23,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 cargo := env("CARGO", "cargo")
 max_lines := "500"
+nextest_quiet_flags := "--status-level fail --final-status-level fail --success-output never --failure-output immediate-final --cargo-quiet"
 
 # ============================================================================
 # Setup
@@ -156,7 +157,7 @@ check:
 
 # Run all tests via nextest (pass extra args after --)
 test *args:
-    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks,tanren-orchestrator/test-hooks {{ args }}
+    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks,tanren-orchestrator/test-hooks {{ nextest_quiet_flags }} {{ args }}
 
 # Generate code coverage report (lcov)
 coverage:
@@ -383,10 +384,31 @@ clean:
 
 # Run workflow-equivalent strict Rust checks locally.
 ci-rust-strict:
-    @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks -- -D warnings
-    @RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --no-tests=pass
+    @echo "==> Clippy"
+    @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings
+    @echo "==> Workspace tests"
+    @RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --no-tests=pass {{ nextest_quiet_flags }}
+    @echo "==> Postgres integration"
     @./scripts/run_postgres_integration.sh
 
 # Run full CI check locally.
-ci: fmt check-lines check-suppression check-deps check-ci-parity deny doc machete ci-rust-strict
+ci:
+    @echo "==> Format"
+    @just fmt
+    @echo "==> File length guard"
+    @just check-lines
+    @echo "==> Lint suppression guard"
+    @just check-suppression
+    @echo "==> Dependency layering guard"
+    @just check-deps
+    @echo "==> CI parity guard"
+    @just check-ci-parity
+    @echo "==> Dependency audit"
+    @just deny
+    @echo "==> Docs"
+    @just doc
+    @echo "==> Unused dependency audit"
+    @just machete
+    @echo "==> Strict Rust CI"
+    @just ci-rust-strict
     @echo "==> All CI checks passed!"

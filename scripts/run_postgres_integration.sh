@@ -15,6 +15,13 @@ set -euo pipefail
 
 readonly CARGO="${CARGO:-cargo}"
 readonly POSTGRES_URL_ENV="TANREN_TEST_POSTGRES_URL"
+readonly NEXTEST_QUIET_FLAGS=(
+    --status-level fail
+    --final-status-level fail
+    --success-output never
+    --failure-output immediate-final
+    --cargo-quiet
+)
 
 preflight() {
     if [[ -n "${!POSTGRES_URL_ENV:-}" ]]; then
@@ -47,11 +54,16 @@ EOF
 
 run_store_postgres_tests() {
     echo "==> Running tanren-store Postgres integration tests"
+    # External-URL CI runs share one Postgres instance across test
+    # processes. Serialize nextest at the process level so binaries
+    # that reset/migrate the schema don't race each other.
     PGSSLMODE="${PGSSLMODE:-disable}" \
     RUSTFLAGS="-D warnings" \
         "${CARGO}" nextest run \
+            -j1 \
             -p tanren-store \
             --features tanren-store/test-hooks,tanren-store/postgres-integration \
+            "${NEXTEST_QUIET_FLAGS[@]}" \
             --no-tests=pass
 }
 
@@ -60,8 +72,10 @@ run_cli_postgres_tests() {
     PGSSLMODE="${PGSSLMODE:-disable}" \
     RUSTFLAGS="-D warnings" \
         "${CARGO}" nextest run \
+            -j1 \
             -p tanren-cli \
             --features tanren-cli/postgres-integration \
+            "${NEXTEST_QUIET_FLAGS[@]}" \
             --no-tests=pass
 }
 
