@@ -31,6 +31,7 @@ mod job_queue;
 mod job_queue_dequeue;
 mod migration;
 mod params;
+mod sql_tags;
 mod state_store;
 mod state_store_cancel;
 mod store;

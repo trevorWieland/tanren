@@ -16,12 +16,13 @@ use crate::entity::enums::{DispatchStatusModel, OutcomeModel, StepTypeModel};
 use crate::entity::{dispatch_projection, events};
 use crate::errors::{StoreConflictClass, StoreError, StoreOperation};
 use crate::params::ReplayGuard;
+use crate::sql_tags::{
+    STATUS_CANCELLED as STEP_STATUS_CANCELLED, STATUS_PENDING as STEP_STATUS_PENDING,
+    STEP_TYPE_TEARDOWN,
+};
 use crate::token_replay_store::consume_replay_guard_once;
 
 const CANCEL_BATCH_SIZE: u64 = 500;
-const STEP_STATUS_PENDING: &str = "pending";
-const STEP_STATUS_CANCELLED: &str = "cancelled";
-const STEP_TYPE_TEARDOWN: &str = "teardown";
 
 pub(crate) struct CancelDispatchTxnInput {
     pub(crate) dispatch_id: DispatchId,
