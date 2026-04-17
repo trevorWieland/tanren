@@ -1,82 +1,129 @@
-# Lane 0.5 — Methodology Boundary and Self-Hosting — Agent Brief
+# Lane 0.5 — Methodology Boundary, Typed State, Tool Surface, Multi-Agent Install, Self-Hosting — Agent Brief
 
 ## Task
 
-Define and then execute the methodology-boundary lane so workflow mechanics are
-treated as Tanren-code responsibilities rather than prompt-local behavior.
-This planning pass only establishes that scope; lane 0.5 itself will apply the
-shared command markdown changes.
+Execute the Phase-0-completing methodology lane: land the typed task
+lifecycle and agent tool surface, rewrite shared command sources as
+templated tool-driven roles, ship `tanren install` with multi-agent
+parity (Claude Code, Codex Skills, OpenCode), and self-host the
+tanren repo's own commands.
 
-## Full Spec
+## Full spec and rationale
 
-Read `docs/rewrite/tasks/LANE-0.5-METHODOLOGY.md` completely before starting.
-Also read:
+Read **all** of these before starting:
 
-1. `docs/rewrite/METHODOLOGY_BOUNDARY.md`
-2. `docs/rewrite/HLD.md`
-3. `docs/rewrite/DESIGN_PRINCIPLES.md`
-4. `docs/methodology/system.md`
-5. `docs/architecture/phase-taxonomy.md`
+1. [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md) — decision
+   rationale (authoritative).
+2. [LANE-0.5-METHODOLOGY.md](LANE-0.5-METHODOLOGY.md) — original spec
+   (some sections superseded by DESIGN-NOTES).
+3. [../METHODOLOGY_BOUNDARY.md](../METHODOLOGY_BOUNDARY.md) —
+   operational ownership table.
+4. [../HLD.md](../HLD.md) §6 — methodology subsystem.
+5. [../DESIGN_PRINCIPLES.md](../DESIGN_PRINCIPLES.md) principles
+   11, 12, 13.
+6. [../../methodology/system.md](../../methodology/system.md) —
+   command ownership.
+7. [../../methodology/commands-install.md](../../methodology/commands-install.md) —
+   install flow.
+8. [../../architecture/orchestration-flow.md](../../architecture/orchestration-flow.md).
+9. [../../architecture/agent-tool-surface.md](../../architecture/agent-tool-surface.md).
+10. [../../architecture/evidence-schemas.md](../../architecture/evidence-schemas.md).
+11. [../../architecture/audit-rubric.md](../../architecture/audit-rubric.md).
+12. [../../architecture/adherence.md](../../architecture/adherence.md).
+13. [../../architecture/install-targets.md](../../architecture/install-targets.md).
+14. [../../architecture/phase-taxonomy.md](../../architecture/phase-taxonomy.md).
 
-## Key Context
+## Key context
 
-- Lane 0.4 remains the Rust dispatch CRUD slice.
-- Lane 0.5 owns the methodology boundary and the follow-on shared-command
-  refactor.
-- Shared command markdown must define agent behavior only.
-- Workflow mechanics belong in code even where the current Python system has
-  not fully caught up yet.
-- A `do-task` agent should be told what task to execute; it should not discover
-  the next task for itself.
-- Gate selection, issue-tracker behavior, branch/publication workflow, and
-  review/reply mechanics belong to Tanren-code, not the prompts.
+- Lane 0.4 (merged) — Rust dispatch CRUD. No methodology work.
+- Lane 0.5 scope is now Phase-0-completion work, not docs-only.
+- Python orchestrator is **reference only**. It may rot; it will be
+  deleted when the Rust path is functional. No compatibility work.
+- Three interactive phases only: `shape-spec`, `walk-spec`,
+  `resolve-blockers`. Everything else autonomous.
+- `investigate` is the escalation mechanism; emits typed
+  `revise_task` / `create_task` / `escalate_to_blocker`.
+- Task state is **monotonic**: `Complete` is terminal; remediation
+  is always a new task.
+- Task completion uses multi-guard: default required set is
+  `[gate_checked, audited, adherent]`, configurable.
+- Agent↔orchestrator contract is tools only; `.agent-status` and
+  markdown checkbox parsing are retired.
+- MCP transport via `rmcp` (official `modelcontextprotocol/rust-sdk`);
+  CLI fallback mirrors the catalog 1:1.
 
 ## Deliverables
 
 | Area | Deliverable |
 |------|-------------|
-| Rewrite canon | HLD, design principles, roadmap, crate guide, methodology-boundary doc |
-| Methodology docs | Updated ownership and verification-hook docs |
-| Lane 0.5 execution scope | Explicit command-level refactor plan describing what must move from markdown into code |
-| Shared command markdown | Future lane 0.5 edits that remove literal issue/gate/SCM workflow instructions and replace them with workflow-context abstractions |
-| Lane docs | New lane 0.5 docs and refined lane 0.4 scope |
+| Canon docs | HLD §6, DESIGN_PRINCIPLES (P11/12/13), ROADMAP Phase 0 exit, CRATE_GUIDE §7 linking rule, METHODOLOGY_BOUNDARY, methodology/system.md, commands-install.md |
+| Architecture specs | orchestration-flow, agent-tool-surface, evidence-schemas, audit-rubric, adherence, install-targets, phase-taxonomy |
+| Rust domain | `tanren-domain::methodology` — Task/Finding/Pillar/Standard/PhaseOutcome/Capability + evidence frontmatter + new DomainEvent variants |
+| Rust contract | `tanren-contract::methodology` — typed tool schemas |
+| Rust store | extended event variants + projections (tasks, findings, adherence findings, replay) |
+| Rust app-services | `tanren-app-services::methodology` — service, ingest, enforcement, evidence render, rubric, adherence, renderer, installer, format drivers, capabilities |
+| CLI | `tanren install`, `tanren task {…}`, `tanren finding add`, `tanren phase {…}`, `tanren issue create`, `tanren ingest-phase-events`, `tanren replay` |
+| MCP | `tanren-mcp` via `rmcp`, stdio transport, full tool catalog, stderr logging |
+| Shared commands | Rewritten under `commands/spec/` (11) and `commands/project/` (6); all 17 follow the uniform templated tool-driven skeleton |
+| Self-hosting | `tanren.yml` methodology section, `tanren/rubric.yml`, `justfile` recipes, rendered `.claude/commands/`, `.codex/skills/`, `.opencode/commands/`, MCP config files for all three |
+| Lane docs | `LANE-0.5-BRIEF`, `LANE-0.5-AUDIT`, `LANE-0.5-DESIGN-NOTES`, `LANE-0.4-BRIEF` out-of-scope note, `README`, `ORIENTATION` |
 
-## Required Command-Level Outcomes
+## Non-negotiables
 
-Lane 0.5 must leave the shared commands in this shape:
+1. **Task state is monotonic.** `Complete` is terminal. Remediation
+   is always a new task. Property-test this.
+2. **No `.agent-status` file anywhere.** Session-end signals are
+   typed tool calls (`report_phase_outcome`).
+3. **No markdown checkbox parsing** as a source of truth. `plan.md`
+   is generated by tanren-code from the typed task store.
+4. **Agents never write orchestrator-owned artifacts.** Three-layer
+   enforcement: prompt banner + `chmod 0444` + postflight diff+revert.
+5. **Unknown template variables are hard errors.** Same for
+   declared-but-unused or used-but-not-declared variables.
+6. **`escalate_to_blocker` is callable only from `investigate`.**
+   Capability-scoped at dispatch.
+7. **Fresh session on every retry.** No resume.
+8. **Install is deterministic and idempotent.** Dry-run shows exact
+   planned writes. `--strict --dry-run` fails on drift (exit 3).
+9. **Multi-target parity.** Claude Code, Codex Skills, OpenCode
+   produce semantically identical content; per-target format
+   wrappers differ only.
+10. **Destructive on reinstall for commands.** `preserve_existing`
+    for standards. `preserve_other_keys` for MCP config files.
+11. **Self-hosting drift-gate is tanren-repo-specific.** Don't
+    prescribe downstream CI recipes.
+12. **Python untouched.** No compatibility work; no Python edits.
+13. **Rubric scoring rules enforced at tool call.** `record_rubric_score`
+    validates finding linkage (see audit-rubric.md).
+14. **MCP server never writes to stdout.** Tracing to stderr only.
+15. **`rmcp` license verified** against `deny.toml` before dep is
+    added.
 
-1. `shape-spec` defines the spec with the user, but Tanren-code owns issue
-   creation/fetch, candidate selection, dependency mutation, branch prep, and
-   publication setup.
-2. `do-task` receives an explicit task target and resolved verification hook.
-   It does not choose the next task, choose its own gate, or commit/push.
-3. `audit-task` receives an explicit task/diff target and emits findings.
-   Tanren-code owns fix-item routing and workflow mutation.
-4. `run-demo` executes the supplied demo context and records findings. It does
-   not decide routing or workflow state.
-5. `audit-spec` produces whole-spec findings and fix/defer classification, but
-   Tanren-code owns deferred-work creation and workflow mutation.
-6. `walk-spec` is the human validation checkpoint only. Review/publication
-   mechanics are handled by Tanren-code or the human outside the prompt.
-7. `handle-feedback`, `sync-roadmap`, and similar workflow-heavy commands must
-   become workflow-context consumers rather than shells around GitHub commands.
+## Required command-level outcomes
 
-## Non-Negotiables
+After execution, every shared command:
+- Uses `{{DOUBLE_BRACE_UPPER}}` for all concrete tokens (verification
+  hooks, issue provider, paths, etc.).
+- References abstract per-invocation inputs supplied by the dispatch
+  context (task id, diff range, review thread, etc.), never
+  self-discovery.
+- Emits structured state only via typed tools.
+- Contains no `gh`/`git`/`make`/`just ci`/`cargo`/`docker` shell
+  calls; no `.agent-status` writes; no direct artifact edits.
+- Declares its `required_capabilities` in frontmatter.
 
-1. **Docs only.** Do not implement runtime or installer behavior in this lane.
-2. **No ambiguity.** The tanren-code vs tanren-markdown split must be explicit.
-3. **No mixed ownership.** If a responsibility depends on provider, repo,
-   branch, workflow state, or verification command choice, it belongs to code.
-4. **Keep 0.4 narrow.** Do not smuggle methodology work into the 0.4 scope.
-5. **No preemptive command edits in planning.** This planning/doc pass defines
-   the lane; the actual shared-command edits happen when lane 0.5 is executed.
+## Done when
 
-## Done When
-
-1. Rewrite canon documents the boundary consistently.
-2. Methodology docs describe command/phase-keyed verification-hook resolution.
-3. The lane 0.5 brief clearly specifies the future shared-command refactor,
-   including task-selection, gate-resolution, issue-provider, and
-   publication-workflow ownership.
-4. Lane 0.4 and lane 0.5 scopes are clearly separated.
-5. Lane 0.5 documents manual self-hosting as the pre-Phase-1 target state.
+1. All 13 canon + architecture + lane docs are consistent and
+   cross-referenced.
+2. Typed domain + tool surface compile and pass property + insta
+   tests.
+3. `tanren install --dry-run` + apply + re-apply work clean on the
+   tanren repo.
+4. `tanren-mcp` launches, registers the tool catalog, validates
+   inputs, enforces capabilities, writes `phase-events.jsonl`.
+5. All 17 shared commands are rewritten and pass the grep checklist
+   in [LANE-0.5-AUDIT.md](LANE-0.5-AUDIT.md) §1.
+6. Self-hosting artifacts committed in the tanren repo; `just ci`
+   (including `install-commands-check`) passes.
+7. `git status` clean; `lane-0.5` on remote; CI green.

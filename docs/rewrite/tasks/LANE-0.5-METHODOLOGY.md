@@ -1,4 +1,16 @@
-# Lane 0.5 — Methodology Boundary, Command Templates, and Manual Self-Hosting
+# Lane 0.5 — Methodology Boundary, Typed State, Tool Surface, Multi-Agent Install, Self-Hosting
+
+> **Status note:** this document's original "docs-only, no
+> preemptive command edits" framing has been superseded by the
+> expanded Lane 0.5 scope. See
+> [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md) for the
+> authoritative design record and the final execution scope.
+> [LANE-0.5-BRIEF.md](LANE-0.5-BRIEF.md) carries the execution
+> deliverables list.
+>
+> The sections below retain the original planning language as a
+> historical reference. Where they conflict with the design notes or
+> brief, the design notes and brief win.
 
 ## Goal
 

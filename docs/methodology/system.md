@@ -1,92 +1,166 @@
 # Methodology System
 
-Tanren's methodology layer gives agents project memory and execution discipline.
+Tanren's methodology layer gives agents project memory and execution
+discipline. Under Tanren 2.0 (Lane 0.5), the methodology is a
+strictly typed Rust control-plane concern; shared command markdown
+is a templated agent-behavior layer rendered per repo and per agent
+framework.
 
-## Command Files
+Canon pointers:
+[LANE-0.5-DESIGN-NOTES.md](../rewrite/tasks/LANE-0.5-DESIGN-NOTES.md),
+[METHODOLOGY_BOUNDARY.md](../rewrite/METHODOLOGY_BOUNDARY.md),
+[architecture/orchestration-flow.md](../architecture/orchestration-flow.md),
+[architecture/agent-tool-surface.md](../architecture/agent-tool-surface.md),
+[architecture/evidence-schemas.md](../architecture/evidence-schemas.md),
+[architecture/audit-rubric.md](../architecture/audit-rubric.md),
+[architecture/adherence.md](../architecture/adherence.md),
+[architecture/install-targets.md](../architecture/install-targets.md),
+[architecture/phase-taxonomy.md](../architecture/phase-taxonomy.md).
 
-The `commands/` directory defines 15 workflow commands with phase-specific
-instructions, output expectations, and failure handling.
+## Command Organization
 
-| Command | Role | Primary Purpose |
-|---|---|---|
-| `shape-spec` | conversation | Decompose issue into spec + executable plan |
-| `do-task` | implementation | Implement the supplied task scope and emit evidence |
-| `audit-task` | audit | Audit the supplied task scope and emit findings |
-| `run-demo` | implementation | Execute the supplied demo context and record results |
-| `audit-spec` | audit | Perform whole-spec review and classify findings |
-| `walk-spec` | conversation | Interactive developer walkthrough |
-| `handle-feedback` | feedback | Process PR comments and iterate |
-| `resolve-blockers` | conversation | Diagnose blockers |
-| `investigate` | conversation | Deep technical investigation |
-| `plan-product` | conversation | Create product docs for new project |
-| `discover-standards` | audit | Propose standards from repo patterns |
-| `inject-standards` | implementation | Apply standards updates |
-| `index-standards` | implementation | Rebuild standards index |
-| `triage-audits` | audit | Prioritize audit backlog |
-| `sync-roadmap` | conversation | Align roadmap with real state |
+Shared command sources live under `commands/` in two subdirectories:
 
-## Agent Roles
+- **`commands/spec/`** — commands that participate in the spec-
+  orchestration state machine. Each emits typed events via the tool
+  surface and contributes to task / finding state.
+- **`commands/project/`** — project-management commands that operate
+  outside the spec loop. They still render via `tanren install` but
+  are not sequenced by the orchestrator's state machine.
 
-Tanren's workflow uses role-specialized agents with clear execution boundaries:
+### Spec-loop commands (`commands/spec/`)
 
-- `conversation`: shape specs, clarify requirements, and coordinate with developers
-- `implementation`: execute planned tasks and produce code/documentation changes
-- `audit`: validate outputs against spec intent and quality standards
-- `feedback`: triage and apply PR review feedback
-- `conflict-resolution`: resolve merge conflicts using spec intent and dependency context
+| Command | Role | Autonomy | Guard emitted on success |
+|---|---|---|---|
+| `shape-spec` | conversation | interactive | — |
+| `do-task` | implementation | autonomous | TaskImplemented |
+| `audit-task` | audit (rubric) | autonomous | TaskAudited |
+| `adhere-task` | audit (adherence) | autonomous | TaskAdherent |
+| `run-demo` | implementation | autonomous | — (spec-level) |
+| `audit-spec` | audit (rubric) | autonomous | — (spec-level) |
+| `adhere-spec` | audit (adherence) | autonomous | — (spec-level) |
+| `walk-spec` | conversation | interactive | — |
+| `handle-feedback` | feedback | autonomous | — |
+| `investigate` | triage | autonomous | — (emits revisions / tasks / escalation) |
+| `resolve-blockers` | conversation | interactive | — |
 
-## Standards Profiles
+### Project-management commands (`commands/project/`)
 
-Profiles in `profiles/` package standards by stack.
-
-- `default`: language-agnostic baseline
-- `python-uv`: strict typing, testing, architecture, naming, and dependency conventions
+| Command | Role | Autonomy | Notes |
+|---|---|---|---|
+| `sync-roadmap` | reconciliation | autonomous (once consuming real spec state) | reads store + issue source; emits diff directives |
+| `triage-audits` | audit curation | interactive | consumes batch standards report; emits `create_issue` (backlog), never `create_task` |
+| `discover-standards` | standards authoring | interactive | authors new standards in `STANDARDS_ROOT` |
+| `index-standards` | standards index | interactive | maintains standards index |
+| `inject-standards` | standards context | interactive | injects relevant standards into context |
+| `plan-product` | product authoring | interactive | authors product docs in `PRODUCT_ROOT` |
 
 ## Ownership Boundary
 
-The methodology layer is split deliberately:
+Every workflow concern is owned by **Tanren code**:
 
-- **Tanren code** owns workflow mechanics, provider integration, workflow
-  target selection, verification-hook resolution, and repo-specific installed
-  command rendering.
-- **Command markdown** owns agent instructions, allowed edits, required
-  outputs, and role behavior.
+- workflow target resolution
+- verification-hook resolution (command/phase-keyed with priority
+  chain)
+- issue-tracker operations, candidate selection, dependency mutation,
+  roadmap/progress updates
+- branch prep, commit/push/PR workflow, SCM mechanics
+- task state transitions and finding routing (typed state machine,
+  multi-guard completion)
+- evidence frontmatter management (typed schemas via tools)
+- orchestrator-owned artifact enforcement (three-layer read-only)
+- template-variable rendering per install target
+- MCP server registration and tool capability scoping
 
-Shared command markdown should describe:
+Every agent concern is owned by **shared command markdown**:
 
-- what context the agent must consume
-- what files it may change
-- what artifact(s) it must produce
+- role description
+- input enumeration (from dispatch context)
+- responsibility prose (opinionated, directive)
+- output declaration (which tools to call; which narrative body
+  files to author)
+- out-of-scope list
 
-Shared command markdown should not hardcode:
+## Agent ↔ Orchestrator Tool Surface
 
-- issue tracker shell commands
-- branch creation steps
-- commit / push / PR steps
-- literal verification commands
-- “discover the next task” workflow logic
+Every structured state mutation goes through a typed tool (MCP
+primary via `tanren-mcp`, CLI fallback via `tanren-cli`). Full
+catalog: [agent-tool-surface.md](../architecture/agent-tool-surface.md).
 
-## Product Templates
+Core groups:
+- Task ops (`create_task`, `start_task`, `complete_task`,
+  `revise_task`, `abandon_task`, `list_tasks`)
+- Findings + rubric (`add_finding`, `record_rubric_score`,
+  `record_non_negotiable_compliance`)
+- Spec / demo frontmatter (`set_spec_*`, `add_spec_*`,
+  `add_demo_step`, `mark_demo_step_skip`, `append_demo_result`)
+- Signposts (`add_signpost`, `update_signpost_status`)
+- Phase lifecycle (`report_phase_outcome`, `escalate_to_blocker`
+  (investigate-only), `post_reply_directive`
+  (handle-feedback-only))
+- Backlog (`create_issue`)
+- Adherence (`list_relevant_standards`,
+  `record_adherence_finding`)
 
-`templates/product/` provides `mission.md`, `roadmap.md`, and tech-stack/
-conventions templates used to seed persistent product context.
+Tools are phase-capability-scoped; out-of-scope calls return
+`CapabilityDenied`. Schema validation happens at the tool boundary;
+invalid inputs return typed `ToolError`s with `remediation`.
+
+## Installed Artifacts
+
+`tanren install` renders `commands/` into per-agent-framework
+destinations:
+- `.claude/commands/<name>.md` (Claude Code)
+- `.codex/skills/<name>/SKILL.md` (Codex Skills — directory per
+  command)
+- `.opencode/commands/<name>.md` (OpenCode — prompt body in
+  `template` frontmatter field)
+
+Plus MCP server registrations:
+- `.mcp.json` (Claude Code)
+- `.codex/config.toml` (Codex — TOML, `preserve_other_keys`)
+- `opencode.json` (OpenCode)
+
+Standards baselines install with `preserve_existing` policy (never
+overwrite user customizations). Commands install destructively
+(tanren is opinionated about workflow).
+
+See [install-targets.md](../architecture/install-targets.md).
 
 ## Role Separation
 
-Role independence is deliberate: implementation and audit should use different
-model families when possible to reduce self-agreement bias.
+Role independence remains deliberate: implementation and audit
+should use different model families when possible to reduce
+self-agreement bias. Adherence and Audit are distinct phases (see
+[adherence.md](../architecture/adherence.md)) so their execution can
+use different reasoning profiles.
 
 ## Agent Agnosticism
 
-Commands describe **capabilities needed**, not tools or models by name.
+Commands describe **capabilities needed**, not tools or models by
+name.
 
-- `**Suggested model:**` lines describe the reasoning profile (strong planner,
-  fast implementer, independent auditor) and execution mode (interactive vs
-  autonomous) — never a specific model name or provider.
-- User interaction is described as behavior ("ask the user", "present options",
-  "wait for response") — never as a specific tool invocation.
-- CLI references use generic terms ("agent CLI", "installed CLIs") — never
-  specific product names.
+- `**Suggested model:**` lines describe the reasoning profile
+  (strong planner, fast implementer, independent auditor) and
+  execution mode (interactive vs autonomous) — never a specific
+  model name or provider.
+- User interaction is described as behavior ("ask the user",
+  "present options", "wait for response") — never as a specific
+  tool invocation.
+- CLI references use `{{AGENT_CLI_NOUN}}` (default "the agent CLI")
+  — never specific product names.
 
-This ensures commands work identically across Claude Code, Codex CLI, OpenCode,
-Aider, and any future agent runtime.
+This ensures commands work identically across Claude Code,
+Codex Skills, OpenCode, and any future agent runtime.
+
+## Standards Profiles
+
+Profiles in `profiles/` package standards by stack. Install-time
+the appropriate profile is copied into `STANDARDS_ROOT` with
+`preserve_existing` policy so repo-specific customization persists.
+
+## Product Templates
+
+`templates/product/` provides `mission.md`, `roadmap.md`, and
+tech-stack/conventions templates used by `plan-product` to seed
+persistent product context.

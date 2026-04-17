@@ -19,7 +19,7 @@ developed in parallel. Integration happens at phase boundaries.
 | 0.2 | Domain Contract | Canonical entities/commands/events/errors with versioning strategy and compatibility policy. |
 | 0.3 | Store Core | Event log + projection model with transactional append/ack semantics and migration framework. |
 | 0.4 | Interface Schema | Contract-derived schema generation pipeline for CLI/API/MCP/TUI bindings. |
-| 0.5 | Methodology Boundary | Command-template architecture, workflow-context boundary, and manual self-hosting bootstrap. |
+| 0.5 | Methodology Boundary | Typed task lifecycle, agent tool surface (MCP + CLI), typed evidence schemas, multi-agent install (Claude Code, Codex Skills, OpenCode), self-hosted `commands/` → rendered artifacts, full orchestration-flow spec. |
 
 ### Exit Criteria
 
@@ -27,8 +27,16 @@ developed in parallel. Integration happens at phase boundaries.
 - Domain model includes explicit state transition rules and error taxonomy.
 - Event append and projection updates are transactional.
 - At least one generated interface surface is running from the shared contract.
-- Methodology ownership is explicit: workflow mechanics live in code and
-  command markdown remains an agent-behavior layer.
+- Methodology ownership is explicit and typed: workflow mechanics live in
+  Rust control-plane code; command markdown remains an agent-behavior layer;
+  tasks, findings, rubric scores, and evidence frontmatter are strictly
+  typed domain entities.
+- `tanren install` renders the shared command source into three agent-
+  framework targets (Claude Code, Codex Skills, OpenCode) with
+  deterministic, idempotent output; the tanren repo is self-hosting.
+- Multi-guard task completion is modeled
+  (`gate_checked ∧ audited ∧ adherent` by default), with guards
+  configurable and independently executable.
 
 ## Phase 1 - Runtime Substrate Core
 

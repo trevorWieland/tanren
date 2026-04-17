@@ -222,8 +222,20 @@ Owns interface-facing application service layer:
 4. Runtime rule: environment and harness crates never own policy decisions.
 5. Policy rule: policy returns typed decisions, never transport-layer errors.
 6. Contract rule: contract crate is serialization/schema only, no orchestration logic.
-7. Methodology rule: command rendering and workflow-context resolution are
-   control-plane/application concerns, not prompt-local logic.
+7. Methodology rule: command rendering, workflow-context resolution,
+   typed task state transitions, finding routing, evidence frontmatter
+   management, and tool-surface enforcement are control-plane /
+   application concerns, not prompt-local logic. The `methodology`
+   module tree lives primarily in `app-services` (service, ingest,
+   enforcement, evidence, rubric, adherence, renderer, installer,
+   format drivers, capabilities); typed domain entities
+   (`Task`, `Finding`, `Pillar`, `Standard`, `PhaseOutcome`,
+   `ToolCapability`, evidence frontmatter schemas) live in `domain`;
+   tool-surface JSON schemas live in `contract`; event variants and
+   projections extend `domain` and `store` respectively. The
+   `tanren-mcp` binary is the primary agent transport, using the
+   `rmcp` SDK; `tanren-cli` exposes a CLI fallback that mirrors the
+   tool catalog 1:1. Both call the same service methods.
 8. Observability rule: no crate emits unstructured logs without correlation context.
 
 ## Workspace and Version Management

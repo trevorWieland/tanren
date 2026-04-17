@@ -119,23 +119,61 @@ All policy decisions are evented and auditable.
 
 ### 6. Methodology / Workflow Context Layer
 
-Tanren's methodology is a control-plane concern. The system must distinguish
-between:
+Tanren's methodology is a first-class, strictly typed control-plane concern.
+The system distinguishes between:
 
-- shared command templates as reusable assets
-- installed command files rendered for a concrete repo/runtime
-- dynamic phase context generated per invocation from workflow state
+- **Shared command sources** — reusable templates under `commands/spec/` and
+  `commands/project/`, with `{{DOUBLE_BRACE_UPPER}}` variables filled at
+  install time and opinionated agent-behavior prose.
+- **Installed command files** — per-repo, per-agent-framework renderings
+  produced by `tanren install` (Claude Code, Codex Skills, OpenCode; per-
+  target format drivers; destructive-on-reinstall for commands, preserving
+  for standards).
+- **Typed orchestration state** — tasks, findings, rubric scores,
+  adherence results, and phase outcomes as typed domain entities in
+  `tanren-domain::methodology`, mutated via a typed tool surface.
+- **Committed event trail** — every tool call appends a line to
+  `{spec_folder}/phase-events.jsonl` and projects to the event store,
+  producing a replayable audit trail of every agent↔orchestrator
+  interaction.
 
 This layer owns:
 
-- workflow target resolution
-- verification-hook resolution
-- issue-source / repo-specific workflow mechanics
-- repo-specific installed command rendering inputs
-- phase context generation for agent invocations
+- shared command source management and install-time template rendering
+- workflow target resolution (the task the dispatch is operating on)
+- verification-hook resolution (command/phase-keyed, with priority chain)
+- issue-source / repo-specific workflow mechanics (GitHub, Linear, …)
+- typed task lifecycle with multi-guard completion (`Implemented → {
+  GateChecked, Audited, Adherent, …} → Complete`, guards configurable)
+- typed finding routing (orchestrator materializes new tasks from
+  `fix_now` findings; `Complete` is terminal; remediation is always a
+  new task)
+- evidence-document frontmatter management (every structured field
+  managed exclusively via tools)
+- three-layer enforcement of orchestrator-owned artifacts (`plan.md`,
+  `progress.json`): prompt banner + chmod + postflight diff/revert
+- per-phase tool capability scoping (escalation confined to
+  `investigate`; mutation tools confined to authoring phases)
 
-The markdown command files define agent behavior. They do not own issue
-tracker mechanics, branch/PR flow, or literal verification commands.
+The markdown command files define **only** agent behavior. They never
+hardcode issue-tracker commands, branch/PR flow, literal verification
+commands, task-selection logic, or direct file mutations for
+orchestrator-owned artifacts.
+
+Two transports share one service:
+
+- **MCP** (`tanren-mcp` binary via `rmcp`) — the primary channel; stdio
+  transport; tool schemas derived from Rust types via attribute macros.
+- **CLI fallback** (`tanren-cli` subcommands) — mirrors the tool catalog
+  1:1 for environments where MCP isn't wired yet.
+
+See [docs/architecture/orchestration-flow.md](../architecture/orchestration-flow.md),
+[docs/architecture/agent-tool-surface.md](../architecture/agent-tool-surface.md),
+[docs/architecture/evidence-schemas.md](../architecture/evidence-schemas.md),
+[docs/architecture/audit-rubric.md](../architecture/audit-rubric.md),
+[docs/architecture/adherence.md](../architecture/adherence.md), and
+[docs/architecture/install-targets.md](../architecture/install-targets.md)
+for authoritative specs.
 
 ### 7. Store and Eventing Layer
 

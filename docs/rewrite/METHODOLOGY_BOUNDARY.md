@@ -5,127 +5,297 @@
 This document defines the boundary between **tanren-code** and
 **tanren-markdown** for Tanren 2.0.
 
-The rule is:
+The rule:
 
-- **tanren-code owns workflow mechanics and repo-specific resolution**
-- **tanren-markdown owns agent role instructions and expected outputs**
+- **tanren-code** owns workflow mechanics, typed orchestration state,
+  and repo-specific resolution.
+- **tanren-markdown** owns agent role instructions. Nothing more.
 
-## Tanren-Code Responsibilities
+See also:
+[LANE-0.5-DESIGN-NOTES.md](tasks/LANE-0.5-DESIGN-NOTES.md) (rationale),
+[architecture/orchestration-flow.md](../architecture/orchestration-flow.md),
+[architecture/agent-tool-surface.md](../architecture/agent-tool-surface.md),
+[architecture/evidence-schemas.md](../architecture/evidence-schemas.md),
+[architecture/audit-rubric.md](../architecture/audit-rubric.md),
+[architecture/adherence.md](../architecture/adherence.md),
+[architecture/install-targets.md](../architecture/install-targets.md),
+[architecture/phase-taxonomy.md](../architecture/phase-taxonomy.md).
 
-Tanren-code owns anything that depends on live workflow state, concrete repo
-configuration, or provider/runtime behavior:
+---
 
-- resolving repo config, active profile, install targets, issue source, and
-  verification hooks
-- selecting the current workflow target for a phase
-- generating per-phase workflow context
-- executing automated verification hooks and deciding when they run
-- issue tracker operations, candidate selection, dependency resolution, and
-  roadmap/progress updates
-- branch prep, commit/push/PR workflow, and other SCM mechanics
-- rendering installed command files from shared source templates
-- consuming structured outputs and mutating workflow state/artifacts
+## Operational ownership table
 
-## Tanren-Markdown Responsibilities
+Every workflow concern is owned by `tanren-code`. Rationale in the
+final column.
 
-Shared command markdown owns only agent behavior:
+| Concern | Owner | Rationale |
+|---|---|---|
+| Issue fetch / create / update | tanren-code | depends on provider + credentials; not prompt-safe |
+| Candidate task selection | tanren-code | depends on workflow state, dependency graph |
+| Branch prep, commit, push, PR creation | tanren-code | SCM mechanics must be deterministic and auditable |
+| Verification hook resolution | tanren-code | command/phase-keyed; priority chain |
+| Gate execution (TASK_GATE, SPEC_GATE) | tanren-code | automated; not an agent concern |
+| Task state transitions | tanren-code | typed state machine with guards |
+| Finding → new-task materialization | tanren-code | `Complete` is terminal; remediation always creates new tasks |
+| Evidence frontmatter management | tanren-code (via tools) | schemas validated at tool boundary |
+| `plan.md` / `progress.json` rendering | tanren-code | orchestrator-owned; three-layer enforcement of read-only |
+| Template variable rendering | tanren-code | install-time, per-target |
+| Install-target format driver dispatch | tanren-code | Claude Code / Codex Skills / OpenCode / standards-baseline |
+| MCP server registration | tanren-code | typed tool schemas; stdio transport |
+| Review-comment reply dispatch | tanren-code | agent emits directive; adapter posts |
+| Escalation to blocker | tanren-code | capability scoped to `investigate` |
+| Cross-spec intent/merge conflict events | tanren-code | typed events now; resolution engine Phase 2+ |
+
+Everything else — the *how* of agent behavior within its role — is
+owned by tanren-markdown.
+
+---
+
+## Tanren-markdown responsibilities
+
+Shared command markdown owns:
 
 - what role the agent is performing
-- what context it must read
-- what files it may or may not change
-- what outputs it must produce
-- what pass/fail means from the agent's perspective
+- what inputs it consumes from its dispatch context
+- what verification hook (via template variable) it should invoke
+- what tools (via the typed tool surface) it must call to record
+  outputs
+- what narrative evidence (markdown body) it authors
+- what's out of its scope
 
-Shared command markdown must stay:
+Shared command markdown **must not** hardcode:
 
-- provider-agnostic
-- gate-command-agnostic
-- issue-tracker-agnostic
-- branch/SCM-agnostic
-
-It must not hardcode:
-
-- literal verification commands such as `make check` or `make all`
-- issue tracker shell commands such as `gh issue ...`
+- literal verification commands (use `{{TASK_VERIFICATION_HOOK}}`,
+  `{{SPEC_VERIFICATION_HOOK}}`, or phase-specific variants)
+- issue tracker shell commands (`gh issue …`, `linear issue …`, etc.)
 - branch creation or checkout steps
 - commit / push / PR steps
-- workflow-target selection logic like “find the next task yourself”
+- workflow-target selection logic ("find the next task")
+- direct writes to `plan.md`, `progress.json`, or any
+  orchestrator-owned artifact
 
-## Command-Level Split
+Shared command markdown **must not** construct structured state
+(tasks, findings, rubric scores, evidence frontmatter) by writing
+files directly. Every structured mutation goes through the typed tool
+surface.
+
+---
+
+## Template variables
+
+`{{DOUBLE_BRACE_UPPER}}` placeholders are filled install-time per
+repo profile. Full taxonomy in
+[architecture/install-targets.md](../architecture/install-targets.md).
+Key ones:
+
+- `{{TASK_VERIFICATION_HOOK}}` / `{{SPEC_VERIFICATION_HOOK}}` +
+  per-phase overrides
+- `{{ISSUE_PROVIDER}}`, `{{ISSUE_REF_NOUN}}`, `{{PR_NOUN}}`
+- `{{SPEC_ROOT}}`, `{{PRODUCT_ROOT}}`, `{{STANDARDS_ROOT}}`
+- `{{PROJECT_LANGUAGE}}`
+- `{{TASK_TOOL_BINDING}}` (MCP or CLI; controls whether the command
+  prose says "call the MCP tool …" or "run `tanren task …`")
+- `{{READONLY_ARTIFACT_BANNER}}` (three-layer read-only warning)
+- `{{PILLAR_LIST}}`, `{{REQUIRED_GUARDS}}` (for audit command prose)
+
+Unknown variables in a template → install-time hard error. Variables
+declared in a command's frontmatter but never referenced → hard
+error. Variables referenced but not declared → hard error.
+
+---
+
+## Agent tool surface
+
+Every structured state mutation happens via a typed tool (MCP or CLI
+fallback). Full catalog in
+[architecture/agent-tool-surface.md](../architecture/agent-tool-surface.md).
+Groups:
+
+- **Task ops** — `create_task`, `start_task`, `complete_task`,
+  `revise_task`, `abandon_task`, `list_tasks`
+- **Findings + rubric** — `add_finding`, `record_rubric_score`,
+  `record_non_negotiable_compliance`
+- **Spec / demo frontmatter** — `set_spec_*`, `add_spec_*`,
+  `add_demo_step`, `mark_demo_step_skip`, `append_demo_result`
+- **Signposts** — `add_signpost`, `update_signpost_status`
+- **Phase lifecycle** — `report_phase_outcome`, `escalate_to_blocker`
+  (investigate only), `post_reply_directive` (handle-feedback only)
+- **Backlog** — `create_issue`
+- **Adherence** — `list_relevant_standards`,
+  `record_adherence_finding`
+
+Tools are phase-capability-scoped; out-of-scope calls return
+`CapabilityDenied`.
+
+---
+
+## Task monotonicity
+
+- `Complete` is terminal.
+- Every remediation is a new task with typed `TaskOrigin`.
+- `plan.md` is a generated view over the task store; agents never
+  edit it.
+- `Abandoned` requires replacement tasks or explicit user discard.
+
+Multi-guard completion: a task transitions to `Complete` only when
+all required forward guards are satisfied. Default set:
+`[gate_checked, audited, adherent]`. Configurable in `tanren.yml`
+`methodology.task_complete_requires`. Guards execute independently
+and can run in parallel.
+
+---
+
+## Command-level split
 
 ### `shape-spec`
 
-Owns collaborative shaping: scope, non-negotiables, acceptance criteria, demo,
-and task breakdown.
-
-Does not own issue fetch/create, candidate selection, dependency mutation,
-branch prep, or issue-body updates.
+- **Owns:** collaborative scope, non-negotiables, acceptance
+  criteria, demo plan, initial task breakdown.
+- **Does not own:** issue fetch/create, candidate selection,
+  dependency mutation, branch prep, issue-body updates, task
+  materialization shape (uses `create_task` tool, not markdown
+  edits).
 
 ### `do-task`
 
-Owns implementing the supplied task and recording evidence.
-
-Does not own task selection, verification-hook execution, commit/push, or
-workflow-state updates.
+- **Owns:** implementing the supplied task.
+- **Does not own:** task selection, gate execution, commit/push/PR,
+  task completion state (calls `complete_task`; orchestrator records
+  `Implemented`).
 
 ### `audit-task`
 
-Owns auditing the supplied task/diff and producing findings.
+- **Owns:** applying the 10-pillar rubric to the supplied task/diff;
+  producing typed findings; emitting rubric scores.
+- **Does not own:** fix-item insertion into plan.md, task
+  creation/un-checking. Fix_now findings materialize new tasks via
+  orchestrator.
 
-Does not own fix-item insertion or workflow requeue decisions.
+### `adhere-task`
+
+- **Owns:** filtering to relevant standards for the spec; checking
+  the task's diff; emitting adherence findings.
+- **Does not own:** rubric scoring, task creation. Relevant standards
+  list is provided by `list_relevant_standards`.
 
 ### `run-demo`
 
-Owns executing the supplied demo context and recording results/findings.
-
-Does not own routing demo failures back into workflow state.
+- **Owns:** executing [RUN] steps, recording results, emitting
+  findings per failure.
+- **Does not own:** routing failures into workflow state, creating
+  new tasks.
 
 ### `audit-spec`
 
-Owns whole-spec review and fix-now vs defer classification.
+- **Owns:** whole-spec 10-pillar rubric audit, non-negotiable
+  compliance recording, fix-now vs defer classification.
+- **Does not own:** deferred-issue creation (orchestrator via
+  `create_issue`), roadmap mutation.
 
-Does not own deferred issue creation or issue-tracker mutation.
+### `adhere-spec`
+
+- **Owns:** spec-level standards compliance across accumulated diff.
+- **Does not own:** rubric scoring, task creation.
 
 ### `walk-spec`
 
-Owns the human validation walkthrough.
+- **Owns:** human validation walkthrough, acceptance confirmation.
+- **Does not own:** PR creation, roadmap update, issue-comment
+  posting. Orchestrator performs all of these on accept.
 
-Does not own PR preparation/publishing workflow.
+### `handle-feedback`
 
-## Artifact Policy
+- **Owns:** classifying review items; emitting reply directives and
+  `create_task` / `create_issue` calls.
+- **Does not own:** direct `gh api` calls; commit/push; PR merging.
 
-These remain fixed, opinionated Tanren structure:
+### `investigate`
 
-- `tanren/specs`
-- `tanren/product`
-- `tanren/standards`
+- **Owns:** root-cause analysis; typed output via `revise_task`,
+  `create_task`, `add_finding`, or `escalate_to_blocker`.
+- **Does not own:** implementing fixes (emits tasks for `do-task` to
+  pick up); is the sole caller of `escalate_to_blocker`.
 
-These remain human-facing artifacts:
+### `resolve-blockers`
 
-- `spec.md`
-- `plan.md`
-- `signposts.md`
-- `demo.md`
-- `audit.md`
+- **Owns:** interactive presentation of investigation-derived
+  options; applying the user's choice via typed tools.
+- **Does not own:** cascading escalation (no call to
+  `escalate_to_blocker`).
 
-The machine-owned workflow surface should converge on:
+### Project-management commands
+`sync-roadmap`, `triage-audits`, `discover-standards`,
+`index-standards`, `inject-standards`, `plan-product` live under
+`commands/project/` and are **not** part of the spec-orchestration
+state machine. Each declares its own autonomy. `triage-audits` emits
+**issues** (backlog) via `create_issue`, never tasks.
 
-- `progress.json`
-- per-phase workflow context artifacts generated by Tanren code
-- structured findings emitted by commands
+---
 
-During the transition, evidence documents may still be agent-authored, but
-workflow selection and workflow-control mutation must move out of prompt text.
+## Artifact policy
 
-## Phase 0 Implication
+Fixed Tanren structure:
+- `tanren/specs`, `tanren/product`, `tanren/standards`
 
-Lane `0.4` remains the Rust dispatch CRUD slice.
+Agent-authored narrative (markdown body):
+- `spec.md`, `demo.md`, `audit.md`, `signposts.md`
 
-Lane `0.5` owns the methodology boundary and manual self-hosting bootstrap:
+Tool-authored structured frontmatter (same files):
+- `SpecFrontmatter`, `DemoFrontmatter`, `AuditFrontmatter`,
+  `SignpostsFrontmatter` — schemas in
+  [evidence-schemas.md](../architecture/evidence-schemas.md)
 
-- command-template architecture
-- repo-specific installed command rendering
-- command/phase-keyed verification hook modeling
-- issue-source-backed workflow operations
-- per-phase workflow context generation
-- manual Tanren-in-Tanren development before Phase 1 automation
+Orchestrator-owned (read-only to agents, three-layer enforced):
+- `plan.md`, `progress.json`, `phase-events.jsonl` (append-only via
+  tools)
+
+Committed audit trail:
+- `phase-events.jsonl` per spec folder — one typed event per tool
+  call; replayable.
+
+---
+
+## Manual self-hosting
+
+Before Phase 1 automation, the 7-step manual sequence demonstrates
+the methodology end-to-end:
+
+1. User invokes `shape-spec` (interactive).
+2. Orchestrator resolves task context for task 1.
+3. User invokes `do-task` with the supplied task id.
+4. User invokes `audit-task` with the supplied task id + diff.
+5. User invokes `run-demo` with the supplied demo context.
+6. User invokes `audit-spec` with the supplied spec target.
+7. User invokes `walk-spec` (interactive).
+
+Every step's structured output flows through typed tools. The
+orchestrator maintains task state, materializes new tasks from
+findings, and surfaces progress via `plan.md` (read-only generated
+view).
+
+---
+
+## Phase 0 implication
+
+Lane `0.4` (merged) — Rust dispatch CRUD slice.
+
+Lane `0.5` — methodology boundary, typed task lifecycle, tool
+surface, command templates, multi-agent installer, self-hosting.
+Encompasses:
+
+- orchestration-flow and agent-tool-surface specs (authoritative)
+- typed task + finding + evidence domain in `tanren-domain`
+- typed tool schemas in `tanren-contract`
+- event-store extensions + projections in `tanren-store`
+- service layer + install renderer + format drivers + MCP server in
+  `tanren-app-services` and `tanren-mcp`
+- CLI subcommands (`install`, `task`, `finding`, `phase`, `issue`,
+  `ingest`, `replay`) in `tanren-cli`
+- rewritten command sources under `commands/spec/` and
+  `commands/project/`
+- self-hosted `.claude/commands/`, `.codex/skills/`,
+  `.opencode/commands/` in the tanren repo
+
+Lane 0.4 and Lane 0.5 scopes are disjoint: 0.4 ships no methodology
+work; 0.5 ships no harness/environment/runtime implementation (those
+are Phase 1+).
