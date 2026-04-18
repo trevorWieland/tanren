@@ -153,13 +153,24 @@ install:
 
 # Render the command catalog and standards per `tanren.yml`.
 install-commands:
-    {{ cargo }} run --quiet -p tanren-cli -- install
+    @{{ cargo }} run --quiet -p tanren-cli -- install
 
 # Strict dry-run: fail if rendered artifacts drift from the plan.
 # Wired into `just ci` below so merging a command-source change
 # without re-running `install-commands` fails at PR time.
+#
+# Captures install stdout/stderr so the happy path is silent; on
+# drift (exit 3) or any other failure the full plan + error are
+# replayed to the console for triage.
 install-commands-check:
-    {{ cargo }} run --quiet -p tanren-cli -- install --dry-run --strict
+    #!/usr/bin/env bash
+    set -euo pipefail
+    output=$({{ cargo }} run --quiet -p tanren-cli -- install --dry-run --strict 2>&1) && status=0 || status=$?
+    if [[ $status -ne 0 ]]; then
+        echo "$output"
+        echo "FAIL: installer drift — re-run 'just install-commands' and commit the result." >&2
+        exit "$status"
+    fi
 
 # ============================================================================
 # Build
