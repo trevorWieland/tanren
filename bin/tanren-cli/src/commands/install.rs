@@ -33,6 +33,27 @@ pub(crate) struct InstallArgs {
     #[arg(long, default_value = "tanren.yml")]
     pub config: PathBuf,
 
+    /// Named profile under `methodology.profiles.<name>` to apply. If
+    /// supplied, the profile's keys override the top-level
+    /// `methodology` defaults for this install.
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Override the command source directory. Relative to the repo
+    /// root; defaults to the value from `methodology.source.path`.
+    #[arg(long)]
+    pub source: Option<PathBuf>,
+
+    /// Restrict install to the given target formats (comma-separated).
+    /// Accepted values:
+    /// `claude-code`, `codex-skills`, `opencode`, `standards-baseline`,
+    /// `claude-mcp-json`, `codex-config-toml`, `opencode-json`.
+    ///
+    /// If supplied, the plan only contains writes whose `format` matches
+    /// one of the listed values. If unset, every configured target runs.
+    #[arg(long, value_delimiter = ',')]
+    pub target: Vec<String>,
+
     /// Skip writing; print the plan as JSON.
     #[arg(long)]
     pub dry_run: bool,
@@ -41,6 +62,26 @@ pub(crate) struct InstallArgs {
     /// on-disk state.
     #[arg(long)]
     pub strict: bool,
+}
+
+fn parse_target_filter(raw: &[String]) -> Result<Vec<InstallFormat>, String> {
+    let mut out = Vec::with_capacity(raw.len());
+    for s in raw {
+        let fmt = match s.trim() {
+            "claude-code" => InstallFormat::ClaudeCode,
+            "codex-skills" => InstallFormat::CodexSkills,
+            "opencode" => InstallFormat::Opencode,
+            "standards-baseline" => InstallFormat::StandardsBaseline,
+            "claude-mcp-json" => InstallFormat::ClaudeMcpJson,
+            "codex-config-toml" => InstallFormat::CodexConfigToml,
+            "opencode-json" => InstallFormat::OpencodeJson,
+            other => return Err(format!("unknown --target format `{other}`")),
+        };
+        if !out.contains(&fmt) {
+            out.push(fmt);
+        }
+    }
+    Ok(out)
 }
 
 /// Structured output emitted on successful install / dry-run.
@@ -79,20 +120,52 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
         Err(e) => return fail_cfg(&format!("parsing {}: {e}", args.config.display())),
     };
 
-    let context = build_context(&cfg.methodology.variables);
+    let target_filter = match parse_target_filter(&args.target) {
+        Ok(v) => v,
+        Err(e) => return fail_validation(&e),
+    };
 
-    let mut plan = match plan_install_from_root(&cfg.methodology, &context) {
+    // Apply `--profile` override. Unknown profile is a hard error — a
+    // silent fallback to defaults would hide typos and surprise the
+    // caller.
+    let mut methodology = cfg.methodology.clone();
+    if let Some(name) = args.profile.as_deref() {
+        match cfg.methodology.profiles.get(name) {
+            Some(profile) => profile.apply(&mut methodology),
+            None => {
+                return fail_validation(&format!(
+                    "unknown --profile `{name}`; known profiles: {:?}",
+                    cfg.methodology.profiles.keys().collect::<Vec<_>>()
+                ));
+            }
+        }
+    }
+
+    // Apply `--source` override to the command source directory.
+    if let Some(src) = args.source.as_ref() {
+        methodology.source.path.clone_from(src);
+    }
+
+    let context = build_context(&methodology.variables);
+
+    let mut plan = match plan_install_from_root(&methodology, &context) {
         Ok(p) => p,
         Err(e) => return fail_validation(&e.to_string()),
     };
 
     // Append MCP config writes if configured.
-    for cfg_target in &cfg.methodology.mcp.also_write_configs {
+    for cfg_target in &methodology.mcp.also_write_configs {
         match synth_mcp_write(&cfg_target.path, cfg_target.format) {
             Ok(Some(w)) => plan.writes.push(w),
             Ok(None) => {}
             Err(code) => return code,
         }
+    }
+
+    // Apply `--target` restriction after the plan is fully built so the
+    // filter composes with MCP-config writes too.
+    if !target_filter.is_empty() {
+        plan.writes.retain(|w| target_filter.contains(&w.format));
     }
 
     let summary = summarize_plan(&plan);

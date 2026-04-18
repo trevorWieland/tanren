@@ -89,8 +89,9 @@ pub fn render_command(
         .collect();
     if !unused.is_empty() {
         return Err(MethodologyError::Validation(format!(
-            "command `{}`: declared but unused variables: {unused:?}",
-            source.name
+            "[TANREN_RENDER_DECLARED_UNUSED] command `{}` ({}): declared but unused variables: {unused:?}. Remove them from `declared_variables` or reference them in the body/frontmatter.",
+            source.name,
+            source.source_path.display(),
         )));
     }
 
@@ -101,9 +102,12 @@ pub fn render_command(
         .copied()
         .collect();
     if !undeclared.is_empty() {
+        let locs = variable_locations(&source.body, &undeclared);
         return Err(MethodologyError::Validation(format!(
-            "command `{}`: referenced but undeclared variables: {undeclared:?}",
-            source.name
+            "[TANREN_RENDER_UNDECLARED_VAR] command `{}` ({}): referenced but undeclared variables: {undeclared:?}. First-occurrence locations: {locs}. Add them to `declared_variables` in the command frontmatter.",
+            source.name,
+            source.source_path.display(),
+            locs = format_locations(&locs, source.source_path.to_string_lossy().as_ref()),
         )));
     }
 
@@ -114,9 +118,12 @@ pub fn render_command(
         .copied()
         .collect();
     if !unresolved.is_empty() {
+        let locs = variable_locations(&source.body, &unresolved);
         return Err(MethodologyError::Validation(format!(
-            "command `{}`: variables referenced but not supplied: {unresolved:?}",
-            source.name
+            "[TANREN_RENDER_UNKNOWN_VAR] command `{}` ({}): variables referenced but not supplied: {unresolved:?}. First-occurrence locations: {locs}. Supply values in the context (env var, tanren.yml `variables:`, or CLI flag).",
+            source.name,
+            source.source_path.display(),
+            locs = format_locations(&locs, source.source_path.to_string_lossy().as_ref()),
         )));
     }
 
@@ -228,6 +235,63 @@ fn substitute_yaml(v: &serde_yaml::Value, ctx: &HashMap<String, String>) -> serd
     }
 }
 
+/// Record of where a `{{VAR}}` first appears in the source body.
+/// Used by diagnostic messages so the `[TANREN_RENDER_*]` error
+/// codes include concrete `file:line:col` remediation hints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariableLocation {
+    pub variable: String,
+    pub line: u32,
+    pub col: u32,
+}
+
+fn variable_locations(body: &str, vars: &[&str]) -> Vec<VariableLocation> {
+    let mut out: Vec<VariableLocation> = Vec::with_capacity(vars.len());
+    let mut line_no = 1_u32;
+    let mut col_no = 1_u32;
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            // Find matching `}}`.
+            let mut j = i + 2;
+            while j + 1 < bytes.len() && !(bytes[j] == b'}' && bytes[j + 1] == b'}') {
+                j += 1;
+            }
+            if j + 1 < bytes.len() {
+                // `body[i+2..j]` is the variable name (possibly whitespace-padded).
+                let name = body[i + 2..j].trim();
+                if vars.contains(&name) && !out.iter().any(|l| l.variable == name) {
+                    out.push(VariableLocation {
+                        variable: name.to_owned(),
+                        line: line_no,
+                        col: col_no,
+                    });
+                }
+            }
+        }
+        if bytes[i] == b'\n' {
+            line_no = line_no.saturating_add(1);
+            col_no = 1;
+        } else {
+            col_no = col_no.saturating_add(1);
+        }
+        i += 1;
+    }
+    out
+}
+
+fn format_locations(locs: &[VariableLocation], file: &str) -> String {
+    if locs.is_empty() {
+        return "<frontmatter or non-body reference>".into();
+    }
+    let mut parts = Vec::with_capacity(locs.len());
+    for l in locs {
+        parts.push(format!("{}:{}:{} ({})", file, l.line, l.col, l.variable));
+    }
+    parts.join(", ")
+}
+
 /// Extract the set of unique `{{VAR}}` tokens from a body.
 ///
 /// UTF-8-safe: walks the string by char boundaries via `find`, never
@@ -325,88 +389,11 @@ pub fn render_catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::methodology::source::{CommandFamily, CommandFrontmatter};
 
-    fn source_with(vars: Vec<String>, body: &str) -> CommandSource {
-        CommandSource {
-            name: "do-task".into(),
-            family: CommandFamily::SpecLoop,
-            frontmatter: CommandFrontmatter {
-                name: "do-task".into(),
-                role: "implementation".into(),
-                orchestration_loop: true,
-                autonomy: "autonomous".into(),
-                declared_variables: vars,
-                declared_tools: vec![],
-                required_capabilities: vec![],
-                produces_evidence: vec![],
-                extras: Default::default(),
-            },
-            body: body.into(),
-            source_path: "x".into(),
-        }
-    }
-
-    #[test]
-    fn happy_path_renders() {
-        let src = source_with(vec!["HOOK".into()], "run {{HOOK}} now");
-        let mut ctx = HashMap::new();
-        ctx.insert("HOOK".into(), "just check".into());
-        let r = render_command(&src, &ctx).expect("ok");
-        assert_eq!(r.body, "run just check now");
-    }
-
-    #[test]
-    fn declared_unused_errors() {
-        let src = source_with(vec!["UNUSED".into()], "no vars here");
-        let ctx = HashMap::new();
-        assert!(render_command(&src, &ctx).is_err());
-    }
-
-    #[test]
-    fn undeclared_reference_errors() {
-        let src = source_with(vec![], "call {{MISSING}}");
-        let ctx = HashMap::new();
-        assert!(render_command(&src, &ctx).is_err());
-    }
-
-    #[test]
-    fn unresolved_reference_errors() {
-        let src = source_with(vec!["NEED".into()], "{{NEED}}");
-        let ctx = HashMap::new();
-        assert!(render_command(&src, &ctx).is_err());
-    }
-
-    #[test]
-    fn canonicalize_trims_and_ends_with_lf() {
-        let b = CanonicalBytes::canonicalize("line  \r\nnext  \n\n\n");
-        let s = String::from_utf8(b.0).expect("utf8");
-        assert_eq!(s, "line\nnext\n");
-    }
-
-    #[test]
-    fn fingerprint_is_stable() {
-        let a = CanonicalBytes::canonicalize("body");
-        let b = CanonicalBytes::canonicalize("body");
-        assert_eq!(a.fingerprint(), b.fingerprint());
-    }
-
-    #[test]
-    fn utf8_preserved_around_substitution() {
-        // Multi-byte chars: em-dash (—, 3 bytes), ellipsis (…, 3 bytes),
-        // arrow (→, 3 bytes), Latin accented (é, 2 bytes), CJK (中, 3
-        // bytes), emoji (🔥, 4 bytes). A byte-wise `as char` cast would
-        // corrupt every one.
-        let body = "Record signposts — feed future audits … with {{HOOK}} → é中🔥";
-        let src = source_with(vec!["HOOK".into()], body);
-        let mut ctx = HashMap::new();
-        ctx.insert("HOOK".into(), "just check".into());
-        let r = render_command(&src, &ctx).expect("ok");
-        assert_eq!(
-            r.body,
-            "Record signposts — feed future audits … with just check → é中🔥"
-        );
-    }
+    // Tests that exercise the private helpers `extract_references` and
+    // `substitute`. Public-surface renderer tests live in
+    // `crates/tanren-app-services/tests/methodology_renderer.rs` to
+    // keep this file under the 500-line budget.
 
     #[test]
     fn extract_references_is_utf8_safe() {
@@ -421,31 +408,5 @@ mod tests {
         ctx.insert("A".into(), "x".into());
         ctx.insert("B".into(), "y".into());
         assert_eq!(substitute("—{{A}}—{{B}}—", &ctx), "—x—y—");
-    }
-
-    #[test]
-    fn frontmatter_vars_are_extracted_and_substituted() {
-        let src = CommandSource {
-            name: "demo".into(),
-            family: CommandFamily::SpecLoop,
-            frontmatter: CommandFrontmatter {
-                name: "demo".into(),
-                role: "impl".into(),
-                orchestration_loop: false,
-                autonomy: "autonomous".into(),
-                declared_variables: vec!["PRODUCT_ROOT".into()],
-                declared_tools: vec![],
-                required_capabilities: vec![],
-                produces_evidence: vec!["{{PRODUCT_ROOT}}/spec.md".into()],
-                extras: Default::default(),
-            },
-            body: "see {{PRODUCT_ROOT}}".into(),
-            source_path: "x".into(),
-        };
-        let mut ctx = HashMap::new();
-        ctx.insert("PRODUCT_ROOT".into(), "docs".into());
-        let r = render_command(&src, &ctx).expect("ok");
-        assert_eq!(r.frontmatter.produces_evidence, vec!["docs/spec.md"]);
-        assert_eq!(r.body, "see docs");
     }
 }

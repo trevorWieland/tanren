@@ -48,7 +48,7 @@ pub use spec::{
     AddSpecAcceptanceCriterionParams, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
     SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecTitleParams,
 };
-pub use standard::ListRelevantStandardsParams;
+pub use standard::{ListRelevantStandardsParams, RelevantStandard};
 pub use task::{
     AbandonTaskParams, CompleteTaskParams, CreateTaskParams, CreateTaskResponse, ListTasksParams,
     ReviseTaskParams, StartTaskParams,

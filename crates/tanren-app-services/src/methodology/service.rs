@@ -17,8 +17,9 @@ use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{
-    FindingAdded, MethodologyEvent, TaskAbandoned as EvTaskAbandoned, TaskCreated as EvTaskCreated,
-    TaskImplemented, TaskStarted,
+    FindingAdded, MethodologyEvent, TaskAbandoned as EvTaskAbandoned,
+    TaskCompleted as EvTaskCompleted, TaskCreated as EvTaskCreated, TaskGuardSatisfied,
+    TaskImplemented, TaskStarted, fold_task_status,
 };
 use tanren_domain::methodology::finding::Finding;
 use tanren_domain::methodology::task::{
@@ -43,13 +44,53 @@ use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
 #[derive(Debug, Clone)]
 pub struct MethodologyService {
     store: Arc<Store>,
+    required_guards: Arc<[RequiredGuard]>,
+}
+
+fn default_required_guards() -> Arc<[RequiredGuard]> {
+    Arc::from([
+        RequiredGuard::GateChecked,
+        RequiredGuard::Audited,
+        RequiredGuard::Adherent,
+    ])
 }
 
 impl MethodologyService {
-    /// Construct a service over a shared store handle.
+    /// Construct a service over a shared store handle using the default
+    /// `task_complete_requires = [gate_checked, audited, adherent]` set.
     #[must_use]
     pub fn new(store: Arc<Store>) -> Self {
-        Self { store }
+        Self {
+            store,
+            required_guards: default_required_guards(),
+        }
+    }
+
+    /// Construct a service with a config-driven required-guard set.
+    ///
+    /// The set is what `fold_task_status` will check before emitting a
+    /// `TaskCompleted` event. Passing an empty slice collapses to
+    /// "complete on `TaskImplemented`"; duplicates are silently
+    /// de-duplicated by value.
+    #[must_use]
+    pub fn with_required_guards(store: Arc<Store>, required_guards: Vec<RequiredGuard>) -> Self {
+        let mut seen: Vec<RequiredGuard> = Vec::with_capacity(required_guards.len());
+        for g in required_guards {
+            if !seen.contains(&g) {
+                seen.push(g);
+            }
+        }
+        Self {
+            store,
+            required_guards: Arc::from(seen.into_boxed_slice()),
+        }
+    }
+
+    /// Read the configured required-guard set. Used by projections and
+    /// tests to assert config-driven behavior.
+    #[must_use]
+    pub fn required_guards(&self) -> &[RequiredGuard] {
+        &self.required_guards
     }
 
     fn new_envelope(payload: MethodologyEvent) -> EventEnvelope {
@@ -224,20 +265,14 @@ impl MethodologyService {
         task_id: TaskId,
         kind: TaskTransitionKind,
     ) -> MethodologyResult<LegalTransition> {
-        let required = [
-            RequiredGuard::GateChecked,
-            RequiredGuard::Audited,
-            RequiredGuard::Adherent,
-        ];
         let events = tanren_store::methodology::projections::load_methodology_events(
             self.store(),
             spec_id,
             100_000u64,
         )
         .await?;
-        let current =
-            tanren_domain::methodology::events::fold_task_status(task_id, &required, events.iter())
-                .unwrap_or(TaskStatus::Pending);
+        let current = fold_task_status(task_id, &self.required_guards, events.iter())
+            .unwrap_or(TaskStatus::Pending);
         current
             .legal_next(kind)
             .map_err(|e| MethodologyError::IllegalTaskTransition {
@@ -245,6 +280,74 @@ impl MethodologyService {
                 from: e.from.to_owned(),
                 attempted: e.attempted.to_owned(),
             })
+    }
+
+    /// `mark_task_guard_satisfied` — emit one
+    /// [`MethodologyEvent::TaskGuardSatisfied`] and, if the accumulated
+    /// guard set now satisfies the configured `required_guards`, also
+    /// emit a [`MethodologyEvent::TaskCompleted`] in the same call.
+    ///
+    /// `idempotency_key` is an optional content-addressed key derived
+    /// by the caller (tool dispatch layer) from
+    /// `(tool_name, payload_canonical_json, task_id)`. When supplied,
+    /// repeating the same call is a no-op because `fold_task_status`
+    /// treats two `TaskGuardSatisfied` events with the same
+    /// `(task_id, guard)` as idempotent by construction — the second
+    /// append still lands in the event log but the resulting projection
+    /// is identical. Store-level dedup (see
+    /// `tanren-store::methodology::append`) rejects duplicate keys
+    /// before the event is written.
+    ///
+    /// # Errors
+    /// See [`MethodologyError`]. Propagates
+    /// [`MethodologyError::IllegalTaskTransition`] if the task is in a
+    /// state that cannot accept a guard event.
+    pub async fn mark_task_guard_satisfied(
+        &self,
+        scope: &CapabilityScope,
+        phase: &str,
+        task_id: TaskId,
+        guard: RequiredGuard,
+        idempotency_key: Option<String>,
+    ) -> MethodologyResult<()> {
+        enforce(scope, ToolCapability::TaskComplete, phase)?;
+        let spec_id = self.resolve_spec_for_task(task_id).await?;
+        match self
+            .check_transition(spec_id, task_id, TaskTransitionKind::Guard)
+            .await?
+        {
+            LegalTransition::Idempotent => return Ok(()),
+            LegalTransition::Transition => {}
+        }
+        self.emit(MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
+            task_id,
+            spec_id,
+            guard,
+            idempotency_key,
+        }))
+        .await?;
+        // Re-fold and, if the accumulated guard set now satisfies
+        // `required_guards`, deterministically fire `TaskCompleted` in
+        // the same transaction-bundle. This closes the "tasks can stall
+        // in implemented state" hole flagged in the audit.
+        let events = tanren_store::methodology::projections::load_methodology_events(
+            self.store(),
+            spec_id,
+            100_000u64,
+        )
+        .await?;
+        let status = fold_task_status(task_id, &self.required_guards, events.iter())
+            .unwrap_or(TaskStatus::Pending);
+        if let TaskStatus::Implemented { guards } = status
+            && guards.satisfies(&self.required_guards)
+        {
+            self.emit(MethodologyEvent::TaskCompleted(EvTaskCompleted {
+                task_id,
+                spec_id,
+            }))
+            .await?;
+        }
+        Ok(())
     }
 
     // -- §3.2 Findings --------------------------------------------------------

@@ -66,8 +66,56 @@ pub enum MethodologyError {
         source: std::io::Error,
     },
 
+    /// A JSONL replay/ingest line could not be parsed. Carries the
+    /// line number and a short snippet of the raw payload so the
+    /// caller can fix the input without re-scanning the whole file.
+    /// Kept structured (rather than collapsed to `Internal`) so the
+    /// CLI boundary can surface `{code, line, raw}` per the audit
+    /// remediation plan.
+    #[error("malformed replay line {line} at {path}: {reason}")]
+    ReplayMalformedLine {
+        path: std::path::PathBuf,
+        line: usize,
+        reason: String,
+        raw: String,
+    },
+
+    /// A JSONL replay line parsed but its envelope failed to decode.
+    /// Separate from `ReplayMalformedLine` so tests can assert the
+    /// specific failure class.
+    #[error("replay envelope decode error at {path}:{line}: {reason}")]
+    ReplayEnvelopeDecode {
+        path: std::path::PathBuf,
+        line: usize,
+        reason: String,
+    },
+
     #[error("internal error: {0}")]
     Internal(String),
+}
+
+impl From<tanren_store::methodology::replay::ReplayError> for MethodologyError {
+    fn from(err: tanren_store::methodology::replay::ReplayError) -> Self {
+        use tanren_store::methodology::replay::ReplayError as R;
+        match err {
+            R::Io { path, source } => Self::Io { path, source },
+            R::MalformedLine {
+                path,
+                line,
+                reason,
+                raw,
+            } => Self::ReplayMalformedLine {
+                path,
+                line,
+                reason,
+                raw,
+            },
+            R::EnvelopeDecode { path, line, reason } => {
+                Self::ReplayEnvelopeDecode { path, line, reason }
+            }
+            R::Store { source } => Self::Store(source),
+        }
+    }
 }
 
 /// Agent-facing typed error shape.
@@ -189,6 +237,25 @@ impl From<&MethodologyError> for ToolError {
             MethodologyError::Io { path, source } => Self::Internal {
                 reason: format!("I/O on {}: {source}", path.display()),
             },
+            MethodologyError::ReplayMalformedLine {
+                path,
+                line,
+                reason,
+                raw,
+            } => Self::ValidationFailed {
+                field_path: format!("/{}:{line}", path.display()),
+                expected: "valid envelope JSON".into(),
+                actual: format!("raw={raw}"),
+                remediation: reason.clone(),
+            },
+            MethodologyError::ReplayEnvelopeDecode { path, line, reason } => {
+                Self::ValidationFailed {
+                    field_path: format!("/{}:{line}", path.display()),
+                    expected: "decodable event envelope".into(),
+                    actual: "decode failed".into(),
+                    remediation: reason.clone(),
+                }
+            }
             MethodologyError::Internal(msg) => Self::Internal {
                 reason: msg.clone(),
             },

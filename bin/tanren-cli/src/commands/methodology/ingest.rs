@@ -19,6 +19,7 @@ pub(crate) async fn run(service: &MethodologyService, args: IngestArgs) -> u8 {
     let store = service.store();
     match ingest_phase_events(store, &args.path).await {
         Ok(stats) => emit_result::<ReplayStats>(Ok(stats)),
-        Err(e) => emit_result::<()>(Err(MethodologyError::Internal(e.to_string()))),
+        // Preserve typed `ReplayError` variants (audit finding #10).
+        Err(e) => emit_result::<()>(Err(MethodologyError::from(e))),
     }
 }

@@ -182,12 +182,11 @@ impl MethodologyService {
         Ok(all.into_iter().filter(|f| ids.contains(&f.id)).collect())
     }
 
-    /// `list_relevant_standards` — returns every baseline standard
-    /// applicable to a spec. The current relevance filter is
-    /// conservative ("return all baseline standards"); per
-    /// `adherence.md §4.1`, Phase 1 narrows the set by the spec's
-    /// declared languages/domains. The full list is always a
-    /// correct upper bound for the filter.
+    /// `list_relevant_standards` — baseline-complete upper bound.
+    /// Preserved for callers that do not supply relevance filters; new
+    /// callers should prefer
+    /// [`Self::list_relevant_standards_filtered`] which implements
+    /// the adherence §4.1 algorithm.
     ///
     /// # Errors
     /// See [`MethodologyError`].
@@ -207,6 +206,147 @@ impl MethodologyService {
         });
         Ok(out)
     }
+
+    /// Implements the adherence §4.1 relevance algorithm: for each
+    /// baseline standard, keep the standard if (and explain why) any
+    /// of:
+    ///
+    /// - one of the `touched_files` matches one of the standard's
+    ///   `applies_to` globs, or
+    /// - `project_language` matches one of `applies_to_languages`, or
+    /// - one of `domains` matches one of `applies_to_domains`, or
+    /// - the standard declares no per-axis filter (fully universal).
+    ///
+    /// With all filter inputs empty, every baseline standard is
+    /// returned — preserving the conservative upper-bound behavior for
+    /// pre-Lane-0.5 callers. The `inclusion_reason` field on every
+    /// returned `RelevantStandard` names the axis that matched so
+    /// operators can audit inclusion decisions.
+    ///
+    /// # Errors
+    /// See [`MethodologyError`].
+    pub fn list_relevant_standards_filtered(
+        &self,
+        scope: &CapabilityScope,
+        phase: &str,
+        params: &tanren_contract::methodology::ListRelevantStandardsParams,
+    ) -> MethodologyResult<Vec<tanren_contract::methodology::RelevantStandard>> {
+        enforce(scope, ToolCapability::StandardRead, phase)?;
+        let all = super::standards::baseline_standards();
+        let all_empty = params.touched_files.is_empty()
+            && params.project_language.is_none()
+            && params.domains.is_empty();
+
+        let mut out: Vec<tanren_contract::methodology::RelevantStandard> = all
+            .into_iter()
+            .filter_map(|s| {
+                if all_empty {
+                    return Some(tanren_contract::methodology::RelevantStandard {
+                        standard: s,
+                        inclusion_reason: "baseline upper bound (no filter inputs supplied)".into(),
+                    });
+                }
+                relevance_reason(&s, params).map(|reason| {
+                    tanren_contract::methodology::RelevantStandard {
+                        standard: s,
+                        inclusion_reason: reason,
+                    }
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            a.standard
+                .category
+                .as_str()
+                .cmp(b.standard.category.as_str())
+                .then(a.standard.name.as_str().cmp(b.standard.name.as_str()))
+        });
+        Ok(out)
+    }
+}
+
+/// Evaluate the per-axis relevance filter. Returns
+/// `Some(explanation)` when the standard should be included,
+/// `None` when every axis excludes it.
+fn relevance_reason(
+    standard: &tanren_domain::methodology::standard::Standard,
+    params: &tanren_contract::methodology::ListRelevantStandardsParams,
+) -> Option<String> {
+    // A standard with zero `applies_to*` entries declares itself as
+    // universally-applicable. Keep it unless the caller explicitly
+    // scoped to a language/domain this standard does not claim.
+    let is_universal = standard.applies_to.is_empty()
+        && standard.applies_to_languages.is_empty()
+        && standard.applies_to_domains.is_empty();
+    if is_universal {
+        return Some("universal (no per-axis restriction declared)".into());
+    }
+    if !standard.applies_to.is_empty()
+        && let Some(file) = matching_touched_file(standard, &params.touched_files)
+    {
+        return Some(format!(
+            "matched `applies_to` against touched file `{file}`"
+        ));
+    }
+    if let Some(lang) = params.project_language.as_deref()
+        && !standard.applies_to_languages.is_empty()
+        && standard
+            .applies_to_languages
+            .iter()
+            .any(|l| l.eq_ignore_ascii_case(lang))
+    {
+        return Some(format!("matched `applies_to_languages` against `{lang}`"));
+    }
+    if !params.domains.is_empty()
+        && !standard.applies_to_domains.is_empty()
+        && let Some(d) = params
+            .domains
+            .iter()
+            .find(|d| standard.applies_to_domains.iter().any(|sd| sd == *d))
+    {
+        return Some(format!("matched `applies_to_domains` against `{d}`"));
+    }
+    None
+}
+
+/// Return the first caller-supplied touched file that matches any of
+/// the standard's `applies_to` globs. Uses a lightweight suffix /
+/// pattern match (no full-glob engine required for baseline entries
+/// like `**/*.rs`, `*.py`, `src/**`).
+fn matching_touched_file<'a>(
+    standard: &tanren_domain::methodology::standard::Standard,
+    touched: &'a [String],
+) -> Option<&'a str> {
+    touched
+        .iter()
+        .find(|f| {
+            standard
+                .applies_to
+                .iter()
+                .any(|pat| simple_glob_match(pat, f))
+        })
+        .map(String::as_str)
+}
+
+/// Lightweight glob matcher covering the baseline patterns used by
+/// built-in standards: `**/*.ext`, `*.ext`, `prefix/**`. Exact-string
+/// patterns always fall back to equality. This is intentionally
+/// simple — adding a full glob crate (e.g. `globset`) is a Phase-1
+/// concern once downstream consumers need richer patterns.
+fn simple_glob_match(pattern: &str, path: &str) -> bool {
+    if pattern == path {
+        return true;
+    }
+    if let Some(ext) = pattern.strip_prefix("**/*") {
+        return path.ends_with(ext);
+    }
+    if let Some(ext) = pattern.strip_prefix("*") {
+        return path.ends_with(ext);
+    }
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path.starts_with(prefix) && path.len() > prefix.len();
+    }
+    false
 }
 
 /// Look up the importance of a standard by (category, name) in the

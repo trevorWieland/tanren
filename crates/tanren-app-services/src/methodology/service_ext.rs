@@ -73,15 +73,10 @@ impl MethodologyService {
                 "list_tasks requires spec_id at Lane 0.5 scope".into(),
             ));
         };
-        let required = [
-            tanren_domain::methodology::task::RequiredGuard::GateChecked,
-            tanren_domain::methodology::task::RequiredGuard::Audited,
-            tanren_domain::methodology::task::RequiredGuard::Adherent,
-        ];
         let tasks = tanren_store::methodology::projections::tasks_for_spec(
             self.store(),
             spec_id,
-            &required,
+            self.required_guards(),
         )
         .await?;
         Ok(tasks)

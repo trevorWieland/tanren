@@ -165,11 +165,15 @@ pub(crate) fn load_params<T: DeserializeOwned>(input: &ParamsInput) -> Result<T,
 
 /// Resolve the capability scope in effect for this invocation.
 ///
-/// Precedence:
-/// 1. `TANREN_PHASE_CAPABILITIES` env var if set.
-/// 2. `default_scope_for_phase(phase)` if the phase is known.
-/// 3. Admin fallback: grant every capability. Documented and
-///    intentional — the CLI is the administrative transport.
+/// Precedence (zero-trust default-deny):
+/// 1. `TANREN_PHASE_CAPABILITIES` env var if set — parsed explicit scope.
+/// 2. `default_scope_for_phase(phase)` if the phase has a documented
+///    capability set.
+/// 3. `TANREN_CAPABILITY_OVERRIDE=admin` explicit override — grants
+///    every capability, logged at `warn` level so audit trails capture
+///    each use.
+/// 4. Default deny: return an empty scope so downstream
+///    `enforce(..)` calls surface a typed `CapabilityDenied`.
 #[must_use]
 pub(crate) fn resolve_scope(phase: &str) -> CapabilityScope {
     if let Ok(env) = std::env::var("TANREN_PHASE_CAPABILITIES")
@@ -180,7 +184,17 @@ pub(crate) fn resolve_scope(phase: &str) -> CapabilityScope {
     if let Some(scope) = default_scope_for_phase(phase) {
         return scope;
     }
-    all_capabilities_scope()
+    if matches!(
+        std::env::var("TANREN_CAPABILITY_OVERRIDE").as_deref(),
+        Ok("admin")
+    ) {
+        tracing::warn!(
+            phase,
+            "admin capability override in use — TANREN_CAPABILITY_OVERRIDE=admin grants full tool scope"
+        );
+        return all_capabilities_scope();
+    }
+    CapabilityScope::from_iter_caps([])
 }
 
 fn all_capabilities_scope() -> CapabilityScope {
@@ -254,6 +268,11 @@ pub(crate) fn exit_code_for(err: &MethodologyError) -> u8 {
         | MethodologyError::Domain(_)
         | MethodologyError::Store(_)
         | MethodologyError::Projection(_) => 2,
+        // Typed replay/ingest errors preserve their structured shape
+        // through the CLI boundary so operators can machine-read
+        // `{ code, line, raw }` without string parsing.
+        MethodologyError::ReplayMalformedLine { .. } => 5,
+        MethodologyError::ReplayEnvelopeDecode { .. } => 6,
         MethodologyError::Internal(_) => 1,
     }
 }
@@ -313,18 +332,19 @@ mod tests {
     }
 
     #[test]
-    fn resolve_scope_unknown_phase_grants_all_when_env_empty() {
-        // This relies on `TANREN_PHASE_CAPABILITIES` being unset —
-        // the test runner default. We explicitly do *not* mutate env
-        // here: env mutation requires unsafe (rust >= 1.78) and
-        // racing tests would render the assertion non-deterministic.
-        // The env-set path is covered by the integration test
-        // `capability_enforcement_denies_when_env_scope_excludes_tool`.
-        if std::env::var("TANREN_PHASE_CAPABILITIES").is_ok() {
+    fn resolve_scope_unknown_phase_defaults_deny_without_override() {
+        // Audit-remediation: the CLI now defaults to zero capabilities
+        // when neither `TANREN_PHASE_CAPABILITIES` nor the explicit
+        // `TANREN_CAPABILITY_OVERRIDE=admin` opt-in is set. Avoid env
+        // mutation here — see the admin-override integration path for
+        // the positive case.
+        if std::env::var("TANREN_PHASE_CAPABILITIES").is_ok()
+            || std::env::var("TANREN_CAPABILITY_OVERRIDE").is_ok()
+        {
             return;
         }
         let scope = resolve_scope("cli-admin");
-        assert!(scope.allows(ToolCapability::TaskCreate));
-        assert!(scope.allows(ToolCapability::PhaseEscalate));
+        assert!(!scope.allows(ToolCapability::TaskCreate));
+        assert!(!scope.allows(ToolCapability::PhaseEscalate));
     }
 }

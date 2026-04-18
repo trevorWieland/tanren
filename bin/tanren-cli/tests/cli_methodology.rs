@@ -32,6 +32,12 @@ fn mkdb() -> (TempDir, String) {
 fn cli(url: &str) -> Command {
     let mut cmd = Command::cargo_bin("tanren-cli").expect("bin");
     cmd.args(["--database-url", url]);
+    // Integration tests exercise the full tool surface without
+    // supplying a phase banner, so opt into the audited admin fallback.
+    // Production callers invoke the CLI with explicit
+    // `TANREN_PHASE_CAPABILITIES` under orchestrator dispatch; default
+    // is deny.
+    cmd.env("TANREN_CAPABILITY_OVERRIDE", "admin");
     cmd
 }
 

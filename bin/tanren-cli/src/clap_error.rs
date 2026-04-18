@@ -62,6 +62,9 @@ pub(crate) const ALLOWED_ARG_FIELDS: &[&str] = &[
     "config",
     "dry_run",
     "strict",
+    "profile",
+    "source",
+    "target",
     // `methodology` subcommand flags.
     "json",
     "params_file",

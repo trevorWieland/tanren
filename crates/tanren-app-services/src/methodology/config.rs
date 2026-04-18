@@ -22,6 +22,52 @@ pub struct MethodologyConfig {
     pub mcp: McpConfig,
     #[serde(default)]
     pub variables: BTreeMap<String, String>,
+    /// Named profiles. `tanren install --profile NAME` applies the
+    /// matching entry's overrides on top of the top-level defaults.
+    /// The top-level section itself acts as the implicit `default`
+    /// profile when no `--profile` flag is supplied.
+    #[serde(default)]
+    pub profiles: BTreeMap<String, MethodologyProfile>,
+}
+
+/// A named override block that `tanren install --profile NAME`
+/// applies on top of the top-level `methodology` section. Every field
+/// is optional — omitted fields leave the base value untouched.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MethodologyProfile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_complete_requires: Option<Vec<RequiredGuard>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_targets: Option<Vec<InstallTarget>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpConfig>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub variables: BTreeMap<String, String>,
+}
+
+impl MethodologyProfile {
+    /// Apply this profile's overrides to `base` in place. Variables
+    /// merge (profile wins on collision); vector/scalar fields fully
+    /// replace when set.
+    pub fn apply(&self, base: &mut MethodologyConfig) {
+        if let Some(v) = &self.task_complete_requires {
+            base.task_complete_requires.clone_from(v);
+        }
+        if let Some(s) = &self.source {
+            base.source.clone_from(s);
+        }
+        if let Some(t) = &self.install_targets {
+            base.install_targets.clone_from(t);
+        }
+        if let Some(m) = &self.mcp {
+            base.mcp.clone_from(m);
+        }
+        for (k, v) in &self.variables {
+            base.variables.insert(k.clone(), v.clone());
+        }
+    }
 }
 
 fn default_required_guards() -> Vec<RequiredGuard> {

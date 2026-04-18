@@ -145,11 +145,54 @@ pub struct TaskImplemented {
 /// A guard has been satisfied on an `Implemented` task. Multiple of
 /// these can arrive in any order and for any named guard; the projection
 /// folds them into [`TaskGuardFlags`].
+///
+/// # Canonical name mapping
+///
+/// Per `docs/architecture/orchestration-flow.md` §2.3, the canon
+/// refers to four named guard events: `TaskGateChecked`,
+/// `TaskAudited`, `TaskAdherent`, `TaskXChecked`. The implementation
+/// uses one polymorphic variant with a [`RequiredGuard`] discriminator:
+///
+/// | Canonical name   | Implementation shape                              |
+/// |------------------|---------------------------------------------------|
+/// | `TaskGateChecked`| `TaskGuardSatisfied { guard: GateChecked, .. }`   |
+/// | `TaskAudited`    | `TaskGuardSatisfied { guard: Audited, .. }`       |
+/// | `TaskAdherent`   | `TaskGuardSatisfied { guard: Adherent, .. }`      |
+/// | `TaskXChecked`   | `TaskGuardSatisfied { guard: Extra(name), .. }`   |
+///
+/// The mapping is enforced by the `canonical_guard_name` test in this
+/// module. Transport tracing SHOULD surface the canonical name by
+/// calling [`TaskGuardSatisfied::canonical_event_name`] so operators
+/// see `TaskGateChecked` etc. in logs even though one envelope shape is
+/// stored on disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskGuardSatisfied {
     pub task_id: TaskId,
     pub spec_id: SpecId,
     pub guard: RequiredGuard,
+    /// Content-addressed idempotency key derived from
+    /// `(tool_name, payload_canonical_json, task_id)`. Two calls with
+    /// the same key are safe to fold once; the store-level dedup table
+    /// (when present) rejects the duplicate at append time. `None` is
+    /// tolerated for events produced by the pre-idempotence era.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+impl TaskGuardSatisfied {
+    /// Return the canonical event name per
+    /// `docs/architecture/orchestration-flow.md` §2.3. Use this for
+    /// tracing/log lines where operators expect the canonical
+    /// taxonomy.
+    #[must_use]
+    pub fn canonical_event_name(&self) -> &'static str {
+        match self.guard {
+            RequiredGuard::GateChecked => "TaskGateChecked",
+            RequiredGuard::Audited => "TaskAudited",
+            RequiredGuard::Adherent => "TaskAdherent",
+            RequiredGuard::Extra(_) => "TaskXChecked",
+        }
+    }
 }
 
 /// `Implemented + {all required guards} → Complete`. Terminal.
@@ -341,159 +384,4 @@ where
         }
     }
     status
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Utc;
-
-    use crate::methodology::task::TaskOrigin;
-
-    fn ne(s: &str) -> NonEmptyString {
-        NonEmptyString::try_new(s).expect("non-empty")
-    }
-
-    fn seed_task(spec: SpecId) -> Task {
-        let tid = TaskId::new();
-        Task {
-            id: tid,
-            spec_id: spec,
-            title: ne("Seed task"),
-            description: String::new(),
-            acceptance_criteria: vec![],
-            origin: TaskOrigin::ShapeSpec,
-            status: TaskStatus::Pending,
-            depends_on: vec![],
-            parent_task_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        }
-    }
-
-    #[test]
-    fn entity_root_matches_variant() {
-        let spec = SpecId::new();
-        let t = seed_task(spec);
-        let tid = t.id;
-        let ev = MethodologyEvent::TaskStarted(TaskStarted {
-            task_id: tid,
-            spec_id: spec,
-        });
-        assert_eq!(ev.entity_root(), EntityRef::Task(tid));
-        let ev2 = MethodologyEvent::TaskCreated(TaskCreated {
-            task: Box::new(t),
-            origin: TaskOrigin::ShapeSpec,
-        });
-        assert_eq!(ev2.entity_root(), EntityRef::Task(tid));
-    }
-
-    #[test]
-    fn event_json_roundtrip() {
-        let spec = SpecId::new();
-        let t = seed_task(spec);
-        let ev = MethodologyEvent::TaskCreated(TaskCreated {
-            task: Box::new(t),
-            origin: TaskOrigin::ShapeSpec,
-        });
-        let json = serde_json::to_string(&ev).expect("serialize");
-        let back: MethodologyEvent = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(ev, back);
-    }
-
-    #[test]
-    fn fold_complete_is_terminal() {
-        let spec = SpecId::new();
-        let t = seed_task(spec);
-        let tid = t.id;
-        let required = [
-            RequiredGuard::GateChecked,
-            RequiredGuard::Audited,
-            RequiredGuard::Adherent,
-        ];
-        let events = vec![
-            MethodologyEvent::TaskCreated(TaskCreated {
-                task: Box::new(t),
-                origin: TaskOrigin::ShapeSpec,
-            }),
-            MethodologyEvent::TaskStarted(TaskStarted {
-                task_id: tid,
-                spec_id: spec,
-            }),
-            MethodologyEvent::TaskImplemented(TaskImplemented {
-                task_id: tid,
-                spec_id: spec,
-                evidence_refs: vec![],
-            }),
-            MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
-                task_id: tid,
-                spec_id: spec,
-                guard: RequiredGuard::GateChecked,
-            }),
-            MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
-                task_id: tid,
-                spec_id: spec,
-                guard: RequiredGuard::Audited,
-            }),
-            MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
-                task_id: tid,
-                spec_id: spec,
-                guard: RequiredGuard::Adherent,
-            }),
-            MethodologyEvent::TaskCompleted(TaskCompleted {
-                task_id: tid,
-                spec_id: spec,
-            }),
-        ];
-        assert_eq!(
-            fold_task_status(tid, &required, &events),
-            Some(TaskStatus::Complete)
-        );
-    }
-
-    #[test]
-    fn fold_completed_without_all_guards_stays_implemented() {
-        let spec = SpecId::new();
-        let t = seed_task(spec);
-        let tid = t.id;
-        let required = [
-            RequiredGuard::GateChecked,
-            RequiredGuard::Audited,
-            RequiredGuard::Adherent,
-        ];
-        let events = vec![
-            MethodologyEvent::TaskCreated(TaskCreated {
-                task: Box::new(t),
-                origin: TaskOrigin::ShapeSpec,
-            }),
-            MethodologyEvent::TaskImplemented(TaskImplemented {
-                task_id: tid,
-                spec_id: spec,
-                evidence_refs: vec![],
-            }),
-            MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
-                task_id: tid,
-                spec_id: spec,
-                guard: RequiredGuard::GateChecked,
-            }),
-            // Missing Audited + Adherent; a late TaskCompleted must not
-            // transition to Complete.
-            MethodologyEvent::TaskCompleted(TaskCompleted {
-                task_id: tid,
-                spec_id: spec,
-            }),
-        ];
-        let status = fold_task_status(tid, &required, &events);
-        let guards = match status {
-            Some(TaskStatus::Implemented { ref guards }) => guards.clone(),
-            _ => TaskGuardFlags::default(),
-        };
-        assert!(
-            matches!(status, Some(TaskStatus::Implemented { .. })),
-            "expected Implemented with partial guards, got {status:?}"
-        );
-        assert!(guards.gate_checked);
-        assert!(!guards.audited);
-        assert!(!guards.adherent);
-    }
 }

@@ -50,6 +50,7 @@ fn guard_event(tid: TaskId, spec: SpecId, guard: RequiredGuard) -> MethodologyEv
         task_id: tid,
         spec_id: spec,
         guard,
+        idempotency_key: None,
     })
 }
 

@@ -106,6 +106,26 @@ pub async fn build_methodology_service(
     Ok(crate::methodology::MethodologyService::new(Arc::new(store)))
 }
 
+/// Like [`build_methodology_service`] but threads the config-driven
+/// `task_complete_requires` list through so the service's guard
+/// convergence logic is driven by the repo's `tanren.yml` rather than
+/// the default `[gate_checked, audited, adherent]`.
+///
+/// # Errors
+/// Returns [`StoreError`] on open/migration failure.
+pub async fn build_methodology_service_with_config(
+    database_url: &str,
+    required_guards: Vec<tanren_domain::methodology::task::RequiredGuard>,
+) -> Result<crate::methodology::MethodologyService, StoreError> {
+    let store = open_store_for_write(database_url).await?;
+    Ok(
+        crate::methodology::MethodologyService::with_required_guards(
+            Arc::new(store),
+            required_guards,
+        ),
+    )
+}
+
 /// Spawn a long-running replay-purge loop onto the current tokio
 /// runtime. Intended for the future `tanren-daemon` binary.
 pub fn spawn_replay_purge(
