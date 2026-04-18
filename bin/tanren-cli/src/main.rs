@@ -112,7 +112,8 @@ enum DbCommand {
 async fn main() -> std::process::ExitCode {
     match run().await {
         Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(err) => {
+        Err(RunError::Install(code)) => std::process::ExitCode::from(code),
+        Err(RunError::Other(err)) => {
             let error_response = into_error_response(err);
             if let Ok(json) = serde_json::to_string_pretty(&error_response) {
                 let _ = writeln!(std::io::stderr(), "{json}");
@@ -122,7 +123,23 @@ async fn main() -> std::process::ExitCode {
     }
 }
 
-async fn run() -> Result<()> {
+/// Internal error envelope that preserves `tanren install`'s typed
+/// exit codes (0/1/2/3/4 per install-targets.md §6).
+///
+/// Every other subcommand collapses into `Other` and is reported via
+/// the generic `ErrorResponse` path with `ExitCode::FAILURE`.
+enum RunError {
+    Install(u8),
+    Other(anyhow::Error),
+}
+
+impl From<anyhow::Error> for RunError {
+    fn from(e: anyhow::Error) -> Self {
+        Self::Other(e)
+    }
+}
+
+async fn run() -> std::result::Result<(), RunError> {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err) => {
@@ -130,29 +147,31 @@ async fn run() -> Result<()> {
                 err.kind(),
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) {
-                err.print()?;
+                err.print().map_err(anyhow::Error::new)?;
                 return Ok(());
             }
-            return Err(anyhow::Error::new(clap_error_to_response(&err)));
+            return Err(RunError::Other(anyhow::Error::new(clap_error_to_response(
+                &err,
+            ))));
         }
     };
 
     match init_tracing_for_contract_io(&cli.log_level) {
         Ok(()) | Err(ObservabilityError::AlreadyInitialized) => {}
         Err(ObservabilityError::FilterParse(reason)) => {
-            return Err(anyhow::Error::new(ErrorResponse::from(
+            return Err(RunError::Other(anyhow::Error::new(ErrorResponse::from(
                 ContractError::InvalidField {
                     field: "log_level".to_owned(),
                     reason,
                 },
-            )));
+            ))));
         }
         Err(ObservabilityError::SinkSerialize(_) | ObservabilityError::SinkIo(_)) => {
-            return Err(anyhow::Error::new(ErrorResponse {
+            return Err(RunError::Other(anyhow::Error::new(ErrorResponse {
                 code: ErrorCode::Internal,
                 message: "internal error".to_owned(),
                 details: None,
-            }));
+            })));
         }
     }
 
@@ -168,9 +187,50 @@ async fn run() -> Result<()> {
         command,
     } = cli;
 
+    // Install is factored out because it has a typed exit-code
+    // contract (0/1/2/3/4) that differs from other subcommands'
+    // generic ErrorResponse path.
+    if let Commands::Install(args) = command {
+        let code = run_install(&args);
+        return if code == 0 {
+            Ok(())
+        } else {
+            Err(RunError::Install(code))
+        };
+    }
+
+    let auth = AuthInputs {
+        actor_token_stdin,
+        actor_token_file,
+        actor_public_key_file,
+        token_issuer,
+        token_audience,
+        actor_token_max_ttl_secs,
+    };
+    dispatch_non_install(command, &database_url, &auth)
+        .await
+        .map_err(RunError::Other)
+}
+
+/// Bundled actor-token inputs. Keeps `dispatch_non_install`'s arity
+/// within workspace clippy thresholds.
+struct AuthInputs {
+    actor_token_stdin: bool,
+    actor_token_file: Option<PathBuf>,
+    actor_public_key_file: Option<PathBuf>,
+    token_issuer: Option<String>,
+    token_audience: Option<String>,
+    actor_token_max_ttl_secs: u64,
+}
+
+async fn dispatch_non_install(
+    command: Commands,
+    database_url: &str,
+    auth: &AuthInputs,
+) -> Result<()> {
     match command {
         Commands::Db(DbCommand::Migrate) => {
-            tanren_app_services::compose::run_migrations(&database_url)
+            tanren_app_services::compose::run_migrations(database_url)
                 .await
                 .map_err(|err| {
                     anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
@@ -186,7 +246,7 @@ async fn run() -> Result<()> {
                 retention: std::time::Duration::from_secs(retention_secs),
                 ..tanren_app_services::ReplayPurgeConfig::default()
             };
-            let stats = tanren_app_services::compose::purge_replay_tokens_once(&database_url, cfg)
+            let stats = tanren_app_services::compose::purge_replay_tokens_once(database_url, cfg)
                 .await
                 .map_err(|err| {
                     anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
@@ -195,33 +255,26 @@ async fn run() -> Result<()> {
         }
         Commands::Dispatch(dispatch_cmd) => {
             let (context, replay_guard) = authenticate(
-                actor_token_stdin,
-                actor_token_file.as_ref(),
-                actor_public_key_file.as_ref(),
-                token_issuer.as_deref(),
-                token_audience.as_deref(),
-                actor_token_max_ttl_secs,
+                auth.actor_token_stdin,
+                auth.actor_token_file.as_ref(),
+                auth.actor_public_key_file.as_ref(),
+                auth.token_issuer.as_deref(),
+                auth.token_audience.as_deref(),
+                auth.actor_token_max_ttl_secs,
             )?;
             match dispatch_cmd.split() {
                 DispatchRequest::Read(cmd) => {
-                    let service = build_read_service(&database_url).await?;
+                    let service = build_read_service(database_url).await?;
                     commands::dispatch::handle_read(cmd, &service, &context).await
                 }
                 DispatchRequest::Mutation(cmd) => {
-                    let service = build_write_service(&database_url).await?;
+                    let service = build_write_service(database_url).await?;
                     commands::dispatch::handle_mutation(cmd, &service, &context, &replay_guard)
                         .await
                 }
             }
         }
-        Commands::Install(args) => {
-            let code = run_install(&args);
-            if code == 0 {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("install exited with code {code}"))
-            }
-        }
+        Commands::Install(_) => unreachable!("handled in run()"),
     }
 }
 

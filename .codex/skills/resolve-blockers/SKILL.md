@@ -48,7 +48,7 @@ resumes.
 3. Wait for the user's decision.
 4. Apply the chosen path with typed tools:
    - **Fix in place:** `create_task(origin: User)` or
-     `revise_task(â¦)`.
+     `revise_task(…)`.
    - **Abandon:** `abandon_task(task_id, reason, replacements)`.
      Replacement tasks must be created first via `create_task`.
    - **Defer to future spec:** `abandon_task` with an
@@ -59,7 +59,7 @@ resumes.
 ## Out of scope
 
 - Escalating further (resolve-blockers never chain-escalates; if
-  the user cannot decide, `report_phase_outcome("error", â¦)`)
+  the user cannot decide, `report_phase_outcome("error", …)`)
 - Editing `plan.md`, `progress.json`, or orchestrator-owned files
 - Creating `GitHub issues` directly
 - Implementing any code change

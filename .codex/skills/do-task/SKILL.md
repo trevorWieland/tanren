@@ -54,13 +54,13 @@ workflow progression are Tanren-code's job.
    report `blocked` (Tanren-code will dispatch `investigate`).
 4. Record signposts for non-obvious issues you hit or decisions that
    would surprise a future reader. Each signpost needs concrete
-   evidence â error messages, file paths, command output.
+   evidence — error messages, file paths, command output.
 5. On successful implementation: call
    `complete_task(task_id, evidence_refs)` with the relevant file
    paths / commit refs. The `Implemented` transition is recorded by
    Tanren-code; the gate / audit / adherence guards run in parallel
    afterward.
-6. Call `report_phase_outcome("complete", â¦)`.
+6. Call `report_phase_outcome("complete", …)`.
 
 ## Verification
 
@@ -73,7 +73,7 @@ commands; Tanren-code has chosen this hook specifically for the
 mcp
 
 Signposts carry typed status: `unresolved`, `resolved`, `deferred`,
-`architectural_constraint`. Use them honestly â they feed future
+`architectural_constraint`. Use them honestly — they feed future
 audits and investigations.
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.

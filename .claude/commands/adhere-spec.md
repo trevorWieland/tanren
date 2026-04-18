@@ -30,18 +30,18 @@ Spec-scope standards compliance check. Same mechanics as
 ## Inputs (from your dispatch)
 
 - The spec folder and full spec-scope diff.
-- `list_relevant_standards(spec_id)` â filtered standards.
+- `list_relevant_standards(spec_id)` → filtered standards.
 
 ## Responsibilities
 
-1. For each relevant standard Ã each file in the spec-scope diff,
+1. For each relevant standard × each file in the spec-scope diff,
    evaluate compliance.
 2. Emit `record_adherence_finding` per violation. Severity rules
    (critical can't defer) match `adhere-task`.
 3. Call `report_phase_outcome`:
-   - `complete` if zero `fix_now` findings â spec-level `Adherent`
+   - `complete` if zero `fix_now` findings — spec-level `Adherent`
      guard satisfied.
-   - `fail` if any `fix_now` â orchestrator materializes fix tasks.
+   - `fail` if any `fix_now` — orchestrator materializes fix tasks.
 
 ## Verification
 

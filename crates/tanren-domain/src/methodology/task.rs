@@ -66,7 +66,100 @@ impl TaskStatus {
             Self::Abandoned { .. } => "abandoned",
         }
     }
+
+    /// Check whether the given transition event is legal from this
+    /// state. Returns `Ok(LegalTransition::Transition)` on a legal
+    /// advance, `Ok(LegalTransition::Idempotent)` when the transition
+    /// is a no-op on the current state (e.g. `start_task` on an
+    /// `InProgress` task), and `Err(IllegalTransition)` otherwise.
+    ///
+    /// Terminal states (`Complete`, `Abandoned`) reject every
+    /// transition except the idempotent repeat of themselves.
+    ///
+    /// # Errors
+    /// Returns [`IllegalTransition`] when the attempted event is not
+    /// legal from `self`.
+    pub fn legal_next(
+        &self,
+        event: TaskTransitionKind,
+    ) -> Result<LegalTransition, IllegalTransition> {
+        use TaskTransitionKind as K;
+        match (self, event) {
+            // Legal advances + idempotent no-ops.
+            (Self::Pending, K::Start)
+            | (Self::InProgress, K::Implement)
+            | (Self::Implemented { .. }, K::Guard | K::Complete)
+            | (
+                Self::Pending | Self::InProgress | Self::Implemented { .. },
+                K::Revise | K::Abandon,
+            ) => Ok(LegalTransition::Transition),
+            (Self::InProgress, K::Start) | (Self::Implemented { .. }, K::Implement) => {
+                Ok(LegalTransition::Idempotent)
+            }
+            // Terminal states and every other combination are illegal.
+            _ => Err(IllegalTransition {
+                from: self.tag(),
+                attempted: event.tag(),
+            }),
+        }
+    }
 }
+
+/// Classes of state-machine events the task may experience. Maps 1:1
+/// to `MethodologyEvent` variants that touch task state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskTransitionKind {
+    Start,
+    Implement,
+    Guard,
+    Complete,
+    Revise,
+    Abandon,
+}
+
+impl TaskTransitionKind {
+    /// Stable string tag used by errors and diagnostic output.
+    #[must_use]
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Implement => "implement",
+            Self::Guard => "guard",
+            Self::Complete => "complete",
+            Self::Revise => "revise",
+            Self::Abandon => "abandon",
+        }
+    }
+}
+
+/// Outcome of a [`TaskStatus::legal_next`] check that *is* legal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegalTransition {
+    /// The event moves the task to a new state.
+    Transition,
+    /// The event is redundant at the current state and should be
+    /// treated as a no-op by the caller (content-idempotent).
+    Idempotent,
+}
+
+/// Error returned by [`TaskStatus::legal_next`] for illegal advances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IllegalTransition {
+    pub from: &'static str,
+    pub attempted: &'static str,
+}
+
+impl std::fmt::Display for IllegalTransition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "illegal task transition: {} → {}",
+            self.from, self.attempted
+        )
+    }
+}
+
+impl std::error::Error for IllegalTransition {}
 
 /// Per-guard satisfaction flags recorded on the `Implemented` state.
 ///

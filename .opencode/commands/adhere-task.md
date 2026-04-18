@@ -1,4 +1,58 @@
 ---
 name: adhere-task
-template: "\n# adhere-task\n\n## Purpose\n\nCheck the task's diff against the repo's installed standards. Emit\ntyped adherence findings (pass/fail per rule). No rubric scores.\nThis phase is mechanical compliance, not opinionated judgment.\n\n## Inputs (from your dispatch)\n\n- `task_id` and its diff range.\n- The relevant-standards set via `list_relevant_standards(spec_id)`.\n\n## Responsibilities\n\n1. Fetch relevant standards. The filter already accounts for file\n   globs, language, and domain tags â\x80\x94 do not reduce further.\n2. For each standard + each changed file, evaluate compliance.\n3. For each misalignment: call `record_adherence_finding(standard_id,\n   affected_files, line_numbers, severity, rationale)`.\n   - `fix_now` â\x80\x94 violation must be addressed.\n   - `defer` â\x80\x94 violation is real but acceptable to defer\n     (non-critical standards only). Standards with\n     `importance: critical` cannot be deferred; the tool enforces\n     this.\n4. Call `report_phase_outcome`:\n   - `complete` if zero `fix_now` adherence findings. The\n     `TaskAdherent` guard will be recorded.\n   - `fail` if any `fix_now` findings. Orchestrator will materialize\n     fix tasks with `origin: Adherence`.\n\n## Verification\n\nIf you need to run a static check to ground a finding, use\n`just check`.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Rubric scoring (that's `audit-task`)\n- Authoring new standards (that's `discover-standards` / project)\n- Editing `plan.md` or creating tasks\n- Choosing the next phase\n"
+template: |2
+
+  # adhere-task
+
+  ## Purpose
+
+  Check the task's diff against the repo's installed standards. Emit
+  typed adherence findings (pass/fail per rule). No rubric scores.
+  This phase is mechanical compliance, not opinionated judgment.
+
+  ## Inputs (from your dispatch)
+
+  - `task_id` and its diff range.
+  - The relevant-standards set via `list_relevant_standards(spec_id)`.
+
+  ## Responsibilities
+
+  1. Fetch relevant standards. The filter already accounts for file
+     globs, language, and domain tags — do not reduce further.
+  2. For each standard + each changed file, evaluate compliance.
+  3. For each misalignment: call `record_adherence_finding(standard_id,
+     affected_files, line_numbers, severity, rationale)`.
+     - `fix_now` — violation must be addressed.
+     - `defer` — violation is real but acceptable to defer
+       (non-critical standards only). Standards with
+       `importance: critical` cannot be deferred; the tool enforces
+       this.
+  4. Call `report_phase_outcome`:
+     - `complete` if zero `fix_now` adherence findings. The
+       `TaskAdherent` guard will be recorded.
+     - `fail` if any `fix_now` findings. Orchestrator will materialize
+       fix tasks with `origin: Adherence`.
+
+  ## Verification
+
+  If you need to run a static check to ground a finding, use
+  `just check`.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Rubric scoring (that's `audit-task`)
+  - Authoring new standards (that's `discover-standards` / project)
+  - Editing `plan.md` or creating tasks
+  - Choosing the next phase
 ---

@@ -36,12 +36,12 @@ This phase is mechanical compliance, not opinionated judgment.
 ## Responsibilities
 
 1. Fetch relevant standards. The filter already accounts for file
-   globs, language, and domain tags â do not reduce further.
+   globs, language, and domain tags — do not reduce further.
 2. For each standard + each changed file, evaluate compliance.
 3. For each misalignment: call `record_adherence_finding(standard_id,
    affected_files, line_numbers, severity, rationale)`.
-   - `fix_now` â violation must be addressed.
-   - `defer` â violation is real but acceptable to defer
+   - `fix_now` — violation must be addressed.
+   - `defer` — violation is real but acceptable to defer
      (non-critical standards only). Standards with
      `importance: critical` cannot be deferred; the tool enforces
      this.

@@ -40,24 +40,24 @@ posting, issue creation, and task materialization.
 
 Classify each review item into exactly one bucket:
 
-- `valid-actionable` â reviewer is right, code needs change.
-  â `create_task(origin: Feedback { source_pr_comment_ref: â¦})`.
-- `valid-addressed` â reviewer is right but the concern is already
+- `valid-actionable` — reviewer is right, code needs change.
+  → `create_task(origin: Feedback { source_pr_comment_ref: …})`.
+- `valid-addressed` — reviewer is right but the concern is already
   handled (in code, in signposts, or by design).
-  â `post_reply_directive(thread_ref, body, disposition:
+  → `post_reply_directive(thread_ref, body, disposition:
   addressed)` with concise references.
-- `invalid` â reviewer is wrong.
-  â `post_reply_directive(thread_ref, body, disposition: rebut)`
+- `invalid` — reviewer is wrong.
+  → `post_reply_directive(thread_ref, body, disposition: rebut)`
   with evidence. Be respectful.
-- `style-preference` â subjective, not a correctness concern.
-  â `post_reply_directive(thread_ref, body, disposition:
+- `style-preference` — subjective, not a correctness concern.
+  → `post_reply_directive(thread_ref, body, disposition:
   acknowledged)`.
-- `out-of-scope` â real concern but belongs in a future spec.
-  â `create_issue(title, description, suggested_spec_scope,
+- `out-of-scope` — real concern but belongs in a future spec.
+  → `create_issue(title, description, suggested_spec_scope,
   priority)` plus `post_reply_directive(thread_ref, body,
-  disposition: deferred_to_issue, issue_ref: â¦)`.
-- `duplicate` â already triaged in this session.
-  â no action; log in session summary.
+  disposition: deferred_to_issue, issue_ref: …)`.
+- `duplicate` — already triaged in this session.
+  → no action; log in session summary.
 
 For CI-check failures: default to `valid-actionable` unless the
 failure is already tracked or is environmental (document in

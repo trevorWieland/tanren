@@ -26,7 +26,7 @@ produces_evidence: []
 
 Convert a batch standards-audit report (codebase-wide, run on demand
 or on a schedule) into prioritized backlog `GitHub issues` for
-future specs. This is **backlog curation**, not spec-loop work â
+future specs. This is **backlog curation**, not spec-loop work —
 nothing here affects the active spec.
 
 ## Inputs (from your dispatch)
@@ -68,7 +68,7 @@ UnauthorizedArtifactEdit event. Use the typed tool surface
 
 ## Out of scope
 
-- Creating tasks (`create_task` is denied for this command â tasks
+- Creating tasks (`create_task` is denied for this command — tasks
   belong to active specs; triage output is backlog issues)
 - Editing `roadmap.md`, `plan.md`, or any orchestrator-owned file
 - Calling `GitHub` shell commands directly

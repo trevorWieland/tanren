@@ -30,21 +30,21 @@ final column.
 
 | Concern | Owner | Rationale |
 |---|---|---|
-| Issue fetch / create / update | tanren-code | depends on provider + credentials; not prompt-safe |
-| Candidate task selection | tanren-code | depends on workflow state, dependency graph |
-| Branch prep, commit, push, PR creation | tanren-code | SCM mechanics must be deterministic and auditable |
-| Verification hook resolution | tanren-code | command/phase-keyed; priority chain |
-| Gate execution (TASK_GATE, SPEC_GATE) | tanren-code | automated; not an agent concern |
-| Task state transitions | tanren-code | typed state machine with guards |
-| Finding → new-task materialization | tanren-code | `Complete` is terminal; remediation always creates new tasks |
-| Evidence frontmatter management | tanren-code (via tools) | schemas validated at tool boundary |
-| `plan.md` / `progress.json` rendering | tanren-code | orchestrator-owned; three-layer enforcement of read-only |
-| Template variable rendering | tanren-code | install-time, per-target |
-| Install-target format driver dispatch | tanren-code | Claude Code / Codex Skills / OpenCode / standards-baseline |
-| MCP server registration | tanren-code | typed tool schemas; stdio transport |
-| Review-comment reply dispatch | tanren-code | agent emits directive; adapter posts |
-| Escalation to blocker | tanren-code | capability scoped to `investigate` |
-| Cross-spec intent/merge conflict events | tanren-code | typed events now; resolution engine Phase 2+ |
+| Issue fetch / create / update | tanren-code | owns the provider adapter and credentials; the agent prompt surface is read-only for provider state |
+| Candidate task selection | tanren-code | owns the workflow state and dependency graph; selection is a deterministic projection, not an agent choice |
+| Branch prep, commit, push, PR creation | tanren-code | owns SCM mechanics so every action is deterministic and auditable |
+| Verification hook resolution | tanren-code | owns the command/phase-keyed priority chain |
+| Gate execution (TASK_GATE, SPEC_GATE) | tanren-code | owns automated gate invocation end-to-end; agents never run gates |
+| Task state transitions | tanren-code | owns the typed state machine and guard evaluation |
+| Finding → new-task materialization | tanren-code | owns remediation dispatch; `Complete` is terminal, so every remediation is a fresh task |
+| Evidence frontmatter management | tanren-code (via tools) | owns schema validation at the tool boundary; agents only call typed tools |
+| `plan.md` / `progress.json` rendering | tanren-code | owns the orchestrator-maintained artifacts with three-layer read-only enforcement |
+| Template variable rendering | tanren-code | owns install-time rendering per target |
+| Install-target format driver dispatch | tanren-code | owns the Claude Code / Codex Skills / OpenCode / standards-baseline drivers |
+| MCP server registration | tanren-code | owns the typed tool catalog and stdio transport |
+| Review-comment reply dispatch | tanren-code | owns the provider-adapter reply path; agents emit typed directives only |
+| Escalation to blocker | tanren-code | owns the escalation channel; capability is scoped to `investigate` |
+| Cross-spec intent/merge conflict events | tanren-code | owns typed event emission now; the resolution engine lands in Phase 2+ |
 
 Everything else — the *how* of agent behavior within its role — is
 owned by tanren-markdown.

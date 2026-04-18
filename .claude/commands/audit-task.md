@@ -29,17 +29,17 @@ produces_evidence:
 
 Apply the opinionated 10-pillar rubric to the task identified in
 your dispatch. Emit typed findings per issue. Record a rubric score
-per applicable pillar. Do not edit `plan.md`, do not create tasks â
+per applicable pillar. Do not edit `plan.md`, do not create tasks —
 the orchestrator materializes new tasks from your `fix_now` findings.
 
 ## Inputs (from your dispatch)
 
 - `task_id` and its full record via `list_tasks`.
-- `diff_range` â the commit range / file list introduced by this
+- `diff_range` — the commit range / file list introduced by this
   task's `do-task` session.
 - Relevant standards (for context; standards adherence is a separate
-  phase â `adhere-task`).
-- `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` â the effective pillar set (task scope).
+  phase — `adhere-task`).
+- `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` — the effective pillar set (task scope).
 - Relevant signposts.
 
 ## Responsibilities
@@ -52,14 +52,14 @@ the orchestrator materializes new tasks from your `fix_now` findings.
    signpost records as `deferred` or `architectural_constraint`.
 3. For each applicable pillar: call `record_rubric_score(pillar,
    score, rationale, supporting_finding_ids)`.
-   - Score 1â10 (target 10, passing 7).
+   - Score 1–10 (target 10, passing 7).
    - `score < target` requires at least one linked finding.
    - `score < passing` requires at least one linked `fix_now`
      finding. Tool will reject invalid linkage.
 4. Write narrative reasoning into the body of `audit.md`
    (task-scope section).
 5. Call `report_phase_outcome`:
-   - `complete` if all scores â¥ passing and zero `fix_now` findings
+   - `complete` if all scores ≥ passing and zero `fix_now` findings
      remain. The `TaskAudited` guard will be recorded.
    - `fail` if any `fix_now` findings are produced. The orchestrator
      will materialize fix tasks.

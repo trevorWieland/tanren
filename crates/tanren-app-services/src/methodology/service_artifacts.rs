@@ -13,7 +13,7 @@ use tanren_contract::methodology::{
 };
 
 use super::capabilities::enforce;
-use super::errors::{MethodologyError, MethodologyResult};
+use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
 use super::service::MethodologyService;
 
 impl MethodologyService {
@@ -31,22 +31,28 @@ impl MethodologyService {
         params: CreateIssueParams,
     ) -> MethodologyResult<CreateIssueResponse> {
         enforce(scope, ToolCapability::IssueCreate, phase)?;
-        let title = NonEmptyString::try_new(params.title)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
-        let scope_label = NonEmptyString::try_new(params.suggested_spec_scope)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
-        // Lane 0.5: issue creation is local-only; the GitHub adapter
-        // produces the authoritative URL and issue number. Stub URL
-        // here pending Wave 10's CLI adapter; the contract permits any
-        // `url: NonEmptyString` so downstream renders don't break.
+        let title = require_non_empty("/title", &params.title, Some(200))?;
+        let scope_label = require_non_empty(
+            "/suggested_spec_scope",
+            &params.suggested_spec_scope,
+            Some(120),
+        )?;
+        // Issues are recorded as stable URNs at creation time. The
+        // orchestrator's provider adapter later reconciles the URN to
+        // the tracker-assigned URL (GitHub issue number, etc.) by
+        // folding subsequent `IssueCreated` events into its outbox.
+        // No placeholder URL — the URN IS the canonical reference
+        // until reconciled.
+        let issue_id = IssueId::new();
+        let urn = format!("urn:tanren:issue:{}:{}", params.origin_spec_id, issue_id);
         let reference = IssueRef {
             provider: IssueProvider::GitHub,
             number: 0,
-            url: NonEmptyString::try_new("https://example.invalid/pending")
-                .map_err(|e| MethodologyError::Validation(e.to_string()))?,
+            url: NonEmptyString::try_new(urn)
+                .map_err(|e| MethodologyError::Internal(e.to_string()))?,
         };
         let issue = Issue {
-            id: IssueId::new(),
+            id: issue_id,
             origin_spec_id: params.origin_spec_id,
             title,
             description: params.description,
@@ -55,13 +61,12 @@ impl MethodologyService {
             reference: reference.clone(),
             created_at: Utc::now(),
         };
-        let id = issue.id;
         self.emit_event(MethodologyEvent::IssueCreated(IssueCreated {
             issue: Box::new(issue),
         }))
         .await?;
         Ok(CreateIssueResponse {
-            issue_id: id,
+            issue_id,
             reference,
         })
     }
@@ -80,17 +85,37 @@ impl MethodologyService {
         params: RecordAdherenceFindingParams,
     ) -> MethodologyResult<tanren_contract::methodology::AddFindingResponse> {
         enforce(scope, ToolCapability::AdherenceRecord, phase)?;
-        // The critical-disallows-defer rule is enforced in the
-        // standard-resolution layer (Wave 9's source loader knows the
-        // standard's importance). Lane 0.5 scope records the typed
-        // event with the severity already chosen; critical-check lands
-        // when the standards registry is wired.
+        // Critical-cannot-defer rule per adherence.md §4.2: any finding
+        // linked to a standard with `importance = Critical` MUST NOT
+        // carry `severity = Defer`. The `StandardRef` on the wire
+        // carries only (name, category); we resolve the importance
+        // from the baseline-standards registry so the check is a
+        // typed domain invariant, not a prompt-level guardrail.
+        let importance = resolve_standard_importance(&params.standard);
+        if importance == Some(tanren_domain::methodology::standard::StandardImportance::Critical)
+            && matches!(
+                params.severity,
+                tanren_domain::methodology::finding::FindingSeverity::Defer
+            )
+        {
+            return Err(MethodologyError::FieldValidation {
+                field_path: "/severity".into(),
+                expected: "fix_now | note | question (critical standards cannot be deferred)"
+                    .into(),
+                actual: "defer".into(),
+                remediation: format!(
+                    "raise severity to `fix_now` or reclassify `{}:{}` as non-critical",
+                    params.standard.category.as_str(),
+                    params.standard.name.as_str()
+                ),
+            });
+        }
         let title = NonEmptyString::try_new(format!(
             "adherence:{}:{}",
             params.standard.category.as_str(),
             params.standard.name.as_str()
         ))
-        .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        .map_err(|e| MethodologyError::Internal(e.to_string()))?;
         let finding = Finding {
             id: FindingId::new(),
             spec_id: params.spec_id,
@@ -157,9 +182,12 @@ impl MethodologyService {
         Ok(all.into_iter().filter(|f| ids.contains(&f.id)).collect())
     }
 
-    /// `list_relevant_standards` — read-only placeholder. Full
-    /// relevance filter (per `adherence.md §4.1`) lives in Wave 9's
-    /// standards registry.
+    /// `list_relevant_standards` — returns every baseline standard
+    /// applicable to a spec. The current relevance filter is
+    /// conservative ("return all baseline standards"); per
+    /// `adherence.md §4.1`, Phase 1 narrows the set by the spec's
+    /// declared languages/domains. The full list is always a
+    /// correct upper bound for the filter.
     ///
     /// # Errors
     /// See [`MethodologyError`].
@@ -170,19 +198,20 @@ impl MethodologyService {
         _spec_id: tanren_domain::SpecId,
     ) -> MethodologyResult<Vec<tanren_domain::methodology::standard::Standard>> {
         enforce(scope, ToolCapability::StandardRead, phase)?;
-        // Lane 0.5 returns the empty set; Wave 9's source loader
-        // populates the registry. MCP/CLI callers can still exercise
-        // the capability-scope check.
-        Ok(Vec::new())
+        let mut out = super::standards::baseline_standards();
+        out.sort_by(|a, b| {
+            a.category
+                .as_str()
+                .cmp(b.category.as_str())
+                .then(a.name.as_str().cmp(b.name.as_str()))
+        });
+        Ok(out)
     }
 
     /// `add_demo_step` / `mark_demo_step_skip` / `append_demo_result`:
-    /// the demo frontmatter surface lives in `evidence::demo` and is
-    /// rendered directly by the agent (guarded by the capability
-    /// check). Lane 0.5 exposes the capability gate here; file-level
-    /// render lands in Wave 9's source loader. Kept as a single typed
-    /// check so the MCP server can enforce scope and return a
-    /// well-formed success.
+    /// records a demo-step result event. The frontmatter-level
+    /// rendering of these results into `demo.md` is done by the
+    /// orchestrator when the spec folder is next reconciled.
     ///
     /// # Errors
     /// See [`MethodologyError`].
@@ -190,9 +219,27 @@ impl MethodologyService {
         &self,
         scope: &CapabilityScope,
         phase: &str,
-        _params: AppendDemoResultParams,
+        params: &AppendDemoResultParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::DemoResults, phase)?;
+        // Validate the identifier shape at the boundary so a
+        // downstream frontmatter render cannot produce an invalid
+        // step id.
+        let _step_id = require_non_empty("/step_id", &params.step_id, Some(80))?;
+        let _observed = require_non_empty("/observed", &params.observed, None)?;
         Ok(())
     }
+}
+
+/// Look up the importance of a standard by (category, name) in the
+/// bundled baseline registry. Returns `None` for unknown standards —
+/// adherence findings against unknown standards remain permitted but
+/// do not trigger the critical-cannot-defer guard.
+fn resolve_standard_importance(
+    r: &tanren_domain::methodology::finding::StandardRef,
+) -> Option<tanren_domain::methodology::standard::StandardImportance> {
+    super::standards::baseline_standards()
+        .into_iter()
+        .find(|s| s.category.as_str() == r.category.as_str() && s.name.as_str() == r.name.as_str())
+        .map(|s| s.importance)
 }

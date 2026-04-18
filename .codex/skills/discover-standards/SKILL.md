@@ -14,7 +14,7 @@ required_capabilities:
 - standard.read
 - phase.outcome
 produces_evidence:
-- new standard files under {{STANDARDS_ROOT}}
+- new standard files under tanren/standards
 ---
 
 # discover-standards
@@ -28,11 +28,11 @@ one rule with clear applicability metadata.
 ## Inputs (from your dispatch)
 
 - Focus area (user-provided or agent-suggested).
-- Representative sample of 5â10 files in that area.
+- Representative sample of 5–10 files in that area.
 
 ## Responsibilities
 
-1. Ask the user for a focus area, or propose 3â5 candidate areas if
+1. Ask the user for a focus area, or propose 3–5 candidate areas if
    none is supplied.
 2. Read representative files. Identify unusual, opinionated, or
    tribal patterns.

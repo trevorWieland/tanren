@@ -1,4 +1,49 @@
 ---
 name: adhere-spec
-template: "\n# adhere-spec\n\n## Purpose\n\nSpec-scope standards compliance check. Same mechanics as\n`adhere-task` but applied to the spec's full accumulated diff.\n\n## Inputs (from your dispatch)\n\n- The spec folder and full spec-scope diff.\n- `list_relevant_standards(spec_id)` â\x86\x92 filtered standards.\n\n## Responsibilities\n\n1. For each relevant standard Ã\x97 each file in the spec-scope diff,\n   evaluate compliance.\n2. Emit `record_adherence_finding` per violation. Severity rules\n   (critical can't defer) match `adhere-task`.\n3. Call `report_phase_outcome`:\n   - `complete` if zero `fix_now` findings â\x80\x94 spec-level `Adherent`\n     guard satisfied.\n   - `fail` if any `fix_now` â\x80\x94 orchestrator materializes fix tasks.\n\n## Verification\n\nIf needed, `just check`.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Rubric scoring (that's `audit-spec`)\n- Authoring new standards\n- Editing `plan.md` / creating tasks\n- Choosing the next phase\n"
+template: |2
+
+  # adhere-spec
+
+  ## Purpose
+
+  Spec-scope standards compliance check. Same mechanics as
+  `adhere-task` but applied to the spec's full accumulated diff.
+
+  ## Inputs (from your dispatch)
+
+  - The spec folder and full spec-scope diff.
+  - `list_relevant_standards(spec_id)` → filtered standards.
+
+  ## Responsibilities
+
+  1. For each relevant standard × each file in the spec-scope diff,
+     evaluate compliance.
+  2. Emit `record_adherence_finding` per violation. Severity rules
+     (critical can't defer) match `adhere-task`.
+  3. Call `report_phase_outcome`:
+     - `complete` if zero `fix_now` findings — spec-level `Adherent`
+       guard satisfied.
+     - `fail` if any `fix_now` — orchestrator materializes fix tasks.
+
+  ## Verification
+
+  If needed, `just check`.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Rubric scoring (that's `audit-spec`)
+  - Authoring new standards
+  - Editing `plan.md` / creating tasks
+  - Choosing the next phase
 ---

@@ -76,8 +76,8 @@ UnauthorizedArtifactEdit event. Use the typed tool surface
 
 - Reclassifying demo steps (the `RUN` / `SKIP` decision was binding
   at `shape-spec` time)
-- Editing `plan.md` or creating tasks directly (findings â
-  orchestrator â tasks)
+- Editing `plan.md` or creating tasks directly (findings →
+  orchestrator → tasks)
 - Creating `GitHub issues`
 - Committing or pushing
 - Choosing the next phase

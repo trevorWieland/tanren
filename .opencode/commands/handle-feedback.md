@@ -1,4 +1,67 @@
 ---
 name: handle-feedback
-template: "\n# handle-feedback\n\n## Purpose\n\nTriage post-`pull request` review feedback. For each item, classify\nand emit the appropriate typed directive. Tanren-code performs all\nposting, issue creation, and task materialization.\n\n## Inputs (from your dispatch)\n\n- The resolved review context: threads, comments, CI-check failures,\n  the spec folder, the diff under review.\n\n## Responsibilities\n\nClassify each review item into exactly one bucket:\n\n- `valid-actionable` â\x80\x94 reviewer is right, code needs change.\n  â\x86\x92 `create_task(origin: Feedback { source_pr_comment_ref: â\x80¦})`.\n- `valid-addressed` â\x80\x94 reviewer is right but the concern is already\n  handled (in code, in signposts, or by design).\n  â\x86\x92 `post_reply_directive(thread_ref, body, disposition:\n  addressed)` with concise references.\n- `invalid` â\x80\x94 reviewer is wrong.\n  â\x86\x92 `post_reply_directive(thread_ref, body, disposition: rebut)`\n  with evidence. Be respectful.\n- `style-preference` â\x80\x94 subjective, not a correctness concern.\n  â\x86\x92 `post_reply_directive(thread_ref, body, disposition:\n  acknowledged)`.\n- `out-of-scope` â\x80\x94 real concern but belongs in a future spec.\n  â\x86\x92 `create_issue(title, description, suggested_spec_scope,\n  priority)` plus `post_reply_directive(thread_ref, body,\n  disposition: deferred_to_issue, issue_ref: â\x80¦)`.\n- `duplicate` â\x80\x94 already triaged in this session.\n  â\x86\x92 no action; log in session summary.\n\nFor CI-check failures: default to `valid-actionable` unless the\nfailure is already tracked or is environmental (document in\nsession summary and add a signpost via `add_signpost` in a later\n`do-task` session).\n\nWhen done: `report_phase_outcome(\"complete\", <session summary>)`.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Directly posting replies via `gh api` / `linear` / any provider\n  shell command\n- Creating `GitHub issues` via shell\n- Editing `plan.md` or other orchestrator-owned artifacts\n- Committing, pushing, merging\n- Deciding workflow progression\n"
+template: |2
+
+  # handle-feedback
+
+  ## Purpose
+
+  Triage post-`pull request` review feedback. For each item, classify
+  and emit the appropriate typed directive. Tanren-code performs all
+  posting, issue creation, and task materialization.
+
+  ## Inputs (from your dispatch)
+
+  - The resolved review context: threads, comments, CI-check failures,
+    the spec folder, the diff under review.
+
+  ## Responsibilities
+
+  Classify each review item into exactly one bucket:
+
+  - `valid-actionable` — reviewer is right, code needs change.
+    → `create_task(origin: Feedback { source_pr_comment_ref: …})`.
+  - `valid-addressed` — reviewer is right but the concern is already
+    handled (in code, in signposts, or by design).
+    → `post_reply_directive(thread_ref, body, disposition:
+    addressed)` with concise references.
+  - `invalid` — reviewer is wrong.
+    → `post_reply_directive(thread_ref, body, disposition: rebut)`
+    with evidence. Be respectful.
+  - `style-preference` — subjective, not a correctness concern.
+    → `post_reply_directive(thread_ref, body, disposition:
+    acknowledged)`.
+  - `out-of-scope` — real concern but belongs in a future spec.
+    → `create_issue(title, description, suggested_spec_scope,
+    priority)` plus `post_reply_directive(thread_ref, body,
+    disposition: deferred_to_issue, issue_ref: …)`.
+  - `duplicate` — already triaged in this session.
+    → no action; log in session summary.
+
+  For CI-check failures: default to `valid-actionable` unless the
+  failure is already tracked or is environmental (document in
+  session summary and add a signpost via `add_signpost` in a later
+  `do-task` session).
+
+  When done: `report_phase_outcome("complete", <session summary>)`.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Directly posting replies via `gh api` / `linear` / any provider
+    shell command
+  - Creating `GitHub issues` via shell
+  - Editing `plan.md` or other orchestrator-owned artifacts
+  - Committing, pushing, merging
+  - Deciding workflow progression
 ---

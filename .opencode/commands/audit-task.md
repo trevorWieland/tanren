@@ -1,4 +1,71 @@
 ---
 name: audit-task
-template: "\n# audit-task\n\n## Purpose\n\nApply the opinionated 10-pillar rubric to the task identified in\nyour dispatch. Emit typed findings per issue. Record a rubric score\nper applicable pillar. Do not edit `plan.md`, do not create tasks â\x80\x94\nthe orchestrator materializes new tasks from your `fix_now` findings.\n\n## Inputs (from your dispatch)\n\n- `task_id` and its full record via `list_tasks`.\n- `diff_range` â\x80\x94 the commit range / file list introduced by this\n  task's `do-task` session.\n- Relevant standards (for context; standards adherence is a separate\n  phase â\x80\x94 `adhere-task`).\n- `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` â\x80\x94 the effective pillar set (task scope).\n- Relevant signposts.\n\n## Responsibilities\n\n1. Read the diff in full. Understand what changed and why.\n2. For each finding: call `add_finding` with severity\n   `fix_now` / `defer` / `note` / `question`, a descriptive title,\n   affected files and line numbers, and the pillar it relates to.\n   Cross-reference signposts: do not re-surface issues an existing\n   signpost records as `deferred` or `architectural_constraint`.\n3. For each applicable pillar: call `record_rubric_score(pillar,\n   score, rationale, supporting_finding_ids)`.\n   - Score 1â\x80\x9310 (target 10, passing 7).\n   - `score < target` requires at least one linked finding.\n   - `score < passing` requires at least one linked `fix_now`\n     finding. Tool will reject invalid linkage.\n4. Write narrative reasoning into the body of `audit.md`\n   (task-scope section).\n5. Call `report_phase_outcome`:\n   - `complete` if all scores â\x89¥ passing and zero `fix_now` findings\n     remain. The `TaskAudited` guard will be recorded.\n   - `fail` if any `fix_now` findings are produced. The orchestrator\n     will materialize fix tasks.\n   - `blocked` if you cannot complete an audit (unusual; document\n     in a signpost).\n\n## Verification\n\nIf you need to run anything to ground a score, use\n`just check`. Do not substitute other commands.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Editing `plan.md`, creating tasks, reopening tasks\n- Creating `GitHub issues`\n- Standards adherence (that's `adhere-task`)\n- Committing, pushing, or PR mechanics\n- Choosing the next phase\n"
+template: |2
+
+  # audit-task
+
+  ## Purpose
+
+  Apply the opinionated 10-pillar rubric to the task identified in
+  your dispatch. Emit typed findings per issue. Record a rubric score
+  per applicable pillar. Do not edit `plan.md`, do not create tasks —
+  the orchestrator materializes new tasks from your `fix_now` findings.
+
+  ## Inputs (from your dispatch)
+
+  - `task_id` and its full record via `list_tasks`.
+  - `diff_range` — the commit range / file list introduced by this
+    task's `do-task` session.
+  - Relevant standards (for context; standards adherence is a separate
+    phase — `adhere-task`).
+  - `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` — the effective pillar set (task scope).
+  - Relevant signposts.
+
+  ## Responsibilities
+
+  1. Read the diff in full. Understand what changed and why.
+  2. For each finding: call `add_finding` with severity
+     `fix_now` / `defer` / `note` / `question`, a descriptive title,
+     affected files and line numbers, and the pillar it relates to.
+     Cross-reference signposts: do not re-surface issues an existing
+     signpost records as `deferred` or `architectural_constraint`.
+  3. For each applicable pillar: call `record_rubric_score(pillar,
+     score, rationale, supporting_finding_ids)`.
+     - Score 1–10 (target 10, passing 7).
+     - `score < target` requires at least one linked finding.
+     - `score < passing` requires at least one linked `fix_now`
+       finding. Tool will reject invalid linkage.
+  4. Write narrative reasoning into the body of `audit.md`
+     (task-scope section).
+  5. Call `report_phase_outcome`:
+     - `complete` if all scores ≥ passing and zero `fix_now` findings
+       remain. The `TaskAudited` guard will be recorded.
+     - `fail` if any `fix_now` findings are produced. The orchestrator
+       will materialize fix tasks.
+     - `blocked` if you cannot complete an audit (unusual; document
+       in a signpost).
+
+  ## Verification
+
+  If you need to run anything to ground a score, use
+  `just check`. Do not substitute other commands.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Editing `plan.md`, creating tasks, reopening tasks
+  - Creating `GitHub issues`
+  - Standards adherence (that's `adhere-task`)
+  - Committing, pushing, or PR mechanics
+  - Choosing the next phase
 ---

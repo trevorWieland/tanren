@@ -75,7 +75,12 @@ pub fn render_command(
         .iter()
         .map(String::as_str)
         .collect();
-    let referenced = extract_references(&source.body);
+    // References appear in both body and frontmatter string values.
+    let mut referenced = extract_references(&source.body);
+    let fm_refs_owned = frontmatter_references(&source.frontmatter);
+    for r in &fm_refs_owned {
+        referenced.insert(r.as_str());
+    }
 
     // Rule 2: declared-but-unused = hard error.
     let unused: Vec<&&str> = declared
@@ -116,38 +121,137 @@ pub fn render_command(
     }
 
     let body = substitute(&source.body, context);
+    let frontmatter = substitute_frontmatter(&source.frontmatter, context);
 
     Ok(RenderedCommand {
         name: source.name.clone(),
         family: source.family,
-        frontmatter: source.frontmatter.clone(),
+        frontmatter,
         body,
     })
 }
 
-/// Extract the set of unique `{{VAR}}` tokens from a body.
-fn extract_references(body: &str) -> BTreeSet<&str> {
-    let mut out = BTreeSet::new();
-    let bytes = body.as_bytes();
-    let mut i = 0;
-    while i + 3 < bytes.len() {
-        if bytes[i] == b'{' && bytes[i + 1] == b'{' {
-            if let Some(rel_end) = body[i + 2..].find("}}") {
-                let start = i + 2;
-                let end = start + rel_end;
-                let name = body[start..end].trim();
-                if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-                    out.insert(
-                        &body[start..end]
-                            .trim_start_matches(' ')
-                            .trim_end_matches(' ')[..],
-                    );
-                }
-                i = end + 2;
-                continue;
+/// Collect every `{{VAR}}` reference from the string fields of a
+/// frontmatter block (declared_tools, required_capabilities,
+/// produces_evidence, extras, name, role, autonomy).
+fn frontmatter_references(fm: &super::source::CommandFrontmatter) -> Vec<String> {
+    let mut out: BTreeSet<String> = BTreeSet::new();
+    let mut visit = |s: &str| {
+        for r in extract_references(s) {
+            out.insert(r.to_owned());
+        }
+    };
+    visit(&fm.name);
+    visit(&fm.role);
+    visit(&fm.autonomy);
+    for v in &fm.declared_tools {
+        visit(v);
+    }
+    for v in &fm.required_capabilities {
+        visit(v);
+    }
+    for v in &fm.produces_evidence {
+        visit(v);
+    }
+    for v in fm.extras.values() {
+        collect_yaml_refs(v, &mut out);
+    }
+    out.into_iter().collect()
+}
+
+fn collect_yaml_refs(v: &serde_yaml::Value, out: &mut BTreeSet<String>) {
+    match v {
+        serde_yaml::Value::String(s) => {
+            for r in extract_references(s) {
+                out.insert(r.to_owned());
             }
         }
-        i += 1;
+        serde_yaml::Value::Sequence(seq) => {
+            for child in seq {
+                collect_yaml_refs(child, out);
+            }
+        }
+        serde_yaml::Value::Mapping(map) => {
+            for child in map.values() {
+                collect_yaml_refs(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn substitute_frontmatter(
+    fm: &super::source::CommandFrontmatter,
+    ctx: &HashMap<String, String>,
+) -> super::source::CommandFrontmatter {
+    let mut out = fm.clone();
+    out.name = substitute(&out.name, ctx);
+    out.role = substitute(&out.role, ctx);
+    out.autonomy = substitute(&out.autonomy, ctx);
+    out.declared_tools = out
+        .declared_tools
+        .iter()
+        .map(|s| substitute(s, ctx))
+        .collect();
+    out.required_capabilities = out
+        .required_capabilities
+        .iter()
+        .map(|s| substitute(s, ctx))
+        .collect();
+    out.produces_evidence = out
+        .produces_evidence
+        .iter()
+        .map(|s| substitute(s, ctx))
+        .collect();
+    let mut new_extras = BTreeMap::new();
+    for (k, v) in &out.extras {
+        new_extras.insert(k.clone(), substitute_yaml(v, ctx));
+    }
+    out.extras = new_extras;
+    out
+}
+
+fn substitute_yaml(v: &serde_yaml::Value, ctx: &HashMap<String, String>) -> serde_yaml::Value {
+    match v {
+        serde_yaml::Value::String(s) => serde_yaml::Value::String(substitute(s, ctx)),
+        serde_yaml::Value::Sequence(seq) => {
+            serde_yaml::Value::Sequence(seq.iter().map(|c| substitute_yaml(c, ctx)).collect())
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let mut out = serde_yaml::Mapping::new();
+            for (k, val) in map {
+                out.insert(k.clone(), substitute_yaml(val, ctx));
+            }
+            serde_yaml::Value::Mapping(out)
+        }
+        other => other.clone(),
+    }
+}
+
+/// Extract the set of unique `{{VAR}}` tokens from a body.
+///
+/// UTF-8-safe: walks the string by char boundaries via `find`, never
+/// treats bytes as characters.
+fn extract_references(body: &str) -> BTreeSet<&str> {
+    let mut out = BTreeSet::new();
+    let mut rest = body;
+    while let Some(open) = rest.find("{{") {
+        let after = &rest[open + 2..];
+        if let Some(close) = after.find("}}") {
+            let name = after[..close].trim();
+            if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                // Re-derive the slice inside `body` with original
+                // lifetime so callers get `&str` references tied to
+                // `body` rather than a copy.
+                let abs_start = body.len() - rest.len() + open + 2;
+                let abs_end = abs_start + close;
+                let trimmed = body[abs_start..abs_end].trim();
+                out.insert(trimmed);
+            }
+            rest = &after[close + 2..];
+        } else {
+            break;
+        }
     }
     out
 }
@@ -155,26 +259,39 @@ fn extract_references(body: &str) -> BTreeSet<&str> {
 /// Replace every `{{VAR}}` with its resolved value. Assumes all
 /// references resolve — callers must have validated first via
 /// [`render_command`].
+///
+/// UTF-8-safe: operates on string slices and `push_str` only; never
+/// casts `u8 as char`.
 fn substitute(body: &str, ctx: &HashMap<String, String>) -> String {
     let mut out = String::with_capacity(body.len());
-    let bytes = body.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if i + 3 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
-            if let Some(rel_end) = body[i + 2..].find("}}") {
-                let start = i + 2;
-                let end = start + rel_end;
-                let name = body[start..end].trim();
-                if let Some(value) = ctx.get(name) {
-                    out.push_str(value);
-                    i = end + 2;
-                    continue;
-                }
+    let mut rest = body;
+    while let Some(open) = rest.find("{{") {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 2..];
+        if let Some(close) = after.find("}}") {
+            let name = after[..close].trim();
+            if let Some(value) = ctx.get(name) {
+                out.push_str(value);
+                rest = &after[close + 2..];
+                continue;
             }
+            // Unresolved token: preserve the literal `{{name}}` so
+            // downstream audits can flag it. `render_command` rejects
+            // unresolved references before this path, but if called
+            // without validation (e.g. by a future debug helper) we
+            // still produce valid UTF-8.
+            out.push_str("{{");
+            out.push_str(&after[..close]);
+            out.push_str("}}");
+            rest = &after[close + 2..];
+        } else {
+            // No closing `}}` — copy the rest verbatim and stop.
+            out.push_str("{{");
+            out.push_str(after);
+            return out;
         }
-        out.push(body.as_bytes()[i] as char);
-        i += 1;
     }
+    out.push_str(rest);
     out
 }
 
@@ -196,6 +313,9 @@ pub fn render_catalog(
                 .entry(v.to_owned())
                 .or_default()
                 .push(c.name.clone());
+        }
+        for v in frontmatter_references(&c.frontmatter) {
+            references.entry(v).or_default().push(c.name.clone());
         }
         rendered.push(render_command(c, context)?);
     }
@@ -269,5 +389,63 @@ mod tests {
         let a = CanonicalBytes::canonicalize("body");
         let b = CanonicalBytes::canonicalize("body");
         assert_eq!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn utf8_preserved_around_substitution() {
+        // Multi-byte chars: em-dash (—, 3 bytes), ellipsis (…, 3 bytes),
+        // arrow (→, 3 bytes), Latin accented (é, 2 bytes), CJK (中, 3
+        // bytes), emoji (🔥, 4 bytes). A byte-wise `as char` cast would
+        // corrupt every one.
+        let body = "Record signposts — feed future audits … with {{HOOK}} → é中🔥";
+        let src = source_with(vec!["HOOK".into()], body);
+        let mut ctx = HashMap::new();
+        ctx.insert("HOOK".into(), "just check".into());
+        let r = render_command(&src, &ctx).expect("ok");
+        assert_eq!(
+            r.body,
+            "Record signposts — feed future audits … with just check → é中🔥"
+        );
+    }
+
+    #[test]
+    fn extract_references_is_utf8_safe() {
+        let refs = extract_references("— {{FOO}} … {{BAR}} →");
+        let set: Vec<&str> = refs.iter().copied().collect();
+        assert_eq!(set, vec!["BAR", "FOO"]);
+    }
+
+    #[test]
+    fn substitute_over_multibyte_gaps() {
+        let mut ctx = HashMap::new();
+        ctx.insert("A".into(), "x".into());
+        ctx.insert("B".into(), "y".into());
+        assert_eq!(substitute("—{{A}}—{{B}}—", &ctx), "—x—y—");
+    }
+
+    #[test]
+    fn frontmatter_vars_are_extracted_and_substituted() {
+        let src = CommandSource {
+            name: "demo".into(),
+            family: CommandFamily::SpecLoop,
+            frontmatter: CommandFrontmatter {
+                name: "demo".into(),
+                role: "impl".into(),
+                orchestration_loop: false,
+                autonomy: "autonomous".into(),
+                declared_variables: vec!["PRODUCT_ROOT".into()],
+                declared_tools: vec![],
+                required_capabilities: vec![],
+                produces_evidence: vec!["{{PRODUCT_ROOT}}/spec.md".into()],
+                extras: Default::default(),
+            },
+            body: "see {{PRODUCT_ROOT}}".into(),
+            source_path: "x".into(),
+        };
+        let mut ctx = HashMap::new();
+        ctx.insert("PRODUCT_ROOT".into(), "docs".into());
+        let r = render_command(&src, &ctx).expect("ok");
+        assert_eq!(r.frontmatter.produces_evidence, vec!["docs/spec.md"]);
+        assert_eq!(r.body, "see docs");
     }
 }

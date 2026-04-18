@@ -33,8 +33,8 @@ produces_evidence:
 ## Purpose
 
 Diagnose a specific phase failure. Emit a typed decision: revise the
-task, create a new task, abandon with replacements, or â as a last
-resort â escalate to a blocker for `resolve-blockers`.
+task, create a new task, abandon with replacements, or — as a last
+resort — escalate to a blocker for `resolve-blockers`.
 
 ## Inputs (from your dispatch)
 

@@ -1,4 +1,74 @@
 ---
 name: investigate
-template: "\n# investigate\n\n## Purpose\n\nDiagnose a specific phase failure. Emit a typed decision: revise the\ntask, create a new task, abandon with replacements, or â\x80\x94 as a last\nresort â\x80\x94 escalate to a blocker for `resolve-blockers`.\n\n## Inputs (from your dispatch)\n\n- The failing phase (e.g. `task-gate`, `audit-task`, `run-demo`,\n  `audit-spec`, `adhere-task`, `adhere-spec`).\n- The failing `task_id` (if task-scoped) or spec scope.\n- The failure artifacts (gate log, audit findings, demo results,\n  adherence findings).\n- The diff under suspicion.\n- Prior investigation records for this failure signature (the\n  orchestrator uses a root-cause fingerprint to enforce a loop cap,\n  default 3).\n\n## Responsibilities\n\n1. Read the failure evidence in full. Distinguish root causes from\n   symptoms. Do not modify code; this phase is read-only.\n2. Identify each root cause. For each, choose one action:\n   - **Task scope was wrong:** `revise_task(task_id,\n     revised_description, revised_acceptance, reason)`. Use this\n     when the acceptance criteria were ambiguous or incomplete.\n   - **A new fix scope is required:** `create_task(title,\n     description, origin: Investigation { source_phase,\n     source_task, loop_index }, acceptance_criteria)`.\n   - **Task is infeasible:** `abandon_task(task_id, reason,\n     replacements)` with at least one replacement.\n   - **Cannot resolve autonomously:** `escalate_to_blocker(reason,\n     options)`. Use this only after attempting diagnosis and only\n     when a human judgment call is genuinely needed.\n3. Add `note` / `question` findings for observations that are not\n   immediately actionable but might be useful to the next phase.\n4. Write a narrative for `investigation-report.json` (tool-generated\n   from your calls; the narrative field is your prose).\n5. Call `report_phase_outcome(\"complete\", <one-line summary>)`.\n\n## Verification\n\nIf you need to reproduce the failure to ground your diagnosis, use\nthe relevant hook: `just check` or\n`just ci` as appropriate. Never modify code.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Implementing fixes (emit a task; `do-task` will execute)\n- Editing `plan.md`, `progress.json`, or any orchestrator-owned\n  artifact\n- Calling any tool outside the `investigate` capability set\n  (`complete_task`, `record_rubric_score`, `post_reply_directive`,\n  `create_issue` are all denied)\n- Chain-escalating repeatedly (if the loop cap is hit, the\n  orchestrator promotes to a blocker automatically)\n"
+template: |2
+
+  # investigate
+
+  ## Purpose
+
+  Diagnose a specific phase failure. Emit a typed decision: revise the
+  task, create a new task, abandon with replacements, or — as a last
+  resort — escalate to a blocker for `resolve-blockers`.
+
+  ## Inputs (from your dispatch)
+
+  - The failing phase (e.g. `task-gate`, `audit-task`, `run-demo`,
+    `audit-spec`, `adhere-task`, `adhere-spec`).
+  - The failing `task_id` (if task-scoped) or spec scope.
+  - The failure artifacts (gate log, audit findings, demo results,
+    adherence findings).
+  - The diff under suspicion.
+  - Prior investigation records for this failure signature (the
+    orchestrator uses a root-cause fingerprint to enforce a loop cap,
+    default 3).
+
+  ## Responsibilities
+
+  1. Read the failure evidence in full. Distinguish root causes from
+     symptoms. Do not modify code; this phase is read-only.
+  2. Identify each root cause. For each, choose one action:
+     - **Task scope was wrong:** `revise_task(task_id,
+       revised_description, revised_acceptance, reason)`. Use this
+       when the acceptance criteria were ambiguous or incomplete.
+     - **A new fix scope is required:** `create_task(title,
+       description, origin: Investigation { source_phase,
+       source_task, loop_index }, acceptance_criteria)`.
+     - **Task is infeasible:** `abandon_task(task_id, reason,
+       replacements)` with at least one replacement.
+     - **Cannot resolve autonomously:** `escalate_to_blocker(reason,
+       options)`. Use this only after attempting diagnosis and only
+       when a human judgment call is genuinely needed.
+  3. Add `note` / `question` findings for observations that are not
+     immediately actionable but might be useful to the next phase.
+  4. Write a narrative for `investigation-report.json` (tool-generated
+     from your calls; the narrative field is your prose).
+  5. Call `report_phase_outcome("complete", <one-line summary>)`.
+
+  ## Verification
+
+  If you need to reproduce the failure to ground your diagnosis, use
+  the relevant hook: `just check` or
+  `just ci` as appropriate. Never modify code.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Implementing fixes (emit a task; `do-task` will execute)
+  - Editing `plan.md`, `progress.json`, or any orchestrator-owned
+    artifact
+  - Calling any tool outside the `investigate` capability set
+    (`complete_task`, `record_rubric_score`, `post_reply_directive`,
+    `create_issue` are all denied)
+  - Chain-escalating repeatedly (if the loop cap is hit, the
+    orchestrator promotes to a blocker automatically)
 ---

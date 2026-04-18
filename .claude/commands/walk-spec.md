@@ -40,7 +40,7 @@ complete.
 
 1. Confirm prerequisites: all tasks `Complete`, `audit-spec` status
    `pass`, demo status `pass`. If not, call
-   `report_phase_outcome("error", â¦)` immediately â walk-spec is
+   `report_phase_outcome("error", …)` immediately — walk-spec is
    not the place to fix unfinished work.
 2. Run `just ci` and confirm green.
 3. Present an implementation summary + acceptance-criteria proof to
@@ -49,13 +49,13 @@ complete.
    execute, show result, confirm before next.
 5. If a demo step fails during the walkthrough: STOP. Call
    `create_task(title, description, origin: User)` with the
-   observed failure, then `report_phase_outcome("fail", â¦)`. Do not
+   observed failure, then `report_phase_outcome("fail", …)`. Do not
    silently fix.
-6. If the user accepts: `report_phase_outcome("complete", â¦)`.
+6. If the user accepts: `report_phase_outcome("complete", …)`.
    Tanren-code will create the `pull request`, update roadmap state,
    and post any required status comments.
 7. If the user rejects: `create_task(origin: User)` with the user's
-   concern; `report_phase_outcome("fail", â¦)`.
+   concern; `report_phase_outcome("fail", …)`.
 
 ## Verification
 

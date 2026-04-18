@@ -37,7 +37,7 @@ spec) or `defer` (backlog for future specs via `triage-audits`).
 - The full spec folder and its accumulated diff.
 - `list_tasks(filter: {spec_id})` for completion state.
 - Relevant standards (for context; compliance is `adhere-spec`).
-- `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` â effective pillar set for spec scope.
+- `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` — effective pillar set for spec scope.
 - The spec's non-negotiables (from spec frontmatter).
 
 ## Responsibilities
@@ -56,7 +56,7 @@ spec) or `defer` (backlog for future specs via `triage-audits`).
    status, rationale)`.
 5. Write reasoning into the `audit.md` body.
 6. Call `report_phase_outcome`:
-   - `complete` if every pillar â¥ passing, every non-negotiable
+   - `complete` if every pillar ≥ passing, every non-negotiable
      `pass`, demo passed, zero unaddressed `fix_now`.
    - `fail` otherwise. Orchestrator materializes new tasks from
      `fix_now` findings; `defer` findings feed backlog curation.

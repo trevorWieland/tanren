@@ -1,4 +1,50 @@
 ---
 name: discover-standards
-template: "\n# discover-standards\n\n## Purpose\n\nInteractively extract tribal knowledge from the codebase and codify\nit as standards files under `tanren/standards`. Each standard is\none rule with clear applicability metadata.\n\n## Inputs (from your dispatch)\n\n- Focus area (user-provided or agent-suggested).\n- Representative sample of 5â\x80\x9310 files in that area.\n\n## Responsibilities\n\n1. Ask the user for a focus area, or propose 3â\x80\x935 candidate areas if\n   none is supplied.\n2. Read representative files. Identify unusual, opinionated, or\n   tribal patterns.\n3. For each candidate pattern the user selects, hold a full loop:\n   ask clarifying questions one at a time (no batching), draft the\n   standard, confirm, write the file. Filename:\n   `tanren/standards/{category}/{kebab-slug}.md`.\n4. Frontmatter required on every standard: `name`, `category`,\n   `applies_to` (globs), `applies_to_languages`,\n   `applies_to_domains`, `importance` (low/medium/high/critical).\n5. Update `tanren/standards/index.yml` to include the new entry.\n6. `report_phase_outcome(\"complete\", <N standards authored>)`.\n\n## Out of scope\n\n- Enforcing standards against the current codebase (that's adherence\n  phases and `triage-audits`)\n- Injecting standards into running agent context (that's\n  `inject-standards`)\n- Committing, pushing, or creating `GitHub issues`\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\nmcp\n"
+template: |2
+
+  # discover-standards
+
+  ## Purpose
+
+  Interactively extract tribal knowledge from the codebase and codify
+  it as standards files under `tanren/standards`. Each standard is
+  one rule with clear applicability metadata.
+
+  ## Inputs (from your dispatch)
+
+  - Focus area (user-provided or agent-suggested).
+  - Representative sample of 5–10 files in that area.
+
+  ## Responsibilities
+
+  1. Ask the user for a focus area, or propose 3–5 candidate areas if
+     none is supplied.
+  2. Read representative files. Identify unusual, opinionated, or
+     tribal patterns.
+  3. For each candidate pattern the user selects, hold a full loop:
+     ask clarifying questions one at a time (no batching), draft the
+     standard, confirm, write the file. Filename:
+     `tanren/standards/{category}/{kebab-slug}.md`.
+  4. Frontmatter required on every standard: `name`, `category`,
+     `applies_to` (globs), `applies_to_languages`,
+     `applies_to_domains`, `importance` (low/medium/high/critical).
+  5. Update `tanren/standards/index.yml` to include the new entry.
+  6. `report_phase_outcome("complete", <N standards authored>)`.
+
+  ## Out of scope
+
+  - Enforcing standards against the current codebase (that's adherence
+    phases and `triage-audits`)
+  - Injecting standards into running agent context (that's
+    `inject-standards`)
+  - Committing, pushing, or creating `GitHub issues`
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  mcp
 ---

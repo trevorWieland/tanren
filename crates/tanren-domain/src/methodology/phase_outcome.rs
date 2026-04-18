@@ -9,6 +9,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::validated::NonEmptyString;
 
+/// Directive the orchestrator will enact on a feedback thread. The
+/// wire contract in `tanren-contract::methodology::phase` mirrors this
+/// enum verbatim (via a plain re-alias) so the domain owns the
+/// canonical shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplyDisposition {
+    Ack,
+    Defer,
+    Dispute,
+}
+
 /// Typed result of one phase execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "outcome", rename_all = "snake_case")]

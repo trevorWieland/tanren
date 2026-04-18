@@ -164,9 +164,23 @@ pub fn apply_install(plan: &InstallPlan) -> MethodologyResult<Vec<PathBuf>> {
 /// Diff a plan against the current filesystem. Non-empty result
 /// indicates drift — `tanren install --strict --dry-run` exits with
 /// code 3 if this returns any entries.
+///
+/// Scans in two passes:
+/// 1. Every planned write is compared to its on-disk contents.
+///    Missing / differing → `DriftEntry`.
+/// 2. For every `destructive` target directory seen in the plan, the
+///    directory is walked; any file on disk that is **not** in the
+///    planned set is reported as `ExtraFile`. This catches stale files
+///    left over from prior installs. For `preserve_existing`
+///    (standards baseline) and `preserve_other_keys` (MCP config)
+///    targets, extra-file reporting is skipped by design — the merge
+///    policy explicitly permits adopters to keep their own files.
 #[must_use]
 pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
+    use std::collections::{BTreeMap, BTreeSet};
+
     let mut out = Vec::new();
+    // Pass 1: planned write → Missing | Differs | ok.
     for w in &plan.writes {
         match std::fs::read(&w.dest) {
             Ok(on_disk) => {
@@ -185,8 +199,81 @@ pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
             }
         }
     }
+
+    // Pass 2: for each destructive target root, flag on-disk files
+    // that aren't planned.
+    //
+    // A "target root" is the common parent directory of the planned
+    // writes grouped by (format, merge_policy). We scan below each
+    // root and compare to the set of planned destinations.
+    let mut planned_by_root: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
+    let mut destructive_roots: BTreeSet<PathBuf> = BTreeSet::new();
+    for w in &plan.writes {
+        let root = target_root_for(&w.dest, w.format);
+        planned_by_root
+            .entry(root.clone())
+            .or_default()
+            .insert(w.dest.clone());
+        if matches!(w.merge_policy, MergePolicy::Destructive) {
+            destructive_roots.insert(root);
+        }
+    }
+    for root in destructive_roots {
+        let Some(planned) = planned_by_root.get(&root) else {
+            continue;
+        };
+        walk_files(&root, &mut |found| {
+            if !planned.contains(found) {
+                out.push(DriftEntry {
+                    dest: found.to_path_buf(),
+                    reason: DriftReason::ExtraFile,
+                });
+            }
+        });
+    }
+
+    out.sort_by(|a, b| a.dest.cmp(&b.dest));
     out
 }
+
+/// Derive the scan-root for a planned write. For `codex-skills` the
+/// rendered artifact lives in `<root>/<name>/SKILL.md`, so we walk
+/// from `<root>`. For every other format the root is the first parent
+/// directory.
+fn target_root_for(dest: &Path, format: InstallFormat) -> PathBuf {
+    match format {
+        InstallFormat::CodexSkills => dest
+            .parent()
+            .and_then(|p| p.parent())
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
+        _ => dest
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
+    }
+}
+
+fn walk_files(root: &Path, visit: &mut dyn FnMut(&Path)) {
+    if !root.is_dir() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_files(&path, visit);
+        } else if path.is_file() {
+            // Skip temporary install files from prior in-flight runs.
+            if path.extension().is_some_and(|e| e == "tanren-install-tmp") {
+                continue;
+            }
+            visit(&path);
+        }
+    }
+}
+
+use std::path::Path;
 
 #[cfg(test)]
 mod tests {

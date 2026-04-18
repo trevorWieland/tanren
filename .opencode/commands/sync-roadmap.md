@@ -1,4 +1,58 @@
 ---
 name: sync-roadmap
-template: "\n# sync-roadmap\n\n## Purpose\n\nReconcile `tanren/product/roadmap.md` with the real spec-completion\nstate held in the Tanren store plus the `GitHub` issue\nsource. Emit a structured diff of reconciling actions; Tanren-code\nperforms all mutations.\n\n## Inputs (from your dispatch)\n\n- The supplied reconciliation context: current roadmap snapshot,\n  issue-source snapshot (filtered to spec-type GitHub issues),\n  and the store's spec completion list.\n- Divergences already pre-computed by Tanren-code.\n\n## Responsibilities\n\n1. Read the reconciliation context. Identify:\n   - Specs in roadmap but not in the issue source (â\x86\x92 create issue).\n   - Issues tagged as specs but missing from roadmap (â\x86\x92 add to\n     roadmap).\n   - Specs with mismatched status (closed issue but status:planned,\n     etc.).\n   - Dependency divergences (frontmatter `depends_on` vs issue\n     `blockedBy`).\n2. For each reconciling action needed, emit `add_finding` with\n   severity `fix_now` or `defer`, tagged with the action shape\n   (create/update/relink). Orchestrator applies the mutations.\n3. If user confirmation is needed for a destructive reconciliation\n   (e.g. closing a stale roadmap entry), emit\n   `post_reply_directive` flagged for the operator.\n4. `report_phase_outcome(\"complete\", <summary>)`.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Calling `GitHub` shell commands directly\n- Editing `roadmap.md` directly (orchestrator does, based on your\n  findings)\n- Creating tasks (this command is cross-spec; it creates\n  reconciliation findings, not spec-scope tasks)\n- Mutating dependency graphs directly\n"
+template: |2
+
+  # sync-roadmap
+
+  ## Purpose
+
+  Reconcile `tanren/product/roadmap.md` with the real spec-completion
+  state held in the Tanren store plus the `GitHub` issue
+  source. Emit a structured diff of reconciling actions; Tanren-code
+  performs all mutations.
+
+  ## Inputs (from your dispatch)
+
+  - The supplied reconciliation context: current roadmap snapshot,
+    issue-source snapshot (filtered to spec-type GitHub issues),
+    and the store's spec completion list.
+  - Divergences already pre-computed by Tanren-code.
+
+  ## Responsibilities
+
+  1. Read the reconciliation context. Identify:
+     - Specs in roadmap but not in the issue source (→ create issue).
+     - Issues tagged as specs but missing from roadmap (→ add to
+       roadmap).
+     - Specs with mismatched status (closed issue but status:planned,
+       etc.).
+     - Dependency divergences (frontmatter `depends_on` vs issue
+       `blockedBy`).
+  2. For each reconciling action needed, emit `add_finding` with
+     severity `fix_now` or `defer`, tagged with the action shape
+     (create/update/relink). Orchestrator applies the mutations.
+  3. If user confirmation is needed for a destructive reconciliation
+     (e.g. closing a stale roadmap entry), emit
+     `post_reply_directive` flagged for the operator.
+  4. `report_phase_outcome("complete", <summary>)`.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Calling `GitHub` shell commands directly
+  - Editing `roadmap.md` directly (orchestrator does, based on your
+    findings)
+  - Creating tasks (this command is cross-spec; it creates
+    reconciliation findings, not spec-scope tasks)
+  - Mutating dependency graphs directly
 ---

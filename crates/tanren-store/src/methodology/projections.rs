@@ -102,6 +102,12 @@ pub fn fold_tasks(events: &[MethodologyEvent], required: &[RequiredGuard]) -> Ve
     for t in &mut out {
         t.status = fold_task_status(t.id, required, events).unwrap_or(TaskStatus::Pending);
     }
+    // Deterministic order: created_at, then id (uuid-v7 tiebreaker).
+    out.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then(a.id.into_uuid().cmp(&b.id.into_uuid()))
+    });
     out
 }
 
@@ -188,7 +194,13 @@ pub async fn signposts_for_spec<S: EventStore>(
             _ => {}
         }
     }
-    Ok(seed.into_values().collect())
+    let mut out: Vec<Signpost> = seed.into_values().collect();
+    out.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then(a.id.into_uuid().cmp(&b.id.into_uuid()))
+    });
+    Ok(out)
 }
 
 /// Fold to the current rubric scorecard for a spec.
@@ -221,7 +233,9 @@ pub async fn rubric_for_spec<S: EventStore>(
             latest.insert(key, e.score);
         }
     }
-    Ok(latest.into_values().collect())
+    let mut out: Vec<RubricScore> = latest.into_values().collect();
+    out.sort_by(|a, b| a.pillar.as_str().cmp(b.pillar.as_str()));
+    Ok(out)
 }
 
 #[cfg(test)]

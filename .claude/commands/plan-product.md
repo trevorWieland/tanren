@@ -13,9 +13,9 @@ declared_tools:
 required_capabilities:
 - phase.outcome
 produces_evidence:
-- '{{PRODUCT_ROOT}}/mission.md'
-- '{{PRODUCT_ROOT}}/roadmap.md'
-- '{{PRODUCT_ROOT}}/tech-stack.md'
+- tanren/product/mission.md
+- tanren/product/roadmap.md
+- tanren/product/tech-stack.md
 ---
 
 # plan-product

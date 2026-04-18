@@ -32,10 +32,7 @@ pub struct PostReplyDirectiveParams {
 }
 
 /// Directive the orchestrator will enact on the feedback thread.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum FeedbackDisposition {
-    Ack,
-    Defer,
-    Dispute,
-}
+///
+/// This is a re-alias of [`tanren_domain::methodology::phase_outcome::ReplyDisposition`]
+/// so the wire shape and the event-payload shape stay byte-identical.
+pub type FeedbackDisposition = tanren_domain::methodology::phase_outcome::ReplyDisposition;

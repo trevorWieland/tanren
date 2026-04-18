@@ -39,8 +39,8 @@ performs all mutations.
 ## Responsibilities
 
 1. Read the reconciliation context. Identify:
-   - Specs in roadmap but not in the issue source (â create issue).
-   - Issues tagged as specs but missing from roadmap (â add to
+   - Specs in roadmap but not in the issue source (→ create issue).
+   - Issues tagged as specs but missing from roadmap (→ add to
      roadmap).
    - Specs with mismatched status (closed issue but status:planned,
      etc.).

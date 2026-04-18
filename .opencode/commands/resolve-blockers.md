@@ -1,4 +1,55 @@
 ---
 name: resolve-blockers
-template: "\n# resolve-blockers\n\n## Purpose\n\nInteractive escalation-resolution phase. Triggered only after\n`investigate` has hit its loop cap and called `escalate_to_blocker`.\nPresent the investigation-derived options to the user, capture the\nchosen path via typed tool calls, then exit so the orchestrator\nresumes.\n\n## Inputs (from your dispatch)\n\n- The blocker reason and option list produced by the upstream\n  `investigate` call.\n- The spec folder state at the time of escalation.\n- All prior investigation reports for this fingerprint.\n\n## Responsibilities\n\n1. Summarize the blocker to the user in one paragraph. Pull context\n   from the investigation report.\n2. Present the options (at least: fix-in-place via new/revised\n   task; abandon + replace; defer to future spec). Recommend one.\n3. Wait for the user's decision.\n4. Apply the chosen path with typed tools:\n   - **Fix in place:** `create_task(origin: User)` or\n     `revise_task(â\x80¦)`.\n   - **Abandon:** `abandon_task(task_id, reason, replacements)`.\n     Replacement tasks must be created first via `create_task`.\n   - **Defer to future spec:** `abandon_task` with an\n     acknowledgment that no replacement will be created here; the\n     user can spin a new spec later.\n5. Call `report_phase_outcome(\"complete\", <user-chosen path>)`.\n\n## Out of scope\n\n- Escalating further (resolve-blockers never chain-escalates; if\n  the user cannot decide, `report_phase_outcome(\"error\", â\x80¦)`)\n- Editing `plan.md`, `progress.json`, or orchestrator-owned files\n- Creating `GitHub issues` directly\n- Implementing any code change\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\nmcp\n"
+template: |2
+
+  # resolve-blockers
+
+  ## Purpose
+
+  Interactive escalation-resolution phase. Triggered only after
+  `investigate` has hit its loop cap and called `escalate_to_blocker`.
+  Present the investigation-derived options to the user, capture the
+  chosen path via typed tool calls, then exit so the orchestrator
+  resumes.
+
+  ## Inputs (from your dispatch)
+
+  - The blocker reason and option list produced by the upstream
+    `investigate` call.
+  - The spec folder state at the time of escalation.
+  - All prior investigation reports for this fingerprint.
+
+  ## Responsibilities
+
+  1. Summarize the blocker to the user in one paragraph. Pull context
+     from the investigation report.
+  2. Present the options (at least: fix-in-place via new/revised
+     task; abandon + replace; defer to future spec). Recommend one.
+  3. Wait for the user's decision.
+  4. Apply the chosen path with typed tools:
+     - **Fix in place:** `create_task(origin: User)` or
+       `revise_task(…)`.
+     - **Abandon:** `abandon_task(task_id, reason, replacements)`.
+       Replacement tasks must be created first via `create_task`.
+     - **Defer to future spec:** `abandon_task` with an
+       acknowledgment that no replacement will be created here; the
+       user can spin a new spec later.
+  5. Call `report_phase_outcome("complete", <user-chosen path>)`.
+
+  ## Out of scope
+
+  - Escalating further (resolve-blockers never chain-escalates; if
+    the user cannot decide, `report_phase_outcome("error", …)`)
+  - Editing `plan.md`, `progress.json`, or orchestrator-owned files
+  - Creating `GitHub issues` directly
+  - Implementing any code change
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  mcp
 ---

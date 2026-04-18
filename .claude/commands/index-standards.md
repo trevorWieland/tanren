@@ -13,7 +13,7 @@ required_capabilities:
 - standard.read
 - phase.outcome
 produces_evidence:
-- updated {{STANDARDS_ROOT}}/index.yml
+- updated tanren/standards/index.yml
 ---
 
 # index-standards

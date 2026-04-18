@@ -25,6 +25,18 @@ pub enum MethodologyError {
     #[error("validation failed: {0}")]
     Validation(String),
 
+    /// Structured validation failure with a JSON-pointer field path.
+    /// Prefer this over [`Self::Validation`] when you know the offending
+    /// field, so the ToolError surface carries real precision per
+    /// `agent-tool-surface.md` §5.
+    #[error("validation failed at {field_path}: expected {expected}, got {actual}")]
+    FieldValidation {
+        field_path: String,
+        expected: String,
+        actual: String,
+        remediation: String,
+    },
+
     #[error("capability denied: {capability} not allowed in phase `{phase}`")]
     CapabilityDenied {
         capability: ToolCapability,
@@ -103,11 +115,40 @@ pub enum ToolError {
 impl From<&MethodologyError> for ToolError {
     fn from(err: &MethodologyError) -> Self {
         match err {
-            MethodologyError::Validation(msg) => Self::ValidationFailed {
-                field_path: "/".into(),
-                expected: "valid input per schema".into(),
-                actual: "rejected".into(),
-                remediation: msg.clone(),
+            MethodologyError::Validation(msg) => {
+                // Fall back to a best-effort inference when the caller
+                // didn't emit FieldValidation. We parse `msg` for a
+                // leading `"<field>: "` marker so stock error strings
+                // like `"title: value cannot be empty"` still surface
+                // the field. This path is intentionally imprecise —
+                // service methods now prefer `FieldValidation`.
+                let (field_path, remediation) = match msg.split_once(": ") {
+                    Some((lead, rest))
+                        if lead
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/') =>
+                    {
+                        (format!("/{lead}"), rest.to_owned())
+                    }
+                    _ => ("/".to_owned(), msg.clone()),
+                };
+                Self::ValidationFailed {
+                    field_path,
+                    expected: "valid input per schema".into(),
+                    actual: "rejected".into(),
+                    remediation,
+                }
+            }
+            MethodologyError::FieldValidation {
+                field_path,
+                expected,
+                actual,
+                remediation,
+            } => Self::ValidationFailed {
+                field_path: field_path.clone(),
+                expected: expected.clone(),
+                actual: actual.clone(),
+                remediation: remediation.clone(),
             },
             MethodologyError::CapabilityDenied { capability, phase } => Self::CapabilityDenied {
                 capability: capability.tag().into(),
@@ -157,3 +198,40 @@ impl From<&MethodologyError> for ToolError {
 
 /// Convenient result alias.
 pub type MethodologyResult<T> = Result<T, MethodologyError>;
+
+/// Helper: validate a required non-empty string field, emitting a
+/// typed [`MethodologyError::FieldValidation`] with an actionable
+/// JSON-pointer `field_path` on failure.
+///
+/// # Errors
+/// Returns [`MethodologyError::FieldValidation`] when `value` is empty
+/// or whitespace-only.
+pub fn require_non_empty(
+    field_path: &str,
+    value: &str,
+    max_len: Option<usize>,
+) -> MethodologyResult<tanren_domain::NonEmptyString> {
+    match tanren_domain::NonEmptyString::try_new(value.to_owned()) {
+        Ok(s) => {
+            if let Some(max) = max_len
+                && s.as_str().chars().count() > max
+            {
+                return Err(MethodologyError::FieldValidation {
+                    field_path: field_path.into(),
+                    expected: format!("non-empty string ≤ {max} chars"),
+                    actual: format!("{} chars", s.as_str().chars().count()),
+                    remediation: format!(
+                        "shorten the value at `{field_path}` to {max} or fewer characters"
+                    ),
+                });
+            }
+            Ok(s)
+        }
+        Err(_) => Err(MethodologyError::FieldValidation {
+            field_path: field_path.into(),
+            expected: "non-empty string".into(),
+            actual: format!("{value:?}"),
+            remediation: format!("supply a non-empty value for `{field_path}`"),
+        }),
+    }
+}

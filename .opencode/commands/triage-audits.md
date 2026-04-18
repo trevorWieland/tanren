@@ -1,4 +1,59 @@
 ---
 name: triage-audits
-template: "\n# triage-audits\n\n## Purpose\n\nConvert a batch standards-audit report (codebase-wide, run on demand\nor on a schedule) into prioritized backlog `GitHub issues` for\nfuture specs. This is **backlog curation**, not spec-loop work â\x80\x94\nnothing here affects the active spec.\n\n## Inputs (from your dispatch)\n\n- The latest batch audit reports under\n  `tanren/standards/audits/{date}/`.\n- The currently installed standards index.\n\n## Responsibilities\n\n1. Parse all audit reports. Extract per-standard scores, violation\n   counts, file lists.\n2. Score each standard's priority: `priority = (target - score) *\n   importance_weight`.\n3. Group violations by **root cause / natural fix scope**, not\n   per-standard. Example: \"Modernize type annotations in\n   `packages/foo/`\" as one group, rather than one issue per standard\n   that touches the same files.\n4. Present the proposed issue groups to the user, ordered by\n   priority. User approves, skips, or adjusts each group.\n5. For each approved group: `create_issue(title, description,\n   suggested_spec_scope, priority)`. These are backlog items, not\n   tasks in the current spec. `shape-spec` will eventually pick them\n   up.\n6. `add_finding(severity: note)` per cross-cutting observation\n   that doesn't warrant its own issue.\n7. `report_phase_outcome(\"complete\", <summary>)`.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Creating tasks (`create_task` is denied for this command â\x80\x94 tasks\n  belong to active specs; triage output is backlog issues)\n- Editing `roadmap.md`, `plan.md`, or any orchestrator-owned file\n- Calling `GitHub` shell commands directly\n- Modifying standards (that's `discover-standards` /\n  `inject-standards`)\n"
+template: |2
+
+  # triage-audits
+
+  ## Purpose
+
+  Convert a batch standards-audit report (codebase-wide, run on demand
+  or on a schedule) into prioritized backlog `GitHub issues` for
+  future specs. This is **backlog curation**, not spec-loop work —
+  nothing here affects the active spec.
+
+  ## Inputs (from your dispatch)
+
+  - The latest batch audit reports under
+    `tanren/standards/audits/{date}/`.
+  - The currently installed standards index.
+
+  ## Responsibilities
+
+  1. Parse all audit reports. Extract per-standard scores, violation
+     counts, file lists.
+  2. Score each standard's priority: `priority = (target - score) *
+     importance_weight`.
+  3. Group violations by **root cause / natural fix scope**, not
+     per-standard. Example: "Modernize type annotations in
+     `packages/foo/`" as one group, rather than one issue per standard
+     that touches the same files.
+  4. Present the proposed issue groups to the user, ordered by
+     priority. User approves, skips, or adjusts each group.
+  5. For each approved group: `create_issue(title, description,
+     suggested_spec_scope, priority)`. These are backlog items, not
+     tasks in the current spec. `shape-spec` will eventually pick them
+     up.
+  6. `add_finding(severity: note)` per cross-cutting observation
+     that doesn't warrant its own issue.
+  7. `report_phase_outcome("complete", <summary>)`.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Creating tasks (`create_task` is denied for this command — tasks
+    belong to active specs; triage output is backlog issues)
+  - Editing `roadmap.md`, `plan.md`, or any orchestrator-owned file
+  - Calling `GitHub` shell commands directly
+  - Modifying standards (that's `discover-standards` /
+    `inject-standards`)
 ---

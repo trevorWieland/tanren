@@ -53,7 +53,7 @@ PRs; Tanren-code owns all workflow mechanics.
 2. Derive non-negotiables (hard constraints that must always hold).
 3. Design a runnable demo plan: concrete steps, each tagged `RUN`
    or `SKIP`, with explicit expected observables. Probe the demo
-   environment *before* committing `RUN` tags â if a connection is
+   environment *before* committing `RUN` tags — if a connection is
    unavailable, mark `SKIP` with the reason.
 4. Break the work into ordered tasks with clear acceptance criteria.
    Tasks should be independently verifiable.

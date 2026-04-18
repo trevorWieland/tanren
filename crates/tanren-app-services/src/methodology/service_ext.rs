@@ -12,8 +12,8 @@
 use chrono::Utc;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{
-    MethodologyEvent, NonNegotiableComplianceRecorded, PhaseOutcomeReported, RubricScoreRecorded,
-    SignpostAdded, SignpostStatusUpdated, TaskRevised,
+    MethodologyEvent, NonNegotiableComplianceRecorded, PhaseOutcomeReported,
+    ReplyDirectiveRecorded, RubricScoreRecorded, SignpostAdded, SignpostStatusUpdated, TaskRevised,
 };
 use tanren_domain::methodology::finding::FindingSeverity;
 use tanren_domain::methodology::rubric::{NonNegotiableCompliance, RubricScore};
@@ -46,8 +46,7 @@ impl MethodologyService {
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::TaskRevise, phase)?;
         let spec_id = self.resolve_spec_for_task(params.task_id).await?;
-        let reason = NonEmptyString::try_new(params.reason)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        let reason = super::errors::require_non_empty("/reason", &params.reason, Some(500))?;
         self.emit_event(MethodologyEvent::TaskRevised(TaskRevised {
             task_id: params.task_id,
             spec_id,
@@ -104,8 +103,8 @@ impl MethodologyService {
         params: RecordRubricScoreParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::RubricRecord, phase)?;
-        let rationale = NonEmptyString::try_new(params.rationale)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        let rationale =
+            super::errors::require_non_empty("/rationale", &params.rationale, Some(2000))?;
         let record = RubricScore::try_new(
             params.pillar,
             params.score,
@@ -150,10 +149,9 @@ impl MethodologyService {
         params: RecordNonNegotiableComplianceParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::ComplianceRecord, phase)?;
-        let name = NonEmptyString::try_new(params.name)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
-        let rationale = NonEmptyString::try_new(params.rationale)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        let name = super::errors::require_non_empty("/name", &params.name, Some(120))?;
+        let rationale =
+            super::errors::require_non_empty("/rationale", &params.rationale, Some(2000))?;
         self.emit_event(MethodologyEvent::NonNegotiableComplianceRecorded(
             NonNegotiableComplianceRecorded {
                 spec_id: params.spec_id,
@@ -181,10 +179,8 @@ impl MethodologyService {
         params: AddSignpostParams,
     ) -> MethodologyResult<AddSignpostResponse> {
         enforce(scope, ToolCapability::SignpostAdd, phase)?;
-        let problem = NonEmptyString::try_new(params.problem)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
-        let evidence = NonEmptyString::try_new(params.evidence)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        let problem = super::errors::require_non_empty("/problem", &params.problem, Some(500))?;
+        let evidence = super::errors::require_non_empty("/evidence", &params.evidence, None)?;
         let now = Utc::now();
         let signpost = Signpost {
             id: SignpostId::new(),
@@ -244,10 +240,12 @@ impl MethodologyService {
         params: ReportPhaseOutcomeParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::PhaseOutcome, phase)?;
-        let phase_name = NonEmptyString::try_new(params.phase)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
-        let session = NonEmptyString::try_new(params.agent_session_id)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        let phase_name = super::errors::require_non_empty("/phase", &params.phase, Some(120))?;
+        let session = super::errors::require_non_empty(
+            "/agent_session_id",
+            &params.agent_session_id,
+            Some(120),
+        )?;
         self.emit_event(MethodologyEvent::PhaseOutcomeReported(
             PhaseOutcomeReported {
                 spec_id: params.spec_id,
@@ -271,21 +269,20 @@ impl MethodologyService {
         params: EscalateToBlockerParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::PhaseEscalate, phase)?;
-        let reason = NonEmptyString::try_new(params.reason)
-            .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        let reason = super::errors::require_non_empty("/reason", &params.reason, Some(1000))?;
         let summary = NonEmptyString::try_new(format!(
             "escalated: {} options={}",
             reason.as_str(),
             params.options.len()
         ))
-        .map_err(|e| MethodologyError::Validation(e.to_string()))?;
+        .map_err(|e| MethodologyError::Internal(e.to_string()))?;
+        let phase_name = super::errors::require_non_empty("/phase", phase, Some(120))?;
         self.emit_event(MethodologyEvent::PhaseOutcomeReported(
             PhaseOutcomeReported {
                 spec_id: params.spec_id,
-                phase: NonEmptyString::try_new(phase)
-                    .map_err(|e| MethodologyError::Validation(e.to_string()))?,
+                phase: phase_name,
                 agent_session_id: NonEmptyString::try_new("escalation")
-                    .map_err(|e| MethodologyError::Validation(e.to_string()))?,
+                    .map_err(|e| MethodologyError::Internal(e.to_string()))?,
                 outcome: tanren_domain::methodology::phase_outcome::PhaseOutcome::Blocked {
                     reason: tanren_domain::methodology::phase_outcome::BlockedReason::Other {
                         detail: reason,
@@ -310,30 +307,29 @@ impl MethodologyService {
         params: PostReplyDirectiveParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::FeedbackReply, phase)?;
-        // No dedicated event variant yet — record as a PhaseOutcome
-        // Complete with a structured summary for the orchestrator to
-        // pick up. Dedicated variant lands in a follow-up lane.
-        let summary = NonEmptyString::try_new(format!(
-            "feedback:{}:{}",
-            params.thread_ref,
-            serde_json::to_string(&params.disposition).unwrap_or_default()
-        ))
-        .map_err(|e| MethodologyError::Validation(e.to_string()))?;
-        self.emit_event(MethodologyEvent::PhaseOutcomeReported(
-            PhaseOutcomeReported {
+        let thread_ref =
+            super::errors::require_non_empty("/thread_ref", &params.thread_ref, Some(200))?;
+        let body = if params.body.trim().is_empty() {
+            return Err(MethodologyError::FieldValidation {
+                field_path: "/body".into(),
+                expected: "non-empty reply body".into(),
+                actual: format!("{:?}", params.body),
+                remediation:
+                    "supply the reply content the orchestrator's feedback adapter will post".into(),
+            });
+        } else {
+            params.body
+        };
+        let phase_name = super::errors::require_non_empty("/phase", phase, Some(120))?;
+        self.emit_event(MethodologyEvent::ReplyDirectiveRecorded(
+            ReplyDirectiveRecorded {
                 spec_id: params.spec_id,
-                phase: NonEmptyString::try_new(phase)
-                    .map_err(|e| MethodologyError::Validation(e.to_string()))?,
-                agent_session_id: NonEmptyString::try_new("reply-directive")
-                    .map_err(|e| MethodologyError::Validation(e.to_string()))?,
-                outcome: tanren_domain::methodology::phase_outcome::PhaseOutcome::Complete {
-                    summary,
-                    next_action_hint: None,
-                },
+                phase: phase_name,
+                thread_ref,
+                disposition: params.disposition,
+                body,
             },
         ))
-        .await?;
-        drop(params.body);
-        Ok(())
+        .await
     }
 }

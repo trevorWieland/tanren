@@ -1,4 +1,63 @@
 ---
 name: walk-spec
-template: "\n# walk-spec\n\n## Purpose\n\nThe user's acceptance checkpoint. Walk through the demo live, confirm\nacceptance criteria are met, surface any last concerns, and signal\ncompletion. Tanren-code handles `pull request` creation, roadmap\nupdates, and `GitHub` communication after you signal\ncomplete.\n\n## Inputs (from your dispatch)\n\n- The fully-implemented spec (all tasks Complete, audits passed,\n  demo passed).\n- The spec's `spec.md`, `plan.md`, `demo.md`, `audit.md`.\n\n## Responsibilities\n\n1. Confirm prerequisites: all tasks `Complete`, `audit-spec` status\n   `pass`, demo status `pass`. If not, call\n   `report_phase_outcome(\"error\", â\x80¦)` immediately â\x80\x94 walk-spec is\n   not the place to fix unfinished work.\n2. Run `just ci` and confirm green.\n3. Present an implementation summary + acceptance-criteria proof to\n   the user. Keep it concise; the user has the diff and can read it.\n4. Walk through the demo step-by-step. For each step: explain,\n   execute, show result, confirm before next.\n5. If a demo step fails during the walkthrough: STOP. Call\n   `create_task(title, description, origin: User)` with the\n   observed failure, then `report_phase_outcome(\"fail\", â\x80¦)`. Do not\n   silently fix.\n6. If the user accepts: `report_phase_outcome(\"complete\", â\x80¦)`.\n   Tanren-code will create the `pull request`, update roadmap state,\n   and post any required status comments.\n7. If the user rejects: `create_task(origin: User)` with the user's\n   concern; `report_phase_outcome(\"fail\", â\x80¦)`.\n\n## Verification\n\n`just ci`.\n\n## Emitting results\n\nmcp\n\n⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.\nplan.md and progress.json are generated from the typed task store.\nPostflight reverts unauthorized edits and emits an\nUnauthorizedArtifactEdit event. Use the typed tool surface\n(MCP or CLI) to record progress.\n\n\n## Out of scope\n\n- Creating `pull requests`\n- Updating `roadmap.md`, issue comments, or any external state\n- Running `audit-spec` or any other automated check\n- Implementing code (if something breaks, emit a task; do not fix)\n"
+template: |2
+
+  # walk-spec
+
+  ## Purpose
+
+  The user's acceptance checkpoint. Walk through the demo live, confirm
+  acceptance criteria are met, surface any last concerns, and signal
+  completion. Tanren-code handles `pull request` creation, roadmap
+  updates, and `GitHub` communication after you signal
+  complete.
+
+  ## Inputs (from your dispatch)
+
+  - The fully-implemented spec (all tasks Complete, audits passed,
+    demo passed).
+  - The spec's `spec.md`, `plan.md`, `demo.md`, `audit.md`.
+
+  ## Responsibilities
+
+  1. Confirm prerequisites: all tasks `Complete`, `audit-spec` status
+     `pass`, demo status `pass`. If not, call
+     `report_phase_outcome("error", …)` immediately — walk-spec is
+     not the place to fix unfinished work.
+  2. Run `just ci` and confirm green.
+  3. Present an implementation summary + acceptance-criteria proof to
+     the user. Keep it concise; the user has the diff and can read it.
+  4. Walk through the demo step-by-step. For each step: explain,
+     execute, show result, confirm before next.
+  5. If a demo step fails during the walkthrough: STOP. Call
+     `create_task(title, description, origin: User)` with the
+     observed failure, then `report_phase_outcome("fail", …)`. Do not
+     silently fix.
+  6. If the user accepts: `report_phase_outcome("complete", …)`.
+     Tanren-code will create the `pull request`, update roadmap state,
+     and post any required status comments.
+  7. If the user rejects: `create_task(origin: User)` with the user's
+     concern; `report_phase_outcome("fail", …)`.
+
+  ## Verification
+
+  `just ci`.
+
+  ## Emitting results
+
+  mcp
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  plan.md and progress.json are generated from the typed task store.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Creating `pull requests`
+  - Updating `roadmap.md`, issue comments, or any external state
+  - Running `audit-spec` or any other automated check
+  - Implementing code (if something breaks, emit a task; do not fix)
 ---

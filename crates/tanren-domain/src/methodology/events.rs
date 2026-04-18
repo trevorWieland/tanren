@@ -55,6 +55,7 @@ pub enum MethodologyEvent {
     SignpostStatusUpdated(SignpostStatusUpdated),
     IssueCreated(IssueCreated),
     PhaseOutcomeReported(PhaseOutcomeReported),
+    ReplyDirectiveRecorded(ReplyDirectiveRecorded),
     UnauthorizedArtifactEdit(UnauthorizedArtifactEdit),
     EvidenceSchemaError(EvidenceSchemaError),
 }
@@ -80,6 +81,7 @@ impl MethodologyEvent {
             Self::SignpostStatusUpdated(e) => EntityRef::Signpost(e.signpost_id),
             Self::IssueCreated(e) => EntityRef::Issue(e.issue.id),
             Self::PhaseOutcomeReported(e) => EntityRef::Spec(e.spec_id),
+            Self::ReplyDirectiveRecorded(e) => EntityRef::Spec(e.spec_id),
             Self::UnauthorizedArtifactEdit(e) => EntityRef::Spec(e.spec_id),
             Self::EvidenceSchemaError(e) => EntityRef::Spec(e.spec_id),
         }
@@ -106,6 +108,7 @@ impl MethodologyEvent {
             Self::SignpostStatusUpdated(e) => Some(e.spec_id),
             Self::IssueCreated(e) => Some(e.issue.origin_spec_id),
             Self::PhaseOutcomeReported(e) => Some(e.spec_id),
+            Self::ReplyDirectiveRecorded(e) => Some(e.spec_id),
             Self::UnauthorizedArtifactEdit(e) => Some(e.spec_id),
             Self::EvidenceSchemaError(e) => Some(e.spec_id),
         }
@@ -239,6 +242,16 @@ pub struct PhaseOutcomeReported {
     pub phase: NonEmptyString,
     pub agent_session_id: NonEmptyString,
     pub outcome: PhaseOutcome,
+}
+
+/// A `handle-feedback` reply directive. Orchestrator enacts the post.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplyDirectiveRecorded {
+    pub spec_id: SpecId,
+    pub phase: NonEmptyString,
+    pub thread_ref: NonEmptyString,
+    pub disposition: crate::methodology::phase_outcome::ReplyDisposition,
+    pub body: String,
 }
 
 /// Postflight detected and reverted an unauthorized edit to an
