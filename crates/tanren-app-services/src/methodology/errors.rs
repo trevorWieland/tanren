@@ -37,6 +37,13 @@ pub enum MethodologyError {
         remediation: String,
     },
 
+    #[error("rubric invariant violated for {pillar} at score {score}: {reason}")]
+    RubricInvariantViolated {
+        pillar: String,
+        score: u8,
+        reason: String,
+    },
+
     #[error("capability denied: {capability} not allowed in phase `{phase}`")]
     CapabilityDenied {
         capability: ToolCapability,
@@ -163,30 +170,7 @@ pub enum ToolError {
 impl From<&MethodologyError> for ToolError {
     fn from(err: &MethodologyError) -> Self {
         match err {
-            MethodologyError::Validation(msg) => {
-                // Fall back to a best-effort inference when the caller
-                // didn't emit FieldValidation. We parse `msg` for a
-                // leading `"<field>: "` marker so stock error strings
-                // like `"title: value cannot be empty"` still surface
-                // the field. This path is intentionally imprecise —
-                // service methods now prefer `FieldValidation`.
-                let (field_path, remediation) = match msg.split_once(": ") {
-                    Some((lead, rest))
-                        if lead
-                            .chars()
-                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/') =>
-                    {
-                        (format!("/{lead}"), rest.to_owned())
-                    }
-                    _ => ("/".to_owned(), msg.clone()),
-                };
-                Self::ValidationFailed {
-                    field_path,
-                    expected: "valid input per schema".into(),
-                    actual: "rejected".into(),
-                    remediation,
-                }
-            }
+            MethodologyError::Validation(msg) => validation_from_message(msg),
             MethodologyError::FieldValidation {
                 field_path,
                 expected,
@@ -197,6 +181,15 @@ impl From<&MethodologyError> for ToolError {
                 expected: expected.clone(),
                 actual: actual.clone(),
                 remediation: remediation.clone(),
+            },
+            MethodologyError::RubricInvariantViolated {
+                pillar,
+                score,
+                reason,
+            } => Self::RubricInvariantViolated {
+                pillar: pillar.clone(),
+                score: *score,
+                reason: reason.clone(),
             },
             MethodologyError::CapabilityDenied { capability, phase } => Self::CapabilityDenied {
                 capability: capability.tag().into(),
@@ -260,6 +253,31 @@ impl From<&MethodologyError> for ToolError {
                 reason: msg.clone(),
             },
         }
+    }
+}
+
+fn validation_from_message(msg: &str) -> ToolError {
+    // Fall back to a best-effort inference when the caller didn't
+    // emit FieldValidation. We parse `msg` for a leading
+    // `"<field>: "` marker so stock error strings like
+    // `"title: value cannot be empty"` still surface the field.
+    // This path is intentionally imprecise; service methods now
+    // prefer `FieldValidation`.
+    let (field_path, remediation) = match msg.split_once(": ") {
+        Some((lead, rest))
+            if lead
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/') =>
+        {
+            (format!("/{lead}"), rest.to_owned())
+        }
+        _ => ("/".to_owned(), msg.to_owned()),
+    };
+    ToolError::ValidationFailed {
+        field_path,
+        expected: "valid input per schema".into(),
+        actual: "rejected".into(),
+        remediation,
     }
 }
 

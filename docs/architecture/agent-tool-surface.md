@@ -202,7 +202,7 @@ server and CLI. Out-of-scope calls return `CapabilityDenied`.
 | `investigate` | task.create, task.revise, task.abandon, finding.add, phase.escalate, task.read, phase.outcome |
 | `resolve-blockers` | task.create, task.revise, task.abandon, task.read, phase.outcome |
 | `triage-audits` | issue.create, finding.add, phase.outcome |
-| `sync-roadmap` | finding.add, feedback.reply, phase.outcome |
+| `sync-roadmap` | finding.add, phase.outcome |
 | `discover-standards` | standard.read, phase.outcome |
 | `index-standards` | standard.read, phase.outcome |
 | `inject-standards` | standard.read, phase.outcome |
@@ -321,12 +321,11 @@ mutation + file write atomically. Any failure rolls back all three.
 
 - MCP protocol version: negotiated per session via `rmcp` handshake;
   server advertises the highest supported revision.
-- Tool schema version: `tanren.methodology.v1`. Backward-compatible
-  additions are minor bumps (clients tolerate unknown optional
-  fields). Breaking changes bump major.
-- Event schema version: per-variant `schema_version` field;
-  `service::apply_event` dispatches on version for forward
-  compatibility.
+- Tool schema version: `tanren.methodology.v1`. Every tool payload
+  carries `schema_version` and MCP `_meta.schema_version` mirrors the
+  same value. Backward-compatible additions are minor bumps (clients
+  tolerate unknown optional fields). Breaking changes bump major.
+- Event schema version: event envelope `schema_version` is authoritative.
 
 ---
 

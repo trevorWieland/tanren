@@ -32,8 +32,8 @@ pub(crate) fn all_tools() -> Vec<Tool> {
 
 fn task_tools() -> Vec<Tool> {
     use tanren_contract::methodology::{
-        AbandonTaskParams, CompleteTaskParams, CreateTaskParams, ListTasksParams, ReviseTaskParams,
-        StartTaskParams,
+        AbandonTaskParams, CompleteTaskParams, CreateTaskParams, ListTasksParams,
+        MarkTaskGuardSatisfiedParams, ReviseTaskParams, StartTaskParams,
     };
     vec![
         tool_from::<CreateTaskParams>(
@@ -47,6 +47,10 @@ fn task_tools() -> Vec<Tool> {
         tool_from::<CompleteTaskParams>(
             "complete_task",
             "Transition a task InProgress → Implemented. Required guards still gate Complete.",
+        ),
+        tool_from::<MarkTaskGuardSatisfiedParams>(
+            "mark_task_guard_satisfied",
+            "Mark one completion guard satisfied; emits TaskCompleted when required guards converge.",
         ),
         tool_from::<ReviseTaskParams>(
             "revise_task",
@@ -228,11 +232,11 @@ mod tests {
     #[test]
     fn catalog_has_all_27_tools() {
         let tools = all_tools();
-        // §3.1(6) + §3.2(3) + §3.3(6) + §3.4(3) + §3.5(2) + §3.6(3)
-        // + §3.7(1) + §3.8(2) = 26 tool surface entries.
+        // §3.1(7) + §3.2(3) + §3.3(6) + §3.4(3) + §3.5(2) + §3.6(3)
+        // + §3.7(1) + §3.8(2) = 27 tool surface entries.
         // (Ingest/replay are §6 CLI-only transports, not registered
         // here.)
-        assert_eq!(tools.len(), 26, "expected 26 methodology tools");
+        assert_eq!(tools.len(), 27, "expected 27 methodology tools");
     }
 
     #[test]

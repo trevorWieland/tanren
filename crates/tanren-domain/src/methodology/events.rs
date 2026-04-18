@@ -124,6 +124,8 @@ pub struct SpecDefined {
 pub struct TaskCreated {
     pub task: Box<Task>,
     pub origin: TaskOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `Pending → InProgress`.
@@ -227,6 +229,8 @@ pub struct TaskRevised {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindingAdded {
     pub finding: Box<Finding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// An adherence finding has been recorded.
@@ -234,6 +238,8 @@ pub struct FindingAdded {
 pub struct AdherenceFindingAdded {
     pub finding: Box<Finding>,
     pub standard: StandardRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// One rubric score has been recorded on an audit.
@@ -272,6 +278,8 @@ pub struct SignpostStatusUpdated {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueCreated {
     pub issue: Box<Issue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// A phase has reported its typed outcome.

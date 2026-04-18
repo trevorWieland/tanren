@@ -11,26 +11,28 @@
 //! Tool methods are small (≤ 100 lines) and uniform so tool-catalog
 //! growth stays boilerplate-minimal.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{
-    FindingAdded, MethodologyEvent, TaskAbandoned as EvTaskAbandoned,
-    TaskCompleted as EvTaskCompleted, TaskCreated as EvTaskCreated, TaskGuardSatisfied,
-    TaskImplemented, TaskStarted, fold_task_status,
+    MethodologyEvent, TaskAbandoned as EvTaskAbandoned, TaskCompleted as EvTaskCompleted,
+    TaskCreated as EvTaskCreated, TaskGuardSatisfied, TaskImplemented, TaskStarted,
+    fold_task_status,
 };
-use tanren_domain::methodology::finding::Finding;
 use tanren_domain::methodology::task::{
     LegalTransition, RequiredGuard, Task, TaskStatus, TaskTransitionKind,
 };
-use tanren_domain::{EventId, FindingId, SpecId, TaskId};
+use tanren_domain::{EventId, SpecId, TaskId};
 use tanren_store::Store;
 
 use tanren_contract::methodology::{
-    AbandonTaskParams, AddFindingParams, AddFindingResponse, CompleteTaskParams, CreateTaskParams,
-    CreateTaskResponse, StartTaskParams,
+    AbandonTaskParams, CompleteTaskParams, CreateTaskParams, CreateTaskResponse, SchemaVersion,
+    StartTaskParams,
 };
 
 use super::capabilities::enforce;
@@ -43,8 +45,18 @@ use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
 /// caller's [`CapabilityScope`] and phase name.
 #[derive(Debug, Clone)]
 pub struct MethodologyService {
-    store: Arc<Store>,
+    pub(crate) store: Arc<Store>,
     required_guards: Arc<[RequiredGuard]>,
+    phase_events: Option<PhaseEventsRuntime>,
+    pub(crate) task_spec_cache: Arc<Mutex<HashMap<TaskId, SpecId>>>,
+    pub(crate) signpost_spec_cache: Arc<Mutex<HashMap<tanren_domain::SignpostId, SpecId>>>,
+}
+
+/// Runtime context for `phase-events.jsonl` writes.
+#[derive(Debug, Clone)]
+pub struct PhaseEventsRuntime {
+    pub spec_folder: PathBuf,
+    pub agent_session_id: String,
 }
 
 fn default_required_guards() -> Arc<[RequiredGuard]> {
@@ -63,6 +75,9 @@ impl MethodologyService {
         Self {
             store,
             required_guards: default_required_guards(),
+            phase_events: None,
+            task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
+            signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -83,7 +98,22 @@ impl MethodologyService {
         Self {
             store,
             required_guards: Arc::from(seen.into_boxed_slice()),
+            phase_events: None,
+            task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
+            signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Construct a service with required guards and phase-event runtime.
+    #[must_use]
+    pub fn with_runtime(
+        store: Arc<Store>,
+        required_guards: Vec<RequiredGuard>,
+        phase_events: Option<PhaseEventsRuntime>,
+    ) -> Self {
+        let mut svc = Self::with_required_guards(store, required_guards);
+        svc.phase_events = phase_events;
+        svc
     }
 
     /// Read the configured required-guard set. Used by projections and
@@ -103,10 +133,38 @@ impl MethodologyService {
         }
     }
 
-    async fn emit(&self, event: MethodologyEvent) -> MethodologyResult<EventEnvelope> {
+    pub(crate) async fn emit(
+        &self,
+        phase: &str,
+        event: MethodologyEvent,
+    ) -> MethodologyResult<EventEnvelope> {
         let envelope = Self::new_envelope(event);
         self.store.append_methodology_event(&envelope).await?;
+        self.append_phase_event_line(phase, &envelope)?;
         Ok(envelope)
+    }
+
+    fn append_phase_event_line(
+        &self,
+        phase: &str,
+        envelope: &EventEnvelope,
+    ) -> MethodologyResult<()> {
+        let Some(runtime) = &self.phase_events else {
+            return Ok(());
+        };
+        let DomainEvent::Methodology { event } = &envelope.payload else {
+            return Ok(());
+        };
+        let Some(spec_id) = event.spec_id() else {
+            return Ok(());
+        };
+        let line = super::line_for_envelope(envelope, spec_id, phase, &runtime.agent_session_id);
+        let Some(line) = line else {
+            return Ok(());
+        };
+        let path = runtime.spec_folder.join("phase-events.jsonl");
+        super::append_jsonl_line_atomic(&path, &line)?;
+        Ok(())
     }
 
     // -- §3.1 Core task operations -------------------------------------------
@@ -123,6 +181,31 @@ impl MethodologyService {
     ) -> MethodologyResult<CreateTaskResponse> {
         enforce(scope, ToolCapability::TaskCreate, phase)?;
         let title = require_non_empty("/title", &params.title, Some(160))?;
+        if let Some(key) = params.idempotency_key.as_deref()
+            && let Some(existing) = self
+                .find_task_created_by_idempotency(params.spec_id, key)
+                .await?
+        {
+            let semantically_same = existing.title == title
+                && existing.description == params.description
+                && existing.origin == params.origin
+                && existing.acceptance_criteria == params.acceptance_criteria
+                && existing.depends_on == params.depends_on
+                && existing.parent_task_id == params.parent_task_id;
+            if !semantically_same {
+                return Err(MethodologyError::Conflict {
+                    resource: "create_task".into(),
+                    reason: format!(
+                        "idempotency_key `{key}` already used with different payload for task {}",
+                        existing.id
+                    ),
+                });
+            }
+            return Ok(CreateTaskResponse {
+                schema_version: SchemaVersion::current(),
+                task_id: existing.id,
+            });
+        }
         let now = Utc::now();
         let task = Task {
             id: TaskId::new(),
@@ -138,12 +221,22 @@ impl MethodologyService {
             updated_at: now,
         };
         let task_id = task.id;
-        self.emit(MethodologyEvent::TaskCreated(EvTaskCreated {
-            task: Box::new(task),
-            origin: params.origin,
-        }))
+        self.emit(
+            phase,
+            MethodologyEvent::TaskCreated(EvTaskCreated {
+                task: Box::new(task),
+                origin: params.origin,
+                idempotency_key: params.idempotency_key,
+            }),
+        )
         .await?;
-        Ok(CreateTaskResponse { task_id })
+        if let Ok(mut cache) = self.task_spec_cache.lock() {
+            cache.insert(task_id, params.spec_id);
+        }
+        Ok(CreateTaskResponse {
+            schema_version: SchemaVersion::current(),
+            task_id,
+        })
     }
 
     /// `start_task` — emit [`MethodologyEvent::TaskStarted`].
@@ -163,10 +256,13 @@ impl MethodologyService {
             .await?
         {
             LegalTransition::Transition => {
-                self.emit(MethodologyEvent::TaskStarted(TaskStarted {
-                    task_id: params.task_id,
-                    spec_id,
-                }))
+                self.emit(
+                    phase,
+                    MethodologyEvent::TaskStarted(TaskStarted {
+                        task_id: params.task_id,
+                        spec_id,
+                    }),
+                )
                 .await?;
             }
             LegalTransition::Idempotent => {}
@@ -193,11 +289,14 @@ impl MethodologyService {
             .await?
         {
             LegalTransition::Transition => {
-                self.emit(MethodologyEvent::TaskImplemented(TaskImplemented {
-                    task_id: params.task_id,
-                    spec_id,
-                    evidence_refs: params.evidence_refs,
-                }))
+                self.emit(
+                    phase,
+                    MethodologyEvent::TaskImplemented(TaskImplemented {
+                        task_id: params.task_id,
+                        spec_id,
+                        evidence_refs: params.evidence_refs,
+                    }),
+                )
                 .await?;
             }
             LegalTransition::Idempotent => {}
@@ -243,12 +342,15 @@ impl MethodologyService {
             .await?
         {
             LegalTransition::Transition => {
-                self.emit(MethodologyEvent::TaskAbandoned(EvTaskAbandoned {
-                    task_id: params.task_id,
-                    spec_id,
-                    reason,
-                    replacements: params.replacements,
-                }))
+                self.emit(
+                    phase,
+                    MethodologyEvent::TaskAbandoned(EvTaskAbandoned {
+                        task_id: params.task_id,
+                        spec_id,
+                        reason,
+                        replacements: params.replacements,
+                    }),
+                )
                 .await?;
             }
             LegalTransition::Idempotent => {}
@@ -319,12 +421,15 @@ impl MethodologyService {
             LegalTransition::Idempotent => return Ok(()),
             LegalTransition::Transition => {}
         }
-        self.emit(MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
-            task_id,
-            spec_id,
-            guard,
-            idempotency_key,
-        }))
+        self.emit(
+            phase,
+            MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
+                task_id,
+                spec_id,
+                guard,
+                idempotency_key,
+            }),
+        )
         .await?;
         // Re-fold and, if the accumulated guard set now satisfies
         // `required_guards`, deterministically fire `TaskCompleted` in
@@ -341,91 +446,12 @@ impl MethodologyService {
         if let TaskStatus::Implemented { guards } = status
             && guards.satisfies(&self.required_guards)
         {
-            self.emit(MethodologyEvent::TaskCompleted(EvTaskCompleted {
-                task_id,
-                spec_id,
-            }))
+            self.emit(
+                phase,
+                MethodologyEvent::TaskCompleted(EvTaskCompleted { task_id, spec_id }),
+            )
             .await?;
         }
         Ok(())
-    }
-
-    // -- §3.2 Findings --------------------------------------------------------
-
-    /// `add_finding` — emit [`MethodologyEvent::FindingAdded`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn add_finding(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        params: AddFindingParams,
-    ) -> MethodologyResult<AddFindingResponse> {
-        enforce(scope, ToolCapability::FindingAdd, phase)?;
-        let title = require_non_empty("/title", &params.title, Some(200))?;
-        let finding = Finding {
-            id: FindingId::new(),
-            spec_id: params.spec_id,
-            severity: params.severity,
-            title,
-            description: params.description,
-            affected_files: params.affected_files,
-            line_numbers: params.line_numbers,
-            source: params.source,
-            attached_task: params.attached_task,
-            created_at: Utc::now(),
-        };
-        let id = finding.id;
-        self.emit(MethodologyEvent::FindingAdded(FindingAdded {
-            finding: Box::new(finding),
-        }))
-        .await?;
-        Ok(AddFindingResponse { finding_id: id })
-    }
-
-    // -- Shared helpers -------------------------------------------------------
-
-    /// Resolve a task id to its spec id by scanning the event log for
-    /// the corresponding `TaskCreated` event.
-    ///
-    /// O(events) per call. Acceptable at Lane 0.5 scale (spec event
-    /// counts in the hundreds to low thousands); Phase 1+ may add a
-    /// projection table indexed by task id if profiling warrants.
-    pub(crate) async fn resolve_spec_for_task(&self, task_id: TaskId) -> MethodologyResult<SpecId> {
-        let filter = tanren_store::EventFilter {
-            event_type: Some("methodology".into()),
-            limit: 100_000u64,
-            ..tanren_store::EventFilter::default()
-        };
-        let page = tanren_store::EventStore::query_events(self.store.as_ref(), &filter).await?;
-        for env in page.events {
-            if let DomainEvent::Methodology { event } = env.payload
-                && let MethodologyEvent::TaskCreated(e) = &event
-                && e.task.id == task_id
-            {
-                return Ok(e.task.spec_id);
-            }
-        }
-        Err(MethodologyError::NotFound {
-            resource: "task".into(),
-            key: task_id.to_string(),
-        })
-    }
-
-    /// Emit a pre-built methodology event. Transport crates use this to
-    /// compose higher-level workflows (e.g. `tanren session exit`
-    /// emitting one `UnauthorizedArtifactEdit` per reverted file).
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn emit_event(&self, event: MethodologyEvent) -> MethodologyResult<()> {
-        self.emit(event).await.map(|_| ())
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn store(&self) -> &Store {
-        self.store.as_ref()
     }
 }

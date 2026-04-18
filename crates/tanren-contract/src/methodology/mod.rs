@@ -13,6 +13,9 @@
 //! [`tanren_domain::SCHEMA_VERSION`], which governs the on-disk event
 //! envelope.
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 pub mod demo;
 pub mod finding;
 pub mod issue;
@@ -38,6 +41,48 @@ pub const METHODOLOGY_SCHEMA_NAMESPACE: &str = "tanren.methodology.v1";
 ///   (`tanren.methodology.v1` → `tanren.methodology.v2`).
 pub const METHODOLOGY_SCHEMA_VERSION: &str = "1.0.0";
 
+/// Required payload-level schema version carried by every methodology
+/// request/response body. This complements MCP `_meta` versioning and
+/// lets non-MCP transports validate payload compatibility explicitly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct SchemaVersion(String);
+
+impl Default for SchemaVersion {
+    fn default() -> Self {
+        Self::current()
+    }
+}
+
+impl SchemaVersion {
+    /// Construct the current required schema version value.
+    #[must_use]
+    pub fn current() -> Self {
+        Self(METHODOLOGY_SCHEMA_VERSION.to_owned())
+    }
+
+    /// Access as `&str`.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl<'de> Deserialize<'de> for SchemaVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        if raw == METHODOLOGY_SCHEMA_VERSION {
+            Ok(Self(raw))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "unsupported schema_version `{raw}` (expected `{METHODOLOGY_SCHEMA_VERSION}`)"
+            )))
+        }
+    }
+}
+
 pub use demo::{AddDemoStepParams, AppendDemoResultParams, MarkDemoStepSkipParams};
 pub use finding::{AddFindingParams, AddFindingResponse, RecordAdherenceFindingParams};
 pub use issue::{CreateIssueParams, CreateIssueResponse};
@@ -51,5 +96,5 @@ pub use spec::{
 pub use standard::{ListRelevantStandardsParams, RelevantStandard};
 pub use task::{
     AbandonTaskParams, CompleteTaskParams, CreateTaskParams, CreateTaskResponse, ListTasksParams,
-    ReviseTaskParams, StartTaskParams,
+    MarkTaskGuardSatisfiedParams, ReviseTaskParams, StartTaskParams,
 };

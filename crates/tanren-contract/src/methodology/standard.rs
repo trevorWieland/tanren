@@ -4,6 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_domain::SpecId;
 
+use super::SchemaVersion;
+
 /// `list_relevant_standards` params.
 ///
 /// Filter inputs drive the adherence §4.1 relevance algorithm:
@@ -17,6 +19,7 @@ use tanren_domain::SpecId;
 /// (backward compatible with pre-Lane-0.5 callers).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ListRelevantStandardsParams {
+    pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub touched_files: Vec<String>,
@@ -31,6 +34,7 @@ pub struct ListRelevantStandardsParams {
 /// filter axis matched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RelevantStandard {
+    pub schema_version: SchemaVersion,
     pub standard: tanren_domain::methodology::standard::Standard,
     /// Human-readable reason the standard was included.
     pub inclusion_reason: String,

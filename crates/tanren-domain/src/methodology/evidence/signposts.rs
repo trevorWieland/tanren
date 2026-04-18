@@ -12,6 +12,7 @@ use super::frontmatter::{FrontmatterError, join, parse_typed};
 
 /// Typed `signposts.md` frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SignpostsFrontmatter {
     pub kind: SignpostsKind,
     pub spec_id: SpecId,
@@ -28,6 +29,7 @@ pub enum SignpostsKind {
 
 /// One signpost entry in the frontmatter list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SignpostEntry {
     pub id: SignpostId,
     #[serde(default, skip_serializing_if = "Option::is_none")]

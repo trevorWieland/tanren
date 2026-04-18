@@ -2,12 +2,16 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tanren_domain::methodology::task::RequiredGuard;
 use tanren_domain::methodology::task::{AcceptanceCriterion, TaskOrigin};
 use tanren_domain::{SpecId, TaskId};
+
+use super::SchemaVersion;
 
 /// `create_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskParams {
+    pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
     pub title: String,
     pub description: String,
@@ -18,50 +22,76 @@ pub struct CreateTaskParams {
     pub origin: TaskOrigin,
     #[serde(default)]
     pub acceptance_criteria: Vec<AcceptanceCriterion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `create_task` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskResponse {
+    pub schema_version: SchemaVersion,
     pub task_id: TaskId,
 }
 
 /// `start_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct StartTaskParams {
+    pub schema_version: SchemaVersion,
     pub task_id: TaskId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `complete_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CompleteTaskParams {
+    pub schema_version: SchemaVersion,
     pub task_id: TaskId,
     #[serde(default)]
     pub evidence_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `revise_task` params. Non-transitional — mutates description /
 /// acceptance criteria only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ReviseTaskParams {
+    pub schema_version: SchemaVersion,
     pub task_id: TaskId,
     pub revised_description: String,
     pub revised_acceptance: Vec<AcceptanceCriterion>,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `abandon_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AbandonTaskParams {
+    pub schema_version: SchemaVersion,
     pub task_id: TaskId,
     pub reason: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub replacements: Vec<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `mark_task_guard_satisfied` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MarkTaskGuardSatisfiedParams {
+    pub schema_version: SchemaVersion,
+    pub task_id: TaskId,
+    pub guard: RequiredGuard,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `list_tasks` filter.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct ListTasksParams {
+    pub schema_version: SchemaVersion,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spec_id: Option<SpecId>,
 }

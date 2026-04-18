@@ -124,7 +124,7 @@ fn list_tools_advertises_full_catalog() {
         .find(|r| r["id"] == json!(2))
         .expect("tools/list response");
     let tools = list["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 26, "full tanren.methodology.v1 catalog");
+    assert_eq!(tools.len(), 27, "full tanren.methodology.v1 catalog");
     // Spot-check: every tool carries schema_version metadata.
     for t in tools {
         assert!(t["name"].is_string());
@@ -156,6 +156,7 @@ fn call_tool_round_trips_create_and_list() {
             "name": "create_task",
             "arguments": {
                 "spec_id": "00000000-0000-0000-0000-000000000021",
+                "schema_version": "1.0.0",
                 "title": "mcp task",
                 "description": "",
                 "origin": { "kind": "user" },
@@ -173,7 +174,10 @@ fn call_tool_round_trips_create_and_list() {
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": {
                 "name": "list_tasks",
-                "arguments": { "spec_id": "00000000-0000-0000-0000-000000000021" }
+                "arguments": {
+                    "schema_version": "1.0.0",
+                    "spec_id": "00000000-0000-0000-0000-000000000021"
+                }
             }
         })],
     );
@@ -223,6 +227,7 @@ fn call_tool_with_invalid_params_returns_typed_validation_error() {
             "name": "create_task",
             "arguments": {
                 "spec_id": "00000000-0000-0000-0000-000000000022",
+                "schema_version": "1.0.0",
                 "title": "",
                 "description": "",
                 "origin": { "kind": "user" },
@@ -261,6 +266,7 @@ fn capability_denied_when_scope_excludes_tool() {
             "name": "create_task",
             "arguments": {
                 "spec_id": "00000000-0000-0000-0000-000000000023",
+                "schema_version": "1.0.0",
                 "title": "nope",
                 "description": "",
                 "origin": { "kind": "user" },

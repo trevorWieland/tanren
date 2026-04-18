@@ -15,6 +15,7 @@ use super::frontmatter::{FrontmatterError, join, parse_typed};
 
 /// Typed `plan.md` frontmatter. Body is always orchestrator-generated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PlanFrontmatter {
     pub kind: PlanKind,
     pub spec_id: SpecId,

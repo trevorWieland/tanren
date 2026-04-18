@@ -9,7 +9,7 @@ use tanren_domain::methodology::issue::{Issue, IssueProvider, IssueRef};
 use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
-    CreateIssueParams, CreateIssueResponse, RecordAdherenceFindingParams,
+    CreateIssueParams, CreateIssueResponse, RecordAdherenceFindingParams, SchemaVersion,
 };
 
 use super::capabilities::enforce;
@@ -31,12 +31,38 @@ impl MethodologyService {
         params: CreateIssueParams,
     ) -> MethodologyResult<CreateIssueResponse> {
         enforce(scope, ToolCapability::IssueCreate, phase)?;
+        require_phase_in("create_issue", phase, &["triage-audits", "handle-feedback"])?;
         let title = require_non_empty("/title", &params.title, Some(200))?;
         let scope_label = require_non_empty(
             "/suggested_spec_scope",
             &params.suggested_spec_scope,
             Some(120),
         )?;
+        if let Some(key) = params.idempotency_key.as_deref()
+            && let Some(existing) = self
+                .find_issue_created_by_idempotency(params.origin_spec_id, key)
+                .await?
+        {
+            let semantically_same = existing.origin_spec_id == params.origin_spec_id
+                && existing.title == title
+                && existing.description == params.description
+                && existing.suggested_spec_scope == scope_label
+                && existing.priority == params.priority;
+            if !semantically_same {
+                return Err(MethodologyError::Conflict {
+                    resource: "create_issue".into(),
+                    reason: format!(
+                        "idempotency_key `{key}` already used with different payload for issue {}",
+                        existing.id
+                    ),
+                });
+            }
+            return Ok(CreateIssueResponse {
+                schema_version: SchemaVersion::current(),
+                issue_id: existing.id,
+                reference: existing.reference,
+            });
+        }
         // Issues are recorded as stable URNs at creation time. The
         // orchestrator's provider adapter later reconciles the URN to
         // the tracker-assigned URL (GitHub issue number, etc.) by
@@ -61,11 +87,16 @@ impl MethodologyService {
             reference: reference.clone(),
             created_at: Utc::now(),
         };
-        self.emit_event(MethodologyEvent::IssueCreated(IssueCreated {
-            issue: Box::new(issue),
-        }))
+        self.emit_event(
+            phase,
+            MethodologyEvent::IssueCreated(IssueCreated {
+                issue: Box::new(issue),
+                idempotency_key: params.idempotency_key,
+            }),
+        )
         .await?;
         Ok(CreateIssueResponse {
+            schema_version: SchemaVersion::current(),
             issue_id,
             reference,
         })
@@ -131,14 +162,19 @@ impl MethodologyService {
             created_at: Utc::now(),
         };
         let id = finding.id;
-        self.emit_event(MethodologyEvent::AdherenceFindingAdded(
-            AdherenceFindingAdded {
+        self.emit_event(
+            phase,
+            MethodologyEvent::AdherenceFindingAdded(AdherenceFindingAdded {
                 finding: Box::new(finding),
                 standard: params.standard,
-            },
-        ))
+                idempotency_key: params.idempotency_key,
+            }),
+        )
         .await?;
-        Ok(tanren_contract::methodology::AddFindingResponse { finding_id: id })
+        Ok(tanren_contract::methodology::AddFindingResponse {
+            schema_version: SchemaVersion::current(),
+            finding_id: id,
+        })
     }
 
     // -- Internal helpers -----------------------------------------------------
@@ -149,6 +185,11 @@ impl MethodologyService {
         &self,
         signpost_id: SignpostId,
     ) -> MethodologyResult<tanren_domain::SpecId> {
+        if let Ok(cache) = self.signpost_spec_cache.lock()
+            && let Some(spec_id) = cache.get(&signpost_id)
+        {
+            return Ok(*spec_id);
+        }
         let filter = tanren_store::EventFilter {
             event_type: Some("methodology".into()),
             limit: 100_000u64,
@@ -160,6 +201,9 @@ impl MethodologyService {
                 && let MethodologyEvent::SignpostAdded(e) = &event
                 && e.signpost.id == signpost_id
             {
+                if let Ok(mut cache) = self.signpost_spec_cache.lock() {
+                    cache.insert(signpost_id, e.signpost.spec_id);
+                }
                 return Ok(e.signpost.spec_id);
             }
         }
@@ -180,6 +224,27 @@ impl MethodologyService {
         let all = tanren_store::methodology::projections::findings_for_spec(self.store(), spec_id)
             .await?;
         Ok(all.into_iter().filter(|f| ids.contains(&f.id)).collect())
+    }
+
+    async fn find_issue_created_by_idempotency(
+        &self,
+        spec_id: tanren_domain::SpecId,
+        idempotency_key: &str,
+    ) -> MethodologyResult<Option<Issue>> {
+        let events = tanren_store::methodology::projections::load_methodology_events(
+            self.store(),
+            spec_id,
+            100_000u64,
+        )
+        .await?;
+        for event in events {
+            if let MethodologyEvent::IssueCreated(e) = event
+                && e.idempotency_key.as_deref() == Some(idempotency_key)
+            {
+                return Ok(Some(*e.issue));
+            }
+        }
+        Ok(None)
     }
 
     /// `list_relevant_standards` — baseline-complete upper bound.
@@ -242,12 +307,14 @@ impl MethodologyService {
             .filter_map(|s| {
                 if all_empty {
                     return Some(tanren_contract::methodology::RelevantStandard {
+                        schema_version: SchemaVersion::current(),
                         standard: s,
                         inclusion_reason: "baseline upper bound (no filter inputs supplied)".into(),
                     });
                 }
                 relevance_reason(&s, params).map(|reason| {
                     tanren_contract::methodology::RelevantStandard {
+                        schema_version: SchemaVersion::current(),
                         standard: s,
                         inclusion_reason: reason,
                     }
@@ -263,6 +330,18 @@ impl MethodologyService {
         });
         Ok(out)
     }
+}
+
+fn require_phase_in(tool_name: &str, phase: &str, allowed: &[&str]) -> MethodologyResult<()> {
+    if allowed.contains(&phase) {
+        return Ok(());
+    }
+    Err(MethodologyError::FieldValidation {
+        field_path: "/phase".into(),
+        expected: format!("{tool_name} allowed only in phases: {}", allowed.join(", ")),
+        actual: phase.to_owned(),
+        remediation: format!("invoke `{tool_name}` from one of: {}", allowed.join(", ")),
+    })
 }
 
 /// Evaluate the per-axis relevance filter. Returns

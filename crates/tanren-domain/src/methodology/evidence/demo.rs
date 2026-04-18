@@ -11,6 +11,7 @@ use super::frontmatter::{FrontmatterError, join, parse_typed};
 
 /// Typed `demo.md` frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DemoFrontmatter {
     pub kind: DemoKind,
     pub spec_id: SpecId,
@@ -32,6 +33,7 @@ pub enum DemoKind {
 
 /// Environment probe stamp.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DemoEnvironmentProbe {
     pub probed_at: DateTime<Utc>,
     pub connections_verified: bool,
@@ -39,6 +41,7 @@ pub struct DemoEnvironmentProbe {
 
 /// One declared demo step.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DemoStep {
     pub id: NonEmptyString,
     pub mode: DemoStepMode,
@@ -59,6 +62,7 @@ pub enum DemoStepMode {
 
 /// One appended demo-run observation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DemoResult {
     pub run_id: crate::ids::EventId,
     pub ran_at: DateTime<Utc>,

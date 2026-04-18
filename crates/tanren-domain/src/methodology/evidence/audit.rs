@@ -12,6 +12,7 @@ use super::frontmatter::{FrontmatterError, join, parse_typed};
 
 /// Typed `audit.md` frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AuditFrontmatter {
     pub kind: AuditKind,
     pub spec_id: SpecId,

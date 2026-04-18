@@ -63,7 +63,7 @@ fn task_create_then_list_round_trips() {
             "create",
             "--json",
             &format!(
-                "{{\"spec_id\":\"{spec}\",\"title\":\"T\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
+                "{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\",\"title\":\"T\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
             ),
         ])
         .output()
@@ -81,7 +81,7 @@ fn task_create_then_list_round_trips() {
             "task",
             "list",
             "--json",
-            &format!("{{\"spec_id\":\"{spec}\"}}"),
+            &format!("{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\"}}"),
         ])
         .output()
         .expect("cli");
@@ -104,7 +104,7 @@ fn validation_error_returns_exit_4_with_typed_field_path() {
             "create",
             "--json",
             &format!(
-                "{{\"spec_id\":\"{spec}\",\"title\":\"\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
+                "{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\",\"title\":\"\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
             ),
         ])
         .output()
@@ -148,7 +148,7 @@ fn capability_enforcement_denies_when_env_scope_excludes_tool() {
             "create",
             "--json",
             &format!(
-                "{{\"spec_id\":\"{spec}\",\"title\":\"T\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
+                "{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\",\"title\":\"T\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
             ),
         ])
         .output()
@@ -166,11 +166,13 @@ fn create_issue_returns_urn_no_placeholder_url() {
     let out = cli(&url)
         .args([
             "methodology",
+            "--phase",
+            "triage-audits",
             "issue",
             "create",
             "--json",
             &format!(
-                "{{\"origin_spec_id\":\"{spec}\",\"title\":\"fix stale doc\",\"description\":\"\",\"suggested_spec_scope\":\"docs\",\"priority\":\"low\"}}"
+                "{{\"schema_version\":\"1.0.0\",\"origin_spec_id\":\"{spec}\",\"title\":\"fix stale doc\",\"description\":\"\",\"suggested_spec_scope\":\"docs\",\"priority\":\"low\"}}"
             ),
         ])
         .output()
@@ -216,7 +218,7 @@ fn list_standards_returns_nonempty_baseline() {
             "standard",
             "list",
             "--json",
-            &format!("{{\"spec_id\":\"{spec}\"}}"),
+            &format!("{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\"}}"),
         ])
         .output()
         .expect("cli");
@@ -240,7 +242,7 @@ fn abandon_rejects_empty_replacements_and_trivial_reason() {
             "create",
             "--json",
             &format!(
-                "{{\"spec_id\":\"{spec}\",\"title\":\"X\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
+                "{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\",\"title\":\"X\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
             ),
         ])
         .output()
@@ -255,7 +257,7 @@ fn abandon_rejects_empty_replacements_and_trivial_reason() {
             "task",
             "abandon",
             "--json",
-            &format!("{{\"task_id\":\"{task_id}\",\"reason\":\"no\",\"replacements\":[]}}"),
+            &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"reason\":\"no\",\"replacements\":[]}}"),
         ])
         .output()
         .expect("cli");

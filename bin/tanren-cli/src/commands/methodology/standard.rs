@@ -21,7 +21,7 @@ pub(crate) fn run(
     match cmd {
         StandardCommand::List(i) => match load_params::<ListRelevantStandardsParams>(&i) {
             Ok(params) => {
-                emit_result(service.list_relevant_standards(scope, phase, params.spec_id))
+                emit_result(service.list_relevant_standards_filtered(scope, phase, &params))
             }
             Err(e) => emit_result::<()>(Err(e)),
         },

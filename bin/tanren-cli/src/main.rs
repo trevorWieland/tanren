@@ -204,13 +204,24 @@ async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
             return Err(RunError::TypedExit(code));
         }
         Commands::Methodology { global, command } => {
-            let service = tanren_app_services::compose::build_methodology_service(&database_url)
-                .await
-                .map_err(|err| {
-                    RunError::Other(anyhow::Error::new(
-                        tanren_app_services::error::map_store_error(&err),
-                    ))
-                })?;
+            let required_guards = load_methodology_required_guards(&global.methodology_config)?;
+            let phase_events = global.spec_folder.as_ref().map(|spec_folder| {
+                tanren_app_services::methodology::service::PhaseEventsRuntime {
+                    spec_folder: spec_folder.clone(),
+                    agent_session_id: global.agent_session_id.clone(),
+                }
+            });
+            let service = tanren_app_services::compose::build_methodology_service_with_config(
+                &database_url,
+                required_guards,
+                phase_events,
+            )
+            .await
+            .map_err(|err| {
+                RunError::Other(anyhow::Error::new(
+                    tanren_app_services::error::map_store_error(&err),
+                ))
+            })?;
             let code = run_methodology(&service, &global, command).await;
             return if code == 0 {
                 Ok(std::process::ExitCode::SUCCESS)
@@ -233,6 +244,32 @@ async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
         .await
         .map(|()| std::process::ExitCode::SUCCESS)
         .map_err(RunError::Other)
+}
+
+fn load_methodology_required_guards(
+    config_path: &PathBuf,
+) -> std::result::Result<Vec<tanren_app_services::methodology::RequiredGuard>, RunError> {
+    if !config_path.exists() {
+        return Ok(vec![
+            tanren_app_services::methodology::RequiredGuard::GateChecked,
+            tanren_app_services::methodology::RequiredGuard::Audited,
+            tanren_app_services::methodology::RequiredGuard::Adherent,
+        ]);
+    }
+    let raw = std::fs::read_to_string(config_path).map_err(|e| {
+        RunError::Other(anyhow::anyhow!(
+            "reading methodology config {}: {e}",
+            config_path.display()
+        ))
+    })?;
+    let cfg =
+        tanren_app_services::methodology::config::TanrenConfig::from_yaml(&raw).map_err(|e| {
+            RunError::Other(anyhow::anyhow!(
+                "parsing methodology config {}: {e}",
+                config_path.display()
+            ))
+        })?;
+    Ok(cfg.methodology.task_complete_requires)
 }
 
 /// Bundled actor-token inputs. Keeps `dispatch_non_install`'s arity
@@ -355,146 +392,5 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read};
-
-    use clap::{CommandFactory, Parser};
-    use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_BYTES;
-    use tanren_contract::{CliParseReasonCode, ErrorCode, ErrorDetails};
-
-    use super::actor_token::read_actor_token_from_reader;
-    use super::clap_error::{ALLOWED_ARG_FIELDS, clap_error_to_response};
-    use super::{Cli, into_error_response};
-
-    struct FailingReader;
-
-    impl Read for FailingReader {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Err(IoError::new(
-                IoErrorKind::PermissionDenied,
-                "redacted-test-io-detail",
-            ))
-        }
-    }
-
-    #[test]
-    fn actor_token_stdin_failure_is_generic_and_redacted() {
-        let mut reader = FailingReader;
-        let err = read_actor_token_from_reader(&mut reader).expect_err("read should fail");
-        let response = into_error_response(err);
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert!(response.message.contains("invalid actor token source"));
-        assert!(!response.message.contains("stdin"));
-        assert!(!response.message.contains("PermissionDenied"));
-        assert!(!response.message.contains("redacted-test-io-detail"));
-    }
-
-    #[test]
-    fn actor_token_stdin_overflow_is_generic_and_invalid_input() {
-        let oversized = "x".repeat(DEFAULT_ACTOR_TOKEN_MAX_BYTES + 1);
-        let mut reader = std::io::Cursor::new(oversized);
-        let err = read_actor_token_from_reader(&mut reader).expect_err("oversized input");
-        let response = into_error_response(err);
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert!(response.message.contains("invalid actor token source"));
-    }
-
-    #[test]
-    fn allowed_arg_fields_covers_every_declared_long_flag() {
-        use std::collections::BTreeSet;
-
-        fn collect_longs(cmd: &clap::Command, acc: &mut BTreeSet<String>) {
-            for arg in cmd.get_arguments() {
-                if let Some(long) = arg.get_long() {
-                    acc.insert(long.replace('-', "_"));
-                }
-            }
-            for sub in cmd.get_subcommands() {
-                collect_longs(sub, acc);
-            }
-        }
-
-        let mut declared = BTreeSet::new();
-        collect_longs(&Cli::command(), &mut declared);
-
-        let allowlist: BTreeSet<String> =
-            ALLOWED_ARG_FIELDS.iter().map(|s| (*s).to_owned()).collect();
-
-        for long in &declared {
-            assert!(
-                allowlist.contains(long),
-                "declared flag --{long} is not listed in ALLOWED_ARG_FIELDS"
-            );
-        }
-    }
-
-    #[test]
-    fn missing_required_argument_maps_to_safe_wire_response() {
-        let err = Cli::try_parse_from(["tanren", "dispatch", "create"])
-            .expect_err("missing --project must fail");
-        let response = clap_error_to_response(&err);
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert_eq!(response.message, "invalid cli args");
-        assert!(
-            matches!(
-                &response.details,
-                Some(ErrorDetails::InvalidArgs { reason_code, .. })
-                    if *reason_code == CliParseReasonCode::MissingRequiredArgument
-            ),
-            "expected missing_required_argument details, got {:?}",
-            response.details
-        );
-    }
-
-    #[test]
-    fn invalid_value_does_not_echo_user_input_on_wire() {
-        // User supplies a made-up phase value that also contains a
-        // pretend-secret-shaped token. The wire payload must not
-        // include any of that text.
-        let err = Cli::try_parse_from([
-            "tanren",
-            "dispatch",
-            "create",
-            "--project",
-            "p",
-            "--phase",
-            "sk-super-secret-value",
-            "--cli",
-            "claude",
-            "--branch",
-            "b",
-            "--spec-folder",
-            "s",
-            "--workflow-id",
-            "w",
-        ])
-        .expect_err("invalid --phase value must fail");
-        let response = clap_error_to_response(&err);
-        let json = serde_json::to_string(&response).expect("serialize");
-        assert!(
-            !json.contains("sk-super-secret-value"),
-            "raw user value leaked into wire: {json}"
-        );
-        assert!(
-            !json.contains("super-secret"),
-            "raw user value leaked into wire: {json}"
-        );
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert_eq!(response.message, "invalid cli args");
-    }
-
-    #[test]
-    fn unknown_argument_with_secret_value_is_not_echoed() {
-        let err = Cli::try_parse_from(["tanren", "dispatch", "list", "--secret-value=sk-1234"])
-            .expect_err("unknown --secret-value must fail");
-        let response = clap_error_to_response(&err);
-        let json = serde_json::to_string(&response).expect("serialize");
-        assert!(!json.contains("sk-1234"), "raw secret leaked: {json}");
-        assert!(
-            !json.contains("secret-value"),
-            "unknown flag name not allowlisted must not reach wire: {json}"
-        );
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert_eq!(response.message, "invalid cli args");
-    }
-}
+#[path = "main_tests.rs"]
+mod tests;

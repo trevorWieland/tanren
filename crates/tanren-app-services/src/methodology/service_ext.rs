@@ -23,7 +23,7 @@ use tanren_domain::{NonEmptyString, SignpostId};
 use tanren_contract::methodology::{
     AddSignpostParams, AddSignpostResponse, EscalateToBlockerParams, ListTasksParams,
     PostReplyDirectiveParams, RecordNonNegotiableComplianceParams, RecordRubricScoreParams,
-    ReportPhaseOutcomeParams, ReviseTaskParams, UpdateSignpostStatusParams,
+    ReportPhaseOutcomeParams, ReviseTaskParams, SchemaVersion, UpdateSignpostStatusParams,
 };
 use tanren_domain::methodology::task::Task;
 
@@ -47,13 +47,16 @@ impl MethodologyService {
         enforce(scope, ToolCapability::TaskRevise, phase)?;
         let spec_id = self.resolve_spec_for_task(params.task_id).await?;
         let reason = super::errors::require_non_empty("/reason", &params.reason, Some(500))?;
-        self.emit_event(MethodologyEvent::TaskRevised(TaskRevised {
-            task_id: params.task_id,
-            spec_id,
-            revised_description: params.revised_description,
-            revised_acceptance: params.revised_acceptance,
-            reason,
-        }))
+        self.emit_event(
+            phase,
+            MethodologyEvent::TaskRevised(TaskRevised {
+                task_id: params.task_id,
+                spec_id,
+                revised_description: params.revised_description,
+                revised_acceptance: params.revised_acceptance,
+                reason,
+            }),
+        )
         .await
     }
 
@@ -100,6 +103,8 @@ impl MethodologyService {
         enforce(scope, ToolCapability::RubricRecord, phase)?;
         let rationale =
             super::errors::require_non_empty("/rationale", &params.rationale, Some(2000))?;
+        let pillar_tag = params.pillar.as_str().to_owned();
+        let score_value = params.score.get();
         let record = RubricScore::try_new(
             params.pillar,
             params.score,
@@ -107,7 +112,12 @@ impl MethodologyService {
             params.passing,
             rationale,
             params.supporting_finding_ids,
-        )?;
+        )
+        .map_err(|e| MethodologyError::RubricInvariantViolated {
+            pillar: pillar_tag,
+            score: score_value,
+            reason: e.to_string(),
+        })?;
         if record.score < record.passing {
             let referenced = self
                 .load_findings(&record.supporting_finding_ids, params.spec_id)
@@ -116,20 +126,26 @@ impl MethodologyService {
                 .iter()
                 .any(|f| matches!(f.severity, FindingSeverity::FixNow));
             if !has_fix_now {
-                return Err(MethodologyError::Validation(format!(
-                    "pillar {}: score {} < passing {} requires at least one `fix_now` supporting finding",
-                    record.pillar.as_str(),
-                    record.score.get(),
-                    record.passing.get()
-                )));
+                return Err(MethodologyError::RubricInvariantViolated {
+                    pillar: record.pillar.as_str().to_owned(),
+                    score: record.score.get(),
+                    reason: format!(
+                        "score {} < passing {} requires at least one `fix_now` supporting finding",
+                        record.score.get(),
+                        record.passing.get()
+                    ),
+                });
             }
         }
-        self.emit_event(MethodologyEvent::RubricScoreRecorded(RubricScoreRecorded {
-            spec_id: params.spec_id,
-            scope: params.scope,
-            scope_target_id: params.scope_target_id,
-            score: record,
-        }))
+        self.emit_event(
+            phase,
+            MethodologyEvent::RubricScoreRecorded(RubricScoreRecorded {
+                spec_id: params.spec_id,
+                scope: params.scope,
+                scope_target_id: params.scope_target_id,
+                score: record,
+            }),
+        )
         .await
     }
 
@@ -147,8 +163,9 @@ impl MethodologyService {
         let name = super::errors::require_non_empty("/name", &params.name, Some(120))?;
         let rationale =
             super::errors::require_non_empty("/rationale", &params.rationale, Some(2000))?;
-        self.emit_event(MethodologyEvent::NonNegotiableComplianceRecorded(
-            NonNegotiableComplianceRecorded {
+        self.emit_event(
+            phase,
+            MethodologyEvent::NonNegotiableComplianceRecorded(NonNegotiableComplianceRecorded {
                 spec_id: params.spec_id,
                 scope: params.scope,
                 compliance: NonNegotiableCompliance {
@@ -156,8 +173,8 @@ impl MethodologyService {
                     status: params.status,
                     rationale,
                 },
-            },
-        ))
+            }),
+        )
         .await
     }
 
@@ -192,11 +209,20 @@ impl MethodologyService {
             updated_at: now,
         };
         let id = signpost.id;
-        self.emit_event(MethodologyEvent::SignpostAdded(SignpostAdded {
-            signpost: Box::new(signpost),
-        }))
+        self.emit_event(
+            phase,
+            MethodologyEvent::SignpostAdded(SignpostAdded {
+                signpost: Box::new(signpost),
+            }),
+        )
         .await?;
-        Ok(AddSignpostResponse { signpost_id: id })
+        if let Ok(mut cache) = self.signpost_spec_cache.lock() {
+            cache.insert(id, params.spec_id);
+        }
+        Ok(AddSignpostResponse {
+            schema_version: SchemaVersion::current(),
+            signpost_id: id,
+        })
     }
 
     /// `update_signpost_status`.
@@ -211,14 +237,15 @@ impl MethodologyService {
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SignpostUpdate, phase)?;
         let spec_id = self.resolve_spec_for_signpost(params.signpost_id).await?;
-        self.emit_event(MethodologyEvent::SignpostStatusUpdated(
-            SignpostStatusUpdated {
+        self.emit_event(
+            phase,
+            MethodologyEvent::SignpostStatusUpdated(SignpostStatusUpdated {
                 signpost_id: params.signpost_id,
                 spec_id,
                 status: params.status,
                 resolution: params.resolution,
-            },
-        ))
+            }),
+        )
         .await
     }
 
@@ -241,14 +268,15 @@ impl MethodologyService {
             &params.agent_session_id,
             Some(120),
         )?;
-        self.emit_event(MethodologyEvent::PhaseOutcomeReported(
-            PhaseOutcomeReported {
+        self.emit_event(
+            phase,
+            MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
                 spec_id: params.spec_id,
                 phase: phase_name,
                 agent_session_id: session,
                 outcome: params.outcome,
-            },
-        ))
+            }),
+        )
         .await
     }
 
@@ -264,6 +292,14 @@ impl MethodologyService {
         params: EscalateToBlockerParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::PhaseEscalate, phase)?;
+        if phase != "investigate" {
+            return Err(MethodologyError::FieldValidation {
+                field_path: "/phase".into(),
+                expected: "escalate_to_blocker allowed only in investigate".into(),
+                actual: phase.to_owned(),
+                remediation: "invoke escalate_to_blocker from investigate only".into(),
+            });
+        }
         let reason = super::errors::require_non_empty("/reason", &params.reason, Some(1000))?;
         let summary = NonEmptyString::try_new(format!(
             "escalated: {} options={}",
@@ -272,8 +308,9 @@ impl MethodologyService {
         ))
         .map_err(|e| MethodologyError::Internal(e.to_string()))?;
         let phase_name = super::errors::require_non_empty("/phase", phase, Some(120))?;
-        self.emit_event(MethodologyEvent::PhaseOutcomeReported(
-            PhaseOutcomeReported {
+        self.emit_event(
+            phase,
+            MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
                 spec_id: params.spec_id,
                 phase: phase_name,
                 agent_session_id: NonEmptyString::try_new("escalation")
@@ -284,8 +321,8 @@ impl MethodologyService {
                     },
                     summary,
                 },
-            },
-        ))
+            }),
+        )
         .await
     }
 
@@ -302,6 +339,14 @@ impl MethodologyService {
         params: PostReplyDirectiveParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::FeedbackReply, phase)?;
+        if phase != "handle-feedback" {
+            return Err(MethodologyError::FieldValidation {
+                field_path: "/phase".into(),
+                expected: "post_reply_directive allowed only in handle-feedback".into(),
+                actual: phase.to_owned(),
+                remediation: "invoke post_reply_directive from handle-feedback only".into(),
+            });
+        }
         let thread_ref =
             super::errors::require_non_empty("/thread_ref", &params.thread_ref, Some(200))?;
         let body = if params.body.trim().is_empty() {
@@ -316,15 +361,16 @@ impl MethodologyService {
             params.body
         };
         let phase_name = super::errors::require_non_empty("/phase", phase, Some(120))?;
-        self.emit_event(MethodologyEvent::ReplyDirectiveRecorded(
-            ReplyDirectiveRecorded {
+        self.emit_event(
+            phase,
+            MethodologyEvent::ReplyDirectiveRecorded(ReplyDirectiveRecorded {
                 spec_id: params.spec_id,
                 phase: phase_name,
                 thread_ref,
                 disposition: params.disposition,
                 body,
-            },
-        ))
+            }),
+        )
         .await
     }
 }

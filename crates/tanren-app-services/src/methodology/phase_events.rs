@@ -8,6 +8,8 @@
 //!
 //! This module is I/O-free — callers own the tempfile+rename write.
 
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_domain::SpecId;
@@ -86,6 +88,73 @@ pub fn render_jsonl(lines: &[PhaseEventLine]) -> Result<String, MethodologyError
     Ok(out)
 }
 
+/// Build one [`PhaseEventLine`] from one envelope if (and only if) it
+/// is a methodology event correlated to `spec_id`.
+#[must_use]
+pub fn line_for_envelope(
+    envelope: &EventEnvelope,
+    spec_id: SpecId,
+    phase: &str,
+    agent_session_id: &str,
+) -> Option<PhaseEventLine> {
+    let tanren_domain::events::DomainEvent::Methodology { event } = &envelope.payload else {
+        return None;
+    };
+    if event.spec_id() != Some(spec_id) {
+        return None;
+    }
+    Some(PhaseEventLine {
+        event_id: envelope.event_id,
+        spec_id,
+        phase: phase.to_owned(),
+        agent_session_id: agent_session_id.to_owned(),
+        timestamp: envelope.timestamp,
+        tool: tool_name(event).to_owned(),
+        payload: event.clone(),
+    })
+}
+
+/// Atomically append one line to `phase-events.jsonl` by rewriting
+/// through tempfile+rename. Deterministic ordering is preserved by
+/// appending to existing file text in-memory before rename.
+///
+/// # Errors
+/// Returns [`MethodologyError::Io`] on filesystem failures and
+/// [`MethodologyError::Internal`] on serialization failure.
+pub fn append_jsonl_line_atomic(
+    path: &Path,
+    line: &PhaseEventLine,
+) -> Result<(), MethodologyError> {
+    let mut existing = if path.exists() {
+        std::fs::read_to_string(path).map_err(|source| MethodologyError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?
+    } else {
+        String::new()
+    };
+    let encoded =
+        serde_json::to_string(line).map_err(|e| MethodologyError::Internal(e.to_string()))?;
+    existing.push_str(&encoded);
+    existing.push('\n');
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| MethodologyError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    let tmp = path.with_extension("jsonl.tmp");
+    std::fs::write(&tmp, existing).map_err(|source| MethodologyError::Io {
+        path: tmp.clone(),
+        source,
+    })?;
+    std::fs::rename(&tmp, path).map_err(|source| MethodologyError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(())
+}
+
 /// Map an event variant to the authoring tool's name (for the `tool`
 /// field on the JSONL envelope). Stable; matches the tool catalog in
 /// `docs/architecture/agent-tool-surface.md` §3.
@@ -155,6 +224,7 @@ mod tests {
                 event: MethodologyEvent::TaskCreated(TaskCreated {
                     task: Box::new(task_a),
                     origin: TaskOrigin::ShapeSpec,
+                    idempotency_key: None,
                 }),
             },
         };

@@ -32,6 +32,7 @@ fn seed_lifecycle(tid: TaskId, spec: SpecId) -> Vec<MethodologyEvent> {
         MethodologyEvent::TaskCreated(TaskCreated {
             task: Box::new(task),
             origin: TaskOrigin::ShapeSpec,
+            idempotency_key: None,
         }),
         MethodologyEvent::TaskStarted(TaskStarted {
             task_id: tid,

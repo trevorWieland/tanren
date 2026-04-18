@@ -61,6 +61,20 @@ pub(crate) struct MethodologyGlobal {
     /// unless `TANREN_PHASE_CAPABILITIES` is set.
     #[arg(long, global = true, default_value = "cli-admin")]
     pub phase: String,
+
+    /// Optional spec folder root used for runtime `phase-events.jsonl`
+    /// appends from tool calls.
+    #[arg(long, global = true)]
+    pub spec_folder: Option<PathBuf>,
+
+    /// Agent session id to stamp in `phase-events.jsonl` lines when
+    /// `--spec-folder` is provided.
+    #[arg(long, global = true, default_value = "cli-session")]
+    pub agent_session_id: String,
+
+    /// Path to `tanren.yml` used to load `methodology.task_complete_requires`.
+    #[arg(long, global = true, default_value = "tanren.yml")]
+    pub methodology_config: PathBuf,
 }
 
 /// Shape of every methodology subcommand's input-source flags.
@@ -258,6 +272,7 @@ pub(crate) fn emit_result<R: Serialize>(result: Result<R, MethodologyError>) -> 
 pub(crate) fn exit_code_for(err: &MethodologyError) -> u8 {
     match err {
         MethodologyError::FieldValidation { .. }
+        | MethodologyError::RubricInvariantViolated { .. }
         | MethodologyError::Validation(_)
         | MethodologyError::CapabilityDenied { .. }
         | MethodologyError::IllegalTaskTransition { .. }

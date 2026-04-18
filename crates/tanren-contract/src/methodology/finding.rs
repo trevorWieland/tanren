@@ -5,9 +5,12 @@ use serde::{Deserialize, Serialize};
 use tanren_domain::methodology::finding::{FindingSeverity, FindingSource, StandardRef};
 use tanren_domain::{FindingId, SpecId, TaskId};
 
+use super::SchemaVersion;
+
 /// `add_finding` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AddFindingParams {
+    pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
     pub severity: FindingSeverity,
     pub title: String,
@@ -19,17 +22,21 @@ pub struct AddFindingParams {
     pub source: FindingSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attached_task: Option<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `add_finding` / `record_adherence_finding` shared response shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AddFindingResponse {
+    pub schema_version: SchemaVersion,
     pub finding_id: FindingId,
 }
 
 /// `record_adherence_finding` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RecordAdherenceFindingParams {
+    pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
     pub standard: StandardRef,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -38,4 +45,6 @@ pub struct RecordAdherenceFindingParams {
     pub line_numbers: Vec<u32>,
     pub severity: FindingSeverity,
     pub rationale: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }

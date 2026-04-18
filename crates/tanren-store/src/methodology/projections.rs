@@ -268,6 +268,7 @@ mod tests {
         let events = vec![MethodologyEvent::TaskCreated(EvTaskCreated {
             task: Box::new(t.clone()),
             origin: TaskOrigin::ShapeSpec,
+            idempotency_key: None,
         })];
         let required = [
             RequiredGuard::GateChecked,

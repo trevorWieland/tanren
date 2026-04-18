@@ -148,6 +148,8 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
             &scope,
             "do-task",
             CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
                 spec_id,
                 title: "T".into(),
                 description: String::new(),
@@ -163,6 +165,8 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
         &scope,
         "do-task",
         tanren_contract::methodology::StartTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
             task_id: resp.task_id,
         },
     )
@@ -172,6 +176,8 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
         &scope,
         "do-task",
         tanren_contract::methodology::CompleteTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
             task_id: resp.task_id,
             evidence_refs: vec![],
         },
@@ -194,6 +200,7 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
             &scope,
             "do-task",
             tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: Some(spec_id),
             },
         )
@@ -215,6 +222,8 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
             &scope,
             "do-task",
             CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
                 spec_id,
                 title: "T".into(),
                 description: String::new(),
@@ -230,6 +239,8 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
         &scope,
         "do-task",
         tanren_contract::methodology::StartTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
             task_id: resp.task_id,
         },
     )
@@ -239,6 +250,8 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
         &scope,
         "do-task",
         tanren_contract::methodology::CompleteTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
             task_id: resp.task_id,
             evidence_refs: vec![],
         },
@@ -260,6 +273,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
             &scope,
             "do-task",
             tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: Some(spec_id),
             },
         )
@@ -282,6 +296,7 @@ async fn relevance_filter_explains_inclusion_by_touched_files() {
             &scope,
             "adhere-task",
             &ListRelevantStandardsParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: SpecId::new(),
                 touched_files: vec!["crates/tanren-domain/src/lib.rs".into()],
                 project_language: Some("rust".into()),
@@ -305,6 +320,7 @@ async fn relevance_filter_empty_inputs_returns_full_baseline() {
             &scope,
             "adhere-task",
             &ListRelevantStandardsParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: SpecId::new(),
                 touched_files: vec![],
                 project_language: None,

@@ -71,6 +71,7 @@ fn entity_root_matches_variant() {
     let ev2 = MethodologyEvent::TaskCreated(TaskCreated {
         task: Box::new(t),
         origin: TaskOrigin::ShapeSpec,
+        idempotency_key: None,
     });
     assert_eq!(ev2.entity_root(), EntityRef::Task(tid));
 }
@@ -82,6 +83,7 @@ fn event_json_roundtrip() {
     let ev = MethodologyEvent::TaskCreated(TaskCreated {
         task: Box::new(t),
         origin: TaskOrigin::ShapeSpec,
+        idempotency_key: None,
     });
     let json = serde_json::to_string(&ev).expect("serialize");
     let back: MethodologyEvent = serde_json::from_str(&json).expect("deserialize");
@@ -102,6 +104,7 @@ fn fold_complete_is_terminal() {
         MethodologyEvent::TaskCreated(TaskCreated {
             task: Box::new(t),
             origin: TaskOrigin::ShapeSpec,
+            idempotency_key: None,
         }),
         MethodologyEvent::TaskStarted(TaskStarted {
             task_id: tid,
@@ -155,6 +158,7 @@ fn fold_completed_without_all_guards_stays_implemented() {
         MethodologyEvent::TaskCreated(TaskCreated {
             task: Box::new(t),
             origin: TaskOrigin::ShapeSpec,
+            idempotency_key: None,
         }),
         MethodologyEvent::TaskImplemented(TaskImplemented {
             task_id: tid,

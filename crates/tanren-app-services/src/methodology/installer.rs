@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::config::{InstallFormat, InstallTarget, MergePolicy, MethodologyConfig};
+use super::config::{InstallBinding, InstallFormat, InstallTarget, MergePolicy, MethodologyConfig};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::formats::render_commands;
 use super::renderer::{RenderedCommand, render_catalog};
@@ -57,9 +57,14 @@ pub fn plan_install(
     commands: &[CommandSource],
     context: &HashMap<String, String>,
 ) -> MethodologyResult<InstallPlan> {
-    let (rendered, _refs) = render_catalog(commands, context)?;
     let mut writes = Vec::new();
     for target in &cfg.install_targets {
+        let mut target_context = context.clone();
+        target_context.insert(
+            "TASK_TOOL_BINDING".into(),
+            binding_label(target.binding).to_owned(),
+        );
+        let (rendered, _refs) = render_catalog(commands, &target_context)?;
         match target.format {
             InstallFormat::ClaudeCode | InstallFormat::CodexSkills | InstallFormat::Opencode => {
                 plan_command_target(target, &rendered, &mut writes)?;
@@ -76,6 +81,14 @@ pub fn plan_install(
         }
     }
     Ok(InstallPlan { writes })
+}
+
+const fn binding_label(binding: InstallBinding) -> &'static str {
+    match binding {
+        InstallBinding::Mcp => "mcp",
+        InstallBinding::Cli => "cli",
+        InstallBinding::None => "none",
+    }
 }
 
 fn plan_command_target(
@@ -278,10 +291,80 @@ use std::path::Path;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::methodology::config::{InstallBinding, SourceConfig};
+    use crate::methodology::source::{CommandFamily, CommandFrontmatter, CommandSource};
+    use std::collections::BTreeMap;
+    use std::collections::HashMap;
 
     #[test]
     fn empty_plan_has_no_drift() {
         let plan = InstallPlan { writes: vec![] };
         assert!(drift(&plan).is_empty());
+    }
+
+    #[test]
+    fn plan_install_applies_task_tool_binding_per_target() {
+        let cfg = MethodologyConfig {
+            task_complete_requires: vec![],
+            source: SourceConfig {
+                path: PathBuf::from("commands"),
+            },
+            install_targets: vec![
+                InstallTarget {
+                    path: PathBuf::from(".claude/commands"),
+                    format: InstallFormat::ClaudeCode,
+                    binding: InstallBinding::Mcp,
+                    merge_policy: MergePolicy::Destructive,
+                },
+                InstallTarget {
+                    path: PathBuf::from(".opencode/commands"),
+                    format: InstallFormat::Opencode,
+                    binding: InstallBinding::Cli,
+                    merge_policy: MergePolicy::Destructive,
+                },
+            ],
+            mcp: Default::default(),
+            variables: BTreeMap::new(),
+            profiles: BTreeMap::new(),
+        };
+        let command = CommandSource {
+            name: "do-task".into(),
+            family: CommandFamily::SpecLoop,
+            frontmatter: CommandFrontmatter {
+                name: "do-task".into(),
+                role: "impl".into(),
+                orchestration_loop: true,
+                autonomy: "autonomous".into(),
+                declared_variables: vec!["TASK_TOOL_BINDING".into()],
+                declared_tools: vec![],
+                required_capabilities: vec![],
+                produces_evidence: vec![],
+                extras: BTreeMap::new(),
+            },
+            body: "binding={{TASK_TOOL_BINDING}}\n".into(),
+            source_path: PathBuf::from("commands/spec/do-task.md"),
+        };
+        let mut ctx = HashMap::new();
+        ctx.insert("TASK_TOOL_BINDING".into(), "mcp".into());
+        let plan = plan_install(&cfg, &[command], &ctx).expect("plan");
+        let mut claude = None;
+        let mut opencode = None;
+        for w in plan.writes {
+            let body = String::from_utf8(w.bytes).expect("utf8");
+            let is_task_file = w.dest.ends_with("do-task.md");
+            let has_mcp = body.contains("binding=mcp");
+            let has_cli = body.contains("binding=cli");
+            if is_task_file && has_mcp {
+                claude = Some(body.clone());
+            }
+            if is_task_file && has_cli {
+                opencode = Some(body);
+            }
+        }
+        assert!(claude.is_some(), "mcp binding expected in claude target");
+        assert!(
+            opencode.is_some(),
+            "cli binding expected in opencode target"
+        );
     }
 }

@@ -52,6 +52,23 @@ pub(crate) async fn dispatch(
         "create_task" => call!(c::CreateTaskParams, create_task),
         "start_task" => call!(c::StartTaskParams, start_task),
         "complete_task" => call!(c::CompleteTaskParams, complete_task),
+        "mark_task_guard_satisfied" => {
+            match decode::<c::MarkTaskGuardSatisfiedParams>(tool, args) {
+                Ok(params) => wrap(
+                    service
+                        .mark_task_guard_satisfied(
+                            scope,
+                            phase,
+                            params.task_id,
+                            params.guard,
+                            params.idempotency_key,
+                        )
+                        .await
+                        .map(|()| serde_json::json!({})),
+                ),
+                Err(e) => CallResult::Err(e),
+            }
+        }
         "revise_task" => call!(c::ReviseTaskParams, revise_task),
         "abandon_task" => call!(c::AbandonTaskParams, abandon_task),
         "list_tasks" => call!(c::ListTasksParams, list_tasks),
@@ -89,7 +106,7 @@ pub(crate) async fn dispatch(
             match decode::<c::ListRelevantStandardsParams>(tool, args) {
                 Ok(params) => {
                     // Read-only; not async in the service surface.
-                    wrap(service.list_relevant_standards(scope, phase, params.spec_id))
+                    wrap(service.list_relevant_standards_filtered(scope, phase, &params))
                 }
                 Err(e) => CallResult::Err(e),
             }

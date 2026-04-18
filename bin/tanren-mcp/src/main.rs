@@ -16,6 +16,7 @@
 //!   is reserved for MCP framing).
 #![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -47,9 +48,24 @@ async fn run() -> Result<()> {
     let phase = std::env::var("TANREN_MCP_PHASE").unwrap_or_else(|_| "mcp".to_owned());
     let database_url = std::env::var("TANREN_DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:tanren.db?mode=rwc".to_owned());
-    let service = tanren_app_services::compose::build_methodology_service(&database_url)
-        .await
-        .context("building methodology service")?;
+    let config_path =
+        std::env::var("TANREN_CONFIG_PATH").unwrap_or_else(|_| "tanren.yml".to_owned());
+    let required_guards = load_methodology_required_guards(std::path::Path::new(&config_path))
+        .with_context(|| format!("loading methodology config from {config_path}"))?;
+    let phase_events = std::env::var("TANREN_SPEC_FOLDER").ok().map(|spec_folder| {
+        tanren_app_services::methodology::service::PhaseEventsRuntime {
+            spec_folder: PathBuf::from(spec_folder),
+            agent_session_id: std::env::var("TANREN_AGENT_SESSION_ID")
+                .unwrap_or_else(|_| "mcp-session".to_owned()),
+        }
+    });
+    let service = tanren_app_services::compose::build_methodology_service_with_config(
+        &database_url,
+        required_guards,
+        phase_events,
+    )
+    .await
+    .context("building methodology service")?;
     tracing::info!(
         capability_count = scope.0.len(),
         phase = %phase,
@@ -73,4 +89,21 @@ fn init_tracing() -> Result<()> {
 fn writeln_stderr(msg: &str) -> std::io::Result<()> {
     use std::io::Write as _;
     writeln!(std::io::stderr(), "{msg}")
+}
+
+fn load_methodology_required_guards(
+    config_path: &std::path::Path,
+) -> Result<Vec<tanren_app_services::methodology::RequiredGuard>> {
+    if !config_path.exists() {
+        return Ok(vec![
+            tanren_app_services::methodology::RequiredGuard::GateChecked,
+            tanren_app_services::methodology::RequiredGuard::Audited,
+            tanren_app_services::methodology::RequiredGuard::Adherent,
+        ]);
+    }
+    let raw = std::fs::read_to_string(config_path)
+        .with_context(|| format!("reading {}", config_path.display()))?;
+    let cfg = tanren_app_services::methodology::config::TanrenConfig::from_yaml(&raw)
+        .with_context(|| format!("parsing {}", config_path.display()))?;
+    Ok(cfg.methodology.task_complete_requires)
 }

@@ -14,6 +14,7 @@ use crate::validated::NonEmptyString;
 
 /// Typed investigation report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct InvestigationReport {
     pub kind: InvestigationKind,
     pub spec_id: SpecId,
@@ -34,6 +35,7 @@ pub enum InvestigationKind {
 
 /// What caused the investigation to run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct InvestigationTrigger {
     pub phase: NonEmptyString,
     pub task_id: Option<TaskId>,
@@ -43,6 +45,7 @@ pub struct InvestigationTrigger {
 
 /// One proposed root cause with its remediation actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RootCause {
     pub description: NonEmptyString,
     pub confidence: Confidence,

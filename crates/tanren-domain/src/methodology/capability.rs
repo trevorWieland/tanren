@@ -179,7 +179,7 @@ pub fn default_scope_for_phase(phase: &str) -> Option<CapabilityScope> {
         ],
         "resolve-blockers" => &[TaskCreate, TaskRevise, TaskAbandon, TaskRead, PhaseOutcome],
         "triage-audits" => &[IssueCreate, FindingAdd, PhaseOutcome],
-        "sync-roadmap" => &[FindingAdd, FeedbackReply, PhaseOutcome],
+        "sync-roadmap" => &[FindingAdd, PhaseOutcome],
         "discover-standards" | "index-standards" | "inject-standards" => {
             &[StandardRead, PhaseOutcome]
         }
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn feedback_reply_confined_to_two_phases() {
+    fn feedback_reply_confined_to_handle_feedback_only() {
         for phase in [
             "shape-spec",
             "do-task",
@@ -287,7 +287,7 @@ mod tests {
                 .allows(ToolCapability::FeedbackReply)
         );
         assert!(
-            default_scope_for_phase("sync-roadmap")
+            !default_scope_for_phase("sync-roadmap")
                 .expect("sync-roadmap")
                 .allows(ToolCapability::FeedbackReply)
         );

@@ -69,6 +69,8 @@ pub(crate) const ALLOWED_ARG_FIELDS: &[&str] = &[
     "json",
     "params_file",
     "params_stdin",
+    "agent_session_id",
+    "methodology_config",
 ];
 
 /// Translate a clap parser failure into a transport-safe

@@ -17,6 +17,7 @@ use super::frontmatter::{FrontmatterError, join, parse_typed};
 
 /// Typed `spec.md` frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SpecFrontmatter {
     pub kind: SpecKind,
     pub spec_id: SpecId,
@@ -91,5 +92,16 @@ mod tests {
         // Second render is byte-for-byte identical.
         let doc2 = parsed.render_to_markdown(&body).expect("render2");
         assert_eq!(doc, doc2);
+    }
+
+    #[test]
+    fn parse_rejects_unknown_frontmatter_keys() {
+        let doc = format!(
+            "---\nkind: spec\nspec_id: {}\ntitle: Example spec\nunknown_key: bad\nacceptance_criteria: []\ndemo_environment: {{}}\ndependencies: {{}}\nbase_branch: main\ncreated_at: 2026-01-01T00:00:00Z\n---\nbody\n",
+            SpecId::new()
+        );
+        let err = SpecFrontmatter::parse_from_markdown(&doc).expect_err("unknown key must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("unknown field"), "unexpected: {msg}");
     }
 }

@@ -3,8 +3,8 @@
 use clap::Subcommand;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::{
-    AbandonTaskParams, CompleteTaskParams, CreateTaskParams, ListTasksParams, ReviseTaskParams,
-    StartTaskParams,
+    AbandonTaskParams, CompleteTaskParams, CreateTaskParams, ListTasksParams,
+    MarkTaskGuardSatisfiedParams, ReviseTaskParams, StartTaskParams,
 };
 
 use super::{ParamsInput, emit_result, load_params};
@@ -17,6 +17,8 @@ pub(crate) enum TaskCommand {
     Start(ParamsInput),
     /// Transition `InProgress → Implemented` (emits `TaskImplemented`).
     Complete(ParamsInput),
+    /// Mark one required completion guard satisfied.
+    Guard(ParamsInput),
     /// Non-transitional description/acceptance revision.
     Revise(ParamsInput),
     /// Terminal abandonment with replacements or an explicit
@@ -50,6 +52,21 @@ pub(crate) async fn run(
             Ok(params) => emit_result(
                 service
                     .complete_task(scope, phase, params)
+                    .await
+                    .map(|()| Empty {}),
+            ),
+            Err(e) => emit_result::<()>(Err(e)),
+        },
+        TaskCommand::Guard(i) => match load_params::<MarkTaskGuardSatisfiedParams>(&i) {
+            Ok(params) => emit_result(
+                service
+                    .mark_task_guard_satisfied(
+                        scope,
+                        phase,
+                        params.task_id,
+                        params.guard,
+                        params.idempotency_key,
+                    )
                     .await
                     .map(|()| Empty {}),
             ),

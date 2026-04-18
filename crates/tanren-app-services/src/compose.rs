@@ -103,7 +103,15 @@ pub async fn build_methodology_service(
     database_url: &str,
 ) -> Result<crate::methodology::MethodologyService, StoreError> {
     let store = open_store_for_write(database_url).await?;
-    Ok(crate::methodology::MethodologyService::new(Arc::new(store)))
+    Ok(crate::methodology::MethodologyService::with_runtime(
+        Arc::new(store),
+        vec![
+            tanren_domain::methodology::task::RequiredGuard::GateChecked,
+            tanren_domain::methodology::task::RequiredGuard::Audited,
+            tanren_domain::methodology::task::RequiredGuard::Adherent,
+        ],
+        None,
+    ))
 }
 
 /// Like [`build_methodology_service`] but threads the config-driven
@@ -116,14 +124,14 @@ pub async fn build_methodology_service(
 pub async fn build_methodology_service_with_config(
     database_url: &str,
     required_guards: Vec<tanren_domain::methodology::task::RequiredGuard>,
+    phase_events: Option<crate::methodology::service::PhaseEventsRuntime>,
 ) -> Result<crate::methodology::MethodologyService, StoreError> {
     let store = open_store_for_write(database_url).await?;
-    Ok(
-        crate::methodology::MethodologyService::with_required_guards(
-            Arc::new(store),
-            required_guards,
-        ),
-    )
+    Ok(crate::methodology::MethodologyService::with_runtime(
+        Arc::new(store),
+        required_guards,
+        phase_events,
+    ))
 }
 
 /// Spawn a long-running replay-purge loop onto the current tokio
