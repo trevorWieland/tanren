@@ -5,8 +5,8 @@
 use chrono::Utc;
 use tanren_domain::entity::EntityRef;
 use tanren_domain::methodology::events::{
-    MethodologyEvent, TaskCompleted, TaskCreated, TaskGuardSatisfied, TaskImplemented, TaskStarted,
-    fold_task_status,
+    MethodologyEvent, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated, TaskGateChecked,
+    TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
 };
 use tanren_domain::methodology::task::{
     RequiredGuard, Task, TaskGuardFlags, TaskOrigin, TaskStatus,
@@ -35,26 +35,36 @@ fn seed_task(spec: SpecId) -> Task {
 }
 
 #[test]
-fn canonical_guard_name_mapping() {
+fn discrete_guard_events_roundtrip() {
     let spec = SpecId::new();
     let tid = TaskId::new();
-    let cases = [
-        (RequiredGuard::GateChecked, "TaskGateChecked"),
-        (RequiredGuard::Audited, "TaskAudited"),
-        (RequiredGuard::Adherent, "TaskAdherent"),
-        (
-            RequiredGuard::Extra("throughput_checked".into()),
-            "TaskXChecked",
-        ),
-    ];
-    for (guard, expected) in cases {
-        let ev = TaskGuardSatisfied {
+    let events = [
+        MethodologyEvent::TaskGateChecked(TaskGateChecked {
             task_id: tid,
             spec_id: spec,
-            guard,
             idempotency_key: None,
-        };
-        assert_eq!(ev.canonical_event_name(), expected);
+        }),
+        MethodologyEvent::TaskAudited(TaskAudited {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: Some("k2".into()),
+        }),
+        MethodologyEvent::TaskAdherent(TaskAdherent {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: Some("k3".into()),
+        }),
+        MethodologyEvent::TaskXChecked(TaskXChecked {
+            task_id: tid,
+            spec_id: spec,
+            guard_name: ne("throughput_checked"),
+            idempotency_key: Some("k4".into()),
+        }),
+    ];
+    for ev in events {
+        let json = serde_json::to_string(&ev).expect("serialize");
+        let back: MethodologyEvent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(ev, back);
     }
 }
 
@@ -115,22 +125,19 @@ fn fold_complete_is_terminal() {
             spec_id: spec,
             evidence_refs: vec![],
         }),
-        MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
+        MethodologyEvent::TaskGateChecked(TaskGateChecked {
             task_id: tid,
             spec_id: spec,
-            guard: RequiredGuard::GateChecked,
             idempotency_key: None,
         }),
-        MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
+        MethodologyEvent::TaskAudited(TaskAudited {
             task_id: tid,
             spec_id: spec,
-            guard: RequiredGuard::Audited,
             idempotency_key: None,
         }),
-        MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
+        MethodologyEvent::TaskAdherent(TaskAdherent {
             task_id: tid,
             spec_id: spec,
-            guard: RequiredGuard::Adherent,
             idempotency_key: None,
         }),
         MethodologyEvent::TaskCompleted(TaskCompleted {
@@ -165,10 +172,9 @@ fn fold_completed_without_all_guards_stays_implemented() {
             spec_id: spec,
             evidence_refs: vec![],
         }),
-        MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
+        MethodologyEvent::TaskGateChecked(TaskGateChecked {
             task_id: tid,
             spec_id: spec,
-            guard: RequiredGuard::GateChecked,
             idempotency_key: None,
         }),
         MethodologyEvent::TaskCompleted(TaskCompleted {

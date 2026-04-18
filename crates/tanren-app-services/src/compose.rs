@@ -111,6 +111,7 @@ pub async fn build_methodology_service(
             tanren_domain::methodology::task::RequiredGuard::Adherent,
         ],
         None,
+        vec![],
     ))
 }
 
@@ -125,12 +126,14 @@ pub async fn build_methodology_service_with_config(
     database_url: &str,
     required_guards: Vec<tanren_domain::methodology::task::RequiredGuard>,
     phase_events: Option<crate::methodology::service::PhaseEventsRuntime>,
+    standards: Vec<tanren_domain::methodology::standard::Standard>,
 ) -> Result<crate::methodology::MethodologyService, StoreError> {
     let store = open_store_for_write(database_url).await?;
     Ok(crate::methodology::MethodologyService::with_runtime(
         Arc::new(store),
         required_guards,
         phase_events,
+        standards,
     ))
 }
 

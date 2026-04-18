@@ -2,11 +2,12 @@
 //! `service_ext.rs` to stay within the 500-line file budget.
 
 use chrono::Utc;
+use tanren_domain::entity::EntityRef;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{AdherenceFindingAdded, IssueCreated, MethodologyEvent};
 use tanren_domain::methodology::finding::{Finding, FindingSource};
 use tanren_domain::methodology::issue::{Issue, IssueProvider, IssueRef};
-use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId};
+use tanren_domain::{EntityKind, FindingId, IssueId, NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
     CreateIssueParams, CreateIssueResponse, RecordAdherenceFindingParams, SchemaVersion,
@@ -15,6 +16,8 @@ use tanren_contract::methodology::{
 use super::capabilities::enforce;
 use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
 use super::service::MethodologyService;
+
+const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
 
 impl MethodologyService {
     // -- §3.7 create_issue ----------------------------------------------------
@@ -122,7 +125,7 @@ impl MethodologyService {
         // carries only (name, category); we resolve the importance
         // from the baseline-standards registry so the check is a
         // typed domain invariant, not a prompt-level guardrail.
-        let importance = resolve_standard_importance(&params.standard);
+        let importance = resolve_standard_importance(self.standards(), &params.standard);
         if importance == Some(tanren_domain::methodology::standard::StandardImportance::Critical)
             && matches!(
                 params.severity,
@@ -179,8 +182,8 @@ impl MethodologyService {
 
     // -- Internal helpers -----------------------------------------------------
 
-    /// Scan the event log for the signpost's `SignpostAdded` event to
-    /// recover its spec id. O(events); Lane 0.5 scale.
+    /// Resolve signpost root to spec id through indexed signpost-root
+    /// event queries.
     pub(crate) async fn resolve_spec_for_signpost(
         &self,
         signpost_id: SignpostId,
@@ -190,22 +193,30 @@ impl MethodologyService {
         {
             return Ok(*spec_id);
         }
-        let filter = tanren_store::EventFilter {
-            event_type: Some("methodology".into()),
-            limit: 100_000u64,
-            ..tanren_store::EventFilter::default()
-        };
-        let page = tanren_store::EventStore::query_events(self.store(), &filter).await?;
-        for env in page.events {
-            if let tanren_domain::events::DomainEvent::Methodology { event } = env.payload
-                && let MethodologyEvent::SignpostAdded(e) = &event
-                && e.signpost.id == signpost_id
-            {
-                if let Ok(mut cache) = self.signpost_spec_cache.lock() {
-                    cache.insert(signpost_id, e.signpost.spec_id);
+        let mut cursor = None;
+        loop {
+            let filter = tanren_store::EventFilter {
+                entity_ref: Some(EntityRef::Signpost(signpost_id)),
+                event_type: Some("methodology".into()),
+                limit: METHODOLOGY_PAGE_SIZE,
+                cursor,
+                ..tanren_store::EventFilter::default()
+            };
+            let page = tanren_store::EventStore::query_events(self.store(), &filter).await?;
+            for env in page.events {
+                if let tanren_domain::events::DomainEvent::Methodology { event } = env.payload
+                    && let MethodologyEvent::SignpostAdded(e) = &event
+                {
+                    if let Ok(mut cache) = self.signpost_spec_cache.lock() {
+                        cache.insert(signpost_id, e.signpost.spec_id);
+                    }
+                    return Ok(e.signpost.spec_id);
                 }
-                return Ok(e.signpost.spec_id);
             }
+            if !page.has_more {
+                break;
+            }
+            cursor = page.next_cursor;
         }
         Err(MethodologyError::NotFound {
             resource: "signpost".into(),
@@ -221,9 +232,41 @@ impl MethodologyService {
         ids: &[FindingId],
         spec_id: tanren_domain::SpecId,
     ) -> MethodologyResult<Vec<Finding>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut deduped = std::collections::HashSet::new();
+        for id in ids {
+            if !deduped.insert(*id) {
+                return Err(MethodologyError::FieldValidation {
+                    field_path: "/supporting_finding_ids".into(),
+                    expected: "unique finding ids".into(),
+                    actual: "duplicate id present".into(),
+                    remediation: "remove duplicate finding ids from supporting_finding_ids".into(),
+                });
+            }
+        }
         let all = tanren_store::methodology::projections::findings_for_spec(self.store(), spec_id)
             .await?;
-        Ok(all.into_iter().filter(|f| ids.contains(&f.id)).collect())
+        let by_id: std::collections::HashMap<FindingId, Finding> =
+            all.into_iter().map(|f| (f.id, f)).collect();
+        let mut missing = Vec::new();
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            match by_id.get(id) {
+                Some(found) => out.push(found.clone()),
+                None => missing.push(id.to_string()),
+            }
+        }
+        if !missing.is_empty() {
+            return Err(MethodologyError::FieldValidation {
+                field_path: "/supporting_finding_ids".into(),
+                expected: "all referenced finding ids must exist for spec".into(),
+                actual: format!("missing ids: {}", missing.join(", ")),
+                remediation: "record findings first, then reference their finding_id values".into(),
+            });
+        }
+        Ok(out)
     }
 
     async fn find_issue_created_by_idempotency(
@@ -231,10 +274,11 @@ impl MethodologyService {
         spec_id: tanren_domain::SpecId,
         idempotency_key: &str,
     ) -> MethodologyResult<Option<Issue>> {
-        let events = tanren_store::methodology::projections::load_methodology_events(
+        let events = tanren_store::methodology::projections::load_methodology_events_for_kind(
             self.store(),
             spec_id,
-            100_000u64,
+            METHODOLOGY_PAGE_SIZE,
+            EntityKind::Issue,
         )
         .await?;
         for event in events {
@@ -262,7 +306,7 @@ impl MethodologyService {
         _spec_id: tanren_domain::SpecId,
     ) -> MethodologyResult<Vec<tanren_domain::methodology::standard::Standard>> {
         enforce(scope, ToolCapability::StandardRead, phase)?;
-        let mut out = super::standards::baseline_standards();
+        let mut out = self.standards().to_vec();
         out.sort_by(|a, b| {
             a.category
                 .as_str()
@@ -297,7 +341,7 @@ impl MethodologyService {
         params: &tanren_contract::methodology::ListRelevantStandardsParams,
     ) -> MethodologyResult<Vec<tanren_contract::methodology::RelevantStandard>> {
         enforce(scope, ToolCapability::StandardRead, phase)?;
-        let all = super::standards::baseline_standards();
+        let all = self.standards().to_vec();
         let all_empty = params.touched_files.is_empty()
             && params.project_language.is_none()
             && params.domains.is_empty();
@@ -433,10 +477,11 @@ fn simple_glob_match(pattern: &str, path: &str) -> bool {
 /// adherence findings against unknown standards remain permitted but
 /// do not trigger the critical-cannot-defer guard.
 fn resolve_standard_importance(
+    standards: &[tanren_domain::methodology::standard::Standard],
     r: &tanren_domain::methodology::finding::StandardRef,
 ) -> Option<tanren_domain::methodology::standard::StandardImportance> {
-    super::standards::baseline_standards()
-        .into_iter()
+    standards
+        .iter()
         .find(|s| s.category.as_str() == r.category.as_str() && s.name.as_str() == r.name.as_str())
         .map(|s| s.importance)
 }

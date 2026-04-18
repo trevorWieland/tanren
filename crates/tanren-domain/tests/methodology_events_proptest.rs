@@ -8,8 +8,8 @@ use chrono::Utc;
 use proptest::prelude::*;
 
 use tanren_domain::methodology::events::{
-    MethodologyEvent, TaskAbandoned, TaskCompleted, TaskCreated, TaskGuardSatisfied,
-    TaskImplemented, TaskStarted, fold_task_status,
+    MethodologyEvent, TaskAbandoned, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated,
+    TaskGateChecked, TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
 };
 use tanren_domain::methodology::task::{RequiredGuard, Task, TaskOrigin, TaskStatus};
 use tanren_domain::{NonEmptyString, SpecId, TaskId};
@@ -47,12 +47,29 @@ fn seed_lifecycle(tid: TaskId, spec: SpecId) -> Vec<MethodologyEvent> {
 }
 
 fn guard_event(tid: TaskId, spec: SpecId, guard: RequiredGuard) -> MethodologyEvent {
-    MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
-        task_id: tid,
-        spec_id: spec,
-        guard,
-        idempotency_key: None,
-    })
+    match guard {
+        RequiredGuard::GateChecked => MethodologyEvent::TaskGateChecked(TaskGateChecked {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: None,
+        }),
+        RequiredGuard::Audited => MethodologyEvent::TaskAudited(TaskAudited {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: None,
+        }),
+        RequiredGuard::Adherent => MethodologyEvent::TaskAdherent(TaskAdherent {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: None,
+        }),
+        RequiredGuard::Extra(name) => MethodologyEvent::TaskXChecked(TaskXChecked {
+            task_id: tid,
+            spec_id: spec,
+            guard_name: NonEmptyString::try_new(name).expect("non-empty guard name"),
+            idempotency_key: None,
+        }),
+    }
 }
 
 /// Any permutation of 0..3 expressed as a `Vec<usize>`.

@@ -1,8 +1,12 @@
 //! Pure in-memory projections over the methodology event stream.
 //!
-//! Each function fetches the raw event log for a given spec, filters
-//! down to `DomainEvent::Methodology { event }`, and folds the inner
-//! stream via the pure domain-level projection functions.
+//! Query paths are index-backed where possible:
+//! - `event_type = methodology` always
+//! - `entity_kind` for kind-scoped projections
+//! - `entity_ref` for per-entity folds
+//!
+//! Then each function folds the resulting stream via pure domain-level
+//! projection helpers.
 
 use tanren_domain::events::DomainEvent;
 use tanren_domain::methodology::events::{
@@ -12,10 +16,12 @@ use tanren_domain::methodology::finding::Finding;
 use tanren_domain::methodology::rubric::RubricScore;
 use tanren_domain::methodology::signpost::Signpost;
 use tanren_domain::methodology::task::{RequiredGuard, Task, TaskStatus};
-use tanren_domain::{SpecId, TaskId};
+use tanren_domain::{EntityKind, EntityRef, SpecId, TaskId};
 
 use crate::event_store::EventStore;
 use crate::params::EventFilter;
+
+const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
 
 /// Typed error from methodology projection queries.
 #[derive(Debug, thiserror::Error)]
@@ -28,34 +34,114 @@ pub enum MethodologyEventFetchError {
 }
 
 /// Fetch every methodology event correlated to `spec_id` (in timestamp
-/// order). The store itself doesn't index by spec id — methodology
-/// events route under `Task`/`Finding`/`Signpost`/`Issue`/`Spec`
-/// entity refs — so this function queries all methodology events and
-/// filters in memory by `MethodologyEvent::spec_id()`.
-///
-/// `limit` caps the returned slice. Pass a large value (e.g.
-/// `100_000u64`) to request "all".
+/// order). Because events route under per-entity roots, this is the
+/// broadest read path and may still scan more than kind-scoped helpers;
+/// callers should prefer `*_for_kind` / `*_for_entity` when possible.
 ///
 /// # Errors
 /// Returns [`MethodologyEventFetchError::Store`] on query failure.
 pub async fn load_methodology_events<S: EventStore>(
     store: &S,
     spec_id: SpecId,
-    limit: u64,
+    page_size: u64,
 ) -> Result<Vec<MethodologyEvent>, MethodologyEventFetchError> {
-    let filter = EventFilter {
-        event_type: Some("methodology".into()),
-        limit,
-        ..EventFilter::new()
-    };
-    let page = store.query_events(&filter).await?;
-    let mut out: Vec<MethodologyEvent> = Vec::with_capacity(page.events.len());
-    for env in page.events {
-        if let DomainEvent::Methodology { event } = env.payload {
-            if event.spec_id() == Some(spec_id) {
+    load_methodology_events_filtered(store, spec_id, page_size, None, None).await
+}
+
+/// Fetch methodology events correlated to `spec_id`, restricted to
+/// one entity kind.
+///
+/// This keeps hot projections (tasks/findings/signposts/rubric)
+/// on index-backed query paths instead of scanning all methodology
+/// rows regardless of entity kind.
+///
+/// # Errors
+/// Returns [`MethodologyEventFetchError::Store`] on query failure.
+pub async fn load_methodology_events_for_kind<S: EventStore>(
+    store: &S,
+    spec_id: SpecId,
+    page_size: u64,
+    entity_kind: EntityKind,
+) -> Result<Vec<MethodologyEvent>, MethodologyEventFetchError> {
+    load_methodology_events_filtered(store, spec_id, page_size, Some(entity_kind), None).await
+}
+
+/// Fetch methodology events for one concrete entity root.
+///
+/// # Errors
+/// Returns [`MethodologyEventFetchError::Store`] on query failure.
+pub async fn load_methodology_events_for_entity<S: EventStore>(
+    store: &S,
+    entity_ref: EntityRef,
+    expected_spec_id: Option<SpecId>,
+    page_size: u64,
+) -> Result<Vec<MethodologyEvent>, MethodologyEventFetchError> {
+    let mut out = load_methodology_events_for_entity_unscoped(store, entity_ref, page_size).await?;
+    if let Some(spec_id) = expected_spec_id {
+        out.retain(|e| e.spec_id() == Some(spec_id));
+    }
+    Ok(out)
+}
+
+async fn load_methodology_events_for_entity_unscoped<S: EventStore>(
+    store: &S,
+    entity_ref: EntityRef,
+    page_size: u64,
+) -> Result<Vec<MethodologyEvent>, MethodologyEventFetchError> {
+    let mut cursor = None;
+    let mut out: Vec<MethodologyEvent> = Vec::new();
+    loop {
+        let filter = EventFilter {
+            entity_ref: Some(entity_ref),
+            event_type: Some("methodology".into()),
+            limit: page_size.max(1),
+            cursor,
+            ..EventFilter::new()
+        };
+        let page = store.query_events(&filter).await?;
+        for env in page.events {
+            if let DomainEvent::Methodology { event } = env.payload {
                 out.push(event);
             }
         }
+        if !page.has_more {
+            break;
+        }
+        cursor = page.next_cursor;
+    }
+    Ok(out)
+}
+
+async fn load_methodology_events_filtered<S: EventStore>(
+    store: &S,
+    spec_id: SpecId,
+    page_size: u64,
+    entity_kind: Option<EntityKind>,
+    entity_ref: Option<EntityRef>,
+) -> Result<Vec<MethodologyEvent>, MethodologyEventFetchError> {
+    let mut cursor = None;
+    let mut out: Vec<MethodologyEvent> = Vec::new();
+    loop {
+        let filter = EventFilter {
+            entity_ref,
+            entity_kind,
+            event_type: Some("methodology".into()),
+            limit: page_size.max(1),
+            cursor,
+            ..EventFilter::new()
+        };
+        let page = store.query_events(&filter).await?;
+        for env in page.events {
+            if let DomainEvent::Methodology { event } = env.payload
+                && event.spec_id() == Some(spec_id)
+            {
+                out.push(event);
+            }
+        }
+        if !page.has_more {
+            break;
+        }
+        cursor = page.next_cursor;
     }
     Ok(out)
 }
@@ -74,7 +160,9 @@ pub async fn tasks_for_spec<S: EventStore>(
     spec_id: SpecId,
     required_guards: &[RequiredGuard],
 ) -> Result<Vec<Task>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
+    let events =
+        load_methodology_events_for_kind(store, spec_id, METHODOLOGY_PAGE_SIZE, EntityKind::Task)
+            .await?;
     Ok(fold_tasks(&events, required_guards))
 }
 
@@ -120,7 +208,13 @@ pub async fn findings_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<Finding>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
+    let events = load_methodology_events_for_kind(
+        store,
+        spec_id,
+        METHODOLOGY_PAGE_SIZE,
+        EntityKind::Finding,
+    )
+    .await?;
     let mut out = Vec::new();
     for ev in events {
         match ev {
@@ -156,7 +250,13 @@ pub async fn adherence_findings_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<Finding>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
+    let events = load_methodology_events_for_kind(
+        store,
+        spec_id,
+        METHODOLOGY_PAGE_SIZE,
+        EntityKind::Finding,
+    )
+    .await?;
     let mut out = Vec::new();
     for ev in events {
         if let MethodologyEvent::AdherenceFindingAdded(e) = ev {
@@ -177,7 +277,13 @@ pub async fn signposts_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<Signpost>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
+    let events = load_methodology_events_for_kind(
+        store,
+        spec_id,
+        METHODOLOGY_PAGE_SIZE,
+        EntityKind::Signpost,
+    )
+    .await?;
     let mut seed: std::collections::HashMap<tanren_domain::SignpostId, Signpost> =
         std::collections::HashMap::new();
     for ev in events {
@@ -214,7 +320,9 @@ pub async fn rubric_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<RubricScore>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
+    let events =
+        load_methodology_events_for_kind(store, spec_id, METHODOLOGY_PAGE_SIZE, EntityKind::Spec)
+            .await?;
     let mut latest: std::collections::HashMap<
         (
             tanren_domain::methodology::pillar::PillarScope,

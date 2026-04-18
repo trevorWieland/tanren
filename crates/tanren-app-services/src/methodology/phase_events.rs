@@ -164,7 +164,10 @@ const fn tool_name(event: &MethodologyEvent) -> &'static str {
         MethodologyEvent::TaskCreated(_) => "create_task",
         MethodologyEvent::TaskStarted(_) => "start_task",
         MethodologyEvent::TaskImplemented(_) => "complete_task",
-        MethodologyEvent::TaskGuardSatisfied(_) => "<guard-phase>",
+        MethodologyEvent::TaskGateChecked(_)
+        | MethodologyEvent::TaskAudited(_)
+        | MethodologyEvent::TaskAdherent(_)
+        | MethodologyEvent::TaskXChecked(_) => "<guard-phase>",
         MethodologyEvent::TaskCompleted(_) => "<orchestrator>",
         MethodologyEvent::TaskAbandoned(_) => "abandon_task",
         MethodologyEvent::TaskRevised(_) => "revise_task",

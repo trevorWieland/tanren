@@ -121,6 +121,7 @@ types are canonical syntax.
 | `create_task(title, description, parent_task_id?, depends_on?, origin, acceptance_criteria[])` → `TaskId` | `task.create` | Materialize a pending task. |
 | `start_task(task_id)` | `task.start` | `Pending → InProgress`. Usually called implicitly at session start for do-task. |
 | `complete_task(task_id, evidence_refs)` | `task.complete` | `InProgress → Implemented`. |
+| `mark_task_guard_satisfied(task_id, guard, idempotency_key?)` | `task.complete` | Records one guard pass (`gate_checked`, `audited`, `adherent`, or extra guard) and emits `TaskCompleted` when required guards converge. |
 | `revise_task(task_id, revised_description, revised_acceptance, reason)` | `task.revise` | Mutate non-terminal task scope; emits `TaskRevised`. |
 | `abandon_task(task_id, reason, replacements[])` | `task.abandon` | Branch to `Abandoned` with replacement linkage. |
 | `list_tasks(filter?)` → `[Task]` | `task.read` | Query current spec's tasks. |

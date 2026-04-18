@@ -14,6 +14,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use std::{collections::BTreeSet, path::PathBuf};
 
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -103,6 +104,36 @@ fn kill(mut child: std::process::Child) {
 
 fn db_url(dir: &TempDir) -> String {
     format!("sqlite:{}/mcp.db?mode=rwc", dir.path().display())
+}
+
+fn documented_tool_names() -> BTreeSet<String> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let doc = manifest_dir.join("../../docs/architecture/agent-tool-surface.md");
+    let text = std::fs::read_to_string(&doc).expect("read agent-tool-surface.md");
+    let mut out = BTreeSet::new();
+    for line in text.lines() {
+        if !line.starts_with('|') || !line.contains('`') {
+            continue;
+        }
+        let mut cursor = 0usize;
+        while let Some(start_rel) = line[cursor..].find('`') {
+            let start = cursor + start_rel + 1;
+            let Some(end_rel) = line[start..].find('`') else {
+                break;
+            };
+            let end = start + end_rel;
+            let token = &line[start..end];
+            if let Some((name, _)) = token.split_once('(')
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+            {
+                out.insert(name.to_owned());
+            }
+            cursor = end + 1;
+        }
+    }
+    out
 }
 
 #[test]
@@ -317,4 +348,34 @@ fn unknown_tool_returns_typed_not_found() {
     let body: Value = serde_json::from_str(text).expect("typed ToolError body");
     assert_eq!(body["kind"].as_str(), Some("not_found"));
     assert_eq!(body["resource"].as_str(), Some("tool"));
+}
+
+#[test]
+fn catalog_and_agent_tool_surface_doc_stay_in_parity() {
+    let scope_dir = tempfile::tempdir().expect("tempdir");
+    let url = db_url(&scope_dir);
+    let (_d, mut child) = spawn_mcp(&url, "task.read");
+
+    let mut frames = init_frames();
+    frames.push(json!({ "jsonrpc":"2.0", "id":2, "method":"tools/list" }));
+    let stdout = child.stdout.take().expect("stdout");
+    let mut reader = BufReader::new(stdout);
+    send_all(&mut child, &frames);
+    let responses = read_responses(&mut reader, 2);
+    kill(child);
+
+    let list = responses
+        .iter()
+        .find(|r| r["id"] == json!(2))
+        .expect("tools/list response");
+    let tools = list["result"]["tools"].as_array().expect("tools array");
+    let runtime: BTreeSet<String> = tools
+        .iter()
+        .filter_map(|t| t["name"].as_str().map(str::to_owned))
+        .collect();
+    let documented = documented_tool_names();
+    assert_eq!(
+        runtime, documented,
+        "runtime catalog and docs/architecture/agent-tool-surface.md must match"
+    );
 }

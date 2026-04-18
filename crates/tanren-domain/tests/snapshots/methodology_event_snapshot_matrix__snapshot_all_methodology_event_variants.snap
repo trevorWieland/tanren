@@ -1,0 +1,294 @@
+---
+source: crates/tanren-domain/tests/methodology_event_snapshot_matrix.rs
+assertion_line: 363
+expression: json
+---
+[
+  {
+    "event_type": "spec_defined",
+    "spec": {
+      "id": "00000000-0000-0000-0000-0000000000a1",
+      "title": "spec",
+      "non_negotiables": [
+        "non-negotiable"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "spec-ac",
+          "description": "desc",
+          "measurable": "measurable"
+        }
+      ],
+      "demo_environment": {},
+      "dependencies": {},
+      "base_branch": "main",
+      "created_at": "2026-02-03T04:05:06Z"
+    }
+  },
+  {
+    "event_type": "task_created",
+    "task": {
+      "id": "00000000-0000-0000-0000-0000000000b2",
+      "spec_id": "00000000-0000-0000-0000-0000000000a1",
+      "title": "task",
+      "description": "desc",
+      "acceptance_criteria": [
+        {
+          "id": "ac-1",
+          "description": "criterion",
+          "measurable": "measurable"
+        }
+      ],
+      "origin": {
+        "kind": "user"
+      },
+      "status": {
+        "state": "pending"
+      },
+      "parent_task_id": null,
+      "created_at": "2026-02-03T04:05:06Z",
+      "updated_at": "2026-02-03T04:05:06Z"
+    },
+    "origin": {
+      "kind": "user"
+    },
+    "idempotency_key": "k-task-created"
+  },
+  {
+    "event_type": "task_started",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1"
+  },
+  {
+    "event_type": "task_implemented",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "evidence_refs": [
+      "evidence://one"
+    ]
+  },
+  {
+    "event_type": "task_gate_checked",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "idempotency_key": "k-gate"
+  },
+  {
+    "event_type": "task_audited",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "idempotency_key": "k-audit"
+  },
+  {
+    "event_type": "task_adherent",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "idempotency_key": "k-adhere"
+  },
+  {
+    "event_type": "task_x_checked",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "guard_name": "x_guard",
+    "idempotency_key": "k-x"
+  },
+  {
+    "event_type": "task_completed",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1"
+  },
+  {
+    "event_type": "task_abandoned",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "reason": "abandoned"
+  },
+  {
+    "event_type": "task_revised",
+    "task_id": "00000000-0000-0000-0000-0000000000b2",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "revised_description": "new-desc",
+    "revised_acceptance": [],
+    "reason": "because"
+  },
+  {
+    "event_type": "finding_added",
+    "finding": {
+      "id": "00000000-0000-0000-0000-0000000000c3",
+      "spec_id": "00000000-0000-0000-0000-0000000000a1",
+      "severity": "fix_now",
+      "title": "finding",
+      "description": "desc",
+      "affected_files": [
+        "src/lib.rs"
+      ],
+      "line_numbers": [
+        12,
+        13
+      ],
+      "source": {
+        "kind": "audit",
+        "phase": "audit-task",
+        "pillar": "security"
+      },
+      "attached_task": "00000000-0000-0000-0000-0000000000b2",
+      "created_at": "2026-02-03T04:05:06Z"
+    },
+    "idempotency_key": "k-finding"
+  },
+  {
+    "event_type": "adherence_finding_added",
+    "finding": {
+      "id": "00000000-0000-0000-0000-0000000000c3",
+      "spec_id": "00000000-0000-0000-0000-0000000000a1",
+      "severity": "fix_now",
+      "title": "finding",
+      "description": "desc",
+      "affected_files": [
+        "src/lib.rs"
+      ],
+      "line_numbers": [
+        12,
+        13
+      ],
+      "source": {
+        "kind": "adherence",
+        "standard": {
+          "name": "std",
+          "category": "cat"
+        }
+      },
+      "attached_task": "00000000-0000-0000-0000-0000000000b2",
+      "created_at": "2026-02-03T04:05:06Z"
+    },
+    "standard": {
+      "name": "std",
+      "category": "cat"
+    },
+    "idempotency_key": "k-adhere-finding"
+  },
+  {
+    "event_type": "rubric_score_recorded",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "scope": "task",
+    "scope_target_id": "00000000-0000-0000-0000-0000000000b2",
+    "score": {
+      "pillar": "security",
+      "score": 6,
+      "target": 10,
+      "passing": 7,
+      "rationale": "rationale",
+      "supporting_finding_ids": [
+        "00000000-0000-0000-0000-0000000000c3"
+      ]
+    }
+  },
+  {
+    "event_type": "non_negotiable_compliance_recorded",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "scope": "spec",
+    "compliance": {
+      "name": "must-pass",
+      "status": "pass",
+      "rationale": "ok"
+    }
+  },
+  {
+    "event_type": "signpost_added",
+    "signpost": {
+      "id": "00000000-0000-0000-0000-0000000000d4",
+      "spec_id": "00000000-0000-0000-0000-0000000000a1",
+      "task_id": "00000000-0000-0000-0000-0000000000b2",
+      "status": "unresolved",
+      "problem": "problem",
+      "evidence": "evidence",
+      "tried": [
+        "attempt-1"
+      ],
+      "solution": null,
+      "resolution": null,
+      "files_affected": [
+        "src/lib.rs"
+      ],
+      "created_at": "2026-02-03T04:05:06Z",
+      "updated_at": "2026-02-03T04:05:06Z"
+    }
+  },
+  {
+    "event_type": "signpost_status_updated",
+    "signpost_id": "00000000-0000-0000-0000-0000000000d4",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "status": "resolved",
+    "resolution": "resolved"
+  },
+  {
+    "event_type": "issue_created",
+    "issue": {
+      "id": "00000000-0000-0000-0000-0000000000e5",
+      "origin_spec_id": "00000000-0000-0000-0000-0000000000a1",
+      "title": "issue",
+      "description": "desc",
+      "suggested_spec_scope": "scope",
+      "priority": "high",
+      "reference": {
+        "provider": "github",
+        "number": 42,
+        "url": "urn:tanren:issue:test"
+      },
+      "created_at": "2026-02-03T04:05:06Z"
+    },
+    "idempotency_key": "k-issue"
+  },
+  {
+    "event_type": "phase_outcome_reported",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "phase": "audit-task",
+    "agent_session_id": "session-1",
+    "outcome": {
+      "outcome": "complete",
+      "summary": "done",
+      "next_action_hint": "next"
+    }
+  },
+  {
+    "event_type": "reply_directive_recorded",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "phase": "handle-feedback",
+    "thread_ref": "thread-1",
+    "disposition": "ack",
+    "body": "thanks"
+  },
+  {
+    "event_type": "spec_frontmatter_updated",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "patch": {
+      "kind": "set_title",
+      "title": "new title"
+    }
+  },
+  {
+    "event_type": "demo_frontmatter_updated",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "patch": {
+      "kind": "append_result",
+      "step_id": "step-1",
+      "status": "pass",
+      "observed": "observed"
+    }
+  },
+  {
+    "event_type": "unauthorized_artifact_edit",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "phase": "do-task",
+    "file": "plan.md",
+    "diff_preview": "line 1",
+    "agent_session_id": "session-1"
+  },
+  {
+    "event_type": "evidence_schema_error",
+    "spec_id": "00000000-0000-0000-0000-0000000000a1",
+    "phase": "audit-task",
+    "file": "audit.md",
+    "error": "schema mismatch"
+  }
+]

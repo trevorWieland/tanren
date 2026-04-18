@@ -48,7 +48,7 @@ use clap::{Args, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 use tanren_app_services::methodology::{
     CapabilityScope, MethodologyError, MethodologyService, ToolCapability, ToolError,
-    default_scope_for_phase, parse_scope_env,
+    default_scope_for_phase, enter_mutation_session, finalize_mutation_session, parse_scope_env,
 };
 
 /// Top-level arguments shared by every methodology subcommand.
@@ -306,7 +306,23 @@ pub(crate) async fn dispatch(
 ) -> u8 {
     let scope = resolve_scope(&global.phase);
     let phase = global.phase.clone();
-    match command {
+    let mut session = None;
+    if is_mutation_command(&command)
+        && let Some(spec_folder) = global.spec_folder.as_deref()
+    {
+        match enter_mutation_session(spec_folder) {
+            Ok(guard) => {
+                session = Some((
+                    spec_folder.to_path_buf(),
+                    global.agent_session_id.clone(),
+                    guard,
+                ));
+            }
+            Err(err) => return emit_result::<serde_json::Value>(Err(err)),
+        }
+    }
+
+    let mut code = match command {
         MethodologyCommand::Task(c) => task::run(service, &scope, &phase, c).await,
         MethodologyCommand::Finding(c) => finding::run(service, &scope, &phase, c).await,
         MethodologyCommand::Rubric(c) => rubric::run(service, &scope, &phase, c).await,
@@ -319,7 +335,24 @@ pub(crate) async fn dispatch(
         MethodologyCommand::Adherence(c) => adherence::run(service, &scope, &phase, c).await,
         MethodologyCommand::IngestPhaseEvents(a) => ingest::run(service, a).await,
         MethodologyCommand::Replay(a) => replay::run(service, a).await,
+    };
+
+    if let Some((spec_folder, agent_session_id, guard)) = session
+        && let Err(err) =
+            finalize_mutation_session(service, &phase, &spec_folder, &agent_session_id, guard).await
+        && code == 0
+    {
+        code = emit_result::<serde_json::Value>(Err(err));
     }
+    code
+}
+
+fn is_mutation_command(command: &MethodologyCommand) -> bool {
+    !matches!(
+        command,
+        MethodologyCommand::Standard(standard::StandardCommand::List(_))
+            | MethodologyCommand::Task(task::TaskCommand::List(_))
+    )
 }
 
 #[cfg(test)]

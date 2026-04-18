@@ -15,10 +15,11 @@ use tanren_domain::methodology::events::{
     MethodologyEvent, NonNegotiableComplianceRecorded, PhaseOutcomeReported,
     ReplyDirectiveRecorded, RubricScoreRecorded, SignpostAdded, SignpostStatusUpdated, TaskRevised,
 };
-use tanren_domain::methodology::finding::FindingSeverity;
+use tanren_domain::methodology::finding::{Finding, FindingSeverity, FindingSource};
+use tanren_domain::methodology::pillar::PillarScope;
 use tanren_domain::methodology::rubric::{NonNegotiableCompliance, RubricScore};
 use tanren_domain::methodology::signpost::Signpost;
-use tanren_domain::{NonEmptyString, SignpostId};
+use tanren_domain::{NonEmptyString, SignpostId, TaskId};
 
 use tanren_contract::methodology::{
     AddSignpostParams, AddSignpostResponse, EscalateToBlockerParams, ListTasksParams,
@@ -103,39 +104,40 @@ impl MethodologyService {
         enforce(scope, ToolCapability::RubricRecord, phase)?;
         let rationale =
             super::errors::require_non_empty("/rationale", &params.rationale, Some(2000))?;
+        let task_scope_target = validate_rubric_scope(&params)?;
         let pillar_tag = params.pillar.as_str().to_owned();
         let score_value = params.score.get();
         let record = RubricScore::try_new(
-            params.pillar,
+            params.pillar.clone(),
             params.score,
             params.target,
             params.passing,
             rationale,
-            params.supporting_finding_ids,
+            params.supporting_finding_ids.clone(),
         )
         .map_err(|e| MethodologyError::RubricInvariantViolated {
             pillar: pillar_tag,
             score: score_value,
             reason: e.to_string(),
         })?;
-        if record.score < record.passing {
-            let referenced = self
-                .load_findings(&record.supporting_finding_ids, params.spec_id)
-                .await?;
-            let has_fix_now = referenced
+        let referenced = self
+            .load_findings(&record.supporting_finding_ids, params.spec_id)
+            .await?;
+        validate_supporting_findings(&params, &record, &referenced, task_scope_target)?;
+        if record.score < record.passing
+            && !referenced
                 .iter()
-                .any(|f| matches!(f.severity, FindingSeverity::FixNow));
-            if !has_fix_now {
-                return Err(MethodologyError::RubricInvariantViolated {
-                    pillar: record.pillar.as_str().to_owned(),
-                    score: record.score.get(),
-                    reason: format!(
-                        "score {} < passing {} requires at least one `fix_now` supporting finding",
-                        record.score.get(),
-                        record.passing.get()
-                    ),
-                });
-            }
+                .any(|f| matches!(f.severity, FindingSeverity::FixNow))
+        {
+            return Err(MethodologyError::RubricInvariantViolated {
+                pillar: record.pillar.as_str().to_owned(),
+                score: record.score.get(),
+                reason: format!(
+                    "score {} < passing {} requires at least one `fix_now` supporting finding",
+                    record.score.get(),
+                    record.passing.get()
+                ),
+            });
         }
         self.emit_event(
             phase,
@@ -373,4 +375,114 @@ impl MethodologyService {
         )
         .await
     }
+}
+
+fn validate_rubric_scope(params: &RecordRubricScoreParams) -> MethodologyResult<Option<TaskId>> {
+    match params.scope {
+        PillarScope::Spec => {
+            if params.scope_target_id.is_some() {
+                return Err(MethodologyError::FieldValidation {
+                    field_path: "/scope_target_id".into(),
+                    expected: "absent for spec-scoped rubric scores".into(),
+                    actual: format!("{:?}", params.scope_target_id),
+                    remediation: "omit scope_target_id when scope=spec".into(),
+                });
+            }
+            Ok(None)
+        }
+        PillarScope::Task => {
+            let Some(raw) = params.scope_target_id.as_deref() else {
+                return Err(MethodologyError::FieldValidation {
+                    field_path: "/scope_target_id".into(),
+                    expected: "task id string when scope=task".into(),
+                    actual: "null".into(),
+                    remediation: "set scope_target_id to the task id this rubric score evaluates"
+                        .into(),
+                });
+            };
+            let uuid =
+                uuid::Uuid::parse_str(raw).map_err(|e| MethodologyError::FieldValidation {
+                    field_path: "/scope_target_id".into(),
+                    expected: "UUID task id".into(),
+                    actual: raw.to_owned(),
+                    remediation: e.to_string(),
+                })?;
+            Ok(Some(TaskId::from_uuid(uuid)))
+        }
+    }
+}
+
+fn validate_supporting_findings(
+    params: &RecordRubricScoreParams,
+    record: &RubricScore,
+    findings: &[Finding],
+    task_scope_target: Option<TaskId>,
+) -> MethodologyResult<()> {
+    for (idx, finding) in findings.iter().enumerate() {
+        let source_pillar = match &finding.source {
+            FindingSource::Audit {
+                pillar: Some(pillar),
+                ..
+            } => pillar.as_str(),
+            FindingSource::Audit { pillar: None, .. } => {
+                return Err(MethodologyError::FieldValidation {
+                    field_path: format!("/supporting_finding_ids/{idx}"),
+                    expected: "audit finding with matching pillar".into(),
+                    actual: format!("finding {} has no pillar", finding.id),
+                    remediation:
+                        "record the finding with source.audit.pillar matching the rubric pillar"
+                            .into(),
+                });
+            }
+            _ => {
+                return Err(MethodologyError::FieldValidation {
+                    field_path: format!("/supporting_finding_ids/{idx}"),
+                    expected: "audit-sourced finding".into(),
+                    actual: format!("finding {} source is not audit", finding.id),
+                    remediation:
+                        "support rubric scores with audit findings linked to the same pillar".into(),
+                });
+            }
+        };
+        if source_pillar != record.pillar.as_str() {
+            return Err(MethodologyError::FieldValidation {
+                field_path: format!("/supporting_finding_ids/{idx}"),
+                expected: format!("pillar `{}`", record.pillar.as_str()),
+                actual: source_pillar.to_owned(),
+                remediation:
+                    "link only findings whose source.audit.pillar matches the scored pillar".into(),
+            });
+        }
+        if !matches!(
+            finding.severity,
+            FindingSeverity::FixNow | FindingSeverity::Defer
+        ) {
+            return Err(MethodologyError::FieldValidation {
+                field_path: format!("/supporting_finding_ids/{idx}"),
+                expected: "severity fix_now or defer".into(),
+                actual: finding.severity.to_string(),
+                remediation: "use supporting findings with actionable severities (fix_now/defer)"
+                    .into(),
+            });
+        }
+        if let Some(task_id) = task_scope_target
+            && finding.attached_task != Some(task_id)
+        {
+            return Err(MethodologyError::FieldValidation {
+                field_path: format!("/supporting_finding_ids/{idx}"),
+                expected: format!("finding attached_task={task_id}"),
+                actual: format!("{:?}", finding.attached_task),
+                remediation:
+                    "for task-scoped scores, support with findings attached to the same task".into(),
+            });
+        }
+    }
+    if params.scope == PillarScope::Task && record.score < record.target && findings.is_empty() {
+        return Err(MethodologyError::RubricInvariantViolated {
+            pillar: record.pillar.as_str().to_owned(),
+            score: record.score.get(),
+            reason: "task-scoped score below target requires supporting findings".into(),
+        });
+    }
+    Ok(())
 }

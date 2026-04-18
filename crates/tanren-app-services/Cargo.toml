@@ -78,6 +78,7 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 async-trait.workspace = true
+tempfile = "3"
 # Generates ephemeral Ed25519 keypairs for the actor-token verifier
 # tests. Keeps test private-key material out of source control.
 ed25519-dalek = { workspace = true }

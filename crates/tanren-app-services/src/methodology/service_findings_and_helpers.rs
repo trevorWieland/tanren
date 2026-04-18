@@ -1,10 +1,11 @@
 use chrono::Utc;
 use tanren_domain::SpecId;
+use tanren_domain::entity::EntityRef;
 use tanren_domain::events::DomainEvent;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{FindingAdded, MethodologyEvent};
 use tanren_domain::methodology::finding::Finding;
-use tanren_domain::{FindingId, TaskId};
+use tanren_domain::{EntityKind, FindingId, TaskId};
 use tanren_store::{EventFilter, EventStore};
 
 use tanren_contract::methodology::{AddFindingParams, AddFindingResponse, SchemaVersion};
@@ -12,6 +13,8 @@ use tanren_contract::methodology::{AddFindingParams, AddFindingResponse, SchemaV
 use super::MethodologyService;
 use super::capabilities::enforce;
 use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
+
+const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
 
 impl MethodologyService {
     // -- §3.2 Findings --------------------------------------------------------
@@ -83,34 +86,37 @@ impl MethodologyService {
 
     // -- Shared helpers -------------------------------------------------------
 
-    /// Resolve a task id to its spec id by scanning the event log for
-    /// the corresponding `TaskCreated` event.
-    ///
-    /// O(events) per call. Acceptable at Lane 0.5 scale (spec event
-    /// counts in the hundreds to low thousands); Phase 1+ may add a
-    /// projection table indexed by task id if profiling warrants.
+    /// Resolve a task id to its spec id by querying task-root events.
     pub(crate) async fn resolve_spec_for_task(&self, task_id: TaskId) -> MethodologyResult<SpecId> {
         if let Ok(cache) = self.task_spec_cache.lock()
             && let Some(spec_id) = cache.get(&task_id)
         {
             return Ok(*spec_id);
         }
-        let filter = EventFilter {
-            event_type: Some("methodology".into()),
-            limit: 100_000u64,
-            ..EventFilter::default()
-        };
-        let page = EventStore::query_events(self.store(), &filter).await?;
-        for env in page.events {
-            if let DomainEvent::Methodology { event } = env.payload
-                && let MethodologyEvent::TaskCreated(e) = &event
-                && e.task.id == task_id
-            {
-                if let Ok(mut cache) = self.task_spec_cache.lock() {
-                    cache.insert(task_id, e.task.spec_id);
+        let mut cursor = None;
+        loop {
+            let filter = EventFilter {
+                entity_ref: Some(EntityRef::Task(task_id)),
+                event_type: Some("methodology".into()),
+                limit: METHODOLOGY_PAGE_SIZE,
+                cursor,
+                ..EventFilter::default()
+            };
+            let page = EventStore::query_events(self.store(), &filter).await?;
+            for env in page.events {
+                if let DomainEvent::Methodology { event } = env.payload
+                    && let MethodologyEvent::TaskCreated(e) = &event
+                {
+                    if let Ok(mut cache) = self.task_spec_cache.lock() {
+                        cache.insert(task_id, e.task.spec_id);
+                    }
+                    return Ok(e.task.spec_id);
                 }
-                return Ok(e.task.spec_id);
             }
+            if !page.has_more {
+                break;
+            }
+            cursor = page.next_cursor;
         }
         Err(MethodologyError::NotFound {
             resource: "task".into(),
@@ -123,10 +129,11 @@ impl MethodologyService {
         spec_id: SpecId,
         idempotency_key: &str,
     ) -> MethodologyResult<Option<tanren_domain::methodology::task::Task>> {
-        let events = tanren_store::methodology::projections::load_methodology_events(
+        let events = tanren_store::methodology::projections::load_methodology_events_for_kind(
             self.store(),
             spec_id,
-            100_000u64,
+            METHODOLOGY_PAGE_SIZE,
+            EntityKind::Task,
         )
         .await?;
         for event in events {
@@ -144,10 +151,11 @@ impl MethodologyService {
         spec_id: SpecId,
         idempotency_key: &str,
     ) -> MethodologyResult<Option<Finding>> {
-        let events = tanren_store::methodology::projections::load_methodology_events(
+        let events = tanren_store::methodology::projections::load_methodology_events_for_kind(
             self.store(),
             spec_id,
-            100_000u64,
+            METHODOLOGY_PAGE_SIZE,
+            EntityKind::Finding,
         )
         .await?;
         for event in events {

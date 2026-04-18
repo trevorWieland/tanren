@@ -33,7 +33,10 @@ pub enum MethodologyEvent {
     TaskCreated(TaskCreated),
     TaskStarted(TaskStarted),
     TaskImplemented(TaskImplemented),
-    TaskGuardSatisfied(TaskGuardSatisfied),
+    TaskGateChecked(TaskGateChecked),
+    TaskAudited(TaskAudited),
+    TaskAdherent(TaskAdherent),
+    TaskXChecked(TaskXChecked),
     TaskCompleted(TaskCompleted),
     TaskAbandoned(TaskAbandoned),
     TaskRevised(TaskRevised),
@@ -61,7 +64,10 @@ impl MethodologyEvent {
             Self::TaskCreated(e) => EntityRef::Task(e.task.id),
             Self::TaskStarted(e) => EntityRef::Task(e.task_id),
             Self::TaskImplemented(e) => EntityRef::Task(e.task_id),
-            Self::TaskGuardSatisfied(e) => EntityRef::Task(e.task_id),
+            Self::TaskGateChecked(e) => EntityRef::Task(e.task_id),
+            Self::TaskAudited(e) => EntityRef::Task(e.task_id),
+            Self::TaskAdherent(e) => EntityRef::Task(e.task_id),
+            Self::TaskXChecked(e) => EntityRef::Task(e.task_id),
             Self::TaskCompleted(e) => EntityRef::Task(e.task_id),
             Self::TaskAbandoned(e) => EntityRef::Task(e.task_id),
             Self::TaskRevised(e) => EntityRef::Task(e.task_id),
@@ -90,10 +96,13 @@ impl MethodologyEvent {
             Self::TaskCreated(e) => Some(e.task.spec_id),
             Self::TaskStarted(e) => Some(e.spec_id),
             Self::TaskImplemented(e) => Some(e.spec_id),
+            Self::TaskGateChecked(e) => Some(e.spec_id),
+            Self::TaskAudited(e) => Some(e.spec_id),
+            Self::TaskAdherent(e) => Some(e.spec_id),
+            Self::TaskXChecked(e) => Some(e.spec_id),
             Self::TaskCompleted(e) => Some(e.spec_id),
             Self::TaskAbandoned(e) => Some(e.spec_id),
             Self::TaskRevised(e) => Some(e.spec_id),
-            Self::TaskGuardSatisfied(e) => Some(e.spec_id),
             Self::FindingAdded(e) => Some(e.finding.spec_id),
             Self::AdherenceFindingAdded(e) => Some(e.finding.spec_id),
             Self::RubricScoreRecorded(e) => Some(e.spec_id),
@@ -144,57 +153,41 @@ pub struct TaskImplemented {
     pub evidence_refs: Vec<String>,
 }
 
-/// A guard has been satisfied on an `Implemented` task. Multiple of
-/// these can arrive in any order and for any named guard; the projection
-/// folds them into [`TaskGuardFlags`].
-///
-/// # Canonical name mapping
-///
-/// Per `docs/architecture/orchestration-flow.md` §2.3, the canon
-/// refers to four named guard events: `TaskGateChecked`,
-/// `TaskAudited`, `TaskAdherent`, `TaskXChecked`. The implementation
-/// uses one polymorphic variant with a [`RequiredGuard`] discriminator:
-///
-/// | Canonical name   | Implementation shape                              |
-/// |------------------|---------------------------------------------------|
-/// | `TaskGateChecked`| `TaskGuardSatisfied { guard: GateChecked, .. }`   |
-/// | `TaskAudited`    | `TaskGuardSatisfied { guard: Audited, .. }`       |
-/// | `TaskAdherent`   | `TaskGuardSatisfied { guard: Adherent, .. }`      |
-/// | `TaskXChecked`   | `TaskGuardSatisfied { guard: Extra(name), .. }`   |
-///
-/// The mapping is enforced by the `canonical_guard_name` test in this
-/// module. Transport tracing SHOULD surface the canonical name by
-/// calling [`TaskGuardSatisfied::canonical_event_name`] so operators
-/// see `TaskGateChecked` etc. in logs even though one envelope shape is
-/// stored on disk.
+/// `Implemented` task has passed the task-gate check.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TaskGuardSatisfied {
+pub struct TaskGateChecked {
     pub task_id: TaskId,
     pub spec_id: SpecId,
-    pub guard: RequiredGuard,
-    /// Content-addressed idempotency key derived from
-    /// `(tool_name, payload_canonical_json, task_id)`. Two calls with
-    /// the same key are safe to fold once; the store-level dedup table
-    /// (when present) rejects the duplicate at append time. `None` is
-    /// tolerated for events produced by the pre-idempotence era.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
 }
 
-impl TaskGuardSatisfied {
-    /// Return the canonical event name per
-    /// `docs/architecture/orchestration-flow.md` §2.3. Use this for
-    /// tracing/log lines where operators expect the canonical
-    /// taxonomy.
-    #[must_use]
-    pub fn canonical_event_name(&self) -> &'static str {
-        match self.guard {
-            RequiredGuard::GateChecked => "TaskGateChecked",
-            RequiredGuard::Audited => "TaskAudited",
-            RequiredGuard::Adherent => "TaskAdherent",
-            RequiredGuard::Extra(_) => "TaskXChecked",
-        }
-    }
+/// `Implemented` task has passed task-scoped audit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskAudited {
+    pub task_id: TaskId,
+    pub spec_id: SpecId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `Implemented` task has passed task-scoped adherence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskAdherent {
+    pub task_id: TaskId,
+    pub spec_id: SpecId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `Implemented` task has passed an extra, config-defined guard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskXChecked {
+    pub task_id: TaskId,
+    pub spec_id: SpecId,
+    pub guard_name: NonEmptyString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// `Implemented + {all required guards} → Complete`. Terminal.
@@ -329,7 +322,7 @@ pub struct EvidenceSchemaError {
 
 /// Fold a sequence of methodology events into the terminal status of one
 /// task. Pure function; deterministic under reordering of
-/// [`TaskGuardSatisfied`] events.
+/// guard-check events.
 ///
 /// `required` controls which guards must be satisfied for the task to
 /// converge to [`TaskStatus::Complete`] after `TaskCompleted` arrives.
@@ -368,8 +361,35 @@ where
                     });
                 }
             }
-            MethodologyEvent::TaskGuardSatisfied(e) if e.task_id == task_id => {
-                guards.set(&e.guard, true);
+            MethodologyEvent::TaskGateChecked(e) if e.task_id == task_id => {
+                guards.set(&RequiredGuard::GateChecked, true);
+                if matches!(status, Some(TaskStatus::Implemented { .. })) {
+                    status = Some(TaskStatus::Implemented {
+                        guards: guards.clone(),
+                    });
+                }
+            }
+            MethodologyEvent::TaskAudited(e) if e.task_id == task_id => {
+                guards.set(&RequiredGuard::Audited, true);
+                if matches!(status, Some(TaskStatus::Implemented { .. })) {
+                    status = Some(TaskStatus::Implemented {
+                        guards: guards.clone(),
+                    });
+                }
+            }
+            MethodologyEvent::TaskAdherent(e) if e.task_id == task_id => {
+                guards.set(&RequiredGuard::Adherent, true);
+                if matches!(status, Some(TaskStatus::Implemented { .. })) {
+                    status = Some(TaskStatus::Implemented {
+                        guards: guards.clone(),
+                    });
+                }
+            }
+            MethodologyEvent::TaskXChecked(e) if e.task_id == task_id => {
+                guards.set(
+                    &RequiredGuard::Extra(e.guard_name.as_str().to_owned()),
+                    true,
+                );
                 if matches!(status, Some(TaskStatus::Implemented { .. })) {
                     status = Some(TaskStatus::Implemented {
                         guards: guards.clone(),

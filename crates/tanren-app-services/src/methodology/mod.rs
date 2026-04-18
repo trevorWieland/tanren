@@ -21,6 +21,7 @@ pub mod enforcement;
 pub mod errors;
 pub mod formats;
 pub mod installer;
+pub mod mutation_pipeline;
 pub mod phase_events;
 pub mod renderer;
 pub mod service;
@@ -34,6 +35,7 @@ pub mod standards;
 pub use capabilities::{enforce, parse_scope_env};
 pub use enforcement::{EnforcementGuard, FileSnapshot, UnauthorizedEdit};
 pub use errors::{MethodologyError, MethodologyResult, ToolError};
+pub use mutation_pipeline::{enter_mutation_session, finalize_mutation_session};
 pub use phase_events::{
     PhaseEventLine, append_jsonl_line_atomic, line_for_envelope, project_phase_events, render_jsonl,
 };

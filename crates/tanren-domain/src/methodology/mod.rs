@@ -35,9 +35,9 @@ pub mod task;
 pub use events::{
     AdherenceFindingAdded, EvidenceSchemaError, FindingAdded, IssueCreated, MethodologyEvent,
     NonNegotiableComplianceRecorded, PhaseOutcomeReported, RubricScoreRecorded, SignpostAdded,
-    SignpostStatusUpdated, SpecDefined, TaskAbandoned, TaskCompleted, TaskCreated,
-    TaskGuardSatisfied, TaskImplemented, TaskRevised, TaskStarted, UnauthorizedArtifactEdit,
-    fold_task_status,
+    SignpostStatusUpdated, SpecDefined, TaskAbandoned, TaskAdherent, TaskAudited, TaskCompleted,
+    TaskCreated, TaskGateChecked, TaskImplemented, TaskRevised, TaskStarted, TaskXChecked,
+    UnauthorizedArtifactEdit, fold_task_status,
 };
 
 pub use capability::{CapabilityScope, ToolCapability, default_scope_for_phase};

@@ -26,7 +26,9 @@ use rmcp::service::{RequestContext, RoleServer, serve_server};
 use rmcp::transport::io::stdio;
 use serde_json::Value;
 
-use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
+use tanren_app_services::methodology::{
+    CapabilityScope, MethodologyService, enter_mutation_session, finalize_mutation_session,
+};
 
 use super::{catalog, dispatch};
 
@@ -93,8 +95,39 @@ impl ServerHandler for TanrenHandler {
             let args: Value = request
                 .arguments
                 .map_or(Value::Object(serde_json::Map::new()), Value::Object);
-            let outcome =
+            let mut session: Option<(
+                tanren_app_services::methodology::service::PhaseEventsRuntime,
+                Option<tanren_app_services::methodology::EnforcementGuard>,
+            )> = None;
+            if dispatch::is_mutation_tool(&request.name)
+                && let Some(runtime) = service.phase_events_runtime()
+            {
+                match enter_mutation_session(&runtime.spec_folder) {
+                    Ok(guard) => session = Some((runtime, guard)),
+                    Err(err) => {
+                        let mut result = CallToolResult::default();
+                        let outcome = dispatch::CallResult::Err((&err).into());
+                        result.content = vec![Content::text(outcome.to_json())];
+                        result.is_error = Some(true);
+                        return Ok(result);
+                    }
+                }
+            }
+            let mut outcome =
                 dispatch::dispatch(service.as_ref(), &scope, &phase, &request.name, args).await;
+            if let Some((runtime, guard)) = session
+                && let Err(err) = finalize_mutation_session(
+                    service.as_ref(),
+                    &phase,
+                    &runtime.spec_folder,
+                    &runtime.agent_session_id,
+                    guard,
+                )
+                .await
+                && !outcome.is_error()
+            {
+                outcome = dispatch::CallResult::Err((&err).into());
+            }
             let mut result = CallToolResult::default();
             result.content = vec![Content::text(outcome.to_json())];
             result.is_error = Some(outcome.is_error());

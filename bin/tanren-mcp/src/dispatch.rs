@@ -121,6 +121,12 @@ pub(crate) async fn dispatch(
     }
 }
 
+/// True when the tool mutates methodology state or evidence.
+#[must_use]
+pub(crate) fn is_mutation_tool(tool: &str) -> bool {
+    !matches!(tool, "list_tasks" | "list_relevant_standards")
+}
+
 /// Decode the raw JSON `args` into a concrete contract params type.
 /// On failure, emit a typed `ToolError::ValidationFailed` with the
 /// serde error's line/column in the field path so the client can

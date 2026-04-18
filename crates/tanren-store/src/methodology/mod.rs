@@ -1,15 +1,9 @@
-//! Methodology projections and replay — no new tables.
+//! Methodology projections and replay.
 //!
-//! Per Lane 0.5 decision §7, methodology projections are **in-memory
-//! folds** over the event log. Queries pull a bounded stream of
-//! `DomainEvent::Methodology { event }` rows and reconstruct the
-//! requested view by delegating to the pure fold functions in
-//! `tanren_domain::methodology`.
-//!
-//! Scale assumptions: O(events-per-spec) per query. Lane 0.5 specs
-//! have hundreds to low thousands of events. Phase 1+ may add `SeaORM`
-//! projection tables behind identical function signatures if profiling
-//! demands it.
+//! Projections are in-memory folds over the event log. Read paths use
+//! indexed event queries (`event_type`, `entity_kind`, and
+//! `entity_ref`) plus cursor pagination, then reconstruct typed views by
+//! delegating to the pure fold functions in `tanren_domain::methodology`.
 
 mod append;
 pub mod projections;

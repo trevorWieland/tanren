@@ -8,7 +8,7 @@ mod clap_error;
 mod commands;
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
@@ -144,41 +144,94 @@ impl From<anyhow::Error> for RunError {
     }
 }
 
-async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
+fn parse_cli() -> std::result::Result<Cli, RunError> {
+    match Cli::try_parse() {
+        Ok(cli) => Ok(cli),
         Err(err) => {
             if matches!(
                 err.kind(),
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) {
                 err.print().map_err(anyhow::Error::new)?;
-                return Ok(std::process::ExitCode::SUCCESS);
+                return Err(RunError::TypedExit(0));
             }
-            return Err(RunError::Other(anyhow::Error::new(clap_error_to_response(
+            Err(RunError::Other(anyhow::Error::new(clap_error_to_response(
                 &err,
-            ))));
+            ))))
         }
-    };
+    }
+}
 
-    match init_tracing_for_contract_io(&cli.log_level) {
-        Ok(()) | Err(ObservabilityError::AlreadyInitialized) => {}
-        Err(ObservabilityError::FilterParse(reason)) => {
-            return Err(RunError::Other(anyhow::Error::new(ErrorResponse::from(
-                ContractError::InvalidField {
-                    field: "log_level".to_owned(),
-                    reason,
-                },
-            ))));
-        }
+fn init_cli_tracing(log_level: &str) -> std::result::Result<(), RunError> {
+    match init_tracing_for_contract_io(log_level) {
+        Ok(()) | Err(ObservabilityError::AlreadyInitialized) => Ok(()),
+        Err(ObservabilityError::FilterParse(reason)) => Err(RunError::Other(anyhow::Error::new(
+            ErrorResponse::from(ContractError::InvalidField {
+                field: "log_level".to_owned(),
+                reason,
+            }),
+        ))),
         Err(ObservabilityError::SinkSerialize(_) | ObservabilityError::SinkIo(_)) => {
-            return Err(RunError::Other(anyhow::Error::new(ErrorResponse {
+            Err(RunError::Other(anyhow::Error::new(ErrorResponse {
                 code: ErrorCode::Internal,
                 message: "internal error".to_owned(),
                 details: None,
-            })));
+            })))
         }
     }
+}
+
+fn install_exit(code: u8) -> std::result::Result<std::process::ExitCode, RunError> {
+    if code == 0 {
+        Ok(std::process::ExitCode::SUCCESS)
+    } else {
+        Err(RunError::TypedExit(code))
+    }
+}
+
+async fn run_methodology_command(
+    database_url: &str,
+    global: MethodologyGlobal,
+    command: MethodologyCommand,
+) -> std::result::Result<std::process::ExitCode, RunError> {
+    let runtime = load_methodology_runtime_settings(&global.methodology_config)?;
+    let standards = tanren_app_services::methodology::standards::load_runtime_standards(
+        &runtime.standards_root,
+    )
+    .map_err(|err| {
+        RunError::Other(anyhow::anyhow!(
+            "loading standards from {}: {err}",
+            runtime.standards_root.display()
+        ))
+    })?;
+    let phase_events = global.spec_folder.as_ref().map(|spec_folder| {
+        tanren_app_services::methodology::service::PhaseEventsRuntime {
+            spec_folder: spec_folder.clone(),
+            agent_session_id: global.agent_session_id.clone(),
+        }
+    });
+    let service = tanren_app_services::compose::build_methodology_service_with_config(
+        database_url,
+        runtime.required_guards,
+        phase_events,
+        standards,
+    )
+    .await
+    .map_err(|err| {
+        RunError::Other(anyhow::Error::new(
+            tanren_app_services::error::map_store_error(&err),
+        ))
+    })?;
+    install_exit(run_methodology(&service, &global, command).await)
+}
+
+async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
+    let cli = match parse_cli() {
+        Ok(cli) => cli,
+        Err(RunError::TypedExit(0)) => return Ok(std::process::ExitCode::SUCCESS),
+        Err(err) => return Err(err),
+    };
+    init_cli_tracing(&cli.log_level)?;
 
     let Cli {
         database_url,
@@ -196,38 +249,9 @@ async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
     // typed exit-code contracts distinct from the generic
     // `ErrorResponse` path used by every other subcommand.
     match command {
-        Commands::Install(args) => {
-            let code = run_install(&args);
-            if code == 0 {
-                return Ok(std::process::ExitCode::SUCCESS);
-            }
-            return Err(RunError::TypedExit(code));
-        }
+        Commands::Install(args) => return install_exit(run_install(&args)),
         Commands::Methodology { global, command } => {
-            let required_guards = load_methodology_required_guards(&global.methodology_config)?;
-            let phase_events = global.spec_folder.as_ref().map(|spec_folder| {
-                tanren_app_services::methodology::service::PhaseEventsRuntime {
-                    spec_folder: spec_folder.clone(),
-                    agent_session_id: global.agent_session_id.clone(),
-                }
-            });
-            let service = tanren_app_services::compose::build_methodology_service_with_config(
-                &database_url,
-                required_guards,
-                phase_events,
-            )
-            .await
-            .map_err(|err| {
-                RunError::Other(anyhow::Error::new(
-                    tanren_app_services::error::map_store_error(&err),
-                ))
-            })?;
-            let code = run_methodology(&service, &global, command).await;
-            return if code == 0 {
-                Ok(std::process::ExitCode::SUCCESS)
-            } else {
-                Err(RunError::TypedExit(code))
-            };
+            return run_methodology_command(&database_url, global, command).await;
         }
         _ => {}
     }
@@ -246,15 +270,24 @@ async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
         .map_err(RunError::Other)
 }
 
-fn load_methodology_required_guards(
+struct MethodologyRuntimeSettings {
+    required_guards: Vec<tanren_app_services::methodology::RequiredGuard>,
+    standards_root: PathBuf,
+}
+
+fn load_methodology_runtime_settings(
     config_path: &PathBuf,
-) -> std::result::Result<Vec<tanren_app_services::methodology::RequiredGuard>, RunError> {
+) -> std::result::Result<MethodologyRuntimeSettings, RunError> {
+    let default_root = resolve_relative_to_config(config_path, Path::new("tanren/standards"));
     if !config_path.exists() {
-        return Ok(vec![
-            tanren_app_services::methodology::RequiredGuard::GateChecked,
-            tanren_app_services::methodology::RequiredGuard::Audited,
-            tanren_app_services::methodology::RequiredGuard::Adherent,
-        ]);
+        return Ok(MethodologyRuntimeSettings {
+            required_guards: vec![
+                tanren_app_services::methodology::RequiredGuard::GateChecked,
+                tanren_app_services::methodology::RequiredGuard::Audited,
+                tanren_app_services::methodology::RequiredGuard::Adherent,
+            ],
+            standards_root: default_root,
+        });
     }
     let raw = std::fs::read_to_string(config_path).map_err(|e| {
         RunError::Other(anyhow::anyhow!(
@@ -269,7 +302,27 @@ fn load_methodology_required_guards(
                 config_path.display()
             ))
         })?;
-    Ok(cfg.methodology.task_complete_requires)
+    let standards_raw = cfg
+        .methodology
+        .variables
+        .get("standards_root")
+        .or_else(|| cfg.methodology.variables.get("STANDARDS_ROOT"))
+        .map_or("tanren/standards", String::as_str);
+    Ok(MethodologyRuntimeSettings {
+        required_guards: cfg.methodology.task_complete_requires,
+        standards_root: resolve_relative_to_config(config_path, Path::new(standards_raw)),
+    })
+}
+
+fn resolve_relative_to_config(config_path: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let base = config_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    base.join(path)
 }
 
 /// Bundled actor-token inputs. Keeps `dispatch_non_install`'s arity

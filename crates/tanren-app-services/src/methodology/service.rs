@@ -1,15 +1,4 @@
-//! `MethodologyService` — the concrete service both CLI and MCP
-//! transports call. One method per tool in the catalog. Each method:
-//!
-//! 1. Enforces the caller's capability scope via
-//!    [`super::capabilities::enforce`].
-//! 2. Validates inputs against the domain invariants.
-//! 3. Emits exactly one `DomainEvent::Methodology { .. }` via
-//!    `tanren_store::Store::append_methodology_event`.
-//! 4. Returns the typed response per the contract.
-//!
-//! Tool methods are small (≤ 100 lines) and uniform so tool-catalog
-//! growth stays boilerplate-minimal.
+//! `MethodologyService` — shared CLI/MCP tool service.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -20,14 +9,15 @@ use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{
-    MethodologyEvent, TaskAbandoned as EvTaskAbandoned, TaskCompleted as EvTaskCompleted,
-    TaskCreated as EvTaskCreated, TaskGuardSatisfied, TaskImplemented, TaskStarted,
-    fold_task_status,
+    MethodologyEvent, TaskAbandoned as EvTaskAbandoned, TaskAdherent, TaskAudited,
+    TaskCompleted as EvTaskCompleted, TaskCreated as EvTaskCreated, TaskGateChecked,
+    TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
 };
+use tanren_domain::methodology::standard::Standard;
 use tanren_domain::methodology::task::{
     LegalTransition, RequiredGuard, Task, TaskStatus, TaskTransitionKind,
 };
-use tanren_domain::{EventId, SpecId, TaskId};
+use tanren_domain::{EntityRef, EventId, SpecId, TaskId};
 use tanren_store::Store;
 
 use tanren_contract::methodology::{
@@ -38,6 +28,8 @@ use tanren_contract::methodology::{
 use super::capabilities::enforce;
 use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
 
+const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
+
 /// Shared methodology service.
 ///
 /// Both `tanren-cli` and `tanren-mcp` take `Arc<MethodologyService>`.
@@ -47,6 +39,7 @@ use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
 pub struct MethodologyService {
     pub(crate) store: Arc<Store>,
     required_guards: Arc<[RequiredGuard]>,
+    standards: Arc<[Standard]>,
     phase_events: Option<PhaseEventsRuntime>,
     pub(crate) task_spec_cache: Arc<Mutex<HashMap<TaskId, SpecId>>>,
     pub(crate) signpost_spec_cache: Arc<Mutex<HashMap<tanren_domain::SignpostId, SpecId>>>,
@@ -75,6 +68,7 @@ impl MethodologyService {
         Self {
             store,
             required_guards: default_required_guards(),
+            standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
             phase_events: None,
             task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
             signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -98,6 +92,7 @@ impl MethodologyService {
         Self {
             store,
             required_guards: Arc::from(seen.into_boxed_slice()),
+            standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
             phase_events: None,
             task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
             signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -110,9 +105,13 @@ impl MethodologyService {
         store: Arc<Store>,
         required_guards: Vec<RequiredGuard>,
         phase_events: Option<PhaseEventsRuntime>,
+        standards: Vec<Standard>,
     ) -> Self {
         let mut svc = Self::with_required_guards(store, required_guards);
         svc.phase_events = phase_events;
+        if !standards.is_empty() {
+            svc.standards = Arc::from(standards.into_boxed_slice());
+        }
         svc
     }
 
@@ -121,6 +120,19 @@ impl MethodologyService {
     #[must_use]
     pub fn required_guards(&self) -> &[RequiredGuard] {
         &self.required_guards
+    }
+
+    /// Runtime standards registry used by adherence + relevance queries.
+    #[must_use]
+    pub fn standards(&self) -> &[Standard] {
+        &self.standards
+    }
+
+    /// Runtime context used for `phase-events.jsonl` and enforcement
+    /// postflight integration.
+    #[must_use]
+    pub fn phase_events_runtime(&self) -> Option<PhaseEventsRuntime> {
+        self.phase_events.clone()
     }
 
     fn new_envelope(payload: MethodologyEvent) -> EventEnvelope {
@@ -298,6 +310,16 @@ impl MethodologyService {
                     }),
                 )
                 .await?;
+                if self.required_guards.is_empty() {
+                    self.emit(
+                        phase,
+                        MethodologyEvent::TaskCompleted(EvTaskCompleted {
+                            task_id: params.task_id,
+                            spec_id,
+                        }),
+                    )
+                    .await?;
+                }
             }
             LegalTransition::Idempotent => {}
         }
@@ -367,10 +389,11 @@ impl MethodologyService {
         task_id: TaskId,
         kind: TaskTransitionKind,
     ) -> MethodologyResult<LegalTransition> {
-        let events = tanren_store::methodology::projections::load_methodology_events(
+        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
             self.store(),
-            spec_id,
-            100_000u64,
+            EntityRef::Task(task_id),
+            Some(spec_id),
+            METHODOLOGY_PAGE_SIZE,
         )
         .await?;
         let current = fold_task_status(task_id, &self.required_guards, events.iter())
@@ -384,21 +407,8 @@ impl MethodologyService {
             })
     }
 
-    /// `mark_task_guard_satisfied` — emit one
-    /// [`MethodologyEvent::TaskGuardSatisfied`] and, if the accumulated
-    /// guard set now satisfies the configured `required_guards`, also
-    /// emit a [`MethodologyEvent::TaskCompleted`] in the same call.
-    ///
-    /// `idempotency_key` is an optional content-addressed key derived
-    /// by the caller (tool dispatch layer) from
-    /// `(tool_name, payload_canonical_json, task_id)`. When supplied,
-    /// repeating the same call is a no-op because `fold_task_status`
-    /// treats two `TaskGuardSatisfied` events with the same
-    /// `(task_id, guard)` as idempotent by construction — the second
-    /// append still lands in the event log but the resulting projection
-    /// is identical. Store-level dedup (see
-    /// `tanren-store::methodology::append`) rejects duplicate keys
-    /// before the event is written.
+    /// `mark_task_guard_satisfied` emits one discrete guard event and,
+    /// on convergence, emits `TaskCompleted` in the same call.
     ///
     /// # Errors
     /// See [`MethodologyError`]. Propagates
@@ -423,22 +433,15 @@ impl MethodologyService {
         }
         self.emit(
             phase,
-            MethodologyEvent::TaskGuardSatisfied(TaskGuardSatisfied {
-                task_id,
-                spec_id,
-                guard,
-                idempotency_key,
-            }),
+            guard_event(task_id, spec_id, guard, idempotency_key)?,
         )
         .await?;
-        // Re-fold and, if the accumulated guard set now satisfies
-        // `required_guards`, deterministically fire `TaskCompleted` in
-        // the same transaction-bundle. This closes the "tasks can stall
-        // in implemented state" hole flagged in the audit.
-        let events = tanren_store::methodology::projections::load_methodology_events(
+        // Re-fold and fire `TaskCompleted` once required guards converge.
+        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
             self.store(),
-            spec_id,
-            100_000u64,
+            EntityRef::Task(task_id),
+            Some(spec_id),
+            METHODOLOGY_PAGE_SIZE,
         )
         .await?;
         let status = fold_task_status(task_id, &self.required_guards, events.iter())
@@ -454,4 +457,43 @@ impl MethodologyService {
         }
         Ok(())
     }
+}
+
+fn guard_event(
+    task_id: TaskId,
+    spec_id: SpecId,
+    guard: RequiredGuard,
+    idempotency_key: Option<String>,
+) -> MethodologyResult<MethodologyEvent> {
+    let event = match guard {
+        RequiredGuard::GateChecked => MethodologyEvent::TaskGateChecked(TaskGateChecked {
+            task_id,
+            spec_id,
+            idempotency_key,
+        }),
+        RequiredGuard::Audited => MethodologyEvent::TaskAudited(TaskAudited {
+            task_id,
+            spec_id,
+            idempotency_key,
+        }),
+        RequiredGuard::Adherent => MethodologyEvent::TaskAdherent(TaskAdherent {
+            task_id,
+            spec_id,
+            idempotency_key,
+        }),
+        RequiredGuard::Extra(name) => MethodologyEvent::TaskXChecked(TaskXChecked {
+            task_id,
+            spec_id,
+            guard_name: tanren_domain::NonEmptyString::try_new(name).map_err(|e| {
+                MethodologyError::FieldValidation {
+                    field_path: "/guard".into(),
+                    expected: "extra guard name must be non-empty".into(),
+                    actual: "empty".into(),
+                    remediation: e.to_string(),
+                }
+            })?,
+            idempotency_key,
+        }),
+    };
+    Ok(event)
 }
