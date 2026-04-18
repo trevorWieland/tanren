@@ -6,7 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{ApiKeyId, DispatchId, LeaseId, OrgId, ProjectId, StepId, TeamId, UserId};
+use crate::ids::{
+    ApiKeyId, DispatchId, FindingId, IssueId, LeaseId, OrgId, ProjectId, SignpostId, SpecId,
+    StepId, TaskId, TeamId, UserId,
+};
 
 /// Typed reference to a top-level domain entity.
 ///
@@ -25,6 +28,11 @@ pub enum EntityRef {
     Team(TeamId),
     Project(ProjectId),
     ApiKey(ApiKeyId),
+    Spec(SpecId),
+    Task(TaskId),
+    Finding(FindingId),
+    Signpost(SignpostId),
+    Issue(IssueId),
 }
 
 impl EntityRef {
@@ -40,6 +48,11 @@ impl EntityRef {
             Self::Team(_) => EntityKind::Team,
             Self::Project(_) => EntityKind::Project,
             Self::ApiKey(_) => EntityKind::ApiKey,
+            Self::Spec(_) => EntityKind::Spec,
+            Self::Task(_) => EntityKind::Task,
+            Self::Finding(_) => EntityKind::Finding,
+            Self::Signpost(_) => EntityKind::Signpost,
+            Self::Issue(_) => EntityKind::Issue,
         }
     }
 }
@@ -55,6 +68,11 @@ impl std::fmt::Display for EntityRef {
             Self::Team(id) => write!(f, "team {id}"),
             Self::Project(id) => write!(f, "project {id}"),
             Self::ApiKey(id) => write!(f, "api_key {id}"),
+            Self::Spec(id) => write!(f, "spec {id}"),
+            Self::Task(id) => write!(f, "task {id}"),
+            Self::Finding(id) => write!(f, "finding {id}"),
+            Self::Signpost(id) => write!(f, "signpost {id}"),
+            Self::Issue(id) => write!(f, "issue {id}"),
         }
     }
 }
@@ -71,6 +89,11 @@ pub enum EntityKind {
     Team,
     Project,
     ApiKey,
+    Spec,
+    Task,
+    Finding,
+    Signpost,
+    Issue,
 }
 
 impl std::fmt::Display for EntityKind {
@@ -84,6 +107,11 @@ impl std::fmt::Display for EntityKind {
             Self::Team => f.write_str("team"),
             Self::Project => f.write_str("project"),
             Self::ApiKey => f.write_str("api_key"),
+            Self::Spec => f.write_str("spec"),
+            Self::Task => f.write_str("task"),
+            Self::Finding => f.write_str("finding"),
+            Self::Signpost => f.write_str("signpost"),
+            Self::Issue => f.write_str("issue"),
         }
     }
 }

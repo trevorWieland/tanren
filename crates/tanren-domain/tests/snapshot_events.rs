@@ -348,7 +348,7 @@ snapshot_event!(
 #[test]
 fn dispatch_id_accessor_returns_correlated_id_for_every_variant() {
     let dispatch_event = DomainEvent::DispatchStarted { dispatch_id: did() };
-    assert_eq!(dispatch_event.dispatch_id(), did());
+    assert_eq!(dispatch_event.dispatch_id(), Some(did()));
 
     let step_event = DomainEvent::StepCancelled {
         dispatch_id: did(),
@@ -357,14 +357,14 @@ fn dispatch_id_accessor_returns_correlated_id_for_every_variant() {
         caused_by: None,
         reason: None,
     };
-    assert_eq!(step_event.dispatch_id(), did());
+    assert_eq!(step_event.dispatch_id(), Some(did()));
 
     let lease_event = DomainEvent::LeaseProvisioned {
         lease_id: lid(),
         dispatch_id: did(),
         runtime_type: "docker".into(),
     };
-    assert_eq!(lease_event.dispatch_id(), did());
+    assert_eq!(lease_event.dispatch_id(), Some(did()));
 }
 
 // NOTE: the named per-category regression tests for the SeaORM

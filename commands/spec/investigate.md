@@ -4,10 +4,10 @@ role: triage
 orchestration_loop: true
 autonomy: autonomous
 declared_variables:
-  - TASK_VERIFICATION_HOOK
-  - SPEC_VERIFICATION_HOOK
   - READONLY_ARTIFACT_BANNER
+  - SPEC_VERIFICATION_HOOK
   - TASK_TOOL_BINDING
+  - TASK_VERIFICATION_HOOK
 declared_tools:
   - revise_task
   - create_task

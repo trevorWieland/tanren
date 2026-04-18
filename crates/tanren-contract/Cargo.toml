@@ -13,6 +13,9 @@ workspace = true
 [dependencies]
 tanren-domain = { path = "../tanren-domain" }
 chrono.workspace = true
+# JSON Schema generation for the methodology tool catalog. The contract
+# crate owns the authoritative `tanren.methodology.v1` schema surface.
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

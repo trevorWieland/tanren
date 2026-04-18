@@ -6,8 +6,6 @@ autonomy: interactive
 declared_variables:
   - ISSUE_PROVIDER
   - ISSUE_REF_NOUN
-  - SPEC_ROOT
-  - PROJECT_LANGUAGE
   - READONLY_ARTIFACT_BANNER
   - TASK_TOOL_BINDING
 declared_tools:

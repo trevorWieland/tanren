@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tanren": {
+      "args": [],
+      "command": "tanren-mcp"
+    }
+  }
+}

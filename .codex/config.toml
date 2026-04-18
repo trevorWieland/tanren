@@ -1,0 +1,3 @@
+[mcp_servers.tanren]
+args = []
+command = "tanren-mcp"

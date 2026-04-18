@@ -5,7 +5,6 @@ orchestration_loop: true
 autonomy: autonomous
 declared_variables:
   - ADHERE_SPEC_HOOK
-  - STANDARDS_ROOT
   - READONLY_ARTIFACT_BANNER
   - TASK_TOOL_BINDING
 declared_tools:

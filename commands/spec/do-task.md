@@ -4,11 +4,11 @@ role: implementation
 orchestration_loop: true
 autonomy: autonomous
 declared_variables:
-  - TASK_VERIFICATION_HOOK
-  - SPEC_ROOT
-  - PROJECT_LANGUAGE
+  - ISSUE_REF_NOUN
+  - PR_NOUN
   - READONLY_ARTIFACT_BANNER
   - TASK_TOOL_BINDING
+  - TASK_VERIFICATION_HOOK
 declared_tools:
   - start_task
   - complete_task

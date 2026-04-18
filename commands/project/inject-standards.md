@@ -4,8 +4,8 @@ role: meta
 orchestration_loop: false
 autonomy: interactive
 declared_variables:
-  - STANDARDS_ROOT
   - READONLY_ARTIFACT_BANNER
+  - STANDARDS_ROOT
   - TASK_TOOL_BINDING
 declared_tools:
   - report_phase_outcome

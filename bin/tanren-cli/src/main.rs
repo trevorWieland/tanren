@@ -27,6 +27,7 @@ use tanren_observability::{
 use actor_token::{resolve_actor_token, resolve_actor_token_verifier};
 use clap_error::clap_error_to_response;
 use commands::dispatch::{DispatchCommand, DispatchRequest};
+use commands::install::{InstallArgs, run as run_install};
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
@@ -80,6 +81,9 @@ enum Commands {
     /// Manage database schema.
     #[command(subcommand)]
     Db(DbCommand),
+    /// Render the methodology command catalog and bundled standards
+    /// to their configured targets per `tanren.yml`.
+    Install(InstallArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -208,6 +212,14 @@ async fn run() -> Result<()> {
                     commands::dispatch::handle_mutation(cmd, &service, &context, &replay_guard)
                         .await
                 }
+            }
+        }
+        Commands::Install(args) => {
+            let code = run_install(&args);
+            if code == 0 {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("install exited with code {code}"))
             }
         }
     }

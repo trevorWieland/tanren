@@ -140,6 +140,28 @@ install:
     {{ cargo }} build --workspace
 
 # ============================================================================
+# Methodology self-hosting (tanren-repo specific)
+#
+# Dogfoods the methodology installer: renders `commands/` + the
+# bundled baseline standards into the three agent targets and writes
+# the MCP server registration into each agent's config. Adopters need
+# not replicate these recipes — `tanren install` is the single
+# public-facing entry point; these are convenience wrappers over it
+# for local development and CI drift-detection on the tanren repo
+# itself.
+# ============================================================================
+
+# Render the command catalog and standards per `tanren.yml`.
+install-commands:
+    {{ cargo }} run --quiet -p tanren-cli -- install
+
+# Strict dry-run: fail if rendered artifacts drift from the plan.
+# Wired into `just ci` below so merging a command-source change
+# without re-running `install-commands` fails at PR time.
+install-commands-check:
+    {{ cargo }} run --quiet -p tanren-cli -- install --dry-run --strict
+
+# ============================================================================
 # Build
 # ============================================================================
 
@@ -411,4 +433,6 @@ ci:
     @just machete
     @echo "==> Strict Rust CI"
     @just ci-rust-strict
+    @echo "==> Installer drift guard"
+    @just install-commands-check
     @echo "==> All CI checks passed!"

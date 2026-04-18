@@ -375,19 +375,32 @@ pub enum DomainEvent {
         dispatch_id: DispatchId,
         decision: Box<PolicyDecisionRecord>,
     },
+
+    // -- Methodology -------------------------------------------------------
+    //
+    // Methodology events are the full spec/task lifecycle delivered in
+    // Lane 0.5. They carry no `dispatch_id`; routing is per the inner
+    // event's [`crate::methodology::events::MethodologyEvent::entity_root`].
+    // Nesting under one outer variant keeps [`SCHEMA_VERSION`] at 1.
+    //
+    // Struct-variant form (not newtype) so serde's internally-tagged
+    // outer discriminant (`event_type = "methodology"`) doesn't collide
+    // with the nested `MethodologyEvent`'s own `event_type` discriminant.
+    Methodology {
+        event: crate::methodology::events::MethodologyEvent,
+    },
 }
 
 impl DomainEvent {
-    /// Extract the dispatch ID associated with this event.
+    /// Extract the dispatch ID associated with this event, if any.
     ///
-    /// TODO(phase-1): when non-dispatch events (e.g. `OrgBudgetExhausted`,
-    /// `TeamQuotaReset`) are introduced, this accessor must either
-    /// become fallible (`Option<DispatchId>`) or be retired in favor of
-    /// [`Self::entity_root`]. Callers that need routing metadata should
-    /// prefer `entity_root()` today — it's already the source of truth
-    /// for `EventEnvelope::expected_entity_ref`.
+    /// Methodology events (Lane 0.5+) are rooted on spec/task/finding
+    /// entities rather than a dispatch, so this accessor returns
+    /// [`None`] for them. Callers that need routing metadata should
+    /// prefer [`Self::entity_root`] — it's the source of truth for
+    /// `EventEnvelope::expected_entity_ref` and handles both families.
     #[must_use]
-    pub const fn dispatch_id(&self) -> DispatchId {
+    pub fn dispatch_id(&self) -> Option<DispatchId> {
         match self {
             Self::DispatchCreated { dispatch_id, .. }
             | Self::DispatchStarted { dispatch_id, .. }
@@ -408,19 +421,41 @@ impl DomainEvent {
             | Self::LeaseDraining { dispatch_id, .. }
             | Self::LeaseReleased { dispatch_id, .. }
             | Self::LeaseFailed { dispatch_id, .. }
-            | Self::PolicyDecision { dispatch_id, .. } => *dispatch_id,
+            | Self::PolicyDecision { dispatch_id, .. } => Some(*dispatch_id),
+            Self::Methodology { .. } => None,
         }
     }
 
     /// Return the typed root [`EntityRef`] this event correlates to.
     ///
-    /// All current variants are dispatch-scoped, so this returns
-    /// `EntityRef::Dispatch(dispatch_id())`. When non-dispatch events
-    /// land in a future phase, each new variant supplies its own root
-    /// (e.g. `EntityRef::Org` for org-level events) without breaking
-    /// envelope construction.
+    /// Dispatch/step/lease/policy variants return
+    /// [`EntityRef::Dispatch`]; methodology variants delegate to the
+    /// inner event's own root (spec / task / finding / signpost /
+    /// issue).
     #[must_use]
-    pub const fn entity_root(&self) -> EntityRef {
-        EntityRef::Dispatch(self.dispatch_id())
+    pub fn entity_root(&self) -> EntityRef {
+        match self {
+            Self::DispatchCreated { dispatch_id, .. }
+            | Self::DispatchStarted { dispatch_id, .. }
+            | Self::DispatchCompleted { dispatch_id, .. }
+            | Self::DispatchFailed { dispatch_id, .. }
+            | Self::DispatchCancelled { dispatch_id, .. }
+            | Self::StepEnqueued { dispatch_id, .. }
+            | Self::StepDequeued { dispatch_id, .. }
+            | Self::StepStarted { dispatch_id, .. }
+            | Self::StepCompleted { dispatch_id, .. }
+            | Self::StepFailed { dispatch_id, .. }
+            | Self::StepCancelled { dispatch_id, .. }
+            | Self::LeaseRequested { dispatch_id, .. }
+            | Self::LeaseProvisioned { dispatch_id, .. }
+            | Self::LeaseReady { dispatch_id, .. }
+            | Self::LeaseRunning { dispatch_id, .. }
+            | Self::LeaseIdle { dispatch_id, .. }
+            | Self::LeaseDraining { dispatch_id, .. }
+            | Self::LeaseReleased { dispatch_id, .. }
+            | Self::LeaseFailed { dispatch_id, .. }
+            | Self::PolicyDecision { dispatch_id, .. } => EntityRef::Dispatch(*dispatch_id),
+            Self::Methodology { event } => event.entity_root(),
+        }
     }
 }

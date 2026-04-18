@@ -4,10 +4,10 @@ role: conversation
 orchestration_loop: true
 autonomy: interactive
 declared_variables:
-  - SPEC_VERIFICATION_HOOK
   - ISSUE_PROVIDER
   - PR_NOUN
   - READONLY_ARTIFACT_BANNER
+  - SPEC_VERIFICATION_HOOK
   - TASK_TOOL_BINDING
 declared_tools:
   - create_task

@@ -5,6 +5,7 @@ orchestration_loop: true
 autonomy: autonomous
 declared_variables:
   - AUDIT_TASK_HOOK
+  - ISSUE_REF_NOUN
   - PILLAR_LIST
   - READONLY_ARTIFACT_BANNER
   - TASK_TOOL_BINDING

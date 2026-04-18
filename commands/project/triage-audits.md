@@ -4,10 +4,10 @@ role: audit
 orchestration_loop: false
 autonomy: interactive
 declared_variables:
-  - STANDARDS_ROOT
   - ISSUE_PROVIDER
   - ISSUE_REF_NOUN
   - READONLY_ARTIFACT_BANNER
+  - STANDARDS_ROOT
   - TASK_TOOL_BINDING
 declared_tools:
   - add_finding

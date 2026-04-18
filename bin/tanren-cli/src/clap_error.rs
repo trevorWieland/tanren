@@ -58,6 +58,10 @@ pub(crate) const ALLOWED_ARG_FIELDS: &[&str] = &[
     // `db purge-replay` subcommand flags.
     "batch_limit",
     "retention_secs",
+    // `install` subcommand flags.
+    "config",
+    "dry_run",
+    "strict",
 ];
 
 /// Translate a clap parser failure into a transport-safe

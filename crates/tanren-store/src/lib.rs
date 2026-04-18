@@ -29,6 +29,7 @@ mod errors;
 mod event_store;
 mod job_queue;
 mod job_queue_dequeue;
+pub mod methodology;
 mod migration;
 mod params;
 mod sql_tags;

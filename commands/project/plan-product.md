@@ -4,6 +4,7 @@ role: meta
 orchestration_loop: false
 autonomy: interactive
 declared_variables:
+  - ISSUE_REF_NOUN
   - PRODUCT_ROOT
   - READONLY_ARTIFACT_BANNER
   - TASK_TOOL_BINDING
@@ -12,9 +13,9 @@ declared_tools:
 required_capabilities:
   - phase.outcome
 produces_evidence:
-  - {{PRODUCT_ROOT}}/mission.md
-  - {{PRODUCT_ROOT}}/roadmap.md
-  - {{PRODUCT_ROOT}}/tech-stack.md
+  - "{{PRODUCT_ROOT}}/mission.md"
+  - "{{PRODUCT_ROOT}}/roadmap.md"
+  - "{{PRODUCT_ROOT}}/tech-stack.md"
 ---
 
 # plan-product

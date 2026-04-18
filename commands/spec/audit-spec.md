@@ -4,9 +4,10 @@ role: audit
 orchestration_loop: true
 autonomy: autonomous
 declared_variables:
-  - SPEC_VERIFICATION_HOOK
+  - ISSUE_REF_NOUN
   - PILLAR_LIST
   - READONLY_ARTIFACT_BANNER
+  - SPEC_VERIFICATION_HOOK
   - TASK_TOOL_BINDING
 declared_tools:
   - add_finding

@@ -104,6 +104,33 @@ reqwest = { version = "0.12", default-features = false, features = [
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Evidence frontmatter and install-config files.
+# serde_yaml is formally deprecated upstream but remains the de-facto
+# YAML crate in the Rust ecosystem; no drop-in maintained replacement
+# has stable-API parity as of 2026. Revisit if an audited successor
+# lands.
+serde_yaml = "0.9"
+# TOML config writer for Codex's `.codex/config.toml`.
+toml = "1"
+
+# JSON Schema generation for the tanren.methodology.v1 contract surface.
+# schemars is re-exported by rmcp's `server` feature; pinning it at the
+# workspace level keeps the contract crate's direct use independent of
+# rmcp's version bumps.
+schemars = { version = "1", features = ["chrono04", "uuid1"] }
+
+# Model Context Protocol SDK. License verified via `cargo info rmcp`
+# (Apache-2.0, in deny.toml allowlist) before this dep was added.
+# `server` enables `#[tool_router]`/`#[tool]` macros and the derive
+# path; `transport-io` wires stdio (required by Lane 0.5 scope);
+# `macros` brings the attribute-macro surface; `schemars` re-export
+# ensures contract types produce the JSON Schemas rmcp registers.
+rmcp = { version = "1", features = [
+  "server",
+  "transport-io",
+  "macros",
+  "schemars",
+] }
 
 # Error handling
 thiserror = "2"

@@ -4,6 +4,7 @@ role: conversation
 orchestration_loop: true
 autonomy: interactive
 declared_variables:
+  - ISSUE_REF_NOUN
   - READONLY_ARTIFACT_BANNER
   - TASK_TOOL_BINDING
 declared_tools:

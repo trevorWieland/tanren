@@ -4,7 +4,6 @@ role: feedback
 orchestration_loop: true
 autonomy: autonomous
 declared_variables:
-  - ISSUE_PROVIDER
   - ISSUE_REF_NOUN
   - PR_NOUN
   - READONLY_ARTIFACT_BANNER

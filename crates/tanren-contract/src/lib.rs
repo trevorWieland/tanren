@@ -17,6 +17,7 @@
 mod convert;
 pub mod enums;
 pub mod error;
+pub mod methodology;
 pub mod request;
 pub mod response;
 

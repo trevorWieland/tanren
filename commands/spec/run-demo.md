@@ -4,8 +4,9 @@ role: implementation
 orchestration_loop: true
 autonomy: autonomous
 declared_variables:
-  - RUN_DEMO_HOOK
+  - ISSUE_REF_NOUN
   - READONLY_ARTIFACT_BANNER
+  - RUN_DEMO_HOOK
   - TASK_TOOL_BINDING
 declared_tools:
   - append_demo_result

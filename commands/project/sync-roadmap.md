@@ -4,9 +4,9 @@ role: meta
 orchestration_loop: false
 autonomy: autonomous
 declared_variables:
-  - PRODUCT_ROOT
   - ISSUE_PROVIDER
   - ISSUE_REF_NOUN
+  - PRODUCT_ROOT
   - READONLY_ARTIFACT_BANNER
   - TASK_TOOL_BINDING
 declared_tools:

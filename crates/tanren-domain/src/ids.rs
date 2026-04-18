@@ -1,19 +1,23 @@
 //! Strongly-typed identifier newtypes wrapping [`uuid::Uuid`] v7.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Generates a newtype ID wrapper around [`Uuid`].
 ///
 /// Each generated type gets `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`,
-/// `Hash`, `Serialize`, `Deserialize`, transparent serde, `Display`
-/// delegating to the inner UUID, `new()` generating v7, and `from_uuid()`.
+/// `Hash`, `Serialize`, `Deserialize`, `JsonSchema` (transparent over
+/// [`uuid::Uuid`] so the schema stays `"format": "uuid"`), transparent
+/// serde, `Display` delegating to the inner UUID, `new()` generating
+/// v7, and `from_uuid()`.
 macro_rules! define_id {
     ($($(#[doc = $doc:expr])* $name:ident),+ $(,)?) => {
         $(
             $(#[doc = $doc])*
-            #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+            #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
             #[serde(transparent)]
+            #[schemars(transparent)]
             pub struct $name(Uuid);
 
             impl $name {
@@ -70,6 +74,16 @@ define_id!(
     ProjectId,
     /// Identifies a domain event.
     EventId,
+    /// Identifies a methodology spec (top-level unit of planned work).
+    SpecId,
+    /// Identifies a methodology task within a spec.
+    TaskId,
+    /// Identifies a finding produced by audit / adherence / demo / investigation.
+    FindingId,
+    /// Identifies a signpost entry recorded during task implementation.
+    SignpostId,
+    /// Identifies a tracked backlog issue (provider-agnostic).
+    IssueId,
 );
 
 #[cfg(test)]

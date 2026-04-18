@@ -88,6 +88,9 @@ impl Store {
     }
 }
 
+// Methodology-event append lives in `methodology::append` to keep
+// event_store.rs within the 500-line budget.
+
 #[async_trait]
 impl EventStore for Store {
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult> {
@@ -300,6 +303,11 @@ fn entity_ref_to_id_string(entity_ref: &tanren_domain::EntityRef) -> String {
         tanren_domain::EntityRef::Team(id) => id.into_uuid().to_string(),
         tanren_domain::EntityRef::Project(id) => id.into_uuid().to_string(),
         tanren_domain::EntityRef::ApiKey(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Spec(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Task(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Finding(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Signpost(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Issue(id) => id.into_uuid().to_string(),
     }
 }
 

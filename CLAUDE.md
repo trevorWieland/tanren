@@ -23,7 +23,7 @@ crates/
   tanren-domain        # canonical entities, commands, events, errors (no deps)
   tanren-contract      # interface schema generation and versioning
   tanren-policy        # authz, budgets, quotas, placement policy
-  tanren-store         # event log, projections, migrations (sqlx)
+  tanren-store         # event log, projections, migrations (SeaORM)
   tanren-planner       # task graph planning and replanning
   tanren-scheduler     # lane/capability-aware dispatch scheduling
   tanren-runtime       # harness + environment trait contracts
@@ -103,7 +103,7 @@ just ci           # validate before PR
 Conventional Commits with scope:
 
 - `feat(domain): add dispatch lifecycle state machine`
-- `feat(store): implement sqlx event append`
+- `feat(store): implement SeaORM event append`
 - `fix(orchestrator): handle concurrent step guard race`
 - `chore: update workspace dependencies`
 
