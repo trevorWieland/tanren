@@ -142,6 +142,44 @@ fn documented_tool_names() -> BTreeSet<String> {
 }
 
 #[test]
+fn tanren_config_env_controls_runtime_settings() {
+    let scope_dir = tempfile::tempdir().expect("tempdir");
+    let url = db_url(&scope_dir);
+    let cli = assert_cmd::cargo::cargo_bin("tanren-cli");
+    let mig = Command::new(&cli)
+        .args(["--database-url", &url, "db", "migrate"])
+        .output()
+        .expect("migrate");
+    assert!(
+        mig.status.success(),
+        "migrate failed: {}",
+        String::from_utf8_lossy(&mig.stderr)
+    );
+
+    let bad_cfg = scope_dir.path().join("bad.yml");
+    std::fs::write(&bad_cfg, "methodology: [").expect("write bad cfg");
+
+    let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
+    let out = Command::new(bin)
+        .env("TANREN_DATABASE_URL", &url)
+        .env("TANREN_CONFIG", &bad_cfg)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run tanren-mcp");
+    assert!(
+        !out.status.success(),
+        "invalid TANREN_CONFIG should fail startup"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("bad.yml"),
+        "stderr should reference TANREN_CONFIG path: {stderr}"
+    );
+}
+
+#[test]
 fn list_tools_advertises_full_catalog() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);

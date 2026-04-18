@@ -88,8 +88,8 @@ impl Store {
     }
 }
 
-// Methodology-event append lives in `methodology::append` to keep
-// event_store.rs within the 500-line budget.
+// Methodology-event append helpers live in `methodology::outbox` to
+// keep event_store.rs within the 500-line budget.
 
 #[async_trait]
 impl EventStore for Store {

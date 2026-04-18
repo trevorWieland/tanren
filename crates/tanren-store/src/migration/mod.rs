@@ -20,6 +20,7 @@ mod m_0009_actor_token_replay;
 mod m_0010_projection_enum_constraints;
 mod m_0011_dispatch_projection_org_id_not_null;
 mod m_0012_methodology_audit_pipeline;
+mod m_0013_methodology_read_indexes;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
@@ -29,7 +30,7 @@ pub(crate) struct Migrator;
 
 impl Migrator {
     /// Name of the latest expected schema migration.
-    pub(crate) const LATEST_MIGRATION_NAME: &'static str = "m_0012_methodology_audit_pipeline";
+    pub(crate) const LATEST_MIGRATION_NAME: &'static str = "m_0013_methodology_read_indexes";
 }
 
 #[async_trait::async_trait]
@@ -48,6 +49,7 @@ impl MigratorTrait for Migrator {
             Box::new(m_0010_projection_enum_constraints::Migration),
             Box::new(m_0011_dispatch_projection_org_id_not_null::Migration),
             Box::new(m_0012_methodology_audit_pipeline::Migration),
+            Box::new(m_0013_methodology_read_indexes::Migration),
         ]
     }
 }
@@ -213,11 +215,11 @@ mod tests {
     async fn m0011_down_and_up_round_trip_restores_enforcement() {
         let conn = Database::connect("sqlite::memory:").await.expect("connect");
         Migrator::up(&conn, None).await.expect("up");
-        // m_0012 sits above m_0011; roll both back so this test
-        // exercises m_0011's `down` behavior.
-        Migrator::down(&conn, Some(2))
+        // m_0012 and m_0013 now sit above m_0011; roll all three
+        // back so this test exercises m_0011's `down` behavior.
+        Migrator::down(&conn, Some(3))
             .await
-            .expect("down two steps");
+            .expect("down three steps");
 
         conn.execute(Statement::from_string(
             DbBackend::Sqlite,

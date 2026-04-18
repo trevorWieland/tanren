@@ -17,7 +17,7 @@ pub(crate) struct IngestArgs {
 
 pub(crate) async fn run(service: &MethodologyService, args: IngestArgs) -> u8 {
     let store = service.store();
-    match ingest_phase_events(store, &args.path).await {
+    match ingest_phase_events(store, &args.path, service.required_guards()).await {
         Ok(stats) => emit_result::<ReplayStats>(Ok(stats)),
         // Preserve typed `ReplayError` variants (audit finding #10).
         Err(e) => emit_result::<()>(Err(MethodologyError::from(e))),

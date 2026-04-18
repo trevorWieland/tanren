@@ -117,9 +117,68 @@ impl From<tanren_store::methodology::replay::ReplayError> for MethodologyError {
                 reason,
                 raw,
             },
-            R::EnvelopeDecode { path, line, reason } => {
-                Self::ReplayEnvelopeDecode { path, line, reason }
-            }
+            R::SpecIdMismatch {
+                path,
+                line,
+                line_spec_id,
+                payload_spec_id,
+            } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: format!("spec_id mismatch: line={line_spec_id}, payload={payload_spec_id}",),
+            },
+            R::MissingPayloadSpecId { path, line } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: "payload missing spec_id".into(),
+            },
+            R::ToolMismatch {
+                path,
+                line,
+                expected,
+                actual,
+            } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: format!("tool mismatch: expected `{expected}`, got `{actual}`"),
+            },
+            R::InvalidTaskTransition {
+                task_id,
+                from,
+                attempted,
+                ..
+            } => Self::IllegalTaskTransition {
+                task_id,
+                from,
+                attempted,
+            },
+            R::MissingTaskCreate {
+                path,
+                line,
+                task_id,
+            } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: format!("missing TaskCreated for task {task_id}"),
+            },
+            R::DuplicateTaskCreate {
+                path,
+                line,
+                task_id,
+            } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: format!("duplicate TaskCreated for task {task_id}"),
+            },
+            R::TaskCompletedMissingGuards {
+                path,
+                line,
+                task_id,
+            } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: format!("TaskCompleted before required guards for task {task_id}"),
+            },
             R::Store { source } => Self::Store(source),
         }
     }

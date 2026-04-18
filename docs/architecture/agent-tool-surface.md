@@ -270,7 +270,10 @@ cannot permanently diverge.
 ### 6.4 Replay
 
 `tanren replay <spec_folder>` reads the JSONL, re-applies each event
-to the store via `service::apply_event`, produces the same
+to the store via a validated replay-apply path
+(`tanren-store::methodology::replay::ingest_phase_events`) that
+checks canonical envelope shape, tool/payload consistency, task
+transition legality, and event-id idempotency. Produces the same
 projections the live run would. Used for recovery and debugging.
 
 ---

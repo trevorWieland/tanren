@@ -16,7 +16,7 @@ use tanren_domain::methodology::finding::Finding;
 use tanren_domain::methodology::rubric::RubricScore;
 use tanren_domain::methodology::signpost::Signpost;
 use tanren_domain::methodology::task::{RequiredGuard, Task, TaskStatus};
-use tanren_domain::{EntityKind, EntityRef, SpecId, TaskId};
+use tanren_domain::{EntityKind, EntityRef, FindingId, SpecId, TaskId};
 
 use crate::event_store::EventStore;
 use crate::params::EventFilter;
@@ -268,6 +268,57 @@ pub async fn findings_for_task<S: EventStore>(
         .into_iter()
         .filter(|f| f.attached_task == Some(task_id))
         .collect())
+}
+
+/// Fetch a sparse set of findings by id using indexed entity-ref
+/// lookups instead of scanning every finding in a spec.
+///
+/// # Errors
+/// See [`load_methodology_events`].
+pub async fn findings_by_ids<S: EventStore>(
+    store: &S,
+    spec_id: SpecId,
+    ids: &[FindingId],
+) -> Result<Vec<Finding>, MethodologyEventFetchError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let entity_refs: Vec<EntityRef> = ids.iter().copied().map(EntityRef::Finding).collect();
+    let mut cursor = None;
+    let mut folded: std::collections::HashMap<FindingId, Finding> =
+        std::collections::HashMap::new();
+    loop {
+        let filter = EventFilter {
+            entity_refs: Some(entity_refs.clone()),
+            spec_id: Some(spec_id),
+            event_type: Some("methodology".into()),
+            limit: METHODOLOGY_PAGE_SIZE,
+            cursor,
+            ..EventFilter::new()
+        };
+        let page = store.query_events(&filter).await?;
+        for env in page.events {
+            if let DomainEvent::Methodology { event } = env.payload {
+                match event {
+                    MethodologyEvent::FindingAdded(e) => {
+                        folded.insert(e.finding.id, *e.finding);
+                    }
+                    MethodologyEvent::AdherenceFindingAdded(e) => {
+                        folded.insert(e.finding.id, *e.finding);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !page.has_more {
+            break;
+        }
+        cursor = page.next_cursor;
+    }
+    Ok(ids
+        .iter()
+        .filter_map(|id| folded.get(id).cloned())
+        .collect::<Vec<_>>())
 }
 
 /// Fold to adherence-only findings for a spec.

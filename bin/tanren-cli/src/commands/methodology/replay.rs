@@ -30,7 +30,7 @@ pub(crate) async fn run(service: &MethodologyService, args: ReplayArgs) -> u8 {
         }));
     }
     let store = service.store();
-    match ingest_phase_events(store, &path).await {
+    match ingest_phase_events(store, &path, service.required_guards()).await {
         Ok(stats) => emit_result::<ReplayStats>(Ok(stats)),
         // Preserve typed `ReplayError` variants as structured
         // `MethodologyError::Replay*`/`Io` so the CLI stderr output

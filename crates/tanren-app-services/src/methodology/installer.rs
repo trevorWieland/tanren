@@ -147,6 +147,11 @@ pub fn plan_install_from_root(
 /// # Errors
 /// Returns [`MethodologyError::Io`] on any filesystem failure.
 pub fn apply_install(plan: &InstallPlan) -> MethodologyResult<Vec<PathBuf>> {
+    let (_planned_by_root, destructive_roots) = build_root_plan_index(plan);
+    for root in destructive_roots {
+        validate_safe_destructive_root(&root)?;
+    }
+
     let mut written = Vec::with_capacity(plan.writes.len());
     for w in &plan.writes {
         if let MergePolicy::PreserveExisting = w.merge_policy
@@ -171,6 +176,7 @@ pub fn apply_install(plan: &InstallPlan) -> MethodologyResult<Vec<PathBuf>> {
         })?;
         written.push(w.dest.clone());
     }
+    prune_unmanaged_destructive_files(plan)?;
     Ok(written)
 }
 
@@ -190,8 +196,6 @@ pub fn apply_install(plan: &InstallPlan) -> MethodologyResult<Vec<PathBuf>> {
 ///    policy explicitly permits adopters to keep their own files.
 #[must_use]
 pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
-    use std::collections::{BTreeMap, BTreeSet};
-
     let mut out = Vec::new();
     // Pass 1: planned write → Missing | Differs | ok.
     for w in &plan.writes {
@@ -219,18 +223,7 @@ pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
     // A "target root" is the common parent directory of the planned
     // writes grouped by (format, merge_policy). We scan below each
     // root and compare to the set of planned destinations.
-    let mut planned_by_root: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
-    let mut destructive_roots: BTreeSet<PathBuf> = BTreeSet::new();
-    for w in &plan.writes {
-        let root = target_root_for(&w.dest, w.format);
-        planned_by_root
-            .entry(root.clone())
-            .or_default()
-            .insert(w.dest.clone());
-        if matches!(w.merge_policy, MergePolicy::Destructive) {
-            destructive_roots.insert(root);
-        }
-    }
+    let (planned_by_root, destructive_roots) = build_root_plan_index(plan);
     for root in destructive_roots {
         let Some(planned) = planned_by_root.get(&root) else {
             continue;
@@ -247,6 +240,72 @@ pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
 
     out.sort_by(|a, b| a.dest.cmp(&b.dest));
     out
+}
+
+fn prune_unmanaged_destructive_files(plan: &InstallPlan) -> MethodologyResult<()> {
+    let (planned_by_root, destructive_roots) = build_root_plan_index(plan);
+    for root in destructive_roots {
+        validate_safe_destructive_root(&root)?;
+        let Some(planned) = planned_by_root.get(&root) else {
+            continue;
+        };
+        let mut remove_error: Option<(PathBuf, std::io::Error)> = None;
+        walk_files(&root, &mut |found| {
+            if planned.contains(found) {
+                return;
+            }
+            if remove_error.is_some() {
+                return;
+            }
+            if let Err(source) = std::fs::remove_file(found) {
+                remove_error = Some((found.to_path_buf(), source));
+            }
+        });
+        if let Some((path, source)) = remove_error {
+            return Err(MethodologyError::Io { path, source });
+        }
+    }
+    Ok(())
+}
+
+fn validate_safe_destructive_root(root: &Path) -> MethodologyResult<()> {
+    if root.as_os_str().is_empty() || root == Path::new(".") || root == Path::new("/") {
+        return Err(MethodologyError::Validation(format!(
+            "refusing destructive prune on unsafe root `{}`",
+            root.display()
+        )));
+    }
+    if let Ok(abs) = std::fs::canonicalize(root)
+        && abs == Path::new("/")
+    {
+        return Err(MethodologyError::Validation(format!(
+            "refusing destructive prune on filesystem root `{}`",
+            root.display()
+        )));
+    }
+    Ok(())
+}
+
+fn build_root_plan_index(
+    plan: &InstallPlan,
+) -> (
+    std::collections::BTreeMap<PathBuf, std::collections::BTreeSet<PathBuf>>,
+    std::collections::BTreeSet<PathBuf>,
+) {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut planned_by_root: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
+    let mut destructive_roots: BTreeSet<PathBuf> = BTreeSet::new();
+    for w in &plan.writes {
+        let root = target_root_for(&w.dest, w.format);
+        planned_by_root
+            .entry(root.clone())
+            .or_default()
+            .insert(w.dest.clone());
+        if matches!(w.merge_policy, MergePolicy::Destructive) {
+            destructive_roots.insert(root);
+        }
+    }
+    (planned_by_root, destructive_roots)
 }
 
 /// Derive the scan-root for a planned write. For `codex-skills` the
@@ -365,6 +424,74 @@ mod tests {
         assert!(
             opencode.is_some(),
             "cli binding expected in opencode target"
+        );
+    }
+
+    #[test]
+    fn apply_install_prunes_extras_for_destructive_targets() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join(".claude/commands");
+        std::fs::create_dir_all(&root).expect("mkdir");
+        let stale = root.join("stale.md");
+        std::fs::write(&stale, "stale").expect("seed stale");
+        let dest = root.join("do-task.md");
+        let plan = InstallPlan {
+            writes: vec![PlannedWrite {
+                dest: dest.clone(),
+                bytes: b"fresh\n".to_vec(),
+                merge_policy: MergePolicy::Destructive,
+                format: InstallFormat::ClaudeCode,
+            }],
+        };
+
+        let written = apply_install(&plan).expect("apply");
+        assert_eq!(written, vec![dest.clone()]);
+        assert!(
+            !stale.exists(),
+            "destructive apply must prune unmanaged files"
+        );
+        assert_eq!(std::fs::read_to_string(dest).expect("read"), "fresh\n");
+    }
+
+    #[test]
+    fn apply_install_does_not_prune_extras_for_preserve_existing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("tanren/standards/security");
+        std::fs::create_dir_all(&root).expect("mkdir");
+        let extra = root.join("local-note.md");
+        std::fs::write(&extra, "keep me").expect("seed extra");
+        let managed = root.join("input-validation.md");
+        let plan = InstallPlan {
+            writes: vec![PlannedWrite {
+                dest: managed.clone(),
+                bytes: b"managed\n".to_vec(),
+                merge_policy: MergePolicy::PreserveExisting,
+                format: InstallFormat::StandardsBaseline,
+            }],
+        };
+
+        let _ = apply_install(&plan).expect("apply");
+        assert!(
+            extra.exists(),
+            "preserve_existing targets must not prune unmanaged files"
+        );
+    }
+
+    #[test]
+    fn apply_install_rejects_unsafe_destructive_root() {
+        let plan = InstallPlan {
+            writes: vec![PlannedWrite {
+                dest: PathBuf::from("do-task.md"),
+                bytes: b"x".to_vec(),
+                merge_policy: MergePolicy::Destructive,
+                format: InstallFormat::ClaudeCode,
+            }],
+        };
+
+        let err = apply_install(&plan).expect_err("unsafe root must fail");
+        assert!(
+            matches!(err, MethodologyError::Validation(ref msg) if msg.contains("unsafe root")),
+            "unexpected error: {err:?}"
         );
     }
 }

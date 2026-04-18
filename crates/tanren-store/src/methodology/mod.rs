@@ -13,7 +13,8 @@ pub mod replay;
 pub use idempotency::{InsertMethodologyIdempotencyParams, MethodologyIdempotencyEntry};
 pub use outbox::{AppendPhaseEventOutboxParams, PhaseEventOutboxEntry};
 pub use projections::{
-    MethodologyEventFetchError, adherence_findings_for_spec, findings_for_spec, findings_for_task,
-    load_methodology_events, rubric_for_spec, signposts_for_spec, tasks_for_spec,
+    MethodologyEventFetchError, adherence_findings_for_spec, findings_by_ids, findings_for_spec,
+    findings_for_task, load_methodology_events, rubric_for_spec, signposts_for_spec,
+    tasks_for_spec,
 };
 pub use replay::{ReplayError, ReplayStats, ingest_phase_events};

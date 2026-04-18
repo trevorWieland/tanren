@@ -247,10 +247,11 @@ impl MethodologyService {
                 });
             }
         }
-        let all = tanren_store::methodology::projections::findings_for_spec(self.store(), spec_id)
-            .await?;
+        let fetched =
+            tanren_store::methodology::projections::findings_by_ids(self.store(), spec_id, ids)
+                .await?;
         let by_id: std::collections::HashMap<FindingId, Finding> =
-            all.into_iter().map(|f| (f.id, f)).collect();
+            fetched.into_iter().map(|f| (f.id, f)).collect();
         let mut missing = Vec::new();
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {

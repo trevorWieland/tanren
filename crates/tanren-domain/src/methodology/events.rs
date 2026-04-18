@@ -397,7 +397,9 @@ where
                 }
             }
             MethodologyEvent::TaskCompleted(e) if e.task_id == task_id => {
-                if guards.satisfies(required) {
+                if matches!(status, Some(TaskStatus::Implemented { .. }))
+                    && guards.satisfies(required)
+                {
                     status = Some(TaskStatus::Complete);
                 }
             }

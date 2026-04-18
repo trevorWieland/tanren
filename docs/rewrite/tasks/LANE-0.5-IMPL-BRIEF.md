@@ -133,9 +133,10 @@ no business logic.
 
 #### A.3 `tanren-store::methodology`
 
-Extend the existing `DomainEvent`-keyed event log — **no new
-tables**. Add SeaORM migrations for the new event variants (sqlite
-+ postgres dialect coverage; both backends must work).
+Extend the existing `DomainEvent`-keyed event log and methodology
+storage surfaces (including outbox/idempotency and read-side indexes)
+with SeaORM migrations (sqlite + postgres dialect coverage; both
+backends must work).
 
 New projections:
 - `tasks_for_spec(spec_id) → Vec<Task>`

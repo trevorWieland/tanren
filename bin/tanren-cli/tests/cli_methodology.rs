@@ -13,6 +13,9 @@ use std::process::Command;
 
 use assert_cmd::prelude::*;
 use serde_json::Value;
+use tanren_domain::methodology::events::{MethodologyEvent, TaskCreated};
+use tanren_domain::methodology::task::{Task, TaskOrigin, TaskStatus};
+use tanren_domain::{NonEmptyString, SpecId, TaskId};
 use tempfile::TempDir;
 
 fn mkdb() -> (TempDir, String) {
@@ -55,6 +58,43 @@ fn parse_stdout(out: &std::process::Output) -> Value {
 fn parse_stderr(out: &std::process::Output) -> Value {
     let text = String::from_utf8_lossy(&out.stderr);
     serde_json::from_str(&text).expect("stderr is JSON")
+}
+
+fn write_phase_events_file(folder: &std::path::Path, spec_id: SpecId) -> PathBuf {
+    let task = Task {
+        id: TaskId::new(),
+        spec_id,
+        title: NonEmptyString::try_new("replay task").expect("title"),
+        description: String::new(),
+        acceptance_criteria: vec![],
+        origin: TaskOrigin::User,
+        status: TaskStatus::Pending,
+        depends_on: vec![],
+        parent_task_id: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    let payload = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(task),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let line = serde_json::json!({
+        "event_id": uuid::Uuid::now_v7(),
+        "spec_id": spec_id,
+        "phase": "do-task",
+        "agent_session_id": "session-1",
+        "timestamp": chrono::Utc::now(),
+        "tool": "create_task",
+        "payload": payload,
+    });
+    let path = folder.join("phase-events.jsonl");
+    std::fs::write(
+        &path,
+        format!("{}\n", serde_json::to_string(&line).expect("json")),
+    )
+    .expect("write phase-events");
+    path
 }
 
 #[test]
@@ -233,6 +273,102 @@ fn replay_missing_file_returns_not_found() {
     let err = parse_stderr(&out);
     assert_eq!(err["kind"].as_str(), Some("not_found"));
     assert_eq!(err["resource"].as_str(), Some("phase-events.jsonl"));
+}
+
+#[test]
+fn ingest_phase_events_does_not_require_spec_folder() {
+    let (d, url) = mkdb();
+    let spec_id = SpecId::new();
+    let file = write_phase_events_file(d.path(), spec_id);
+    let out = cli(&url)
+        .args([
+            "methodology",
+            "ingest-phase-events",
+            file.to_str().expect("utf8"),
+        ])
+        .output()
+        .expect("cli");
+    assert!(
+        out.status.success(),
+        "ingest-phase-events should run without --spec-folder: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn replay_does_not_require_spec_folder() {
+    let (d, url) = mkdb();
+    let spec_id = SpecId::new();
+    let spec_folder = mk_spec_folder(&d, &spec_id.to_string());
+    let _path = write_phase_events_file(&spec_folder, spec_id);
+    let out = cli(&url)
+        .args(["methodology", "replay", spec_folder.to_str().expect("utf8")])
+        .output()
+        .expect("cli");
+    assert!(
+        out.status.success(),
+        "replay should run without --spec-folder: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn replay_round_trips_real_generated_phase_events_file() {
+    let (source_dir, source_url) = mkdb();
+    let spec = "00000000-0000-0000-0000-000000000031";
+    let spec_folder = mk_spec_folder(&source_dir, spec);
+
+    let create = cli(&source_url)
+        .args([
+            "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
+            "task",
+            "create",
+            "--json",
+            &format!(
+                "{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\",\"title\":\"Replay Me\",\"description\":\"\",\"origin\":{{\"kind\":\"user\"}},\"acceptance_criteria\":[]}}"
+            ),
+        ])
+        .output()
+        .expect("create");
+    assert!(
+        create.status.success(),
+        "seed create failed: {}",
+        String::from_utf8_lossy(&create.stderr)
+    );
+    let phase_events = spec_folder.join("phase-events.jsonl");
+    assert!(
+        phase_events.exists(),
+        "phase-events.jsonl must be generated"
+    );
+
+    let (_target_dir, target_url) = mkdb();
+    let replay = cli(&target_url)
+        .args(["methodology", "replay", spec_folder.to_str().expect("utf8")])
+        .output()
+        .expect("replay");
+    assert!(
+        replay.status.success(),
+        "replay failed: {}",
+        String::from_utf8_lossy(&replay.stderr)
+    );
+
+    let list = cli(&target_url)
+        .args([
+            "methodology",
+            "task",
+            "list",
+            "--json",
+            &format!("{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\"}}"),
+        ])
+        .output()
+        .expect("list");
+    assert!(list.status.success(), "list failed after replay");
+    let tasks = parse_stdout(&list);
+    let arr = tasks.as_array().expect("array");
+    assert_eq!(arr.len(), 1, "replayed store must contain one task");
+    assert_eq!(arr[0]["title"].as_str(), Some("Replay Me"));
 }
 
 #[test]

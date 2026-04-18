@@ -79,8 +79,7 @@ impl Store {
         Ok(())
     }
 
-    /// Legacy append path used by callers that do not enqueue file
-    /// projection outbox rows.
+    /// Append a methodology event without an outbox projection row.
     ///
     /// # Errors
     /// See [`Self::append_methodology_event_with_outbox`].

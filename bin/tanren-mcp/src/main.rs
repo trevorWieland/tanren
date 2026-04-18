@@ -48,8 +48,7 @@ async fn run() -> Result<()> {
     let phase = std::env::var("TANREN_MCP_PHASE").unwrap_or_else(|_| "mcp".to_owned());
     let database_url = std::env::var("TANREN_DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:tanren.db?mode=rwc".to_owned());
-    let config_path =
-        std::env::var("TANREN_CONFIG_PATH").unwrap_or_else(|_| "tanren.yml".to_owned());
+    let config_path = std::env::var("TANREN_CONFIG").unwrap_or_else(|_| "tanren.yml".to_owned());
     let runtime = load_methodology_runtime_settings(Path::new(&config_path))
         .with_context(|| format!("loading methodology config from {config_path}"))?;
     let standards = tanren_app_services::methodology::standards::load_runtime_standards(
