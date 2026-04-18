@@ -35,7 +35,7 @@ fn init_frames() -> Vec<Value> {
     ]
 }
 
-fn spawn_mcp(db_url: &str, scope: &str) -> (TempDir, std::process::Child) {
+fn spawn_mcp(db_url: &str, scope: &str, spec_id: &str) -> (TempDir, std::process::Child) {
     let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
     // The methodology service needs a migrated store before the
     // first call; run `tanren-cli db migrate` once so the schema
@@ -51,8 +51,13 @@ fn spawn_mcp(db_url: &str, scope: &str) -> (TempDir, std::process::Child) {
         "migrate failed: {}",
         String::from_utf8_lossy(&mig.stderr)
     );
+    let spec_folder = dir
+        .path()
+        .join(format!("2026-01-01-0101-{spec_id}-mcp-test"));
+    std::fs::create_dir_all(&spec_folder).expect("mkdir spec folder");
     let child = Command::new(&bin)
         .env("TANREN_DATABASE_URL", db_url)
+        .env("TANREN_SPEC_FOLDER", &spec_folder)
         .env("TANREN_PHASE_CAPABILITIES", scope)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -140,7 +145,7 @@ fn documented_tool_names() -> BTreeSet<String> {
 fn list_tools_advertises_full_catalog() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.read");
+    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000001");
 
     let mut frames = init_frames();
     frames.push(json!({ "jsonrpc":"2.0", "id":2, "method":"tools/list" }));
@@ -172,7 +177,11 @@ fn list_tools_advertises_full_catalog() {
 fn call_tool_round_trips_create_and_list() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.create,task.read");
+    let (_d, mut child) = spawn_mcp(
+        &url,
+        "task.create,task.read",
+        "00000000-0000-0000-0000-000000000021",
+    );
 
     // Two-phase send: the rmcp server processes both requests on a
     // single tokio task, but `create_task` returns *before* the
@@ -249,7 +258,7 @@ fn call_tool_round_trips_create_and_list() {
 fn call_tool_with_invalid_params_returns_typed_validation_error() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.create");
+    let (_d, mut child) = spawn_mcp(&url, "task.create", "00000000-0000-0000-0000-000000000022");
 
     let mut frames = init_frames();
     frames.push(json!({
@@ -288,7 +297,7 @@ fn capability_denied_when_scope_excludes_tool() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
     // Scope grants only task.read — create_task must be denied.
-    let (_d, mut child) = spawn_mcp(&url, "task.read");
+    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000023");
 
     let mut frames = init_frames();
     frames.push(json!({
@@ -326,7 +335,7 @@ fn capability_denied_when_scope_excludes_tool() {
 fn unknown_tool_returns_typed_not_found() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.read");
+    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000024");
 
     let mut frames = init_frames();
     frames.push(json!({
@@ -354,7 +363,7 @@ fn unknown_tool_returns_typed_not_found() {
 fn catalog_and_agent_tool_surface_doc_stay_in_parity() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.read");
+    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000025");
 
     let mut frames = init_frames();
     frames.push(json!({ "jsonrpc":"2.0", "id":2, "method":"tools/list" }));

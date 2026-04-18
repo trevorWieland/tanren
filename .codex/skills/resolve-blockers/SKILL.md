@@ -1,5 +1,6 @@
 ---
 name: resolve-blockers
+description: Tanren methodology command `resolve-blockers`
 role: conversation
 orchestration_loop: true
 autonomy: interactive

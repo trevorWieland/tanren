@@ -1,5 +1,6 @@
 ---
 name: adhere-spec
+description: Tanren methodology command `adhere-spec`
 role: adherence
 orchestration_loop: true
 autonomy: autonomous

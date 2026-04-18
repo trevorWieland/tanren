@@ -1,5 +1,6 @@
 ---
 name: walk-spec
+description: Tanren methodology command `walk-spec`
 role: conversation
 orchestration_loop: true
 autonomy: interactive

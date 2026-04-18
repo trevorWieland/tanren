@@ -1,5 +1,8 @@
 ---
-name: walk-spec
+agent: conversation
+description: Tanren methodology command `walk-spec`
+model: default
+subtask: false
 template: |2
 
   # walk-spec

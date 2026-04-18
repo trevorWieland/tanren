@@ -1,5 +1,8 @@
 ---
-name: shape-spec
+agent: conversation
+description: Tanren methodology command `shape-spec`
+model: default
+subtask: false
 template: |2
 
   # shape-spec

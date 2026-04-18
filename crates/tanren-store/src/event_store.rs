@@ -230,6 +230,9 @@ fn apply_filters(
     if let Some(entity_kind) = filter.entity_kind {
         query = query.filter(events::Column::EntityKind.eq(entity_kind.to_string()));
     }
+    if let Some(spec_id) = filter.spec_id {
+        query = query.filter(events::Column::SpecId.eq(spec_id.into_uuid()));
+    }
     if let Some(ref event_type) = filter.event_type {
         query = query.filter(events::Column::EventType.eq(event_type.as_str()));
     }

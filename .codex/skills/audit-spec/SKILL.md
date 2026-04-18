@@ -1,5 +1,6 @@
 ---
 name: audit-spec
+description: Tanren methodology command `audit-spec`
 role: audit
 orchestration_loop: true
 autonomy: autonomous

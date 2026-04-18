@@ -1,5 +1,6 @@
 ---
 name: shape-spec
+description: Tanren methodology command `shape-spec`
 role: conversation
 orchestration_loop: true
 autonomy: interactive

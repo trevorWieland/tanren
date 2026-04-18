@@ -1,3 +1,9 @@
 [mcp_servers.tanren]
-args = []
+args = ["serve"]
 command = "tanren-mcp"
+enabled = true
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+
+[mcp_servers.tanren.env]
+TANREN_CONFIG = "./tanren.yml"

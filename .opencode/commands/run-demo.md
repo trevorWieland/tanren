@@ -1,5 +1,8 @@
 ---
-name: run-demo
+agent: implementation
+description: Tanren methodology command `run-demo`
+model: default
+subtask: false
 template: |2
 
   # run-demo

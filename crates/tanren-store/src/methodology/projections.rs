@@ -125,6 +125,7 @@ async fn load_methodology_events_filtered<S: EventStore>(
         let filter = EventFilter {
             entity_ref,
             entity_kind,
+            spec_id: Some(spec_id),
             event_type: Some("methodology".into()),
             limit: page_size.max(1),
             cursor,
@@ -132,9 +133,7 @@ async fn load_methodology_events_filtered<S: EventStore>(
         };
         let page = store.query_events(&filter).await?;
         for env in page.events {
-            if let DomainEvent::Methodology { event } = env.payload
-                && event.spec_id() == Some(spec_id)
-            {
+            if let DomainEvent::Methodology { event } = env.payload {
                 out.push(event);
             }
         }
@@ -172,7 +171,12 @@ pub async fn tasks_for_spec<S: EventStore>(
 #[must_use]
 pub fn fold_tasks(events: &[MethodologyEvent], required: &[RequiredGuard]) -> Vec<Task> {
     let mut seed: std::collections::HashMap<TaskId, Task> = std::collections::HashMap::new();
+    let mut grouped: std::collections::HashMap<TaskId, Vec<MethodologyEvent>> =
+        std::collections::HashMap::new();
     for ev in events {
+        if let Some(task_id) = task_event_task_id(ev) {
+            grouped.entry(task_id).or_default().push(ev.clone());
+        }
         match ev {
             MethodologyEvent::TaskCreated(EvTaskCreated { task, .. }) => {
                 seed.insert(task.id, (**task).clone());
@@ -188,7 +192,15 @@ pub fn fold_tasks(events: &[MethodologyEvent], required: &[RequiredGuard]) -> Ve
     }
     let mut out: Vec<Task> = seed.into_values().collect();
     for t in &mut out {
-        t.status = fold_task_status(t.id, required, events).unwrap_or(TaskStatus::Pending);
+        t.status = fold_task_status(
+            t.id,
+            required,
+            grouped
+                .get(&t.id)
+                .into_iter()
+                .flat_map(|events| events.iter()),
+        )
+        .unwrap_or(TaskStatus::Pending);
     }
     // Deterministic order: created_at, then id (uuid-v7 tiebreaker).
     out.sort_by(|a, b| {
@@ -197,6 +209,22 @@ pub fn fold_tasks(events: &[MethodologyEvent], required: &[RequiredGuard]) -> Ve
             .then(a.id.into_uuid().cmp(&b.id.into_uuid()))
     });
     out
+}
+
+fn task_event_task_id(event: &MethodologyEvent) -> Option<TaskId> {
+    match event {
+        MethodologyEvent::TaskCreated(e) => Some(e.task.id),
+        MethodologyEvent::TaskStarted(e) => Some(e.task_id),
+        MethodologyEvent::TaskImplemented(e) => Some(e.task_id),
+        MethodologyEvent::TaskGateChecked(e) => Some(e.task_id),
+        MethodologyEvent::TaskAudited(e) => Some(e.task_id),
+        MethodologyEvent::TaskAdherent(e) => Some(e.task_id),
+        MethodologyEvent::TaskXChecked(e) => Some(e.task_id),
+        MethodologyEvent::TaskCompleted(e) => Some(e.task_id),
+        MethodologyEvent::TaskAbandoned(e) => Some(e.task_id),
+        MethodologyEvent::TaskRevised(e) => Some(e.task_id),
+        _ => None,
+    }
 }
 
 /// Fold the methodology event stream into the set of all findings

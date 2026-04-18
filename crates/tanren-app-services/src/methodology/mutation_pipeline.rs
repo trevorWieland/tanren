@@ -235,7 +235,14 @@ mod tests {
         let store = Store::open_and_migrate("sqlite::memory:")
             .await
             .expect("open");
-        MethodologyService::with_runtime(Arc::new(store), vec![], None, vec![])
+        let runtime = crate::methodology::service::PhaseEventsRuntime {
+            spec_folder: std::env::temp_dir().join(format!(
+                "tanren-methodology-mutation-pipeline-{}",
+                uuid::Uuid::now_v7()
+            )),
+            agent_session_id: "test-session".into(),
+        };
+        MethodologyService::with_runtime(Arc::new(store), vec![], Some(runtime), vec![])
     }
 
     #[tokio::test]

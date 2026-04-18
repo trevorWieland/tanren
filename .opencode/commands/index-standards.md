@@ -1,5 +1,8 @@
 ---
-name: index-standards
+agent: meta
+description: Tanren methodology command `index-standards`
+model: default
+subtask: false
 template: |2
 
   # index-standards

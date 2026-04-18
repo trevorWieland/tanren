@@ -7,34 +7,22 @@ use std::sync::Mutex;
 
 use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
-use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
-use tanren_domain::methodology::events::{
-    MethodologyEvent, TaskAbandoned as EvTaskAbandoned, TaskAdherent, TaskAudited,
-    TaskCompleted as EvTaskCompleted, TaskCreated as EvTaskCreated, TaskGateChecked,
-    TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
-};
+use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::methodology::standard::Standard;
-use tanren_domain::methodology::task::{
-    LegalTransition, RequiredGuard, Task, TaskStatus, TaskTransitionKind,
-};
-use tanren_domain::{EntityRef, EventId, SpecId, TaskId};
+use tanren_domain::methodology::task::RequiredGuard;
+use tanren_domain::{EventId, SpecId, TaskId};
 use tanren_store::Store;
+use tanren_store::methodology::{AppendPhaseEventOutboxParams, PhaseEventOutboxEntry};
 
-use tanren_contract::methodology::{
-    AbandonTaskParams, CompleteTaskParams, CreateTaskParams, CreateTaskResponse, SchemaVersion,
-    StartTaskParams,
-};
+use super::errors::{MethodologyError, MethodologyResult};
 
-use super::capabilities::enforce;
-use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
-
-const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
+const OUTBOX_DRAIN_BATCH_SIZE: u64 = 256;
 
 /// Shared methodology service.
 ///
 /// Both `tanren-cli` and `tanren-mcp` take `Arc<MethodologyService>`.
 /// The service is transport-agnostic; transports only supply the
-/// caller's [`CapabilityScope`] and phase name.
+/// caller capability scope and phase name.
 #[derive(Debug, Clone)]
 pub struct MethodologyService {
     pub(crate) store: Arc<Store>,
@@ -151,349 +139,116 @@ impl MethodologyService {
         event: MethodologyEvent,
     ) -> MethodologyResult<EventEnvelope> {
         let envelope = Self::new_envelope(event);
-        self.store.append_methodology_event(&envelope).await?;
-        self.append_phase_event_line(phase, &envelope)?;
+        let outbox = self.phase_event_outbox(phase, &envelope)?;
+        let drain_spec = outbox.as_ref().map(|(spec_id, _)| *spec_id);
+        let outbox_payload = outbox.map(|(_, payload)| payload);
+        self.store
+            .append_methodology_event_with_outbox(&envelope, outbox_payload)
+            .await?;
+        if let Some(spec_id) = drain_spec {
+            self.drain_phase_event_outbox_for_spec(spec_id).await?;
+        }
         Ok(envelope)
     }
 
-    fn append_phase_event_line(
+    fn phase_event_outbox(
         &self,
         phase: &str,
         envelope: &EventEnvelope,
-    ) -> MethodologyResult<()> {
-        let Some(runtime) = &self.phase_events else {
-            return Ok(());
-        };
+    ) -> MethodologyResult<Option<(SpecId, AppendPhaseEventOutboxParams)>> {
         let DomainEvent::Methodology { event } = &envelope.payload else {
-            return Ok(());
+            return Ok(None);
         };
         let Some(spec_id) = event.spec_id() else {
-            return Ok(());
+            return Ok(None);
         };
+        let runtime =
+            self.phase_events
+                .as_ref()
+                .ok_or_else(|| MethodologyError::FieldValidation {
+                    field_path: "/spec_folder".into(),
+                    expected: "audited runtime requires a spec-folder context".into(),
+                    actual: "missing".into(),
+                    remediation:
+                        "set --spec-folder / TANREN_SPEC_FOLDER for mutating methodology calls"
+                            .into(),
+                })?;
         let line = super::line_for_envelope(envelope, spec_id, phase, &runtime.agent_session_id);
         let Some(line) = line else {
-            return Ok(());
+            return Ok(None);
         };
-        let path = runtime.spec_folder.join("phase-events.jsonl");
-        super::append_jsonl_line_atomic(&path, &line)?;
-        Ok(())
+        let line_json =
+            serde_json::to_string(&line).map_err(|e| MethodologyError::Internal(e.to_string()))?;
+        Ok(Some((
+            spec_id,
+            AppendPhaseEventOutboxParams {
+                spec_id,
+                spec_folder: runtime.spec_folder.to_string_lossy().to_string(),
+                line_json,
+            },
+        )))
     }
 
-    // -- §3.1 Core task operations -------------------------------------------
-
-    /// `create_task` — emit [`MethodologyEvent::TaskCreated`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn create_task(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        params: CreateTaskParams,
-    ) -> MethodologyResult<CreateTaskResponse> {
-        enforce(scope, ToolCapability::TaskCreate, phase)?;
-        let title = require_non_empty("/title", &params.title, Some(160))?;
-        if let Some(key) = params.idempotency_key.as_deref()
-            && let Some(existing) = self
-                .find_task_created_by_idempotency(params.spec_id, key)
-                .await?
-        {
-            let semantically_same = existing.title == title
-                && existing.description == params.description
-                && existing.origin == params.origin
-                && existing.acceptance_criteria == params.acceptance_criteria
-                && existing.depends_on == params.depends_on
-                && existing.parent_task_id == params.parent_task_id;
-            if !semantically_same {
-                return Err(MethodologyError::Conflict {
-                    resource: "create_task".into(),
-                    reason: format!(
-                        "idempotency_key `{key}` already used with different payload for task {}",
-                        existing.id
-                    ),
-                });
-            }
-            return Ok(CreateTaskResponse {
-                schema_version: SchemaVersion::current(),
-                task_id: existing.id,
-            });
-        }
-        let now = Utc::now();
-        let task = Task {
-            id: TaskId::new(),
-            spec_id: params.spec_id,
-            title,
-            description: params.description,
-            acceptance_criteria: params.acceptance_criteria,
-            origin: params.origin.clone(),
-            status: TaskStatus::Pending,
-            depends_on: params.depends_on,
-            parent_task_id: params.parent_task_id,
-            created_at: now,
-            updated_at: now,
-        };
-        let task_id = task.id;
-        self.emit(
-            phase,
-            MethodologyEvent::TaskCreated(EvTaskCreated {
-                task: Box::new(task),
-                origin: params.origin,
-                idempotency_key: params.idempotency_key,
-            }),
-        )
-        .await?;
-        if let Ok(mut cache) = self.task_spec_cache.lock() {
-            cache.insert(task_id, params.spec_id);
-        }
-        Ok(CreateTaskResponse {
-            schema_version: SchemaVersion::current(),
-            task_id,
-        })
-    }
-
-    /// `start_task` — emit [`MethodologyEvent::TaskStarted`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn start_task(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        params: StartTaskParams,
-    ) -> MethodologyResult<()> {
-        enforce(scope, ToolCapability::TaskStart, phase)?;
-        let spec_id = self.resolve_spec_for_task(params.task_id).await?;
-        match self
-            .check_transition(spec_id, params.task_id, TaskTransitionKind::Start)
-            .await?
-        {
-            LegalTransition::Transition => {
-                self.emit(
-                    phase,
-                    MethodologyEvent::TaskStarted(TaskStarted {
-                        task_id: params.task_id,
-                        spec_id,
-                    }),
-                )
-                .await?;
-            }
-            LegalTransition::Idempotent => {}
-        }
-        Ok(())
-    }
-
-    /// `complete_task` — emit [`MethodologyEvent::TaskImplemented`].
-    /// (The `TaskCompleted` transition to terminal state fires later,
-    /// once all required guards have arrived.)
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn complete_task(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        params: CompleteTaskParams,
-    ) -> MethodologyResult<()> {
-        enforce(scope, ToolCapability::TaskComplete, phase)?;
-        let spec_id = self.resolve_spec_for_task(params.task_id).await?;
-        match self
-            .check_transition(spec_id, params.task_id, TaskTransitionKind::Implement)
-            .await?
-        {
-            LegalTransition::Transition => {
-                self.emit(
-                    phase,
-                    MethodologyEvent::TaskImplemented(TaskImplemented {
-                        task_id: params.task_id,
-                        spec_id,
-                        evidence_refs: params.evidence_refs,
-                    }),
-                )
-                .await?;
-                if self.required_guards.is_empty() {
-                    self.emit(
-                        phase,
-                        MethodologyEvent::TaskCompleted(EvTaskCompleted {
-                            task_id: params.task_id,
-                            spec_id,
-                        }),
-                    )
-                    .await?;
-                }
-            }
-            LegalTransition::Idempotent => {}
-        }
-        Ok(())
-    }
-
-    /// `abandon_task` — emit [`MethodologyEvent::TaskAbandoned`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn abandon_task(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        params: AbandonTaskParams,
-    ) -> MethodologyResult<()> {
-        enforce(scope, ToolCapability::TaskAbandon, phase)?;
-        // F8: abandon requires either a non-empty `reason` *and* at
-        // least one replacement task, or an explicit user-discard note.
-        // The contract accepts both as a single shape; replacements
-        // non-empty implies "replaced" semantics, empty implies
-        // "user-discarded" and the reason must be substantive.
-        let reason = require_non_empty("/reason", &params.reason, Some(500))?;
-        if params.replacements.is_empty() && reason.as_str().trim().len() < 8 {
-            return Err(MethodologyError::FieldValidation {
-                field_path: "/replacements".into(),
-                expected: "non-empty replacements[] OR /reason describing the discard"
-                    .into(),
-                actual: format!(
-                    "replacements=[], reason={} chars",
-                    reason.as_str().trim().len()
-                ),
-                remediation:
-                    "either supply at least one replacement task id, or describe the discard in /reason (≥ 8 chars)".into(),
-            });
-        }
-        let spec_id = self.resolve_spec_for_task(params.task_id).await?;
-        // Legal from any non-terminal state; idempotent if already
-        // abandoned with the same replacements (content hash elsewhere).
-        match self
-            .check_transition(spec_id, params.task_id, TaskTransitionKind::Abandon)
-            .await?
-        {
-            LegalTransition::Transition => {
-                self.emit(
-                    phase,
-                    MethodologyEvent::TaskAbandoned(EvTaskAbandoned {
-                        task_id: params.task_id,
-                        spec_id,
-                        reason,
-                        replacements: params.replacements,
-                    }),
-                )
-                .await?;
-            }
-            LegalTransition::Idempotent => {}
-        }
-        Ok(())
-    }
-
-    /// Fold the current status of `task_id` from the event log and
-    /// consult [`TaskStatus::legal_next`]. Returns a typed
-    /// [`MethodologyError::IllegalTaskTransition`] on rejection.
-    async fn check_transition(
-        &self,
-        spec_id: SpecId,
-        task_id: TaskId,
-        kind: TaskTransitionKind,
-    ) -> MethodologyResult<LegalTransition> {
-        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
-            self.store(),
-            EntityRef::Task(task_id),
-            Some(spec_id),
-            METHODOLOGY_PAGE_SIZE,
-        )
-        .await?;
-        let current = fold_task_status(task_id, &self.required_guards, events.iter())
-            .unwrap_or(TaskStatus::Pending);
-        current
-            .legal_next(kind)
-            .map_err(|e| MethodologyError::IllegalTaskTransition {
-                task_id,
-                from: e.from.to_owned(),
-                attempted: e.attempted.to_owned(),
-            })
-    }
-
-    /// `mark_task_guard_satisfied` emits one discrete guard event and,
-    /// on convergence, emits `TaskCompleted` in the same call.
-    ///
-    /// # Errors
-    /// See [`MethodologyError`]. Propagates
-    /// [`MethodologyError::IllegalTaskTransition`] if the task is in a
-    /// state that cannot accept a guard event.
-    pub async fn mark_task_guard_satisfied(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        task_id: TaskId,
-        guard: RequiredGuard,
-        idempotency_key: Option<String>,
-    ) -> MethodologyResult<()> {
-        enforce(scope, ToolCapability::TaskComplete, phase)?;
-        let spec_id = self.resolve_spec_for_task(task_id).await?;
-        match self
-            .check_transition(spec_id, task_id, TaskTransitionKind::Guard)
-            .await?
-        {
-            LegalTransition::Idempotent => return Ok(()),
-            LegalTransition::Transition => {}
-        }
-        self.emit(
-            phase,
-            guard_event(task_id, spec_id, guard, idempotency_key)?,
-        )
-        .await?;
-        // Re-fold and fire `TaskCompleted` once required guards converge.
-        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
-            self.store(),
-            EntityRef::Task(task_id),
-            Some(spec_id),
-            METHODOLOGY_PAGE_SIZE,
-        )
-        .await?;
-        let status = fold_task_status(task_id, &self.required_guards, events.iter())
-            .unwrap_or(TaskStatus::Pending);
-        if let TaskStatus::Implemented { guards } = status
-            && guards.satisfies(&self.required_guards)
-        {
-            self.emit(
-                phase,
-                MethodologyEvent::TaskCompleted(EvTaskCompleted { task_id, spec_id }),
-            )
+    async fn drain_phase_event_outbox_for_spec(&self, spec_id: SpecId) -> MethodologyResult<()> {
+        let pending = self
+            .store
+            .load_pending_phase_event_outbox(Some(spec_id), OUTBOX_DRAIN_BATCH_SIZE)
             .await?;
+        for row in pending {
+            self.process_phase_event_outbox_row(row).await?;
         }
         Ok(())
     }
-}
 
-fn guard_event(
-    task_id: TaskId,
-    spec_id: SpecId,
-    guard: RequiredGuard,
-    idempotency_key: Option<String>,
-) -> MethodologyResult<MethodologyEvent> {
-    let event = match guard {
-        RequiredGuard::GateChecked => MethodologyEvent::TaskGateChecked(TaskGateChecked {
-            task_id,
-            spec_id,
-            idempotency_key,
-        }),
-        RequiredGuard::Audited => MethodologyEvent::TaskAudited(TaskAudited {
-            task_id,
-            spec_id,
-            idempotency_key,
-        }),
-        RequiredGuard::Adherent => MethodologyEvent::TaskAdherent(TaskAdherent {
-            task_id,
-            spec_id,
-            idempotency_key,
-        }),
-        RequiredGuard::Extra(name) => MethodologyEvent::TaskXChecked(TaskXChecked {
-            task_id,
-            spec_id,
-            guard_name: tanren_domain::NonEmptyString::try_new(name).map_err(|e| {
-                MethodologyError::FieldValidation {
-                    field_path: "/guard".into(),
-                    expected: "extra guard name must be non-empty".into(),
-                    actual: "empty".into(),
-                    remediation: e.to_string(),
-                }
-            })?,
-            idempotency_key,
-        }),
-    };
-    Ok(event)
+    async fn process_phase_event_outbox_row(
+        &self,
+        row: PhaseEventOutboxEntry,
+    ) -> MethodologyResult<()> {
+        self.store
+            .increment_phase_event_outbox_attempt(row.event_id)
+            .await?;
+        let path = PathBuf::from(&row.spec_folder).join("phase-events.jsonl");
+        let already_projected = if row.attempt_count > 0 {
+            super::jsonl_contains_event_id(&path, row.event_id)?
+        } else {
+            false
+        };
+        if !already_projected
+            && let Err(err) = super::append_jsonl_encoded_line(&path, &row.line_json)
+        {
+            let _ = self
+                .store
+                .mark_phase_event_outbox_pending_error(row.event_id, &err.to_string())
+                .await;
+            return Err(err);
+        }
+        self.store
+            .mark_phase_event_outbox_projected(row.event_id)
+            .await?;
+        Ok(())
+    }
+
+    /// Reconcile pending `phase-events.jsonl` outbox rows for one spec folder.
+    ///
+    /// # Errors
+    /// Returns a typed error on query or filesystem failure.
+    pub async fn reconcile_phase_events_outbox_for_folder(
+        &self,
+        spec_folder: &std::path::Path,
+    ) -> MethodologyResult<u64> {
+        let pending = self
+            .store
+            .load_pending_phase_event_outbox(None, 10_000)
+            .await?;
+        let spec_folder = spec_folder.to_string_lossy().to_string();
+        let mut projected = 0_u64;
+        for row in pending {
+            if row.spec_folder != spec_folder {
+                continue;
+            }
+            self.process_phase_event_outbox_row(row).await?;
+            projected = projected.saturating_add(1);
+        }
+        Ok(projected)
+    }
 }

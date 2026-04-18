@@ -1,5 +1,6 @@
 ---
 name: index-standards
+description: Tanren methodology command `index-standards`
 role: meta
 orchestration_loop: false
 autonomy: interactive

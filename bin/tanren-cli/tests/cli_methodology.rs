@@ -29,6 +29,12 @@ fn mkdb() -> (TempDir, String) {
     (dir, url)
 }
 
+fn mk_spec_folder(dir: &TempDir, spec_id: &str) -> PathBuf {
+    let path = dir.path().join(format!("2026-01-01-0101-{spec_id}-test"));
+    std::fs::create_dir_all(&path).expect("create spec folder");
+    path
+}
+
 fn cli(url: &str) -> Command {
     let mut cmd = Command::cargo_bin("tanren-cli").expect("bin");
     cmd.args(["--database-url", url]);
@@ -53,12 +59,15 @@ fn parse_stderr(out: &std::process::Output) -> Value {
 
 #[test]
 fn task_create_then_list_round_trips() {
-    let (_d, url) = mkdb();
+    let (d, url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000011";
+    let spec_folder = mk_spec_folder(&d, spec);
 
     let out = cli(&url)
         .args([
             "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
             "task",
             "create",
             "--json",
@@ -94,12 +103,15 @@ fn task_create_then_list_round_trips() {
 
 #[test]
 fn validation_error_returns_exit_4_with_typed_field_path() {
-    let (_d, url) = mkdb();
+    let (d, url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000012";
+    let spec_folder = mk_spec_folder(&d, spec);
 
     let out = cli(&url)
         .args([
             "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
             "task",
             "create",
             "--json",
@@ -121,11 +133,20 @@ fn validation_error_returns_exit_4_with_typed_field_path() {
 
 #[test]
 fn unknown_tool_json_returns_typed_validation() {
-    let (_d, url) = mkdb();
+    let (d, url) = mkdb();
+    let spec_folder = mk_spec_folder(&d, "00000000-0000-0000-0000-000000000020");
     // Provide malformed JSON — the CLI should surface a
     // validation_failed ToolError pointing at the argument payload.
     let out = cli(&url)
-        .args(["methodology", "task", "create", "--json", "not json"])
+        .args([
+            "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
+            "task",
+            "create",
+            "--json",
+            "not json",
+        ])
         .output()
         .expect("cli");
     assert_eq!(out.status.code(), Some(4));
@@ -135,8 +156,9 @@ fn unknown_tool_json_returns_typed_validation() {
 
 #[test]
 fn capability_enforcement_denies_when_env_scope_excludes_tool() {
-    let (_d, url) = mkdb();
+    let (d, url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000013";
+    let spec_folder = mk_spec_folder(&d, spec);
 
     // Scope permits only task.read — `create_task` must be denied
     // with a typed CapabilityDenied error.
@@ -144,6 +166,8 @@ fn capability_enforcement_denies_when_env_scope_excludes_tool() {
         .env("TANREN_PHASE_CAPABILITIES", "task.read")
         .args([
             "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
             "task",
             "create",
             "--json",
@@ -161,13 +185,16 @@ fn capability_enforcement_denies_when_env_scope_excludes_tool() {
 
 #[test]
 fn create_issue_returns_urn_no_placeholder_url() {
-    let (_d, url) = mkdb();
+    let (d, url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000014";
+    let spec_folder = mk_spec_folder(&d, spec);
     let out = cli(&url)
         .args([
             "methodology",
             "--phase",
             "triage-audits",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
             "issue",
             "create",
             "--json",
@@ -233,11 +260,14 @@ fn list_standards_returns_nonempty_baseline() {
 
 #[test]
 fn abandon_rejects_empty_replacements_and_trivial_reason() {
-    let (_d, url) = mkdb();
+    let (d, url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000016";
+    let spec_folder = mk_spec_folder(&d, spec);
     let create = cli(&url)
         .args([
             "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
             "task",
             "create",
             "--json",
@@ -254,6 +284,8 @@ fn abandon_rejects_empty_replacements_and_trivial_reason() {
     let out = cli(&url)
         .args([
             "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
             "task",
             "abandon",
             "--json",

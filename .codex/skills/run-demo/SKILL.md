@@ -1,5 +1,6 @@
 ---
 name: run-demo
+description: Tanren methodology command `run-demo`
 role: implementation
 orchestration_loop: true
 autonomy: autonomous

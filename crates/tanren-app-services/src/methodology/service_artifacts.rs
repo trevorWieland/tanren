@@ -7,7 +7,7 @@ use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{AdherenceFindingAdded, IssueCreated, MethodologyEvent};
 use tanren_domain::methodology::finding::{Finding, FindingSource};
 use tanren_domain::methodology::issue::{Issue, IssueProvider, IssueRef};
-use tanren_domain::{EntityKind, FindingId, IssueId, NonEmptyString, SignpostId};
+use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
     CreateIssueParams, CreateIssueResponse, RecordAdherenceFindingParams, SchemaVersion,
@@ -35,74 +35,61 @@ impl MethodologyService {
     ) -> MethodologyResult<CreateIssueResponse> {
         enforce(scope, ToolCapability::IssueCreate, phase)?;
         require_phase_in("create_issue", phase, &["triage-audits", "handle-feedback"])?;
-        let title = require_non_empty("/title", &params.title, Some(200))?;
-        let scope_label = require_non_empty(
-            "/suggested_spec_scope",
-            &params.suggested_spec_scope,
-            Some(120),
-        )?;
-        if let Some(key) = params.idempotency_key.as_deref()
-            && let Some(existing) = self
-                .find_issue_created_by_idempotency(params.origin_spec_id, key)
-                .await?
-        {
-            let semantically_same = existing.origin_spec_id == params.origin_spec_id
-                && existing.title == title
-                && existing.description == params.description
-                && existing.suggested_spec_scope == scope_label
-                && existing.priority == params.priority;
-            if !semantically_same {
-                return Err(MethodologyError::Conflict {
-                    resource: "create_issue".into(),
-                    reason: format!(
-                        "idempotency_key `{key}` already used with different payload for issue {}",
-                        existing.id
-                    ),
-                });
-            }
-            return Ok(CreateIssueResponse {
-                schema_version: SchemaVersion::current(),
-                issue_id: existing.id,
-                reference: existing.reference,
-            });
-        }
-        // Issues are recorded as stable URNs at creation time. The
-        // orchestrator's provider adapter later reconciles the URN to
-        // the tracker-assigned URL (GitHub issue number, etc.) by
-        // folding subsequent `IssueCreated` events into its outbox.
-        // No placeholder URL — the URN IS the canonical reference
-        // until reconciled.
-        let issue_id = IssueId::new();
-        let urn = format!("urn:tanren:issue:{}:{}", params.origin_spec_id, issue_id);
-        let reference = IssueRef {
-            provider: IssueProvider::GitHub,
-            number: 0,
-            url: NonEmptyString::try_new(urn)
-                .map_err(|e| MethodologyError::Internal(e.to_string()))?,
-        };
-        let issue = Issue {
-            id: issue_id,
-            origin_spec_id: params.origin_spec_id,
-            title,
-            description: params.description,
-            suggested_spec_scope: scope_label,
-            priority: params.priority,
-            reference: reference.clone(),
-            created_at: Utc::now(),
-        };
-        self.emit_event(
-            phase,
-            MethodologyEvent::IssueCreated(IssueCreated {
-                issue: Box::new(issue),
-                idempotency_key: params.idempotency_key,
-            }),
+        let spec_id = params.origin_spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "create_issue",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                let title = require_non_empty("/title", &params.title, Some(200))?;
+                let scope_label = require_non_empty(
+                    "/suggested_spec_scope",
+                    &params.suggested_spec_scope,
+                    Some(120),
+                )?;
+                // Issues are recorded as stable URNs at creation time. The
+                // orchestrator's provider adapter later reconciles the URN to
+                // the tracker-assigned URL (GitHub issue number, etc.) by
+                // folding subsequent `IssueCreated` events into its outbox.
+                // No placeholder URL — the URN IS the canonical reference
+                // until reconciled.
+                let issue_id = IssueId::new();
+                let urn = format!("urn:tanren:issue:{}:{}", params.origin_spec_id, issue_id);
+                let reference = IssueRef {
+                    provider: IssueProvider::GitHub,
+                    number: 0,
+                    url: NonEmptyString::try_new(urn)
+                        .map_err(|e| MethodologyError::Internal(e.to_string()))?,
+                };
+                let issue = Issue {
+                    id: issue_id,
+                    origin_spec_id: params.origin_spec_id,
+                    title,
+                    description: params.description,
+                    suggested_spec_scope: scope_label,
+                    priority: params.priority,
+                    reference: reference.clone(),
+                    created_at: Utc::now(),
+                };
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::IssueCreated(IssueCreated {
+                        issue: Box::new(issue),
+                        idempotency_key: params.idempotency_key,
+                    }),
+                )
+                .await?;
+                Ok(CreateIssueResponse {
+                    schema_version: SchemaVersion::current(),
+                    issue_id,
+                    reference,
+                })
+            },
         )
-        .await?;
-        Ok(CreateIssueResponse {
-            schema_version: SchemaVersion::current(),
-            issue_id,
-            reference,
-        })
+        .await
     }
 
     // -- §3.8 adherence + standards read --------------------------------------
@@ -119,65 +106,79 @@ impl MethodologyService {
         params: RecordAdherenceFindingParams,
     ) -> MethodologyResult<tanren_contract::methodology::AddFindingResponse> {
         enforce(scope, ToolCapability::AdherenceRecord, phase)?;
-        // Critical-cannot-defer rule per adherence.md §4.2: any finding
-        // linked to a standard with `importance = Critical` MUST NOT
-        // carry `severity = Defer`. The `StandardRef` on the wire
-        // carries only (name, category); we resolve the importance
-        // from the baseline-standards registry so the check is a
-        // typed domain invariant, not a prompt-level guardrail.
-        let importance = resolve_standard_importance(self.standards(), &params.standard);
-        if importance == Some(tanren_domain::methodology::standard::StandardImportance::Critical)
-            && matches!(
-                params.severity,
-                tanren_domain::methodology::finding::FindingSeverity::Defer
-            )
-        {
-            return Err(MethodologyError::FieldValidation {
-                field_path: "/severity".into(),
-                expected: "fix_now | note | question (critical standards cannot be deferred)"
-                    .into(),
-                actual: "defer".into(),
-                remediation: format!(
-                    "raise severity to `fix_now` or reclassify `{}:{}` as non-critical",
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "record_adherence_finding",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                // Critical-cannot-defer rule per adherence.md §4.2: any finding
+                // linked to a standard with `importance = Critical` MUST NOT
+                // carry `severity = Defer`. The `StandardRef` on the wire
+                // carries only (name, category); we resolve the importance
+                // from the baseline-standards registry so the check is a
+                // typed domain invariant, not a prompt-level guardrail.
+                let importance = resolve_standard_importance(self.standards(), &params.standard);
+                if importance
+                    == Some(tanren_domain::methodology::standard::StandardImportance::Critical)
+                    && matches!(
+                        params.severity,
+                        tanren_domain::methodology::finding::FindingSeverity::Defer
+                    )
+                {
+                    return Err(MethodologyError::FieldValidation {
+                        field_path: "/severity".into(),
+                        expected:
+                            "fix_now | note | question (critical standards cannot be deferred)"
+                                .into(),
+                        actual: "defer".into(),
+                        remediation: format!(
+                            "raise severity to `fix_now` or reclassify `{}:{}` as non-critical",
+                            params.standard.category.as_str(),
+                            params.standard.name.as_str()
+                        ),
+                    });
+                }
+                let title = NonEmptyString::try_new(format!(
+                    "adherence:{}:{}",
                     params.standard.category.as_str(),
                     params.standard.name.as_str()
-                ),
-            });
-        }
-        let title = NonEmptyString::try_new(format!(
-            "adherence:{}:{}",
-            params.standard.category.as_str(),
-            params.standard.name.as_str()
-        ))
-        .map_err(|e| MethodologyError::Internal(e.to_string()))?;
-        let finding = Finding {
-            id: FindingId::new(),
-            spec_id: params.spec_id,
-            severity: params.severity,
-            title,
-            description: params.rationale,
-            affected_files: params.affected_files,
-            line_numbers: params.line_numbers,
-            source: FindingSource::Adherence {
-                standard: params.standard.clone(),
+                ))
+                .map_err(|e| MethodologyError::Internal(e.to_string()))?;
+                let finding = Finding {
+                    id: FindingId::new(),
+                    spec_id: params.spec_id,
+                    severity: params.severity,
+                    title,
+                    description: params.rationale,
+                    affected_files: params.affected_files,
+                    line_numbers: params.line_numbers,
+                    source: FindingSource::Adherence {
+                        standard: params.standard.clone(),
+                    },
+                    attached_task: None,
+                    created_at: Utc::now(),
+                };
+                let id = finding.id;
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::AdherenceFindingAdded(AdherenceFindingAdded {
+                        finding: Box::new(finding),
+                        standard: params.standard,
+                        idempotency_key: params.idempotency_key,
+                    }),
+                )
+                .await?;
+                Ok(tanren_contract::methodology::AddFindingResponse {
+                    schema_version: SchemaVersion::current(),
+                    finding_id: id,
+                })
             },
-            attached_task: None,
-            created_at: Utc::now(),
-        };
-        let id = finding.id;
-        self.emit_event(
-            phase,
-            MethodologyEvent::AdherenceFindingAdded(AdherenceFindingAdded {
-                finding: Box::new(finding),
-                standard: params.standard,
-                idempotency_key: params.idempotency_key,
-            }),
         )
-        .await?;
-        Ok(tanren_contract::methodology::AddFindingResponse {
-            schema_version: SchemaVersion::current(),
-            finding_id: id,
-        })
+        .await
     }
 
     // -- Internal helpers -----------------------------------------------------
@@ -267,28 +268,6 @@ impl MethodologyService {
             });
         }
         Ok(out)
-    }
-
-    async fn find_issue_created_by_idempotency(
-        &self,
-        spec_id: tanren_domain::SpecId,
-        idempotency_key: &str,
-    ) -> MethodologyResult<Option<Issue>> {
-        let events = tanren_store::methodology::projections::load_methodology_events_for_kind(
-            self.store(),
-            spec_id,
-            METHODOLOGY_PAGE_SIZE,
-            EntityKind::Issue,
-        )
-        .await?;
-        for event in events {
-            if let MethodologyEvent::IssueCreated(e) = event
-                && e.idempotency_key.as_deref() == Some(idempotency_key)
-            {
-                return Ok(Some(*e.issue));
-            }
-        }
-        Ok(None)
     }
 
     /// `list_relevant_standards` — baseline-complete upper bound.

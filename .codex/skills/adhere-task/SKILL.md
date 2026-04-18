@@ -1,5 +1,6 @@
 ---
 name: adhere-task
+description: Tanren methodology command `adhere-task`
 role: adherence
 orchestration_loop: true
 autonomy: autonomous

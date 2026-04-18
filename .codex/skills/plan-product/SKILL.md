@@ -1,5 +1,6 @@
 ---
 name: plan-product
+description: Tanren methodology command `plan-product`
 role: meta
 orchestration_loop: false
 autonomy: interactive

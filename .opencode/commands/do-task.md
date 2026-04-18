@@ -1,5 +1,8 @@
 ---
-name: do-task
+agent: implementation
+description: Tanren methodology command `do-task`
+model: default
+subtask: false
 template: |2
 
   # do-task

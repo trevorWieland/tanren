@@ -1,5 +1,6 @@
 ---
 name: triage-audits
+description: Tanren methodology command `triage-audits`
 role: audit
 orchestration_loop: false
 autonomy: interactive

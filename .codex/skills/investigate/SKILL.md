@@ -1,5 +1,6 @@
 ---
 name: investigate
+description: Tanren methodology command `investigate`
 role: triage
 orchestration_loop: true
 autonomy: autonomous

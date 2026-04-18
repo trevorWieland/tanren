@@ -26,6 +26,9 @@ use tanren_app_services::methodology::installer::{
     DriftEntry, InstallPlan, PlannedWrite, apply_install, drift, plan_install_from_root,
 };
 
+const MCP_SERVER_COMMAND: &str = "tanren-mcp";
+const MCP_SERVER_ARGS: &[&str] = &["serve"];
+
 /// CLI arguments for `tanren install`.
 #[derive(Debug, Args)]
 pub(crate) struct InstallArgs {
@@ -113,7 +116,7 @@ pub(crate) struct DriftSummary {
 pub(crate) fn run(args: &InstallArgs) -> u8 {
     let yaml = match std::fs::read_to_string(&args.config) {
         Ok(s) => s,
-        Err(e) => return fail_io(&format!("reading {}: {e}", args.config.display())),
+        Err(e) => return fail_cfg(&format!("reading {}: {e}", args.config.display())),
     };
     let cfg = match TanrenConfig::from_yaml(&yaml) {
         Ok(c) => c,
@@ -150,7 +153,7 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
 
     let mut plan = match plan_install_from_root(&methodology, &context) {
         Ok(p) => p,
-        Err(e) => return fail_validation(&e.to_string()),
+        Err(e) => return fail_render(&e.to_string()),
     };
 
     // Append MCP config writes if configured.
@@ -268,10 +271,17 @@ fn build_context(
 
 fn synth_mcp_write(path: &Path, format: InstallFormat) -> Result<Option<PlannedWrite>, u8> {
     let existing = std::fs::read_to_string(path).ok();
+    let server_args: Vec<String> = MCP_SERVER_ARGS.iter().map(|v| (*v).to_owned()).collect();
     let bytes = match format {
-        InstallFormat::ClaudeMcpJson => claude_mcp_json(existing.as_deref(), "tanren-mcp", &[]),
-        InstallFormat::CodexConfigToml => codex_config_toml(existing.as_deref(), "tanren-mcp", &[]),
-        InstallFormat::OpencodeJson => opencode_json(existing.as_deref(), "tanren-mcp", &[]),
+        InstallFormat::ClaudeMcpJson => {
+            claude_mcp_json(existing.as_deref(), MCP_SERVER_COMMAND, &server_args)
+        }
+        InstallFormat::CodexConfigToml => {
+            codex_config_toml(existing.as_deref(), MCP_SERVER_COMMAND, &server_args)
+        }
+        InstallFormat::OpencodeJson => {
+            opencode_json(existing.as_deref(), MCP_SERVER_COMMAND, &server_args)
+        }
         _ => return Ok(None),
     };
     match bytes {
@@ -281,7 +291,7 @@ fn synth_mcp_write(path: &Path, format: InstallFormat) -> Result<Option<PlannedW
             merge_policy: tanren_app_services::methodology::config::MergePolicy::PreserveOtherKeys,
             format,
         })),
-        Err(e) => Err(fail_validation(&e.to_string())),
+        Err(e) => Err(fail_render(&e.to_string())),
     }
 }
 
@@ -323,6 +333,10 @@ fn emit_err_json(kind: &str, msg: &str) {
 
 fn fail_cfg(msg: &str) -> u8 {
     emit_err_json("config_error", msg);
+    1
+}
+fn fail_render(msg: &str) -> u8 {
+    emit_err_json("render_error", msg);
     1
 }
 fn fail_io(msg: &str) -> u8 {

@@ -1,20 +1,18 @@
 //! Pure store → `phase-events.jsonl` projector.
 //!
-//! Invoked at phase boundary (on `report_phase_outcome`) to render the
-//! session's methodology events into a portable, git-committable
-//! JSONL artifact. The store is the single source of truth; JSONL is
-//! a derived projection. `tanren ingest-phase-events` is the inverse
-//! direction (JSONL → store).
-//!
-//! This module is I/O-free — callers own the tempfile+rename write.
+//! Provides both pure projection helpers (`line_for_envelope`,
+//! `render_jsonl`) and append helpers used by the outbox projector.
+//! The store is the source of truth; JSONL is a derived projection.
+//! `tanren ingest-phase-events` is the inverse direction (JSONL → store).
 
+use std::io::Write as _;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_domain::SpecId;
 use tanren_domain::events::EventEnvelope;
 use tanren_domain::methodology::events::MethodologyEvent;
+use tanren_domain::{EventId, SpecId};
 
 use super::errors::MethodologyError;
 
@@ -22,7 +20,7 @@ use super::errors::MethodologyError;
 /// `docs/architecture/agent-tool-surface.md` §6.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhaseEventLine {
-    pub event_id: tanren_domain::EventId,
+    pub event_id: EventId,
     pub spec_id: SpecId,
     pub phase: String,
     pub agent_session_id: String,
@@ -114,9 +112,10 @@ pub fn line_for_envelope(
     })
 }
 
-/// Atomically append one line to `phase-events.jsonl` by rewriting
-/// through tempfile+rename. Deterministic ordering is preserved by
-/// appending to existing file text in-memory before rename.
+/// Append one line to `phase-events.jsonl` using append-only file I/O.
+///
+/// Writes one JSON line + LF, then fsyncs the file. Callers use the
+/// outbox status marker as the durable exactly-once guard.
 ///
 /// # Errors
 /// Returns [`MethodologyError::Io`] on filesystem failures and
@@ -125,34 +124,81 @@ pub fn append_jsonl_line_atomic(
     path: &Path,
     line: &PhaseEventLine,
 ) -> Result<(), MethodologyError> {
-    let mut existing = if path.exists() {
-        std::fs::read_to_string(path).map_err(|source| MethodologyError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?
-    } else {
-        String::new()
-    };
     let encoded =
         serde_json::to_string(line).map_err(|e| MethodologyError::Internal(e.to_string()))?;
-    existing.push_str(&encoded);
-    existing.push('\n');
+    append_jsonl_encoded_line(path, &encoded)
+}
+
+/// Append one already-serialized JSON line to `phase-events.jsonl`.
+///
+/// # Errors
+/// Returns [`MethodologyError::Io`] on filesystem failures.
+pub fn append_jsonl_encoded_line(path: &Path, encoded: &str) -> Result<(), MethodologyError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| MethodologyError::Io {
             path: parent.to_path_buf(),
             source,
         })?;
     }
-    let tmp = path.with_extension("jsonl.tmp");
-    std::fs::write(&tmp, existing).map_err(|source| MethodologyError::Io {
-        path: tmp.clone(),
-        source,
-    })?;
-    std::fs::rename(&tmp, path).map_err(|source| MethodologyError::Io {
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|source| MethodologyError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.write_all(encoded.as_bytes())
+        .map_err(|source| MethodologyError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.write_all(b"\n")
+        .map_err(|source| MethodologyError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.sync_all().map_err(|source| MethodologyError::Io {
         path: path.to_path_buf(),
         source,
     })?;
+    if let Some(parent) = path.parent()
+        && let Ok(dir) = std::fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
     Ok(())
+}
+
+/// Check whether `phase-events.jsonl` already contains `event_id`.
+///
+/// # Errors
+/// Returns [`MethodologyError::Io`] when reading the file fails.
+pub fn jsonl_contains_event_id(path: &Path, event_id: EventId) -> Result<bool, MethodologyError> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let needle = event_id.to_string();
+    let file = std::fs::File::open(path).map_err(|source| MethodologyError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let reader = std::io::BufReader::new(file);
+    for line in std::io::BufRead::lines(reader) {
+        let line = line.map_err(|source| MethodologyError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line)
+            && value.get("event_id").and_then(serde_json::Value::as_str) == Some(needle.as_str())
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Map an event variant to the authoring tool's name (for the `tool`

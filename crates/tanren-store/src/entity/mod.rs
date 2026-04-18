@@ -10,4 +10,6 @@ pub(crate) mod actor_token_replay;
 pub(crate) mod dispatch_projection;
 pub(crate) mod enums;
 pub(crate) mod events;
+pub(crate) mod methodology_idempotency;
+pub(crate) mod methodology_phase_event_outbox;
 pub(crate) mod step_projection;

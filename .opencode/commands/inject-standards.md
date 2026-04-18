@@ -1,5 +1,8 @@
 ---
-name: inject-standards
+agent: meta
+description: Tanren methodology command `inject-standards`
+model: default
+subtask: false
 template: |2
 
   # inject-standards

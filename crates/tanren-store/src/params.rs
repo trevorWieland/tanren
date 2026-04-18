@@ -46,6 +46,8 @@ pub struct EventFilter {
     pub entity_refs: Option<Vec<EntityRef>>,
     /// Restrict to events of a given entity kind.
     pub entity_kind: Option<EntityKind>,
+    /// Restrict to methodology events correlated to one spec id.
+    pub spec_id: Option<tanren_domain::SpecId>,
     /// Restrict to a specific `DomainEvent` variant tag (`snake_case`).
     pub event_type: Option<String>,
     /// Earliest event timestamp (inclusive).
@@ -68,6 +70,7 @@ impl EventFilter {
             entity_ref: None,
             entity_refs: None,
             entity_kind: None,
+            spec_id: None,
             event_type: None,
             since: None,
             until: None,

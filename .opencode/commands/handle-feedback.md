@@ -1,5 +1,8 @@
 ---
-name: handle-feedback
+agent: feedback
+description: Tanren methodology command `handle-feedback`
+model: default
+subtask: false
 template: |2
 
   # handle-feedback

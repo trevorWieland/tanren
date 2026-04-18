@@ -1,5 +1,8 @@
 ---
-name: triage-audits
+agent: audit
+description: Tanren methodology command `triage-audits`
+model: default
+subtask: false
 template: |2
 
   # triage-audits

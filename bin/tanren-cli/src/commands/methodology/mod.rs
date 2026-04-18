@@ -21,11 +21,9 @@
 //! Capability enforcement mirrors the MCP transport: we consult the
 //! `TANREN_PHASE_CAPABILITIES` env var (comma-separated capability
 //! tags). When unset, we fall back to the `--phase`-keyed default
-//! scope from `default_scope_for_phase`. When neither yields a scope
-//! (unknown phase, no env), the CLI *grants all capabilities* — this
-//! administrative mode is intentional and documented; CI scripts and
-//! the orchestrator both set an explicit env before invoking the
-//! CLI.
+//! scope from `default_scope_for_phase`. When neither yields a scope,
+//! the CLI defaults deny unless `TANREN_CAPABILITY_OVERRIDE=admin` is
+//! explicitly set.
 
 pub(crate) mod adherence;
 pub(crate) mod demo;
@@ -33,6 +31,7 @@ pub(crate) mod finding;
 pub(crate) mod ingest;
 pub(crate) mod issue;
 pub(crate) mod phase;
+pub(crate) mod reconcile;
 pub(crate) mod replay;
 pub(crate) mod rubric;
 pub(crate) mod signpost;
@@ -57,13 +56,13 @@ pub(crate) struct MethodologyGlobal {
     /// Phase name used for capability enforcement and audit trail.
     ///
     /// Defaults to `cli-admin`, which is not a registered phase and
-    /// so falls back to the "all capabilities" administrative mode
-    /// unless `TANREN_PHASE_CAPABILITIES` is set.
+    /// so resolves to default-deny unless
+    /// `TANREN_CAPABILITY_OVERRIDE=admin` is set.
     #[arg(long, global = true, default_value = "cli-admin")]
     pub phase: String,
 
-    /// Optional spec folder root used for runtime `phase-events.jsonl`
-    /// appends from tool calls.
+    /// Spec folder root used for runtime `phase-events.jsonl` appends.
+    /// Required for mutating commands.
     #[arg(long, global = true)]
     pub spec_folder: Option<PathBuf>,
 
@@ -134,6 +133,8 @@ pub(crate) enum MethodologyCommand {
     IngestPhaseEvents(ingest::IngestArgs),
     /// Replay a spec folder's recorded phase events into the store.
     Replay(replay::ReplayArgs),
+    /// Reconcile pending phase-event outbox rows into phase-events.jsonl.
+    ReconcilePhaseEvents(reconcile::ReconcilePhaseEventsArgs),
 }
 
 /// Load JSON params from the configured input source and deserialize
@@ -307,9 +308,17 @@ pub(crate) async fn dispatch(
     let scope = resolve_scope(&global.phase);
     let phase = global.phase.clone();
     let mut session = None;
-    if is_mutation_command(&command)
-        && let Some(spec_folder) = global.spec_folder.as_deref()
-    {
+    if is_mutation_command(&command) {
+        let Some(spec_folder) = global.spec_folder.as_deref() else {
+            return emit_result::<serde_json::Value>(Err(MethodologyError::FieldValidation {
+                field_path: "/spec_folder".into(),
+                expected: "--spec-folder <PATH> for audited mutation commands".into(),
+                actual: "missing".into(),
+                remediation:
+                    "pass --spec-folder <spec_dir> so phase-events.jsonl auditing is enforced"
+                        .into(),
+            }));
+        };
         match enter_mutation_session(spec_folder) {
             Ok(guard) => {
                 session = Some((
@@ -335,6 +344,7 @@ pub(crate) async fn dispatch(
         MethodologyCommand::Adherence(c) => adherence::run(service, &scope, &phase, c).await,
         MethodologyCommand::IngestPhaseEvents(a) => ingest::run(service, a).await,
         MethodologyCommand::Replay(a) => replay::run(service, a).await,
+        MethodologyCommand::ReconcilePhaseEvents(_a) => reconcile::run(service, global).await,
     };
 
     if let Some((spec_folder, agent_session_id, guard)) = session

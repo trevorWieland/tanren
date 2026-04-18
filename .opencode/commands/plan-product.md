@@ -1,5 +1,8 @@
 ---
-name: plan-product
+agent: meta
+description: Tanren methodology command `plan-product`
+model: default
+subtask: false
 template: |2
 
   # plan-product

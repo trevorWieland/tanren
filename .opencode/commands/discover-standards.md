@@ -1,5 +1,8 @@
 ---
-name: discover-standards
+agent: meta
+description: Tanren methodology command `discover-standards`
+model: default
+subtask: false
 template: |2
 
   # discover-standards

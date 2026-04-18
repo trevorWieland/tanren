@@ -262,9 +262,10 @@ event per line.
 
 ### 6.3 Atomicity
 
-Service writes tempfile + rename. Concurrent writers on the same spec
-folder are disallowed (one active session per spec at a time per the
-dispatch lease model from Lane 0.4).
+Service writes event + phase-event-outbox rows in one DB transaction.
+`phase-events.jsonl` is projected asynchronously from the outbox with
+retry + exactly-once event-id checks, so DB truth and file projection
+cannot permanently diverge.
 
 ### 6.4 Replay
 
@@ -314,7 +315,9 @@ duplicate events from network-level retries.
   query surfaces the service uses to resolve commands.
 
 The service translates tool-input → validated domain event + store
-mutation + file write atomically. Any failure rolls back all three.
+mutation atomically, then projects `phase-events.jsonl` via a durable
+outbox worker. Projection failures are retried/reconciled without
+losing the canonical event.
 
 ---
 

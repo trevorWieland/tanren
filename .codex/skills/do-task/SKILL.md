@@ -1,5 +1,6 @@
 ---
 name: do-task
+description: Tanren methodology command `do-task`
 role: implementation
 orchestration_loop: true
 autonomy: autonomous

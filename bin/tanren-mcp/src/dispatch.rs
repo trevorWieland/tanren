@@ -124,7 +124,34 @@ pub(crate) async fn dispatch(
 /// True when the tool mutates methodology state or evidence.
 #[must_use]
 pub(crate) fn is_mutation_tool(tool: &str) -> bool {
-    !matches!(tool, "list_tasks" | "list_relevant_standards")
+    matches!(
+        tool,
+        "create_task"
+            | "start_task"
+            | "complete_task"
+            | "mark_task_guard_satisfied"
+            | "revise_task"
+            | "abandon_task"
+            | "add_finding"
+            | "record_rubric_score"
+            | "record_non_negotiable_compliance"
+            | "set_spec_title"
+            | "set_spec_non_negotiables"
+            | "add_spec_acceptance_criterion"
+            | "set_spec_demo_environment"
+            | "set_spec_dependencies"
+            | "set_spec_base_branch"
+            | "add_demo_step"
+            | "mark_demo_step_skip"
+            | "append_demo_result"
+            | "add_signpost"
+            | "update_signpost_status"
+            | "report_phase_outcome"
+            | "escalate_to_blocker"
+            | "post_reply_directive"
+            | "create_issue"
+            | "record_adherence_finding"
+    )
 }
 
 /// Decode the raw JSON `args` into a concrete contract params type.

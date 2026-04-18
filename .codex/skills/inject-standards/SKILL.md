@@ -1,5 +1,6 @@
 ---
 name: inject-standards
+description: Tanren methodology command `inject-standards`
 role: meta
 orchestration_loop: false
 autonomy: interactive

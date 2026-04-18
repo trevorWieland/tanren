@@ -99,9 +99,23 @@ impl ServerHandler for TanrenHandler {
                 tanren_app_services::methodology::service::PhaseEventsRuntime,
                 Option<tanren_app_services::methodology::EnforcementGuard>,
             )> = None;
-            if dispatch::is_mutation_tool(&request.name)
-                && let Some(runtime) = service.phase_events_runtime()
-            {
+            if dispatch::is_mutation_tool(&request.name) {
+                let Some(runtime) = service.phase_events_runtime() else {
+                    let mut result = CallToolResult::default();
+                    let outcome = dispatch::CallResult::Err(
+                        tanren_app_services::methodology::ToolError::ValidationFailed {
+                            field_path: "/spec_folder".into(),
+                            expected: "audited runtime requires TANREN_SPEC_FOLDER".into(),
+                            actual: "missing".into(),
+                            remediation:
+                                "set TANREN_SPEC_FOLDER to the active spec directory for mutating tools"
+                                    .into(),
+                        },
+                    );
+                    result.content = vec![Content::text(outcome.to_json())];
+                    result.is_error = Some(true);
+                    return Ok(result);
+                };
                 match enter_mutation_session(&runtime.spec_folder) {
                     Ok(guard) => session = Some((runtime, guard)),
                     Err(err) => {

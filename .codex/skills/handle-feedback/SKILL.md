@@ -1,5 +1,6 @@
 ---
 name: handle-feedback
+description: Tanren methodology command `handle-feedback`
 role: feedback
 orchestration_loop: true
 autonomy: autonomous

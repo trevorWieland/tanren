@@ -74,10 +74,22 @@ fn claude_code(cmd: &RenderedCommand, root: &Path) -> MethodologyResult<Rendered
 
 /// Codex Skills: `<root>/<name>/SKILL.md` (directory-per-command).
 fn codex_skills(cmd: &RenderedCommand, root: &Path) -> MethodologyResult<RenderedArtifact> {
-    let art = claude_code(cmd, &root.join(&cmd.name))?;
+    let fm = codex_frontmatter(cmd)?;
+    let yaml = serde_yaml::to_string(&fm).map_err(|e| MethodologyError::Internal(e.to_string()))?;
+    let mut bytes = Vec::with_capacity(yaml.len() + cmd.body.len() + 16);
+    bytes.extend(b"---\n");
+    bytes.extend(yaml.as_bytes());
+    if !yaml.ends_with('\n') {
+        bytes.extend(b"\n");
+    }
+    bytes.extend(b"---\n");
+    bytes.extend(cmd.body.as_bytes());
+    if !cmd.body.ends_with('\n') {
+        bytes.extend(b"\n");
+    }
     Ok(RenderedArtifact {
-        dest: art.dest.parent().unwrap_or(&art.dest).join("SKILL.md"),
-        bytes: art.bytes,
+        dest: root.join(&cmd.name).join("SKILL.md"),
+        bytes,
     })
 }
 
@@ -86,8 +98,24 @@ fn codex_skills(cmd: &RenderedCommand, root: &Path) -> MethodologyResult<Rendere
 fn opencode(cmd: &RenderedCommand, root: &Path) -> MethodologyResult<RenderedArtifact> {
     let mut fm: BTreeMap<String, serde_yaml::Value> = BTreeMap::new();
     fm.insert(
-        "name".into(),
-        serde_yaml::Value::String(cmd.frontmatter.name.clone()),
+        "description".into(),
+        serde_yaml::Value::String(command_description(cmd)),
+    );
+    fm.insert(
+        "agent".into(),
+        serde_yaml::Value::String(
+            frontmatter_extra_string(cmd, "agent").unwrap_or_else(|| cmd.frontmatter.role.clone()),
+        ),
+    );
+    fm.insert(
+        "model".into(),
+        serde_yaml::Value::String(
+            frontmatter_extra_string(cmd, "model").unwrap_or_else(|| "default".into()),
+        ),
+    );
+    fm.insert(
+        "subtask".into(),
+        serde_yaml::Value::Bool(frontmatter_extra_bool(cmd, "subtask").unwrap_or(false)),
     );
     fm.insert(
         "template".into(),
@@ -119,6 +147,19 @@ struct ClaudeFrontmatter<'a> {
     produces_evidence: &'a [String],
 }
 
+#[derive(Serialize)]
+struct CodexFrontmatter<'a> {
+    name: &'a str,
+    description: String,
+    role: &'a str,
+    orchestration_loop: bool,
+    autonomy: &'a str,
+    declared_variables: &'a [String],
+    declared_tools: &'a [String],
+    required_capabilities: &'a [String],
+    produces_evidence: &'a [String],
+}
+
 fn claude_frontmatter<'a>(cmd: &'a RenderedCommand) -> MethodologyResult<ClaudeFrontmatter<'a>> {
     Ok(ClaudeFrontmatter {
         name: &cmd.frontmatter.name,
@@ -130,6 +171,44 @@ fn claude_frontmatter<'a>(cmd: &'a RenderedCommand) -> MethodologyResult<ClaudeF
         required_capabilities: &cmd.frontmatter.required_capabilities,
         produces_evidence: &cmd.frontmatter.produces_evidence,
     })
+}
+
+fn codex_frontmatter<'a>(cmd: &'a RenderedCommand) -> MethodologyResult<CodexFrontmatter<'a>> {
+    Ok(CodexFrontmatter {
+        name: &cmd.frontmatter.name,
+        description: command_description(cmd),
+        role: &cmd.frontmatter.role,
+        orchestration_loop: cmd.frontmatter.orchestration_loop,
+        autonomy: &cmd.frontmatter.autonomy,
+        declared_variables: &cmd.frontmatter.declared_variables,
+        declared_tools: &cmd.frontmatter.declared_tools,
+        required_capabilities: &cmd.frontmatter.required_capabilities,
+        produces_evidence: &cmd.frontmatter.produces_evidence,
+    })
+}
+
+fn command_description(cmd: &RenderedCommand) -> String {
+    frontmatter_extra_string(cmd, "description")
+        .unwrap_or_else(|| format!("Tanren methodology command `{}`", cmd.frontmatter.name))
+}
+
+fn frontmatter_extra_string(cmd: &RenderedCommand, key: &str) -> Option<String> {
+    match cmd.frontmatter.extras.get(key) {
+        Some(serde_yaml::Value::String(s)) if !s.trim().is_empty() => Some(s.clone()),
+        _ => None,
+    }
+}
+
+fn frontmatter_extra_bool(cmd: &RenderedCommand, key: &str) -> Option<bool> {
+    match cmd.frontmatter.extras.get(key) {
+        Some(serde_yaml::Value::Bool(v)) => Some(*v),
+        Some(serde_yaml::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// `.mcp.json` writer — merges a `tanren` server stanza into existing
@@ -161,6 +240,7 @@ pub fn claude_mcp_json(
             serde_json::json!({
                 "command": server_command,
                 "args": server_args,
+                "env": { "TANREN_CONFIG": "./tanren.yml" },
             }),
         );
     let mut out = serde_json::to_string_pretty(&root)
@@ -202,6 +282,15 @@ pub fn codex_config_toml(
                 .collect(),
         ),
     );
+    let mut env = toml::Table::new();
+    env.insert(
+        "TANREN_CONFIG".into(),
+        toml::Value::String("./tanren.yml".into()),
+    );
+    t.insert("env".into(), toml::Value::Table(env));
+    t.insert("startup_timeout_sec".into(), toml::Value::Integer(10));
+    t.insert("tool_timeout_sec".into(), toml::Value::Integer(60));
+    t.insert("enabled".into(), toml::Value::Boolean(true));
     servers_tbl.insert("tanren".into(), toml::Value::Table(t));
     let mut out =
         toml::to_string_pretty(&doc).map_err(|e| MethodologyError::Internal(e.to_string()))?;
@@ -237,6 +326,7 @@ pub fn opencode_json(
             serde_json::json!({
                 "command": server_command,
                 "args": server_args,
+                "env": { "TANREN_CONFIG": "./tanren.yml" },
             }),
         );
     let mut out = serde_json::to_string_pretty(&root)
@@ -292,6 +382,10 @@ mod tests {
         let r = rendered("do-task", "body\n");
         let art = opencode(&r, Path::new(".opencode/commands")).expect("ok");
         let s = String::from_utf8(art.bytes).expect("utf8");
+        assert!(s.contains("description"));
+        assert!(s.contains("agent"));
+        assert!(s.contains("model"));
+        assert!(s.contains("subtask"));
         assert!(s.contains("template"));
         assert!(s.contains("body"));
     }
@@ -303,5 +397,24 @@ mod tests {
         let s = String::from_utf8(bytes).expect("utf8");
         assert!(s.contains("\"other\": 42"));
         assert!(s.contains("\"tanren\""));
+        assert!(s.contains("\"env\""));
+    }
+
+    #[test]
+    fn codex_skill_includes_description() {
+        let r = rendered("do-task", "body\n");
+        let art = codex_skills(&r, Path::new(".codex/skills")).expect("ok");
+        let s = String::from_utf8(art.bytes).expect("utf8");
+        assert!(s.contains("description"));
+    }
+
+    #[test]
+    fn codex_config_writes_timeout_and_enabled_fields() {
+        let bytes = codex_config_toml(None, "tanren-mcp", &["serve".into()]).expect("ok");
+        let s = String::from_utf8(bytes).expect("utf8");
+        assert!(s.contains("startup_timeout_sec = 10"));
+        assert!(s.contains("tool_timeout_sec = 60"));
+        assert!(s.contains("enabled = true"));
+        assert!(s.contains("TANREN_CONFIG"));
     }
 }

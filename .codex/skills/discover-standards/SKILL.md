@@ -1,5 +1,6 @@
 ---
 name: discover-standards
+description: Tanren methodology command `discover-standards`
 role: meta
 orchestration_loop: false
 autonomy: interactive

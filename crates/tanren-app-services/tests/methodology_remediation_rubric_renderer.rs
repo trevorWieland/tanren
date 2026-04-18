@@ -17,7 +17,14 @@ async fn mk_service(required: Vec<RequiredGuard>) -> MethodologyService {
     let store = Store::open_and_migrate("sqlite::memory:?cache=shared")
         .await
         .expect("open");
-    MethodologyService::with_required_guards(Arc::new(store), required)
+    let runtime = tanren_app_services::methodology::service::PhaseEventsRuntime {
+        spec_folder: std::env::temp_dir().join(format!(
+            "tanren-methodology-rubric-{}",
+            uuid::Uuid::now_v7()
+        )),
+        agent_session_id: "test-session".into(),
+    };
+    MethodologyService::with_runtime(Arc::new(store), required, Some(runtime), vec![])
 }
 
 fn admin_scope() -> CapabilityScope {

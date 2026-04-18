@@ -1,5 +1,8 @@
 ---
-name: sync-roadmap
+agent: meta
+description: Tanren methodology command `sync-roadmap`
+model: default
+subtask: false
 template: |2
 
   # sync-roadmap

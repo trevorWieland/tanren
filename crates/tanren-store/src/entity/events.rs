@@ -45,6 +45,10 @@ pub struct Model {
     /// variant carried in [`payload`](Self::payload).
     pub event_type: String,
 
+    /// Denormalized spec id for methodology-scoped query paths.
+    /// Populated only for methodology events carrying a spec id.
+    pub spec_id: Option<Uuid>,
+
     /// Envelope schema version. Matches
     /// [`tanren_domain::SCHEMA_VERSION`] at insertion time.
     pub schema_version: i32,

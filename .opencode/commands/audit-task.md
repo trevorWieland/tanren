@@ -1,5 +1,8 @@
 ---
-name: audit-task
+agent: audit
+description: Tanren methodology command `audit-task`
+model: default
+subtask: false
 template: |2
 
   # audit-task

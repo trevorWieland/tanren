@@ -1,5 +1,8 @@
 ---
-name: investigate
+agent: triage
+description: Tanren methodology command `investigate`
+model: default
+subtask: false
 template: |2
 
   # investigate

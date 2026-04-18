@@ -30,6 +30,12 @@ body text\n";
     std::fs::write(cmds.join("do-task.md"), body).expect("write cmd");
 }
 
+fn write_command_with_body(dir: &TempDir, subdir: &str, body: &str) {
+    let cmds = dir.path().join(subdir);
+    std::fs::create_dir_all(&cmds).expect("mkdir commands");
+    std::fs::write(cmds.join("do-task.md"), body).expect("write cmd");
+}
+
 #[test]
 fn install_help_lists_profile_source_target_flags() {
     let out = Command::cargo_bin("tanren-cli")
@@ -102,4 +108,85 @@ fn install_rejects_unknown_target_with_exit_4() {
     assert_eq!(out.status.code(), Some(4));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("unknown --target"), "stderr: {stderr}");
+}
+
+#[test]
+fn install_render_failure_exits_1() {
+    let dir = TempDir::new().expect("tempdir");
+    let body = "---\n\
+name: do-task\n\
+role: implementation\n\
+orchestration_loop: true\n\
+autonomy: autonomous\n\
+declared_variables: []\n\
+declared_tools: []\n\
+required_capabilities: []\n\
+produces_evidence: []\n\
+---\n\
+body {{MISSING}}\n";
+    write_command_with_body(&dir, "commands/spec", body);
+    let cfg_yaml = r"methodology:
+  source:
+    path: commands
+  install_targets:
+    - path: .claude/commands
+      format: claude-code
+      binding: mcp
+      merge_policy: destructive
+";
+    let cfg = write_config(&dir, cfg_yaml);
+    let out = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args([
+            "install",
+            "--config",
+            cfg.to_str().expect("cfg utf8"),
+            "--dry-run",
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "expected exit 1; stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn install_malformed_mcp_config_exits_1() {
+    let dir = TempDir::new().expect("tempdir");
+    write_command(&dir, "commands/spec");
+    std::fs::write(dir.path().join(".mcp.json"), "{ broken").expect("seed bad mcp json");
+    let cfg_yaml = r"methodology:
+  source:
+    path: commands
+  install_targets: []
+  mcp:
+    enabled: true
+    transport: stdio
+    also_write_configs:
+      - path: .mcp.json
+        format: claude-mcp-json
+        merge_policy: preserve_other_keys
+";
+    let cfg = write_config(&dir, cfg_yaml);
+    let out = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args([
+            "install",
+            "--config",
+            cfg.to_str().expect("cfg utf8"),
+            "--dry-run",
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "expected exit 1; stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

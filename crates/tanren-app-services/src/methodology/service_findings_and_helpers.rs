@@ -1,11 +1,15 @@
+use std::future::Future;
+use std::hash::{Hash as _, Hasher as _};
+
 use chrono::Utc;
+use serde::{Serialize, de::DeserializeOwned};
 use tanren_domain::SpecId;
 use tanren_domain::entity::EntityRef;
 use tanren_domain::events::DomainEvent;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{FindingAdded, MethodologyEvent};
 use tanren_domain::methodology::finding::Finding;
-use tanren_domain::{EntityKind, FindingId, TaskId};
+use tanren_domain::{FindingId, TaskId};
 use tanren_store::{EventFilter, EventStore};
 
 use tanren_contract::methodology::{AddFindingParams, AddFindingResponse, SchemaVersion};
@@ -30,61 +34,147 @@ impl MethodologyService {
         params: AddFindingParams,
     ) -> MethodologyResult<AddFindingResponse> {
         enforce(scope, ToolCapability::FindingAdd, phase)?;
-        let title = require_non_empty("/title", &params.title, Some(200))?;
-        if let Some(key) = params.idempotency_key.as_deref()
-            && let Some(existing) = self
-                .find_finding_added_by_idempotency(params.spec_id, key)
-                .await?
-        {
-            let semantically_same = existing.severity == params.severity
-                && existing.title == title
-                && existing.description == params.description
-                && existing.affected_files == params.affected_files
-                && existing.line_numbers == params.line_numbers
-                && existing.source == params.source
-                && existing.attached_task == params.attached_task;
-            if !semantically_same {
-                return Err(MethodologyError::Conflict {
-                    resource: "add_finding".into(),
-                    reason: format!(
-                        "idempotency_key `{key}` already used with different payload for finding {}",
-                        existing.id
-                    ),
-                });
-            }
-            return Ok(AddFindingResponse {
-                schema_version: SchemaVersion::current(),
-                finding_id: existing.id,
-            });
-        }
-        let finding = Finding {
-            id: FindingId::new(),
-            spec_id: params.spec_id,
-            severity: params.severity,
-            title,
-            description: params.description,
-            affected_files: params.affected_files,
-            line_numbers: params.line_numbers,
-            source: params.source,
-            attached_task: params.attached_task,
-            created_at: Utc::now(),
-        };
-        let id = finding.id;
-        self.emit(
-            phase,
-            MethodologyEvent::FindingAdded(FindingAdded {
-                finding: Box::new(finding),
-                idempotency_key: params.idempotency_key,
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "add_finding",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                let title = require_non_empty("/title", &params.title, Some(200))?;
+                let finding = Finding {
+                    id: FindingId::new(),
+                    spec_id: params.spec_id,
+                    severity: params.severity,
+                    title,
+                    description: params.description,
+                    affected_files: params.affected_files,
+                    line_numbers: params.line_numbers,
+                    source: params.source,
+                    attached_task: params.attached_task,
+                    created_at: Utc::now(),
+                };
+                let id = finding.id;
+                self.emit(
+                    phase,
+                    MethodologyEvent::FindingAdded(FindingAdded {
+                        finding: Box::new(finding),
+                        idempotency_key: params.idempotency_key,
+                    }),
+                )
+                .await?;
+                Ok(AddFindingResponse {
+                    schema_version: SchemaVersion::current(),
+                    finding_id: id,
+                })
+            },
         )
-        .await?;
-        Ok(AddFindingResponse {
-            schema_version: SchemaVersion::current(),
-            finding_id: id,
-        })
+        .await
     }
 
     // -- Shared helpers -------------------------------------------------------
+
+    pub(crate) async fn run_idempotent_mutation<R, P, F, Fut>(
+        &self,
+        tool: &str,
+        spec_id: SpecId,
+        explicit_key: Option<String>,
+        payload: &P,
+        op: F,
+    ) -> MethodologyResult<R>
+    where
+        R: Serialize + DeserializeOwned,
+        P: Serialize,
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = MethodologyResult<R>>,
+    {
+        let payload_json = serde_json::to_string(payload)
+            .map_err(|e| MethodologyError::Internal(e.to_string()))?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        payload_json.hash(&mut hasher);
+        let request_hash = format!("{:016x}", hasher.finish());
+        let derived_key = explicit_key.unwrap_or_else(|| format!("payload:{request_hash}"));
+        let scope_key = spec_id.to_string();
+
+        let resolve_existing =
+            |existing: tanren_store::methodology::MethodologyIdempotencyEntry| {
+                if existing.request_hash != request_hash {
+                    return Err(MethodologyError::Conflict {
+                        resource: tool.to_owned(),
+                        reason: format!(
+                            "idempotency key `{}` reused with different payload hash",
+                            existing.idempotency_key
+                        ),
+                    });
+                }
+                let Some(response_json) = existing.response_json else {
+                    return Err(MethodologyError::Conflict {
+                        resource: tool.to_owned(),
+                        reason: format!(
+                            "idempotency key `{}` is reserved by an unfinished prior attempt",
+                            existing.idempotency_key
+                        ),
+                    });
+                };
+                serde_json::from_str::<R>(&response_json).map_err(|e| {
+                    MethodologyError::Internal(format!("idempotency replay decode: {e}"))
+                })
+            };
+
+        if let Some(existing) = self
+            .store
+            .get_methodology_idempotency(tool, &scope_key, &derived_key)
+            .await?
+        {
+            return resolve_existing(existing);
+        }
+
+        let inserted = self
+            .store
+            .insert_methodology_idempotency_reservation(
+                tanren_store::methodology::InsertMethodologyIdempotencyParams {
+                    tool: tool.to_owned(),
+                    scope_key: scope_key.clone(),
+                    idempotency_key: derived_key.clone(),
+                    request_hash: request_hash.clone(),
+                },
+            )
+            .await?;
+        if !inserted
+            && let Some(existing) = self
+                .store
+                .get_methodology_idempotency(tool, &scope_key, &derived_key)
+                .await?
+        {
+            return resolve_existing(existing);
+        }
+
+        match op().await {
+            Ok(response) => {
+                let response_json = serde_json::to_string(&response)
+                    .map_err(|e| MethodologyError::Internal(e.to_string()))?;
+                self.store
+                    .finalize_methodology_idempotency(
+                        tool,
+                        &scope_key,
+                        &derived_key,
+                        response_json,
+                        None,
+                    )
+                    .await?;
+                Ok(response)
+            }
+            Err(err) => {
+                let _ = self
+                    .store
+                    .delete_methodology_idempotency(tool, &scope_key, &derived_key)
+                    .await;
+                Err(err)
+            }
+        }
+    }
 
     /// Resolve a task id to its spec id by querying task-root events.
     pub(crate) async fn resolve_spec_for_task(&self, task_id: TaskId) -> MethodologyResult<SpecId> {
@@ -122,50 +212,6 @@ impl MethodologyService {
             resource: "task".into(),
             key: task_id.to_string(),
         })
-    }
-
-    pub(crate) async fn find_task_created_by_idempotency(
-        &self,
-        spec_id: SpecId,
-        idempotency_key: &str,
-    ) -> MethodologyResult<Option<tanren_domain::methodology::task::Task>> {
-        let events = tanren_store::methodology::projections::load_methodology_events_for_kind(
-            self.store(),
-            spec_id,
-            METHODOLOGY_PAGE_SIZE,
-            EntityKind::Task,
-        )
-        .await?;
-        for event in events {
-            if let MethodologyEvent::TaskCreated(e) = event
-                && e.idempotency_key.as_deref() == Some(idempotency_key)
-            {
-                return Ok(Some(*e.task));
-            }
-        }
-        Ok(None)
-    }
-
-    async fn find_finding_added_by_idempotency(
-        &self,
-        spec_id: SpecId,
-        idempotency_key: &str,
-    ) -> MethodologyResult<Option<Finding>> {
-        let events = tanren_store::methodology::projections::load_methodology_events_for_kind(
-            self.store(),
-            spec_id,
-            METHODOLOGY_PAGE_SIZE,
-            EntityKind::Finding,
-        )
-        .await?;
-        for event in events {
-            if let MethodologyEvent::FindingAdded(e) = event
-                && e.idempotency_key.as_deref() == Some(idempotency_key)
-            {
-                return Ok(Some(*e.finding));
-            }
-        }
-        Ok(None)
     }
 
     /// Emit a pre-built methodology event. Transport crates use this to

@@ -1,5 +1,8 @@
 ---
-name: resolve-blockers
+agent: conversation
+description: Tanren methodology command `resolve-blockers`
+model: default
+subtask: false
 template: |2
 
   # resolve-blockers

@@ -36,13 +36,25 @@ impl MethodologyService {
         params: SetSpecTitleParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
-        let title = require_non_empty("/title", &params.title, Some(200))?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: SpecFrontmatterPatch::SetTitle { title },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "set_spec_title",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                let title = require_non_empty("/title", &params.title, Some(200))?;
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: SpecFrontmatterPatch::SetTitle { title },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -58,14 +70,26 @@ impl MethodologyService {
         params: SetSpecNonNegotiablesParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: SpecFrontmatterPatch::SetNonNegotiables {
-                    items: params.items,
-                },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "set_spec_non_negotiables",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: SpecFrontmatterPatch::SetNonNegotiables {
+                            items: params.items,
+                        },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -81,14 +105,26 @@ impl MethodologyService {
         params: AddSpecAcceptanceCriterionParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: SpecFrontmatterPatch::AddAcceptanceCriterion {
-                    criterion: params.criterion,
-                },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "add_spec_acceptance_criterion",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: SpecFrontmatterPatch::AddAcceptanceCriterion {
+                            criterion: params.criterion,
+                        },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -104,14 +140,26 @@ impl MethodologyService {
         params: SetSpecDemoEnvironmentParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: SpecFrontmatterPatch::SetDemoEnvironment {
-                    demo_environment: params.demo_environment,
-                },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "set_spec_demo_environment",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: SpecFrontmatterPatch::SetDemoEnvironment {
+                            demo_environment: params.demo_environment,
+                        },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -127,14 +175,26 @@ impl MethodologyService {
         params: SetSpecDependenciesParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: SpecFrontmatterPatch::SetDependencies {
-                    dependencies: params.dependencies,
-                },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "set_spec_dependencies",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: SpecFrontmatterPatch::SetDependencies {
+                            dependencies: params.dependencies,
+                        },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -150,13 +210,25 @@ impl MethodologyService {
         params: SetSpecBaseBranchParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
-        let branch = require_non_empty("/branch", &params.branch, Some(200))?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: SpecFrontmatterPatch::SetBaseBranch { branch },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "set_spec_base_branch",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                let branch = require_non_empty("/branch", &params.branch, Some(200))?;
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: SpecFrontmatterPatch::SetBaseBranch { branch },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -174,21 +246,34 @@ impl MethodologyService {
         params: AddDemoStepParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::DemoFrontmatter, phase)?;
-        let id = require_non_empty("/id", &params.id, Some(80))?;
-        let description = require_non_empty("/description", &params.description, Some(1000))?;
-        let expected_observable =
-            require_non_empty("/expected_observable", &params.expected_observable, None)?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::DemoFrontmatterUpdated(DemoFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: DemoFrontmatterPatch::AddStep {
-                    id,
-                    mode: params.mode,
-                    description,
-                    expected_observable,
-                },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "add_demo_step",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                let id = require_non_empty("/id", &params.id, Some(80))?;
+                let description =
+                    require_non_empty("/description", &params.description, Some(1000))?;
+                let expected_observable =
+                    require_non_empty("/expected_observable", &params.expected_observable, None)?;
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::DemoFrontmatterUpdated(DemoFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: DemoFrontmatterPatch::AddStep {
+                            id,
+                            mode: params.mode,
+                            description,
+                            expected_observable,
+                        },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -204,14 +289,26 @@ impl MethodologyService {
         params: MarkDemoStepSkipParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::DemoFrontmatter, phase)?;
-        let step_id = require_non_empty("/step_id", &params.step_id, Some(80))?;
-        let reason = require_non_empty("/reason", &params.reason, None)?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::DemoFrontmatterUpdated(DemoFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: DemoFrontmatterPatch::MarkStepSkip { step_id, reason },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "mark_demo_step_skip",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                let step_id = require_non_empty("/step_id", &params.step_id, Some(80))?;
+                let reason = require_non_empty("/reason", &params.reason, None)?;
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::DemoFrontmatterUpdated(DemoFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: DemoFrontmatterPatch::MarkStepSkip { step_id, reason },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }
@@ -228,18 +325,30 @@ impl MethodologyService {
         params: AppendDemoResultParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::DemoResults, phase)?;
-        let step_id = require_non_empty("/step_id", &params.step_id, Some(80))?;
-        let observed = require_non_empty("/observed", &params.observed, None)?;
-        self.emit_event(
-            phase,
-            MethodologyEvent::DemoFrontmatterUpdated(DemoFrontmatterUpdated {
-                spec_id: params.spec_id,
-                patch: DemoFrontmatterPatch::AppendResult {
-                    step_id,
-                    status: params.status,
-                    observed,
-                },
-            }),
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "append_demo_result",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                let step_id = require_non_empty("/step_id", &params.step_id, Some(80))?;
+                let observed = require_non_empty("/observed", &params.observed, None)?;
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::DemoFrontmatterUpdated(DemoFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: DemoFrontmatterPatch::AppendResult {
+                            step_id,
+                            status: params.status,
+                            observed,
+                        },
+                    }),
+                )
+                .await
+            },
         )
         .await
     }

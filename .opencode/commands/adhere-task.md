@@ -1,5 +1,8 @@
 ---
-name: adhere-task
+agent: adherence
+description: Tanren methodology command `adhere-task`
+model: default
+subtask: false
 template: |2
 
   # adhere-task

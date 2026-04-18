@@ -1,5 +1,6 @@
 ---
 name: sync-roadmap
+description: Tanren methodology command `sync-roadmap`
 role: meta
 orchestration_loop: false
 autonomy: autonomous

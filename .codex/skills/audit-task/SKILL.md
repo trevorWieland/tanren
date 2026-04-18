@@ -1,5 +1,6 @@
 ---
 name: audit-task
+description: Tanren methodology command `audit-task`
 role: audit
 orchestration_loop: true
 autonomy: autonomous
