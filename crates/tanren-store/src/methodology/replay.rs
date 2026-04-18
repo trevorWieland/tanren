@@ -17,6 +17,9 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tanren_domain::events::{DomainEvent, EventEnvelope, SCHEMA_VERSION};
+use tanren_domain::methodology::event_tool::{
+    PhaseEventOriginKind, canonical_tool_for_event, is_tool_allowed_for_event,
+};
 use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::methodology::task::{RequiredGuard, TaskStatus, TaskTransitionKind};
 use tanren_domain::{EntityRef, EventId, SpecId, TaskId};
@@ -66,6 +69,19 @@ pub enum ReplayError {
         expected: String,
         actual: String,
     },
+    #[error("origin_kind mismatch at {path}:{line}: expected `{expected}`, got `{actual}`")]
+    OriginKindMismatch {
+        path: PathBuf,
+        line: usize,
+        expected: String,
+        actual: String,
+    },
+    #[error("missing caused_by_tool_call_id for origin `{origin}` at {path}:{line}")]
+    MissingCausedByToolCall {
+        path: PathBuf,
+        line: usize,
+        origin: String,
+    },
     #[error("invalid task transition at {path}:{line}: task={task_id} {from} -> {attempted}")]
     InvalidTaskTransition {
         path: PathBuf,
@@ -107,6 +123,10 @@ struct PhaseEventLine {
     phase: String,
     agent_session_id: String,
     timestamp: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    caused_by_tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin_kind: Option<PhaseEventOriginKind>,
     tool: String,
     payload: MethodologyEvent,
 }
@@ -149,51 +169,114 @@ pub async fn ingest_phase_events(
                 reason: source.to_string(),
                 raw: line.to_owned(),
             })?;
-
-        if event_id_exists(store, parsed.event_id).await? {
-            stats.events_skipped_duplicate_event_id += 1;
-            continue;
+        match ingest_one_line(store, path, line_no, parsed, required_guards).await? {
+            LineIngestOutcome::SkippedDuplicate => {
+                stats.events_skipped_duplicate_event_id += 1;
+            }
+            LineIngestOutcome::Appended => {
+                stats.events_appended += 1;
+            }
         }
-
-        let payload_spec_id =
-            parsed
-                .payload
-                .spec_id()
-                .ok_or_else(|| ReplayError::MissingPayloadSpecId {
-                    path: path.to_path_buf(),
-                    line: line_no,
-                })?;
-        if payload_spec_id != parsed.spec_id {
-            return Err(ReplayError::SpecIdMismatch {
-                path: path.to_path_buf(),
-                line: line_no,
-                line_spec_id: parsed.spec_id,
-                payload_spec_id,
-            });
-        }
-        let expected_tool = tool_name(&parsed.payload);
-        if parsed.tool != expected_tool {
-            return Err(ReplayError::ToolMismatch {
-                path: path.to_path_buf(),
-                line: line_no,
-                expected: expected_tool.to_owned(),
-                actual: parsed.tool,
-            });
-        }
-        validate_task_transition(
-            store,
-            &parsed.payload,
-            parsed.spec_id,
-            line_no,
-            path,
-            required_guards,
-        )
-        .await?;
-        let envelope = replay_envelope(parsed);
-        store.append_methodology_event(&envelope).await?;
-        stats.events_appended += 1;
     }
     Ok(stats)
+}
+
+enum LineIngestOutcome {
+    SkippedDuplicate,
+    Appended,
+}
+
+async fn ingest_one_line(
+    store: &Store,
+    path: &Path,
+    line_no: usize,
+    parsed: PhaseEventLine,
+    required_guards: &[RequiredGuard],
+) -> Result<LineIngestOutcome, ReplayError> {
+    if event_id_exists(store, parsed.event_id).await? {
+        return Ok(LineIngestOutcome::SkippedDuplicate);
+    }
+
+    let payload_spec_id =
+        parsed
+            .payload
+            .spec_id()
+            .ok_or_else(|| ReplayError::MissingPayloadSpecId {
+                path: path.to_path_buf(),
+                line: line_no,
+            })?;
+    if payload_spec_id != parsed.spec_id {
+        return Err(ReplayError::SpecIdMismatch {
+            path: path.to_path_buf(),
+            line: line_no,
+            line_spec_id: parsed.spec_id,
+            payload_spec_id,
+        });
+    }
+    let expected_tool = canonical_tool_for_event(&parsed.payload);
+    if !is_tool_allowed_for_event(&parsed.payload, &parsed.tool) {
+        return Err(ReplayError::ToolMismatch {
+            path: path.to_path_buf(),
+            line: line_no,
+            expected: expected_tool.to_owned(),
+            actual: parsed.tool,
+        });
+    }
+    validate_origin_metadata(path, line_no, &parsed)?;
+    validate_task_transition(
+        store,
+        &parsed.payload,
+        parsed.spec_id,
+        line_no,
+        path,
+        required_guards,
+    )
+    .await?;
+    let envelope = replay_envelope(parsed);
+    store.append_methodology_event(&envelope).await?;
+    Ok(LineIngestOutcome::Appended)
+}
+
+fn validate_origin_metadata(
+    path: &Path,
+    line_no: usize,
+    parsed: &PhaseEventLine,
+) -> Result<(), ReplayError> {
+    let has_new_fields = parsed.origin_kind.is_some() || parsed.caused_by_tool_call_id.is_some();
+    if !has_new_fields {
+        return Ok(());
+    }
+    let origin_kind = parsed
+        .origin_kind
+        .unwrap_or_else(|| PhaseEventOriginKind::default_for_event(&parsed.payload));
+    let is_system_event = matches!(
+        parsed.payload,
+        MethodologyEvent::UnauthorizedArtifactEdit(_) | MethodologyEvent::EvidenceSchemaError(_)
+    );
+    if is_system_event && origin_kind != PhaseEventOriginKind::System {
+        return Err(ReplayError::OriginKindMismatch {
+            path: path.to_path_buf(),
+            line: line_no,
+            expected: "system".into(),
+            actual: origin_kind_tag(origin_kind).into(),
+        });
+    }
+    if !is_system_event && origin_kind == PhaseEventOriginKind::System {
+        return Err(ReplayError::OriginKindMismatch {
+            path: path.to_path_buf(),
+            line: line_no,
+            expected: "tool_primary|tool_derived".into(),
+            actual: "system".into(),
+        });
+    }
+    if origin_kind == PhaseEventOriginKind::ToolDerived && parsed.caused_by_tool_call_id.is_none() {
+        return Err(ReplayError::MissingCausedByToolCall {
+            path: path.to_path_buf(),
+            line: line_no,
+            origin: origin_kind_tag(origin_kind).into(),
+        });
+    }
+    Ok(())
 }
 
 fn replay_envelope(line: PhaseEventLine) -> EventEnvelope {
@@ -316,31 +399,10 @@ fn task_transition_kind(event: &MethodologyEvent) -> Option<(TaskId, TaskTransit
     }
 }
 
-const fn tool_name(event: &MethodologyEvent) -> &'static str {
-    match event {
-        MethodologyEvent::SpecDefined(_) => "shape-spec",
-        MethodologyEvent::TaskCreated(_) => "create_task",
-        MethodologyEvent::TaskStarted(_) => "start_task",
-        MethodologyEvent::TaskImplemented(_) => "complete_task",
-        MethodologyEvent::TaskGateChecked(_)
-        | MethodologyEvent::TaskAudited(_)
-        | MethodologyEvent::TaskAdherent(_)
-        | MethodologyEvent::TaskXChecked(_) => "<guard-phase>",
-        MethodologyEvent::TaskCompleted(_) => "<orchestrator>",
-        MethodologyEvent::TaskAbandoned(_) => "abandon_task",
-        MethodologyEvent::TaskRevised(_) => "revise_task",
-        MethodologyEvent::FindingAdded(_) => "add_finding",
-        MethodologyEvent::AdherenceFindingAdded(_) => "record_adherence_finding",
-        MethodologyEvent::RubricScoreRecorded(_) => "record_rubric_score",
-        MethodologyEvent::NonNegotiableComplianceRecorded(_) => "record_non_negotiable_compliance",
-        MethodologyEvent::SignpostAdded(_) => "add_signpost",
-        MethodologyEvent::SignpostStatusUpdated(_) => "update_signpost_status",
-        MethodologyEvent::IssueCreated(_) => "create_issue",
-        MethodologyEvent::PhaseOutcomeReported(_) => "report_phase_outcome",
-        MethodologyEvent::ReplyDirectiveRecorded(_) => "post_reply_directive",
-        MethodologyEvent::SpecFrontmatterUpdated(_) => "spec.frontmatter",
-        MethodologyEvent::DemoFrontmatterUpdated(_) => "demo.frontmatter",
-        MethodologyEvent::UnauthorizedArtifactEdit(_) => "<enforcement>",
-        MethodologyEvent::EvidenceSchemaError(_) => "<postflight>",
+const fn origin_kind_tag(kind: PhaseEventOriginKind) -> &'static str {
+    match kind {
+        PhaseEventOriginKind::ToolPrimary => "tool_primary",
+        PhaseEventOriginKind::ToolDerived => "tool_derived",
+        PhaseEventOriginKind::System => "system",
     }
 }

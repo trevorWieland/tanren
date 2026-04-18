@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::SpecId;
-use crate::methodology::spec::{DemoEnvironment, SpecDependencies, TouchedSymbol};
+use crate::methodology::spec::{
+    DemoEnvironment, SpecDependencies, SpecRelevanceContext, TouchedSymbol,
+};
 use crate::methodology::task::AcceptanceCriterion;
 use crate::validated::NonEmptyString;
 
@@ -33,6 +35,8 @@ pub struct SpecFrontmatter {
     pub base_branch: NonEmptyString,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub touched_symbols: Vec<TouchedSymbol>,
+    #[serde(default, skip_serializing_if = "SpecRelevanceContext::is_empty")]
+    pub relevance_context: SpecRelevanceContext,
     pub created_at: DateTime<Utc>,
 }
 
@@ -76,6 +80,7 @@ mod tests {
             dependencies: SpecDependencies::default(),
             base_branch: NonEmptyString::try_new("main").expect("non-empty"),
             touched_symbols: vec![],
+            relevance_context: SpecRelevanceContext::default(),
             created_at: Utc::now(),
         }
     }

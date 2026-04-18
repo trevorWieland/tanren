@@ -5,8 +5,9 @@ use chrono::Utc;
 use tanren_domain::entity::EntityRef;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{AdherenceFindingAdded, IssueCreated, MethodologyEvent};
-use tanren_domain::methodology::finding::{Finding, FindingSource};
+use tanren_domain::methodology::finding::{AdherenceSeverity, Finding, FindingSource};
 use tanren_domain::methodology::issue::{Issue, IssueProvider, IssueRef};
+use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
@@ -30,11 +31,15 @@ impl MethodologyService {
     pub async fn create_issue(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: CreateIssueParams,
     ) -> MethodologyResult<CreateIssueResponse> {
         enforce(scope, ToolCapability::IssueCreate, phase)?;
-        require_phase_in("create_issue", phase, &["triage-audits", "handle-feedback"])?;
+        require_phase_in(
+            "create_issue",
+            phase,
+            &[KnownPhase::TriageAudits, KnownPhase::HandleFeedback],
+        )?;
         let spec_id = params.origin_spec_id;
         let explicit_key = params.idempotency_key.clone();
         let idempotency_payload = params.clone();
@@ -102,7 +107,7 @@ impl MethodologyService {
     pub async fn record_adherence_finding(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: RecordAdherenceFindingParams,
     ) -> MethodologyResult<tanren_contract::methodology::AddFindingResponse> {
         enforce(scope, ToolCapability::AdherenceRecord, phase)?;
@@ -121,19 +126,24 @@ impl MethodologyService {
                 // carries only (name, category); we resolve the importance
                 // from the baseline-standards registry so the check is a
                 // typed domain invariant, not a prompt-level guardrail.
-                let importance = resolve_standard_importance(self.standards(), &params.standard);
-                if importance
-                    == Some(tanren_domain::methodology::standard::StandardImportance::Critical)
-                    && matches!(
-                        params.severity,
-                        tanren_domain::methodology::finding::FindingSeverity::Defer
-                    )
+                let standard = resolve_standard(self.standards(), &params.standard).ok_or_else(|| {
+                    MethodologyError::FieldValidation {
+                        field_path: "/standard".into(),
+                        expected: "existing standard (category + name) from runtime standards registry".into(),
+                        actual: format!(
+                            "{}:{}",
+                            params.standard.category.as_str(),
+                            params.standard.name.as_str()
+                        ),
+                        remediation: "list relevant standards for this spec and choose one of the returned standards".into(),
+                    }
+                })?;
+                if standard.importance.disallows_defer()
+                    && matches!(params.severity, AdherenceSeverity::Defer)
                 {
                     return Err(MethodologyError::FieldValidation {
                         field_path: "/severity".into(),
-                        expected:
-                            "fix_now | note | question (critical standards cannot be deferred)"
-                                .into(),
+                        expected: "fix_now (critical standards cannot be deferred)".into(),
                         actual: "defer".into(),
                         remediation: format!(
                             "raise severity to `fix_now` or reclassify `{}:{}` as non-critical",
@@ -151,7 +161,7 @@ impl MethodologyService {
                 let finding = Finding {
                     id: FindingId::new(),
                     spec_id: params.spec_id,
-                    severity: params.severity,
+                    severity: params.severity.as_finding_severity(),
                     title,
                     description: params.rationale,
                     affected_files: params.affected_files,
@@ -270,198 +280,37 @@ impl MethodologyService {
         }
         Ok(out)
     }
-
-    /// `list_relevant_standards` — baseline-complete upper bound.
-    /// Preserved for callers that do not supply relevance filters; new
-    /// callers should prefer
-    /// [`Self::list_relevant_standards_filtered`] which implements
-    /// the adherence §4.1 algorithm.
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub fn list_relevant_standards(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        _spec_id: tanren_domain::SpecId,
-    ) -> MethodologyResult<Vec<tanren_domain::methodology::standard::Standard>> {
-        enforce(scope, ToolCapability::StandardRead, phase)?;
-        let mut out = self.standards().to_vec();
-        out.sort_by(|a, b| {
-            a.category
-                .as_str()
-                .cmp(b.category.as_str())
-                .then(a.name.as_str().cmp(b.name.as_str()))
-        });
-        Ok(out)
-    }
-
-    /// Implements the adherence §4.1 relevance algorithm: for each
-    /// baseline standard, keep the standard if (and explain why) any
-    /// of:
-    ///
-    /// - one of the `touched_files` matches one of the standard's
-    ///   `applies_to` globs, or
-    /// - `project_language` matches one of `applies_to_languages`, or
-    /// - one of `domains` matches one of `applies_to_domains`, or
-    /// - the standard declares no per-axis filter (fully universal).
-    ///
-    /// With all filter inputs empty, every baseline standard is
-    /// returned — preserving the conservative upper-bound behavior for
-    /// pre-Lane-0.5 callers. The `inclusion_reason` field on every
-    /// returned `RelevantStandard` names the axis that matched so
-    /// operators can audit inclusion decisions.
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub fn list_relevant_standards_filtered(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        params: &tanren_contract::methodology::ListRelevantStandardsParams,
-    ) -> MethodologyResult<Vec<tanren_contract::methodology::RelevantStandard>> {
-        enforce(scope, ToolCapability::StandardRead, phase)?;
-        let all = self.standards().to_vec();
-        let all_empty = params.touched_files.is_empty()
-            && params.project_language.is_none()
-            && params.domains.is_empty();
-
-        let mut out: Vec<tanren_contract::methodology::RelevantStandard> = all
-            .into_iter()
-            .filter_map(|s| {
-                if all_empty {
-                    return Some(tanren_contract::methodology::RelevantStandard {
-                        schema_version: SchemaVersion::current(),
-                        standard: s,
-                        inclusion_reason: "baseline upper bound (no filter inputs supplied)".into(),
-                    });
-                }
-                relevance_reason(&s, params).map(|reason| {
-                    tanren_contract::methodology::RelevantStandard {
-                        schema_version: SchemaVersion::current(),
-                        standard: s,
-                        inclusion_reason: reason,
-                    }
-                })
-            })
-            .collect();
-        out.sort_by(|a, b| {
-            a.standard
-                .category
-                .as_str()
-                .cmp(b.standard.category.as_str())
-                .then(a.standard.name.as_str().cmp(b.standard.name.as_str()))
-        });
-        Ok(out)
-    }
 }
 
-fn require_phase_in(tool_name: &str, phase: &str, allowed: &[&str]) -> MethodologyResult<()> {
-    if allowed.contains(&phase) {
+fn require_phase_in(
+    tool_name: &str,
+    phase: &PhaseId,
+    allowed: &[KnownPhase],
+) -> MethodologyResult<()> {
+    if allowed.iter().any(|known| phase.is_known(*known)) {
         return Ok(());
     }
+    let allowed_tags: Vec<&str> = allowed.iter().map(|v| v.tag()).collect();
     Err(MethodologyError::FieldValidation {
         field_path: "/phase".into(),
-        expected: format!("{tool_name} allowed only in phases: {}", allowed.join(", ")),
-        actual: phase.to_owned(),
-        remediation: format!("invoke `{tool_name}` from one of: {}", allowed.join(", ")),
+        expected: format!(
+            "{tool_name} allowed only in phases: {}",
+            allowed_tags.join(", ")
+        ),
+        actual: phase.as_str().to_owned(),
+        remediation: format!(
+            "invoke `{tool_name}` from one of: {}",
+            allowed_tags.join(", ")
+        ),
     })
 }
 
-/// Evaluate the per-axis relevance filter. Returns
-/// `Some(explanation)` when the standard should be included,
-/// `None` when every axis excludes it.
-fn relevance_reason(
-    standard: &tanren_domain::methodology::standard::Standard,
-    params: &tanren_contract::methodology::ListRelevantStandardsParams,
-) -> Option<String> {
-    // A standard with zero `applies_to*` entries declares itself as
-    // universally-applicable. Keep it unless the caller explicitly
-    // scoped to a language/domain this standard does not claim.
-    let is_universal = standard.applies_to.is_empty()
-        && standard.applies_to_languages.is_empty()
-        && standard.applies_to_domains.is_empty();
-    if is_universal {
-        return Some("universal (no per-axis restriction declared)".into());
-    }
-    if !standard.applies_to.is_empty()
-        && let Some(file) = matching_touched_file(standard, &params.touched_files)
-    {
-        return Some(format!(
-            "matched `applies_to` against touched file `{file}`"
-        ));
-    }
-    if let Some(lang) = params.project_language.as_deref()
-        && !standard.applies_to_languages.is_empty()
-        && standard
-            .applies_to_languages
-            .iter()
-            .any(|l| l.eq_ignore_ascii_case(lang))
-    {
-        return Some(format!("matched `applies_to_languages` against `{lang}`"));
-    }
-    if !params.domains.is_empty()
-        && !standard.applies_to_domains.is_empty()
-        && let Some(d) = params
-            .domains
-            .iter()
-            .find(|d| standard.applies_to_domains.iter().any(|sd| sd == *d))
-    {
-        return Some(format!("matched `applies_to_domains` against `{d}`"));
-    }
-    None
-}
-
-/// Return the first caller-supplied touched file that matches any of
-/// the standard's `applies_to` globs. Uses a lightweight suffix /
-/// pattern match (no full-glob engine required for baseline entries
-/// like `**/*.rs`, `*.py`, `src/**`).
-fn matching_touched_file<'a>(
-    standard: &tanren_domain::methodology::standard::Standard,
-    touched: &'a [String],
-) -> Option<&'a str> {
-    touched
-        .iter()
-        .find(|f| {
-            standard
-                .applies_to
-                .iter()
-                .any(|pat| simple_glob_match(pat, f))
-        })
-        .map(String::as_str)
-}
-
-/// Lightweight glob matcher covering the baseline patterns used by
-/// built-in standards: `**/*.ext`, `*.ext`, `prefix/**`. Exact-string
-/// patterns always fall back to equality. This is intentionally
-/// simple — adding a full glob crate (e.g. `globset`) is a Phase-1
-/// concern once downstream consumers need richer patterns.
-fn simple_glob_match(pattern: &str, path: &str) -> bool {
-    if pattern == path {
-        return true;
-    }
-    if let Some(ext) = pattern.strip_prefix("**/*") {
-        return path.ends_with(ext);
-    }
-    if let Some(ext) = pattern.strip_prefix("*") {
-        return path.ends_with(ext);
-    }
-    if let Some(prefix) = pattern.strip_suffix("/**") {
-        return path.starts_with(prefix) && path.len() > prefix.len();
-    }
-    false
-}
-
-/// Look up the importance of a standard by (category, name) in the
-/// bundled baseline registry. Returns `None` for unknown standards —
-/// adherence findings against unknown standards remain permitted but
-/// do not trigger the critical-cannot-defer guard.
-fn resolve_standard_importance(
-    standards: &[tanren_domain::methodology::standard::Standard],
+/// Look up a standard by `(category, name)` in the runtime registry.
+fn resolve_standard<'a>(
+    standards: &'a [tanren_domain::methodology::standard::Standard],
     r: &tanren_domain::methodology::finding::StandardRef,
-) -> Option<tanren_domain::methodology::standard::StandardImportance> {
+) -> Option<&'a tanren_domain::methodology::standard::Standard> {
     standards
         .iter()
         .find(|s| s.category.as_str() == r.category.as_str() && s.name.as_str() == r.name.as_str())
-        .map(|s| s.importance)
 }

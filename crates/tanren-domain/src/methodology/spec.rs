@@ -28,7 +28,33 @@ pub struct Spec {
     pub base_branch: NonEmptyString,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub touched_symbols: Vec<TouchedSymbol>,
+    #[serde(default, skip_serializing_if = "SpecRelevanceContext::is_empty")]
+    pub relevance_context: SpecRelevanceContext,
     pub created_at: DateTime<Utc>,
+}
+
+/// Spec metadata used to derive adherence relevance server-side.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SpecRelevanceContext {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub touched_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_language: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+impl SpecRelevanceContext {
+    /// True when no relevance metadata has been set.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.touched_files.is_empty()
+            && self.project_language.is_none()
+            && self.tags.is_empty()
+            && self.category.is_none()
+    }
 }
 
 /// Environmental connections the demo phase will probe.

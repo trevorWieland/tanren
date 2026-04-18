@@ -2,7 +2,9 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tanren_domain::methodology::finding::{FindingSeverity, FindingSource, StandardRef};
+use tanren_domain::methodology::finding::{
+    AdherenceSeverity, FindingSeverity, FindingSource, StandardRef,
+};
 use tanren_domain::{FindingId, SpecId, TaskId};
 
 use super::SchemaVersion;
@@ -43,7 +45,7 @@ pub struct RecordAdherenceFindingParams {
     pub affected_files: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub line_numbers: Vec<u32>,
-    pub severity: FindingSeverity,
+    pub severity: AdherenceSeverity,
     pub rationale: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,

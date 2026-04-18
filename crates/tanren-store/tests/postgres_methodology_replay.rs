@@ -6,6 +6,7 @@ mod support_postgres;
 use chrono::Utc;
 use serde_json::json;
 use support_postgres::postgres_fixture;
+use tanren_domain::methodology::event_tool::canonical_tool_for_event;
 use tanren_domain::methodology::events::{
     MethodologyEvent, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated, TaskGateChecked,
     TaskImplemented, TaskStarted,
@@ -28,19 +29,6 @@ fn seed_task(spec_id: SpecId, task_id: TaskId) -> Task {
         parent_task_id: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
-    }
-}
-
-fn tool_for(event: &MethodologyEvent) -> &'static str {
-    match event {
-        MethodologyEvent::TaskCreated(_) => "create_task",
-        MethodologyEvent::TaskStarted(_) => "start_task",
-        MethodologyEvent::TaskImplemented(_) => "complete_task",
-        MethodologyEvent::TaskGateChecked(_)
-        | MethodologyEvent::TaskAudited(_)
-        | MethodologyEvent::TaskAdherent(_) => "<guard-phase>",
-        MethodologyEvent::TaskCompleted(_) => "<orchestrator>",
-        _ => "<unsupported>",
     }
 }
 
@@ -113,7 +101,7 @@ async fn replay_ingests_canonical_phase_event_lines_postgres() {
             spec_id,
             uuid::Uuid::now_v7(),
             event,
-            tool_for(event),
+            canonical_tool_for_event(event),
         ));
         content.push('\n');
     }

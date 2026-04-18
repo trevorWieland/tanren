@@ -1,6 +1,7 @@
 //! `tanren demo {…}` subcommands — §3.4 demo-frontmatter tools.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::{
     AddDemoStepParams, AppendDemoResultParams, MarkDemoStepSkipParams,
@@ -21,7 +22,7 @@ pub(crate) enum DemoCommand {
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: DemoCommand,
 ) -> u8 {
     match cmd {

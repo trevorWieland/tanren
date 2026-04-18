@@ -9,6 +9,7 @@ use tanren_app_services::methodology::{
 use tanren_contract::methodology::{AddFindingParams, CreateTaskParams, RecordRubricScoreParams};
 use tanren_domain::SpecId;
 use tanren_domain::methodology::finding::{FindingSeverity, FindingSource};
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::pillar::{PillarId, PillarScope, PillarScore};
 use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin};
 use tanren_store::Store;
@@ -34,6 +35,10 @@ fn admin_scope() -> CapabilityScope {
     CapabilityScope::from_iter_caps([TaskCreate, FindingAdd, RubricRecord])
 }
 
+fn phase(tag: &str) -> PhaseId {
+    PhaseId::try_new(tag).expect("phase")
+}
+
 #[tokio::test]
 async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {
     let svc = mk_service(vec![]).await;
@@ -42,7 +47,7 @@ async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {
     let create = svc
         .create_task(
             &scope,
-            "audit-task",
+            &phase("audit-task"),
             CreateTaskParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 idempotency_key: None,
@@ -60,7 +65,7 @@ async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {
     let finding = svc
         .add_finding(
             &scope,
-            "audit-task",
+            &phase("audit-task"),
             AddFindingParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id,
@@ -84,7 +89,7 @@ async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {
     let err = svc
         .record_rubric_score(
             &scope,
-            "audit-task",
+            &phase("audit-task"),
             RecordRubricScoreParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id,
@@ -115,7 +120,7 @@ async fn rubric_score_rejects_non_actionable_supporting_severity() {
     let create = svc
         .create_task(
             &scope,
-            "audit-task",
+            &phase("audit-task"),
             CreateTaskParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 idempotency_key: None,
@@ -133,7 +138,7 @@ async fn rubric_score_rejects_non_actionable_supporting_severity() {
     let finding = svc
         .add_finding(
             &scope,
-            "audit-task",
+            &phase("audit-task"),
             AddFindingParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id,
@@ -157,7 +162,7 @@ async fn rubric_score_rejects_non_actionable_supporting_severity() {
     let err = svc
         .record_rubric_score(
             &scope,
-            "audit-task",
+            &phase("audit-task"),
             RecordRubricScoreParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id,

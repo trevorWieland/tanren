@@ -187,8 +187,11 @@ and collects results for dry-run output.
 | `{{TASK_TOOL_BINDING}}` | install-target `binding` (`mcp` | `cli`) |
 | `{{PHASE_EVENTS_FILE}}` | `{spec_folder}/phase-events.jsonl` |
 | `{{READONLY_ARTIFACT_BANNER}}` | fixed prose |
-| `{{PILLAR_LIST}}` | rubric config |
-| `{{REQUIRED_GUARDS}}` | `methodology.task_complete_requires` |
+| `{{PILLAR_LIST}}` | effective rubric pillar ids: `tanren/rubric.yml` (preferred) → `tanren.yml` top-level `rubric` fallback → built-in pillar ids |
+| `{{REQUIRED_GUARDS}}` | effective `methodology.task_complete_requires` after profile overrides (`tanren install --profile`) |
+
+The installer must resolve both variables at install time from the
+active config/rubric state; hardcoded literals are non-compliant.
 
 ### 4.2 Validation
 

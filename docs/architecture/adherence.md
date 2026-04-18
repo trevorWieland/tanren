@@ -79,22 +79,35 @@ cadence.
 
 ### 4.1 Algorithm
 
-Input: `spec_id` → spec frontmatter + spec's touched files.
+Input: `spec_id` (authoritative) plus optional caller hints
+(`touched_files`, `project_language`, `domains`, `tags`, `category`).
+Server-side relevance is derived from persisted spec state first, then
+hint values are unioned in as additive context.
 
 ```
 relevant(standard):
-    if standard.applies_to globs intersect spec.touched_files:
+    if standard.applies_to globs intersect effective.touched_files:
         return true
-    if standard.applies_to_languages contains spec.project_language:
+    if standard.applies_to_languages contains any effective.project_languages:
         return true
-    if standard.applies_to_domains contains any of
-       spec.tags / spec.category / spec.non_negotiable_themes:
+    if standard.applies_to_domains contains any effective.domains:
+        return true
+    if standard has no applies_to/applies_to_languages/applies_to_domains:
         return true
     return false
 
 standards = discover_all_standards(STANDARDS_ROOT)
 return [s for s in standards if relevant(s)]
 ```
+
+`effective.*` is built as:
+- `effective.touched_files = spec.relevance_context.touched_files ∪ caller.touched_files`
+- `effective.project_languages = {spec.relevance_context.project_language?, caller.project_language?}`
+- `effective.domains = spec.relevance_context.tags ∪ spec.relevance_context.category? ∪ caller.domains ∪ caller.tags ∪ caller.category?`
+
+Caller hints can broaden relevance, but cannot narrow spec-derived context.
+Path matching uses full glob semantics (globset) after path
+normalization (`\` → `/`, strip leading `./`).
 
 ### 4.2 Standard metadata (required on every standard file)
 
@@ -117,19 +130,18 @@ importance: <low|medium|high|critical>
 Distinct from audit findings (no `pillar`; has `standard_ref`):
 
 ```
-add_finding / record_adherence_finding inputs:
-  standard_id: <string>              // resolves to Standard struct
+record_adherence_finding inputs:
+  standard: { category: <string>, name: <string> }  // must exist in runtime standards registry
   severity: <fix_now | defer>        // note/question not used for adherence
-  title: <string>
-  description: <string>              // what the violation is
   affected_files: [<path>]
   line_numbers?: [<u32>]
   rationale: <string>                // why this is a violation
-  suggested_fix?: <string>
 ```
 
-Stored as `AdherenceFindingAdded` event with `FindingSource::
-Adherence { standard_id }`.
+Stored as `AdherenceFindingAdded` event with
+`FindingSource::Adherence { standard: StandardRef }`.
+Unknown `(category, name)` pairs are rejected at the tool boundary
+with typed remediation to list standards first.
 
 ---
 
@@ -183,7 +195,8 @@ useful.
 Test-enforced in `tanren-app-services::methodology::adherence`:
 
 1. `list_relevant_standards(spec_id)` returns only standards where
-   `relevant(standard)` is true for that spec.
+   `relevant(standard)` is true for the server-derived spec relevance
+   context plus additive caller hints.
 2. Every adherence finding links to a standard that existed at the
    time of recording.
 3. Critical-importance standards can never produce `defer` findings.
@@ -200,9 +213,8 @@ Test-enforced in `tanren-app-services::methodology::adherence`:
 - **New adherence scope** (e.g., library-wide rather than per-file) →
   add new `applies_to_*` fields to the standard schema; update the
   relevance algorithm.
-- **New severity** (e.g., `advisory`) → add a variant to
-  `AdherenceSeverity`; update the tool contract; adherence phases
-  declare which severities they emit.
+- **Severity changes** require an explicit contract version bump
+  because v1 adherence is intentionally strict (`fix_now|defer` only).
 
 ---
 

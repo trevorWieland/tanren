@@ -14,6 +14,8 @@ use std::collections::BTreeSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::phase_id::{KnownPhase, PhaseId};
+
 /// A single authorization scope on the agent tool surface.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -122,12 +124,29 @@ impl CapabilityScope {
     }
 }
 
+/// Trait that resolves default capabilities for a phase.
+pub trait PhaseCapabilityResolver {
+    /// Resolve the default capability scope for one phase.
+    fn scope_for_phase(&self, phase: &PhaseId) -> Option<CapabilityScope>;
+}
+
+/// Built-in phase capability resolver matching the architecture spec.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DefaultPhaseCapabilityResolver;
+
+impl PhaseCapabilityResolver for DefaultPhaseCapabilityResolver {
+    fn scope_for_phase(&self, phase: &PhaseId) -> Option<CapabilityScope> {
+        default_scope_for_known_phase(phase.known())
+    }
+}
+
 /// Phase-name-keyed lookup of the default capability scope.
-///
-/// Phases are named by their spec/project-loop command identifier
-/// (e.g. `"do-task"`, `"audit-task"`). Returns `None` for unknown phases.
 #[must_use]
-pub fn default_scope_for_phase(phase: &str) -> Option<CapabilityScope> {
+pub fn default_scope_for_phase(phase: &PhaseId) -> Option<CapabilityScope> {
+    DefaultPhaseCapabilityResolver.scope_for_phase(phase)
+}
+
+fn default_scope_for_known_phase(phase: Option<KnownPhase>) -> Option<CapabilityScope> {
     use ToolCapability::{
         AdherenceRecord, ComplianceRecord, DemoFrontmatter, DemoResults, FeedbackReply, FindingAdd,
         IssueCreate, PhaseEscalate, PhaseOutcome, RubricRecord, SignpostAdd, SignpostUpdate,
@@ -135,7 +154,7 @@ pub fn default_scope_for_phase(phase: &str) -> Option<CapabilityScope> {
         TaskStart,
     };
     let caps: &[ToolCapability] = match phase {
-        "shape-spec" => &[
+        Some(KnownPhase::ShapeSpec) => &[
             TaskCreate,
             TaskRevise,
             SpecFrontmatter,
@@ -143,7 +162,7 @@ pub fn default_scope_for_phase(phase: &str) -> Option<CapabilityScope> {
             SignpostAdd,
             PhaseOutcome,
         ],
-        "do-task" => &[
+        Some(KnownPhase::DoTask) => &[
             TaskStart,
             TaskComplete,
             SignpostAdd,
@@ -151,24 +170,28 @@ pub fn default_scope_for_phase(phase: &str) -> Option<CapabilityScope> {
             TaskRead,
             PhaseOutcome,
         ],
-        "audit-task" | "audit-spec" => &[
+        Some(KnownPhase::AuditTask | KnownPhase::AuditSpec) => &[
             FindingAdd,
             RubricRecord,
             ComplianceRecord,
             TaskRead,
             PhaseOutcome,
         ],
-        "adhere-task" | "adhere-spec" => &[StandardRead, AdherenceRecord, TaskRead, PhaseOutcome],
-        "run-demo" => &[DemoResults, FindingAdd, SignpostAdd, TaskRead, PhaseOutcome],
-        "walk-spec" => &[TaskCreate, TaskRead, PhaseOutcome],
-        "handle-feedback" => &[
+        Some(KnownPhase::AdhereTask | KnownPhase::AdhereSpec) => {
+            &[StandardRead, AdherenceRecord, TaskRead, PhaseOutcome]
+        }
+        Some(KnownPhase::RunDemo) => {
+            &[DemoResults, FindingAdd, SignpostAdd, TaskRead, PhaseOutcome]
+        }
+        Some(KnownPhase::WalkSpec) => &[TaskCreate, TaskRead, PhaseOutcome],
+        Some(KnownPhase::HandleFeedback) => &[
             TaskCreate,
             IssueCreate,
             FeedbackReply,
             TaskRead,
             PhaseOutcome,
         ],
-        "investigate" => &[
+        Some(KnownPhase::Investigate) => &[
             TaskCreate,
             TaskRevise,
             TaskAbandon,
@@ -177,14 +200,18 @@ pub fn default_scope_for_phase(phase: &str) -> Option<CapabilityScope> {
             TaskRead,
             PhaseOutcome,
         ],
-        "resolve-blockers" => &[TaskCreate, TaskRevise, TaskAbandon, TaskRead, PhaseOutcome],
-        "triage-audits" => &[IssueCreate, FindingAdd, PhaseOutcome],
-        "sync-roadmap" => &[FindingAdd, PhaseOutcome],
-        "discover-standards" | "index-standards" | "inject-standards" => {
-            &[StandardRead, PhaseOutcome]
+        Some(KnownPhase::ResolveBlockers) => {
+            &[TaskCreate, TaskRevise, TaskAbandon, TaskRead, PhaseOutcome]
         }
-        "plan-product" => &[PhaseOutcome],
-        _ => return None,
+        Some(KnownPhase::TriageAudits) => &[IssueCreate, FindingAdd, PhaseOutcome],
+        Some(KnownPhase::SyncRoadmap) => &[FindingAdd, PhaseOutcome],
+        Some(
+            KnownPhase::DiscoverStandards
+            | KnownPhase::IndexStandards
+            | KnownPhase::InjectStandards,
+        ) => &[StandardRead, PhaseOutcome],
+        Some(KnownPhase::PlanProduct) => &[PhaseOutcome],
+        None => return None,
     };
     Some(CapabilityScope::from_iter_caps(caps.iter().copied()))
 }
@@ -192,6 +219,10 @@ pub fn default_scope_for_phase(phase: &str) -> Option<CapabilityScope> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn phase_id(tag: &str) -> PhaseId {
+        PhaseId::try_new(tag).expect("phase")
+    }
 
     #[test]
     fn tags_are_snake_case_with_dot() {
@@ -219,7 +250,7 @@ mod tests {
 
     #[test]
     fn do_task_scope_matches_spec() {
-        let scope = default_scope_for_phase("do-task").expect("do-task exists");
+        let scope = default_scope_for_phase(&phase_id("do-task")).expect("do-task exists");
         assert!(scope.allows(ToolCapability::TaskStart));
         assert!(scope.allows(ToolCapability::TaskComplete));
         assert!(!scope.allows(ToolCapability::TaskCreate));
@@ -246,13 +277,13 @@ mod tests {
             "inject-standards",
             "plan-product",
         ] {
-            let scope = default_scope_for_phase(phase).expect("known phase");
+            let scope = default_scope_for_phase(&phase_id(phase)).expect("known phase");
             assert!(
                 !scope.allows(ToolCapability::PhaseEscalate),
                 "phase {phase} unexpectedly has phase.escalate"
             );
         }
-        let inv = default_scope_for_phase("investigate").expect("investigate");
+        let inv = default_scope_for_phase(&phase_id("investigate")).expect("investigate");
         assert!(inv.allows(ToolCapability::PhaseEscalate));
     }
 
@@ -275,19 +306,19 @@ mod tests {
             "inject-standards",
             "plan-product",
         ] {
-            let scope = default_scope_for_phase(phase).expect("known phase");
+            let scope = default_scope_for_phase(&phase_id(phase)).expect("known phase");
             assert!(
                 !scope.allows(ToolCapability::FeedbackReply),
                 "phase {phase} unexpectedly has feedback.reply"
             );
         }
         assert!(
-            default_scope_for_phase("handle-feedback")
+            default_scope_for_phase(&phase_id("handle-feedback"))
                 .expect("handle-feedback")
                 .allows(ToolCapability::FeedbackReply)
         );
         assert!(
-            !default_scope_for_phase("sync-roadmap")
+            !default_scope_for_phase(&phase_id("sync-roadmap"))
                 .expect("sync-roadmap")
                 .allows(ToolCapability::FeedbackReply)
         );
@@ -296,19 +327,19 @@ mod tests {
     #[test]
     fn issue_create_confined_to_triage_and_feedback() {
         for phase in ["shape-spec", "do-task", "audit-task", "investigate"] {
-            let scope = default_scope_for_phase(phase).expect("known phase");
+            let scope = default_scope_for_phase(&phase_id(phase)).expect("known phase");
             assert!(
                 !scope.allows(ToolCapability::IssueCreate),
                 "phase {phase} unexpectedly has issue.create"
             );
         }
         assert!(
-            default_scope_for_phase("triage-audits")
+            default_scope_for_phase(&phase_id("triage-audits"))
                 .expect("triage-audits")
                 .allows(ToolCapability::IssueCreate)
         );
         assert!(
-            default_scope_for_phase("handle-feedback")
+            default_scope_for_phase(&phase_id("handle-feedback"))
                 .expect("handle-feedback")
                 .allows(ToolCapability::IssueCreate)
         );
@@ -316,7 +347,7 @@ mod tests {
 
     #[test]
     fn unknown_phase_returns_none() {
-        assert!(default_scope_for_phase("nonsense-phase").is_none());
+        assert!(default_scope_for_phase(&phase_id("nonsense-phase")).is_none());
     }
 
     #[test]

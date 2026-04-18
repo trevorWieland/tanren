@@ -11,6 +11,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_domain::events::EventEnvelope;
+use tanren_domain::methodology::event_tool::{PhaseEventOriginKind, canonical_tool_for_event};
 use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::{EventId, SpecId};
 
@@ -25,8 +26,19 @@ pub struct PhaseEventLine {
     pub phase: String,
     pub agent_session_id: String,
     pub timestamp: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caused_by_tool_call_id: Option<String>,
+    pub origin_kind: PhaseEventOriginKind,
     pub tool: String,
     pub payload: MethodologyEvent,
+}
+
+/// Optional projector attribution overrides supplied by the caller.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PhaseEventAttribution {
+    pub caused_by_tool_call_id: Option<String>,
+    pub origin_kind: Option<PhaseEventOriginKind>,
+    pub tool: Option<String>,
 }
 
 /// Project a slice of `EventEnvelope` rows into `PhaseEventLine`s.
@@ -61,7 +73,9 @@ pub fn project_phase_events(
                 phase: phase.to_owned(),
                 agent_session_id: agent_session_id.to_owned(),
                 timestamp: env.timestamp,
-                tool: tool_name(event).to_owned(),
+                caused_by_tool_call_id: None,
+                origin_kind: PhaseEventOriginKind::default_for_event(event),
+                tool: canonical_tool_for_event(event).to_owned(),
                 payload: event.clone(),
             })
         })
@@ -95,19 +109,44 @@ pub fn line_for_envelope(
     phase: &str,
     agent_session_id: &str,
 ) -> Option<PhaseEventLine> {
+    line_for_envelope_with_attribution(
+        envelope,
+        spec_id,
+        phase,
+        agent_session_id,
+        &PhaseEventAttribution::default(),
+    )
+}
+
+/// Build one [`PhaseEventLine`] from one envelope, allowing the caller to
+/// override attribution fields.
+#[must_use]
+pub fn line_for_envelope_with_attribution(
+    envelope: &EventEnvelope,
+    spec_id: SpecId,
+    phase: &str,
+    agent_session_id: &str,
+    attribution: &PhaseEventAttribution,
+) -> Option<PhaseEventLine> {
     let tanren_domain::events::DomainEvent::Methodology { event } = &envelope.payload else {
         return None;
     };
     if event.spec_id() != Some(spec_id) {
         return None;
     }
+    let default_origin = PhaseEventOriginKind::default_for_event(event);
     Some(PhaseEventLine {
         event_id: envelope.event_id,
         spec_id,
         phase: phase.to_owned(),
         agent_session_id: agent_session_id.to_owned(),
         timestamp: envelope.timestamp,
-        tool: tool_name(event).to_owned(),
+        caused_by_tool_call_id: attribution.caused_by_tool_call_id.clone(),
+        origin_kind: attribution.origin_kind.unwrap_or(default_origin),
+        tool: attribution
+            .tool
+            .clone()
+            .unwrap_or_else(|| canonical_tool_for_event(event).to_owned()),
         payload: event.clone(),
     })
 }
@@ -201,38 +240,6 @@ pub fn jsonl_contains_event_id(path: &Path, event_id: EventId) -> Result<bool, M
     Ok(false)
 }
 
-/// Map an event variant to the authoring tool's name (for the `tool`
-/// field on the JSONL envelope). Stable; matches the tool catalog in
-/// `docs/architecture/agent-tool-surface.md` §3.
-const fn tool_name(event: &MethodologyEvent) -> &'static str {
-    match event {
-        MethodologyEvent::SpecDefined(_) => "shape-spec",
-        MethodologyEvent::TaskCreated(_) => "create_task",
-        MethodologyEvent::TaskStarted(_) => "start_task",
-        MethodologyEvent::TaskImplemented(_) => "complete_task",
-        MethodologyEvent::TaskGateChecked(_)
-        | MethodologyEvent::TaskAudited(_)
-        | MethodologyEvent::TaskAdherent(_)
-        | MethodologyEvent::TaskXChecked(_) => "<guard-phase>",
-        MethodologyEvent::TaskCompleted(_) => "<orchestrator>",
-        MethodologyEvent::TaskAbandoned(_) => "abandon_task",
-        MethodologyEvent::TaskRevised(_) => "revise_task",
-        MethodologyEvent::FindingAdded(_) => "add_finding",
-        MethodologyEvent::AdherenceFindingAdded(_) => "record_adherence_finding",
-        MethodologyEvent::RubricScoreRecorded(_) => "record_rubric_score",
-        MethodologyEvent::NonNegotiableComplianceRecorded(_) => "record_non_negotiable_compliance",
-        MethodologyEvent::SignpostAdded(_) => "add_signpost",
-        MethodologyEvent::SignpostStatusUpdated(_) => "update_signpost_status",
-        MethodologyEvent::IssueCreated(_) => "create_issue",
-        MethodologyEvent::PhaseOutcomeReported(_) => "report_phase_outcome",
-        MethodologyEvent::ReplyDirectiveRecorded(_) => "post_reply_directive",
-        MethodologyEvent::SpecFrontmatterUpdated(_) => "spec.frontmatter",
-        MethodologyEvent::DemoFrontmatterUpdated(_) => "demo.frontmatter",
-        MethodologyEvent::UnauthorizedArtifactEdit(_) => "<enforcement>",
-        MethodologyEvent::EvidenceSchemaError(_) => "<postflight>",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,6 +310,8 @@ mod tests {
             phase: "do-task".into(),
             agent_session_id: "s1".into(),
             timestamp: Utc::now(),
+            caused_by_tool_call_id: Some("call-1".into()),
+            origin_kind: PhaseEventOriginKind::ToolPrimary,
             tool: "start_task".into(),
             payload: MethodologyEvent::TaskStarted(TaskStarted {
                 task_id: TaskId::new(),

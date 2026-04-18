@@ -1,6 +1,7 @@
 //! `tanren task {…}` subcommands — the §3.1 task-lifecycle tools.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::{
     AbandonTaskParams, CompleteTaskParams, CreateTaskParams, ListTasksParams,
@@ -31,7 +32,7 @@ pub(crate) enum TaskCommand {
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: TaskCommand,
 ) -> u8 {
     match cmd {

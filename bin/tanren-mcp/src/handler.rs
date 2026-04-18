@@ -27,7 +27,7 @@ use rmcp::transport::io::stdio;
 use serde_json::Value;
 
 use tanren_app_services::methodology::{
-    CapabilityScope, MethodologyService, enter_mutation_session, finalize_mutation_session,
+    CapabilityScope, MethodologyService, PhaseId, enter_mutation_session, finalize_mutation_session,
 };
 
 use super::{catalog, dispatch};
@@ -36,7 +36,7 @@ use super::{catalog, dispatch};
 pub(crate) async fn serve_stdio(
     scope: CapabilityScope,
     service: Arc<MethodologyService>,
-    phase: String,
+    phase: PhaseId,
 ) -> Result<()> {
     let handler = TanrenHandler::new(scope, service, phase);
     let (stdin, stdout) = stdio();
@@ -57,11 +57,11 @@ pub(crate) async fn serve_stdio(
 struct TanrenHandler {
     scope: CapabilityScope,
     service: Arc<MethodologyService>,
-    phase: String,
+    phase: PhaseId,
 }
 
 impl TanrenHandler {
-    fn new(scope: CapabilityScope, service: Arc<MethodologyService>, phase: String) -> Self {
+    fn new(scope: CapabilityScope, service: Arc<MethodologyService>, phase: PhaseId) -> Self {
         Self {
             scope,
             service,

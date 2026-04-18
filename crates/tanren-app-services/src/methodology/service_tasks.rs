@@ -7,11 +7,13 @@ use tanren_contract::methodology::{
     StartTaskParams,
 };
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
+use tanren_domain::methodology::event_tool::PhaseEventOriginKind;
 use tanren_domain::methodology::events::{
     MethodologyEvent, TaskAbandoned as EvTaskAbandoned, TaskAdherent, TaskAudited,
     TaskCompleted as EvTaskCompleted, TaskCreated as EvTaskCreated, TaskGateChecked,
     TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
 };
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::task::{
     LegalTransition, RequiredGuard, Task, TaskStatus, TaskTransitionKind,
 };
@@ -19,6 +21,7 @@ use tanren_domain::{EntityRef, SpecId, TaskId};
 
 use super::capabilities::enforce;
 use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
+use super::phase_events::PhaseEventAttribution;
 use super::service::MethodologyService;
 
 const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
@@ -31,7 +34,7 @@ impl MethodologyService {
     pub async fn create_task(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: CreateTaskParams,
     ) -> MethodologyResult<CreateTaskResponse> {
         enforce(scope, ToolCapability::TaskCreate, phase)?;
@@ -88,7 +91,7 @@ impl MethodologyService {
     pub async fn start_task(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: StartTaskParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::TaskStart, phase)?;
@@ -132,7 +135,7 @@ impl MethodologyService {
     pub async fn complete_task(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: CompleteTaskParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::TaskComplete, phase)?;
@@ -150,22 +153,36 @@ impl MethodologyService {
                     .await?
                 {
                     LegalTransition::Transition => {
-                        self.emit(
+                        let tool_call_id = params
+                            .idempotency_key
+                            .clone()
+                            .unwrap_or_else(|| format!("complete_task:{}", params.task_id));
+                        self.emit_with_attribution(
                             phase,
                             MethodologyEvent::TaskImplemented(TaskImplemented {
                                 task_id: params.task_id,
                                 spec_id,
                                 evidence_refs: params.evidence_refs,
                             }),
+                            PhaseEventAttribution {
+                                caused_by_tool_call_id: Some(tool_call_id.clone()),
+                                origin_kind: Some(PhaseEventOriginKind::ToolPrimary),
+                                tool: Some("complete_task".into()),
+                            },
                         )
                         .await?;
                         if self.required_guards().is_empty() {
-                            self.emit(
+                            self.emit_with_attribution(
                                 phase,
                                 MethodologyEvent::TaskCompleted(EvTaskCompleted {
                                     task_id: params.task_id,
                                     spec_id,
                                 }),
+                                PhaseEventAttribution {
+                                    caused_by_tool_call_id: Some(tool_call_id),
+                                    origin_kind: Some(PhaseEventOriginKind::ToolDerived),
+                                    tool: Some("complete_task".into()),
+                                },
                             )
                             .await?;
                         }
@@ -185,7 +202,7 @@ impl MethodologyService {
     pub async fn abandon_task(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: AbandonTaskParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::TaskAbandon, phase)?;
@@ -280,7 +297,7 @@ impl MethodologyService {
     pub async fn mark_task_guard_satisfied(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         task_id: TaskId,
         guard: RequiredGuard,
         idempotency_key: Option<String>,
@@ -298,6 +315,9 @@ impl MethodologyService {
             idempotency_key.clone(),
             &payload,
             || async {
+                let tool_call_id = idempotency_key
+                    .clone()
+                    .unwrap_or_else(|| format!("mark_task_guard_satisfied:{task_id}:{guard:?}"));
                 match self
                     .check_transition(spec_id, task_id, TaskTransitionKind::Guard)
                     .await?
@@ -305,9 +325,14 @@ impl MethodologyService {
                     LegalTransition::Idempotent => return Ok(()),
                     LegalTransition::Transition => {}
                 }
-                self.emit(
+                self.emit_with_attribution(
                     phase,
                     guard_event(task_id, spec_id, guard.clone(), idempotency_key.clone())?,
+                    PhaseEventAttribution {
+                        caused_by_tool_call_id: Some(tool_call_id.clone()),
+                        origin_kind: Some(PhaseEventOriginKind::ToolPrimary),
+                        tool: Some("mark_task_guard_satisfied".into()),
+                    },
                 )
                 .await?;
                 // Re-fold and fire `TaskCompleted` once required guards converge.
@@ -324,9 +349,14 @@ impl MethodologyService {
                 if let TaskStatus::Implemented { guards } = status
                     && guards.satisfies(self.required_guards())
                 {
-                    self.emit(
+                    self.emit_with_attribution(
                         phase,
                         MethodologyEvent::TaskCompleted(EvTaskCompleted { task_id, spec_id }),
+                        PhaseEventAttribution {
+                            caused_by_tool_call_id: Some(tool_call_id),
+                            origin_kind: Some(PhaseEventOriginKind::ToolDerived),
+                            tool: Some("mark_task_guard_satisfied".into()),
+                        },
                     )
                     .await?;
                 }

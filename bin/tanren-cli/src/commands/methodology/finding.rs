@@ -1,6 +1,7 @@
 //! `tanren finding add` — §3.2 tool.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::AddFindingParams;
 
@@ -15,7 +16,7 @@ pub(crate) enum FindingCommand {
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: FindingCommand,
 ) -> u8 {
     match cmd {

@@ -1,6 +1,7 @@
 //! `tanren phase {outcome|escalate|reply}` — §3.6 tools.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::{
     EscalateToBlockerParams, PostReplyDirectiveParams, ReportPhaseOutcomeParams,
@@ -22,7 +23,7 @@ pub(crate) enum PhaseCommand {
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: PhaseCommand,
 ) -> u8 {
     match cmd {

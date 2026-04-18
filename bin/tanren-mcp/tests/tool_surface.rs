@@ -198,7 +198,7 @@ fn list_tools_advertises_full_catalog() {
         .find(|r| r["id"] == json!(2))
         .expect("tools/list response");
     let tools = list["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 27, "full tanren.methodology.v1 catalog");
+    assert_eq!(tools.len(), 28, "full tanren.methodology.v1 catalog");
     // Spot-check: every tool carries schema_version metadata.
     for t in tools {
         assert!(t["name"].is_string());

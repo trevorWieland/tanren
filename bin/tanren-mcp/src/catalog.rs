@@ -90,7 +90,8 @@ fn finding_tools() -> Vec<Tool> {
 fn spec_tools() -> Vec<Tool> {
     use tanren_contract::methodology::{
         AddSpecAcceptanceCriterionParams, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
-        SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecTitleParams,
+        SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams,
+        SetSpecTitleParams,
     };
     vec![
         tool_from::<SetSpecTitleParams>("set_spec_title", "Set the spec's title (frontmatter)."),
@@ -111,6 +112,10 @@ fn spec_tools() -> Vec<Tool> {
             "Set the spec's dependency graph (depends_on_spec_ids etc.).",
         ),
         tool_from::<SetSpecBaseBranchParams>("set_spec_base_branch", "Set the spec's base branch."),
+        tool_from::<SetSpecRelevanceContextParams>(
+            "set_spec_relevance_context",
+            "Set the spec's relevance context (touched files/language/tags/category).",
+        ),
     ]
 }
 
@@ -230,13 +235,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_all_27_tools() {
+    fn catalog_has_all_28_tools() {
         let tools = all_tools();
-        // §3.1(7) + §3.2(3) + §3.3(6) + §3.4(3) + §3.5(2) + §3.6(3)
-        // + §3.7(1) + §3.8(2) = 27 tool surface entries.
+        // §3.1(7) + §3.2(3) + §3.3(7) + §3.4(3) + §3.5(2) + §3.6(3)
+        // + §3.7(1) + §3.8(2) = 28 tool surface entries.
         // (Ingest/replay are §6 CLI-only transports, not registered
         // here.)
-        assert_eq!(tools.len(), 27, "expected 27 methodology tools");
+        assert_eq!(tools.len(), 28, "expected 28 methodology tools");
     }
 
     #[test]

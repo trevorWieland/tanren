@@ -27,9 +27,11 @@ Companion docs:
    `CapabilityDenied`.
 4. **Transport-agnostic contract.** Two transports (MCP, CLI) share
    one service. Schema, side-effects, and errors are identical.
-5. **Immutable event log.** Every tool call appends one typed event
-   to `{spec_folder}/phase-events.jsonl` (committed artifact) and
-   applies it to the store.
+5. **Immutable event log.** Every emitted methodology event appends one
+   typed line to `{spec_folder}/phase-events.jsonl` (committed artifact)
+   and applies it to the store. A single tool call may emit multiple
+   events when semantics require it; derived events carry explicit
+   causal linkage.
 
 ---
 
@@ -79,6 +81,7 @@ Companion docs:
   tanren spec set-demo-environment --connection …
   tanren spec set-dependencies --depends-on-spec-id … --external-issue-ref …
   tanren spec set-base-branch --branch …
+  tanren spec set-relevance-context --params-file …
 
   tanren demo add-step --id … --mode RUN|SKIP --description … --expected-observable …
   tanren demo mark-skip --id … --reason …
@@ -93,7 +96,7 @@ Companion docs:
   tanren issue create --title … --description … --suggested-spec-scope … --priority …
 
   tanren standard list [--spec-id …]
-  tanren adherence add-finding --standard-id … --severity … --rationale …
+  tanren adherence add-finding --standard '{category,name}' --severity fix_now|defer --rationale …
   ```
 - Used when MCP isn't wired (e.g., during early self-hosting, CI
   scripts, or agents without MCP support).
@@ -101,9 +104,9 @@ Companion docs:
 ### 2.3 Transport parity
 
 Both transports call the same `tanren-app-services::methodology::
-service` methods. A single event is appended per tool call regardless
-of transport. `tanren replay <spec_folder>` reconstructs identical
-store state from the JSONL.
+service` methods. Transport parity is event-for-event and
+tool-contract-for-tool-contract. `tanren replay <spec_folder>`
+reconstructs identical store state from the JSONL.
 
 ---
 
@@ -144,6 +147,7 @@ types are canonical syntax.
 | `set_spec_demo_environment(connections[])` | `spec.frontmatter` |
 | `set_spec_dependencies(depends_on_spec_ids[], external_issue_refs[])` | `spec.frontmatter` |
 | `set_spec_base_branch(branch)` | `spec.frontmatter` |
+| `set_spec_relevance_context(touched_files[], project_language?, tags[], category?)` | `spec.frontmatter` |
 
 ### 3.4 Demo frontmatter
 
@@ -178,8 +182,8 @@ types are canonical syntax.
 
 | Tool | Capability | Users |
 |---|---|---|
-| `list_relevant_standards(spec_id)` → `[Standard]` | `standard.read` | adherence phases |
-| `record_adherence_finding(standard_id, affected_files, line_numbers?, severity, rationale)` → `FindingId` | `adherence.record` | adherence phases |
+| `list_relevant_standards(spec_id, touched_files?, project_language?, domains?, tags?, category?)` → `[RelevantStandard]` | `standard.read` | adherence phases |
+| `record_adherence_finding(standard {category,name}, affected_files, line_numbers?, severity, rationale)` → `FindingId` | `adherence.record` | adherence phases |
 
 ---
 
@@ -187,7 +191,9 @@ types are canonical syntax.
 
 Enforced at dispatch time via `TANREN_PHASE_CAPABILITIES` env var (a
 comma-separated list of capability strings) consulted by both MCP
-server and CLI. Out-of-scope calls return `CapabilityDenied`.
+server and CLI. Out-of-scope calls return `CapabilityDenied`. Unknown
+capability tags are validation failures (hard error), not silently
+ignored.
 
 | Phase | Capabilities |
 |---|---|
@@ -255,19 +261,34 @@ event per line.
   "phase": "do-task",
   "agent_session_id": "<string>",
   "timestamp": "<iso-8601>",
+  "caused_by_tool_call_id": "<string|null>",
+  "origin_kind": "tool_primary|tool_derived|system",
   "tool": "create_task",
   "payload": { /* tool-specific typed payload */ }
 }
 ```
 
-### 6.3 Atomicity
+`tool` records the actual emitting tool name for new lines. Legacy
+sentinel tool aliases are accepted only for replay backward
+compatibility.
+
+### 6.3 Tool-Call Causality
+
+- Primary tool emissions set `origin_kind = tool_primary`.
+- Derived emissions from the same tool call set
+  `origin_kind = tool_derived` and must include
+  `caused_by_tool_call_id`.
+- System/postflight emissions set `origin_kind = system`.
+- Multi-event calls (for example guard mark + task completion) must
+  share the same `caused_by_tool_call_id`.
+### 6.4 Atomicity
 
 Service writes event + phase-event-outbox rows in one DB transaction.
 `phase-events.jsonl` is projected asynchronously from the outbox with
 retry + exactly-once event-id checks, so DB truth and file projection
 cannot permanently diverge.
 
-### 6.4 Replay
+### 6.5 Replay
 
 `tanren replay <spec_folder>` reads the JSONL, re-applies each event
 to the store via a validated replay-apply path

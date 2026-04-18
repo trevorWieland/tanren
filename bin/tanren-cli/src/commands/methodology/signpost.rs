@@ -1,6 +1,7 @@
 //! `tanren signpost {add|update-status}` — §3.5 tools.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::{AddSignpostParams, UpdateSignpostStatusParams};
 
@@ -17,7 +18,7 @@ pub(crate) enum SignpostCommand {
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: SignpostCommand,
 ) -> u8 {
     match cmd {

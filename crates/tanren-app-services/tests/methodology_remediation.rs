@@ -17,6 +17,7 @@ use tanren_contract::methodology::{
 use tanren_domain::methodology::events::{
     MethodologyEvent, TaskAdherent, TaskAudited, TaskGateChecked, TaskXChecked,
 };
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin, TaskStatus};
 use tanren_domain::{SpecId, TaskId};
 use tanren_store::Store;
@@ -53,6 +54,10 @@ fn admin_scope() -> CapabilityScope {
         PhaseOutcome,
         PhaseEscalate,
     ])
+}
+
+fn phase(tag: &str) -> PhaseId {
+    PhaseId::try_new(tag).expect("phase")
 }
 
 #[tokio::test]
@@ -155,7 +160,7 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
     let resp = svc
         .create_task(
             &scope,
-            "do-task",
+            &phase("do-task"),
             CreateTaskParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 idempotency_key: None,
@@ -172,7 +177,7 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
         .expect("create");
     svc.start_task(
         &scope,
-        "do-task",
+        &phase("do-task"),
         tanren_contract::methodology::StartTaskParams {
             schema_version: tanren_contract::methodology::SchemaVersion::current(),
             idempotency_key: None,
@@ -183,7 +188,7 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
     .expect("start");
     svc.complete_task(
         &scope,
-        "do-task",
+        &phase("do-task"),
         tanren_contract::methodology::CompleteTaskParams {
             schema_version: tanren_contract::methodology::SchemaVersion::current(),
             idempotency_key: None,
@@ -195,7 +200,7 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
     .expect("implement");
     svc.mark_task_guard_satisfied(
         &scope,
-        "do-task",
+        &phase("do-task"),
         resp.task_id,
         RequiredGuard::GateChecked,
         Some("test-idem".into()),
@@ -207,7 +212,7 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
     let tasks = svc
         .list_tasks(
             &scope,
-            "do-task",
+            &phase("do-task"),
             tanren_contract::methodology::ListTasksParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: Some(spec_id),
@@ -229,7 +234,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
     let resp = svc
         .create_task(
             &scope,
-            "do-task",
+            &phase("do-task"),
             CreateTaskParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 idempotency_key: None,
@@ -246,7 +251,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
         .expect("create");
     svc.start_task(
         &scope,
-        "do-task",
+        &phase("do-task"),
         tanren_contract::methodology::StartTaskParams {
             schema_version: tanren_contract::methodology::SchemaVersion::current(),
             idempotency_key: None,
@@ -257,7 +262,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
     .expect("start");
     svc.complete_task(
         &scope,
-        "do-task",
+        &phase("do-task"),
         tanren_contract::methodology::CompleteTaskParams {
             schema_version: tanren_contract::methodology::SchemaVersion::current(),
             idempotency_key: None,
@@ -269,7 +274,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
     .expect("implement");
     svc.mark_task_guard_satisfied(
         &scope,
-        "do-task",
+        &phase("do-task"),
         resp.task_id,
         RequiredGuard::GateChecked,
         None,
@@ -280,7 +285,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
     let tasks = svc
         .list_tasks(
             &scope,
-            "do-task",
+            &phase("do-task"),
             tanren_contract::methodology::ListTasksParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: Some(spec_id),
@@ -304,7 +309,7 @@ async fn complete_task_with_empty_required_guards_completes_immediately() {
     let resp = svc
         .create_task(
             &scope,
-            "do-task",
+            &phase("do-task"),
             CreateTaskParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 idempotency_key: None,
@@ -321,7 +326,7 @@ async fn complete_task_with_empty_required_guards_completes_immediately() {
         .expect("create");
     svc.start_task(
         &scope,
-        "do-task",
+        &phase("do-task"),
         tanren_contract::methodology::StartTaskParams {
             schema_version: tanren_contract::methodology::SchemaVersion::current(),
             idempotency_key: None,
@@ -332,7 +337,7 @@ async fn complete_task_with_empty_required_guards_completes_immediately() {
     .expect("start");
     svc.complete_task(
         &scope,
-        "do-task",
+        &phase("do-task"),
         tanren_contract::methodology::CompleteTaskParams {
             schema_version: tanren_contract::methodology::SchemaVersion::current(),
             idempotency_key: None,
@@ -345,7 +350,7 @@ async fn complete_task_with_empty_required_guards_completes_immediately() {
     let tasks = svc
         .list_tasks(
             &scope,
-            "do-task",
+            &phase("do-task"),
             tanren_contract::methodology::ListTasksParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: Some(spec_id),
@@ -364,15 +369,18 @@ async fn relevance_filter_explains_inclusion_by_touched_files() {
     let out: Vec<RelevantStandard> = svc
         .list_relevant_standards_filtered(
             &scope,
-            "adhere-task",
+            &phase("adhere-task"),
             &ListRelevantStandardsParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: SpecId::new(),
                 touched_files: vec!["crates/tanren-domain/src/lib.rs".into()],
                 project_language: Some("rust".into()),
                 domains: vec![],
+                tags: vec![],
+                category: None,
             },
         )
+        .await
         .expect("filtered");
     assert!(!out.is_empty(), "rust-touched file should match >=1 std");
     assert!(
@@ -388,15 +396,18 @@ async fn relevance_filter_empty_inputs_returns_full_baseline() {
     let out = svc
         .list_relevant_standards_filtered(
             &scope,
-            "adhere-task",
+            &phase("adhere-task"),
             &ListRelevantStandardsParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
                 spec_id: SpecId::new(),
                 touched_files: vec![],
                 project_language: None,
                 domains: vec![],
+                tags: vec![],
+                category: None,
             },
         )
+        .await
         .expect("baseline");
     assert!(!out.is_empty());
     // The fallback reason must identify this as the upper bound.

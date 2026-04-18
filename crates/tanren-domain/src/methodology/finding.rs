@@ -59,6 +59,45 @@ impl std::fmt::Display for FindingSeverity {
     }
 }
 
+/// Severity allowed on adherence findings only.
+///
+/// Adherence is deterministic standards-compliance, so the allowed set
+/// is intentionally narrower than generic audit/demo findings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdherenceSeverity {
+    /// Violation blocks adherence guard satisfaction.
+    FixNow,
+    /// Real violation explicitly deferred.
+    Defer,
+}
+
+impl AdherenceSeverity {
+    /// Stable `snake_case` tag.
+    #[must_use]
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::FixNow => "fix_now",
+            Self::Defer => "defer",
+        }
+    }
+
+    /// Convert to the broader finding-severity type.
+    #[must_use]
+    pub const fn as_finding_severity(self) -> FindingSeverity {
+        match self {
+            Self::FixNow => FindingSeverity::FixNow,
+            Self::Defer => FindingSeverity::Defer,
+        }
+    }
+}
+
+impl std::fmt::Display for AdherenceSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.tag())
+    }
+}
+
 /// Where a finding came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -134,6 +173,15 @@ mod tests {
         ] {
             let json = serde_json::to_string(&s).expect("serialize");
             let back: FindingSeverity = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(s, back);
+        }
+    }
+
+    #[test]
+    fn adherence_severity_roundtrip() {
+        for s in [AdherenceSeverity::FixNow, AdherenceSeverity::Defer] {
+            let json = serde_json::to_string(&s).expect("serialize");
+            let back: AdherenceSeverity = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(s, back);
         }
     }

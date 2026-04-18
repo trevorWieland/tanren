@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde_json::json;
+use tanren_domain::methodology::event_tool::canonical_tool_for_event;
 use tanren_domain::methodology::events::{
     FindingAdded, MethodologyEvent, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated,
     TaskGateChecked, TaskImplemented, TaskStarted,
@@ -32,35 +33,140 @@ fn seed_task(spec_id: SpecId, task_id: TaskId) -> Task {
     }
 }
 
-fn tool_for(event: &MethodologyEvent) -> &'static str {
-    match event {
-        MethodologyEvent::TaskCreated(_) => "create_task",
-        MethodologyEvent::TaskStarted(_) => "start_task",
-        MethodologyEvent::TaskImplemented(_) => "complete_task",
-        MethodologyEvent::TaskGateChecked(_)
-        | MethodologyEvent::TaskAudited(_)
-        | MethodologyEvent::TaskAdherent(_) => "<guard-phase>",
-        MethodologyEvent::TaskCompleted(_) => "<orchestrator>",
-        _ => "<unsupported>",
-    }
-}
-
 fn line_json(
     spec_id: SpecId,
     event_id: uuid::Uuid,
     event: &MethodologyEvent,
     tool: &str,
 ) -> String {
-    serde_json::to_string(&json!({
-        "event_id": event_id,
-        "spec_id": spec_id,
-        "phase": "do-task",
-        "agent_session_id": "session-1",
-        "timestamp": Utc::now(),
-        "tool": tool,
-        "payload": event,
-    }))
-    .expect("serialize")
+    line_json_with_attribution(spec_id, event_id, event, tool, None, None)
+}
+
+fn line_json_with_attribution(
+    spec_id: SpecId,
+    event_id: uuid::Uuid,
+    event: &MethodologyEvent,
+    tool: &str,
+    origin_kind: Option<&str>,
+    caused_by_tool_call_id: Option<&str>,
+) -> String {
+    let mut obj = serde_json::Map::new();
+    obj.insert("event_id".into(), json!(event_id));
+    obj.insert("spec_id".into(), json!(spec_id));
+    obj.insert("phase".into(), json!("do-task"));
+    obj.insert("agent_session_id".into(), json!("session-1"));
+    obj.insert("timestamp".into(), json!(Utc::now()));
+    obj.insert("tool".into(), json!(tool));
+    obj.insert("payload".into(), json!(event));
+    if let Some(origin_kind) = origin_kind {
+        obj.insert("origin_kind".into(), json!(origin_kind));
+    }
+    if let Some(caused_by_tool_call_id) = caused_by_tool_call_id {
+        obj.insert(
+            "caused_by_tool_call_id".into(),
+            json!(caused_by_tool_call_id),
+        );
+    }
+    serde_json::to_string(&serde_json::Value::Object(obj)).expect("serialize")
+}
+
+#[tokio::test]
+async fn replay_rejects_tool_derived_without_causal_link() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let event = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let path = temp_path("replay-missing-caused-by");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            line_json_with_attribution(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &event,
+                canonical_tool_for_event(&event),
+                Some("tool_derived"),
+                None
+            )
+        ),
+    )
+    .expect("write");
+
+    let err = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect_err("missing caused_by for derived origin must fail");
+    assert!(matches!(err, ReplayError::MissingCausedByToolCall { .. }));
+}
+
+#[tokio::test]
+async fn replay_rejects_system_origin_for_tool_event() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let event = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let path = temp_path("replay-origin-kind-mismatch");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            line_json_with_attribution(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &event,
+                canonical_tool_for_event(&event),
+                Some("system"),
+                Some("call-1")
+            )
+        ),
+    )
+    .expect("write");
+
+    let err = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect_err("system origin for non-system event must fail");
+    assert!(matches!(err, ReplayError::OriginKindMismatch { .. }));
+}
+
+#[tokio::test]
+async fn replay_accepts_tool_derived_with_causal_link() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let event = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let path = temp_path("replay-derived-with-caused-by");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            line_json_with_attribution(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &event,
+                canonical_tool_for_event(&event),
+                Some("tool_derived"),
+                Some("call-1")
+            )
+        ),
+    )
+    .expect("write");
+
+    let stats = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect("replay");
+    assert_eq!(stats.events_appended, 1);
 }
 
 fn temp_path(name: &str) -> std::path::PathBuf {
@@ -130,7 +236,7 @@ async fn replay_ingests_canonical_phase_event_lines() {
             spec_id,
             uuid::Uuid::now_v7(),
             event,
-            tool_for(event),
+            canonical_tool_for_event(event),
         ));
         content.push('\n');
     }
@@ -203,7 +309,12 @@ async fn replay_rejects_invalid_sequence() {
         &path,
         format!(
             "{}\n",
-            line_json(spec_id, uuid::Uuid::now_v7(), &event, tool_for(&event))
+            line_json(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &event,
+                canonical_tool_for_event(&event),
+            )
         ),
     )
     .expect("write");
@@ -226,7 +337,7 @@ async fn replay_dedupes_duplicate_event_ids() {
     });
     let event_id = uuid::Uuid::now_v7();
 
-    let line = line_json(spec_id, event_id, &event, tool_for(&event));
+    let line = line_json(spec_id, event_id, &event, canonical_tool_for_event(&event));
     let path = temp_path("replay-dedupe");
     std::fs::write(&path, format!("{line}\n{line}\n")).expect("write");
 

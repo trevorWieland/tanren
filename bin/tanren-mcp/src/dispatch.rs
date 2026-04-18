@@ -5,7 +5,7 @@
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tanren_app_services::methodology::{
-    CapabilityScope, MethodologyError, MethodologyService, ToolError,
+    CapabilityScope, MethodologyError, MethodologyService, PhaseId, ToolError,
 };
 
 /// Result of one tool call: either a JSON response value, or a typed
@@ -33,7 +33,7 @@ impl CallResult {
 pub(crate) async fn dispatch(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     tool: &str,
     args: Value,
 ) -> CallResult {
@@ -91,6 +91,9 @@ pub(crate) async fn dispatch(
         }
         "set_spec_dependencies" => call!(c::SetSpecDependenciesParams, set_spec_dependencies),
         "set_spec_base_branch" => call!(c::SetSpecBaseBranchParams, set_spec_base_branch),
+        "set_spec_relevance_context" => {
+            call!(c::SetSpecRelevanceContextParams, set_spec_relevance_context)
+        }
         "add_demo_step" => call!(c::AddDemoStepParams, add_demo_step),
         "mark_demo_step_skip" => call!(c::MarkDemoStepSkipParams, mark_demo_step_skip),
         "append_demo_result" => call!(c::AppendDemoResultParams, append_demo_result),
@@ -102,15 +105,14 @@ pub(crate) async fn dispatch(
         "escalate_to_blocker" => call!(c::EscalateToBlockerParams, escalate_to_blocker),
         "post_reply_directive" => call!(c::PostReplyDirectiveParams, post_reply_directive),
         "create_issue" => call!(c::CreateIssueParams, create_issue),
-        "list_relevant_standards" => {
-            match decode::<c::ListRelevantStandardsParams>(tool, args) {
-                Ok(params) => {
-                    // Read-only; not async in the service surface.
-                    wrap(service.list_relevant_standards_filtered(scope, phase, &params))
-                }
-                Err(e) => CallResult::Err(e),
-            }
-        }
+        "list_relevant_standards" => match decode::<c::ListRelevantStandardsParams>(tool, args) {
+            Ok(params) => wrap(
+                service
+                    .list_relevant_standards_filtered(scope, phase, &params)
+                    .await,
+            ),
+            Err(e) => CallResult::Err(e),
+        },
         "record_adherence_finding" => {
             call!(c::RecordAdherenceFindingParams, record_adherence_finding)
         }
@@ -141,6 +143,7 @@ pub(crate) fn is_mutation_tool(tool: &str) -> bool {
             | "set_spec_demo_environment"
             | "set_spec_dependencies"
             | "set_spec_base_branch"
+            | "set_spec_relevance_context"
             | "add_demo_step"
             | "mark_demo_step_skip"
             | "append_demo_result"

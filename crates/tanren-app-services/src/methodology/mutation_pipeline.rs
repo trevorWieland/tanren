@@ -14,6 +14,7 @@ use tanren_domain::methodology::events::{
 use tanren_domain::methodology::evidence::{
     AuditFrontmatter, DemoFrontmatter, InvestigationReport, SignpostsFrontmatter, SpecFrontmatter,
 };
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::{NonEmptyString, SpecId};
 
 use super::enforcement::EnforcementGuard;
@@ -42,13 +43,13 @@ pub fn enter_mutation_session(spec_folder: &Path) -> MethodologyResult<Option<En
 /// Returns the first typed enforcement/schema error encountered.
 pub async fn finalize_mutation_session(
     service: &MethodologyService,
-    phase: &str,
+    phase: &PhaseId,
     spec_folder: &Path,
     agent_session_id: &str,
     guard: Option<EnforcementGuard>,
 ) -> MethodologyResult<()> {
     let spec_id = infer_spec_id(spec_folder)?;
-    let phase = NonEmptyString::try_new(phase).map_err(MethodologyError::Domain)?;
+    let phase_name = NonEmptyString::try_new(phase.as_str()).map_err(MethodologyError::Domain)?;
     let agent_session_id =
         NonEmptyString::try_new(agent_session_id).map_err(MethodologyError::Domain)?;
 
@@ -57,10 +58,10 @@ pub async fn finalize_mutation_session(
         for edit in edits {
             service
                 .emit_event(
-                    phase.as_str(),
+                    phase,
                     MethodologyEvent::UnauthorizedArtifactEdit(UnauthorizedArtifactEdit {
                         spec_id,
-                        phase: phase.clone(),
+                        phase: phase_name.clone(),
                         file: edit.path.display().to_string(),
                         diff_preview: edit.diff_preview,
                         agent_session_id: agent_session_id.clone(),
@@ -70,7 +71,7 @@ pub async fn finalize_mutation_session(
         }
     }
 
-    validate_evidence_files(service, phase.as_str(), spec_id, spec_folder).await
+    validate_evidence_files(service, phase, spec_id, spec_folder).await
 }
 
 fn protected_artifacts(spec_folder: &Path) -> Vec<PathBuf> {
@@ -109,7 +110,7 @@ fn protected_artifacts(spec_folder: &Path) -> Vec<PathBuf> {
 
 async fn validate_evidence_files(
     service: &MethodologyService,
-    phase: &str,
+    phase: &PhaseId,
     spec_id: SpecId,
     spec_folder: &Path,
 ) -> MethodologyResult<()> {
@@ -167,7 +168,7 @@ async fn validate_evidence_files(
 
 async fn emit_evidence_schema_error(
     service: &MethodologyService,
-    phase: &str,
+    phase: &PhaseId,
     spec_id: SpecId,
     file: &str,
     reason: &str,
@@ -177,7 +178,7 @@ async fn emit_evidence_schema_error(
             phase,
             MethodologyEvent::EvidenceSchemaError(EvidenceSchemaError {
                 spec_id,
-                phase: NonEmptyString::try_new(phase).map_err(MethodologyError::Domain)?,
+                phase: NonEmptyString::try_new(phase.as_str()).map_err(MethodologyError::Domain)?,
                 file: file.to_owned(),
                 error: NonEmptyString::try_new(reason).map_err(MethodologyError::Domain)?,
             }),
@@ -263,8 +264,9 @@ mod tests {
         std::fs::set_permissions(&plan, std::fs::Permissions::from_mode(0o644))
             .expect("unlock protected file to simulate unauthorized agent edit");
         std::fs::write(&plan, "mutated\n").expect("mutate");
+        let phase = PhaseId::try_new("do-task").expect("phase");
 
-        finalize_mutation_session(&service, "do-task", &spec_folder, "session-1", guard)
+        finalize_mutation_session(&service, &phase, &spec_folder, "session-1", guard)
             .await
             .expect("finalize");
 
@@ -296,11 +298,11 @@ mod tests {
         let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
         std::fs::create_dir_all(&spec_folder).expect("mkdir");
         std::fs::write(spec_folder.join("audit.md"), "not-frontmatter\n").expect("write");
+        let phase = PhaseId::try_new("audit-task").expect("phase");
 
-        let err =
-            finalize_mutation_session(&service, "audit-task", &spec_folder, "session-2", None)
-                .await
-                .expect_err("malformed evidence must fail");
+        let err = finalize_mutation_session(&service, &phase, &spec_folder, "session-2", None)
+            .await
+            .expect_err("malformed evidence must fail");
         assert!(matches!(err, MethodologyError::EvidenceSchema { .. }));
 
         let events = service

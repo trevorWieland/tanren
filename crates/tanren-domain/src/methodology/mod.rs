@@ -19,11 +19,13 @@
 //! `docs/rewrite/tasks/LANE-0.5-BRIEF.md` govern design decisions here.
 
 pub mod capability;
+pub mod event_tool;
 pub mod events;
 pub mod evidence;
 pub mod finding;
 pub mod frontmatter_patch;
 pub mod issue;
+pub mod phase_id;
 pub mod phase_outcome;
 pub mod pillar;
 pub mod rubric;
@@ -41,8 +43,13 @@ pub use events::{
 };
 
 pub use capability::{CapabilityScope, ToolCapability, default_scope_for_phase};
-pub use finding::{Finding, FindingSeverity, FindingSource, StandardRef};
+pub use event_tool::{
+    PhaseEventOriginKind, allowed_tools_for_event, canonical_tool_for_event,
+    is_tool_allowed_for_event,
+};
+pub use finding::{AdherenceSeverity, Finding, FindingSeverity, FindingSource, StandardRef};
 pub use issue::{Issue, IssuePriority, IssueProvider, IssueRef};
+pub use phase_id::{KnownPhase, PhaseId};
 pub use phase_outcome::{BlockedReason, ErrorReason, PhaseOutcome};
 pub use pillar::{ApplicableAt, Pillar, PillarId, PillarScope, PillarScore, builtin_pillars};
 pub use rubric::{ComplianceStatus, NonNegotiableCompliance, RubricScore};

@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_domain::SpecId;
-use tanren_domain::methodology::spec::{DemoEnvironment, SpecDependencies};
+use tanren_domain::methodology::spec::{DemoEnvironment, SpecDependencies, SpecRelevanceContext};
 use tanren_domain::methodology::task::AcceptanceCriterion;
 
 use super::SchemaVersion;
@@ -64,6 +64,16 @@ pub struct SetSpecBaseBranchParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
     pub branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `set_spec_relevance_context` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SetSpecRelevanceContextParams {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+    pub relevance_context: SpecRelevanceContext,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
 }

@@ -16,7 +16,9 @@ use tanren_domain::methodology::phase_outcome::{PhaseOutcome, ReplyDisposition};
 use tanren_domain::methodology::pillar::{PillarId, PillarScope, PillarScore};
 use tanren_domain::methodology::rubric::{ComplianceStatus, NonNegotiableCompliance, RubricScore};
 use tanren_domain::methodology::signpost::{Signpost, SignpostStatus};
-use tanren_domain::methodology::spec::{DemoEnvironment, Spec, SpecDependencies};
+use tanren_domain::methodology::spec::{
+    DemoEnvironment, Spec, SpecDependencies, SpecRelevanceContext,
+};
 use tanren_domain::methodology::task::{
     AcceptanceCriterion, RequiredGuard, Task, TaskOrigin, TaskStatus,
 };
@@ -171,6 +173,7 @@ fn fixture_spec(ids: &FixtureIds) -> Spec {
         dependencies: SpecDependencies::default(),
         base_branch: ne("main"),
         touched_symbols: vec![],
+        relevance_context: SpecRelevanceContext::default(),
         created_at: ts(),
     }
 }

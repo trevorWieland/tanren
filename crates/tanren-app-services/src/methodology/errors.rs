@@ -142,6 +142,21 @@ impl From<tanren_store::methodology::replay::ReplayError> for MethodologyError {
                 line,
                 reason: format!("tool mismatch: expected `{expected}`, got `{actual}`"),
             },
+            R::OriginKindMismatch {
+                path,
+                line,
+                expected,
+                actual,
+            } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: format!("origin_kind mismatch: expected `{expected}`, got `{actual}`"),
+            },
+            R::MissingCausedByToolCall { path, line, origin } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: format!("missing caused_by_tool_call_id for origin `{origin}`"),
+            },
             R::InvalidTaskTransition {
                 task_id,
                 from,

@@ -21,6 +21,7 @@ mod m_0010_projection_enum_constraints;
 mod m_0011_dispatch_projection_org_id_not_null;
 mod m_0012_methodology_audit_pipeline;
 mod m_0013_methodology_read_indexes;
+mod m_0014_methodology_idempotency_hash_algo;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
@@ -30,7 +31,8 @@ pub(crate) struct Migrator;
 
 impl Migrator {
     /// Name of the latest expected schema migration.
-    pub(crate) const LATEST_MIGRATION_NAME: &'static str = "m_0013_methodology_read_indexes";
+    pub(crate) const LATEST_MIGRATION_NAME: &'static str =
+        "m_0014_methodology_idempotency_hash_algo";
 }
 
 #[async_trait::async_trait]
@@ -50,6 +52,7 @@ impl MigratorTrait for Migrator {
             Box::new(m_0011_dispatch_projection_org_id_not_null::Migration),
             Box::new(m_0012_methodology_audit_pipeline::Migration),
             Box::new(m_0013_methodology_read_indexes::Migration),
+            Box::new(m_0014_methodology_idempotency_hash_algo::Migration),
         ]
     }
 }
@@ -215,11 +218,11 @@ mod tests {
     async fn m0011_down_and_up_round_trip_restores_enforcement() {
         let conn = Database::connect("sqlite::memory:").await.expect("connect");
         Migrator::up(&conn, None).await.expect("up");
-        // m_0012 and m_0013 now sit above m_0011; roll all three
+        // m_0012, m_0013, and m_0014 now sit above m_0011; roll all four
         // back so this test exercises m_0011's `down` behavior.
-        Migrator::down(&conn, Some(3))
+        Migrator::down(&conn, Some(4))
             .await
-            .expect("down three steps");
+            .expect("down four steps");
 
         conn.execute(Statement::from_string(
             DbBackend::Sqlite,

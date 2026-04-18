@@ -1,6 +1,7 @@
 //! `tanren issue create` — §3.7 tool.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::CreateIssueParams;
 
@@ -15,7 +16,7 @@ pub(crate) enum IssueCommand {
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: IssueCommand,
 ) -> u8 {
     match cmd {

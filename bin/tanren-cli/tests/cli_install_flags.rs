@@ -36,6 +36,33 @@ fn write_command_with_body(dir: &TempDir, subdir: &str, body: &str) {
     std::fs::write(cmds.join("do-task.md"), body).expect("write cmd");
 }
 
+fn write_command_with_vars(dir: &TempDir, subdir: &str, body: &str, vars: &[&str]) {
+    let declared = if vars.is_empty() {
+        "[]".to_owned()
+    } else {
+        let quoted = vars
+            .iter()
+            .map(|v| format!("\"{v}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[{quoted}]")
+    };
+    let command = format!(
+        "---\n\
+name: do-task\n\
+role: implementation\n\
+orchestration_loop: true\n\
+autonomy: autonomous\n\
+declared_variables: {declared}\n\
+declared_tools: []\n\
+required_capabilities: []\n\
+produces_evidence: []\n\
+---\n\
+{body}\n"
+    );
+    write_command_with_body(dir, subdir, &command);
+}
+
 #[test]
 fn install_help_lists_profile_source_target_flags() {
     let out = Command::cargo_bin("tanren-cli")
@@ -188,5 +215,146 @@ fn install_malformed_mcp_config_exits_1() {
         Some(1),
         "expected exit 1; stderr={}",
         String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn install_profile_overrides_required_guards_variable() {
+    let dir = TempDir::new().expect("tempdir");
+    write_command_with_vars(
+        &dir,
+        "commands/spec",
+        "guards={{REQUIRED_GUARDS}}",
+        &["REQUIRED_GUARDS"],
+    );
+    let cfg_yaml = r"methodology:
+  task_complete_requires: [gate_checked, audited, adherent]
+  source:
+    path: commands
+  install_targets:
+    - path: .claude/commands
+      format: claude-code
+      binding: mcp
+      merge_policy: destructive
+  profiles:
+    lean:
+      task_complete_requires: [gate_checked]
+";
+    let cfg = write_config(&dir, cfg_yaml);
+    let out = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args([
+            "install",
+            "--config",
+            cfg.to_str().expect("cfg utf8"),
+            "--profile",
+            "lean",
+        ])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "install failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rendered = std::fs::read_to_string(dir.path().join(".claude/commands/do-task.md"))
+        .expect("read rendered command");
+    assert!(
+        rendered.contains("guards=gate_checked"),
+        "expected profile guard override in rendered output, got:\n{rendered}"
+    );
+}
+
+#[test]
+fn install_prefers_rubric_file_for_pillar_list() {
+    let dir = TempDir::new().expect("tempdir");
+    write_command_with_vars(
+        &dir,
+        "commands/spec",
+        "pillars={{PILLAR_LIST}}",
+        &["PILLAR_LIST"],
+    );
+    std::fs::create_dir_all(dir.path().join("tanren")).expect("mkdir tanren");
+    std::fs::write(
+        dir.path().join("tanren/rubric.yml"),
+        "pillars:\n  - id: compile_time_verification_strictness\n",
+    )
+    .expect("write rubric.yml");
+    let cfg_yaml = r"methodology:
+  source:
+    path: commands
+  install_targets:
+    - path: .claude/commands
+      format: claude-code
+      binding: mcp
+      merge_policy: destructive
+rubric:
+  pillars:
+    - id: security
+";
+    let cfg = write_config(&dir, cfg_yaml);
+    let out = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args(["install", "--config", cfg.to_str().expect("cfg utf8")])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "install failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rendered = std::fs::read_to_string(dir.path().join(".claude/commands/do-task.md"))
+        .expect("read rendered command");
+    assert!(
+        rendered.contains("pillars=compile_time_verification_strictness"),
+        "expected tanren/rubric.yml pillar ids to win, got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("pillars=security"),
+        "tanren.yml rubric must not override tanren/rubric.yml when both exist"
+    );
+}
+
+#[test]
+fn install_uses_tanren_yml_rubric_when_rubric_file_missing() {
+    let dir = TempDir::new().expect("tempdir");
+    write_command_with_vars(
+        &dir,
+        "commands/spec",
+        "pillars={{PILLAR_LIST}}",
+        &["PILLAR_LIST"],
+    );
+    let cfg_yaml = r"methodology:
+  source:
+    path: commands
+  install_targets:
+    - path: .claude/commands
+      format: claude-code
+      binding: mcp
+      merge_policy: destructive
+rubric:
+  pillars:
+    - id: security
+    - id: maintainability
+";
+    let cfg = write_config(&dir, cfg_yaml);
+    let out = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args(["install", "--config", cfg.to_str().expect("cfg utf8")])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "install failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rendered = std::fs::read_to_string(dir.path().join(".claude/commands/do-task.md"))
+        .expect("read rendered command");
+    assert!(
+        rendered.contains("pillars=security, maintainability"),
+        "expected tanren.yml rubric pillar ids in rendered output, got:\n{rendered}"
     );
 }

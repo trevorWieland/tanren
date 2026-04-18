@@ -10,7 +10,9 @@ use serde_json::{Value, json};
 use tanren_contract::methodology as c;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::evidence::demo::{DemoStatus, DemoStepMode};
-use tanren_domain::methodology::finding::{FindingSeverity, FindingSource, StandardRef};
+use tanren_domain::methodology::finding::{
+    AdherenceSeverity, FindingSeverity, FindingSource, StandardRef,
+};
 use tanren_domain::methodology::issue::IssuePriority;
 use tanren_domain::methodology::phase_outcome::{PhaseOutcome, ReplyDisposition};
 use tanren_domain::methodology::pillar::{PillarId, PillarScope, PillarScore};
@@ -426,12 +428,12 @@ fn cli_cross_phase_mutations(url: &str, spec_folder: &Path, spec_id: SpecId) {
         schema_version: schema(),
         spec_id,
         standard: StandardRef {
-            name: ne("no_unwrap"),
-            category: ne("safety"),
+            name: ne("no-unwrap-in-production"),
+            category: ne("rust-error-handling"),
         },
         affected_files: vec!["src/lib.rs".into()],
         line_numbers: vec![11],
-        severity: FindingSeverity::FixNow,
+        severity: AdherenceSeverity::FixNow,
         rationale: "critical check".into(),
         idempotency_key: Some("parity-adherence".into()),
     });
@@ -853,12 +855,12 @@ fn mcp_cross_phase_mutations(
         schema_version: schema(),
         spec_id,
         standard: StandardRef {
-            name: ne("no_unwrap"),
-            category: ne("safety"),
+            name: ne("no-unwrap-in-production"),
+            category: ne("rust-error-handling"),
         },
         affected_files: vec!["src/lib.rs".into()],
         line_numbers: vec![11],
-        severity: FindingSeverity::FixNow,
+        severity: AdherenceSeverity::FixNow,
         rationale: "critical check".into(),
         idempotency_key: Some("parity-adherence".into()),
     });

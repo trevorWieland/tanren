@@ -16,6 +16,7 @@ use tanren_domain::methodology::events::{
     ReplyDirectiveRecorded, RubricScoreRecorded, SignpostAdded, SignpostStatusUpdated, TaskRevised,
 };
 use tanren_domain::methodology::finding::FindingSeverity;
+use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 use tanren_domain::methodology::rubric::{NonNegotiableCompliance, RubricScore};
 use tanren_domain::methodology::signpost::Signpost;
 use tanren_domain::{NonEmptyString, SignpostId};
@@ -42,7 +43,7 @@ impl MethodologyService {
     pub async fn revise_task(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: ReviseTaskParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::TaskRevise, phase)?;
@@ -80,7 +81,7 @@ impl MethodologyService {
     pub async fn list_tasks(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: ListTasksParams,
     ) -> MethodologyResult<Vec<Task>> {
         enforce(scope, ToolCapability::TaskRead, phase)?;
@@ -110,7 +111,7 @@ impl MethodologyService {
     pub async fn record_rubric_score(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: RecordRubricScoreParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::RubricRecord, phase)?;
@@ -182,7 +183,7 @@ impl MethodologyService {
     pub async fn record_non_negotiable_compliance(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: RecordNonNegotiableComplianceParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::ComplianceRecord, phase)?;
@@ -227,7 +228,7 @@ impl MethodologyService {
     pub async fn add_signpost(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: AddSignpostParams,
     ) -> MethodologyResult<AddSignpostResponse> {
         enforce(scope, ToolCapability::SignpostAdd, phase)?;
@@ -286,7 +287,7 @@ impl MethodologyService {
     pub async fn update_signpost_status(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: UpdateSignpostStatusParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SignpostUpdate, phase)?;
@@ -323,7 +324,7 @@ impl MethodologyService {
     pub async fn report_phase_outcome(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: ReportPhaseOutcomeParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::PhaseOutcome, phase)?;
@@ -366,7 +367,7 @@ impl MethodologyService {
     pub async fn escalate_to_blocker(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: EscalateToBlockerParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::PhaseEscalate, phase)?;
@@ -379,11 +380,11 @@ impl MethodologyService {
             explicit_key,
             &idempotency_payload,
             || async move {
-                if phase != "investigate" {
+                if !phase.is_known(KnownPhase::Investigate) {
                     return Err(MethodologyError::FieldValidation {
                         field_path: "/phase".into(),
                         expected: "escalate_to_blocker allowed only in investigate".into(),
-                        actual: phase.to_owned(),
+                        actual: phase.as_str().to_owned(),
                         remediation: "invoke escalate_to_blocker from investigate only".into(),
                     });
                 }
@@ -395,7 +396,8 @@ impl MethodologyService {
                     params.options.len()
                 ))
                 .map_err(|e| MethodologyError::Internal(e.to_string()))?;
-                let phase_name = super::errors::require_non_empty("/phase", phase, Some(120))?;
+                let phase_name =
+                    super::errors::require_non_empty("/phase", phase.as_str(), Some(120))?;
                 self.emit_event(
                     phase,
                     MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
@@ -427,7 +429,7 @@ impl MethodologyService {
     pub async fn post_reply_directive(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: PostReplyDirectiveParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::FeedbackReply, phase)?;
@@ -440,11 +442,11 @@ impl MethodologyService {
             explicit_key,
             &idempotency_payload,
             || async move {
-                if phase != "handle-feedback" {
+                if !phase.is_known(KnownPhase::HandleFeedback) {
                     return Err(MethodologyError::FieldValidation {
                         field_path: "/phase".into(),
                         expected: "post_reply_directive allowed only in handle-feedback".into(),
-                        actual: phase.to_owned(),
+                        actual: phase.as_str().to_owned(),
                         remediation: "invoke post_reply_directive from handle-feedback only".into(),
                     });
                 }
@@ -462,7 +464,8 @@ impl MethodologyService {
                 } else {
                     params.body
                 };
-                let phase_name = super::errors::require_non_empty("/phase", phase, Some(120))?;
+                let phase_name =
+                    super::errors::require_non_empty("/phase", phase.as_str(), Some(120))?;
                 self.emit_event(
                     phase,
                     MethodologyEvent::ReplyDirectiveRecorded(ReplyDirectiveRecorded {

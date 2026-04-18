@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::events::MethodologyEvent;
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::standard::Standard;
 use tanren_domain::methodology::task::RequiredGuard;
 use tanren_domain::{EventId, SpecId, TaskId};
@@ -15,6 +16,7 @@ use tanren_store::Store;
 use tanren_store::methodology::{AppendPhaseEventOutboxParams, PhaseEventOutboxEntry};
 
 use super::errors::{MethodologyError, MethodologyResult};
+use super::phase_events::PhaseEventAttribution;
 
 const OUTBOX_DRAIN_BATCH_SIZE: u64 = 256;
 
@@ -135,11 +137,21 @@ impl MethodologyService {
 
     pub(crate) async fn emit(
         &self,
-        phase: &str,
+        phase: &PhaseId,
         event: MethodologyEvent,
     ) -> MethodologyResult<EventEnvelope> {
+        self.emit_with_attribution(phase, event, PhaseEventAttribution::default())
+            .await
+    }
+
+    pub(crate) async fn emit_with_attribution(
+        &self,
+        phase: &PhaseId,
+        event: MethodologyEvent,
+        attribution: PhaseEventAttribution,
+    ) -> MethodologyResult<EventEnvelope> {
         let envelope = Self::new_envelope(event);
-        let outbox = self.phase_event_outbox(phase, &envelope)?;
+        let outbox = self.phase_event_outbox(phase, &envelope, &attribution)?;
         let drain_spec = outbox.as_ref().map(|(spec_id, _)| *spec_id);
         let outbox_payload = outbox.map(|(_, payload)| payload);
         self.store
@@ -153,8 +165,9 @@ impl MethodologyService {
 
     fn phase_event_outbox(
         &self,
-        phase: &str,
+        phase: &PhaseId,
         envelope: &EventEnvelope,
+        attribution: &PhaseEventAttribution,
     ) -> MethodologyResult<Option<(SpecId, AppendPhaseEventOutboxParams)>> {
         let DomainEvent::Methodology { event } = &envelope.payload else {
             return Ok(None);
@@ -173,7 +186,13 @@ impl MethodologyService {
                         "set --spec-folder / TANREN_SPEC_FOLDER for mutating methodology calls"
                             .into(),
                 })?;
-        let line = super::line_for_envelope(envelope, spec_id, phase, &runtime.agent_session_id);
+        let line = super::line_for_envelope_with_attribution(
+            envelope,
+            spec_id,
+            phase.as_str(),
+            &runtime.agent_session_id,
+            attribution,
+        );
         let Some(line) = line else {
             return Ok(None);
         };

@@ -44,8 +44,11 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<()> {
-    let scope = scope::parse_from_env();
-    let phase = std::env::var("TANREN_MCP_PHASE").unwrap_or_else(|_| "mcp".to_owned());
+    let scope = scope::parse_from_env().context("parsing TANREN_PHASE_CAPABILITIES")?;
+    let phase = tanren_app_services::methodology::PhaseId::try_new(
+        std::env::var("TANREN_MCP_PHASE").unwrap_or_else(|_| "mcp".to_owned()),
+    )
+    .context("parsing TANREN_MCP_PHASE")?;
     let database_url = std::env::var("TANREN_DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:tanren.db?mode=rwc".to_owned());
     let config_path = std::env::var("TANREN_CONFIG").unwrap_or_else(|_| "tanren.yml".to_owned());
@@ -77,7 +80,7 @@ async fn run() -> Result<()> {
     .context("building methodology service")?;
     tracing::info!(
         capability_count = scope.0.len(),
-        phase = %phase,
+        phase = %phase.as_str(),
         tools = catalog::all_tools().len(),
         "tanren-mcp starting on stdio transport"
     );

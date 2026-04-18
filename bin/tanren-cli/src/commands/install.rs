@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tanren_app_services::methodology::config::{InstallFormat, TanrenConfig};
 use tanren_app_services::methodology::formats::{
     claude_mcp_json, codex_config_toml, opencode_json,
@@ -25,6 +25,7 @@ use tanren_app_services::methodology::formats::{
 use tanren_app_services::methodology::installer::{
     DriftEntry, InstallPlan, PlannedWrite, apply_install, drift, plan_install_from_root,
 };
+use tanren_app_services::methodology::{RequiredGuard, builtin_pillars};
 
 const MCP_SERVER_COMMAND: &str = "tanren-mcp";
 const MCP_SERVER_ARGS: &[&str] = &["serve"];
@@ -149,7 +150,15 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
         methodology.source.path.clone_from(src);
     }
 
-    let context = build_context(&methodology.variables);
+    let pillar_list = match resolve_pillar_list(&args.config, &cfg) {
+        Ok(list) => list,
+        Err(err) => return fail_validation(&err),
+    };
+    let context = build_context(
+        &methodology.variables,
+        &methodology.task_complete_requires,
+        &pillar_list,
+    );
 
     let mut plan = match plan_install_from_root(&methodology, &context) {
         Ok(p) => p,
@@ -207,6 +216,8 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
 
 fn build_context(
     user_vars: &std::collections::BTreeMap<String, String>,
+    required_guards: &[RequiredGuard],
+    pillar_list: &str,
 ) -> HashMap<String, String> {
     // Template tokens are `{{UPPERCASE_SNAKE_CASE}}` in the source
     // commands. Normalize every key to upper-case so `tanren.yml`
@@ -235,16 +246,18 @@ fn build_context(
         ("AUDIT_TASK_HOOK", "just check"),
         ("DEMO_HOOK", "just check"),
         ("RUN_DEMO_HOOK", "just check"),
-        (
-            "PILLAR_LIST",
-            "completeness, performance, scalability, strictness, security, \
-             stability, maintainability, extensibility, elegance, style, \
-             relevance, modularity, documentation_complete",
-        ),
-        ("REQUIRED_GUARDS", "gate_checked, audited, adherent"),
     ] {
         ctx.entry(k.into()).or_insert_with(|| v.into());
     }
+    let required_guards_default = required_guards
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    ctx.entry("REQUIRED_GUARDS".into())
+        .or_insert(required_guards_default);
+    ctx.entry("PILLAR_LIST".into())
+        .or_insert_with(|| pillar_list.to_owned());
     // Derived defaults — noun phrases for the chosen issue provider.
     let issue_provider = ctx
         .get("ISSUE_PROVIDER")
@@ -267,6 +280,64 @@ fn build_context(
                 .into()
         });
     ctx
+}
+
+#[derive(Debug, Deserialize)]
+struct RubricFile {
+    #[serde(default)]
+    pillars: Vec<RubricPillar>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RubricPillar {
+    id: String,
+}
+
+fn resolve_pillar_list(config_path: &Path, cfg: &TanrenConfig) -> Result<String, String> {
+    let config_dir = config_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let rubric_path = config_dir.join("tanren/rubric.yml");
+    if rubric_path.exists() {
+        let raw = std::fs::read_to_string(&rubric_path)
+            .map_err(|e| format!("reading {}: {e}", rubric_path.display()))?;
+        let parsed: RubricFile = serde_yaml::from_str(&raw)
+            .map_err(|e| format!("parsing {}: {e}", rubric_path.display()))?;
+        let ids = parsed
+            .pillars
+            .iter()
+            .map(|p| p.id.trim().to_owned())
+            .filter(|id| !id.is_empty())
+            .collect::<Vec<_>>();
+        if ids.is_empty() {
+            return Err(format!(
+                "{} must define at least one pillar id",
+                rubric_path.display()
+            ));
+        }
+        return Ok(ids.join(", "));
+    }
+    if let Some(rubric_yaml) = cfg.other.get("rubric") {
+        let parsed: RubricFile = serde_yaml::from_value(rubric_yaml.clone())
+            .map_err(|e| format!("parsing tanren.yml rubric section: {e}"))?;
+        let ids = parsed
+            .pillars
+            .iter()
+            .map(|p| p.id.trim().to_owned())
+            .filter(|id| !id.is_empty())
+            .collect::<Vec<_>>();
+        if ids.is_empty() {
+            return Err("tanren.yml rubric section must define at least one pillar id".into());
+        }
+        return Ok(ids.join(", "));
+    }
+    // Fallback to built-in domain pillars when no rubric config is present.
+    Ok(builtin_pillars()
+        .into_iter()
+        .map(|p| p.id.to_string())
+        .collect::<Vec<_>>()
+        .join(", "))
 }
 
 fn synth_mcp_write(path: &Path, format: InstallFormat) -> Result<Option<PlannedWrite>, u8> {

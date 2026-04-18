@@ -1,6 +1,7 @@
 //! `tanren adherence add-finding` — §3.8 tool.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::RecordAdherenceFindingParams;
 
@@ -15,7 +16,7 @@ pub(crate) enum AdherenceCommand {
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: AdherenceCommand,
 ) -> u8 {
     match cmd {

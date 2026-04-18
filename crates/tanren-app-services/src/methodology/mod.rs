@@ -30,6 +30,7 @@ pub mod service_evidence;
 pub mod service_ext;
 mod service_ext_validation;
 mod service_findings_and_helpers;
+mod service_standards;
 mod service_tasks;
 pub mod source;
 pub mod standards;
@@ -39,8 +40,9 @@ pub use enforcement::{EnforcementGuard, FileSnapshot, UnauthorizedEdit};
 pub use errors::{MethodologyError, MethodologyResult, ToolError};
 pub use mutation_pipeline::{enter_mutation_session, finalize_mutation_session};
 pub use phase_events::{
-    PhaseEventLine, append_jsonl_encoded_line, append_jsonl_line_atomic, jsonl_contains_event_id,
-    line_for_envelope, project_phase_events, render_jsonl,
+    PhaseEventAttribution, PhaseEventLine, append_jsonl_encoded_line, append_jsonl_line_atomic,
+    jsonl_contains_event_id, line_for_envelope, line_for_envelope_with_attribution,
+    project_phase_events, render_jsonl,
 };
 pub use service::MethodologyService;
 
@@ -51,6 +53,8 @@ pub use service::MethodologyService;
 pub use tanren_domain::methodology::capability::{
     CapabilityScope, ToolCapability, default_scope_for_phase,
 };
+pub use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
+pub use tanren_domain::methodology::pillar::builtin_pillars;
 pub use tanren_domain::methodology::task::RequiredGuard;
 
 /// Re-exported store-layer replay entry point so transports can

@@ -1,10 +1,12 @@
 //! `tanren spec {…}` subcommands — §3.3 spec-frontmatter tools.
 
 use clap::Subcommand;
+use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::{
     AddSpecAcceptanceCriterionParams, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
-    SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecTitleParams,
+    SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams,
+    SetSpecTitleParams,
 };
 
 use super::{ParamsInput, emit_result, load_params};
@@ -23,12 +25,14 @@ pub(crate) enum SpecCommand {
     SetDependencies(ParamsInput),
     /// Set the base branch.
     SetBaseBranch(ParamsInput),
+    /// Set relevance context used by server-side standards derivation.
+    SetRelevanceContext(ParamsInput),
 }
 
 pub(crate) async fn run(
     service: &MethodologyService,
     scope: &CapabilityScope,
-    phase: &str,
+    phase: &PhaseId,
     cmd: SpecCommand,
 ) -> u8 {
     match cmd {
@@ -90,6 +94,17 @@ pub(crate) async fn run(
             ),
             Err(e) => emit_result::<()>(Err(e)),
         },
+        SpecCommand::SetRelevanceContext(i) => {
+            match load_params::<SetSpecRelevanceContextParams>(&i) {
+                Ok(params) => emit_result(
+                    service
+                        .set_spec_relevance_context(scope, phase, params)
+                        .await
+                        .map(|()| Empty {}),
+                ),
+                Err(e) => emit_result::<()>(Err(e)),
+            }
+        }
     }
 }
 

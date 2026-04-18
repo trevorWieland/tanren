@@ -46,7 +46,7 @@ use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 use tanren_app_services::methodology::{
-    CapabilityScope, MethodologyError, MethodologyService, ToolCapability, ToolError,
+    CapabilityScope, MethodologyError, MethodologyService, PhaseId, ToolCapability, ToolError,
     default_scope_for_phase, enter_mutation_session, finalize_mutation_session, parse_scope_env,
 };
 
@@ -189,27 +189,26 @@ pub(crate) fn load_params<T: DeserializeOwned>(input: &ParamsInput) -> Result<T,
 ///    each use.
 /// 4. Default deny: return an empty scope so downstream
 ///    `enforce(..)` calls surface a typed `CapabilityDenied`.
-#[must_use]
-pub(crate) fn resolve_scope(phase: &str) -> CapabilityScope {
+pub(crate) fn resolve_scope(phase: &PhaseId) -> Result<CapabilityScope, MethodologyError> {
     if let Ok(env) = std::env::var("TANREN_PHASE_CAPABILITIES")
         && !env.trim().is_empty()
     {
         return parse_scope_env(&env);
     }
     if let Some(scope) = default_scope_for_phase(phase) {
-        return scope;
+        return Ok(scope);
     }
     if matches!(
         std::env::var("TANREN_CAPABILITY_OVERRIDE").as_deref(),
         Ok("admin")
     ) {
         tracing::warn!(
-            phase,
+            phase = phase.as_str(),
             "admin capability override in use — TANREN_CAPABILITY_OVERRIDE=admin grants full tool scope"
         );
-        return all_capabilities_scope();
+        return Ok(all_capabilities_scope());
     }
-    CapabilityScope::from_iter_caps([])
+    Ok(CapabilityScope::from_iter_caps([]))
 }
 
 fn all_capabilities_scope() -> CapabilityScope {
@@ -305,8 +304,21 @@ pub(crate) async fn dispatch(
     global: &MethodologyGlobal,
     command: MethodologyCommand,
 ) -> u8 {
-    let scope = resolve_scope(&global.phase);
-    let phase = global.phase.clone();
+    let phase = match PhaseId::try_new(global.phase.clone()) {
+        Ok(phase) => phase,
+        Err(err) => {
+            return emit_result::<serde_json::Value>(Err(MethodologyError::FieldValidation {
+                field_path: "/phase".into(),
+                expected: "non-empty phase identifier".into(),
+                actual: global.phase.clone(),
+                remediation: err.to_string(),
+            }));
+        }
+    };
+    let scope = match resolve_scope(&phase) {
+        Ok(scope) => scope,
+        Err(err) => return emit_result::<serde_json::Value>(Err(err)),
+    };
     let mut session = None;
     if is_mutation_command(&command) {
         let Some(spec_folder) = global.spec_folder.as_deref() else {
@@ -340,7 +352,7 @@ pub(crate) async fn dispatch(
         MethodologyCommand::Signpost(c) => signpost::run(service, &scope, &phase, c).await,
         MethodologyCommand::Phase(c) => phase::run(service, &scope, &phase, c).await,
         MethodologyCommand::Issue(c) => issue::run(service, &scope, &phase, c).await,
-        MethodologyCommand::Standard(c) => standard::run(service, &scope, &phase, c),
+        MethodologyCommand::Standard(c) => standard::run(service, &scope, &phase, c).await,
         MethodologyCommand::Adherence(c) => adherence::run(service, &scope, &phase, c).await,
         MethodologyCommand::IngestPhaseEvents(a) => ingest::run(service, a).await,
         MethodologyCommand::Replay(a) => replay::run(service, a).await,
@@ -403,7 +415,8 @@ mod tests {
         {
             return;
         }
-        let scope = resolve_scope("cli-admin");
+        let phase = PhaseId::try_new("cli-admin").expect("phase");
+        let scope = resolve_scope(&phase).expect("scope");
         assert!(!scope.allows(ToolCapability::TaskCreate));
         assert!(!scope.allows(ToolCapability::PhaseEscalate));
     }

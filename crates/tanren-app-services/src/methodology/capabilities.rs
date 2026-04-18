@@ -8,6 +8,7 @@
 //! [`enforce`] below.
 
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
+use tanren_domain::methodology::phase_id::PhaseId;
 
 use super::errors::MethodologyError;
 
@@ -18,14 +19,14 @@ use super::errors::MethodologyError;
 pub fn enforce(
     scope: &CapabilityScope,
     capability: ToolCapability,
-    phase: &str,
+    phase: &PhaseId,
 ) -> Result<(), MethodologyError> {
     if scope.allows(capability) {
         Ok(())
     } else {
         Err(MethodologyError::CapabilityDenied {
             capability,
-            phase: phase.to_owned(),
+            phase: phase.as_str().to_owned(),
         })
     }
 }
@@ -34,11 +35,11 @@ pub fn enforce(
 /// [`CapabilityScope`]. The value is a comma-separated list of
 /// capability tags (e.g. `"task.create,task.read,phase.outcome"`).
 ///
-/// Unknown tags are **ignored** rather than rejected so a stricter
-/// orchestrator policy can always narrow the set without coordinating
-/// on exact enum tags. Empty input yields an empty scope (denies all).
-#[must_use]
-pub fn parse_scope_env(value: &str) -> CapabilityScope {
+/// Unknown tags are rejected with a typed validation error.
+///
+/// # Errors
+/// Returns [`MethodologyError::FieldValidation`] for unknown tags.
+pub fn parse_scope_env(value: &str) -> Result<CapabilityScope, MethodologyError> {
     use ToolCapability::{
         AdherenceRecord, ComplianceRecord, DemoFrontmatter, DemoResults, FeedbackReply, FindingAdd,
         IssueCreate, PhaseEscalate, PhaseOutcome, RubricRecord, SignpostAdd, SignpostUpdate,
@@ -72,7 +73,27 @@ pub fn parse_scope_env(value: &str) -> CapabilityScope {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
-    CapabilityScope::from_iter_caps(known.into_iter().filter(|c| wanted.contains(c.tag())))
+    let known_tags: std::collections::HashSet<&str> = known.iter().map(|c| c.tag()).collect();
+    let unknown: Vec<&str> = wanted
+        .iter()
+        .copied()
+        .filter(|tag| !known_tags.contains(tag))
+        .collect();
+    if !unknown.is_empty() {
+        let mut sorted = unknown;
+        sorted.sort_unstable();
+        return Err(MethodologyError::FieldValidation {
+            field_path: "/TANREN_PHASE_CAPABILITIES".into(),
+            expected: "comma-separated known capability tags".into(),
+            actual: sorted.join(", "),
+            remediation:
+                "remove unknown tags or upgrade the orchestrator/capability schema in lock-step"
+                    .into(),
+        });
+    }
+    Ok(CapabilityScope::from_iter_caps(
+        known.into_iter().filter(|c| wanted.contains(c.tag())),
+    ))
 }
 
 #[cfg(test)]
@@ -82,7 +103,8 @@ mod tests {
     #[test]
     fn enforce_denies_missing_capability() {
         let scope = CapabilityScope::empty();
-        let err = enforce(&scope, ToolCapability::TaskCreate, "do-task").expect_err("must deny");
+        let phase = PhaseId::try_new("do-task").expect("phase");
+        let err = enforce(&scope, ToolCapability::TaskCreate, &phase).expect_err("must deny");
         assert!(matches!(
             err,
             MethodologyError::CapabilityDenied { phase, .. } if phase == "do-task"
@@ -92,12 +114,13 @@ mod tests {
     #[test]
     fn enforce_allows_granted() {
         let scope = CapabilityScope::from_iter_caps([ToolCapability::TaskStart]);
-        enforce(&scope, ToolCapability::TaskStart, "do-task").expect("ok");
+        let phase = PhaseId::try_new("do-task").expect("phase");
+        enforce(&scope, ToolCapability::TaskStart, &phase).expect("ok");
     }
 
     #[test]
     fn parse_scope_env_known_tags() {
-        let scope = parse_scope_env("task.create,phase.outcome,unknown.tag");
+        let scope = parse_scope_env("task.create,phase.outcome").expect("scope");
         assert!(scope.allows(ToolCapability::TaskCreate));
         assert!(scope.allows(ToolCapability::PhaseOutcome));
         assert!(!scope.allows(ToolCapability::TaskStart));
@@ -105,7 +128,17 @@ mod tests {
 
     #[test]
     fn parse_scope_env_empty_is_empty() {
-        let scope = parse_scope_env("");
+        let scope = parse_scope_env("").expect("scope");
         assert!(!scope.allows(ToolCapability::TaskRead));
+    }
+
+    #[test]
+    fn parse_scope_env_rejects_unknown_tags() {
+        let err = parse_scope_env("task.create,unknown.tag").expect_err("must fail");
+        assert!(matches!(
+            err,
+            MethodologyError::FieldValidation { field_path, .. }
+                if field_path == "/TANREN_PHASE_CAPABILITIES"
+        ));
     }
 }

@@ -17,6 +17,7 @@ pub struct MethodologyIdempotencyEntry {
     pub scope_key: String,
     pub idempotency_key: String,
     pub request_hash: String,
+    pub request_hash_algo: String,
     pub response_json: Option<String>,
     pub first_event_id: Option<EventId>,
     pub created_at: DateTime<Utc>,
@@ -30,6 +31,7 @@ pub struct InsertMethodologyIdempotencyParams {
     pub scope_key: String,
     pub idempotency_key: String,
     pub request_hash: String,
+    pub request_hash_algo: String,
 }
 
 impl Store {
@@ -55,6 +57,7 @@ impl Store {
             scope_key: row.scope_key,
             idempotency_key: row.idempotency_key,
             request_hash: row.request_hash,
+            request_hash_algo: row.request_hash_algo,
             response_json: row.response_json,
             first_event_id: row.first_event_id.map(EventId::from_uuid),
             created_at: row.created_at,
@@ -76,6 +79,7 @@ impl Store {
             scope_key: Set(params.scope_key),
             idempotency_key: Set(params.idempotency_key),
             request_hash: Set(params.request_hash),
+            request_hash_algo: Set(params.request_hash_algo),
             response_json: Set(None),
             first_event_id: Set(None),
             created_at: Set(now),

@@ -11,11 +11,13 @@ use tanren_domain::methodology::events::{
     DemoFrontmatterPatch, DemoFrontmatterUpdated, MethodologyEvent, SpecFrontmatterPatch,
     SpecFrontmatterUpdated,
 };
+use tanren_domain::methodology::phase_id::PhaseId;
 
 use tanren_contract::methodology::{
     AddDemoStepParams, AddSpecAcceptanceCriterionParams, AppendDemoResultParams,
     MarkDemoStepSkipParams, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
-    SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecTitleParams,
+    SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams,
+    SetSpecTitleParams,
 };
 
 use super::capabilities::enforce;
@@ -32,7 +34,7 @@ impl MethodologyService {
     pub async fn set_spec_title(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: SetSpecTitleParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
@@ -66,7 +68,7 @@ impl MethodologyService {
     pub async fn set_spec_non_negotiables(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: SetSpecNonNegotiablesParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
@@ -101,7 +103,7 @@ impl MethodologyService {
     pub async fn add_spec_acceptance_criterion(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: AddSpecAcceptanceCriterionParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
@@ -136,7 +138,7 @@ impl MethodologyService {
     pub async fn set_spec_demo_environment(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: SetSpecDemoEnvironmentParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
@@ -171,7 +173,7 @@ impl MethodologyService {
     pub async fn set_spec_dependencies(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: SetSpecDependenciesParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
@@ -206,7 +208,7 @@ impl MethodologyService {
     pub async fn set_spec_base_branch(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: SetSpecBaseBranchParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
@@ -233,6 +235,41 @@ impl MethodologyService {
         .await
     }
 
+    /// `set_spec_relevance_context`.
+    ///
+    /// # Errors
+    /// See [`super::errors::MethodologyError`].
+    pub async fn set_spec_relevance_context(
+        &self,
+        scope: &CapabilityScope,
+        phase: &PhaseId,
+        params: SetSpecRelevanceContextParams,
+    ) -> MethodologyResult<()> {
+        enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
+        let spec_id = params.spec_id;
+        let explicit_key = params.idempotency_key.clone();
+        let idempotency_payload = params.clone();
+        self.run_idempotent_mutation(
+            "set_spec_relevance_context",
+            spec_id,
+            explicit_key,
+            &idempotency_payload,
+            || async move {
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::SpecFrontmatterUpdated(SpecFrontmatterUpdated {
+                        spec_id: params.spec_id,
+                        patch: SpecFrontmatterPatch::SetRelevanceContext {
+                            relevance_context: params.relevance_context,
+                        },
+                    }),
+                )
+                .await
+            },
+        )
+        .await
+    }
+
     // ========= §3.4 Demo frontmatter =========================
 
     /// `add_demo_step`.
@@ -242,7 +279,7 @@ impl MethodologyService {
     pub async fn add_demo_step(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: AddDemoStepParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::DemoFrontmatter, phase)?;
@@ -285,7 +322,7 @@ impl MethodologyService {
     pub async fn mark_demo_step_skip(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: MarkDemoStepSkipParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::DemoFrontmatter, phase)?;
@@ -321,7 +358,7 @@ impl MethodologyService {
     pub async fn append_demo_result(
         &self,
         scope: &CapabilityScope,
-        phase: &str,
+        phase: &PhaseId,
         params: AppendDemoResultParams,
     ) -> MethodologyResult<()> {
         enforce(scope, ToolCapability::DemoResults, phase)?;

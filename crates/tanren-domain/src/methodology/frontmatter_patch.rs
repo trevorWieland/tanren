@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::SpecId;
 use crate::methodology::evidence::demo::{DemoStatus, DemoStepMode};
-use crate::methodology::spec::{DemoEnvironment, SpecDependencies};
+use crate::methodology::spec::{DemoEnvironment, SpecDependencies, SpecRelevanceContext};
 use crate::methodology::task::AcceptanceCriterion;
 use crate::validated::NonEmptyString;
 
@@ -26,12 +26,27 @@ pub struct SpecFrontmatterUpdated {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SpecFrontmatterPatch {
-    SetTitle { title: NonEmptyString },
-    SetNonNegotiables { items: Vec<String> },
-    AddAcceptanceCriterion { criterion: AcceptanceCriterion },
-    SetDemoEnvironment { demo_environment: DemoEnvironment },
-    SetDependencies { dependencies: SpecDependencies },
-    SetBaseBranch { branch: NonEmptyString },
+    SetTitle {
+        title: NonEmptyString,
+    },
+    SetNonNegotiables {
+        items: Vec<String>,
+    },
+    AddAcceptanceCriterion {
+        criterion: AcceptanceCriterion,
+    },
+    SetDemoEnvironment {
+        demo_environment: DemoEnvironment,
+    },
+    SetDependencies {
+        dependencies: SpecDependencies,
+    },
+    SetBaseBranch {
+        branch: NonEmptyString,
+    },
+    SetRelevanceContext {
+        relevance_context: SpecRelevanceContext,
+    },
 }
 
 /// A demo-frontmatter mutation. Same pattern as spec frontmatter.

@@ -91,7 +91,8 @@ pub use rubric::{RecordNonNegotiableComplianceParams, RecordRubricScoreParams};
 pub use signpost::{AddSignpostParams, AddSignpostResponse, UpdateSignpostStatusParams};
 pub use spec::{
     AddSpecAcceptanceCriterionParams, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
-    SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecTitleParams,
+    SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams,
+    SetSpecTitleParams,
 };
 pub use standard::{ListRelevantStandardsParams, RelevantStandard};
 pub use task::{

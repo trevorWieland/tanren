@@ -215,6 +215,12 @@ async fn create_methodology_idempotency_table(manager: &SchemaManager<'_>) -> Re
                         .not_null(),
                 )
                 .col(
+                    ColumnDef::new(MethodologyIdempotency::RequestHashAlgo)
+                        .string()
+                        .not_null()
+                        .default("default-hasher-json-v0"),
+                )
+                .col(
                     ColumnDef::new(MethodologyIdempotency::ResponseJson)
                         .text()
                         .null(),
@@ -285,6 +291,7 @@ enum MethodologyIdempotency {
     ScopeKey,
     IdempotencyKey,
     RequestHash,
+    RequestHashAlgo,
     ResponseJson,
     FirstEventId,
     CreatedAt,

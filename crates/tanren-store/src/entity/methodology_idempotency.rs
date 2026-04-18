@@ -10,6 +10,7 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub idempotency_key: String,
     pub request_hash: String,
+    pub request_hash_algo: String,
     pub response_json: Option<String>,
     pub first_event_id: Option<Uuid>,
     pub created_at: DateTimeUtc,

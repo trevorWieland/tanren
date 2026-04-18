@@ -224,6 +224,59 @@ fn capability_enforcement_denies_when_env_scope_excludes_tool() {
 }
 
 #[test]
+fn capability_scope_rejects_unknown_env_tags() {
+    let (d, url) = mkdb();
+    let spec = "00000000-0000-0000-0000-000000000113";
+    let spec_folder = mk_spec_folder(&d, spec);
+    let out = cli(&url)
+        .env("TANREN_PHASE_CAPABILITIES", "task.read,unknown.tag")
+        .args([
+            "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
+            "task",
+            "list",
+            "--json",
+            &format!("{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\"}}"),
+        ])
+        .output()
+        .expect("cli");
+    assert_eq!(out.status.code(), Some(4));
+    let err = parse_stderr(&out);
+    assert_eq!(err["kind"].as_str(), Some("validation_failed"));
+    assert_eq!(
+        err["field_path"].as_str(),
+        Some("/TANREN_PHASE_CAPABILITIES")
+    );
+}
+
+#[test]
+fn adherence_rejects_non_contract_severity_at_boundary() {
+    let (d, url) = mkdb();
+    let spec = "00000000-0000-0000-0000-000000000213";
+    let spec_folder = mk_spec_folder(&d, spec);
+    let out = cli(&url)
+        .args([
+            "methodology",
+            "--phase",
+            "adhere-task",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
+            "adherence",
+            "add-finding",
+            "--json",
+            &format!(
+                "{{\"schema_version\":\"1.0.0\",\"spec_id\":\"{spec}\",\"standard\":{{\"name\":\"no-unwrap-in-production\",\"category\":\"rust-error-handling\"}},\"affected_files\":[],\"line_numbers\":[],\"severity\":\"note\",\"rationale\":\"bad\"}}"
+            ),
+        ])
+        .output()
+        .expect("cli");
+    assert_eq!(out.status.code(), Some(4));
+    let err = parse_stderr(&out);
+    assert_eq!(err["kind"].as_str(), Some("validation_failed"));
+}
+
+#[test]
 fn create_issue_returns_urn_no_placeholder_url() {
     let (d, url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000014";
