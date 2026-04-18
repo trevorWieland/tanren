@@ -16,7 +16,7 @@ use crate::Store;
 use crate::errors::StoreError;
 
 /// Result statistics returned by [`ingest_phase_events`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReplayStats {
     pub lines_read: usize,
     pub events_appended: usize,

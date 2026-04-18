@@ -232,7 +232,7 @@ impl MethodologyService {
         let events = tanren_store::methodology::projections::load_methodology_events(
             self.store(),
             spec_id,
-            u64::MAX,
+            100_000u64,
         )
         .await?;
         let current =
@@ -292,7 +292,7 @@ impl MethodologyService {
     pub(crate) async fn resolve_spec_for_task(&self, task_id: TaskId) -> MethodologyResult<SpecId> {
         let filter = tanren_store::EventFilter {
             event_type: Some("methodology".into()),
-            limit: u64::MAX,
+            limit: 100_000u64,
             ..tanren_store::EventFilter::default()
         };
         let page = tanren_store::EventStore::query_events(self.store.as_ref(), &filter).await?;

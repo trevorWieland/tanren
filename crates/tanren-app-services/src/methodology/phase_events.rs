@@ -108,6 +108,8 @@ const fn tool_name(event: &MethodologyEvent) -> &'static str {
         MethodologyEvent::IssueCreated(_) => "create_issue",
         MethodologyEvent::PhaseOutcomeReported(_) => "report_phase_outcome",
         MethodologyEvent::ReplyDirectiveRecorded(_) => "post_reply_directive",
+        MethodologyEvent::SpecFrontmatterUpdated(_) => "spec.frontmatter",
+        MethodologyEvent::DemoFrontmatterUpdated(_) => "demo.frontmatter",
         MethodologyEvent::UnauthorizedArtifactEdit(_) => "<enforcement>",
         MethodologyEvent::EvidenceSchemaError(_) => "<postflight>",
     }

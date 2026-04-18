@@ -34,7 +34,7 @@ pub enum MethodologyEventFetchError {
 /// filters in memory by `MethodologyEvent::spec_id()`.
 ///
 /// `limit` caps the returned slice. Pass a large value (e.g.
-/// `u64::MAX`) to request "all".
+/// `100_000u64`) to request "all".
 ///
 /// # Errors
 /// Returns [`MethodologyEventFetchError::Store`] on query failure.
@@ -74,7 +74,7 @@ pub async fn tasks_for_spec<S: EventStore>(
     spec_id: SpecId,
     required_guards: &[RequiredGuard],
 ) -> Result<Vec<Task>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, u64::MAX).await?;
+    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
     Ok(fold_tasks(&events, required_guards))
 }
 
@@ -120,7 +120,7 @@ pub async fn findings_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<Finding>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, u64::MAX).await?;
+    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
     let mut out = Vec::new();
     for ev in events {
         match ev {
@@ -156,7 +156,7 @@ pub async fn adherence_findings_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<Finding>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, u64::MAX).await?;
+    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
     let mut out = Vec::new();
     for ev in events {
         if let MethodologyEvent::AdherenceFindingAdded(e) = ev {
@@ -177,7 +177,7 @@ pub async fn signposts_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<Signpost>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, u64::MAX).await?;
+    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
     let mut seed: std::collections::HashMap<tanren_domain::SignpostId, Signpost> =
         std::collections::HashMap::new();
     for ev in events {
@@ -214,7 +214,7 @@ pub async fn rubric_for_spec<S: EventStore>(
     store: &S,
     spec_id: SpecId,
 ) -> Result<Vec<RubricScore>, MethodologyEventFetchError> {
-    let events = load_methodology_events(store, spec_id, u64::MAX).await?;
+    let events = load_methodology_events(store, spec_id, 100_000u64).await?;
     let mut latest: std::collections::HashMap<
         (
             tanren_domain::methodology::pillar::PillarScope,

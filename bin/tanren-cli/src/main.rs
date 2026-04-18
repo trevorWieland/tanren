@@ -1,11 +1,6 @@
-//! Tanren CLI — the composition root for command-line operation.
-//!
-//! Parses args, initializes tracing, and delegates to the app-services
-//! composition root for wiring, then dispatches to the appropriate
-//! subcommand handler.
-//!
-//! All failures — including startup errors — produce deterministic JSON
-//! on stderr and a non-zero exit code.
+//! Tanren CLI — composition root. Parses args, initializes tracing,
+//! delegates to app-services, and dispatches to the subcommand. All
+//! failures produce JSON on stderr + a non-zero exit code.
 #![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
 mod actor_token;
@@ -28,6 +23,7 @@ use actor_token::{resolve_actor_token, resolve_actor_token_verifier};
 use clap_error::clap_error_to_response;
 use commands::dispatch::{DispatchCommand, DispatchRequest};
 use commands::install::{InstallArgs, run as run_install};
+use commands::methodology::{MethodologyCommand, MethodologyGlobal, dispatch as run_methodology};
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
@@ -84,6 +80,16 @@ enum Commands {
     /// Render the methodology command catalog and bundled standards
     /// to their configured targets per `tanren.yml`.
     Install(InstallArgs),
+    /// Methodology tool surface (CLI fallback for the MCP catalog).
+    /// Each subcommand maps 1:1 to a tool in
+    /// `docs/architecture/agent-tool-surface.md` §3.
+    #[command(flatten_help = true)]
+    Methodology {
+        #[command(flatten)]
+        global: MethodologyGlobal,
+        #[command(subcommand)]
+        command: MethodologyCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -111,8 +117,8 @@ enum DbCommand {
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     match run().await {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(RunError::Install(code)) => std::process::ExitCode::from(code),
+        Ok(code) => code,
+        Err(RunError::TypedExit(code)) => std::process::ExitCode::from(code),
         Err(RunError::Other(err)) => {
             let error_response = into_error_response(err);
             if let Ok(json) = serde_json::to_string_pretty(&error_response) {
@@ -123,13 +129,12 @@ async fn main() -> std::process::ExitCode {
     }
 }
 
-/// Internal error envelope that preserves `tanren install`'s typed
-/// exit codes (0/1/2/3/4 per install-targets.md §6).
-///
-/// Every other subcommand collapses into `Other` and is reported via
-/// the generic `ErrorResponse` path with `ExitCode::FAILURE`.
+/// Internal error envelope that preserves typed CLI exit codes
+/// (`tanren install`: 0/1/2/3/4; methodology subcommands: 0/2/4 per
+/// `agent-tool-surface.md §5`). Other subcommands collapse into
+/// `Other` and exit with the generic `ExitCode::FAILURE` path.
 enum RunError {
-    Install(u8),
+    TypedExit(u8),
     Other(anyhow::Error),
 }
 
@@ -139,7 +144,7 @@ impl From<anyhow::Error> for RunError {
     }
 }
 
-async fn run() -> std::result::Result<(), RunError> {
+async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err) => {
@@ -148,7 +153,7 @@ async fn run() -> std::result::Result<(), RunError> {
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) {
                 err.print().map_err(anyhow::Error::new)?;
-                return Ok(());
+                return Ok(std::process::ExitCode::SUCCESS);
             }
             return Err(RunError::Other(anyhow::Error::new(clap_error_to_response(
                 &err,
@@ -187,16 +192,33 @@ async fn run() -> std::result::Result<(), RunError> {
         command,
     } = cli;
 
-    // Install is factored out because it has a typed exit-code
-    // contract (0/1/2/3/4) that differs from other subcommands'
-    // generic ErrorResponse path.
-    if let Commands::Install(args) = command {
-        let code = run_install(&args);
-        return if code == 0 {
-            Ok(())
-        } else {
-            Err(RunError::Install(code))
-        };
+    // Install and Methodology are factored out because they have
+    // typed exit-code contracts distinct from the generic
+    // `ErrorResponse` path used by every other subcommand.
+    match command {
+        Commands::Install(args) => {
+            let code = run_install(&args);
+            if code == 0 {
+                return Ok(std::process::ExitCode::SUCCESS);
+            }
+            return Err(RunError::TypedExit(code));
+        }
+        Commands::Methodology { global, command } => {
+            let service = tanren_app_services::compose::build_methodology_service(&database_url)
+                .await
+                .map_err(|err| {
+                    RunError::Other(anyhow::Error::new(
+                        tanren_app_services::error::map_store_error(&err),
+                    ))
+                })?;
+            let code = run_methodology(&service, &global, command).await;
+            return if code == 0 {
+                Ok(std::process::ExitCode::SUCCESS)
+            } else {
+                Err(RunError::TypedExit(code))
+            };
+        }
+        _ => {}
     }
 
     let auth = AuthInputs {
@@ -209,6 +231,7 @@ async fn run() -> std::result::Result<(), RunError> {
     };
     dispatch_non_install(command, &database_url, &auth)
         .await
+        .map(|()| std::process::ExitCode::SUCCESS)
         .map_err(RunError::Other)
 }
 
@@ -274,7 +297,9 @@ async fn dispatch_non_install(
                 }
             }
         }
-        Commands::Install(_) => unreachable!("handled in run()"),
+        Commands::Install(_) | Commands::Methodology { .. } => {
+            unreachable!("handled in run()")
+        }
     }
 }
 

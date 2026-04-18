@@ -1,20 +1,10 @@
-//! Methodology events — the canonical history of all methodology state
-//! changes.
+//! Methodology events — the canonical history of methodology state.
 //!
-//! Nested into [`crate::events::DomainEvent::Methodology`] so the envelope
-//! shape and `SCHEMA_VERSION = 1` remain unchanged. Every tool call in
-//! `app-services::methodology::service` emits exactly one of these via
-//! the existing `EventStore::append` path; the CLI and MCP transports
-//! share the same service method, so the event trail is byte-identical
-//! across transports.
-//!
-//! Ordering invariant: the **envelope timestamp** is the sole source of
-//! occurrence time. Payloads carry no timestamps.
-//!
-//! Monotonicity invariant: the derived [`crate::methodology::TaskStatus`]
-//! of any task is monotonic under event replay — `Complete` is terminal
-//! and guard-satisfaction events only ever set flags to `true`. See
-//! `proptest_monotonicity` in the test module for the formal property.
+//! Nested into [`crate::events::DomainEvent::Methodology`] so the
+//! envelope shape and `SCHEMA_VERSION = 1` remain unchanged. Both
+//! CLI and MCP transports emit these via the shared service; the
+//! trail is byte-identical across transports. `Complete` is terminal;
+//! guard flags are monotonic under replay.
 
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +46,8 @@ pub enum MethodologyEvent {
     IssueCreated(IssueCreated),
     PhaseOutcomeReported(PhaseOutcomeReported),
     ReplyDirectiveRecorded(ReplyDirectiveRecorded),
+    SpecFrontmatterUpdated(SpecFrontmatterUpdated),
+    DemoFrontmatterUpdated(DemoFrontmatterUpdated),
     UnauthorizedArtifactEdit(UnauthorizedArtifactEdit),
     EvidenceSchemaError(EvidenceSchemaError),
 }
@@ -82,6 +74,8 @@ impl MethodologyEvent {
             Self::IssueCreated(e) => EntityRef::Issue(e.issue.id),
             Self::PhaseOutcomeReported(e) => EntityRef::Spec(e.spec_id),
             Self::ReplyDirectiveRecorded(e) => EntityRef::Spec(e.spec_id),
+            Self::SpecFrontmatterUpdated(e) => EntityRef::Spec(e.spec_id),
+            Self::DemoFrontmatterUpdated(e) => EntityRef::Spec(e.spec_id),
             Self::UnauthorizedArtifactEdit(e) => EntityRef::Spec(e.spec_id),
             Self::EvidenceSchemaError(e) => EntityRef::Spec(e.spec_id),
         }
@@ -109,6 +103,8 @@ impl MethodologyEvent {
             Self::IssueCreated(e) => Some(e.issue.origin_spec_id),
             Self::PhaseOutcomeReported(e) => Some(e.spec_id),
             Self::ReplyDirectiveRecorded(e) => Some(e.spec_id),
+            Self::SpecFrontmatterUpdated(e) => Some(e.spec_id),
+            Self::DemoFrontmatterUpdated(e) => Some(e.spec_id),
             Self::UnauthorizedArtifactEdit(e) => Some(e.spec_id),
             Self::EvidenceSchemaError(e) => Some(e.spec_id),
         }
@@ -243,6 +239,10 @@ pub struct PhaseOutcomeReported {
     pub agent_session_id: NonEmptyString,
     pub outcome: PhaseOutcome,
 }
+
+pub use crate::methodology::frontmatter_patch::{
+    DemoFrontmatterPatch, DemoFrontmatterUpdated, SpecFrontmatterPatch, SpecFrontmatterUpdated,
+};
 
 /// A `handle-feedback` reply directive. Orchestrator enacts the post.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

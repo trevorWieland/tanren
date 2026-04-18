@@ -62,6 +62,10 @@ pub(crate) const ALLOWED_ARG_FIELDS: &[&str] = &[
     "config",
     "dry_run",
     "strict",
+    // `methodology` subcommand flags.
+    "json",
+    "params_file",
+    "params_stdin",
 ];
 
 /// Translate a clap parser failure into a transport-safe

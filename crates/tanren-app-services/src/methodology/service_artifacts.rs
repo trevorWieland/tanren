@@ -9,7 +9,7 @@ use tanren_domain::methodology::issue::{Issue, IssueProvider, IssueRef};
 use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
-    AppendDemoResultParams, CreateIssueParams, CreateIssueResponse, RecordAdherenceFindingParams,
+    CreateIssueParams, CreateIssueResponse, RecordAdherenceFindingParams,
 };
 
 use super::capabilities::enforce;
@@ -151,7 +151,7 @@ impl MethodologyService {
     ) -> MethodologyResult<tanren_domain::SpecId> {
         let filter = tanren_store::EventFilter {
             event_type: Some("methodology".into()),
-            limit: u64::MAX,
+            limit: 100_000u64,
             ..tanren_store::EventFilter::default()
         };
         let page = tanren_store::EventStore::query_events(self.store(), &filter).await?;
@@ -206,28 +206,6 @@ impl MethodologyService {
                 .then(a.name.as_str().cmp(b.name.as_str()))
         });
         Ok(out)
-    }
-
-    /// `add_demo_step` / `mark_demo_step_skip` / `append_demo_result`:
-    /// records a demo-step result event. The frontmatter-level
-    /// rendering of these results into `demo.md` is done by the
-    /// orchestrator when the spec folder is next reconciled.
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub fn demo_step_record(
-        &self,
-        scope: &CapabilityScope,
-        phase: &str,
-        params: &AppendDemoResultParams,
-    ) -> MethodologyResult<()> {
-        enforce(scope, ToolCapability::DemoResults, phase)?;
-        // Validate the identifier shape at the boundary so a
-        // downstream frontmatter render cannot produce an invalid
-        // step id.
-        let _step_id = require_non_empty("/step_id", &params.step_id, Some(80))?;
-        let _observed = require_non_empty("/observed", &params.observed, None)?;
-        Ok(())
     }
 }
 

@@ -89,6 +89,23 @@ pub async fn purge_replay_tokens_once(
     service.run_once().await
 }
 
+/// Build a fully-wired [`crate::methodology::MethodologyService`]
+/// over the persistent store. Applies migrations first so downstream
+/// event appends never race a cold database.
+///
+/// Used by both `tanren-cli` methodology subcommands and
+/// `tanren-mcp` so both transports produce byte-identical event
+/// trails against the same store.
+///
+/// # Errors
+/// Returns [`StoreError`] on open/migration failure.
+pub async fn build_methodology_service(
+    database_url: &str,
+) -> Result<crate::methodology::MethodologyService, StoreError> {
+    let store = open_store_for_write(database_url).await?;
+    Ok(crate::methodology::MethodologyService::new(Arc::new(store)))
+}
+
 /// Spawn a long-running replay-purge loop onto the current tokio
 /// runtime. Intended for the future `tanren-daemon` binary.
 pub fn spawn_replay_purge(

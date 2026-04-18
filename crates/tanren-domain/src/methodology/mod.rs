@@ -22,6 +22,7 @@ pub mod capability;
 pub mod events;
 pub mod evidence;
 pub mod finding;
+pub mod frontmatter_patch;
 pub mod issue;
 pub mod phase_outcome;
 pub mod pillar;

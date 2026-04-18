@@ -25,6 +25,7 @@ pub mod phase_events;
 pub mod renderer;
 pub mod service;
 pub mod service_artifacts;
+pub mod service_evidence;
 pub mod service_ext;
 pub mod source;
 pub mod standards;
@@ -39,4 +40,11 @@ pub use service::MethodologyService;
 // (tanren-cli, tanren-mcp) can depend only on tanren-app-services +
 // tanren-contract per the workspace layering rule (CRATE_GUIDE.md §7
 // rule 2).
-pub use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
+pub use tanren_domain::methodology::capability::{
+    CapabilityScope, ToolCapability, default_scope_for_phase,
+};
+
+/// Re-exported store-layer replay entry point so transports can
+/// drive `tanren replay` / `tanren ingest-phase-events` through a
+/// single `app-services` dep.
+pub use tanren_store::methodology::{ReplayStats, ingest_phase_events};
