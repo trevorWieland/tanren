@@ -144,6 +144,7 @@ fn plan_install_applies_task_tool_binding_per_target() {
             },
         ],
         mcp: Default::default(),
+        rubric: Default::default(),
         variables: BTreeMap::new(),
         profiles: BTreeMap::new(),
     };

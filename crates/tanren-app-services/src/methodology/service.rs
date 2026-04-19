@@ -9,6 +9,7 @@ use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::methodology::phase_id::PhaseId;
+use tanren_domain::methodology::pillar::{Pillar, builtin_pillars};
 use tanren_domain::methodology::standard::Standard;
 use tanren_domain::methodology::task::RequiredGuard;
 use tanren_domain::{EventId, SpecId, TaskId};
@@ -32,6 +33,7 @@ pub struct MethodologyService {
     pub(crate) store: Arc<Store>,
     required_guards: Arc<[RequiredGuard]>,
     standards: Arc<[Standard]>,
+    pillars: Arc<[Pillar]>,
     phase_events: Option<PhaseEventsRuntime>,
     pub(crate) task_spec_cache: Arc<Mutex<HashMap<TaskId, SpecId>>>,
     pub(crate) signpost_spec_cache: Arc<Mutex<HashMap<tanren_domain::SignpostId, SpecId>>>,
@@ -62,6 +64,7 @@ impl MethodologyService {
             store,
             required_guards: default_required_guards(),
             standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
+            pillars: Arc::from(builtin_pillars().into_boxed_slice()),
             phase_events: None,
             task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
             signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -86,6 +89,7 @@ impl MethodologyService {
             store,
             required_guards: Arc::from(seen.into_boxed_slice()),
             standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
+            pillars: Arc::from(builtin_pillars().into_boxed_slice()),
             phase_events: None,
             task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
             signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -100,10 +104,26 @@ impl MethodologyService {
         phase_events: Option<PhaseEventsRuntime>,
         standards: Vec<Standard>,
     ) -> Self {
+        Self::with_runtime_and_pillars(store, required_guards, phase_events, standards, vec![])
+    }
+
+    /// Construct a service with required guards, phase-event runtime, standards,
+    /// and an explicit rubric pillar registry.
+    #[must_use]
+    pub fn with_runtime_and_pillars(
+        store: Arc<Store>,
+        required_guards: Vec<RequiredGuard>,
+        phase_events: Option<PhaseEventsRuntime>,
+        standards: Vec<Standard>,
+        pillars: Vec<Pillar>,
+    ) -> Self {
         let mut svc = Self::with_required_guards(store, required_guards);
         svc.phase_events = phase_events;
         if !standards.is_empty() {
             svc.standards = Arc::from(standards.into_boxed_slice());
+        }
+        if !pillars.is_empty() {
+            svc.pillars = Arc::from(pillars.into_boxed_slice());
         }
         svc
     }
@@ -119,6 +139,12 @@ impl MethodologyService {
     #[must_use]
     pub fn standards(&self) -> &[Standard] {
         &self.standards
+    }
+
+    /// Runtime rubric pillar registry used by rubric-scoring tools.
+    #[must_use]
+    pub fn pillars(&self) -> &[Pillar] {
+        &self.pillars
     }
 
     /// Runtime context used for `phase-events.jsonl` and enforcement

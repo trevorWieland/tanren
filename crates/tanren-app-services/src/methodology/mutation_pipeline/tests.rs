@@ -109,7 +109,7 @@ async fn finalize_reverts_newly_created_protected_artifact() {
 }
 
 #[tokio::test]
-async fn finalize_reverts_newly_created_protected_index_artifact() {
+async fn finalize_preserves_unmanifested_user_artifact() {
     let (service, spec_id) = mk_service().await;
     let root = tempfile::tempdir().expect("tempdir");
     let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
@@ -125,8 +125,54 @@ async fn finalize_reverts_newly_created_protected_index_artifact() {
         .expect("finalize");
 
     assert!(
+        created.exists(),
+        "unmanifested files must not be removed by heuristic filename checks"
+    );
+
+    let events = service
+        .store()
+        .query_events(&EventFilter {
+            event_type: Some("methodology".into()),
+            limit: 100,
+            ..EventFilter::new()
+        })
+        .await
+        .expect("query");
+    assert!(
+        !events.events.into_iter().any(|env| matches!(
+            env.payload,
+            DomainEvent::Methodology {
+                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
+            }
+        )),
+        "no unauthorized-artifact event expected for unmanifested files"
+    );
+}
+
+#[tokio::test]
+async fn finalize_reverts_newly_created_manifested_generated_artifact() {
+    let (service, spec_id) = mk_service().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
+    std::fs::create_dir_all(&spec_folder).expect("mkdir");
+    std::fs::write(
+        spec_folder.join(".tanren-generated-artifacts.json"),
+        r#"{ "generated_artifacts": ["tool-index.json"] }"#,
+    )
+    .expect("write manifest");
+
+    let guard = enter_mutation_session(&spec_folder).expect("enter");
+    let created = spec_folder.join("tool-index.json");
+    std::fs::write(&created, "{\"generated\":true}\n").expect("create");
+    let phase = PhaseId::try_new("do-task").expect("phase");
+
+    finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-4b", guard)
+        .await
+        .expect("finalize");
+
+    assert!(
         !created.exists(),
-        "postflight must remove newly created protected index artifacts"
+        "manifested generated artifact must be removed"
     );
 
     let events = service

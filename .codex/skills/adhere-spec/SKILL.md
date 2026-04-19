@@ -46,7 +46,7 @@ Spec-scope standards compliance check. Same mechanics as
 
 ## Verification
 
-If needed, `just check`.
+If needed, `just ci`.
 
 ## Emitting results
 

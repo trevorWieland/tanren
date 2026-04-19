@@ -74,9 +74,14 @@ pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static s
         MethodologyEvent::TaskGateChecked(_)
         | MethodologyEvent::TaskAudited(_)
         | MethodologyEvent::TaskAdherent(_)
-        | MethodologyEvent::TaskXChecked(_) => &["mark_task_guard_satisfied", "<guard-phase>"],
+        | MethodologyEvent::TaskXChecked(_) => &[
+            "mark_task_guard_satisfied",
+            "report_phase_outcome",
+            "<guard-phase>",
+        ],
         MethodologyEvent::TaskCompleted(_) => &[
             "mark_task_guard_satisfied",
+            "report_phase_outcome",
             "complete_task",
             "<orchestrator>",
         ],

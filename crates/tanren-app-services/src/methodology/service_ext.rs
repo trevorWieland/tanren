@@ -18,6 +18,7 @@ use tanren_domain::methodology::events::{
 };
 use tanren_domain::methodology::finding::FindingSeverity;
 use tanren_domain::methodology::phase_id::PhaseId;
+use tanren_domain::methodology::pillar::Pillar;
 use tanren_domain::methodology::rubric::{NonNegotiableCompliance, RubricScore};
 use tanren_domain::methodology::signpost::Signpost;
 
@@ -139,13 +140,33 @@ impl MethodologyService {
                 let rationale =
                     super::errors::require_non_empty("/rationale", &params.rationale, Some(2000))?;
                 let task_scope_target = validate_rubric_scope(&params)?;
-                let pillar_tag = params.pillar.as_str().to_owned();
+                let registry_pillar = resolve_registry_pillar(self.pillars(), &params)?;
+                if params.target != registry_pillar.target_score {
+                    return Err(MethodologyError::FieldValidation {
+                        field_path: "/target".into(),
+                        expected: registry_pillar.target_score.to_string(),
+                        actual: params.target.to_string(),
+                        remediation:
+                            "use target from the runtime rubric registry; callers cannot override it"
+                                .into(),
+                    });
+                }
+                if params.passing != registry_pillar.passing_score {
+                    return Err(MethodologyError::FieldValidation {
+                        field_path: "/passing".into(),
+                        expected: registry_pillar.passing_score.to_string(),
+                        actual: params.passing.to_string(),
+                        remediation:
+                            "use passing threshold from the runtime rubric registry; callers cannot override it".into(),
+                    });
+                }
+                let pillar_tag = registry_pillar.id.as_str().to_owned();
                 let score_value = params.score.get();
                 let record = RubricScore::try_new(
-                    params.pillar.clone(),
+                    registry_pillar.id.clone(),
                     params.score,
-                    params.target,
-                    params.passing,
+                    registry_pillar.target_score,
+                    registry_pillar.passing_score,
                     rationale,
                     params.supporting_finding_ids.clone(),
                 )
@@ -329,4 +350,35 @@ impl MethodologyService {
         )
         .await
     }
+}
+
+fn resolve_registry_pillar<'a>(
+    pillars: &'a [Pillar],
+    params: &RecordRubricScoreParams,
+) -> MethodologyResult<&'a Pillar> {
+    let Some(pillar) = pillars.iter().find(|p| p.id == params.pillar) else {
+        let known = pillars
+            .iter()
+            .map(|p| p.id.as_str().to_owned())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(MethodologyError::FieldValidation {
+            field_path: "/pillar".into(),
+            expected: format!("known pillar id (one of: {known})"),
+            actual: params.pillar.to_string(),
+            remediation:
+                "use a pillar id present in tanren/rubric.yml or methodology.rubric.pillars".into(),
+        });
+    };
+    if !pillar.applicable_at.includes(params.scope) {
+        return Err(MethodologyError::FieldValidation {
+            field_path: "/scope".into(),
+            expected: format!("scope compatible with pillar `{}`", pillar.id),
+            actual: format!("{:?}", params.scope),
+            remediation:
+                "record rubric score in a scope listed by the pillar's `applicable_at` policy"
+                    .into(),
+        });
+    }
+    Ok(pillar)
 }

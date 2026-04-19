@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use tanren_domain::methodology::pillar::ApplicableAt;
 use tanren_domain::methodology::task::RequiredGuard;
 
 /// Full methodology section.
@@ -20,6 +21,8 @@ pub struct MethodologyConfig {
     pub install_targets: Vec<InstallTarget>,
     #[serde(default)]
     pub mcp: McpConfig,
+    #[serde(default)]
+    pub rubric: MethodologyRubricConfig,
     #[serde(default)]
     pub variables: BTreeMap<String, String>,
     /// Named profiles. `tanren install --profile NAME` applies the
@@ -43,6 +46,8 @@ pub struct MethodologyProfile {
     pub install_targets: Option<Vec<InstallTarget>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<McpConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rubric: Option<MethodologyRubricConfig>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub variables: BTreeMap<String, String>,
 }
@@ -64,10 +69,47 @@ impl MethodologyProfile {
         if let Some(m) = &self.mcp {
             base.mcp.clone_from(m);
         }
+        if let Some(r) = &self.rubric {
+            base.rubric.clone_from(r);
+        }
         for (k, v) in &self.variables {
             base.variables.insert(k.clone(), v.clone());
         }
     }
+}
+
+/// Rubric configuration under `methodology.rubric`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MethodologyRubricConfig {
+    #[serde(default)]
+    pub pillars: Vec<MethodologyRubricPillar>,
+    #[serde(default)]
+    pub disable_builtin: Vec<String>,
+}
+
+impl MethodologyRubricConfig {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pillars.is_empty() && self.disable_builtin.is_empty()
+    }
+}
+
+/// One rubric pillar override/addition row.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MethodologyRubricPillar {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec_description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_score: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passing_score: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applicable_at: Option<ApplicableAt>,
 }
 
 fn default_required_guards() -> Vec<RequiredGuard> {
@@ -160,8 +202,31 @@ pub enum McpTransport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TanrenConfig {
     pub methodology: MethodologyConfig,
+    #[serde(default)]
+    pub environment: EnvironmentConfig,
     #[serde(flatten)]
     pub other: BTreeMap<String, serde_yaml::Value>,
+}
+
+/// Top-level `environment` block. Installer currently consumes only
+/// the `default` profile's verification hook fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvironmentConfig {
+    #[serde(default)]
+    pub default: EnvironmentProfile,
+}
+
+/// Environment hook fields used to resolve verification command template variables.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvironmentProfile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_cmd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_gate_cmd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec_gate_cmd: Option<String>,
+    #[serde(default)]
+    pub verification_hooks: BTreeMap<String, String>,
 }
 
 impl TanrenConfig {
@@ -188,5 +253,6 @@ methodology:
         let cfg = TanrenConfig::from_yaml(yaml).expect("parse");
         assert_eq!(cfg.methodology.source.path, PathBuf::from("commands"));
         assert_eq!(cfg.methodology.task_complete_requires.len(), 3);
+        assert!(cfg.methodology.rubric.is_empty());
     }
 }

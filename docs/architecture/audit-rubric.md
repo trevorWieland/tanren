@@ -153,29 +153,32 @@ Each pillar has `id`, `name`, `task_description`, `spec_description`,
 ## 4. Configuration
 
 Pillars live in `tanren/rubric.yml` (preferred) or under
-`tanren.yml` `methodology.rubric.pillars` as a fallback. Each entry:
+`tanren.yml` `methodology.rubric.pillars` as the canonical fallback.
+Legacy top-level `rubric` remains a deprecated compatibility alias.
+Each entry:
 
 ```yaml
-rubric:
-  pillars:
-    - id: completeness
-      name: Completeness
-      task_description: |
-        Acceptance criteria met; downstream prerequisites ready;
-        no silent deferrals.
-      spec_description: |
-        All tasks Complete; zero silent deferrals; all acceptance
-        criteria verified by demo.
-      target_score: 10
-      passing_score: 7
-      applicable_at: [task, spec]
-    - id: observability
-      name: Observability
-      task_description: "Metrics/traces emitted for new code paths."
-      spec_description: "Spec surface is debuggable in production."
-      target_score: 10
-      passing_score: 7
-      applicable_at: [spec]
+methodology:
+  rubric:
+    pillars:
+      - id: completeness
+        name: Completeness
+        task_description: |
+          Acceptance criteria met; downstream prerequisites ready;
+          no silent deferrals.
+        spec_description: |
+          All tasks Complete; zero silent deferrals; all acceptance
+          criteria verified by demo.
+        target_score: 10
+        passing_score: 7
+        applicable_at: [task, spec]
+      - id: observability
+        name: Observability
+        task_description: "Metrics/traces emitted for new code paths."
+        spec_description: "Spec surface is debuggable in production."
+        target_score: 10
+        passing_score: 7
+        applicable_at: [spec]
 ```
 
 Users can:

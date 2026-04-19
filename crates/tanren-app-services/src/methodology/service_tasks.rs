@@ -33,10 +33,6 @@ pub(crate) struct GuardBridgeOrigin<'a> {
 }
 
 impl MethodologyService {
-    /// `create_task` — emit [`MethodologyEvent::TaskCreated`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
     pub async fn create_task(
         &self,
         scope: &CapabilityScope,
@@ -90,10 +86,6 @@ impl MethodologyService {
         .await
     }
 
-    /// `start_task` — emit [`MethodologyEvent::TaskStarted`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
     pub async fn start_task(
         &self,
         scope: &CapabilityScope,
@@ -132,9 +124,6 @@ impl MethodologyService {
         .await
     }
 
-    /// `complete_task` — emit [`MethodologyEvent::TaskImplemented`].
-    /// # Errors
-    /// See [`MethodologyError`].
     pub async fn complete_task(
         &self,
         scope: &CapabilityScope,
@@ -198,10 +187,6 @@ impl MethodologyService {
         .await
     }
 
-    /// `abandon_task` — emit [`MethodologyEvent::TaskAbandoned`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
     pub async fn abandon_task(
         &self,
         scope: &CapabilityScope,
@@ -315,15 +300,7 @@ impl MethodologyService {
         task_id: TaskId,
         kind: TaskTransitionKind,
     ) -> MethodologyResult<LegalTransition> {
-        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
-            self.store(),
-            EntityRef::Task(task_id),
-            Some(spec_id),
-            METHODOLOGY_PAGE_SIZE,
-        )
-        .await?;
-        let current = fold_task_status(task_id, self.required_guards(), events.iter())
-            .unwrap_or(TaskStatus::Pending);
+        let current = self.current_task_status(spec_id, task_id).await?;
         current
             .legal_next(kind)
             .map_err(|e| MethodologyError::IllegalTaskTransition {
@@ -362,15 +339,7 @@ impl MethodologyService {
             },
         )
         .await?;
-        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
-            self.store(),
-            EntityRef::Task(task_id),
-            Some(spec_id),
-            METHODOLOGY_PAGE_SIZE,
-        )
-        .await?;
-        let status = fold_task_status(task_id, self.required_guards(), events.iter())
-            .unwrap_or(TaskStatus::Pending);
+        let status = self.current_task_status(spec_id, task_id).await?;
         if let TaskStatus::Implemented { guards } = status
             && guards.satisfies(self.required_guards())
         {
@@ -447,6 +416,33 @@ impl MethodologyService {
             params.idempotency_key,
         )
         .await
+    }
+
+    async fn current_task_status(
+        &self,
+        spec_id: SpecId,
+        task_id: TaskId,
+    ) -> MethodologyResult<TaskStatus> {
+        if let Some(projected) = self
+            .store()
+            .load_methodology_task_status_projection(spec_id, task_id)
+            .await?
+        {
+            return Ok(projected.status);
+        }
+        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
+            self.store(),
+            EntityRef::Task(task_id),
+            Some(spec_id),
+            METHODOLOGY_PAGE_SIZE,
+        )
+        .await?;
+        let status = fold_task_status(task_id, self.required_guards(), events.iter())
+            .unwrap_or(TaskStatus::Pending);
+        self.store()
+            .upsert_methodology_task_status_projection(spec_id, task_id, &status)
+            .await?;
+        Ok(status)
     }
 }
 

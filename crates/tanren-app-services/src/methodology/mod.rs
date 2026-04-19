@@ -25,6 +25,7 @@ mod installer_diff;
 pub mod mutation_pipeline;
 pub mod phase_events;
 pub mod renderer;
+pub mod rubric_registry;
 pub mod service;
 pub mod service_artifacts;
 pub mod service_evidence;
@@ -57,7 +58,7 @@ pub use tanren_domain::methodology::capability::{
     CapabilityScope, ToolCapability, default_scope_for_phase,
 };
 pub use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
-pub use tanren_domain::methodology::pillar::builtin_pillars;
+pub use tanren_domain::methodology::pillar::{Pillar, builtin_pillars};
 pub use tanren_domain::methodology::task::RequiredGuard;
 
 pub use tanren_store::methodology::{ReplayOptions, ingest_phase_events_with_options};

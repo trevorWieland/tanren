@@ -30,7 +30,7 @@ template: |2
 
   ## Verification
 
-  If needed, `just check`.
+  If needed, `just ci`.
 
   ## Emitting results
 

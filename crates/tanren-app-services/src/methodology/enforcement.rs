@@ -1,7 +1,8 @@
 //! Three-layer enforcement of orchestrator-owned artifacts.
 //!
 //! Per Lane 0.5 non-negotiable #4, agents never write orchestrator-
-//! owned artifacts (`plan.md`, `progress.json`, generated indexes).
+//! owned artifacts (`plan.md`, `progress.json`, `phase-events.jsonl`,
+//! and explicit entries in `.tanren-generated-artifacts.json`).
 //! Enforcement has three layers:
 //!
 //! 1. **Prompt banner**: `{{READONLY_ARTIFACT_BANNER}}` template
@@ -170,40 +171,8 @@ impl EnforcementGuard {
     ) -> MethodologyResult<Vec<UnauthorizedEdit>> {
         let snapshots = self.snapshots.take().unwrap_or_default();
         let mut edits = Vec::new();
-        let mut watched_dirs = std::collections::BTreeSet::new();
-        let mut known_paths = std::collections::BTreeSet::new();
-        for snap in &snapshots {
-            known_paths.insert(snap.path.clone());
-            if let Some(parent) = snap.path.parent() {
-                watched_dirs.insert(parent.to_path_buf());
-            }
-        }
-
         for snap in &snapshots {
             Self::verify_snapshot(snap, &mut edits, append_expectations)?;
-        }
-
-        for root in watched_dirs {
-            let Ok(entries) = std::fs::read_dir(&root) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_file() || known_paths.contains(&path) {
-                    continue;
-                }
-                if !is_protected_generated_index(&path) {
-                    continue;
-                }
-                std::fs::remove_file(&path).map_err(|source| MethodologyError::Io {
-                    path: path.clone(),
-                    source,
-                })?;
-                edits.push(UnauthorizedEdit {
-                    path,
-                    diff_preview: "file was created during session and removed".into(),
-                });
-            }
         }
         Ok(edits)
     }
@@ -432,18 +401,6 @@ fn summarize_diff(old: &[u8], new: &[u8]) -> String {
             new.len()
         )
     }
-}
-
-fn is_protected_generated_index(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
-        return false;
-    };
-    if !name.contains("index") {
-        return false;
-    }
-    path.extension()
-        .and_then(std::ffi::OsStr::to_str)
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("json"))
 }
 
 #[cfg(test)]

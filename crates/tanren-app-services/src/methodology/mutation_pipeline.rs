@@ -8,6 +8,7 @@
 
 use std::path::Path;
 
+use serde::Deserialize;
 use tanren_domain::methodology::events::{
     EvidenceSchemaError, MethodologyEvent, UnauthorizedArtifactEdit,
 };
@@ -20,6 +21,14 @@ use tanren_domain::{EventId, NonEmptyString, SpecId};
 use super::enforcement::{EnforcementGuard, ProtectedPath, ProtectionMode};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::service::MethodologyService;
+
+const GENERATED_ARTIFACT_MANIFEST_FILE: &str = ".tanren-generated-artifacts.json";
+
+#[derive(Debug, Deserialize)]
+struct GeneratedArtifactManifest {
+    #[serde(default)]
+    generated_artifacts: Vec<String>,
+}
 
 /// Start a mutation session over orchestrator-owned protected artifacts.
 ///
@@ -168,25 +177,19 @@ fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
             mode: ProtectionMode::AppendOnly,
         },
     ];
-    if let Ok(entries) = std::fs::read_dir(spec_folder) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let Some(name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
-                continue;
-            };
-            if name.contains("index")
-                && path
-                    .extension()
-                    .and_then(std::ffi::OsStr::to_str)
-                    .is_some_and(|ext| {
-                        ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("json")
-                    })
-            {
+    let manifest_path = spec_folder.join(GENERATED_ARTIFACT_MANIFEST_FILE);
+    if manifest_path.exists() {
+        out.push(ProtectedPath {
+            path: manifest_path.clone(),
+            mode: ProtectionMode::ReadOnly,
+        });
+        if let Some(manifest) = load_generated_artifact_manifest(&manifest_path) {
+            for basename in manifest.generated_artifacts {
+                let Some(basename) = normalized_basename(&basename) else {
+                    continue;
+                };
                 out.push(ProtectedPath {
-                    path,
+                    path: spec_folder.join(basename),
                     mode: ProtectionMode::ReadOnly,
                 });
             }
@@ -195,6 +198,25 @@ fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
     out.sort_by(|a, b| a.path.cmp(&b.path).then(a.mode.cmp(&b.mode)));
     out.dedup_by(|a, b| a.path == b.path);
     out
+}
+
+fn load_generated_artifact_manifest(path: &Path) -> Option<GeneratedArtifactManifest> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<GeneratedArtifactManifest>(&raw).ok()
+}
+
+fn normalized_basename(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = Path::new(trimmed);
+    if path.components().count() != 1 {
+        return None;
+    }
+    path.file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .filter(|name| *name == trimmed)
 }
 
 async fn validate_evidence_files(

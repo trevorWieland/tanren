@@ -52,13 +52,18 @@ impl Store {
         event: &EventEnvelope,
         outbox: Option<AppendPhaseEventOutboxParams>,
     ) -> StoreResult<()> {
-        if !matches!(event.payload, DomainEvent::Methodology { .. }) {
+        let DomainEvent::Methodology {
+            event: methodology_event,
+        } = &event.payload
+        else {
             return Err(StoreError::Conversion {
                 context: "append_methodology_event_with_outbox",
                 reason: "expected DomainEvent::Methodology payload".into(),
             });
-        }
+        };
+
         let model = event_converters::envelope_to_active_model(event)?;
+        let methodology_event = methodology_event.clone();
         let outbox_model = outbox.map(|item| methodology_phase_event_outbox::ActiveModel {
             event_id: Set(event.event_id.into_uuid()),
             spec_id: Set(item.spec_id.into_uuid()),
@@ -79,6 +84,11 @@ impl Store {
                             .exec(txn)
                             .await?;
                     }
+                    super::task_status_projection::upsert_task_status_projection_txn(
+                        txn,
+                        &methodology_event,
+                    )
+                    .await?;
                     Ok(())
                 })
             })

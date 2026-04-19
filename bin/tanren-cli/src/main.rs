@@ -219,6 +219,7 @@ async fn run_methodology_command(
         runtime.required_guards,
         phase_events,
         standards,
+        runtime.pillars,
     )
     .await
     .map_err(|err| {
@@ -277,6 +278,7 @@ async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
 struct MethodologyRuntimeSettings {
     required_guards: Vec<tanren_app_services::methodology::RequiredGuard>,
     standards_root: PathBuf,
+    pillars: Vec<tanren_app_services::methodology::Pillar>,
 }
 
 fn load_methodology_runtime_settings(
@@ -291,6 +293,7 @@ fn load_methodology_runtime_settings(
                 tanren_app_services::methodology::RequiredGuard::Adherent,
             ],
             standards_root: default_root,
+            pillars: tanren_app_services::methodology::builtin_pillars(),
         });
     }
     let raw = std::fs::read_to_string(config_path).map_err(|e| {
@@ -312,9 +315,20 @@ fn load_methodology_runtime_settings(
         .get("standards_root")
         .or_else(|| cfg.methodology.variables.get("STANDARDS_ROOT"))
         .map_or("tanren/standards", String::as_str);
+    let pillars = tanren_app_services::methodology::rubric_registry::effective_pillars_for_runtime(
+        config_path,
+        &cfg,
+    )
+    .map_err(|e| {
+        RunError::Other(anyhow::anyhow!(
+            "resolving rubric pillars from {}: {e}",
+            config_path.display()
+        ))
+    })?;
     Ok(MethodologyRuntimeSettings {
         required_guards: cfg.methodology.task_complete_requires,
         standards_root: resolve_relative_to_config(config_path, Path::new(standards_raw)),
+        pillars,
     })
 }
 

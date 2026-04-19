@@ -176,7 +176,7 @@ and collects results for dry-run output.
 
 | Variable | Source |
 |---|---|
-| `{{TASK_VERIFICATION_HOOK}}` | `methodology.variables.task_verification_hook` → `verification_hooks.do-task` → `task_gate_cmd` → `gate_cmd` |
+| `{{TASK_VERIFICATION_HOOK}}` | `methodology.variables.task_verification_hook` → `verification_hooks.do-task` → `task_gate_cmd` → `verification_hooks.default` → `gate_cmd` |
 | `{{SPEC_VERIFICATION_HOOK}}` | analogous |
 | `{{AUDIT_TASK_HOOK}}`, `{{ADHERE_TASK_HOOK}}`, `{{RUN_DEMO_HOOK}}`, `{{ADHERE_SPEC_HOOK}}` | per-phase override → task/spec fallback |
 | `{{ISSUE_PROVIDER}}` | `methodology.variables.issue_provider` (required) |
@@ -187,7 +187,7 @@ and collects results for dry-run output.
 | `{{TASK_TOOL_BINDING}}` | install-target `binding` (`mcp` | `cli`) |
 | `{{PHASE_EVENTS_FILE}}` | `{spec_folder}/phase-events.jsonl` |
 | `{{READONLY_ARTIFACT_BANNER}}` | fixed prose |
-| `{{PILLAR_LIST}}` | effective rubric pillar ids: `tanren/rubric.yml` (preferred) → `tanren.yml` top-level `rubric` fallback → built-in pillar ids |
+| `{{PILLAR_LIST}}` | effective rubric pillar ids: `tanren/rubric.yml` (preferred) → `tanren.yml methodology.rubric` (canonical) → deprecated top-level `rubric` alias → built-in pillar ids |
 | `{{REQUIRED_GUARDS}}` | effective `methodology.task_complete_requires` after profile overrides (`tanren install --profile`) |
 
 The installer must resolve both variables at install time from the

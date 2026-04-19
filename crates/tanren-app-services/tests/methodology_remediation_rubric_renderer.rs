@@ -10,11 +10,20 @@ use tanren_contract::methodology::{AddFindingParams, CreateTaskParams, RecordRub
 use tanren_domain::SpecId;
 use tanren_domain::methodology::finding::{FindingSeverity, FindingSource};
 use tanren_domain::methodology::phase_id::PhaseId;
-use tanren_domain::methodology::pillar::{PillarId, PillarScope, PillarScore};
+use tanren_domain::methodology::pillar::{
+    ApplicableAt, Pillar, PillarId, PillarScope, PillarScore,
+};
 use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin};
 use tanren_store::Store;
 
 async fn mk_service(required: Vec<RequiredGuard>) -> MethodologyService {
+    mk_service_with_pillars(required, vec![]).await
+}
+
+async fn mk_service_with_pillars(
+    required: Vec<RequiredGuard>,
+    pillars: Vec<Pillar>,
+) -> MethodologyService {
     let store = Store::open_and_migrate("sqlite::memory:?cache=shared")
         .await
         .expect("open");
@@ -26,7 +35,13 @@ async fn mk_service(required: Vec<RequiredGuard>) -> MethodologyService {
         )),
         agent_session_id: "test-session".into(),
     };
-    MethodologyService::with_runtime(Arc::new(store), required, Some(runtime), vec![])
+    MethodologyService::with_runtime_and_pillars(
+        Arc::new(store),
+        required,
+        Some(runtime),
+        vec![],
+        pillars,
+    )
 }
 
 fn admin_scope() -> CapabilityScope {
@@ -190,6 +205,162 @@ async fn rubric_score_rejects_non_actionable_supporting_severity() {
     );
 }
 
+#[tokio::test]
+async fn rubric_score_rejects_unknown_pillar_id_from_registry() {
+    let svc = mk_service(vec![]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let create = svc
+        .create_task(
+            &scope,
+            &phase("audit-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "T".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+    let err = svc
+        .record_rubric_score(
+            &scope,
+            &phase("audit-task"),
+            RecordRubricScoreParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id,
+                scope: PillarScope::Task,
+                scope_target_id: Some(create.task_id.to_string()),
+                pillar: PillarId::try_new("unknown_pillar").expect("pillar"),
+                score: PillarScore::try_new(8).expect("score"),
+                target: PillarScore::try_new(10).expect("target"),
+                passing: PillarScore::try_new(7).expect("passing"),
+                rationale: "reason".into(),
+                supporting_finding_ids: vec![],
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect_err("unknown pillar should be rejected");
+    assert!(
+        err.to_string().contains("/pillar"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn rubric_score_rejects_target_override_mismatch() {
+    let svc = mk_service(vec![]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let create = svc
+        .create_task(
+            &scope,
+            &phase("audit-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "T".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+    let err = svc
+        .record_rubric_score(
+            &scope,
+            &phase("audit-task"),
+            RecordRubricScoreParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id,
+                scope: PillarScope::Task,
+                scope_target_id: Some(create.task_id.to_string()),
+                pillar: PillarId::try_new("security").expect("pillar"),
+                score: PillarScore::try_new(8).expect("score"),
+                target: PillarScore::try_new(9).expect("caller override"),
+                passing: PillarScore::try_new(7).expect("passing"),
+                rationale: "reason".into(),
+                supporting_finding_ids: vec![],
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect_err("target override should be rejected");
+    assert!(
+        err.to_string().contains("/target"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn rubric_score_rejects_scope_not_allowed_by_registry_pillar() {
+    let custom = Pillar {
+        id: PillarId::try_new("spec_only").expect("id"),
+        name: tanren_domain::NonEmptyString::try_new("SpecOnly").expect("name"),
+        task_description: tanren_domain::NonEmptyString::try_new("task").expect("task desc"),
+        spec_description: tanren_domain::NonEmptyString::try_new("spec").expect("spec desc"),
+        target_score: PillarScore::try_new(10).expect("target"),
+        passing_score: PillarScore::try_new(7).expect("passing"),
+        applicable_at: ApplicableAt::SpecOnly,
+    };
+    let svc = mk_service_with_pillars(vec![], vec![custom]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let create = svc
+        .create_task(
+            &scope,
+            &phase("audit-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "T".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+    let err = svc
+        .record_rubric_score(
+            &scope,
+            &phase("audit-task"),
+            RecordRubricScoreParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id,
+                scope: PillarScope::Task,
+                scope_target_id: Some(create.task_id.to_string()),
+                pillar: PillarId::try_new("spec_only").expect("pillar"),
+                score: PillarScore::try_new(8).expect("score"),
+                target: PillarScore::try_new(10).expect("target"),
+                passing: PillarScore::try_new(7).expect("passing"),
+                rationale: "reason".into(),
+                supporting_finding_ids: vec![],
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect_err("scope mismatch should fail");
+    assert!(
+        err.to_string().contains("/scope"),
+        "unexpected error: {err}"
+    );
+}
+
 #[test]
 fn renderer_error_carries_stable_code_and_file_line() {
     use tanren_app_services::methodology::source::{
@@ -306,6 +477,7 @@ fn methodology_profile_override_applies_required_guards() {
         },
         install_targets: vec![],
         mcp: Default::default(),
+        rubric: Default::default(),
         variables: Default::default(),
         profiles: Default::default(),
     };

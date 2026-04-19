@@ -7,7 +7,7 @@
 //! 1. If `score < target`, `supporting_finding_ids` must be non-empty.
 //! 2. If `score < passing`, at least one supporting finding must have
 //!    severity `fix_now`. The enforcement of (2) happens in
-//!    `app-services::methodology::rubric` where the severity is
+//!    `app-services::methodology::service_ext` where the severity is
 //!    resolved from ids — this module enforces (1) directly and holds
 //!    the pillar-linkage invariant.
 

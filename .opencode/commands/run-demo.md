@@ -40,7 +40,7 @@ template: |2
   ## Verification
 
   Demo steps run the commands specified in `demo.md`. If you need an
-  additional gate check, `just check` is available.
+  additional gate check, `just ci` is available.
 
   ## Emitting results
 

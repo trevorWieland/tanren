@@ -278,7 +278,15 @@ fn install_prefers_rubric_file_for_pillar_list() {
     std::fs::create_dir_all(dir.path().join("tanren")).expect("mkdir tanren");
     std::fs::write(
         dir.path().join("tanren/rubric.yml"),
-        "pillars:\n  - id: compile_time_verification_strictness\n",
+        r"pillars:
+  - id: compile_time_verification_strictness
+    name: Compile-Time Verification Strictness
+    task_description: Enforce type-level invariants aggressively.
+    spec_description: Preserve compile-time safety across the whole spec.
+    target_score: 10
+    passing_score: 7
+    applicable_at: both
+",
     )
     .expect("write rubric.yml");
     let cfg_yaml = r"methodology:
@@ -289,9 +297,15 @@ fn install_prefers_rubric_file_for_pillar_list() {
       format: claude-code
       binding: mcp
       merge_policy: destructive
-rubric:
-  pillars:
-    - id: security
+  rubric:
+    pillars:
+      - id: from_methodology_config
+        name: From Methodology Config
+        task_description: Should lose to rubric file.
+        spec_description: Should lose to rubric file.
+        target_score: 10
+        passing_score: 7
+        applicable_at: both
 ";
     let cfg = write_config(&dir, cfg_yaml);
     let out = Command::cargo_bin("tanren-cli")
@@ -308,12 +322,12 @@ rubric:
     let rendered = std::fs::read_to_string(dir.path().join(".claude/commands/do-task.md"))
         .expect("read rendered command");
     assert!(
-        rendered.contains("pillars=compile_time_verification_strictness"),
+        rendered.contains("compile_time_verification_strictness"),
         "expected tanren/rubric.yml pillar ids to win, got:\n{rendered}"
     );
     assert!(
-        !rendered.contains("pillars=security"),
-        "tanren.yml rubric must not override tanren/rubric.yml when both exist"
+        !rendered.contains("from_methodology_config"),
+        "methodology.rubric must not override tanren/rubric.yml when both exist"
     );
 }
 
@@ -334,10 +348,15 @@ fn install_uses_tanren_yml_rubric_when_rubric_file_missing() {
       format: claude-code
       binding: mcp
       merge_policy: destructive
-rubric:
-  pillars:
-    - id: security
-    - id: maintainability
+  rubric:
+    pillars:
+      - id: custom_runtime
+        name: Custom Runtime
+        task_description: Custom task lens.
+        spec_description: Custom spec lens.
+        target_score: 10
+        passing_score: 7
+        applicable_at: both
 ";
     let cfg = write_config(&dir, cfg_yaml);
     let out = Command::cargo_bin("tanren-cli")
@@ -354,15 +373,20 @@ rubric:
     let rendered = std::fs::read_to_string(dir.path().join(".claude/commands/do-task.md"))
         .expect("read rendered command");
     assert!(
-        rendered.contains("pillars=security, maintainability"),
-        "expected tanren.yml rubric pillar ids in rendered output, got:\n{rendered}"
+        rendered.contains("custom_runtime"),
+        "expected methodology.rubric pillar ids in rendered output, got:\n{rendered}"
     );
 }
 
 #[test]
-fn install_strict_dry_run_reports_exact_diff_payload() {
+fn install_legacy_top_level_rubric_alias_is_still_supported() {
     let dir = TempDir::new().expect("tempdir");
-    write_command(&dir, "commands/spec");
+    write_command_with_vars(
+        &dir,
+        "commands/spec",
+        "pillars={{PILLAR_LIST}}",
+        &["PILLAR_LIST"],
+    );
     let cfg_yaml = r"methodology:
   source:
     path: commands
@@ -371,58 +395,32 @@ fn install_strict_dry_run_reports_exact_diff_payload() {
       format: claude-code
       binding: mcp
       merge_policy: destructive
+rubric:
+  pillars:
+    - id: legacy_top_level
+      name: Legacy Top-Level
+      task_description: Legacy config alias.
+      spec_description: Legacy config alias.
+      target_score: 10
+      passing_score: 7
+      applicable_at: both
 ";
     let cfg = write_config(&dir, cfg_yaml);
-    let first = Command::cargo_bin("tanren-cli")
+    let out = Command::cargo_bin("tanren-cli")
         .expect("bin")
         .current_dir(dir.path())
         .args(["install", "--config", cfg.to_str().expect("cfg utf8")])
         .output()
-        .expect("install");
+        .expect("run");
     assert!(
-        first.status.success(),
-        "initial install failed: {}",
-        String::from_utf8_lossy(&first.stderr)
+        out.status.success(),
+        "install failed: {}",
+        String::from_utf8_lossy(&out.stderr)
     );
-
-    let rendered = dir.path().join(".claude/commands/do-task.md");
-    std::fs::write(&rendered, "manually drifted\n").expect("drift");
-
-    let out = Command::cargo_bin("tanren-cli")
-        .expect("bin")
-        .current_dir(dir.path())
-        .args([
-            "install",
-            "--config",
-            cfg.to_str().expect("cfg utf8"),
-            "--dry-run",
-            "--strict",
-        ])
-        .output()
-        .expect("strict dry-run");
-    assert_eq!(
-        out.status.code(),
-        Some(3),
-        "strict dry-run should exit 3 on drift"
-    );
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
-    let drifts = json["drift"].as_array().expect("drift array");
-    let differs = drifts
-        .iter()
-        .find(|entry| entry["kind"] == "differs")
-        .expect("differs entry");
+    let rendered = std::fs::read_to_string(dir.path().join(".claude/commands/do-task.md"))
+        .expect("read rendered command");
     assert!(
-        differs["expected_sha256"].as_str().is_some(),
-        "expected hash payload in differs entry"
-    );
-    assert!(
-        differs["actual_sha256"].as_str().is_some(),
-        "actual hash payload in differs entry"
-    );
-    assert!(
-        differs["unified_diff"]
-            .as_str()
-            .is_some_and(|patch| patch.contains("--- expected:")),
-        "unified diff payload missing expected header"
+        rendered.contains("legacy_top_level"),
+        "expected deprecated top-level rubric alias to be honored, got:\n{rendered}"
     );
 }

@@ -17,8 +17,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use serde::{Deserialize, Serialize};
-use tanren_app_services::methodology::config::{InstallFormat, TanrenConfig};
+use serde::Serialize;
+use tanren_app_services::methodology::RequiredGuard;
+use tanren_app_services::methodology::config::{EnvironmentProfile, InstallFormat, TanrenConfig};
 use tanren_app_services::methodology::formats::{
     claude_mcp_json, codex_config_toml, opencode_json,
 };
@@ -26,7 +27,6 @@ use tanren_app_services::methodology::installer::{
     DriftEntry, DriftReason, InstallPlan, PlannedWrite, apply_install, drift,
     plan_install_from_root,
 };
-use tanren_app_services::methodology::{RequiredGuard, builtin_pillars};
 
 const MCP_SERVER_COMMAND: &str = "tanren-mcp";
 const MCP_SERVER_ARGS: &[&str] = &["serve"];
@@ -87,6 +87,87 @@ fn parse_target_filter(raw: &[String]) -> Result<Vec<InstallFormat>, String> {
         }
     }
     Ok(out)
+}
+
+fn phase_hook(env: &EnvironmentProfile, phase: &str) -> Option<String> {
+    env.verification_hooks
+        .get(phase)
+        .cloned()
+        .or_else(|| env.verification_hooks.get("default").cloned())
+}
+
+fn resolve_primary_verification_hook(
+    ctx: &HashMap<String, String>,
+    env: &EnvironmentProfile,
+    context_key: &str,
+    phase_key: &str,
+    scoped_legacy_hook: Option<&String>,
+    builtin_default: &str,
+) -> String {
+    ctx.get(context_key)
+        .cloned()
+        .or_else(|| env.verification_hooks.get(phase_key).cloned())
+        .or_else(|| scoped_legacy_hook.cloned())
+        .or_else(|| env.verification_hooks.get("default").cloned())
+        .or_else(|| env.gate_cmd.clone())
+        .unwrap_or_else(|| builtin_default.to_owned())
+}
+
+fn resolve_phase_verification_hook(
+    ctx: &HashMap<String, String>,
+    env: &EnvironmentProfile,
+    context_key: &str,
+    phase_key: &str,
+    fallback: &str,
+) -> String {
+    ctx.get(context_key)
+        .cloned()
+        .or_else(|| phase_hook(env, phase_key))
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+fn apply_verification_hook_defaults(ctx: &mut HashMap<String, String>, env: &EnvironmentProfile) {
+    let task_hook = resolve_primary_verification_hook(
+        ctx,
+        env,
+        "TASK_VERIFICATION_HOOK",
+        "do-task",
+        env.task_gate_cmd.as_ref(),
+        "just check",
+    );
+    let spec_hook = resolve_primary_verification_hook(
+        ctx,
+        env,
+        "SPEC_VERIFICATION_HOOK",
+        "run-demo",
+        env.spec_gate_cmd.as_ref(),
+        "just ci",
+    );
+    let audit_task_hook =
+        resolve_phase_verification_hook(ctx, env, "AUDIT_TASK_HOOK", "audit-task", &task_hook);
+    let adhere_task_hook =
+        resolve_phase_verification_hook(ctx, env, "ADHERE_TASK_HOOK", "adhere-task", &task_hook);
+    let run_demo_hook =
+        resolve_phase_verification_hook(ctx, env, "RUN_DEMO_HOOK", "run-demo", &spec_hook);
+    let audit_spec_hook =
+        resolve_phase_verification_hook(ctx, env, "AUDIT_SPEC_HOOK", "audit-spec", &spec_hook);
+    let adhere_spec_hook =
+        resolve_phase_verification_hook(ctx, env, "ADHERE_SPEC_HOOK", "adhere-spec", &spec_hook);
+    let demo_hook =
+        resolve_phase_verification_hook(ctx, env, "DEMO_HOOK", "run-demo", &run_demo_hook);
+
+    for (key, value) in [
+        ("TASK_VERIFICATION_HOOK", task_hook),
+        ("SPEC_VERIFICATION_HOOK", spec_hook),
+        ("AUDIT_TASK_HOOK", audit_task_hook),
+        ("ADHERE_TASK_HOOK", adhere_task_hook),
+        ("RUN_DEMO_HOOK", run_demo_hook),
+        ("AUDIT_SPEC_HOOK", audit_spec_hook),
+        ("ADHERE_SPEC_HOOK", adhere_spec_hook),
+        ("DEMO_HOOK", demo_hook),
+    ] {
+        ctx.entry(key.into()).or_insert(value);
+    }
 }
 
 /// Structured output emitted on successful install / dry-run.
@@ -157,14 +238,20 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
         methodology.source.path.clone_from(src);
     }
 
-    let pillar_list = match resolve_pillar_list(&args.config, &cfg) {
-        Ok(list) => list,
-        Err(err) => return fail_validation(&err),
-    };
+    let pillars =
+        match tanren_app_services::methodology::rubric_registry::effective_pillars_for_runtime(
+            &args.config,
+            &cfg,
+        ) {
+            Ok(pillars) => pillars,
+            Err(err) => return fail_validation(&err),
+        };
+    let pillar_list = tanren_app_services::methodology::rubric_registry::pillar_ids_csv(&pillars);
     let context = build_context(
         &methodology.variables,
         &methodology.task_complete_requires,
         &pillar_list,
+        &cfg.environment.default,
     );
 
     let mut plan = match plan_install_from_root(&methodology, &context) {
@@ -225,6 +312,7 @@ fn build_context(
     user_vars: &std::collections::BTreeMap<String, String>,
     required_guards: &[RequiredGuard],
     pillar_list: &str,
+    env: &EnvironmentProfile,
 ) -> HashMap<String, String> {
     // Template tokens are `{{UPPERCASE_SNAKE_CASE}}` in the source
     // commands. Normalize every key to upper-case so `tanren.yml`
@@ -234,11 +322,16 @@ fn build_context(
     for (k, v) in user_vars {
         ctx.insert(k.to_ascii_uppercase(), v.clone());
     }
-    // Built-in fallbacks — upper-case so they match `{{VAR}}`
+
+    // Resolve verification-hook variables from config chain:
+    // methodology.variables.* -> environment.default.verification_hooks.<phase>
+    // -> scoped legacy gate fields -> verification_hooks.default
+    // -> gate_cmd -> built-in defaults.
+    apply_verification_hook_defaults(&mut ctx, env);
+
+    // Built-in non-hook fallbacks — upper-case so they match `{{VAR}}`
     // substitution directly.
     for (k, v) in [
-        ("TASK_VERIFICATION_HOOK", "just check"),
-        ("SPEC_VERIFICATION_HOOK", "just ci"),
         ("ISSUE_PROVIDER", "GitHub"),
         ("PROJECT_LANGUAGE", "rust"),
         ("SPEC_ROOT", "tanren/specs"),
@@ -247,12 +340,6 @@ fn build_context(
         ("AGENT_CLI_NOUN", "the agent CLI"),
         ("TASK_TOOL_BINDING", "mcp"),
         ("PHASE_EVENTS_FILE", "phase-events.jsonl"),
-        ("ADHERE_SPEC_HOOK", "just check"),
-        ("ADHERE_TASK_HOOK", "just check"),
-        ("AUDIT_SPEC_HOOK", "just check"),
-        ("AUDIT_TASK_HOOK", "just check"),
-        ("DEMO_HOOK", "just check"),
-        ("RUN_DEMO_HOOK", "just check"),
     ] {
         ctx.entry(k.into()).or_insert_with(|| v.into());
     }
@@ -288,64 +375,6 @@ fn build_context(
                 .into()
         });
     ctx
-}
-
-#[derive(Debug, Deserialize)]
-struct RubricFile {
-    #[serde(default)]
-    pillars: Vec<RubricPillar>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RubricPillar {
-    id: String,
-}
-
-fn resolve_pillar_list(config_path: &Path, cfg: &TanrenConfig) -> Result<String, String> {
-    let config_dir = config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let rubric_path = config_dir.join("tanren/rubric.yml");
-    if rubric_path.exists() {
-        let raw = std::fs::read_to_string(&rubric_path)
-            .map_err(|e| format!("reading {}: {e}", rubric_path.display()))?;
-        let parsed: RubricFile = serde_yaml::from_str(&raw)
-            .map_err(|e| format!("parsing {}: {e}", rubric_path.display()))?;
-        let ids = parsed
-            .pillars
-            .iter()
-            .map(|p| p.id.trim().to_owned())
-            .filter(|id| !id.is_empty())
-            .collect::<Vec<_>>();
-        if ids.is_empty() {
-            return Err(format!(
-                "{} must define at least one pillar id",
-                rubric_path.display()
-            ));
-        }
-        return Ok(ids.join(", "));
-    }
-    if let Some(rubric_yaml) = cfg.other.get("rubric") {
-        let parsed: RubricFile = serde_yaml::from_value(rubric_yaml.clone())
-            .map_err(|e| format!("parsing tanren.yml rubric section: {e}"))?;
-        let ids = parsed
-            .pillars
-            .iter()
-            .map(|p| p.id.trim().to_owned())
-            .filter(|id| !id.is_empty())
-            .collect::<Vec<_>>();
-        if ids.is_empty() {
-            return Err("tanren.yml rubric section must define at least one pillar id".into());
-        }
-        return Ok(ids.join(", "));
-    }
-    // Fallback to built-in domain pillars when no rubric config is present.
-    Ok(builtin_pillars()
-        .into_iter()
-        .map(|p| p.id.to_string())
-        .collect::<Vec<_>>()
-        .join(", "))
 }
 
 fn synth_mcp_write(path: &Path, format: InstallFormat) -> Result<Option<PlannedWrite>, u8> {
