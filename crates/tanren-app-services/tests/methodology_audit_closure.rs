@@ -173,10 +173,12 @@ async fn relevance_filters_use_server_derived_context_and_hints_are_additive() {
         .expect("with hints");
 
     let mut a = derived_only
+        .standards
         .into_iter()
         .map(|s| format!("{}:{}", s.standard.category, s.standard.name))
         .collect::<Vec<_>>();
     let mut b = with_conflicting_hints
+        .standards
         .into_iter()
         .map(|s| format!("{}:{}", s.standard.category, s.standard.name))
         .collect::<Vec<_>>();
@@ -216,11 +218,17 @@ async fn globset_matches_complex_patterns_with_path_normalization() {
         )
         .await
         .expect("filtered");
-    assert_eq!(out.len(), 1, "globset pattern should match normalized path");
+    assert_eq!(
+        out.standards.len(),
+        1,
+        "globset pattern should match normalized path"
+    );
     assert!(
-        out[0].inclusion_reason.contains("matched `applies_to`"),
+        out.standards[0]
+            .inclusion_reason
+            .contains("matched `applies_to`"),
         "expected applies_to inclusion reason, got {}",
-        out[0].inclusion_reason
+        out.standards[0].inclusion_reason
     );
 }
 

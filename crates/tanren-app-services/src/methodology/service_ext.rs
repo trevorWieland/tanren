@@ -22,11 +22,11 @@ use tanren_domain::methodology::signpost::Signpost;
 use tanren_domain::{NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
-    AddSignpostParams, AddSignpostResponse, EscalateToBlockerParams, ListTasksParams,
-    PostReplyDirectiveParams, RecordNonNegotiableComplianceParams, RecordRubricScoreParams,
-    ReportPhaseOutcomeParams, ReviseTaskParams, SchemaVersion, UpdateSignpostStatusParams,
+    AckResponse, AddSignpostParams, AddSignpostResponse, EscalateToBlockerParams, ListTasksParams,
+    ListTasksResponse, PostReplyDirectiveParams, RecordNonNegotiableComplianceParams,
+    RecordRubricScoreParams, ReportPhaseOutcomeParams, ReviseTaskParams, SchemaVersion,
+    UpdateSignpostStatusParams,
 };
-use tanren_domain::methodology::task::Task;
 
 use super::capabilities::enforce;
 use super::errors::{MethodologyError, MethodologyResult};
@@ -45,7 +45,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: ReviseTaskParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::TaskRevise, phase)?;
         let spec_id = self.resolve_spec_for_task(params.task_id).await?;
         let explicit_key = params.idempotency_key.clone();
@@ -68,7 +68,8 @@ impl MethodologyService {
                         reason,
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -83,7 +84,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: ListTasksParams,
-    ) -> MethodologyResult<Vec<Task>> {
+    ) -> MethodologyResult<ListTasksResponse> {
         enforce(scope, ToolCapability::TaskRead, phase)?;
         let Some(spec_id) = params.spec_id else {
             return Err(MethodologyError::Validation(
@@ -96,7 +97,10 @@ impl MethodologyService {
             self.required_guards(),
         )
         .await?;
-        Ok(tasks)
+        Ok(ListTasksResponse {
+            schema_version: SchemaVersion::current(),
+            tasks,
+        })
     }
 
     // -- §3.2 record_rubric_score + non-negotiable ----------------------------
@@ -113,7 +117,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: RecordRubricScoreParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::RubricRecord, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -170,7 +174,8 @@ impl MethodologyService {
                         score: record,
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -185,7 +190,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: RecordNonNegotiableComplianceParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::ComplianceRecord, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -213,7 +218,8 @@ impl MethodologyService {
                         },
                     ),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -289,7 +295,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: UpdateSignpostStatusParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SignpostUpdate, phase)?;
         let spec_id = self.resolve_spec_for_signpost(params.signpost_id).await?;
         let explicit_key = params.idempotency_key.clone();
@@ -309,7 +315,8 @@ impl MethodologyService {
                         resolution: params.resolution,
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -326,7 +333,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: ReportPhaseOutcomeParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::PhaseOutcome, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -337,8 +344,6 @@ impl MethodologyService {
             explicit_key,
             &idempotency_payload,
             || async move {
-                let phase_name =
-                    super::errors::require_non_empty("/phase", &params.phase, Some(120))?;
                 let session = super::errors::require_non_empty(
                     "/agent_session_id",
                     &params.agent_session_id,
@@ -348,12 +353,13 @@ impl MethodologyService {
                     phase,
                     MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
                         spec_id: params.spec_id,
-                        phase: phase_name,
+                        phase: params.phase,
                         agent_session_id: session,
                         outcome: params.outcome,
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -369,7 +375,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: EscalateToBlockerParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::PhaseEscalate, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -396,13 +402,11 @@ impl MethodologyService {
                     params.options.len()
                 ))
                 .map_err(|e| MethodologyError::Internal(e.to_string()))?;
-                let phase_name =
-                    super::errors::require_non_empty("/phase", phase.as_str(), Some(120))?;
                 self.emit_event(
                     phase,
                     MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
                         spec_id: params.spec_id,
-                        phase: phase_name,
+                        phase: phase.clone(),
                         agent_session_id: NonEmptyString::try_new("escalation")
                             .map_err(|e| MethodologyError::Internal(e.to_string()))?,
                         outcome: tanren_domain::methodology::phase_outcome::PhaseOutcome::Blocked {
@@ -414,7 +418,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -431,7 +436,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: PostReplyDirectiveParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::FeedbackReply, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -464,19 +469,18 @@ impl MethodologyService {
                 } else {
                     params.body
                 };
-                let phase_name =
-                    super::errors::require_non_empty("/phase", phase.as_str(), Some(120))?;
                 self.emit_event(
                     phase,
                     MethodologyEvent::ReplyDirectiveRecorded(ReplyDirectiveRecorded {
                         spec_id: params.spec_id,
-                        phase: phase_name,
+                        phase: phase.clone(),
                         thread_ref,
                         disposition: params.disposition,
                         body,
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await

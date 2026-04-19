@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_domain::methodology::task::RequiredGuard;
+use tanren_domain::methodology::task::Task;
 use tanren_domain::methodology::task::{AcceptanceCriterion, TaskOrigin};
 use tanren_domain::{SpecId, TaskId};
 
@@ -94,6 +95,13 @@ pub struct ListTasksParams {
     pub schema_version: SchemaVersion,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spec_id: Option<SpecId>,
+}
+
+/// `list_tasks` response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ListTasksResponse {
+    pub schema_version: SchemaVersion,
+    pub tasks: Vec<Task>,
 }
 
 #[cfg(test)]

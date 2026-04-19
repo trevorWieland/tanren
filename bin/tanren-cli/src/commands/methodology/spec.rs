@@ -37,21 +37,11 @@ pub(crate) async fn run(
 ) -> u8 {
     match cmd {
         SpecCommand::SetTitle(i) => match load_params::<SetSpecTitleParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .set_spec_title(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.set_spec_title(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         SpecCommand::SetNonNegotiables(i) => match load_params::<SetSpecNonNegotiablesParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .set_spec_non_negotiables(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.set_spec_non_negotiables(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         SpecCommand::AddAcceptanceCriterion(i) => {
@@ -59,8 +49,7 @@ pub(crate) async fn run(
                 Ok(params) => emit_result(
                     service
                         .add_spec_acceptance_criterion(scope, phase, params)
-                        .await
-                        .map(|()| Empty {}),
+                        .await,
                 ),
                 Err(e) => emit_result::<()>(Err(e)),
             }
@@ -70,28 +59,17 @@ pub(crate) async fn run(
                 Ok(params) => emit_result(
                     service
                         .set_spec_demo_environment(scope, phase, params)
-                        .await
-                        .map(|()| Empty {}),
+                        .await,
                 ),
                 Err(e) => emit_result::<()>(Err(e)),
             }
         }
         SpecCommand::SetDependencies(i) => match load_params::<SetSpecDependenciesParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .set_spec_dependencies(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.set_spec_dependencies(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         SpecCommand::SetBaseBranch(i) => match load_params::<SetSpecBaseBranchParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .set_spec_base_branch(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.set_spec_base_branch(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         SpecCommand::SetRelevanceContext(i) => {
@@ -99,14 +77,10 @@ pub(crate) async fn run(
                 Ok(params) => emit_result(
                     service
                         .set_spec_relevance_context(scope, phase, params)
-                        .await
-                        .map(|()| Empty {}),
+                        .await,
                 ),
                 Err(e) => emit_result::<()>(Err(e)),
             }
         }
     }
 }
-
-#[derive(serde::Serialize)]
-struct Empty {}

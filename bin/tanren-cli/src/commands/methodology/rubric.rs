@@ -23,12 +23,7 @@ pub(crate) async fn run(
 ) -> u8 {
     match cmd {
         RubricCommand::Record(i) => match load_params::<RecordRubricScoreParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .record_rubric_score(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.record_rubric_score(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         RubricCommand::Compliance(i) => {
@@ -36,14 +31,10 @@ pub(crate) async fn run(
                 Ok(params) => emit_result(
                     service
                         .record_non_negotiable_compliance(scope, phase, params)
-                        .await
-                        .map(|()| Empty {}),
+                        .await,
                 ),
                 Err(e) => emit_result::<()>(Err(e)),
             }
         }
     }
 }
-
-#[derive(serde::Serialize)]
-struct Empty {}

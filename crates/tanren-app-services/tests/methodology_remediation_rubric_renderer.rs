@@ -75,7 +75,7 @@ async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {
                 affected_files: vec![],
                 line_numbers: vec![],
                 source: FindingSource::Audit {
-                    phase: tanren_domain::NonEmptyString::try_new("audit-task").expect("phase"),
+                    phase: PhaseId::try_new("audit-task").expect("phase"),
                     pillar: Some(
                         tanren_domain::NonEmptyString::try_new("performance").expect("pillar"),
                     ),
@@ -148,7 +148,7 @@ async fn rubric_score_rejects_non_actionable_supporting_severity() {
                 affected_files: vec![],
                 line_numbers: vec![],
                 source: FindingSource::Audit {
-                    phase: tanren_domain::NonEmptyString::try_new("audit-task").expect("phase"),
+                    phase: PhaseId::try_new("audit-task").expect("phase"),
                     pillar: Some(
                         tanren_domain::NonEmptyString::try_new("security").expect("pillar"),
                     ),

@@ -136,7 +136,8 @@ fn task_create_then_list_round_trips() {
         .expect("cli");
     assert!(out.status.success(), "list_tasks should succeed");
     let arr = parse_stdout(&out);
-    let list = arr.as_array().expect("list is array");
+    assert_eq!(arr["schema_version"].as_str(), Some("1.0.0"));
+    let list = arr["tasks"].as_array().expect("list tasks is array");
     assert_eq!(list.len(), 1, "should see the created task");
     assert_eq!(list[0]["title"].as_str(), Some("T"));
 }
@@ -419,7 +420,8 @@ fn replay_round_trips_real_generated_phase_events_file() {
         .expect("list");
     assert!(list.status.success(), "list failed after replay");
     let tasks = parse_stdout(&list);
-    let arr = tasks.as_array().expect("array");
+    assert_eq!(tasks["schema_version"].as_str(), Some("1.0.0"));
+    let arr = tasks["tasks"].as_array().expect("tasks array");
     assert_eq!(arr.len(), 1, "replayed store must contain one task");
     assert_eq!(arr[0]["title"].as_str(), Some("Replay Me"));
 }
@@ -440,7 +442,8 @@ fn list_standards_returns_nonempty_baseline() {
         .expect("cli");
     assert!(out.status.success());
     let arr = parse_stdout(&out);
-    let list = arr.as_array().expect("standards is array");
+    assert_eq!(arr["schema_version"].as_str(), Some("1.0.0"));
+    let list = arr["standards"].as_array().expect("standards is array");
     assert!(
         !list.is_empty(),
         "baseline standards registry must not be empty (F3 fix)"

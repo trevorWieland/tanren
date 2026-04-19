@@ -330,6 +330,83 @@ impl From<&MethodologyError> for ToolError {
     }
 }
 
+impl From<ToolError> for MethodologyError {
+    fn from(value: ToolError) -> Self {
+        match value {
+            ToolError::ValidationFailed {
+                field_path,
+                expected,
+                actual,
+                remediation,
+            } => Self::FieldValidation {
+                field_path,
+                expected,
+                actual,
+                remediation,
+            },
+            ToolError::CapabilityDenied { capability, phase } => {
+                if let Some(parsed) = parse_tool_capability(&capability) {
+                    Self::CapabilityDenied {
+                        capability: parsed,
+                        phase,
+                    }
+                } else {
+                    Self::Internal(format!(
+                        "unknown capability tag in replayed idempotency error: {capability}"
+                    ))
+                }
+            }
+            ToolError::IllegalTaskTransition {
+                task_id,
+                from,
+                attempted,
+            } => Self::IllegalTaskTransition {
+                task_id,
+                from,
+                attempted,
+            },
+            ToolError::RubricInvariantViolated {
+                pillar,
+                score,
+                reason,
+            } => Self::RubricInvariantViolated {
+                pillar,
+                score,
+                reason,
+            },
+            ToolError::Conflict { resource, reason } => Self::Conflict { resource, reason },
+            ToolError::NotFound { resource, key } => Self::NotFound { resource, key },
+            ToolError::Internal { reason } => Self::Internal(reason),
+        }
+    }
+}
+
+fn parse_tool_capability(tag: &str) -> Option<ToolCapability> {
+    Some(match tag {
+        "task.create" => ToolCapability::TaskCreate,
+        "task.start" => ToolCapability::TaskStart,
+        "task.complete" => ToolCapability::TaskComplete,
+        "task.revise" => ToolCapability::TaskRevise,
+        "task.abandon" => ToolCapability::TaskAbandon,
+        "task.read" => ToolCapability::TaskRead,
+        "finding.add" => ToolCapability::FindingAdd,
+        "rubric.record" => ToolCapability::RubricRecord,
+        "compliance.record" => ToolCapability::ComplianceRecord,
+        "spec.frontmatter" => ToolCapability::SpecFrontmatter,
+        "demo.frontmatter" => ToolCapability::DemoFrontmatter,
+        "demo.results" => ToolCapability::DemoResults,
+        "signpost.add" => ToolCapability::SignpostAdd,
+        "signpost.update" => ToolCapability::SignpostUpdate,
+        "phase.outcome" => ToolCapability::PhaseOutcome,
+        "phase.escalate" => ToolCapability::PhaseEscalate,
+        "issue.create" => ToolCapability::IssueCreate,
+        "standard.read" => ToolCapability::StandardRead,
+        "adherence.record" => ToolCapability::AdherenceRecord,
+        "feedback.reply" => ToolCapability::FeedbackReply,
+        _ => return None,
+    })
+}
+
 fn validation_from_message(msg: &str) -> ToolError {
     // Fall back to a best-effort inference when the caller didn't
     // emit FieldValidation. We parse `msg` for a leading

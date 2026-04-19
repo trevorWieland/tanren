@@ -17,8 +17,7 @@ use super::SchemaVersion;
 /// The service derives baseline relevance context from `spec_id` and
 /// unions these hint values in. Hints can broaden relevance, but
 /// cannot narrow server-derived scope. All-empty derived+hint inputs
-/// fall back to the baseline-complete upper bound (backward compatible
-/// with pre-Lane-0.5 callers).
+/// fall back to the baseline-complete upper bound.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ListRelevantStandardsParams {
     pub schema_version: SchemaVersion,
@@ -44,4 +43,11 @@ pub struct RelevantStandard {
     pub standard: tanren_domain::methodology::standard::Standard,
     /// Human-readable reason the standard was included.
     pub inclusion_reason: String,
+}
+
+/// `list_relevant_standards` response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ListRelevantStandardsResponse {
+    pub schema_version: SchemaVersion,
+    pub standards: Vec<RelevantStandard>,
 }

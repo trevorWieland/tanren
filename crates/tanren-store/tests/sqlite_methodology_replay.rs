@@ -6,6 +6,7 @@ use tanren_domain::methodology::events::{
     TaskGateChecked, TaskImplemented, TaskStarted,
 };
 use tanren_domain::methodology::finding::{Finding, FindingSeverity, FindingSource};
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::task::{RequiredGuard, Task, TaskOrigin, TaskStatus};
 use tanren_domain::{EntityKind, FindingId, NonEmptyString, SpecId, TaskId};
 use tanren_store::methodology::{ReplayError, ingest_phase_events};
@@ -185,7 +186,7 @@ fn seed_finding(spec_id: SpecId, task_id: TaskId, id: FindingId, title: &str) ->
         affected_files: vec!["src/lib.rs".into()],
         line_numbers: vec![1],
         source: FindingSource::Audit {
-            phase: NonEmptyString::try_new("audit-task").expect("phase"),
+            phase: PhaseId::try_new("audit-task").expect("phase"),
             pillar: Some(NonEmptyString::try_new("security").expect("pillar")),
         },
         attached_task: Some(task_id),
@@ -358,6 +359,39 @@ async fn replay_reports_malformed_line_with_raw_context() {
         .await
         .expect_err("malformed");
     assert!(matches!(err, ReplayError::MalformedLine { .. }));
+}
+
+#[tokio::test]
+async fn replay_preserves_line_number_and_raw_for_midstream_malformed_line() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let created = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let valid = line_json(
+        spec_id,
+        uuid::Uuid::now_v7(),
+        &created,
+        canonical_tool_for_event(&created),
+    );
+    let malformed = "{definitely-not-json}";
+    let path = temp_path("replay-malformed-midstream");
+    std::fs::write(&path, format!("{valid}\n{malformed}\n")).expect("write");
+
+    let err = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect_err("malformed");
+    assert!(
+        matches!(err, ReplayError::MalformedLine { .. }),
+        "expected malformed-line error"
+    );
+    if let ReplayError::MalformedLine { line, raw, .. } = err {
+        assert_eq!(line, 2);
+        assert_eq!(raw, malformed);
+    }
 }
 
 #[tokio::test]

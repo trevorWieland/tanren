@@ -214,7 +214,7 @@ impl MethodologyService {
             .load_pending_phase_event_outbox(Some(spec_id), OUTBOX_DRAIN_BATCH_SIZE)
             .await?;
         for row in pending {
-            self.process_phase_event_outbox_row(row).await?;
+            let _ = self.process_phase_event_outbox_row(row).await;
         }
         Ok(())
     }

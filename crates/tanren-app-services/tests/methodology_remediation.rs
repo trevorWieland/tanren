@@ -11,9 +11,7 @@
 use std::sync::Arc;
 
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
-use tanren_contract::methodology::{
-    CreateTaskParams, ListRelevantStandardsParams, RelevantStandard,
-};
+use tanren_contract::methodology::{CreateTaskParams, ListRelevantStandardsParams};
 use tanren_domain::methodology::events::{
     MethodologyEvent, TaskAdherent, TaskAudited, TaskGateChecked, TaskXChecked,
 };
@@ -220,7 +218,11 @@ async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
         )
         .await
         .expect("list");
-    let task = tasks.iter().find(|t| t.id == resp.task_id).expect("task");
+    let task = tasks
+        .tasks
+        .iter()
+        .find(|t| t.id == resp.task_id)
+        .expect("task");
     assert_eq!(task.status, TaskStatus::Complete);
 }
 
@@ -293,7 +295,11 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
         )
         .await
         .expect("list");
-    let task = tasks.iter().find(|t| t.id == resp.task_id).expect("task");
+    let task = tasks
+        .tasks
+        .iter()
+        .find(|t| t.id == resp.task_id)
+        .expect("task");
     assert!(
         matches!(task.status, TaskStatus::Implemented { .. }),
         "expected Implemented, got {:?}",
@@ -358,7 +364,11 @@ async fn complete_task_with_empty_required_guards_completes_immediately() {
         )
         .await
         .expect("list");
-    let task = tasks.iter().find(|t| t.id == resp.task_id).expect("task");
+    let task = tasks
+        .tasks
+        .iter()
+        .find(|t| t.id == resp.task_id)
+        .expect("task");
     assert_eq!(task.status, TaskStatus::Complete);
 }
 
@@ -366,7 +376,7 @@ async fn complete_task_with_empty_required_guards_completes_immediately() {
 async fn relevance_filter_explains_inclusion_by_touched_files() {
     let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
     let scope = admin_scope();
-    let out: Vec<RelevantStandard> = svc
+    let out = svc
         .list_relevant_standards_filtered(
             &scope,
             &phase("adhere-task"),
@@ -382,9 +392,12 @@ async fn relevance_filter_explains_inclusion_by_touched_files() {
         )
         .await
         .expect("filtered");
-    assert!(!out.is_empty(), "rust-touched file should match >=1 std");
     assert!(
-        out.iter().all(|r| !r.inclusion_reason.is_empty()),
+        !out.standards.is_empty(),
+        "rust-touched file should match >=1 std"
+    );
+    assert!(
+        out.standards.iter().all(|r| !r.inclusion_reason.is_empty()),
         "every kept standard must carry an explanation"
     );
 }
@@ -409,7 +422,11 @@ async fn relevance_filter_empty_inputs_returns_full_baseline() {
         )
         .await
         .expect("baseline");
-    assert!(!out.is_empty());
+    assert!(!out.standards.is_empty());
     // The fallback reason must identify this as the upper bound.
-    assert!(out.iter().any(|r| r.inclusion_reason.contains("baseline")));
+    assert!(
+        out.standards
+            .iter()
+            .any(|r| r.inclusion_reason.contains("baseline"))
+    );
 }

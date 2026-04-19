@@ -27,16 +27,8 @@ pub(crate) async fn run(
             Err(e) => emit_result::<()>(Err(e)),
         },
         SignpostCommand::UpdateStatus(i) => match load_params::<UpdateSignpostStatusParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .update_signpost_status(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.update_signpost_status(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
     }
 }
-
-#[derive(serde::Serialize)]
-struct Empty {}

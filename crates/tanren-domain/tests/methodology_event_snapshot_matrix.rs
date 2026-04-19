@@ -12,6 +12,7 @@ use tanren_domain::methodology::events::{
 use tanren_domain::methodology::finding::{Finding, FindingSeverity, FindingSource, StandardRef};
 use tanren_domain::methodology::frontmatter_patch::{DemoFrontmatterPatch, SpecFrontmatterPatch};
 use tanren_domain::methodology::issue::{Issue, IssuePriority, IssueProvider, IssueRef};
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::phase_outcome::{PhaseOutcome, ReplyDisposition};
 use tanren_domain::methodology::pillar::{PillarId, PillarScope, PillarScore};
 use tanren_domain::methodology::rubric::{ComplianceStatus, NonNegotiableCompliance, RubricScore};
@@ -26,6 +27,9 @@ use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId, SpecId, Task
 
 fn ne(s: &str) -> NonEmptyString {
     NonEmptyString::try_new(s).expect("non-empty")
+}
+fn phase(s: &str) -> PhaseId {
+    PhaseId::try_new(s).expect("phase")
 }
 fn ts() -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 2, 3, 4, 5, 6)
@@ -105,7 +109,7 @@ fn fixture_finding(ids: &FixtureIds) -> Finding {
         affected_files: vec!["src/lib.rs".into()],
         line_numbers: vec![12, 13],
         source: FindingSource::Audit {
-            phase: ne("audit-task"),
+            phase: phase("audit-task"),
             pillar: Some(ne("security")),
         },
         attached_task: Some(ids.task),
@@ -311,7 +315,7 @@ fn artifact_events(f: &Fixtures) -> Vec<MethodologyEvent> {
         }),
         MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
             spec_id: f.spec_id,
-            phase: ne("audit-task"),
+            phase: phase("audit-task"),
             agent_session_id: ne("session-1"),
             outcome: PhaseOutcome::Complete {
                 summary: ne("done"),
@@ -320,7 +324,7 @@ fn artifact_events(f: &Fixtures) -> Vec<MethodologyEvent> {
         }),
         MethodologyEvent::ReplyDirectiveRecorded(ReplyDirectiveRecorded {
             spec_id: f.spec_id,
-            phase: ne("handle-feedback"),
+            phase: phase("handle-feedback"),
             thread_ref: ne("thread-1"),
             disposition: ReplyDisposition::Ack,
             body: "thanks".into(),
@@ -341,14 +345,14 @@ fn artifact_events(f: &Fixtures) -> Vec<MethodologyEvent> {
         }),
         MethodologyEvent::UnauthorizedArtifactEdit(UnauthorizedArtifactEdit {
             spec_id: f.spec_id,
-            phase: ne("do-task"),
+            phase: phase("do-task"),
             file: "plan.md".into(),
             diff_preview: "line 1".into(),
             agent_session_id: ne("session-1"),
         }),
         MethodologyEvent::EvidenceSchemaError(EvidenceSchemaError {
             spec_id: f.spec_id,
-            phase: ne("audit-task"),
+            phase: phase("audit-task"),
             file: "audit.md".into(),
             error: ne("schema mismatch"),
         }),

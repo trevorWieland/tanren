@@ -19,6 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{FindingId, SpecId, TaskId};
+use crate::methodology::phase_id::PhaseId;
 use crate::validated::NonEmptyString;
 
 /// Lifecycle state of a task, including which completion guards have
@@ -248,13 +249,13 @@ pub enum TaskOrigin {
     ShapeSpec,
     /// Emitted by `investigate` during root-cause diagnosis.
     Investigation {
-        source_phase: String,
+        source_phase: PhaseId,
         source_task: Option<TaskId>,
         loop_index: u16,
     },
     /// Remediation for an audit finding at task scope.
     Audit {
-        source_phase: String,
+        source_phase: PhaseId,
         source_task: Option<TaskId>,
         source_finding: FindingId,
     },
@@ -276,7 +277,7 @@ pub enum TaskOrigin {
     SpecAudit { source_finding: FindingId },
     /// Diagnosis from `investigate` when acting at spec scope.
     SpecInvestigation {
-        source_phase: String,
+        source_phase: PhaseId,
         source_finding: FindingId,
     },
     /// Work needed in this spec surfaced from work in another spec.
@@ -389,7 +390,7 @@ mod tests {
     #[test]
     fn task_origin_serde_roundtrip() {
         let origin = TaskOrigin::Audit {
-            source_phase: "audit-task".into(),
+            source_phase: PhaseId::try_new("audit-task").expect("phase"),
             source_task: Some(TaskId::new()),
             source_finding: FindingId::new(),
         };

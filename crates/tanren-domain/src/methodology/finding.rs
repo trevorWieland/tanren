@@ -18,6 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{FindingId, SpecId, TaskId};
+use crate::methodology::phase_id::PhaseId;
 use crate::validated::NonEmptyString;
 
 /// Severity of a finding.
@@ -104,7 +105,7 @@ impl std::fmt::Display for AdherenceSeverity {
 pub enum FindingSource {
     /// Emitted from `audit-task` or `audit-spec`.
     Audit {
-        phase: NonEmptyString,
+        phase: PhaseId,
         /// Rubric pillar this finding supports (score < target).
         pillar: Option<NonEmptyString>,
     },
@@ -189,7 +190,7 @@ mod tests {
     #[test]
     fn finding_source_tagged_representation() {
         let src = FindingSource::Audit {
-            phase: NonEmptyString::try_new("audit-task").expect("phase"),
+            phase: PhaseId::try_new("audit-task").expect("phase"),
             pillar: Some(NonEmptyString::try_new("security").expect("pillar")),
         };
         let json = serde_json::to_value(&src).expect("serialize");

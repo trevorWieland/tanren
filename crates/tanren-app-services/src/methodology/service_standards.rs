@@ -53,8 +53,8 @@ impl MethodologyService {
     /// - the standard declares no per-axis filter (fully universal).
     ///
     /// With all filter inputs empty, every baseline standard is
-    /// returned — preserving the conservative upper-bound behavior for
-    /// pre-Lane-0.5 callers. The `inclusion_reason` field on every
+    /// returned — preserving the conservative upper-bound behavior. The
+    /// `inclusion_reason` field on every
     /// returned `RelevantStandard` names the axis that matched so
     /// operators can audit inclusion decisions.
     ///
@@ -65,7 +65,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: &tanren_contract::methodology::ListRelevantStandardsParams,
-    ) -> MethodologyResult<Vec<tanren_contract::methodology::RelevantStandard>> {
+    ) -> MethodologyResult<tanren_contract::methodology::ListRelevantStandardsResponse> {
         enforce(scope, ToolCapability::StandardRead, phase)?;
         let derived = self.derive_relevance_context(params.spec_id).await?;
         let effective = EffectiveRelevanceInputs::from_derived_and_hints(&derived, params);
@@ -99,7 +99,12 @@ impl MethodologyService {
                 .cmp(b.standard.category.as_str())
                 .then(a.standard.name.as_str().cmp(b.standard.name.as_str()))
         });
-        Ok(out)
+        Ok(
+            tanren_contract::methodology::ListRelevantStandardsResponse {
+                schema_version: SchemaVersion::current(),
+                standards: out,
+            },
+        )
     }
 
     async fn derive_relevance_context(

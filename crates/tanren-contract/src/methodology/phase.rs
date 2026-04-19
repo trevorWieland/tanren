@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_domain::SpecId;
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::phase_outcome::PhaseOutcome;
 
 use super::SchemaVersion;
@@ -12,7 +13,7 @@ use super::SchemaVersion;
 pub struct ReportPhaseOutcomeParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
-    pub phase: String,
+    pub phase: PhaseId,
     pub agent_session_id: String,
     pub outcome: PhaseOutcome,
     #[serde(default, skip_serializing_if = "Option::is_none")]

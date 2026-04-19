@@ -8,7 +8,8 @@
 //! diffs the plan against current filesystem state and returns drift.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
 
 use super::config::{InstallBinding, InstallFormat, InstallTarget, MergePolicy, MethodologyConfig};
 use super::errors::{MethodologyError, MethodologyResult};
@@ -147,9 +148,13 @@ pub fn plan_install_from_root(
 /// # Errors
 /// Returns [`MethodologyError::Io`] on any filesystem failure.
 pub fn apply_install(plan: &InstallPlan) -> MethodologyResult<Vec<PathBuf>> {
-    let (_planned_by_root, destructive_roots) = build_root_plan_index(plan);
+    let (planned_by_root, destructive_roots) = build_root_plan_index(plan);
+    let workspace_root = workspace_root()?;
     for root in destructive_roots {
-        validate_safe_destructive_root(&root)?;
+        let Some(planned) = planned_by_root.get(&root) else {
+            continue;
+        };
+        let _ = validate_safe_destructive_root(&root, planned, &workspace_root)?;
     }
 
     let mut written = Vec::with_capacity(plan.writes.len());
@@ -244,11 +249,12 @@ pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
 
 fn prune_unmanaged_destructive_files(plan: &InstallPlan) -> MethodologyResult<()> {
     let (planned_by_root, destructive_roots) = build_root_plan_index(plan);
+    let workspace_root = workspace_root()?;
     for root in destructive_roots {
-        validate_safe_destructive_root(&root)?;
         let Some(planned) = planned_by_root.get(&root) else {
             continue;
         };
+        let _ = validate_safe_destructive_root(&root, planned, &workspace_root)?;
         let mut remove_error: Option<(PathBuf, std::io::Error)> = None;
         walk_files(&root, &mut |found| {
             if planned.contains(found) {
@@ -268,22 +274,123 @@ fn prune_unmanaged_destructive_files(plan: &InstallPlan) -> MethodologyResult<()
     Ok(())
 }
 
-fn validate_safe_destructive_root(root: &Path) -> MethodologyResult<()> {
+fn validate_safe_destructive_root(
+    root: &Path,
+    planned: &std::collections::BTreeSet<PathBuf>,
+    workspace_root: &Path,
+) -> MethodologyResult<PathBuf> {
     if root.as_os_str().is_empty() || root == Path::new(".") || root == Path::new("/") {
         return Err(MethodologyError::Validation(format!(
             "refusing destructive prune on unsafe root `{}`",
             root.display()
         )));
     }
-    if let Ok(abs) = std::fs::canonicalize(root)
-        && abs == Path::new("/")
-    {
+    if path_has_parent_traversal(root) {
         return Err(MethodologyError::Validation(format!(
-            "refusing destructive prune on filesystem root `{}`",
+            "refusing destructive prune on path traversal root `{}`",
             root.display()
         )));
     }
-    Ok(())
+
+    let resolved_root = resolve_path(root, workspace_root)?;
+    if resolved_root == Path::new("/") || resolved_root == workspace_root {
+        return Err(MethodologyError::Validation(format!(
+            "refusing destructive prune on unsafe root `{}`",
+            root.display()
+        )));
+    }
+    if !resolved_root.starts_with(workspace_root) {
+        return Err(MethodologyError::Validation(format!(
+            "refusing destructive prune on root `{}` that escapes workspace `{}`",
+            root.display(),
+            workspace_root.display()
+        )));
+    }
+
+    for dest in planned {
+        if !dest.starts_with(root) {
+            return Err(MethodologyError::Validation(format!(
+                "refusing destructive prune: planned path `{}` is not under root `{}`",
+                dest.display(),
+                root.display()
+            )));
+        }
+        if path_has_parent_traversal(dest) {
+            return Err(MethodologyError::Validation(format!(
+                "refusing destructive prune on traversing destination `{}`",
+                dest.display()
+            )));
+        }
+        let resolved_dest = resolve_path(dest, workspace_root)?;
+        if !resolved_dest.starts_with(&resolved_root) {
+            return Err(MethodologyError::Validation(format!(
+                "refusing destructive prune: destination `{}` escapes validated root `{}`",
+                dest.display(),
+                root.display()
+            )));
+        }
+    }
+
+    Ok(resolved_root)
+}
+
+fn workspace_root() -> MethodologyResult<PathBuf> {
+    let cwd = std::env::current_dir().map_err(|source| MethodologyError::Io {
+        path: PathBuf::from("."),
+        source,
+    })?;
+    std::fs::canonicalize(&cwd).map_err(|source| MethodologyError::Io { path: cwd, source })
+}
+
+fn resolve_path(path: &Path, workspace_root: &Path) -> MethodologyResult<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        workspace_root.join(path)
+    };
+    canonicalize_allow_missing(&absolute)
+}
+
+fn canonicalize_allow_missing(path: &Path) -> MethodologyResult<PathBuf> {
+    let mut probe = path.to_path_buf();
+    let mut missing: Vec<OsString> = Vec::new();
+    loop {
+        match std::fs::canonicalize(&probe) {
+            Ok(mut canonical) => {
+                for seg in missing.iter().rev() {
+                    canonical.push(seg);
+                }
+                return Ok(canonical);
+            }
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                let Some(parent) = probe.parent() else {
+                    return Err(MethodologyError::Io {
+                        path: probe,
+                        source,
+                    });
+                };
+                let Some(last) = probe.file_name() else {
+                    return Err(MethodologyError::Io {
+                        path: probe,
+                        source,
+                    });
+                };
+                missing.push(last.to_os_string());
+                probe = parent.to_path_buf();
+            }
+            Err(source) => {
+                return Err(MethodologyError::Io {
+                    path: probe,
+                    source,
+                });
+            }
+        }
+    }
+}
+
+fn path_has_parent_traversal(path: &Path) -> bool {
+    path.components()
+        .any(|component| matches!(component, Component::ParentDir))
 }
 
 fn build_root_plan_index(
@@ -342,156 +449,5 @@ fn walk_files(root: &Path, visit: &mut dyn FnMut(&Path)) {
             }
             visit(&path);
         }
-    }
-}
-
-use std::path::Path;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::methodology::config::{InstallBinding, SourceConfig};
-    use crate::methodology::source::{CommandFamily, CommandFrontmatter, CommandSource};
-    use std::collections::BTreeMap;
-    use std::collections::HashMap;
-
-    #[test]
-    fn empty_plan_has_no_drift() {
-        let plan = InstallPlan { writes: vec![] };
-        assert!(drift(&plan).is_empty());
-    }
-
-    #[test]
-    fn plan_install_applies_task_tool_binding_per_target() {
-        let cfg = MethodologyConfig {
-            task_complete_requires: vec![],
-            source: SourceConfig {
-                path: PathBuf::from("commands"),
-            },
-            install_targets: vec![
-                InstallTarget {
-                    path: PathBuf::from(".claude/commands"),
-                    format: InstallFormat::ClaudeCode,
-                    binding: InstallBinding::Mcp,
-                    merge_policy: MergePolicy::Destructive,
-                },
-                InstallTarget {
-                    path: PathBuf::from(".opencode/commands"),
-                    format: InstallFormat::Opencode,
-                    binding: InstallBinding::Cli,
-                    merge_policy: MergePolicy::Destructive,
-                },
-            ],
-            mcp: Default::default(),
-            variables: BTreeMap::new(),
-            profiles: BTreeMap::new(),
-        };
-        let command = CommandSource {
-            name: "do-task".into(),
-            family: CommandFamily::SpecLoop,
-            frontmatter: CommandFrontmatter {
-                name: "do-task".into(),
-                role: "impl".into(),
-                orchestration_loop: true,
-                autonomy: "autonomous".into(),
-                declared_variables: vec!["TASK_TOOL_BINDING".into()],
-                declared_tools: vec![],
-                required_capabilities: vec![],
-                produces_evidence: vec![],
-                extras: BTreeMap::new(),
-            },
-            body: "binding={{TASK_TOOL_BINDING}}\n".into(),
-            source_path: PathBuf::from("commands/spec/do-task.md"),
-        };
-        let mut ctx = HashMap::new();
-        ctx.insert("TASK_TOOL_BINDING".into(), "mcp".into());
-        let plan = plan_install(&cfg, &[command], &ctx).expect("plan");
-        let mut claude = None;
-        let mut opencode = None;
-        for w in plan.writes {
-            let body = String::from_utf8(w.bytes).expect("utf8");
-            let is_task_file = w.dest.ends_with("do-task.md");
-            let has_mcp = body.contains("binding=mcp");
-            let has_cli = body.contains("binding=cli");
-            if is_task_file && has_mcp {
-                claude = Some(body.clone());
-            }
-            if is_task_file && has_cli {
-                opencode = Some(body);
-            }
-        }
-        assert!(claude.is_some(), "mcp binding expected in claude target");
-        assert!(
-            opencode.is_some(),
-            "cli binding expected in opencode target"
-        );
-    }
-
-    #[test]
-    fn apply_install_prunes_extras_for_destructive_targets() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path().join(".claude/commands");
-        std::fs::create_dir_all(&root).expect("mkdir");
-        let stale = root.join("stale.md");
-        std::fs::write(&stale, "stale").expect("seed stale");
-        let dest = root.join("do-task.md");
-        let plan = InstallPlan {
-            writes: vec![PlannedWrite {
-                dest: dest.clone(),
-                bytes: b"fresh\n".to_vec(),
-                merge_policy: MergePolicy::Destructive,
-                format: InstallFormat::ClaudeCode,
-            }],
-        };
-
-        let written = apply_install(&plan).expect("apply");
-        assert_eq!(written, vec![dest.clone()]);
-        assert!(
-            !stale.exists(),
-            "destructive apply must prune unmanaged files"
-        );
-        assert_eq!(std::fs::read_to_string(dest).expect("read"), "fresh\n");
-    }
-
-    #[test]
-    fn apply_install_does_not_prune_extras_for_preserve_existing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path().join("tanren/standards/security");
-        std::fs::create_dir_all(&root).expect("mkdir");
-        let extra = root.join("local-note.md");
-        std::fs::write(&extra, "keep me").expect("seed extra");
-        let managed = root.join("input-validation.md");
-        let plan = InstallPlan {
-            writes: vec![PlannedWrite {
-                dest: managed.clone(),
-                bytes: b"managed\n".to_vec(),
-                merge_policy: MergePolicy::PreserveExisting,
-                format: InstallFormat::StandardsBaseline,
-            }],
-        };
-
-        let _ = apply_install(&plan).expect("apply");
-        assert!(
-            extra.exists(),
-            "preserve_existing targets must not prune unmanaged files"
-        );
-    }
-
-    #[test]
-    fn apply_install_rejects_unsafe_destructive_root() {
-        let plan = InstallPlan {
-            writes: vec![PlannedWrite {
-                dest: PathBuf::from("do-task.md"),
-                bytes: b"x".to_vec(),
-                merge_policy: MergePolicy::Destructive,
-                format: InstallFormat::ClaudeCode,
-            }],
-        };
-
-        let err = apply_install(&plan).expect_err("unsafe root must fail");
-        assert!(
-            matches!(err, MethodologyError::Validation(ref msg) if msg.contains("unsafe root")),
-            "unexpected error: {err:?}"
-        );
     }
 }

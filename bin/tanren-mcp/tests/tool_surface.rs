@@ -273,6 +273,7 @@ fn call_tool_round_trips_create_and_list() {
         .as_str()
         .expect("create content text");
     let create_body: Value = serde_json::from_str(create_text).expect("create body");
+    assert_eq!(create_body["schema_version"].as_str(), Some("1.0.0"));
     assert!(create_body["task_id"].is_string());
 
     let list = responses
@@ -284,7 +285,8 @@ fn call_tool_round_trips_create_and_list() {
         .as_str()
         .expect("list content text");
     let list_body: Value = serde_json::from_str(list_text).expect("list body");
-    let arr = list_body.as_array().expect("list array");
+    assert_eq!(list_body["schema_version"].as_str(), Some("1.0.0"));
+    let arr = list_body["tasks"].as_array().expect("list tasks array");
     assert_eq!(
         arr.len(),
         1,

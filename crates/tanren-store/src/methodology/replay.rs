@@ -28,6 +28,7 @@ use crate::Store;
 use crate::entity::events;
 use crate::errors::StoreError;
 use crate::methodology::projections;
+use tokio::io::AsyncBufReadExt;
 
 /// Result statistics returned by [`ingest_phase_events`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -144,21 +145,31 @@ pub async fn ingest_phase_events(
     path: &Path,
     required_guards: &[RequiredGuard],
 ) -> Result<ReplayStats, ReplayError> {
-    let bytes = tokio::fs::read(path)
+    let file = tokio::fs::File::open(path)
         .await
         .map_err(|source| ReplayError::Io {
             path: path.to_path_buf(),
             source,
         })?;
-    let text = String::from_utf8(bytes).map_err(|e| ReplayError::Io {
-        path: path.to_path_buf(),
-        source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
-    })?;
+    let mut reader = tokio::io::BufReader::new(file);
 
     let mut stats = ReplayStats::default();
-    for (idx, line) in text.lines().enumerate() {
-        let line_no = idx + 1;
+    let mut line_buf = String::new();
+    loop {
+        line_buf.clear();
+        let read = reader
+            .read_line(&mut line_buf)
+            .await
+            .map_err(|source| ReplayError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        if read == 0 {
+            break;
+        }
         stats.lines_read += 1;
+        let line_no = stats.lines_read;
+        let line = line_buf.trim_end_matches(['\r', '\n']);
         if line.trim().is_empty() {
             continue;
         }

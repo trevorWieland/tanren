@@ -37,8 +37,8 @@ pub const METHODOLOGY_SCHEMA_NAMESPACE: &str = "tanren.methodology.v1";
 /// - adding a new optional field or a new variant → bump the patch
 ///   or minor component (`1.0.0` → `1.1.0`).
 /// - removing a field, renaming a variant, or altering semantics →
-///   bump the major component **and** the namespace suffix
-///   (`tanren.methodology.v1` → `tanren.methodology.v2`).
+///   bump the major component and keep the namespace/version pair in
+///   lockstep.
 pub const METHODOLOGY_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Required payload-level schema version carried by every methodology
@@ -50,6 +50,23 @@ pub struct SchemaVersion(String);
 impl Default for SchemaVersion {
     fn default() -> Self {
         Self::current()
+    }
+}
+
+/// Standard acknowledgement response for mutation tools that do not
+/// return additional payload fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AckResponse {
+    pub schema_version: SchemaVersion,
+}
+
+impl AckResponse {
+    /// Construct a schema-versioned ack envelope.
+    #[must_use]
+    pub fn current() -> Self {
+        Self {
+            schema_version: SchemaVersion::current(),
+        }
     }
 }
 
@@ -94,8 +111,8 @@ pub use spec::{
     SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams,
     SetSpecTitleParams,
 };
-pub use standard::{ListRelevantStandardsParams, RelevantStandard};
+pub use standard::{ListRelevantStandardsParams, ListRelevantStandardsResponse, RelevantStandard};
 pub use task::{
     AbandonTaskParams, CompleteTaskParams, CreateTaskParams, CreateTaskResponse, ListTasksParams,
-    MarkTaskGuardSatisfiedParams, ReviseTaskParams, StartTaskParams,
+    ListTasksResponse, MarkTaskGuardSatisfiedParams, ReviseTaskParams, StartTaskParams,
 };

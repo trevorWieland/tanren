@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{SignpostId, SpecId, TaskId};
 use crate::methodology::finding::{Finding, StandardRef};
 use crate::methodology::issue::Issue;
+use crate::methodology::phase_id::PhaseId;
 use crate::methodology::phase_outcome::PhaseOutcome;
 use crate::methodology::pillar::PillarScope;
 use crate::methodology::rubric::{NonNegotiableCompliance, RubricScore};
@@ -279,7 +280,7 @@ pub struct IssueCreated {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhaseOutcomeReported {
     pub spec_id: SpecId,
-    pub phase: NonEmptyString,
+    pub phase: PhaseId,
     pub agent_session_id: NonEmptyString,
     pub outcome: PhaseOutcome,
 }
@@ -292,7 +293,7 @@ pub use crate::methodology::frontmatter_patch::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplyDirectiveRecorded {
     pub spec_id: SpecId,
-    pub phase: NonEmptyString,
+    pub phase: PhaseId,
     pub thread_ref: NonEmptyString,
     pub disposition: crate::methodology::phase_outcome::ReplyDisposition,
     pub body: String,
@@ -303,7 +304,7 @@ pub struct ReplyDirectiveRecorded {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnauthorizedArtifactEdit {
     pub spec_id: SpecId,
-    pub phase: NonEmptyString,
+    pub phase: PhaseId,
     pub file: String,
     pub diff_preview: String,
     pub agent_session_id: NonEmptyString,
@@ -313,7 +314,7 @@ pub struct UnauthorizedArtifactEdit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceSchemaError {
     pub spec_id: SpecId,
-    pub phase: NonEmptyString,
+    pub phase: PhaseId,
     pub file: String,
     pub error: NonEmptyString,
 }

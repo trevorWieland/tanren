@@ -49,7 +49,6 @@ pub async fn finalize_mutation_session(
     guard: Option<EnforcementGuard>,
 ) -> MethodologyResult<()> {
     let spec_id = infer_spec_id(spec_folder)?;
-    let phase_name = NonEmptyString::try_new(phase.as_str()).map_err(MethodologyError::Domain)?;
     let agent_session_id =
         NonEmptyString::try_new(agent_session_id).map_err(MethodologyError::Domain)?;
 
@@ -61,7 +60,7 @@ pub async fn finalize_mutation_session(
                     phase,
                     MethodologyEvent::UnauthorizedArtifactEdit(UnauthorizedArtifactEdit {
                         spec_id,
-                        phase: phase_name.clone(),
+                        phase: phase.clone(),
                         file: edit.path.display().to_string(),
                         diff_preview: edit.diff_preview,
                         agent_session_id: agent_session_id.clone(),
@@ -75,13 +74,10 @@ pub async fn finalize_mutation_session(
 }
 
 fn protected_artifacts(spec_folder: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for name in ["plan.md", "progress.json"] {
-        let path = spec_folder.join(name);
-        if path.exists() {
-            out.push(path);
-        }
-    }
+    let mut out = vec![
+        spec_folder.join("plan.md"),
+        spec_folder.join("progress.json"),
+    ];
     if let Ok(entries) = std::fs::read_dir(spec_folder) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -178,7 +174,7 @@ async fn emit_evidence_schema_error(
             phase,
             MethodologyEvent::EvidenceSchemaError(EvidenceSchemaError {
                 spec_id,
-                phase: NonEmptyString::try_new(phase.as_str()).map_err(MethodologyError::Domain)?,
+                phase: phase.clone(),
                 file: file.to_owned(),
                 error: NonEmptyString::try_new(reason).map_err(MethodologyError::Domain)?,
             }),
@@ -272,6 +268,84 @@ mod tests {
 
         let on_disk = std::fs::read_to_string(&plan).expect("read");
         assert_eq!(on_disk, "original\n", "postflight must revert edits");
+
+        let events = service
+            .store()
+            .query_events(&EventFilter {
+                event_type: Some("methodology".into()),
+                limit: 100,
+                ..EventFilter::new()
+            })
+            .await
+            .expect("query");
+        assert!(events.events.into_iter().any(|env| matches!(
+            env.payload,
+            DomainEvent::Methodology {
+                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
+            }
+        )));
+    }
+
+    #[tokio::test]
+    async fn finalize_reverts_newly_created_protected_artifact() {
+        let service = mk_service().await;
+        let spec_id = SpecId::new();
+        let root = tempfile::tempdir().expect("tempdir");
+        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
+        std::fs::create_dir_all(&spec_folder).expect("mkdir");
+
+        let guard = enter_mutation_session(&spec_folder).expect("enter");
+        let created = spec_folder.join("plan.md");
+        std::fs::write(&created, "created during session\n").expect("create");
+        let phase = PhaseId::try_new("do-task").expect("phase");
+
+        finalize_mutation_session(&service, &phase, &spec_folder, "session-3", guard)
+            .await
+            .expect("finalize");
+
+        assert!(
+            !created.exists(),
+            "postflight must remove newly created protected artifacts"
+        );
+
+        let events = service
+            .store()
+            .query_events(&EventFilter {
+                event_type: Some("methodology".into()),
+                limit: 100,
+                ..EventFilter::new()
+            })
+            .await
+            .expect("query");
+        assert!(events.events.into_iter().any(|env| matches!(
+            env.payload,
+            DomainEvent::Methodology {
+                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
+            }
+        )));
+    }
+
+    #[tokio::test]
+    async fn finalize_reverts_newly_created_protected_index_artifact() {
+        let service = mk_service().await;
+        let spec_id = SpecId::new();
+        let root = tempfile::tempdir().expect("tempdir");
+        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
+        std::fs::create_dir_all(&spec_folder).expect("mkdir");
+
+        let guard = enter_mutation_session(&spec_folder).expect("enter");
+        let created = spec_folder.join("tool-index.json");
+        std::fs::write(&created, "{\"generated\":true}\n").expect("create");
+        let phase = PhaseId::try_new("do-task").expect("phase");
+
+        finalize_mutation_session(&service, &phase, &spec_folder, "session-4", guard)
+            .await
+            .expect("finalize");
+
+        assert!(
+            !created.exists(),
+            "postflight must remove newly created protected index artifacts"
+        );
 
         let events = service
             .store()

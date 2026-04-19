@@ -3,8 +3,8 @@
 use chrono::Utc;
 use serde::Serialize;
 use tanren_contract::methodology::{
-    AbandonTaskParams, CompleteTaskParams, CreateTaskParams, CreateTaskResponse, SchemaVersion,
-    StartTaskParams,
+    AbandonTaskParams, AckResponse, CompleteTaskParams, CreateTaskParams, CreateTaskResponse,
+    SchemaVersion, StartTaskParams,
 };
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::event_tool::PhaseEventOriginKind;
@@ -93,7 +93,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: StartTaskParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::TaskStart, phase)?;
         let spec_id = self.resolve_spec_for_task(params.task_id).await?;
         let explicit_key = params.idempotency_key.clone();
@@ -120,7 +120,7 @@ impl MethodologyService {
                     }
                     LegalTransition::Idempotent => {}
                 }
-                Ok(())
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -137,7 +137,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: CompleteTaskParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::TaskComplete, phase)?;
         let spec_id = self.resolve_spec_for_task(params.task_id).await?;
         let explicit_key = params.idempotency_key.clone();
@@ -189,7 +189,7 @@ impl MethodologyService {
                     }
                     LegalTransition::Idempotent => {}
                 }
-                Ok(())
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -204,7 +204,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: AbandonTaskParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::TaskAbandon, phase)?;
         let spec_id = self.resolve_spec_for_task(params.task_id).await?;
         let explicit_key = params.idempotency_key.clone();
@@ -254,7 +254,7 @@ impl MethodologyService {
                     }
                     LegalTransition::Idempotent => {}
                 }
-                Ok(())
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -301,7 +301,7 @@ impl MethodologyService {
         task_id: TaskId,
         guard: RequiredGuard,
         idempotency_key: Option<String>,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::TaskComplete, phase)?;
         let spec_id = self.resolve_spec_for_task(task_id).await?;
         let payload = GuardMutationPayload {
@@ -322,7 +322,7 @@ impl MethodologyService {
                     .check_transition(spec_id, task_id, TaskTransitionKind::Guard)
                     .await?
                 {
-                    LegalTransition::Idempotent => return Ok(()),
+                    LegalTransition::Idempotent => return Ok(AckResponse::current()),
                     LegalTransition::Transition => {}
                 }
                 self.emit_with_attribution(
@@ -360,7 +360,7 @@ impl MethodologyService {
                     )
                     .await?;
                 }
-                Ok(())
+                Ok(AckResponse::current())
             },
         )
         .await

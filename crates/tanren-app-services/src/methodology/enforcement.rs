@@ -25,7 +25,8 @@ use super::errors::{MethodologyError, MethodologyResult};
 #[derive(Debug, Clone)]
 pub struct FileSnapshot {
     pub path: PathBuf,
-    pub original_mode: u32,
+    pub existed_before: bool,
+    pub original_mode: Option<u32>,
     pub pre_bytes: Vec<u8>,
 }
 
@@ -53,17 +54,27 @@ impl EnforcementGuard {
     pub fn enter(paths: &[PathBuf]) -> MethodologyResult<Self> {
         let mut snapshots = Vec::with_capacity(paths.len());
         for path in paths {
-            let bytes = std::fs::read(path).map_err(|source| MethodologyError::Io {
-                path: path.clone(),
-                source,
-            })?;
-            let mode = file_mode(path)?;
-            snapshots.push(FileSnapshot {
-                path: path.clone(),
-                original_mode: mode,
-                pre_bytes: bytes,
-            });
-            set_mode(path, 0o444)?;
+            if path.exists() {
+                let bytes = std::fs::read(path).map_err(|source| MethodologyError::Io {
+                    path: path.clone(),
+                    source,
+                })?;
+                let mode = file_mode(path)?;
+                snapshots.push(FileSnapshot {
+                    path: path.clone(),
+                    existed_before: true,
+                    original_mode: Some(mode),
+                    pre_bytes: bytes,
+                });
+                set_mode(path, 0o444)?;
+            } else {
+                snapshots.push(FileSnapshot {
+                    path: path.clone(),
+                    existed_before: false,
+                    original_mode: None,
+                    pre_bytes: Vec::new(),
+                });
+            }
         }
         Ok(Self { snapshots })
     }
@@ -78,29 +89,102 @@ impl EnforcementGuard {
     /// original mode.
     pub fn verify_and_exit(self) -> MethodologyResult<Vec<UnauthorizedEdit>> {
         let mut edits = Vec::new();
+        let mut watched_dirs = std::collections::BTreeSet::new();
+        let mut known_paths = std::collections::BTreeSet::new();
+        for snap in &self.snapshots {
+            known_paths.insert(snap.path.clone());
+            if let Some(parent) = snap.path.parent() {
+                watched_dirs.insert(parent.to_path_buf());
+            }
+        }
+
         for snap in self.snapshots {
-            // Read current contents. If read fails, treat as I/O error —
-            // caller decides whether to retry.
-            let current = std::fs::read(&snap.path).map_err(|source| MethodologyError::Io {
-                path: snap.path.clone(),
-                source,
-            })?;
-            if current != snap.pre_bytes {
-                // Revert. Need write permission temporarily — chmod 0644
-                // before write, then restore original mode at the end.
-                set_mode(&snap.path, 0o644)?;
+            if !snap.existed_before {
+                if snap.path.exists() {
+                    if snap.path.is_dir() {
+                        std::fs::remove_dir_all(&snap.path).map_err(|source| {
+                            MethodologyError::Io {
+                                path: snap.path.clone(),
+                                source,
+                            }
+                        })?;
+                    } else {
+                        std::fs::remove_file(&snap.path).map_err(|source| {
+                            MethodologyError::Io {
+                                path: snap.path.clone(),
+                                source,
+                            }
+                        })?;
+                    }
+                    edits.push(UnauthorizedEdit {
+                        path: snap.path.clone(),
+                        diff_preview: "file was created during session and removed".into(),
+                    });
+                }
+                continue;
+            }
+
+            let current = match std::fs::read(&snap.path) {
+                Ok(bytes) => Some(bytes),
+                Err(source) if source.kind() == std::io::ErrorKind::NotFound => None,
+                Err(source) => {
+                    return Err(MethodologyError::Io {
+                        path: snap.path.clone(),
+                        source,
+                    });
+                }
+            };
+            let changed = current.as_deref() != Some(snap.pre_bytes.as_slice());
+            if changed {
+                if snap.path.exists() {
+                    set_mode(&snap.path, 0o644)?;
+                } else if let Some(parent) = snap.path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|source| MethodologyError::Io {
+                        path: parent.to_path_buf(),
+                        source,
+                    })?;
+                }
                 std::fs::write(&snap.path, &snap.pre_bytes).map_err(|source| {
                     MethodologyError::Io {
                         path: snap.path.clone(),
                         source,
                     }
                 })?;
+                let diff_preview = match current {
+                    Some(bytes) => summarize_diff(&snap.pre_bytes, &bytes),
+                    None => "file was deleted during session and restored".into(),
+                };
                 edits.push(UnauthorizedEdit {
                     path: snap.path.clone(),
-                    diff_preview: summarize_diff(&snap.pre_bytes, &current),
+                    diff_preview,
                 });
             }
-            set_mode(&snap.path, snap.original_mode)?;
+            if let Some(mode) = snap.original_mode {
+                set_mode(&snap.path, mode)?;
+            }
+        }
+
+        for root in watched_dirs {
+            let Ok(entries) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() || known_paths.contains(&path) {
+                    continue;
+                }
+                if !is_protected_generated_index(&path) {
+                    continue;
+                }
+                std::fs::remove_file(&path).map_err(|source| MethodologyError::Io {
+                    path: path.clone(),
+                    source,
+                })?;
+                edits.push(UnauthorizedEdit {
+                    path,
+                    diff_preview: "file was created during session and removed".into(),
+                });
+            }
         }
         Ok(edits)
     }
@@ -171,6 +255,18 @@ fn summarize_diff(old: &[u8], new: &[u8]) -> String {
             new.len()
         )
     }
+}
+
+fn is_protected_generated_index(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
+        return false;
+    };
+    if !name.contains("index") {
+        return false;
+    }
+    path.extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("json"))
 }
 
 #[cfg(test)]

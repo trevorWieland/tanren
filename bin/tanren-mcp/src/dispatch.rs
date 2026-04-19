@@ -63,8 +63,7 @@ pub(crate) async fn dispatch(
                             params.guard,
                             params.idempotency_key,
                         )
-                        .await
-                        .map(|()| serde_json::json!({})),
+                        .await,
                 ),
                 Err(e) => CallResult::Err(e),
             }

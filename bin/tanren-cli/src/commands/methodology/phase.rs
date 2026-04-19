@@ -28,34 +28,16 @@ pub(crate) async fn run(
 ) -> u8 {
     match cmd {
         PhaseCommand::Outcome(i) => match load_params::<ReportPhaseOutcomeParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .report_phase_outcome(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.report_phase_outcome(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         PhaseCommand::Escalate(i) => match load_params::<EscalateToBlockerParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .escalate_to_blocker(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.escalate_to_blocker(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         PhaseCommand::Reply(i) => match load_params::<PostReplyDirectiveParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .post_reply_directive(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.post_reply_directive(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
     }
 }
-
-#[derive(serde::Serialize)]
-struct Empty {}

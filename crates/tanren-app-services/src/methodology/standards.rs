@@ -90,15 +90,19 @@ pub fn baseline_standards() -> Vec<Standard> {
         ),
     ];
     raw.iter()
-        .map(
-            |(name, cat, _short, _why, applies, langs, domains, imp, body)| Standard {
-                name: NonEmptyString::try_new(*name).expect("static name"),
-                category: NonEmptyString::try_new(*cat).expect("static category"),
-                applies_to: applies.iter().map(|s| (*s).to_owned()).collect(),
-                applies_to_languages: langs.iter().map(|s| (*s).to_owned()).collect(),
-                applies_to_domains: domains.iter().map(|s| (*s).to_owned()).collect(),
-                importance: *imp,
-                body: (*body).to_owned(),
+        .filter_map(
+            |(name, cat, _short, _why, applies, langs, domains, imp, body)| {
+                let name = NonEmptyString::try_new(*name).ok()?;
+                let category = NonEmptyString::try_new(*cat).ok()?;
+                Some(Standard {
+                    name,
+                    category,
+                    applies_to: applies.iter().map(|s| (*s).to_owned()).collect(),
+                    applies_to_languages: langs.iter().map(|s| (*s).to_owned()).collect(),
+                    applies_to_domains: domains.iter().map(|s| (*s).to_owned()).collect(),
+                    importance: *imp,
+                    body: (*body).to_owned(),
+                })
             },
         )
         .collect()

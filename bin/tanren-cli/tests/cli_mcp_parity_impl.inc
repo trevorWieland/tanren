@@ -14,6 +14,7 @@ use tanren_domain::methodology::finding::{
     AdherenceSeverity, FindingSeverity, FindingSource, StandardRef,
 };
 use tanren_domain::methodology::issue::IssuePriority;
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::phase_outcome::{PhaseOutcome, ReplyDisposition};
 use tanren_domain::methodology::pillar::{PillarId, PillarScope, PillarScore};
 use tanren_domain::methodology::rubric::ComplianceStatus;
@@ -340,7 +341,7 @@ fn cli_quality_and_signpost(url: &str, spec_folder: &Path, spec_id: SpecId, main
             affected_files: vec!["src/lib.rs".into()],
             line_numbers: vec![7],
             source: FindingSource::Audit {
-                phase: ne("audit-task"),
+                phase: PhaseId::try_new("audit-task").expect("phase"),
                 pillar: Some(ne("security")),
             },
             attached_task: Some(main_task),
@@ -416,7 +417,7 @@ fn cli_cross_phase_mutations(url: &str, spec_folder: &Path, spec_id: SpecId) {
     let _ = run_cli_tool(url, spec_folder, "do-task", "phase", "outcome", &c::ReportPhaseOutcomeParams {
         schema_version: schema(),
         spec_id,
-        phase: "do-task".into(),
+        phase: PhaseId::try_new("do-task").expect("phase"),
         agent_session_id: "parity-session".into(),
         outcome: PhaseOutcome::Complete {
             summary: ne("completed"),
@@ -774,7 +775,7 @@ fn mcp_quality_and_signpost(do_task: &mut McpSession, spec_id: SpecId, main_task
             affected_files: vec!["src/lib.rs".into()],
             line_numbers: vec![7],
             source: FindingSource::Audit {
-                phase: ne("audit-task"),
+                phase: PhaseId::try_new("audit-task").expect("phase"),
                 pillar: Some(ne("security")),
             },
             attached_task: Some(main_task),
@@ -843,7 +844,7 @@ fn mcp_cross_phase_mutations(
     let _ = do_task.call("report_phase_outcome", &c::ReportPhaseOutcomeParams {
         schema_version: schema(),
         spec_id,
-        phase: "do-task".into(),
+        phase: PhaseId::try_new("do-task").expect("phase"),
         agent_session_id: "parity-session".into(),
         outcome: PhaseOutcome::Complete {
             summary: ne("completed"),

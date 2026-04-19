@@ -14,7 +14,7 @@ use tanren_domain::methodology::events::{
 use tanren_domain::methodology::phase_id::PhaseId;
 
 use tanren_contract::methodology::{
-    AddDemoStepParams, AddSpecAcceptanceCriterionParams, AppendDemoResultParams,
+    AckResponse, AddDemoStepParams, AddSpecAcceptanceCriterionParams, AppendDemoResultParams,
     MarkDemoStepSkipParams, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
     SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams,
     SetSpecTitleParams,
@@ -36,7 +36,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: SetSpecTitleParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -55,7 +55,8 @@ impl MethodologyService {
                         patch: SpecFrontmatterPatch::SetTitle { title },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -70,7 +71,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: SetSpecNonNegotiablesParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -90,7 +91,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -105,7 +107,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: AddSpecAcceptanceCriterionParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -125,7 +127,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -140,7 +143,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: SetSpecDemoEnvironmentParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -160,7 +163,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -175,7 +179,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: SetSpecDependenciesParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -195,7 +199,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -210,7 +215,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: SetSpecBaseBranchParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -229,7 +234,8 @@ impl MethodologyService {
                         patch: SpecFrontmatterPatch::SetBaseBranch { branch },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -244,7 +250,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: SetSpecRelevanceContextParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::SpecFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -264,7 +270,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -281,7 +288,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: AddDemoStepParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::DemoFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -309,7 +316,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -324,7 +332,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: MarkDemoStepSkipParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::DemoFrontmatter, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -344,7 +352,8 @@ impl MethodologyService {
                         patch: DemoFrontmatterPatch::MarkStepSkip { step_id, reason },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await
@@ -360,7 +369,7 @@ impl MethodologyService {
         scope: &CapabilityScope,
         phase: &PhaseId,
         params: AppendDemoResultParams,
-    ) -> MethodologyResult<()> {
+    ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::DemoResults, phase)?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
@@ -384,7 +393,8 @@ impl MethodologyService {
                         },
                     }),
                 )
-                .await
+                .await?;
+                Ok(AckResponse::current())
             },
         )
         .await

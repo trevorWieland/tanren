@@ -41,21 +41,11 @@ pub(crate) async fn run(
             Err(e) => emit_result::<()>(Err(e)),
         },
         TaskCommand::Start(i) => match load_params::<StartTaskParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .start_task(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.start_task(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         TaskCommand::Complete(i) => match load_params::<CompleteTaskParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .complete_task(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.complete_task(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         TaskCommand::Guard(i) => match load_params::<MarkTaskGuardSatisfiedParams>(&i) {
@@ -68,27 +58,16 @@ pub(crate) async fn run(
                         params.guard,
                         params.idempotency_key,
                     )
-                    .await
-                    .map(|()| Empty {}),
+                    .await,
             ),
             Err(e) => emit_result::<()>(Err(e)),
         },
         TaskCommand::Revise(i) => match load_params::<ReviseTaskParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .revise_task(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.revise_task(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         TaskCommand::Abandon(i) => match load_params::<AbandonTaskParams>(&i) {
-            Ok(params) => emit_result(
-                service
-                    .abandon_task(scope, phase, params)
-                    .await
-                    .map(|()| Empty {}),
-            ),
+            Ok(params) => emit_result(service.abandon_task(scope, phase, params).await),
             Err(e) => emit_result::<()>(Err(e)),
         },
         TaskCommand::List(i) => match load_params::<ListTasksParams>(&i) {
@@ -97,9 +76,3 @@ pub(crate) async fn run(
         },
     }
 }
-
-/// Empty-body response marker used when a service method returns
-/// `()`. Serializes as `{}` so the CLI contract is always a JSON
-/// object, never a bare `null`.
-#[derive(serde::Serialize)]
-struct Empty {}
