@@ -126,7 +126,7 @@ types are canonical syntax.
 | `complete_task(task_id, evidence_refs)` | `task.complete` | `InProgress → Implemented`. |
 | `mark_task_guard_satisfied(task_id, guard, idempotency_key?)` | `task.complete` | Records one guard pass (`gate_checked`, `audited`, `adherent`, or extra guard) and emits `TaskCompleted` when required guards converge. |
 | `revise_task(task_id, revised_description, revised_acceptance, reason)` | `task.revise` | Mutate non-terminal task scope; emits `TaskRevised`. |
-| `abandon_task(task_id, reason, replacements[])` | `task.abandon` | Branch to `Abandoned` with replacement linkage. |
+| `abandon_task(task_id, reason, disposition, replacements[], explicit_user_discard_provenance?)` | `task.abandon` | Branch to `Abandoned` with typed `replacement` vs `explicit_user_discard` semantics. |
 | `list_tasks(filter?)` → `[Task]` | `task.read` | Query tasks for `filter.spec_id` when supplied; otherwise query the current bound session spec. |
 
 ### 3.2 Findings and rubric
@@ -284,9 +284,10 @@ compatibility.
 ### 6.4 Atomicity
 
 Service writes event + phase-event-outbox rows in one DB transaction.
-`phase-events.jsonl` projection drains the outbox immediately in the
-mutation path (fail-closed on projection health), plus periodic retry
-worker reconciliation from the same durable outbox rows.
+`phase-events.jsonl` projection performs budgeted best-effort draining in
+the mutation path, plus periodic retry-worker reconciliation from the same
+durable outbox rows. Mutation success depends on durable event append; it
+is not coupled to full outbox exhaustion in the same call.
 
 ### 6.5 Replay
 
@@ -343,9 +344,9 @@ duplicate events from network-level retries.
 
 The service translates tool-input → validated domain event + store
 mutation atomically, then projects `phase-events.jsonl` via a durable
-outbox worker. Projection failures fail closed for mutation calls and
-are retried/reconciled from outbox state without losing the canonical
-event.
+outbox worker. Processed-row projection I/O failures return typed
+errors, while backlog draining remains best-effort and is recovered by
+reconciliation without losing canonical events.
 
 ---
 

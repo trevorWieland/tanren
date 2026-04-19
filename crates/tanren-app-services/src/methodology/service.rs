@@ -19,7 +19,8 @@ use super::errors::{MethodologyError, MethodologyResult};
 use super::phase_events::PhaseEventAttribution;
 
 const OUTBOX_DRAIN_BATCH_SIZE: u64 = 256;
-const OUTBOX_DRAIN_MAX_PASSES: u8 = 8;
+const OUTBOX_DRAIN_ROW_BUDGET: u64 = OUTBOX_DRAIN_BATCH_SIZE * 8;
+const OUTBOX_DRAIN_TIME_BUDGET_MS: u64 = 200;
 
 /// Shared methodology service.
 ///
@@ -219,29 +220,29 @@ impl MethodologyService {
     }
 
     async fn drain_phase_event_outbox_for_spec(&self, spec_id: SpecId) -> MethodologyResult<()> {
-        let mut last_pending_len = 0usize;
-        for _ in 0..OUTBOX_DRAIN_MAX_PASSES {
+        let started = std::time::Instant::now();
+        let time_budget = std::time::Duration::from_millis(OUTBOX_DRAIN_TIME_BUDGET_MS);
+        let mut remaining_rows = OUTBOX_DRAIN_ROW_BUDGET;
+        while remaining_rows > 0 && started.elapsed() < time_budget {
             let pending = self
                 .store
-                .load_pending_phase_event_outbox(Some(spec_id), OUTBOX_DRAIN_BATCH_SIZE)
+                .load_pending_phase_event_outbox(
+                    Some(spec_id),
+                    OUTBOX_DRAIN_BATCH_SIZE.min(remaining_rows),
+                )
                 .await?;
-            last_pending_len = pending.len();
             if pending.is_empty() {
                 return Ok(());
             }
             for row in pending {
                 self.process_phase_event_outbox_row(row).await?;
+                remaining_rows = remaining_rows.saturating_sub(1);
+                if remaining_rows == 0 || started.elapsed() >= time_budget {
+                    break;
+                }
             }
         }
-        Err(MethodologyError::FieldValidation {
-            field_path: "/phase_events_outbox".into(),
-            expected: format!(
-                "outbox projection converges within {OUTBOX_DRAIN_MAX_PASSES} drain passes"
-            ),
-            actual: format!("{last_pending_len} pending rows remained for spec `{spec_id}`"),
-            remediation:
-                "fix phase-events projection I/O and retry; use reconcile_phase_events when the filesystem is healthy".into(),
-        })
+        Ok(())
     }
 
     async fn process_phase_event_outbox_row(

@@ -61,7 +61,13 @@ fn task_and_scoring_params_reject_unknown_fields() {
     );
     assert_unknown_field_rejected::<c::AbandonTaskParams>(
         "abandon_task",
-        json!({"schema_version": "1.0.0", "task_id": TASK_A, "reason": "superseded", "replacements": [TASK_B]}),
+        json!({
+            "schema_version": "1.0.0",
+            "task_id": TASK_A,
+            "reason": "superseded",
+            "disposition": "replacement",
+            "replacements": [TASK_B]
+        }),
     );
     assert_unknown_field_rejected::<c::ListTasksParams>(
         "list_tasks",

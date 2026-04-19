@@ -18,7 +18,8 @@ use crate::methodology::rubric::{NonNegotiableCompliance, RubricScore};
 use crate::methodology::signpost::{Signpost, SignpostStatus};
 use crate::methodology::spec::Spec;
 use crate::methodology::task::{
-    AcceptanceCriterion, RequiredGuard, Task, TaskGuardFlags, TaskOrigin, TaskStatus,
+    AcceptanceCriterion, ExplicitUserDiscardProvenance, RequiredGuard, Task,
+    TaskAbandonDisposition, TaskGuardFlags, TaskOrigin, TaskStatus,
 };
 use crate::validated::NonEmptyString;
 
@@ -198,14 +199,18 @@ pub struct TaskCompleted {
     pub spec_id: SpecId,
 }
 
-/// `{non-terminal} → Abandoned { replacements }`.
+/// `{non-terminal} → Abandoned` with typed disposition/provenance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskAbandoned {
     pub task_id: TaskId,
     pub spec_id: SpecId,
     pub reason: NonEmptyString,
+    #[serde(default)]
+    pub disposition: TaskAbandonDisposition,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub replacements: Vec<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explicit_user_discard_provenance: Option<ExplicitUserDiscardProvenance>,
 }
 
 /// A non-transitional revision of a task's description / acceptance.
@@ -407,7 +412,11 @@ where
             MethodologyEvent::TaskAbandoned(e) if e.task_id == task_id => {
                 if !matches!(status, Some(TaskStatus::Complete)) {
                     status = Some(TaskStatus::Abandoned {
+                        disposition: e.disposition,
                         replacements: e.replacements.clone(),
+                        explicit_user_discard_provenance: e
+                            .explicit_user_discard_provenance
+                            .clone(),
                     });
                 }
             }

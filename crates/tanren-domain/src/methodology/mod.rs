@@ -59,4 +59,7 @@ pub use spec::{
     TouchedSymbol,
 };
 pub use standard::{Standard, StandardImportance};
-pub use task::{AcceptanceCriterion, RequiredGuard, Task, TaskGuardFlags, TaskOrigin, TaskStatus};
+pub use task::{
+    AcceptanceCriterion, ExplicitUserDiscardProvenance, RequiredGuard, Task,
+    TaskAbandonDisposition, TaskGuardFlags, TaskOrigin, TaskStatus,
+};

@@ -1,6 +1,6 @@
 ---
 source: crates/tanren-domain/tests/methodology_event_snapshot_matrix.rs
-assertion_line: 363
+assertion_line: 372
 expression: json
 ---
 [
@@ -101,7 +101,8 @@ expression: json
     "event_type": "task_abandoned",
     "task_id": "00000000-0000-0000-0000-0000000000b2",
     "spec_id": "00000000-0000-0000-0000-0000000000a1",
-    "reason": "abandoned"
+    "reason": "abandoned",
+    "disposition": "replacement"
   },
   {
     "event_type": "task_revised",

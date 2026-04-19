@@ -2,9 +2,10 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tanren_domain::methodology::task::RequiredGuard;
-use tanren_domain::methodology::task::Task;
-use tanren_domain::methodology::task::{AcceptanceCriterion, TaskOrigin};
+use tanren_domain::methodology::task::{
+    AcceptanceCriterion, ExplicitUserDiscardProvenance, RequiredGuard, Task,
+    TaskAbandonDisposition, TaskOrigin,
+};
 use tanren_domain::{SpecId, TaskId};
 
 use super::SchemaVersion;
@@ -79,8 +80,11 @@ pub struct AbandonTaskParams {
     pub schema_version: SchemaVersion,
     pub task_id: TaskId,
     pub reason: String,
+    pub disposition: TaskAbandonDisposition,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub replacements: Vec<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explicit_user_discard_provenance: Option<ExplicitUserDiscardProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
 }

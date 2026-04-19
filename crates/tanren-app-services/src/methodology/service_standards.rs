@@ -6,7 +6,9 @@
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use tanren_contract::methodology::SchemaVersion;
+use tanren_contract::methodology::{
+    ListRelevantStandardsParams, ListRelevantStandardsResponse, SchemaVersion,
+};
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{MethodologyEvent, SpecFrontmatterPatch};
 use tanren_domain::methodology::phase_id::PhaseId;
@@ -67,8 +69,8 @@ impl MethodologyService {
         &self,
         scope: &CapabilityScope,
         phase: &PhaseId,
-        params: &tanren_contract::methodology::ListRelevantStandardsParams,
-    ) -> MethodologyResult<tanren_contract::methodology::ListRelevantStandardsResponse> {
+        params: &ListRelevantStandardsParams,
+    ) -> MethodologyResult<ListRelevantStandardsResponse> {
         enforce(scope, ToolCapability::StandardRead, phase)?;
         let derived = self.derive_relevance_context(params.spec_id).await?;
         let effective = EffectiveRelevanceInputs::from_derived_and_hints(&derived, params);
@@ -102,12 +104,22 @@ impl MethodologyService {
                 .cmp(b.standard.category.as_str())
                 .then(a.standard.name.as_str().cmp(b.standard.name.as_str()))
         });
-        Ok(
-            tanren_contract::methodology::ListRelevantStandardsResponse {
-                schema_version: SchemaVersion::current(),
-                standards: out,
-            },
-        )
+        Ok(ListRelevantStandardsResponse {
+            schema_version: SchemaVersion::current(),
+            standards: out,
+        })
+    }
+
+    /// Param-struct wrapper so transports can dispatch from a single
+    /// compile-time registry.
+    pub async fn list_relevant_standards_from_params(
+        &self,
+        scope: &CapabilityScope,
+        phase: &PhaseId,
+        params: ListRelevantStandardsParams,
+    ) -> MethodologyResult<ListRelevantStandardsResponse> {
+        self.list_relevant_standards_filtered(scope, phase, &params)
+            .await
     }
 
     async fn derive_relevance_context(
@@ -302,7 +314,7 @@ struct EffectiveRelevanceInputs {
 impl EffectiveRelevanceInputs {
     fn from_derived_and_hints(
         derived: &SpecRelevanceContext,
-        hints: &tanren_contract::methodology::ListRelevantStandardsParams,
+        hints: &ListRelevantStandardsParams,
     ) -> Self {
         let mut touched_files = derived.touched_files.clone();
         touched_files.extend(hints.touched_files.clone());

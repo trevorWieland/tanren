@@ -61,6 +61,13 @@ pub struct EnforcementGuard {
     snapshots: Option<Vec<FileSnapshot>>,
 }
 
+/// Parsed append-only delta for one protected file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppendOnlyDelta {
+    pub baseline_lines: Vec<String>,
+    pub appended_lines: Vec<String>,
+}
+
 impl EnforcementGuard {
     /// Snapshot the given paths and `chmod 0444` each.
     ///
@@ -101,6 +108,41 @@ impl EnforcementGuard {
         })
     }
 
+    /// Returns parsed append-only baseline and appended lines for one tracked
+    /// append-only path when the current bytes remain prefix-preserving.
+    ///
+    /// Returns `Ok(None)` when `path` is not tracked as append-only, when the
+    /// current bytes are not prefix-preserving, or when line framing is invalid.
+    ///
+    /// # Errors
+    /// Returns [`MethodologyError::Io`] on file read failures.
+    pub fn append_only_delta(&self, path: &Path) -> MethodologyResult<Option<AppendOnlyDelta>> {
+        let Some(snapshots) = self.snapshots.as_ref() else {
+            return Ok(None);
+        };
+        let Some(snap) = snapshots
+            .iter()
+            .find(|snap| snap.path == path && matches!(snap.mode, ProtectionMode::AppendOnly))
+        else {
+            return Ok(None);
+        };
+        let current = read_optional_bytes(path)?;
+        let current_bytes = current.unwrap_or_default();
+        if !current_bytes.starts_with(&snap.pre_bytes) {
+            return Ok(None);
+        }
+        let Some(baseline_lines) = parse_lf_lines(&snap.pre_bytes) else {
+            return Ok(None);
+        };
+        let Some(appended_lines) = parse_lf_lines(&current_bytes[snap.pre_bytes.len()..]) else {
+            return Ok(None);
+        };
+        Ok(Some(AppendOnlyDelta {
+            baseline_lines,
+            appended_lines,
+        }))
+    }
+
     /// Verify each protected file hasn't been modified; revert any
     /// that have; restore original modes; emit unauthorized-edit
     /// descriptions for the caller to convert into events.
@@ -109,7 +151,23 @@ impl EnforcementGuard {
     /// Returns [`MethodologyError::Io`] on any read / write / chmod
     /// failure. Files that verify clean are restored to their
     /// original mode.
-    pub fn verify_and_exit(mut self) -> MethodologyResult<Vec<UnauthorizedEdit>> {
+    pub fn verify_and_exit(self) -> MethodologyResult<Vec<UnauthorizedEdit>> {
+        self.verify_and_exit_with_append_expectations(&std::collections::BTreeMap::new())
+    }
+
+    /// Verify each protected file hasn't been modified, with optional strict
+    /// expectations for append-only paths.
+    ///
+    /// For append-only files (currently `phase-events.jsonl`), `append_expectations`
+    /// maps absolute file path -> exact appended JSON lines that are authorized
+    /// for this session.
+    ///
+    /// # Errors
+    /// Returns [`MethodologyError::Io`] on any read / write / chmod failure.
+    pub fn verify_and_exit_with_append_expectations(
+        mut self,
+        append_expectations: &std::collections::BTreeMap<PathBuf, Vec<String>>,
+    ) -> MethodologyResult<Vec<UnauthorizedEdit>> {
         let snapshots = self.snapshots.take().unwrap_or_default();
         let mut edits = Vec::new();
         let mut watched_dirs = std::collections::BTreeSet::new();
@@ -122,7 +180,7 @@ impl EnforcementGuard {
         }
 
         for snap in &snapshots {
-            Self::verify_snapshot(snap, &mut edits)?;
+            Self::verify_snapshot(snap, &mut edits, append_expectations)?;
         }
 
         for root in watched_dirs {
@@ -153,6 +211,7 @@ impl EnforcementGuard {
     fn verify_snapshot(
         snap: &FileSnapshot,
         edits: &mut Vec<UnauthorizedEdit>,
+        append_expectations: &std::collections::BTreeMap<PathBuf, Vec<String>>,
     ) -> MethodologyResult<()> {
         if !snap.existed_before {
             if snap.path.exists() {
@@ -174,6 +233,11 @@ impl EnforcementGuard {
             if matches!(snap.mode, ProtectionMode::AppendOnly)
                 && let Some(bytes) = current.as_deref()
                 && bytes.starts_with(&snap.pre_bytes)
+                && append_segment_matches_expectation(
+                    &snap.path,
+                    &bytes[snap.pre_bytes.len()..],
+                    append_expectations,
+                )
             {
                 return Ok(());
             }
@@ -194,6 +258,51 @@ impl EnforcementGuard {
         }
         Ok(())
     }
+}
+
+fn append_segment_matches_expectation(
+    path: &Path,
+    appended_bytes: &[u8],
+    append_expectations: &std::collections::BTreeMap<PathBuf, Vec<String>>,
+) -> bool {
+    let expected = append_expectations.get(path).cloned().unwrap_or_default();
+    if appended_bytes.is_empty() {
+        return expected.is_empty();
+    }
+    let Ok(appended) = std::str::from_utf8(appended_bytes) else {
+        return false;
+    };
+    let mut observed: Vec<&str> = appended.split('\n').collect();
+    if observed.last().copied() != Some("") {
+        return false;
+    }
+    observed.pop();
+    if observed.iter().any(|line| line.is_empty()) {
+        return false;
+    }
+    if observed.len() != expected.len() {
+        return false;
+    }
+    observed
+        .into_iter()
+        .zip(expected.iter())
+        .all(|(actual, expected_line)| actual == expected_line)
+}
+
+fn parse_lf_lines(bytes: &[u8]) -> Option<Vec<String>> {
+    if bytes.is_empty() {
+        return Some(Vec::new());
+    }
+    let raw = std::str::from_utf8(bytes).ok()?;
+    let mut parts: Vec<&str> = raw.split('\n').collect();
+    if parts.last().copied() != Some("") {
+        return None;
+    }
+    parts.pop();
+    if parts.iter().any(|line| line.is_empty()) {
+        return None;
+    }
+    Some(parts.into_iter().map(str::to_owned).collect())
 }
 
 impl Drop for EnforcementGuard {

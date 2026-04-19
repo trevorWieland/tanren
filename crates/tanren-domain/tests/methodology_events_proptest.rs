@@ -11,7 +11,9 @@ use tanren_domain::methodology::events::{
     MethodologyEvent, TaskAbandoned, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated,
     TaskGateChecked, TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
 };
-use tanren_domain::methodology::task::{RequiredGuard, Task, TaskOrigin, TaskStatus};
+use tanren_domain::methodology::task::{
+    RequiredGuard, Task, TaskAbandonDisposition, TaskOrigin, TaskStatus,
+};
 use tanren_domain::{NonEmptyString, SpecId, TaskId};
 
 fn seed_lifecycle(tid: TaskId, spec: SpecId) -> Vec<MethodologyEvent> {
@@ -126,7 +128,9 @@ proptest! {
                 task_id: tid,
                 spec_id: spec,
                 reason: NonEmptyString::try_new("stray abandon").expect("non-empty"),
+                disposition: TaskAbandonDisposition::Replacement,
                 replacements: vec![],
+                explicit_user_discard_provenance: None,
             }));
         }
         let status = fold_task_status(tid, &required, &all);

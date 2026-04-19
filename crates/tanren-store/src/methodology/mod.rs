@@ -11,7 +11,9 @@ pub mod projections;
 pub mod replay;
 
 pub use idempotency::{InsertMethodologyIdempotencyParams, MethodologyIdempotencyEntry};
-pub use outbox::{AppendPhaseEventOutboxParams, PhaseEventOutboxEntry};
+pub use outbox::{
+    AppendPhaseEventOutboxParams, PhaseEventOutboxEntry, PhaseEventProjectedOutboxEntry,
+};
 pub use projections::{
     MethodologyEventFetchError, adherence_findings_for_spec, findings_by_ids, findings_for_spec,
     findings_for_task, load_methodology_events, rubric_for_spec, signposts_for_spec,

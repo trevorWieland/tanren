@@ -4,7 +4,7 @@ use chrono::Utc;
 use serde::Serialize;
 use tanren_contract::methodology::{
     AbandonTaskParams, AckResponse, CompleteTaskParams, CreateTaskParams, CreateTaskResponse,
-    SchemaVersion, StartTaskParams,
+    MarkTaskGuardSatisfiedParams, SchemaVersion, StartTaskParams,
 };
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::event_tool::PhaseEventOriginKind;
@@ -13,9 +13,9 @@ use tanren_domain::methodology::events::{
     TaskCompleted as EvTaskCompleted, TaskCreated as EvTaskCreated, TaskGateChecked,
     TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
 };
-use tanren_domain::methodology::phase_id::PhaseId;
+use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 use tanren_domain::methodology::task::{
-    LegalTransition, RequiredGuard, Task, TaskStatus, TaskTransitionKind,
+    LegalTransition, RequiredGuard, Task, TaskAbandonDisposition, TaskStatus, TaskTransitionKind,
 };
 use tanren_domain::{EntityRef, SpecId, TaskId};
 
@@ -133,9 +133,6 @@ impl MethodologyService {
     }
 
     /// `complete_task` — emit [`MethodologyEvent::TaskImplemented`].
-    /// (The `TaskCompleted` transition to terminal state fires later,
-    /// once all required guards have arrived.)
-    ///
     /// # Errors
     /// See [`MethodologyError`].
     pub async fn complete_task(
@@ -221,24 +218,66 @@ impl MethodologyService {
             explicit_key,
             &idempotency_payload,
             || async move {
-                // F8: abandon requires either a non-empty `reason` *and* at
-                // least one replacement task, or an explicit user-discard note.
-                // The contract accepts both as a single shape; replacements
-                // non-empty implies "replaced" semantics, empty implies
-                // "user-discarded" and the reason must be substantive.
                 let reason = require_non_empty("/reason", &params.reason, Some(500))?;
-                if params.replacements.is_empty() && reason.as_str().trim().len() < 8 {
-                    return Err(MethodologyError::FieldValidation {
-                        field_path: "/replacements".into(),
-                        expected: "non-empty replacements[] OR /reason describing the discard"
-                            .into(),
-                        actual: format!(
-                            "replacements=[], reason={} chars",
-                            reason.as_str().trim().len()
-                        ),
-                        remediation:
-                            "either supply at least one replacement task id, or describe the discard in /reason (≥ 8 chars)".into(),
-                    });
+                match params.disposition {
+                    TaskAbandonDisposition::Replacement => {
+                        if params.replacements.is_empty() {
+                            return Err(MethodologyError::FieldValidation {
+                                field_path: "/replacements".into(),
+                                expected:
+                                    "at least one replacement task id when disposition=replacement"
+                                        .into(),
+                                actual: "replacements=[]".into(),
+                                remediation:
+                                    "provide replacement task ids, or use disposition=explicit_user_discard with provenance".into(),
+                            });
+                        }
+                        if params.explicit_user_discard_provenance.is_some() {
+                            return Err(MethodologyError::FieldValidation {
+                                field_path: "/explicit_user_discard_provenance".into(),
+                                expected: "null when disposition=replacement".into(),
+                                actual: "provided".into(),
+                                remediation:
+                                    "remove explicit_user_discard_provenance when using replacement disposition".into(),
+                            });
+                        }
+                    }
+                    TaskAbandonDisposition::ExplicitUserDiscard => {
+                        if !params.replacements.is_empty() {
+                            return Err(MethodologyError::FieldValidation {
+                                field_path: "/replacements".into(),
+                                expected: "empty when disposition=explicit_user_discard".into(),
+                                actual: format!(
+                                    "replacements has {} item(s)",
+                                    params.replacements.len()
+                                ),
+                                remediation:
+                                    "clear replacements and keep explicit_user_discard_provenance".into(),
+                            });
+                        }
+                        if !phase.is_known(KnownPhase::ResolveBlockers) {
+                            return Err(MethodologyError::FieldValidation {
+                                field_path: "/disposition".into(),
+                                expected:
+                                    "explicit_user_discard is only legal in resolve-blockers phase"
+                                        .into(),
+                                actual: phase.as_str().into(),
+                                remediation:
+                                    "run explicit user discard through resolve-blockers and pass typed provenance".into(),
+                            });
+                        }
+                        if params.explicit_user_discard_provenance.is_none() {
+                            return Err(MethodologyError::FieldValidation {
+                                field_path: "/explicit_user_discard_provenance".into(),
+                                expected:
+                                    "non-null provenance when disposition=explicit_user_discard"
+                                        .into(),
+                                actual: "null".into(),
+                                remediation:
+                                    "set explicit_user_discard_provenance.kind=resolve_blockers with a resolution note".into(),
+                            });
+                        }
+                    }
                 }
                 // Legal from any non-terminal state; idempotent if already
                 // abandoned with the same replacements (content hash elsewhere).
@@ -253,7 +292,10 @@ impl MethodologyService {
                                 task_id: params.task_id,
                                 spec_id,
                                 reason,
+                                disposition: params.disposition,
                                 replacements: params.replacements,
+                                explicit_user_discard_provenance: params
+                                    .explicit_user_discard_provenance,
                             }),
                         )
                         .await?;
@@ -266,9 +308,7 @@ impl MethodologyService {
         .await
     }
 
-    /// Fold the current status of `task_id` from the event log and
-    /// consult [`TaskStatus::legal_next`]. Returns a typed
-    /// [`MethodologyError::IllegalTaskTransition`] on rejection.
+    /// Fold current task status and validate the transition against domain rules.
     pub(crate) async fn check_transition(
         &self,
         spec_id: SpecId,
@@ -348,13 +388,10 @@ impl MethodologyService {
         Ok(())
     }
 
-    /// `mark_task_guard_satisfied` emits one discrete guard event and,
-    /// on convergence, emits `TaskCompleted` in the same call.
+    /// Emit one guard event and bridge to `TaskCompleted` when guards converge.
     ///
     /// # Errors
-    /// See [`MethodologyError`]. Propagates
-    /// [`MethodologyError::IllegalTaskTransition`] if the task is in a
-    /// state that cannot accept a guard event.
+    /// See [`MethodologyError`].
     pub async fn mark_task_guard_satisfied(
         &self,
         scope: &CapabilityScope,
@@ -390,6 +427,24 @@ impl MethodologyService {
                 .await?;
                 Ok(AckResponse::current())
             },
+        )
+        .await
+    }
+
+    /// Param-struct wrapper so transports can dispatch from a single
+    /// compile-time registry.
+    pub async fn mark_task_guard_satisfied_with_params(
+        &self,
+        scope: &CapabilityScope,
+        phase: &PhaseId,
+        params: MarkTaskGuardSatisfiedParams,
+    ) -> MethodologyResult<AckResponse> {
+        self.mark_task_guard_satisfied(
+            scope,
+            phase,
+            params.task_id,
+            params.guard,
+            params.idempotency_key,
         )
         .await
     }

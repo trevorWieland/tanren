@@ -21,7 +21,7 @@ use tanren_domain::methodology::spec::{
     DemoEnvironment, Spec, SpecDependencies, SpecRelevanceContext,
 };
 use tanren_domain::methodology::task::{
-    AcceptanceCriterion, RequiredGuard, Task, TaskOrigin, TaskStatus,
+    AcceptanceCriterion, RequiredGuard, Task, TaskAbandonDisposition, TaskOrigin, TaskStatus,
 };
 use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId, SpecId, TaskId};
 
@@ -246,7 +246,9 @@ fn lifecycle_events(f: &Fixtures) -> Vec<MethodologyEvent> {
             task_id: f.task_id,
             spec_id: f.spec_id,
             reason: ne("abandoned"),
+            disposition: TaskAbandonDisposition::Replacement,
             replacements: vec![],
+            explicit_user_discard_provenance: None,
         }),
         MethodologyEvent::TaskRevised(TaskRevised {
             task_id: f.task_id,

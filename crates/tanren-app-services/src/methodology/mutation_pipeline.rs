@@ -15,7 +15,7 @@ use tanren_domain::methodology::evidence::{
     AuditFrontmatter, DemoFrontmatter, InvestigationReport, SignpostsFrontmatter, SpecFrontmatter,
 };
 use tanren_domain::methodology::phase_id::PhaseId;
-use tanren_domain::{NonEmptyString, SpecId};
+use tanren_domain::{EventId, NonEmptyString, SpecId};
 
 use super::enforcement::{EnforcementGuard, ProtectedPath, ProtectionMode};
 use super::errors::{MethodologyError, MethodologyResult};
@@ -53,7 +53,10 @@ pub async fn finalize_mutation_session(
         NonEmptyString::try_new(agent_session_id).map_err(MethodologyError::Domain)?;
 
     if let Some(guard) = guard {
-        let edits = guard.verify_and_exit()?;
+        let append_expectations =
+            projected_phase_event_append_expectations(service, spec_id, spec_folder, &guard)
+                .await?;
+        let edits = guard.verify_and_exit_with_append_expectations(&append_expectations)?;
         for edit in edits {
             service
                 .emit_event(
@@ -71,6 +74,83 @@ pub async fn finalize_mutation_session(
     }
 
     validate_evidence_files(service, phase, spec_id, spec_folder).await
+}
+
+async fn projected_phase_event_append_expectations(
+    service: &MethodologyService,
+    spec_id: SpecId,
+    spec_folder: &Path,
+    guard: &EnforcementGuard,
+) -> MethodologyResult<std::collections::BTreeMap<std::path::PathBuf, Vec<String>>> {
+    let phase_events_path = spec_folder.join("phase-events.jsonl");
+    let Some(delta) = guard.append_only_delta(&phase_events_path)? else {
+        return Ok(std::collections::BTreeMap::new());
+    };
+    if delta.appended_lines.is_empty() {
+        let mut out = std::collections::BTreeMap::new();
+        out.insert(phase_events_path, Vec::new());
+        return Ok(out);
+    }
+
+    let mut baseline_event_ids = std::collections::HashSet::new();
+    for line in &delta.baseline_lines {
+        let Some(event_id) = parse_event_id_from_line_json(line) else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+        baseline_event_ids.insert(event_id);
+    }
+
+    let mut appended_event_ids = Vec::with_capacity(delta.appended_lines.len());
+    let mut seen_append_event_ids = std::collections::HashSet::new();
+    for line in &delta.appended_lines {
+        let Some(event_id) = parse_event_id_from_line_json(line) else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+        if baseline_event_ids.contains(&event_id) || !seen_append_event_ids.insert(event_id) {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        appended_event_ids.push(event_id);
+    }
+
+    let spec_folder_raw = spec_folder.to_string_lossy().to_string();
+    let projected = service
+        .store()
+        .load_projected_phase_event_outbox_by_event_ids(
+            spec_id,
+            &spec_folder_raw,
+            &appended_event_ids,
+        )
+        .await?;
+
+    let projected_by_id: std::collections::HashMap<EventId, String> = projected
+        .into_iter()
+        .map(|row| (row.event_id, row.line_json))
+        .collect();
+
+    let mut lines = Vec::with_capacity(delta.appended_lines.len());
+    for (event_id, observed_line) in appended_event_ids.into_iter().zip(delta.appended_lines) {
+        let Some(projected_line) = projected_by_id.get(&event_id) else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+        let Some(projected_event_id) = parse_event_id_from_line_json(projected_line) else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+        if projected_event_id != event_id || projected_line != &observed_line {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        lines.push(projected_line.clone());
+    }
+
+    let mut out = std::collections::BTreeMap::new();
+    out.insert(phase_events_path, lines);
+    Ok(out)
+}
+
+fn parse_event_id_from_line_json(line_json: &str) -> Option<EventId> {
+    let value: serde_json::Value = serde_json::from_str(line_json).ok()?;
+    let event_id_raw = value.get("event_id").and_then(serde_json::Value::as_str)?;
+    let event_id_uuid = uuid::Uuid::parse_str(event_id_raw).ok()?;
+    Some(EventId::from_uuid(event_id_uuid))
 }
 
 fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
@@ -196,242 +276,4 @@ async fn emit_evidence_schema_error(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    use tanren_domain::events::DomainEvent;
-    use tanren_domain::methodology::events::MethodologyEvent;
-    use tanren_store::{EventFilter, EventStore, Store};
-
-    async fn mk_service() -> (MethodologyService, SpecId) {
-        let store = Store::open_and_migrate("sqlite::memory:")
-            .await
-            .expect("open");
-        let spec_id = SpecId::new();
-        let runtime = crate::methodology::service::PhaseEventsRuntime {
-            spec_id,
-            spec_folder: std::env::temp_dir().join(format!(
-                "tanren-methodology-mutation-pipeline-{}",
-                uuid::Uuid::now_v7()
-            )),
-            agent_session_id: "test-session".into(),
-        };
-        (
-            MethodologyService::with_runtime(Arc::new(store), vec![], Some(runtime), vec![]),
-            spec_id,
-        )
-    }
-
-    #[tokio::test]
-    async fn finalize_emits_unauthorized_edit_and_reverts_file() {
-        #[cfg(unix)]
-        use std::os::unix::fs::PermissionsExt;
-
-        let (service, spec_id) = mk_service().await;
-        let root = tempfile::tempdir().expect("tempdir");
-        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
-        std::fs::create_dir_all(&spec_folder).expect("mkdir");
-        let plan = spec_folder.join("plan.md");
-        std::fs::write(&plan, "original\n").expect("seed");
-
-        let guard = enter_mutation_session(&spec_folder).expect("enter");
-        #[cfg(unix)]
-        std::fs::set_permissions(&plan, std::fs::Permissions::from_mode(0o644))
-            .expect("unlock protected file to simulate unauthorized agent edit");
-        std::fs::write(&plan, "mutated\n").expect("mutate");
-        let phase = PhaseId::try_new("do-task").expect("phase");
-
-        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-1", guard)
-            .await
-            .expect("finalize");
-
-        let on_disk = std::fs::read_to_string(&plan).expect("read");
-        assert_eq!(on_disk, "original\n", "postflight must revert edits");
-
-        let events = service
-            .store()
-            .query_events(&EventFilter {
-                event_type: Some("methodology".into()),
-                limit: 100,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query");
-        assert!(events.events.into_iter().any(|env| matches!(
-            env.payload,
-            DomainEvent::Methodology {
-                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
-            }
-        )));
-    }
-
-    #[tokio::test]
-    async fn finalize_reverts_newly_created_protected_artifact() {
-        let (service, spec_id) = mk_service().await;
-        let root = tempfile::tempdir().expect("tempdir");
-        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
-        std::fs::create_dir_all(&spec_folder).expect("mkdir");
-
-        let guard = enter_mutation_session(&spec_folder).expect("enter");
-        let created = spec_folder.join("plan.md");
-        std::fs::write(&created, "created during session\n").expect("create");
-        let phase = PhaseId::try_new("do-task").expect("phase");
-
-        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-3", guard)
-            .await
-            .expect("finalize");
-
-        assert!(
-            !created.exists(),
-            "postflight must remove newly created protected artifacts"
-        );
-
-        let events = service
-            .store()
-            .query_events(&EventFilter {
-                event_type: Some("methodology".into()),
-                limit: 100,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query");
-        assert!(events.events.into_iter().any(|env| matches!(
-            env.payload,
-            DomainEvent::Methodology {
-                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
-            }
-        )));
-    }
-
-    #[tokio::test]
-    async fn finalize_reverts_newly_created_protected_index_artifact() {
-        let (service, spec_id) = mk_service().await;
-        let root = tempfile::tempdir().expect("tempdir");
-        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
-        std::fs::create_dir_all(&spec_folder).expect("mkdir");
-
-        let guard = enter_mutation_session(&spec_folder).expect("enter");
-        let created = spec_folder.join("tool-index.json");
-        std::fs::write(&created, "{\"generated\":true}\n").expect("create");
-        let phase = PhaseId::try_new("do-task").expect("phase");
-
-        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-4", guard)
-            .await
-            .expect("finalize");
-
-        assert!(
-            !created.exists(),
-            "postflight must remove newly created protected index artifacts"
-        );
-
-        let events = service
-            .store()
-            .query_events(&EventFilter {
-                event_type: Some("methodology".into()),
-                limit: 100,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query");
-        assert!(events.events.into_iter().any(|env| matches!(
-            env.payload,
-            DomainEvent::Methodology {
-                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
-            }
-        )));
-    }
-
-    #[tokio::test]
-    async fn finalize_allows_append_only_growth_for_phase_events() {
-        let (service, spec_id) = mk_service().await;
-        let root = tempfile::tempdir().expect("tempdir");
-        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
-        std::fs::create_dir_all(&spec_folder).expect("mkdir");
-        let phase_events = spec_folder.join("phase-events.jsonl");
-        std::fs::write(&phase_events, "{\"seed\":1}\n").expect("seed");
-
-        let guard = enter_mutation_session(&spec_folder).expect("enter");
-        std::fs::write(&phase_events, "{\"seed\":1}\n{\"next\":2}\n").expect("append");
-        let phase = PhaseId::try_new("do-task").expect("phase");
-
-        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-5", guard)
-            .await
-            .expect("finalize");
-        let on_disk = std::fs::read_to_string(&phase_events).expect("read phase-events");
-        assert!(
-            on_disk.contains("{\"next\":2}"),
-            "append-only growth should be preserved"
-        );
-    }
-
-    #[tokio::test]
-    async fn finalize_reverts_non_append_only_phase_events_edits() {
-        let (service, spec_id) = mk_service().await;
-        let root = tempfile::tempdir().expect("tempdir");
-        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
-        std::fs::create_dir_all(&spec_folder).expect("mkdir");
-        let phase_events = spec_folder.join("phase-events.jsonl");
-        std::fs::write(&phase_events, "{\"seed\":1}\n{\"next\":2}\n").expect("seed");
-
-        let guard = enter_mutation_session(&spec_folder).expect("enter");
-        std::fs::write(&phase_events, "{\"seed\":9}\n{\"next\":2}\n").expect("mutate");
-        let phase = PhaseId::try_new("do-task").expect("phase");
-
-        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-6", guard)
-            .await
-            .expect("finalize");
-        let on_disk = std::fs::read_to_string(&phase_events).expect("read phase-events");
-        assert_eq!(
-            on_disk, "{\"seed\":1}\n{\"next\":2}\n",
-            "non-append edits should be reverted"
-        );
-        let events = service
-            .store()
-            .query_events(&EventFilter {
-                event_type: Some("methodology".into()),
-                limit: 100,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query");
-        assert!(events.events.into_iter().any(|env| matches!(
-            env.payload,
-            DomainEvent::Methodology {
-                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
-            }
-        )));
-    }
-
-    #[tokio::test]
-    async fn malformed_evidence_emits_schema_error_and_fails_closed() {
-        let (service, spec_id) = mk_service().await;
-        let root = tempfile::tempdir().expect("tempdir");
-        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
-        std::fs::create_dir_all(&spec_folder).expect("mkdir");
-        std::fs::write(spec_folder.join("audit.md"), "not-frontmatter\n").expect("write");
-        let phase = PhaseId::try_new("audit-task").expect("phase");
-
-        let err =
-            finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-2", None)
-                .await
-                .expect_err("malformed evidence must fail");
-        assert!(matches!(err, MethodologyError::EvidenceSchema { .. }));
-
-        let events = service
-            .store()
-            .query_events(&EventFilter {
-                event_type: Some("methodology".into()),
-                limit: 100,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query");
-        assert!(events.events.into_iter().any(|env| matches!(
-            env.payload,
-            DomainEvent::Methodology {
-                event: MethodologyEvent::EvidenceSchemaError(_)
-            }
-        )));
-    }
-}
+mod tests;

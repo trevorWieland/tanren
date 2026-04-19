@@ -25,6 +25,13 @@ pub struct PhaseEventOutboxEntry {
     pub attempt_count: u32,
 }
 
+/// One projected row used by strict append-only verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhaseEventProjectedOutboxEntry {
+    pub event_id: EventId,
+    pub line_json: String,
+}
+
 /// Extra outbox payload written alongside one methodology event append.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppendPhaseEventOutboxParams {
@@ -117,6 +124,42 @@ impl Store {
                 spec_folder: row.spec_folder,
                 line_json: row.line_json,
                 attempt_count,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Load projected outbox rows for specific event ids.
+    ///
+    /// # Errors
+    /// Returns a store/database error on query failure.
+    pub async fn load_projected_phase_event_outbox_by_event_ids(
+        &self,
+        spec_id: SpecId,
+        spec_folder: &str,
+        event_ids: &[EventId],
+    ) -> StoreResult<Vec<PhaseEventProjectedOutboxEntry>> {
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let event_ids: Vec<uuid::Uuid> = event_ids
+            .iter()
+            .map(|event_id| event_id.into_uuid())
+            .collect();
+        let rows = methodology_phase_event_outbox::Entity::find()
+            .filter(methodology_phase_event_outbox::Column::Status.eq(OUTBOX_STATUS_PROJECTED))
+            .filter(methodology_phase_event_outbox::Column::SpecId.eq(spec_id.into_uuid()))
+            .filter(methodology_phase_event_outbox::Column::SpecFolder.eq(spec_folder))
+            .filter(methodology_phase_event_outbox::Column::EventId.is_in(event_ids))
+            .order_by_asc(methodology_phase_event_outbox::Column::CreatedAt)
+            .order_by_asc(methodology_phase_event_outbox::Column::EventId)
+            .all(self.conn())
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            out.push(PhaseEventProjectedOutboxEntry {
+                event_id: EventId::from_uuid(row.event_id),
+                line_json: row.line_json,
             });
         }
         Ok(out)

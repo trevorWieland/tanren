@@ -87,8 +87,9 @@ All other spec-loop phases are autonomous. The escalation ladder
 ### 2.2 Invariants
 
 - `Complete` is **terminal**. No event may transition out of it.
-- `Abandoned` requires either replacement task ids or an explicit user
-  discard recorded via `resolve-blockers`.
+- `Abandoned` requires a typed disposition:
+  `replacement` (with non-empty replacement task ids) or
+  `explicit_user_discard` (with typed `resolve-blockers` provenance).
 - Required-guard set is config-defined:
   ```yaml
   methodology:
@@ -295,15 +296,17 @@ the investigate session.
 
 Orchestrator-owned files (`plan.md`, `progress.json`, generated
 indexes, `phase-events.jsonl`) cannot be edited by agents.
-`phase-events.jsonl` is append-only via typed tools. Three-layer
+`phase-events.jsonl` is append-only via typed tools, and appended lines
+must exactly match projected outbox rows for the active session.
+Three-layer
 enforcement:
 
 1. **Prompt banner** — `{{READONLY_ARTIFACT_BANNER}}` renders
    into every agent prompt:
    > ⚠️ The following files are orchestrator-owned. Any edits will
    > be reverted and recorded as an `UnauthorizedArtifactEdit` event:
-   > plan.md, progress.json. `phase-events.jsonl` is append-only via
-   > tools and non-append edits are reverted.
+   > plan.md, progress.json. `phase-events.jsonl` appends are only
+   > accepted when they match service-projected outbox events.
 2. **Filesystem `chmod 0444`** — set on agent session start for
    read-only artifacts (`plan.md`, `progress.json`, generated
    indexes); append-only artifacts keep write mode so orchestrator
@@ -346,7 +349,7 @@ Lane 0.5's orchestration flow composes with Lane 0.4's dispatch CRUD:
 | Implemented | TaskAdherent | Implemented+adherent | adherence outcome = pass, zero fix_now |
 | Implemented | TaskXChecked(guard) | Implemented+guard | guard outcome = pass |
 | Implemented+(all required) | TaskCompleted | Complete | — |
-| * (non-terminal) | TaskAbandoned | Abandoned | replacements or user discard |
+| * (non-terminal) | TaskAbandoned | Abandoned | typed disposition + required provenance |
 | * (non-terminal) | TaskRevised | same state | mutates description only |
 
 All other event/state pairs are illegal and rejected by the service

@@ -3,16 +3,22 @@ use std::sync::Arc;
 use tanren_app_services::methodology::service::PhaseEventsRuntime;
 use tanren_app_services::methodology::{
     CapabilityScope, MethodologyError, MethodologyService, PhaseEventLine, PhaseId,
+    line_for_envelope,
 };
 use tanren_contract::methodology::{
-    CompleteTaskParams, CreateTaskParams, ReportPhaseOutcomeParams, SchemaVersion, StartTaskParams,
+    AbandonTaskParams, CompleteTaskParams, CreateTaskParams, ReportPhaseOutcomeParams,
+    SchemaVersion, StartTaskParams,
 };
+use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::capability::ToolCapability;
-use tanren_domain::methodology::events::MethodologyEvent;
+use tanren_domain::methodology::events::{MethodologyEvent, TaskStarted};
 use tanren_domain::methodology::phase_outcome::PhaseOutcome;
-use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin};
-use tanren_domain::{NonEmptyString, SpecId, TaskId};
+use tanren_domain::methodology::task::{
+    ExplicitUserDiscardProvenance, RequiredGuard, TaskAbandonDisposition, TaskOrigin,
+};
+use tanren_domain::{EntityRef, EventId, NonEmptyString, SpecId, TaskId};
 use tanren_store::Store;
+use tanren_store::methodology::AppendPhaseEventOutboxParams;
 
 fn phase(tag: &str) -> PhaseId {
     PhaseId::try_new(tag).expect("phase")
@@ -96,6 +102,9 @@ fn phase_events(svc: &MethodologyService) -> Vec<PhaseEventLine> {
         .collect()
 }
 
+#[path = "methodology_phase_outcome_contract/abandon_disposition.rs"]
+mod abandon_disposition;
+
 #[tokio::test]
 async fn report_phase_outcome_complete_bridges_task_guard_and_completion() {
     let spec_id = SpecId::new();
@@ -130,7 +139,7 @@ async fn report_phase_outcome_complete_bridges_task_guard_and_completion() {
 
     let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
         svc.store(),
-        tanren_domain::EntityRef::Task(task_id),
+        EntityRef::Task(task_id),
         Some(spec_id),
         100,
     )
@@ -342,5 +351,96 @@ async fn projection_fail_closed_then_reconcile_recovers_without_duplicates() {
             .count(),
         1,
         "second reconcile must not append duplicates"
+    );
+}
+
+#[tokio::test]
+async fn drain_budget_does_not_fail_mutation_when_backlog_remains() {
+    let spec_id = SpecId::new();
+    let root = tempfile::tempdir().expect("tempdir");
+    let spec_folder = root
+        .path()
+        .join(format!("2026-01-01-0101-{spec_id}-outbox-backlog"));
+    std::fs::create_dir_all(&spec_folder).expect("mkdir spec folder");
+    let runtime = PhaseEventsRuntime {
+        spec_id,
+        spec_folder: spec_folder.clone(),
+        agent_session_id: "runtime-session-backlog".into(),
+    };
+    let svc = mk_service(vec![], runtime).await;
+    let phase = phase("shape-spec");
+    let phase_name = phase.as_str().to_owned();
+    let spec_folder_raw = spec_folder.to_string_lossy().to_string();
+
+    let backlog_rows = 2_080usize;
+    for _ in 0..backlog_rows {
+        let task_id = TaskId::new();
+        let envelope = EventEnvelope {
+            schema_version: tanren_domain::SCHEMA_VERSION,
+            event_id: EventId::new(),
+            timestamp: chrono::Utc::now(),
+            entity_ref: EntityRef::Task(task_id),
+            payload: DomainEvent::Methodology {
+                event: MethodologyEvent::TaskStarted(TaskStarted { task_id, spec_id }),
+            },
+        };
+        let line = line_for_envelope(
+            &envelope,
+            spec_id,
+            phase_name.as_str(),
+            "runtime-session-backlog",
+        )
+        .expect("project line");
+        let line_json = serde_json::to_string(&line).expect("line json");
+        svc.store()
+            .append_methodology_event_with_outbox(
+                &envelope,
+                Some(AppendPhaseEventOutboxParams {
+                    spec_id,
+                    spec_folder: spec_folder_raw.clone(),
+                    line_json,
+                }),
+            )
+            .await
+            .expect("seed outbox");
+    }
+
+    let result = svc
+        .create_task(
+            &scope(&[ToolCapability::TaskCreate]),
+            &phase,
+            CreateTaskParams {
+                schema_version: SchemaVersion::current(),
+                spec_id,
+                title: "mutation-under-backlog".into(),
+                description: String::new(),
+                parent_task_id: None,
+                depends_on: vec![],
+                origin: TaskOrigin::User,
+                acceptance_criteria: vec![],
+                idempotency_key: Some("backlog-mutation-success".into()),
+            },
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "mutation should succeed after durable append even when backlog remains: {result:?}"
+    );
+
+    let pending = svc
+        .store()
+        .load_pending_phase_event_outbox(Some(spec_id), 10_000)
+        .await
+        .expect("load pending");
+    assert!(
+        !pending.is_empty(),
+        "budgeted draining should leave pending rows under heavy backlog"
+    );
+
+    let phase_events = spec_folder.join("phase-events.jsonl");
+    let content = std::fs::read_to_string(phase_events).expect("phase events");
+    assert!(
+        !content.trim().is_empty(),
+        "drainer should still project a best-effort prefix of the backlog"
     );
 }

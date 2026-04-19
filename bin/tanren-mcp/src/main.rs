@@ -29,6 +29,7 @@ mod catalog;
 mod dispatch;
 mod handler;
 mod scope;
+mod tool_registry;
 
 #[tokio::main]
 async fn main() -> ExitCode {

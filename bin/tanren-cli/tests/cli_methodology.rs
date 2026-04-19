@@ -451,7 +451,9 @@ fn abandon_rejects_empty_replacements_and_trivial_reason() {
             "task",
             "abandon",
             "--json",
-            &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"reason\":\"no\",\"replacements\":[]}}"),
+            &format!(
+                "{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"reason\":\"no\",\"disposition\":\"replacement\",\"replacements\":[]}}"
+            ),
         ])
         .output()
         .expect("cli");

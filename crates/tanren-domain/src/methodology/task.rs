@@ -22,6 +22,22 @@ use crate::ids::{FindingId, SpecId, TaskId};
 use crate::methodology::phase_id::PhaseId;
 use crate::validated::NonEmptyString;
 
+/// Typed abandonment disposition for task terminalization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskAbandonDisposition {
+    #[default]
+    Replacement,
+    ExplicitUserDiscard,
+}
+
+/// Provenance required when a task is abandoned via explicit user discard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ExplicitUserDiscardProvenance {
+    ResolveBlockers { resolution_note: NonEmptyString },
+}
+
 /// Lifecycle state of a task, including which completion guards have
 /// been satisfied when the task is `Implemented`.
 ///
@@ -43,9 +59,13 @@ pub enum TaskStatus {
     Complete,
     /// Abandoned side-branch; replacement task(s) may reference this one.
     Abandoned {
+        #[serde(default)]
+        disposition: TaskAbandonDisposition,
         /// Tasks created to replace this one, if any.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         replacements: Vec<TaskId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        explicit_user_discard_provenance: Option<ExplicitUserDiscardProvenance>,
     },
 }
 
@@ -74,8 +94,9 @@ impl TaskStatus {
     /// is a no-op on the current state (e.g. `start_task` on an
     /// `InProgress` task), and `Err(IllegalTransition)` otherwise.
     ///
-    /// Terminal states (`Complete`, `Abandoned`) reject every
-    /// transition except the idempotent repeat of themselves.
+    /// Terminal states (`Complete`, `Abandoned`) reject every transition.
+    /// Call-level idempotency is provided by the methodology idempotency
+    /// reservation layer, not by allowing terminal-state re-transitions.
     ///
     /// # Errors
     /// Returns [`IllegalTransition`] when the attempted event is not
@@ -328,7 +349,9 @@ mod tests {
         assert!(TaskStatus::Complete.is_terminal());
         assert!(
             TaskStatus::Abandoned {
-                replacements: vec![]
+                disposition: TaskAbandonDisposition::Replacement,
+                replacements: vec![],
+                explicit_user_discard_provenance: None
             }
             .is_terminal()
         );
@@ -380,7 +403,9 @@ mod tests {
         assert_eq!(TaskStatus::Complete.tag(), "complete");
         assert_eq!(
             TaskStatus::Abandoned {
-                replacements: vec![]
+                disposition: TaskAbandonDisposition::Replacement,
+                replacements: vec![],
+                explicit_user_discard_provenance: None
             }
             .tag(),
             "abandoned"
@@ -408,5 +433,15 @@ mod tests {
             RequiredGuard::Extra("security_reviewed".into()).to_string(),
             "security_reviewed"
         );
+    }
+
+    #[test]
+    fn explicit_user_discard_provenance_roundtrip() {
+        let provenance = ExplicitUserDiscardProvenance::ResolveBlockers {
+            resolution_note: NonEmptyString::try_new("user chose to discard path").expect("note"),
+        };
+        let json = serde_json::to_string(&provenance).expect("serialize");
+        let back: ExplicitUserDiscardProvenance = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, provenance);
     }
 }
