@@ -127,7 +127,7 @@ types are canonical syntax.
 | `mark_task_guard_satisfied(task_id, guard, idempotency_key?)` | `task.complete` | Records one guard pass (`gate_checked`, `audited`, `adherent`, or extra guard) and emits `TaskCompleted` when required guards converge. |
 | `revise_task(task_id, revised_description, revised_acceptance, reason)` | `task.revise` | Mutate non-terminal task scope; emits `TaskRevised`. |
 | `abandon_task(task_id, reason, replacements[])` | `task.abandon` | Branch to `Abandoned` with replacement linkage. |
-| `list_tasks(filter?)` → `[Task]` | `task.read` | Query current spec's tasks. |
+| `list_tasks(filter?)` → `[Task]` | `task.read` | Query tasks for `filter.spec_id` when supplied; otherwise query the current bound session spec. |
 
 ### 3.2 Findings and rubric
 
@@ -294,7 +294,10 @@ worker reconciliation from the same durable outbox rows.
 to the store via a validated replay-apply path
 (`tanren-store::methodology::replay::ingest_phase_events`) that
 checks canonical envelope shape, tool/payload consistency, task
-transition legality, and event-id idempotency. Produces the same
+transition legality, required provenance metadata (`origin_kind`,
+`caused_by_tool_call_id` for `tool_derived`), and event-id
+idempotency. Legacy lines without provenance are accepted only when
+the explicit legacy replay flag is enabled. Produces the same
 projections the live run would. Used for recovery and debugging.
 
 ---

@@ -85,10 +85,19 @@ impl MethodologyService {
         params: ListTasksParams,
     ) -> MethodologyResult<ListTasksResponse> {
         enforce(scope, ToolCapability::TaskRead, phase)?;
-        let Some(spec_id) = params.spec_id else {
-            return Err(MethodologyError::Validation(
-                "list_tasks requires spec_id at Lane 0.5 scope".into(),
-            ));
+        let spec_id = match params.spec_id {
+            Some(spec_id) => spec_id,
+            None => self
+                .phase_events_runtime()
+                .map(|runtime| runtime.spec_id)
+                .ok_or_else(|| MethodologyError::FieldValidation {
+                    field_path: "/spec_id".into(),
+                    expected:
+                        "spec_id in params or active session runtime with canonical spec_id".into(),
+                    actual: "missing".into(),
+                    remediation:
+                        "pass `spec_id` to list_tasks, or invoke it from a bound mutation session that sets TANREN_SPEC_ID".into(),
+                })?,
         };
         let tasks = tanren_store::methodology::projections::tasks_for_spec(
             self.store(),

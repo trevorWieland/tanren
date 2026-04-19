@@ -21,6 +21,7 @@ pub mod enforcement;
 pub mod errors;
 pub mod formats;
 pub mod installer;
+mod installer_diff;
 pub mod mutation_pipeline;
 pub mod phase_events;
 pub mod renderer;
@@ -59,6 +60,7 @@ pub use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 pub use tanren_domain::methodology::pillar::builtin_pillars;
 pub use tanren_domain::methodology::task::RequiredGuard;
 
+pub use tanren_store::methodology::{ReplayOptions, ingest_phase_events_with_options};
 /// Re-exported store-layer replay entry point so transports can
 /// drive `tanren replay` / `tanren ingest-phase-events` through a
 /// single `app-services` dep.

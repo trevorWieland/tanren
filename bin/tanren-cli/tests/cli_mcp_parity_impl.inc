@@ -204,7 +204,7 @@ fn cli_spec_updates(url: &str, spec_folder: &Path, spec_id: SpecId) {
         &c::SetSpecNonNegotiablesParams {
             schema_version: schema(),
             spec_id,
-            items: vec!["No regressions".into()],
+            items: vec![ne("No regressions")],
             idempotency_key: Some("parity-spec-nn".into()),
         },
     );
@@ -690,7 +690,7 @@ fn mcp_spec_and_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {
         &c::SetSpecNonNegotiablesParams {
             schema_version: schema(),
             spec_id,
-            items: vec!["No regressions".into()],
+            items: vec![ne("No regressions")],
             idempotency_key: Some("parity-spec-nn".into()),
         },
     );

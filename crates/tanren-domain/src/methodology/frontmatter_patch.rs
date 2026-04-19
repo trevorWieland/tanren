@@ -30,7 +30,7 @@ pub enum SpecFrontmatterPatch {
         title: NonEmptyString,
     },
     SetNonNegotiables {
-        items: Vec<String>,
+        items: Vec<NonEmptyString>,
     },
     AddAcceptanceCriterion {
         criterion: AcceptanceCriterion,

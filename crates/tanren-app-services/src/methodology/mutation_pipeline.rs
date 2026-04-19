@@ -6,7 +6,7 @@
 //! - session exit: revert unauthorized edits + emit events
 //! - postflight: validate evidence frontmatter schema + emit events
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tanren_domain::methodology::events::{
     EvidenceSchemaError, MethodologyEvent, UnauthorizedArtifactEdit,
@@ -17,7 +17,7 @@ use tanren_domain::methodology::evidence::{
 use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::{NonEmptyString, SpecId};
 
-use super::enforcement::EnforcementGuard;
+use super::enforcement::{EnforcementGuard, ProtectedPath, ProtectionMode};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::service::MethodologyService;
 
@@ -73,10 +73,20 @@ pub async fn finalize_mutation_session(
     validate_evidence_files(service, phase, spec_id, spec_folder).await
 }
 
-fn protected_artifacts(spec_folder: &Path) -> Vec<PathBuf> {
+fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
     let mut out = vec![
-        spec_folder.join("plan.md"),
-        spec_folder.join("progress.json"),
+        ProtectedPath {
+            path: spec_folder.join("plan.md"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
+            path: spec_folder.join("progress.json"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
+            path: spec_folder.join("phase-events.jsonl"),
+            mode: ProtectionMode::AppendOnly,
+        },
     ];
     if let Ok(entries) = std::fs::read_dir(spec_folder) {
         for entry in entries.flatten() {
@@ -95,12 +105,15 @@ fn protected_artifacts(spec_folder: &Path) -> Vec<PathBuf> {
                         ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("json")
                     })
             {
-                out.push(path);
+                out.push(ProtectedPath {
+                    path,
+                    mode: ProtectionMode::ReadOnly,
+                });
             }
         }
     }
-    out.sort();
-    out.dedup();
+    out.sort_by(|a, b| a.path.cmp(&b.path).then(a.mode.cmp(&b.mode)));
+    out.dedup_by(|a, b| a.path == b.path);
     out
 }
 
@@ -312,6 +325,67 @@ mod tests {
             "postflight must remove newly created protected index artifacts"
         );
 
+        let events = service
+            .store()
+            .query_events(&EventFilter {
+                event_type: Some("methodology".into()),
+                limit: 100,
+                ..EventFilter::new()
+            })
+            .await
+            .expect("query");
+        assert!(events.events.into_iter().any(|env| matches!(
+            env.payload,
+            DomainEvent::Methodology {
+                event: MethodologyEvent::UnauthorizedArtifactEdit(_)
+            }
+        )));
+    }
+
+    #[tokio::test]
+    async fn finalize_allows_append_only_growth_for_phase_events() {
+        let (service, spec_id) = mk_service().await;
+        let root = tempfile::tempdir().expect("tempdir");
+        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
+        std::fs::create_dir_all(&spec_folder).expect("mkdir");
+        let phase_events = spec_folder.join("phase-events.jsonl");
+        std::fs::write(&phase_events, "{\"seed\":1}\n").expect("seed");
+
+        let guard = enter_mutation_session(&spec_folder).expect("enter");
+        std::fs::write(&phase_events, "{\"seed\":1}\n{\"next\":2}\n").expect("append");
+        let phase = PhaseId::try_new("do-task").expect("phase");
+
+        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-5", guard)
+            .await
+            .expect("finalize");
+        let on_disk = std::fs::read_to_string(&phase_events).expect("read phase-events");
+        assert!(
+            on_disk.contains("{\"next\":2}"),
+            "append-only growth should be preserved"
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_reverts_non_append_only_phase_events_edits() {
+        let (service, spec_id) = mk_service().await;
+        let root = tempfile::tempdir().expect("tempdir");
+        let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
+        std::fs::create_dir_all(&spec_folder).expect("mkdir");
+        let phase_events = spec_folder.join("phase-events.jsonl");
+        std::fs::write(&phase_events, "{\"seed\":1}\n{\"next\":2}\n").expect("seed");
+
+        let guard = enter_mutation_session(&spec_folder).expect("enter");
+        std::fs::write(&phase_events, "{\"seed\":9}\n{\"next\":2}\n").expect("mutate");
+        let phase = PhaseId::try_new("do-task").expect("phase");
+
+        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-6", guard)
+            .await
+            .expect("finalize");
+        let on_disk = std::fs::read_to_string(&phase_events).expect("read phase-events");
+        assert_eq!(
+            on_disk, "{\"seed\":1}\n{\"next\":2}\n",
+            "non-append edits should be reverted"
+        );
         let events = service
             .store()
             .query_events(&EventFilter {

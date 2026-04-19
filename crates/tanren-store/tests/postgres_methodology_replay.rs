@@ -44,6 +44,7 @@ fn line_json(
         "phase": "do-task",
         "agent_session_id": "session-1",
         "timestamp": Utc::now(),
+        "origin_kind": "tool_primary",
         "tool": tool,
         "payload": event,
     }))

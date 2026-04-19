@@ -294,15 +294,20 @@ the investigate session.
 ## 7. Artifact edit enforcement
 
 Orchestrator-owned files (`plan.md`, `progress.json`, generated
-indexes) cannot be edited by agents. Three-layer enforcement:
+indexes, `phase-events.jsonl`) cannot be edited by agents.
+`phase-events.jsonl` is append-only via typed tools. Three-layer
+enforcement:
 
 1. **Prompt banner** — `{{READONLY_ARTIFACT_BANNER}}` renders
    into every agent prompt:
    > ⚠️ The following files are orchestrator-owned. Any edits will
    > be reverted and recorded as an `UnauthorizedArtifactEdit` event:
-   > plan.md, progress.json.
-2. **Filesystem `chmod 0444`** — set on agent session start;
-   restored on exit.
+   > plan.md, progress.json. `phase-events.jsonl` is append-only via
+   > tools and non-append edits are reverted.
+2. **Filesystem `chmod 0444`** — set on agent session start for
+   read-only artifacts (`plan.md`, `progress.json`, generated
+   indexes); append-only artifacts keep write mode so orchestrator
+   outbox projection can append.
 3. **Postflight diff + auto-revert** — diff each file against its
    pre-phase snapshot; mismatches are reverted and emit
    `UnauthorizedArtifactEdit { file, diff_preview, phase, agent_session }`.

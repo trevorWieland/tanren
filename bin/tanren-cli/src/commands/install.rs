@@ -23,7 +23,8 @@ use tanren_app_services::methodology::formats::{
     claude_mcp_json, codex_config_toml, opencode_json,
 };
 use tanren_app_services::methodology::installer::{
-    DriftEntry, InstallPlan, PlannedWrite, apply_install, drift, plan_install_from_root,
+    DriftEntry, DriftReason, InstallPlan, PlannedWrite, apply_install, drift,
+    plan_install_from_root,
 };
 use tanren_app_services::methodology::{RequiredGuard, builtin_pillars};
 
@@ -109,7 +110,13 @@ pub(crate) struct PlannedSummary {
 #[derive(Debug, Serialize)]
 pub(crate) struct DriftSummary {
     pub dest: PathBuf,
-    pub reason: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unified_diff: Option<String>,
 }
 
 /// Run the install, printing a JSON summary on stdout and returning
@@ -275,7 +282,8 @@ fn build_context(
         .or_insert_with(|| {
             "⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT: \
              plan.md and progress.json are generated from the typed task \
-             store. Postflight reverts unauthorized edits and emits an \
+             store. phase-events.jsonl is append-only via typed tools. \
+             Postflight reverts unauthorized edits and emits an \
              UnauthorizedArtifactEdit event."
                 .into()
         });
@@ -379,9 +387,28 @@ fn summarize_plan(plan: &InstallPlan) -> Vec<PlannedSummary> {
 }
 
 fn drift_summary(d: &DriftEntry) -> DriftSummary {
-    DriftSummary {
-        dest: d.dest.clone(),
-        reason: format!("{:?}", d.reason),
+    match &d.reason {
+        DriftReason::Missing => DriftSummary {
+            dest: d.dest.clone(),
+            kind: "missing".into(),
+            expected_sha256: None,
+            actual_sha256: None,
+            unified_diff: None,
+        },
+        DriftReason::ExtraFile => DriftSummary {
+            dest: d.dest.clone(),
+            kind: "extra_file".into(),
+            expected_sha256: None,
+            actual_sha256: None,
+            unified_diff: None,
+        },
+        DriftReason::Differs(diff) => DriftSummary {
+            dest: d.dest.clone(),
+            kind: "differs".into(),
+            expected_sha256: Some(diff.expected_sha256.clone()),
+            actual_sha256: Some(diff.actual_sha256.clone()),
+            unified_diff: Some(diff.unified_diff.clone()),
+        },
     }
 }
 

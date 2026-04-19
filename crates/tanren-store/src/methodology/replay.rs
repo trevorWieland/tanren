@@ -1,21 +1,12 @@
-//! JSONL replay — ingest a phase-events.jsonl file into the event log.
-//!
-//! Each line is one canonical `phase-events.jsonl` envelope matching
-//! `docs/architecture/agent-tool-surface.md` §6. Replay validates:
-//!
-//! - line shape + typed payload decode,
-//! - line/payload `spec_id` consistency,
-//! - line `tool` consistency with payload variant,
-//! - task-transition legality on the current store state, and
-//! - idempotency by `event_id` dedupe.
-//!
-//! This module owns parse + validated apply only; the actual
-//! phase-events projection write path remains in app-services.
+//! JSONL replay for `phase-events.jsonl`.
+//! Validates envelope shape, provenance/tool/spec consistency, and task-transition legality,
+//! then atomically appends a deduped staged set to the event log.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use tanren_domain::events::{DomainEvent, EventEnvelope, SCHEMA_VERSION};
 use tanren_domain::methodology::event_tool::{
     PhaseEventOriginKind, canonical_tool_for_event, is_tool_allowed_for_event,
@@ -25,12 +16,12 @@ use tanren_domain::methodology::task::{RequiredGuard, TaskStatus, TaskTransition
 use tanren_domain::{EntityRef, EventId, SpecId, TaskId};
 
 use crate::Store;
+use crate::converters::events as event_converters;
 use crate::entity::events;
 use crate::errors::StoreError;
 use crate::methodology::projections;
 use tokio::io::AsyncBufReadExt;
 
-/// Result statistics returned by [`ingest_phase_events`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReplayStats {
     pub lines_read: usize,
@@ -38,7 +29,13 @@ pub struct ReplayStats {
     pub events_skipped_duplicate_event_id: usize,
 }
 
-/// Typed error returned when replay fails.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ReplayOptions {
+    /// When true, allow legacy lines that omit provenance metadata.
+    /// Default is false: origin metadata is required by schema.
+    pub allow_legacy_provenance: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ReplayError {
     #[error("I/O error reading {path}: {source}")]
@@ -77,6 +74,8 @@ pub enum ReplayError {
         expected: String,
         actual: String,
     },
+    #[error("missing origin_kind at {path}:{line}")]
+    MissingOriginKind { path: PathBuf, line: usize },
     #[error("missing caused_by_tool_call_id for origin `{origin}` at {path}:{line}")]
     MissingCausedByToolCall {
         path: PathBuf,
@@ -116,7 +115,6 @@ pub enum ReplayError {
     },
 }
 
-/// Canonical `phase-events.jsonl` line envelope.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct PhaseEventLine {
     event_id: EventId,
@@ -132,18 +130,21 @@ struct PhaseEventLine {
     payload: MethodologyEvent,
 }
 
-/// Ingest a canonical `phase-events.jsonl` file into the store.
-///
-/// The operation is not transactional across lines — a mid-file
-/// failure leaves already-appended events in the store. Replay is
-/// idempotent by event-id dedupe.
-///
-/// # Errors
-/// See [`ReplayError`].
+/// Ingest `phase-events.jsonl` into the store with strict replay defaults.
 pub async fn ingest_phase_events(
     store: &Store,
     path: &Path,
     required_guards: &[RequiredGuard],
+) -> Result<ReplayStats, ReplayError> {
+    ingest_phase_events_with_options(store, path, required_guards, ReplayOptions::default()).await
+}
+
+/// Ingest with explicit replay options.
+pub async fn ingest_phase_events_with_options(
+    store: &Store,
+    path: &Path,
+    required_guards: &[RequiredGuard],
+    options: ReplayOptions,
 ) -> Result<ReplayStats, ReplayError> {
     let file = tokio::fs::File::open(path)
         .await
@@ -154,6 +155,11 @@ pub async fn ingest_phase_events(
     let mut reader = tokio::io::BufReader::new(file);
 
     let mut stats = ReplayStats::default();
+    let mut ingest_state = IngestState {
+        staged: Vec::new(),
+        seen_event_ids: HashSet::new(),
+        task_state: TaskValidationState::default(),
+    };
     let mut line_buf = String::new();
     loop {
         line_buf.clear();
@@ -180,31 +186,57 @@ pub async fn ingest_phase_events(
                 reason: source.to_string(),
                 raw: line.to_owned(),
             })?;
-        match ingest_one_line(store, path, line_no, parsed, required_guards).await? {
+        match ingest_one_line(
+            store,
+            path,
+            required_guards,
+            options,
+            line_no,
+            parsed,
+            &mut ingest_state,
+        )
+        .await?
+        {
             LineIngestOutcome::SkippedDuplicate => {
                 stats.events_skipped_duplicate_event_id += 1;
             }
-            LineIngestOutcome::Appended => {
+            LineIngestOutcome::Staged => {
                 stats.events_appended += 1;
             }
         }
     }
+    append_staged_atomic(store, &ingest_state.staged).await?;
     Ok(stats)
 }
 
 enum LineIngestOutcome {
     SkippedDuplicate,
-    Appended,
+    Staged,
+}
+
+#[derive(Debug, Default)]
+struct TaskValidationState {
+    by_task: HashMap<TaskId, Vec<MethodologyEvent>>,
+}
+
+struct IngestState {
+    staged: Vec<EventEnvelope>,
+    seen_event_ids: HashSet<EventId>,
+    task_state: TaskValidationState,
 }
 
 async fn ingest_one_line(
     store: &Store,
     path: &Path,
+    required_guards: &[RequiredGuard],
+    options: ReplayOptions,
     line_no: usize,
     parsed: PhaseEventLine,
-    required_guards: &[RequiredGuard],
+    ingest_state: &mut IngestState,
 ) -> Result<LineIngestOutcome, ReplayError> {
-    if event_id_exists(store, parsed.event_id).await? {
+    if ingest_state.seen_event_ids.contains(&parsed.event_id)
+        || event_id_exists(store, parsed.event_id).await?
+    {
         return Ok(LineIngestOutcome::SkippedDuplicate);
     }
 
@@ -233,33 +265,38 @@ async fn ingest_one_line(
             actual: parsed.tool,
         });
     }
-    validate_origin_metadata(path, line_no, &parsed)?;
+    validate_origin_metadata(path, line_no, &parsed, options)?;
     validate_task_transition(
         store,
-        &parsed.payload,
+        parsed.payload.clone(),
         parsed.spec_id,
         line_no,
         path,
         required_guards,
+        &mut ingest_state.task_state,
     )
     .await?;
     let envelope = replay_envelope(parsed);
-    store.append_methodology_event(&envelope).await?;
-    Ok(LineIngestOutcome::Appended)
+    ingest_state.seen_event_ids.insert(envelope.event_id);
+    ingest_state.staged.push(envelope);
+    Ok(LineIngestOutcome::Staged)
 }
 
 fn validate_origin_metadata(
     path: &Path,
     line_no: usize,
     parsed: &PhaseEventLine,
+    options: ReplayOptions,
 ) -> Result<(), ReplayError> {
-    let has_new_fields = parsed.origin_kind.is_some() || parsed.caused_by_tool_call_id.is_some();
-    if !has_new_fields {
-        return Ok(());
-    }
-    let origin_kind = parsed
-        .origin_kind
-        .unwrap_or_else(|| PhaseEventOriginKind::default_for_event(&parsed.payload));
+    let Some(origin_kind) = parsed.origin_kind else {
+        if options.allow_legacy_provenance && parsed.caused_by_tool_call_id.is_none() {
+            return Ok(());
+        }
+        return Err(ReplayError::MissingOriginKind {
+            path: path.to_path_buf(),
+            line: line_no,
+        });
+    };
     let is_system_event = matches!(
         parsed.payload,
         MethodologyEvent::UnauthorizedArtifactEdit(_) | MethodologyEvent::EvidenceSchemaError(_)
@@ -316,33 +353,44 @@ async fn event_id_exists(store: &Store, event_id: EventId) -> Result<bool, Repla
 
 async fn validate_task_transition(
     store: &Store,
-    event: &MethodologyEvent,
+    event: MethodologyEvent,
     spec_id: SpecId,
     line_no: usize,
     path: &Path,
     required_guards: &[RequiredGuard],
+    task_state: &mut TaskValidationState,
 ) -> Result<(), ReplayError> {
-    let Some((task_id, kind)) = task_transition_kind(event) else {
+    let Some((task_id, kind)) = task_transition_kind(&event) else {
         return Ok(());
     };
-    let existing = projections::load_methodology_events_for_entity(
-        store,
-        EntityRef::Task(task_id),
-        Some(spec_id),
-        1_000,
-    )
-    .await
-    .map_err(|source| match source {
-        projections::MethodologyEventFetchError::Store { source } => ReplayError::Store { source },
-    })?;
+    let needs_load = !task_state.by_task.contains_key(&task_id);
+    if needs_load {
+        let existing = projections::load_methodology_events_for_entity(
+            store,
+            EntityRef::Task(task_id),
+            Some(spec_id),
+            1_000,
+        )
+        .await
+        .map_err(|source| match source {
+            projections::MethodologyEventFetchError::Store { source } => {
+                ReplayError::Store { source }
+            }
+        })?;
+        task_state.by_task.entry(task_id).or_insert(existing);
+    }
+    let events = task_state
+        .by_task
+        .get(&task_id)
+        .expect("task cache populated");
 
-    let has_created = existing.iter().any(|ev| {
+    let has_created = events.iter().any(|ev| {
         matches!(
             ev,
             MethodologyEvent::TaskCreated(e) if e.task.id == task_id
         )
     });
-    match event {
+    match &event {
         MethodologyEvent::TaskCreated(_) => {
             if has_created {
                 return Err(ReplayError::DuplicateTaskCreate {
@@ -350,6 +398,9 @@ async fn validate_task_transition(
                     line: line_no,
                     task_id,
                 });
+            }
+            if let Some(events) = task_state.by_task.get_mut(&task_id) {
+                events.push(event);
             }
             return Ok(());
         }
@@ -367,10 +418,10 @@ async fn validate_task_transition(
     let current = tanren_domain::methodology::events::fold_task_status(
         task_id,
         required_guards,
-        existing.iter(),
+        events.iter(),
     )
     .unwrap_or(TaskStatus::Pending);
-    if matches!(event, MethodologyEvent::TaskCompleted(_))
+    if matches!(&event, MethodologyEvent::TaskCompleted(_))
         && !matches!(
             current,
             TaskStatus::Implemented { ref guards } if guards.satisfies(required_guards)
@@ -390,6 +441,34 @@ async fn validate_task_transition(
             task_id,
             from: e.from.to_owned(),
             attempted: e.attempted.to_owned(),
+        })?;
+    if let Some(events) = task_state.by_task.get_mut(&task_id) {
+        events.push(event);
+    }
+    Ok(())
+}
+
+async fn append_staged_atomic(store: &Store, staged: &[EventEnvelope]) -> Result<(), ReplayError> {
+    if staged.is_empty() {
+        return Ok(());
+    }
+    let mut rows = Vec::with_capacity(staged.len());
+    for envelope in staged {
+        rows.push(event_converters::envelope_to_active_model(envelope)?);
+    }
+    store
+        .conn()
+        .transaction::<_, (), StoreError>(move |txn| {
+            Box::pin(async move {
+                for row in rows {
+                    events::Entity::insert(row).exec(txn).await?;
+                }
+                Ok(())
+            })
+        })
+        .await
+        .map_err(|source| ReplayError::Store {
+            source: source.into(),
         })?;
     Ok(())
 }

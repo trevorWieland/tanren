@@ -1,12 +1,4 @@
-//! Integration tests for the Lane 0.5 audit-remediation changes.
-//!
-//! Coverage (maps 1:1 to audit findings):
-//! - config-driven required-guard set (#1)
-//! - discrete guard event taxonomy (#13)
-//! - idempotency_key field on guard events (#3)
-//! - `TaskCompleted` converges when config guards satisfied (#2)
-//! - relevance filter with explainable reasons (#5)
-//! - typed replay error preserved through the service boundary (#10)
+//! Integration tests for Lane 0.5 audit-remediation behavior.
 
 use std::sync::Arc;
 
@@ -378,6 +370,73 @@ async fn complete_task_with_empty_required_guards_completes_immediately() {
 }
 
 #[tokio::test]
+async fn list_tasks_without_spec_id_uses_runtime_spec() {
+    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let created = svc
+        .create_task(
+            &scope,
+            &phase("do-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "runtime list".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+
+    let listed = svc
+        .list_tasks(
+            &scope,
+            &phase("do-task"),
+            tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: None,
+            },
+        )
+        .await
+        .expect("list");
+    assert!(
+        listed.tasks.iter().any(|task| task.id == created.task_id),
+        "list_tasks without explicit spec_id should use runtime bound spec"
+    );
+}
+
+#[tokio::test]
+async fn list_tasks_without_spec_id_and_runtime_is_typed_error() {
+    let store = Arc::new(
+        Store::open_and_migrate("sqlite::memory:?cache=shared")
+            .await
+            .expect("open"),
+    );
+    let svc = MethodologyService::with_runtime(store, vec![], None, vec![]);
+    let err = svc
+        .list_tasks(
+            &admin_scope(),
+            &phase("do-task"),
+            tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: None,
+            },
+        )
+        .await
+        .expect_err("missing runtime and spec_id should fail");
+    assert!(matches!(
+        err,
+        tanren_app_services::methodology::MethodologyError::FieldValidation { ref field_path, .. }
+            if field_path == "/spec_id"
+    ));
+}
+
+#[tokio::test]
 async fn relevance_filter_explains_inclusion_by_touched_files() {
     let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
     let scope = admin_scope();
@@ -428,7 +487,6 @@ async fn relevance_filter_empty_inputs_returns_full_baseline() {
         .await
         .expect("baseline");
     assert!(!out.standards.is_empty());
-    // The fallback reason must identify this as the upper bound.
     assert!(
         out.standards
             .iter()

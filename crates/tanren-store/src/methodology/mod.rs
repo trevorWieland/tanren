@@ -17,4 +17,6 @@ pub use projections::{
     findings_for_task, load_methodology_events, rubric_for_spec, signposts_for_spec,
     tasks_for_spec,
 };
-pub use replay::{ReplayError, ReplayStats, ingest_phase_events};
+pub use replay::{
+    ReplayError, ReplayOptions, ReplayStats, ingest_phase_events, ingest_phase_events_with_options,
+};

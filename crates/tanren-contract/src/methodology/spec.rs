@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tanren_domain::SpecId;
 use tanren_domain::methodology::spec::{DemoEnvironment, SpecDependencies, SpecRelevanceContext};
 use tanren_domain::methodology::task::AcceptanceCriterion;
+use tanren_domain::validated::NonEmptyString;
 
 use super::SchemaVersion;
 
@@ -25,7 +26,7 @@ pub struct SetSpecTitleParams {
 pub struct SetSpecNonNegotiablesParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
-    pub items: Vec<String>,
+    pub items: Vec<NonEmptyString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
 }

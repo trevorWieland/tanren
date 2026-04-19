@@ -1,83 +1,14 @@
 //! Integration tests for the `tanren methodology …` tool surface.
 
+#[path = "support/methodology_test_support.rs"]
+mod methodology_test_support;
+
+use methodology_test_support::{
+    cli, mk_spec_folder, mkdb, parse_stderr, parse_stdout, write_legacy_phase_events_file,
+    write_phase_events_file,
+};
 use std::path::PathBuf;
-use std::process::Command;
-
-use assert_cmd::prelude::*;
-use serde_json::Value;
-use tanren_domain::methodology::events::{MethodologyEvent, TaskCreated};
-use tanren_domain::methodology::task::{Task, TaskOrigin, TaskStatus};
-use tanren_domain::{NonEmptyString, SpecId, TaskId};
-use tempfile::TempDir;
-fn mkdb() -> (TempDir, String) {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let db = dir.path().join("tanren.db");
-    let url = format!("sqlite:{}?mode=rwc", db.display());
-    Command::cargo_bin("tanren-cli")
-        .expect("bin")
-        .args(["--database-url", &url, "db", "migrate"])
-        .assert()
-        .success();
-    (dir, url)
-}
-
-fn mk_spec_folder(dir: &TempDir, spec_id: &str) -> PathBuf {
-    let path = dir.path().join(format!("2026-01-01-0101-{spec_id}-test"));
-    std::fs::create_dir_all(&path).expect("create spec folder");
-    path
-}
-
-fn cli(url: &str) -> Command {
-    let mut cmd = Command::cargo_bin("tanren-cli").expect("bin");
-    cmd.args(["--database-url", url]);
-    cmd.env("TANREN_CAPABILITY_OVERRIDE", "admin");
-    cmd
-}
-fn parse_stdout(out: &std::process::Output) -> Value {
-    let text = String::from_utf8_lossy(&out.stdout);
-    serde_json::from_str(&text).expect("stdout is JSON")
-}
-
-fn parse_stderr(out: &std::process::Output) -> Value {
-    let text = String::from_utf8_lossy(&out.stderr);
-    serde_json::from_str(&text).expect("stderr is JSON")
-}
-fn write_phase_events_file(folder: &std::path::Path, spec_id: SpecId) -> PathBuf {
-    let task = Task {
-        id: TaskId::new(),
-        spec_id,
-        title: NonEmptyString::try_new("replay task").expect("title"),
-        description: String::new(),
-        acceptance_criteria: vec![],
-        origin: TaskOrigin::User,
-        status: TaskStatus::Pending,
-        depends_on: vec![],
-        parent_task_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    };
-    let payload = MethodologyEvent::TaskCreated(TaskCreated {
-        task: Box::new(task),
-        origin: TaskOrigin::User,
-        idempotency_key: None,
-    });
-    let line = serde_json::json!({
-        "event_id": uuid::Uuid::now_v7(),
-        "spec_id": spec_id,
-        "phase": "do-task",
-        "agent_session_id": "session-1",
-        "timestamp": chrono::Utc::now(),
-        "tool": "create_task",
-        "payload": payload,
-    });
-    let path = folder.join("phase-events.jsonl");
-    std::fs::write(
-        &path,
-        format!("{}\n", serde_json::to_string(&line).expect("json")),
-    )
-    .expect("write phase-events");
-    path
-}
+use tanren_domain::SpecId;
 
 #[test]
 fn task_create_then_list_round_trips() {
@@ -356,6 +287,45 @@ fn replay_does_not_require_spec_folder() {
     assert!(
         out.status.success(),
         "replay should run without --spec-folder: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn ingest_phase_events_strict_provenance_rejects_legacy_lines() {
+    let (d, url) = mkdb();
+    let spec_id = SpecId::new();
+    let file = write_legacy_phase_events_file(d.path(), spec_id);
+    let out = cli(&url)
+        .args([
+            "methodology",
+            "ingest-phase-events",
+            file.to_str().expect("utf8"),
+        ])
+        .output()
+        .expect("cli");
+    assert_eq!(out.status.code(), Some(6));
+    let err = parse_stderr(&out);
+    assert_eq!(err["kind"].as_str(), Some("validation_failed"));
+}
+
+#[test]
+fn ingest_phase_events_legacy_flag_allows_legacy_lines() {
+    let (d, url) = mkdb();
+    let spec_id = SpecId::new();
+    let file = write_legacy_phase_events_file(d.path(), spec_id);
+    let out = cli(&url)
+        .args([
+            "methodology",
+            "ingest-phase-events",
+            file.to_str().expect("utf8"),
+            "--allow-legacy-provenance",
+        ])
+        .output()
+        .expect("cli");
+    assert!(
+        out.status.success(),
+        "legacy override should allow replay: {}",
         String::from_utf8_lossy(&out.stderr)
     );
 }

@@ -18,6 +18,7 @@ use tanren_domain::methodology::signpost::Signpost;
 use tanren_domain::methodology::task::{RequiredGuard, Task, TaskStatus};
 use tanren_domain::{EntityKind, EntityRef, FindingId, SpecId, TaskId};
 
+use crate::Store;
 use crate::event_store::EventStore;
 use crate::params::EventFilter;
 
@@ -275,50 +276,62 @@ pub async fn findings_for_task<S: EventStore>(
 ///
 /// # Errors
 /// See [`load_methodology_events`].
-pub async fn findings_by_ids<S: EventStore>(
-    store: &S,
+pub async fn findings_by_ids(
+    store: &Store,
     spec_id: SpecId,
     ids: &[FindingId],
 ) -> Result<Vec<Finding>, MethodologyEventFetchError> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let entity_refs: Vec<EntityRef> = ids.iter().copied().map(EntityRef::Finding).collect();
-    let mut cursor = None;
+    let chunk_size = entity_ref_chunk_size(store);
     let mut folded: std::collections::HashMap<FindingId, Finding> =
         std::collections::HashMap::new();
-    loop {
-        let filter = EventFilter {
-            entity_refs: Some(entity_refs.clone()),
-            spec_id: Some(spec_id),
-            event_type: Some("methodology".into()),
-            limit: METHODOLOGY_PAGE_SIZE,
-            cursor,
-            ..EventFilter::new()
-        };
-        let page = store.query_events(&filter).await?;
-        for env in page.events {
-            if let DomainEvent::Methodology { event } = env.payload {
-                match event {
-                    MethodologyEvent::FindingAdded(e) => {
-                        folded.insert(e.finding.id, *e.finding);
+    for chunk in ids.chunks(chunk_size) {
+        let entity_refs: Vec<EntityRef> = chunk.iter().copied().map(EntityRef::Finding).collect();
+        let mut cursor = None;
+        loop {
+            let filter = EventFilter {
+                entity_refs: Some(entity_refs.clone()),
+                spec_id: Some(spec_id),
+                event_type: Some("methodology".into()),
+                limit: METHODOLOGY_PAGE_SIZE,
+                cursor,
+                ..EventFilter::new()
+            };
+            let page = store.query_events(&filter).await?;
+            for env in page.events {
+                if let DomainEvent::Methodology { event } = env.payload {
+                    match event {
+                        MethodologyEvent::FindingAdded(e) => {
+                            folded.insert(e.finding.id, *e.finding);
+                        }
+                        MethodologyEvent::AdherenceFindingAdded(e) => {
+                            folded.insert(e.finding.id, *e.finding);
+                        }
+                        _ => {}
                     }
-                    MethodologyEvent::AdherenceFindingAdded(e) => {
-                        folded.insert(e.finding.id, *e.finding);
-                    }
-                    _ => {}
                 }
             }
+            if !page.has_more {
+                break;
+            }
+            cursor = page.next_cursor;
         }
-        if !page.has_more {
-            break;
-        }
-        cursor = page.next_cursor;
     }
     Ok(ids
         .iter()
         .filter_map(|id| folded.get(id).cloned())
         .collect::<Vec<_>>())
+}
+
+fn entity_ref_chunk_size(store: &Store) -> usize {
+    use sea_orm::ConnectionTrait;
+    match store.conn().get_database_backend() {
+        sea_orm::DbBackend::Sqlite => 800,
+        sea_orm::DbBackend::Postgres => 10_000,
+        sea_orm::DbBackend::MySql => 1_000,
+    }
 }
 
 /// Fold to adherence-only findings for a spec.

@@ -1,3 +1,6 @@
+#[path = "support/methodology_replay_support.rs"]
+mod methodology_replay_support;
+
 use chrono::Utc;
 use serde_json::json;
 use tanren_domain::methodology::event_tool::canonical_tool_for_event;
@@ -5,71 +8,16 @@ use tanren_domain::methodology::events::{
     FindingAdded, MethodologyEvent, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated,
     TaskGateChecked, TaskImplemented, TaskStarted,
 };
-use tanren_domain::methodology::finding::{Finding, FindingSeverity, FindingSource};
-use tanren_domain::methodology::phase_id::PhaseId;
-use tanren_domain::methodology::task::{RequiredGuard, Task, TaskOrigin, TaskStatus};
-use tanren_domain::{EntityKind, FindingId, NonEmptyString, SpecId, TaskId};
-use tanren_store::methodology::{ReplayError, ingest_phase_events};
-use tanren_store::{EventFilter, EventStore, Store};
+use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin};
+use tanren_domain::{EntityKind, FindingId, SpecId, TaskId};
+use tanren_store::methodology::{
+    ReplayError, ReplayOptions, ingest_phase_events, ingest_phase_events_with_options,
+};
+use tanren_store::{EventFilter, EventStore};
 
-async fn fresh_store() -> Store {
-    let store = Store::new("sqlite::memory:").await.expect("connect");
-    store.run_migrations().await.expect("migrate");
-    store
-}
-
-fn seed_task(spec_id: SpecId, task_id: TaskId) -> Task {
-    Task {
-        id: task_id,
-        spec_id,
-        title: NonEmptyString::try_new("t").expect("title"),
-        description: String::new(),
-        acceptance_criteria: vec![],
-        origin: TaskOrigin::User,
-        status: TaskStatus::Pending,
-        depends_on: vec![],
-        parent_task_id: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }
-}
-
-fn line_json(
-    spec_id: SpecId,
-    event_id: uuid::Uuid,
-    event: &MethodologyEvent,
-    tool: &str,
-) -> String {
-    line_json_with_attribution(spec_id, event_id, event, tool, None, None)
-}
-
-fn line_json_with_attribution(
-    spec_id: SpecId,
-    event_id: uuid::Uuid,
-    event: &MethodologyEvent,
-    tool: &str,
-    origin_kind: Option<&str>,
-    caused_by_tool_call_id: Option<&str>,
-) -> String {
-    let mut obj = serde_json::Map::new();
-    obj.insert("event_id".into(), json!(event_id));
-    obj.insert("spec_id".into(), json!(spec_id));
-    obj.insert("phase".into(), json!("do-task"));
-    obj.insert("agent_session_id".into(), json!("session-1"));
-    obj.insert("timestamp".into(), json!(Utc::now()));
-    obj.insert("tool".into(), json!(tool));
-    obj.insert("payload".into(), json!(event));
-    if let Some(origin_kind) = origin_kind {
-        obj.insert("origin_kind".into(), json!(origin_kind));
-    }
-    if let Some(caused_by_tool_call_id) = caused_by_tool_call_id {
-        obj.insert(
-            "caused_by_tool_call_id".into(),
-            json!(caused_by_tool_call_id),
-        );
-    }
-    serde_json::to_string(&serde_json::Value::Object(obj)).expect("serialize")
-}
+use self::methodology_replay_support::{
+    fresh_store, line_json, line_json_with_attribution, seed_finding, seed_task, temp_path,
+};
 
 #[tokio::test]
 async fn replay_rejects_tool_derived_without_causal_link() {
@@ -102,6 +50,83 @@ async fn replay_rejects_tool_derived_without_causal_link() {
         .await
         .expect_err("missing caused_by for derived origin must fail");
     assert!(matches!(err, ReplayError::MissingCausedByToolCall { .. }));
+}
+
+#[tokio::test]
+async fn replay_rejects_missing_origin_kind_by_default() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let event = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let path = temp_path("replay-missing-origin-kind");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string(&json!({
+                "event_id": uuid::Uuid::now_v7(),
+                "spec_id": spec_id,
+                "phase": "do-task",
+                "agent_session_id": "session-1",
+                "timestamp": Utc::now(),
+                "tool": canonical_tool_for_event(&event),
+                "payload": event,
+            }))
+            .expect("serialize")
+        ),
+    )
+    .expect("write");
+
+    let err = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect_err("missing origin_kind must fail in strict mode");
+    assert!(matches!(err, ReplayError::MissingOriginKind { .. }));
+}
+
+#[tokio::test]
+async fn replay_legacy_mode_accepts_missing_origin_kind() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let event = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let path = temp_path("replay-legacy-origin-kind");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string(&json!({
+                "event_id": uuid::Uuid::now_v7(),
+                "spec_id": spec_id,
+                "phase": "do-task",
+                "agent_session_id": "session-1",
+                "timestamp": Utc::now(),
+                "tool": canonical_tool_for_event(&event),
+                "payload": event,
+            }))
+            .expect("serialize")
+        ),
+    )
+    .expect("write");
+
+    let stats = ingest_phase_events_with_options(
+        &store,
+        &path,
+        &[RequiredGuard::GateChecked],
+        ReplayOptions {
+            allow_legacy_provenance: true,
+        },
+    )
+    .await
+    .expect("legacy replay");
+    assert_eq!(stats.events_appended, 1);
 }
 
 #[tokio::test]
@@ -168,30 +193,6 @@ async fn replay_accepts_tool_derived_with_causal_link() {
         .await
         .expect("replay");
     assert_eq!(stats.events_appended, 1);
-}
-
-fn temp_path(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("tanren-store-{name}-{}", uuid::Uuid::now_v7()));
-    std::fs::create_dir_all(&dir).expect("mkdir");
-    dir.join("phase-events.jsonl")
-}
-
-fn seed_finding(spec_id: SpecId, task_id: TaskId, id: FindingId, title: &str) -> Finding {
-    Finding {
-        id,
-        spec_id,
-        severity: FindingSeverity::FixNow,
-        title: NonEmptyString::try_new(title).expect("title"),
-        description: String::new(),
-        affected_files: vec!["src/lib.rs".into()],
-        line_numbers: vec![1],
-        source: FindingSource::Audit {
-            phase: PhaseId::try_new("audit-task").expect("phase"),
-            pillar: Some(NonEmptyString::try_new("security").expect("pillar")),
-        },
-        attached_task: Some(task_id),
-        created_at: Utc::now(),
-    }
 }
 
 #[tokio::test]
@@ -392,6 +393,20 @@ async fn replay_preserves_line_number_and_raw_for_midstream_malformed_line() {
         assert_eq!(line, 2);
         assert_eq!(raw, malformed);
     }
+    let queried = store
+        .query_events(&EventFilter {
+            event_type: Some("methodology".into()),
+            spec_id: Some(spec_id),
+            limit: 100,
+            ..EventFilter::new()
+        })
+        .await
+        .expect("query");
+    assert_eq!(
+        queried.events.len(),
+        0,
+        "transactional replay should not persist any lines from a malformed file"
+    );
 }
 
 #[tokio::test]
@@ -429,4 +444,46 @@ async fn findings_by_ids_uses_sparse_lookup() {
         .expect("lookup");
     assert_eq!(one.len(), 1);
     assert_eq!(one[0].id, id2);
+}
+
+#[tokio::test]
+async fn findings_by_ids_chunks_large_id_lists() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let id = FindingId::new();
+    let finding_event = MethodologyEvent::FindingAdded(FindingAdded {
+        finding: Box::new(seed_finding(spec_id, task_id, id, "chunked")),
+        idempotency_key: None,
+    });
+    let path = temp_path("findings-by-ids-large");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            line_json(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &finding_event,
+                canonical_tool_for_event(&finding_event),
+            )
+        ),
+    )
+    .expect("write");
+    ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect("ingest");
+
+    let mut requested = Vec::new();
+    for _ in 0..2_500 {
+        requested.push(FindingId::new());
+    }
+    requested.push(id);
+
+    let found =
+        tanren_store::methodology::projections::findings_by_ids(&store, spec_id, &requested)
+            .await
+            .expect("chunked lookup");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, id);
 }

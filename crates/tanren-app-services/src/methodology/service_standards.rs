@@ -4,6 +4,8 @@
 //! budget while keeping related relevance logic together.
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use tanren_contract::methodology::SchemaVersion;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{MethodologyEvent, SpecFrontmatterPatch};
@@ -15,6 +17,7 @@ use super::errors::{MethodologyError, MethodologyResult};
 use super::service::MethodologyService;
 
 const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
+static GLOBSET_CACHE: OnceLock<Mutex<HashMap<String, Result<GlobSet, String>>>> = OnceLock::new();
 
 impl MethodologyService {
     /// `list_relevant_standards` — baseline-complete upper bound.
@@ -198,7 +201,38 @@ fn matching_touched_file<'a>(
     if touched.is_empty() || standard.applies_to.is_empty() {
         return Ok(None);
     }
-    let globset = build_globset(standard)?;
+    let cache_key = matcher_cache_key(standard);
+    let cache = GLOBSET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let guard = cache
+        .lock()
+        .map_err(|_| MethodologyError::Internal("globset cache lock poisoned".into()))?;
+    let Some(cached) = guard.get(&cache_key) else {
+        drop(guard);
+        let mut guard = cache
+            .lock()
+            .map_err(|_| MethodologyError::Internal("globset cache lock poisoned".into()))?;
+        guard.insert(
+            cache_key.clone(),
+            build_globset(standard).map_err(|err| err.to_string()),
+        );
+        drop(guard);
+        return matching_touched_file(standard, touched);
+    };
+    let globset = match cached {
+        Ok(globset) => globset,
+        Err(reason) => {
+            return Err(MethodologyError::FieldValidation {
+                field_path: format!(
+                    "/standards/{}/{}/applies_to",
+                    standard.category.as_str(),
+                    standard.name.as_str()
+                ),
+                expected: "valid glob patterns".into(),
+                actual: format!("{:?}", standard.applies_to),
+                remediation: reason.clone(),
+            });
+        }
+    };
     Ok(touched
         .iter()
         .find(|f| globset.is_match(normalize_path(f)))
@@ -211,27 +245,51 @@ fn build_globset(
     let mut builder = GlobSetBuilder::new();
     for raw_pattern in &standard.applies_to {
         let normalized = normalize_path(raw_pattern);
-        let glob = Glob::new(&normalized).map_err(|e| {
-            MethodologyError::Validation(format!(
-                "invalid applies_to glob `{}` on standard {}:{}: {e}",
-                raw_pattern,
+        let glob = Glob::new(&normalized).map_err(|e| MethodologyError::FieldValidation {
+            field_path: format!(
+                "/standards/{}/{}/applies_to",
                 standard.category.as_str(),
                 standard.name.as_str()
-            ))
+            ),
+            expected: "glob pattern accepted by `globset`".into(),
+            actual: raw_pattern.clone(),
+            remediation: format!(
+                "fix invalid applies_to glob `{raw_pattern}` for standard {}:{} ({e})",
+                standard.category.as_str(),
+                standard.name.as_str()
+            ),
         })?;
         builder.add(glob);
     }
-    builder.build().map_err(|e| {
-        MethodologyError::Validation(format!(
-            "failed to compile applies_to globs for standard {}:{}: {e}",
-            standard.category.as_str(),
-            standard.name.as_str()
-        ))
-    })
+    builder
+        .build()
+        .map_err(|e| MethodologyError::FieldValidation {
+            field_path: format!(
+                "/standards/{}/{}/applies_to",
+                standard.category.as_str(),
+                standard.name.as_str()
+            ),
+            expected: "compilable globset".into(),
+            actual: format!("{:?}", standard.applies_to),
+            remediation: format!(
+                "failed to compile applies_to globset for standard {}:{} ({e})",
+                standard.category.as_str(),
+                standard.name.as_str()
+            ),
+        })
 }
 
 fn normalize_path(input: &str) -> String {
     input.replace('\\', "/").trim_start_matches("./").to_owned()
+}
+
+fn matcher_cache_key(standard: &tanren_domain::methodology::standard::Standard) -> String {
+    format!(
+        "{}:{}:{}",
+        standard.category.as_str(),
+        standard.name.as_str(),
+        standard.applies_to.join("\u{1f}")
+    )
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

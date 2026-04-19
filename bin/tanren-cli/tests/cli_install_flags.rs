@@ -358,3 +358,71 @@ rubric:
         "expected tanren.yml rubric pillar ids in rendered output, got:\n{rendered}"
     );
 }
+
+#[test]
+fn install_strict_dry_run_reports_exact_diff_payload() {
+    let dir = TempDir::new().expect("tempdir");
+    write_command(&dir, "commands/spec");
+    let cfg_yaml = r"methodology:
+  source:
+    path: commands
+  install_targets:
+    - path: .claude/commands
+      format: claude-code
+      binding: mcp
+      merge_policy: destructive
+";
+    let cfg = write_config(&dir, cfg_yaml);
+    let first = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args(["install", "--config", cfg.to_str().expect("cfg utf8")])
+        .output()
+        .expect("install");
+    assert!(
+        first.status.success(),
+        "initial install failed: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let rendered = dir.path().join(".claude/commands/do-task.md");
+    std::fs::write(&rendered, "manually drifted\n").expect("drift");
+
+    let out = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args([
+            "install",
+            "--config",
+            cfg.to_str().expect("cfg utf8"),
+            "--dry-run",
+            "--strict",
+        ])
+        .output()
+        .expect("strict dry-run");
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "strict dry-run should exit 3 on drift"
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    let drifts = json["drift"].as_array().expect("drift array");
+    let differs = drifts
+        .iter()
+        .find(|entry| entry["kind"] == "differs")
+        .expect("differs entry");
+    assert!(
+        differs["expected_sha256"].as_str().is_some(),
+        "expected hash payload in differs entry"
+    );
+    assert!(
+        differs["actual_sha256"].as_str().is_some(),
+        "actual hash payload in differs entry"
+    );
+    assert!(
+        differs["unified_diff"]
+            .as_str()
+            .is_some_and(|patch| patch.contains("--- expected:")),
+        "unified diff payload missing expected header"
+    );
+}

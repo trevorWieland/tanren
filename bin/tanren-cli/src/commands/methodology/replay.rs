@@ -10,7 +10,8 @@ use std::path::PathBuf;
 
 use clap::Args;
 use tanren_app_services::methodology::{
-    MethodologyError, MethodologyService, ReplayStats, ingest_phase_events,
+    MethodologyError, MethodologyService, ReplayOptions, ReplayStats,
+    ingest_phase_events_with_options,
 };
 
 use super::emit_result;
@@ -19,6 +20,10 @@ use super::emit_result;
 pub(crate) struct ReplayArgs {
     /// Path to a spec folder (expected to contain `phase-events.jsonl`).
     pub spec_folder: PathBuf,
+
+    /// Allow replaying legacy lines that omit provenance metadata.
+    #[arg(long, default_value_t = false)]
+    pub allow_legacy_provenance: bool,
 }
 
 pub(crate) async fn run(service: &MethodologyService, args: ReplayArgs) -> u8 {
@@ -30,7 +35,10 @@ pub(crate) async fn run(service: &MethodologyService, args: ReplayArgs) -> u8 {
         }));
     }
     let store = service.store();
-    match ingest_phase_events(store, &path, service.required_guards()).await {
+    let options = ReplayOptions {
+        allow_legacy_provenance: args.allow_legacy_provenance,
+    };
+    match ingest_phase_events_with_options(store, &path, service.required_guards(), options).await {
         Ok(stats) => emit_result::<ReplayStats>(Ok(stats)),
         // Preserve typed `ReplayError` variants as structured
         // `MethodologyError::Replay*`/`Io` so the CLI stderr output

@@ -102,7 +102,7 @@ pub fn render_command(
         .copied()
         .collect();
     if !undeclared.is_empty() {
-        let locs = variable_locations(&source.body, &undeclared);
+        let locs = variable_locations_for_source(source, &undeclared);
         return Err(MethodologyError::Validation(format!(
             "[TANREN_RENDER_UNDECLARED_VAR] command `{}` ({}): referenced but undeclared variables: {undeclared:?}. First-occurrence locations: {locs}. Add them to `declared_variables` in the command frontmatter.",
             source.name,
@@ -118,7 +118,7 @@ pub fn render_command(
         .copied()
         .collect();
     if !unresolved.is_empty() {
-        let locs = variable_locations(&source.body, &unresolved);
+        let locs = variable_locations_for_source(source, &unresolved);
         return Err(MethodologyError::Validation(format!(
             "[TANREN_RENDER_UNKNOWN_VAR] command `{}` ({}): variables referenced but not supplied: {unresolved:?}. First-occurrence locations: {locs}. Supply values in the context (env var, tanren.yml `variables:`, or CLI flag).",
             source.name,
@@ -281,15 +281,60 @@ fn variable_locations(body: &str, vars: &[&str]) -> Vec<VariableLocation> {
     out
 }
 
-fn format_locations(locs: &[VariableLocation], file: &str) -> String {
-    if locs.is_empty() {
-        return "<frontmatter or non-body reference>".into();
+fn variable_locations_for_source(source: &CommandSource, vars: &[&str]) -> Vec<VariableLocation> {
+    let mut out = variable_locations(&source.body, vars);
+    let mut seen: BTreeSet<String> = out.iter().map(|v| v.variable.clone()).collect();
+
+    let mut missing = Vec::new();
+    for var in vars {
+        if !seen.contains(*var) {
+            missing.push(*var);
+        }
     }
+    if missing.is_empty() {
+        return out;
+    }
+
+    let yaml = serde_yaml::to_string(&source.frontmatter).unwrap_or_default();
+    for (idx, line) in yaml.lines().enumerate() {
+        for var in &missing {
+            if seen.contains(*var) {
+                continue;
+            }
+            let needle = format!("{{{{{var}}}}}");
+            if let Some(col) = line.find(&needle) {
+                out.push(VariableLocation {
+                    variable: (*var).to_owned(),
+                    line: usize_to_u32_saturating(idx).saturating_add(2),
+                    col: usize_to_u32_saturating(col).saturating_add(1),
+                });
+                seen.insert((*var).to_owned());
+            }
+        }
+    }
+    for var in vars {
+        if seen.contains(*var) {
+            continue;
+        }
+        out.push(VariableLocation {
+            variable: (*var).to_owned(),
+            line: 1,
+            col: 1,
+        });
+    }
+    out
+}
+
+fn format_locations(locs: &[VariableLocation], file: &str) -> String {
     let mut parts = Vec::with_capacity(locs.len());
     for l in locs {
         parts.push(format!("{}:{}:{} ({})", file, l.line, l.col, l.variable));
     }
     parts.join(", ")
+}
+
+fn usize_to_u32_saturating(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 /// Extract the set of unique `{{VAR}}` tokens from a body.

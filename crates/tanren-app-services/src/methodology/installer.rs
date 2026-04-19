@@ -14,6 +14,7 @@ use std::path::{Component, Path, PathBuf};
 use super::config::{InstallBinding, InstallFormat, InstallTarget, MergePolicy, MethodologyConfig};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::formats::render_commands;
+use super::installer_diff::{ContentDiff, exact_content_diff};
 use super::renderer::{RenderedCommand, render_catalog};
 use super::source::{CommandSource, load_catalog};
 
@@ -44,7 +45,7 @@ pub struct DriftEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DriftReason {
     Missing,
-    Differs,
+    Differs(ContentDiff),
     ExtraFile,
 }
 
@@ -209,7 +210,9 @@ pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
                 if on_disk != w.bytes {
                     out.push(DriftEntry {
                         dest: w.dest.clone(),
-                        reason: DriftReason::Differs,
+                        reason: DriftReason::Differs(exact_content_diff(
+                            &w.bytes, &on_disk, &w.dest,
+                        )),
                     });
                 }
             }

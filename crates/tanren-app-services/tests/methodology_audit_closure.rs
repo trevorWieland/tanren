@@ -405,3 +405,28 @@ async fn post_reply_directive_requires_handle_feedback_phase() {
             if field_path == "/phase"
     ));
 }
+
+#[test]
+fn service_tool_paths_forbid_string_validation_variant() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/methodology");
+    let mut checked = 0_u32;
+    for entry in std::fs::read_dir(&root).expect("read methodology dir") {
+        let path = entry.expect("entry").path();
+        let Some(name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
+            continue;
+        };
+        if !name.starts_with("service")
+            || path.extension().and_then(std::ffi::OsStr::to_str) != Some("rs")
+        {
+            continue;
+        }
+        checked = checked.saturating_add(1);
+        let content = std::fs::read_to_string(&path).expect("read service module");
+        assert!(
+            !content.contains("MethodologyError::Validation("),
+            "service module `{}` regressed to stringly validation; use FieldValidation instead",
+            path.display()
+        );
+    }
+    assert!(checked > 0, "expected at least one service module");
+}

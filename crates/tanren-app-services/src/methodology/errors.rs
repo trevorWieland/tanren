@@ -152,6 +152,11 @@ impl From<tanren_store::methodology::replay::ReplayError> for MethodologyError {
                 line,
                 reason: format!("origin_kind mismatch: expected `{expected}`, got `{actual}`"),
             },
+            R::MissingOriginKind { path, line } => Self::ReplayEnvelopeDecode {
+                path,
+                line,
+                reason: "missing required origin_kind".into(),
+            },
             R::MissingCausedByToolCall { path, line, origin } => Self::ReplayEnvelopeDecode {
                 path,
                 line,
@@ -244,7 +249,12 @@ pub enum ToolError {
 impl From<&MethodologyError> for ToolError {
     fn from(err: &MethodologyError) -> Self {
         match err {
-            MethodologyError::Validation(msg) => validation_from_message(msg),
+            MethodologyError::Validation(msg) => Self::ValidationFailed {
+                field_path: "/".into(),
+                expected: "valid input per schema".into(),
+                actual: "rejected".into(),
+                remediation: msg.clone(),
+            },
             MethodologyError::FieldValidation {
                 field_path,
                 expected,
@@ -405,31 +415,6 @@ fn parse_tool_capability(tag: &str) -> Option<ToolCapability> {
         "feedback.reply" => ToolCapability::FeedbackReply,
         _ => return None,
     })
-}
-
-fn validation_from_message(msg: &str) -> ToolError {
-    // Fall back to a best-effort inference when the caller didn't
-    // emit FieldValidation. We parse `msg` for a leading
-    // `"<field>: "` marker so stock error strings like
-    // `"title: value cannot be empty"` still surface the field.
-    // This path is intentionally imprecise; service methods now
-    // prefer `FieldValidation`.
-    let (field_path, remediation) = match msg.split_once(": ") {
-        Some((lead, rest))
-            if lead
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/') =>
-        {
-            (format!("/{lead}"), rest.to_owned())
-        }
-        _ => ("/".to_owned(), msg.to_owned()),
-    };
-    ToolError::ValidationFailed {
-        field_path,
-        expected: "valid input per schema".into(),
-        actual: "rejected".into(),
-        remediation,
-    }
 }
 
 /// Convenient result alias.

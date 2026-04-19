@@ -258,6 +258,42 @@ fn renderer_error_on_unresolved_var_points_at_line() {
 }
 
 #[test]
+fn renderer_frontmatter_unresolved_var_reports_concrete_location() {
+    use tanren_app_services::methodology::source::{
+        CommandFamily, CommandFrontmatter, CommandSource,
+    };
+
+    let src = CommandSource {
+        name: "demo".into(),
+        family: CommandFamily::SpecLoop,
+        frontmatter: CommandFrontmatter {
+            name: "{{FRONTMATTER_NAME}}".into(),
+            role: "impl".into(),
+            orchestration_loop: false,
+            autonomy: "autonomous".into(),
+            declared_variables: vec!["FRONTMATTER_NAME".into()],
+            declared_tools: vec![],
+            required_capabilities: vec![],
+            produces_evidence: vec![],
+            extras: Default::default(),
+        },
+        body: "body only\n".into(),
+        source_path: PathBuf::from("commands/frontmatter-demo.md"),
+    };
+    let ctx = HashMap::new();
+    let err = render_command(&src, &ctx).expect_err("unresolved");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("commands/frontmatter-demo.md:"),
+        "location should include concrete file:line:col, got: {msg}"
+    );
+    assert!(
+        !msg.contains("<frontmatter or non-body reference>"),
+        "placeholder location text must not appear, got: {msg}"
+    );
+}
+
+#[test]
 fn methodology_profile_override_applies_required_guards() {
     let base = tanren_app_services::methodology::config::MethodologyConfig {
         task_complete_requires: vec![

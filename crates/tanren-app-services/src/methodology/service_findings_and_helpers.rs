@@ -394,9 +394,12 @@ mod tests {
                             }),
                         )
                         .await?;
-                    Err(MethodologyError::Validation(
-                        "intentional partial failure".into(),
-                    ))
+                    Err(MethodologyError::FieldValidation {
+                        field_path: "/test_partial_failure".into(),
+                        expected: "success".into(),
+                        actual: "forced failure".into(),
+                        remediation: "intentional partial failure".into(),
+                    })
                 },
             )
             .await
