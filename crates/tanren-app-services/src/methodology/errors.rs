@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use tanren_domain::methodology::capability::ToolCapability;
+use tanren_domain::methodology::validation::ValidationIssue;
 
 /// Source-of-truth methodology error.
 #[derive(Debug, thiserror::Error)]
@@ -122,45 +123,47 @@ impl From<tanren_store::methodology::replay::ReplayError> for MethodologyError {
                 line,
                 line_spec_id,
                 payload_spec_id,
-            } => Self::ReplayEnvelopeDecode {
+            } => replay_envelope_decode(
                 path,
                 line,
-                reason: format!("spec_id mismatch: line={line_spec_id}, payload={payload_spec_id}",),
-            },
-            R::MissingPayloadSpecId { path, line } => Self::ReplayEnvelopeDecode {
-                path,
-                line,
-                reason: "payload missing spec_id".into(),
-            },
+                format!("spec_id mismatch: line={line_spec_id}, payload={payload_spec_id}",),
+            ),
+            R::MissingPayloadSpecId { path, line } => {
+                replay_envelope_decode(path, line, "payload missing spec_id")
+            }
             R::ToolMismatch {
                 path,
                 line,
                 expected,
                 actual,
-            } => Self::ReplayEnvelopeDecode {
+            } => replay_envelope_decode(
                 path,
                 line,
-                reason: format!("tool mismatch: expected `{expected}`, got `{actual}`"),
-            },
+                format!("tool mismatch: expected `{expected}`, got `{actual}`"),
+            ),
             R::OriginKindMismatch {
                 path,
                 line,
                 expected,
                 actual,
-            } => Self::ReplayEnvelopeDecode {
+            } => replay_envelope_decode(
                 path,
                 line,
-                reason: format!("origin_kind mismatch: expected `{expected}`, got `{actual}`"),
-            },
-            R::MissingOriginKind { path, line } => Self::ReplayEnvelopeDecode {
+                format!("origin_kind mismatch: expected `{expected}`, got `{actual}`"),
+            ),
+            R::MissingOriginKind { path, line } => {
+                replay_envelope_decode(path, line, "missing required origin_kind")
+            }
+            R::MissingCausedByToolCall { path, line, origin } => replay_envelope_decode(
                 path,
                 line,
-                reason: "missing required origin_kind".into(),
-            },
-            R::MissingCausedByToolCall { path, line, origin } => Self::ReplayEnvelopeDecode {
-                path,
-                line,
-                reason: format!("missing caused_by_tool_call_id for origin `{origin}`"),
+                format!("missing caused_by_tool_call_id for origin `{origin}`"),
+            ),
+            R::FieldValidation { details } => Self::FieldValidation {
+                field_path: details.field_path,
+                expected: details.expected,
+                actual: details.actual,
+                remediation: details.remediation,
             },
             R::InvalidTaskTransition {
                 task_id,
@@ -176,30 +179,53 @@ impl From<tanren_store::methodology::replay::ReplayError> for MethodologyError {
                 path,
                 line,
                 task_id,
-            } => Self::ReplayEnvelopeDecode {
+            } => replay_envelope_decode(
                 path,
                 line,
-                reason: format!("missing TaskCreated for task {task_id}"),
-            },
+                format!("missing TaskCreated for task {task_id}"),
+            ),
             R::DuplicateTaskCreate {
                 path,
                 line,
                 task_id,
-            } => Self::ReplayEnvelopeDecode {
+            } => replay_envelope_decode(
                 path,
                 line,
-                reason: format!("duplicate TaskCreated for task {task_id}"),
-            },
+                format!("duplicate TaskCreated for task {task_id}"),
+            ),
             R::TaskCompletedMissingGuards {
                 path,
                 line,
                 task_id,
-            } => Self::ReplayEnvelopeDecode {
+            } => replay_envelope_decode(
                 path,
                 line,
-                reason: format!("TaskCompleted before required guards for task {task_id}"),
-            },
+                format!("TaskCompleted before required guards for task {task_id}"),
+            ),
             R::Store { source } => Self::Store(source),
+        }
+    }
+}
+
+fn replay_envelope_decode(
+    path: std::path::PathBuf,
+    line: usize,
+    reason: impl Into<String>,
+) -> MethodologyError {
+    MethodologyError::ReplayEnvelopeDecode {
+        path,
+        line,
+        reason: reason.into(),
+    }
+}
+
+impl From<ValidationIssue> for MethodologyError {
+    fn from(issue: ValidationIssue) -> Self {
+        Self::FieldValidation {
+            field_path: issue.field_path,
+            expected: issue.expected,
+            actual: issue.actual,
+            remediation: issue.remediation,
         }
     }
 }

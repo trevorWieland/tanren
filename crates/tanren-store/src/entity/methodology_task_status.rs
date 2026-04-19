@@ -13,6 +13,9 @@ pub struct Model {
     pub adherent: bool,
     #[sea_orm(column_type = "JsonBinary")]
     pub extra_guards: Json,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub task_json: Option<Json>,
+    pub created_at: Option<DateTimeUtc>,
     pub updated_at: DateTimeUtc,
 }
 

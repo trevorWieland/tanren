@@ -13,10 +13,11 @@ use tanren_domain::methodology::events::{
     TaskCompleted as EvTaskCompleted, TaskCreated as EvTaskCreated, TaskGateChecked,
     TaskImplemented, TaskStarted, TaskXChecked, fold_task_status,
 };
-use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::task::{
-    LegalTransition, RequiredGuard, Task, TaskAbandonDisposition, TaskStatus, TaskTransitionKind,
+    LegalTransition, RequiredGuard, Task, TaskStatus, TaskTransitionKind,
 };
+use tanren_domain::methodology::validation::validate_task_abandon_semantics;
 use tanren_domain::{EntityRef, SpecId, TaskId};
 
 use super::capabilities::enforce;
@@ -204,66 +205,13 @@ impl MethodologyService {
             &idempotency_payload,
             || async move {
                 let reason = require_non_empty("/reason", &params.reason, Some(500))?;
-                match params.disposition {
-                    TaskAbandonDisposition::Replacement => {
-                        if params.replacements.is_empty() {
-                            return Err(MethodologyError::FieldValidation {
-                                field_path: "/replacements".into(),
-                                expected:
-                                    "at least one replacement task id when disposition=replacement"
-                                        .into(),
-                                actual: "replacements=[]".into(),
-                                remediation:
-                                    "provide replacement task ids, or use disposition=explicit_user_discard with provenance".into(),
-                            });
-                        }
-                        if params.explicit_user_discard_provenance.is_some() {
-                            return Err(MethodologyError::FieldValidation {
-                                field_path: "/explicit_user_discard_provenance".into(),
-                                expected: "null when disposition=replacement".into(),
-                                actual: "provided".into(),
-                                remediation:
-                                    "remove explicit_user_discard_provenance when using replacement disposition".into(),
-                            });
-                        }
-                    }
-                    TaskAbandonDisposition::ExplicitUserDiscard => {
-                        if !params.replacements.is_empty() {
-                            return Err(MethodologyError::FieldValidation {
-                                field_path: "/replacements".into(),
-                                expected: "empty when disposition=explicit_user_discard".into(),
-                                actual: format!(
-                                    "replacements has {} item(s)",
-                                    params.replacements.len()
-                                ),
-                                remediation:
-                                    "clear replacements and keep explicit_user_discard_provenance".into(),
-                            });
-                        }
-                        if !phase.is_known(KnownPhase::ResolveBlockers) {
-                            return Err(MethodologyError::FieldValidation {
-                                field_path: "/disposition".into(),
-                                expected:
-                                    "explicit_user_discard is only legal in resolve-blockers phase"
-                                        .into(),
-                                actual: phase.as_str().into(),
-                                remediation:
-                                    "run explicit user discard through resolve-blockers and pass typed provenance".into(),
-                            });
-                        }
-                        if params.explicit_user_discard_provenance.is_none() {
-                            return Err(MethodologyError::FieldValidation {
-                                field_path: "/explicit_user_discard_provenance".into(),
-                                expected:
-                                    "non-null provenance when disposition=explicit_user_discard"
-                                        .into(),
-                                actual: "null".into(),
-                                remediation:
-                                    "set explicit_user_discard_provenance.kind=resolve_blockers with a resolution note".into(),
-                            });
-                        }
-                    }
-                }
+                validate_task_abandon_semantics(
+                    phase,
+                    params.disposition,
+                    &params.replacements,
+                    &params.explicit_user_discard_provenance,
+                )
+                .map_err(MethodologyError::from)?;
                 // Legal from any non-terminal state; idempotent if already
                 // abandoned with the same replacements (content hash elsewhere).
                 match self

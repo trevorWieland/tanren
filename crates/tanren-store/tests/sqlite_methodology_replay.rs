@@ -416,12 +416,16 @@ async fn findings_by_ids_uses_sparse_lookup() {
     let task_id = TaskId::new();
     let id1 = FindingId::new();
     let id2 = FindingId::new();
+    let mut finding_one = seed_finding(spec_id, task_id, id1, "one");
+    finding_one.attached_task = None;
+    let mut finding_two = seed_finding(spec_id, task_id, id2, "two");
+    finding_two.attached_task = None;
     let f1 = MethodologyEvent::FindingAdded(FindingAdded {
-        finding: Box::new(seed_finding(spec_id, task_id, id1, "one")),
+        finding: Box::new(finding_one),
         idempotency_key: None,
     });
     let f2 = MethodologyEvent::FindingAdded(FindingAdded {
-        finding: Box::new(seed_finding(spec_id, task_id, id2, "two")),
+        finding: Box::new(finding_two),
         idempotency_key: None,
     });
 
@@ -452,8 +456,10 @@ async fn findings_by_ids_chunks_large_id_lists() {
     let spec_id = SpecId::new();
     let task_id = TaskId::new();
     let id = FindingId::new();
+    let mut finding = seed_finding(spec_id, task_id, id, "chunked");
+    finding.attached_task = None;
     let finding_event = MethodologyEvent::FindingAdded(FindingAdded {
-        finding: Box::new(seed_finding(spec_id, task_id, id, "chunked")),
+        finding: Box::new(finding),
         idempotency_key: None,
     });
     let path = temp_path("findings-by-ids-large");

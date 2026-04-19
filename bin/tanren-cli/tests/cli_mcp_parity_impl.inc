@@ -20,7 +20,7 @@ use tanren_domain::methodology::pillar::{PillarId, PillarScope, PillarScore};
 use tanren_domain::methodology::rubric::ComplianceStatus;
 use tanren_domain::methodology::signpost::SignpostStatus;
 use tanren_domain::methodology::spec::{
-    ConnectionKind, DemoConnection, DemoEnvironment, SpecDependencies,
+    ConnectionKind, DemoConnection, DemoEnvironment, SpecDependencies, SpecRelevanceContext,
 };
 use tanren_domain::methodology::task::{AcceptanceCriterion, RequiredGuard, TaskOrigin};
 use tanren_domain::{NonEmptyString, SpecId};
@@ -32,6 +32,37 @@ use uuid::Uuid;
 mod methodology_event_parity;
 
 const MCP_CAPABILITIES: &str = "task.create,task.start,task.complete,task.revise,task.abandon,task.read,finding.add,rubric.record,compliance.record,spec.frontmatter,demo.frontmatter,demo.results,signpost.add,signpost.update,phase.outcome,phase.escalate,issue.create,standard.read,adherence.record,feedback.reply";
+
+const PARITY_COVERED_TOOLS: &[&str] = &[
+    "create_task",
+    "start_task",
+    "complete_task",
+    "mark_task_guard_satisfied",
+    "revise_task",
+    "abandon_task",
+    "list_tasks",
+    "add_finding",
+    "record_rubric_score",
+    "record_non_negotiable_compliance",
+    "set_spec_title",
+    "set_spec_non_negotiables",
+    "add_spec_acceptance_criterion",
+    "set_spec_demo_environment",
+    "set_spec_dependencies",
+    "set_spec_base_branch",
+    "set_spec_relevance_context",
+    "add_demo_step",
+    "mark_demo_step_skip",
+    "append_demo_result",
+    "add_signpost",
+    "update_signpost_status",
+    "report_phase_outcome",
+    "escalate_to_blocker",
+    "post_reply_directive",
+    "create_issue",
+    "list_relevant_standards",
+    "record_adherence_finding",
+];
 
 fn fixed_spec_id() -> SpecId {
     SpecId::from_uuid(Uuid::parse_str("00000000-0000-0000-0000-0000000000a1").expect("uuid"))
@@ -193,6 +224,31 @@ fn cli_task_lifecycle(
     });
 }
 
+fn parity_relevance_context() -> SpecRelevanceContext {
+    SpecRelevanceContext {
+        touched_files: vec!["crates/tanren-app-services/src/methodology/service_ext.rs".into()],
+        project_language: Some("rust".into()),
+        tags: vec!["parity".into()],
+        category: Some("architecture".into()),
+    }
+}
+
+fn cli_set_spec_relevance_context(url: &str, spec_folder: &Path, spec_id: SpecId) {
+    let _ = run_cli_tool(
+        url,
+        spec_folder,
+        "do-task",
+        "spec",
+        "set-relevance-context",
+        &c::SetSpecRelevanceContextParams {
+            schema_version: schema(),
+            spec_id,
+            relevance_context: parity_relevance_context(),
+            idempotency_key: Some("parity-spec-relevance".into()),
+        },
+    );
+}
+
 fn cli_spec_updates(url: &str, spec_folder: &Path, spec_id: SpecId) {
     let _ = run_cli_tool(url, spec_folder, "do-task", "spec", "set-title", &c::SetSpecTitleParams {
         schema_version: schema(),
@@ -278,6 +334,7 @@ fn cli_spec_updates(url: &str, spec_folder: &Path, spec_id: SpecId) {
             idempotency_key: Some("parity-spec-branch".into()),
         },
     );
+    cli_set_spec_relevance_context(url, spec_folder, spec_id);
 }
 
 fn cli_demo_updates(url: &str, spec_folder: &Path, spec_id: SpecId) {
@@ -594,6 +651,33 @@ impl McpSession {
             .expect("tool result text");
         serde_json::from_str(text).expect("tool result json")
     }
+
+    fn list_tools(&mut self) -> Vec<String> {
+        let id = self.next_id;
+        self.next_id += 1;
+        send_frame(
+            &mut self.child,
+            &json!({
+                "jsonrpc":"2.0",
+                "id": id,
+                "method":"tools/list",
+                "params": {}
+            }),
+        );
+        let resp = read_response_for_id(&mut self.reader, id);
+        assert!(
+            resp.get("error").is_none(),
+            "tools/list failed: {resp:?}"
+        );
+        let tools = resp["result"]["tools"]
+            .as_array()
+            .expect("tools/list must return result.tools array");
+        tools
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 impl Drop for McpSession {
@@ -685,7 +769,7 @@ fn mcp_task_lifecycle(
     });
 }
 
-fn mcp_spec_and_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {
+fn mcp_spec_updates(do_task: &mut McpSession, spec_id: SpecId) {
     let _ = do_task.call("set_spec_title", &c::SetSpecTitleParams {
         schema_version: schema(),
         spec_id,
@@ -747,6 +831,18 @@ fn mcp_spec_and_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {
         branch: "main".into(),
         idempotency_key: Some("parity-spec-branch".into()),
     });
+    let _ = do_task.call(
+        "set_spec_relevance_context",
+        &c::SetSpecRelevanceContextParams {
+            schema_version: schema(),
+            spec_id,
+            relevance_context: parity_relevance_context(),
+            idempotency_key: Some("parity-spec-relevance".into()),
+        },
+    );
+}
+
+fn mcp_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {
     let _ = do_task.call("add_demo_step", &c::AddDemoStepParams {
         schema_version: schema(),
         spec_id,
@@ -771,6 +867,11 @@ fn mcp_spec_and_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {
         observed: "Everything passed".into(),
         idempotency_key: Some("parity-demo-result".into()),
     });
+}
+
+fn mcp_spec_and_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {
+    mcp_spec_updates(do_task, spec_id);
+    mcp_demo_updates(do_task, spec_id);
 }
 
 fn mcp_quality_and_signpost(do_task: &mut McpSession, spec_id: SpecId, main_task: tanren_domain::TaskId) {
@@ -910,6 +1011,128 @@ fn run_mcp_matrix(url: &str, spec_folder: &Path) {
     mcp_spec_and_demo_updates(&mut do_task, spec_id);
     mcp_quality_and_signpost(&mut do_task, spec_id, main_task);
     mcp_cross_phase_mutations(&mut do_task, &mut investigate, &mut feedback, spec_id);
+}
+
+fn assert_registry_tool_coverage(registry_tools: &[String]) {
+    let expected: std::collections::BTreeSet<&str> = PARITY_COVERED_TOOLS.iter().copied().collect();
+    let actual: std::collections::BTreeSet<&str> = registry_tools.iter().map(String::as_str).collect();
+    assert_eq!(
+        actual, expected,
+        "parity coverage must include every MCP registry tool; update PARITY_COVERED_TOOLS and matrix calls together",
+    );
+}
+
+async fn assert_cli_read_tool_no_side_effects<T: Serialize>(
+    url: &str,
+    spec_folder: &Path,
+    phase: &str,
+    noun: &str,
+    verb: &str,
+    params: &T,
+) -> Value {
+    let before_events = methodology_envelopes(url).await.len();
+    let before_phase_lines = phase_event_lines(spec_folder).len();
+    let response = run_cli_tool(url, spec_folder, phase, noun, verb, params);
+    let after_events = methodology_envelopes(url).await.len();
+    let after_phase_lines = phase_event_lines(spec_folder).len();
+    assert_eq!(
+        after_events, before_events,
+        "read tool `{noun} {verb}` must not append methodology events",
+    );
+    assert_eq!(
+        after_phase_lines, before_phase_lines,
+        "read tool `{noun} {verb}` must not append phase-events lines",
+    );
+    response
+}
+
+async fn assert_mcp_read_tool_no_side_effects<T: Serialize>(
+    session: &mut McpSession,
+    url: &str,
+    spec_folder: &Path,
+    tool: &str,
+    params: &T,
+) -> Value {
+    let before_events = methodology_envelopes(url).await.len();
+    let before_phase_lines = phase_event_lines(spec_folder).len();
+    let response = session.call(tool, params);
+    let after_events = methodology_envelopes(url).await.len();
+    let after_phase_lines = phase_event_lines(spec_folder).len();
+    assert_eq!(
+        after_events, before_events,
+        "read tool `{tool}` must not append methodology events",
+    );
+    assert_eq!(
+        after_phase_lines, before_phase_lines,
+        "read tool `{tool}` must not append phase-events lines",
+    );
+    response
+}
+
+async fn assert_read_tool_parity_without_side_effects(
+    cli_url: &str,
+    mcp_url: &str,
+    cli_spec_folder: &Path,
+    mcp_spec_folder: &Path,
+    spec_id: SpecId,
+) {
+    let list_tasks_params = c::ListTasksParams {
+        schema_version: schema(),
+        spec_id: Some(spec_id),
+    };
+    let cli_list_tasks = assert_cli_read_tool_no_side_effects(
+        cli_url,
+        cli_spec_folder,
+        "do-task",
+        "task",
+        "list",
+        &list_tasks_params,
+    )
+    .await;
+    let mut mcp_reads = McpSession::start(mcp_url, mcp_spec_folder, "do-task");
+    let mcp_list_tasks = assert_mcp_read_tool_no_side_effects(
+        &mut mcp_reads,
+        mcp_url,
+        mcp_spec_folder,
+        "list_tasks",
+        &list_tasks_params,
+    )
+    .await;
+    methodology_event_parity::assert_phase_lines_strict_parity(
+        &[cli_list_tasks],
+        &[mcp_list_tasks],
+    );
+
+    let list_standards_params = c::ListRelevantStandardsParams {
+        schema_version: schema(),
+        spec_id,
+        touched_files: vec![],
+        project_language: None,
+        domains: vec![],
+        tags: vec![],
+        category: None,
+    };
+    let cli_list_standards = assert_cli_read_tool_no_side_effects(
+        cli_url,
+        cli_spec_folder,
+        "adhere-task",
+        "standard",
+        "list",
+        &list_standards_params,
+    )
+    .await;
+    let mcp_list_standards = assert_mcp_read_tool_no_side_effects(
+        &mut mcp_reads,
+        mcp_url,
+        mcp_spec_folder,
+        "list_relevant_standards",
+        &list_standards_params,
+    )
+    .await;
+    methodology_event_parity::assert_phase_lines_strict_parity(
+        &[cli_list_standards],
+        &[mcp_list_standards],
+    );
 }
 
 fn reconcile_phase_events(url: &str, spec_folder: &Path) {
@@ -1098,6 +1321,11 @@ async fn cli_and_mcp_match_full_envelopes_and_phase_event_projection_for_mutatio
     std::fs::create_dir_all(&cli_spec_folder).expect("mkdir cli spec folder");
     std::fs::create_dir_all(&mcp_spec_folder).expect("mkdir mcp spec folder");
 
+    let mut registry_probe = McpSession::start(&mcp_url, &mcp_spec_folder, "do-task");
+    let registry_tools = registry_probe.list_tools();
+    assert_registry_tool_coverage(&registry_tools);
+    drop(registry_probe);
+
     run_cli_matrix(&cli_url, &cli_spec_folder);
     run_mcp_matrix(&mcp_url, &mcp_spec_folder);
     reconcile_phase_events(&cli_url, &cli_spec_folder);
@@ -1129,6 +1357,14 @@ async fn cli_and_mcp_match_full_envelopes_and_phase_event_projection_for_mutatio
         mcp_lines.len(),
         "every methodology event must project to exactly one phase-events.jsonl line"
     );
+    assert_read_tool_parity_without_side_effects(
+        &cli_url,
+        &mcp_url,
+        &cli_spec_folder,
+        &mcp_spec_folder,
+        spec_id,
+    )
+    .await;
 
     // Ensure the outbox projector has fully drained for both transports.
     let now = Utc::now();

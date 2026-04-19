@@ -8,12 +8,17 @@ use serde_json::json;
 use support_postgres::postgres_fixture;
 use tanren_domain::methodology::event_tool::canonical_tool_for_event;
 use tanren_domain::methodology::events::{
-    MethodologyEvent, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated, TaskGateChecked,
-    TaskImplemented, TaskStarted,
+    FindingAdded, MethodologyEvent, TaskAbandoned, TaskAdherent, TaskAudited, TaskCompleted,
+    TaskCreated, TaskGateChecked, TaskImplemented, TaskStarted,
 };
-use tanren_domain::methodology::task::{RequiredGuard, Task, TaskOrigin, TaskStatus};
-use tanren_domain::{EntityKind, NonEmptyString, SpecId, TaskId};
-use tanren_store::methodology::ingest_phase_events;
+use tanren_domain::methodology::finding::{Finding, FindingSeverity, FindingSource};
+use tanren_domain::methodology::phase_id::PhaseId;
+use tanren_domain::methodology::task::{
+    ExplicitUserDiscardProvenance, RequiredGuard, Task, TaskAbandonDisposition, TaskOrigin,
+    TaskStatus,
+};
+use tanren_domain::{EntityKind, FindingId, NonEmptyString, SpecId, TaskId};
+use tanren_store::methodology::{ReplayError, ingest_phase_events};
 use tanren_store::{EventFilter, EventStore};
 
 fn seed_task(spec_id: SpecId, task_id: TaskId) -> Task {
@@ -74,6 +79,24 @@ fn temp_path(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("tanren-store-{name}-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).expect("mkdir");
     dir.join("phase-events.jsonl")
+}
+
+fn seed_finding(spec_id: SpecId, id: FindingId) -> Finding {
+    Finding {
+        id,
+        spec_id,
+        severity: FindingSeverity::FixNow,
+        title: NonEmptyString::try_new("f").expect("title"),
+        description: String::new(),
+        affected_files: vec!["src/lib.rs".into()],
+        line_numbers: vec![1],
+        source: FindingSource::Audit {
+            phase: PhaseId::try_new("audit-task").expect("phase"),
+            pillar: None,
+        },
+        attached_task: None,
+        created_at: Utc::now(),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -240,4 +263,92 @@ async fn replay_accepts_report_phase_outcome_alias_for_bridged_guard_completion_
     .await
     .expect("ingest");
     assert_eq!(stats.events_appended, events.len());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replay_rejects_invalid_abandon_semantics_postgres() {
+    let fixture = postgres_fixture().await;
+    let store = fixture.store;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+
+    let created = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let abandoned = MethodologyEvent::TaskAbandoned(TaskAbandoned {
+        task_id,
+        spec_id,
+        reason: NonEmptyString::try_new("explicit discard").expect("reason"),
+        disposition: TaskAbandonDisposition::ExplicitUserDiscard,
+        replacements: vec![],
+        explicit_user_discard_provenance: Some(ExplicitUserDiscardProvenance::ResolveBlockers {
+            resolution_note: NonEmptyString::try_new("approved").expect("note"),
+        }),
+    });
+
+    let path = temp_path("replay-postgres-invalid-abandon");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n{}\n",
+            line_json(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &created,
+                canonical_tool_for_event(&created),
+            ),
+            line_json(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &abandoned,
+                canonical_tool_for_event(&abandoned),
+            )
+        ),
+    )
+    .expect("write jsonl");
+
+    let err = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect_err("invalid abandon semantics must fail");
+    assert!(matches!(
+        err,
+        ReplayError::FieldValidation { ref details } if details.field_path == "/disposition"
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replay_rejects_invalid_finding_payload_postgres() {
+    let fixture = postgres_fixture().await;
+    let store = fixture.store;
+    let spec_id = SpecId::new();
+    let mut finding = seed_finding(spec_id, FindingId::new());
+    finding.line_numbers = vec![0];
+    let event = MethodologyEvent::FindingAdded(FindingAdded {
+        finding: Box::new(finding),
+        idempotency_key: None,
+    });
+    let path = temp_path("replay-postgres-invalid-finding");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            line_json(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &event,
+                canonical_tool_for_event(&event),
+            )
+        ),
+    )
+    .expect("write jsonl");
+
+    let err = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect_err("invalid finding payload must fail");
+    assert!(matches!(
+        err,
+        ReplayError::FieldValidation { ref details } if details.field_path == "/line_numbers/0"
+    ));
 }

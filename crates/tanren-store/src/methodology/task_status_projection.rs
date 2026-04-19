@@ -5,7 +5,7 @@ use sea_orm::ActiveValue::Set;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter};
 use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::methodology::task::{
-    RequiredGuard, TaskAbandonDisposition, TaskGuardFlags, TaskStatus,
+    RequiredGuard, Task, TaskAbandonDisposition, TaskGuardFlags, TaskStatus,
 };
 use tanren_domain::{SpecId, TaskId};
 
@@ -49,8 +49,8 @@ impl Store {
 
     /// Upsert one task-status projection row from a pre-folded status value.
     ///
-    /// This backfills projection rows for historical streams that predate
-    /// `m_0015_methodology_task_status_projection`.
+    /// This preserves the legacy "status-only" projection behavior and
+    /// intentionally does not carry a task snapshot payload.
     ///
     /// # Errors
     /// Returns a store/database error on write failures.
@@ -73,6 +73,8 @@ impl Store {
                 active.audited = Set(state.guards.audited);
                 active.adherent = Set(state.guards.adherent);
                 active.extra_guards = Set(extra_guards_json(&state.guards.extra));
+                active.task_json = Set(None);
+                active.created_at = Set(None);
                 active.updated_at = Set(Utc::now());
                 active.update(self.conn()).await?;
             }
@@ -85,6 +87,8 @@ impl Store {
                     audited: Set(state.guards.audited),
                     adherent: Set(state.guards.adherent),
                     extra_guards: Set(extra_guards_json(&state.guards.extra)),
+                    task_json: Set(None),
+                    created_at: Set(None),
                     updated_at: Set(Utc::now()),
                 })
                 .exec(self.conn())
@@ -274,14 +278,62 @@ impl TaskProjectionMutation {
 }
 
 impl TaskStatusProjection {
-    fn try_from_model(model: &methodology_task_status::Model) -> Result<Self, StoreError> {
-        let state = TaskProjectionState::from_model(model)?;
+    pub(crate) fn try_from_model(
+        model: &methodology_task_status::Model,
+    ) -> Result<Self, StoreError> {
+        let fallback_state = TaskProjectionState::from_model(model)?;
+        let status = if let Some(task) = parse_task_snapshot(model)? {
+            task.status
+        } else {
+            fallback_state.to_status()
+        };
         Ok(Self {
             task_id: TaskId::from_uuid(model.task_id),
             spec_id: SpecId::from_uuid(model.spec_id),
-            status: state.to_status(),
+            status,
         })
     }
+}
+
+pub(crate) fn parse_task_snapshot(
+    model: &methodology_task_status::Model,
+) -> StoreResult<Option<Task>> {
+    let Some(task_json) = &model.task_json else {
+        return Ok(None);
+    };
+    let parsed: Task =
+        serde_json::from_value(task_json.clone()).map_err(|source| StoreError::Conversion {
+            context: "methodology_task_status",
+            reason: format!("invalid task_json payload: {source}"),
+        })?;
+    if parsed.id != TaskId::from_uuid(model.task_id) {
+        return Err(StoreError::Conversion {
+            context: "methodology_task_status",
+            reason: format!(
+                "task_json id {} does not match row task_id {}",
+                parsed.id,
+                TaskId::from_uuid(model.task_id)
+            ),
+        });
+    }
+    if parsed.spec_id != SpecId::from_uuid(model.spec_id) {
+        return Err(StoreError::Conversion {
+            context: "methodology_task_status",
+            reason: format!(
+                "task_json spec_id {} does not match row spec_id {}",
+                parsed.spec_id,
+                SpecId::from_uuid(model.spec_id)
+            ),
+        });
+    }
+    Ok(Some(parsed))
+}
+
+pub(crate) fn encode_task_snapshot(task: &Task) -> StoreResult<serde_json::Value> {
+    serde_json::to_value(task).map_err(|source| StoreError::Conversion {
+        context: "methodology_task_status",
+        reason: format!("failed to encode task_json: {source}"),
+    })
 }
 
 fn parse_extra_guards(value: &serde_json::Value) -> Result<BTreeMap<String, bool>, StoreError> {
@@ -365,8 +417,31 @@ pub(crate) async fn upsert_task_status_projection_txn(
     } else {
         TaskProjectionState::default()
     };
-
     state.apply(mutation.op);
+
+    let mut snapshot = if let Some(model) = existing.as_ref() {
+        parse_task_snapshot(model)?
+    } else {
+        None
+    };
+    match event {
+        MethodologyEvent::TaskCreated(e) => {
+            snapshot = Some((*e.task).clone());
+        }
+        MethodologyEvent::TaskRevised(e) => {
+            if let Some(task) = snapshot.as_mut() {
+                task.description.clone_from(&e.revised_description);
+                task.acceptance_criteria.clone_from(&e.revised_acceptance);
+            }
+        }
+        _ => {}
+    }
+    if let Some(task) = snapshot.as_mut() {
+        task.status = status_for_projection_update(&state, event);
+    }
+
+    let encoded_snapshot = snapshot.as_ref().map(encode_task_snapshot).transpose()?;
+    let created_at = snapshot.as_ref().map(|task| task.created_at);
 
     match existing {
         Some(model) => {
@@ -377,6 +452,8 @@ pub(crate) async fn upsert_task_status_projection_txn(
             active.audited = Set(state.guards.audited);
             active.adherent = Set(state.guards.adherent);
             active.extra_guards = Set(extra_guards_json(&state.guards.extra));
+            active.task_json = Set(encoded_snapshot);
+            active.created_at = Set(created_at);
             active.updated_at = Set(Utc::now());
             active.update(txn).await?;
         }
@@ -389,6 +466,8 @@ pub(crate) async fn upsert_task_status_projection_txn(
                 audited: Set(state.guards.audited),
                 adherent: Set(state.guards.adherent),
                 extra_guards: Set(extra_guards_json(&state.guards.extra)),
+                task_json: Set(encoded_snapshot),
+                created_at: Set(created_at),
                 updated_at: Set(Utc::now()),
             })
             .exec(txn)
@@ -397,4 +476,18 @@ pub(crate) async fn upsert_task_status_projection_txn(
     }
 
     Ok(())
+}
+
+fn status_for_projection_update(
+    state: &TaskProjectionState,
+    event: &MethodologyEvent,
+) -> TaskStatus {
+    match event {
+        MethodologyEvent::TaskAbandoned(e) => TaskStatus::Abandoned {
+            disposition: e.disposition,
+            replacements: e.replacements.clone(),
+            explicit_user_discard_provenance: e.explicit_user_discard_provenance.clone(),
+        },
+        _ => state.to_status(),
+    }
 }

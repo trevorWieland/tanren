@@ -100,12 +100,28 @@ impl MethodologyService {
                         "pass `spec_id` to list_tasks, or invoke it from a bound mutation session that sets TANREN_SPEC_ID".into(),
                 })?,
         };
-        let tasks = tanren_store::methodology::projections::tasks_for_spec(
-            self.store(),
-            spec_id,
-            self.required_guards(),
-        )
-        .await?;
+        let projected = self
+            .store()
+            .load_methodology_task_list_projection(spec_id)
+            .await?;
+        let projection_complete =
+            !projected.is_empty() && projected.iter().all(|row| row.task.is_some());
+        let tasks = if projection_complete {
+            projected.into_iter().filter_map(|row| row.task).collect()
+        } else {
+            let folded = tanren_store::methodology::projections::tasks_for_spec(
+                self.store(),
+                spec_id,
+                self.required_guards(),
+            )
+            .await?;
+            for task in &folded {
+                self.store()
+                    .upsert_methodology_task_projection_snapshot(task)
+                    .await?;
+            }
+            folded
+        };
         Ok(ListTasksResponse {
             schema_version: SchemaVersion::current(),
             tasks,

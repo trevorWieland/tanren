@@ -9,6 +9,9 @@ mod idempotency;
 mod outbox;
 pub mod projections;
 pub mod replay;
+mod replay_line_validation;
+mod replay_task_state;
+mod task_list_projection;
 mod task_status_projection;
 
 pub use idempotency::{InsertMethodologyIdempotencyParams, MethodologyIdempotencyEntry};
@@ -23,4 +26,5 @@ pub use projections::{
 pub use replay::{
     ReplayError, ReplayOptions, ReplayStats, ingest_phase_events, ingest_phase_events_with_options,
 };
+pub use task_list_projection::TaskListProjectionRow;
 pub use task_status_projection::TaskStatusProjection;

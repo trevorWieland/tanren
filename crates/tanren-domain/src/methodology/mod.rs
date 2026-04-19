@@ -33,6 +33,7 @@ pub mod signpost;
 pub mod spec;
 pub mod standard;
 pub mod task;
+pub mod validation;
 
 pub use events::{
     AdherenceFindingAdded, EvidenceSchemaError, FindingAdded, IssueCreated, MethodologyEvent,
@@ -62,4 +63,8 @@ pub use standard::{Standard, StandardImportance};
 pub use task::{
     AcceptanceCriterion, ExplicitUserDiscardProvenance, RequiredGuard, Task,
     TaskAbandonDisposition, TaskGuardFlags, TaskOrigin, TaskStatus,
+};
+pub use validation::{
+    ValidationIssue, validate_finding_attached_task_spec, validate_finding_line_numbers,
+    validate_task_abandon_semantics,
 };
