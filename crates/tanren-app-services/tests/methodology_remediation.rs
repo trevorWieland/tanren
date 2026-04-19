@@ -24,6 +24,7 @@ async fn mk_service(required: Vec<RequiredGuard>) -> MethodologyService {
     let url = "sqlite::memory:?cache=shared";
     let store = Store::open_and_migrate(url).await.expect("open");
     let runtime = tanren_app_services::methodology::service::PhaseEventsRuntime {
+        spec_id: SpecId::new(),
         spec_folder: std::env::temp_dir().join(format!(
             "tanren-methodology-remediation-{}",
             uuid::Uuid::now_v7()
@@ -56,6 +57,10 @@ fn admin_scope() -> CapabilityScope {
 
 fn phase(tag: &str) -> PhaseId {
     PhaseId::try_new(tag).expect("phase")
+}
+
+fn runtime_spec_id(svc: &MethodologyService) -> SpecId {
+    svc.phase_events_runtime().expect("runtime").spec_id
 }
 
 #[tokio::test]
@@ -154,7 +159,7 @@ fn idempotency_key_absent_in_json_when_none() {
 async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
     let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
     let scope = admin_scope();
-    let spec_id = SpecId::new();
+    let spec_id = runtime_spec_id(&svc);
     let resp = svc
         .create_task(
             &scope,
@@ -232,7 +237,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
     // must leave the task at Implemented, not Complete.
     let svc = mk_service(vec![RequiredGuard::Audited]).await;
     let scope = admin_scope();
-    let spec_id = SpecId::new();
+    let spec_id = runtime_spec_id(&svc);
     let resp = svc
         .create_task(
             &scope,
@@ -311,7 +316,7 @@ async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
 async fn complete_task_with_empty_required_guards_completes_immediately() {
     let svc = mk_service(vec![]).await;
     let scope = admin_scope();
-    let spec_id = SpecId::new();
+    let spec_id = runtime_spec_id(&svc);
     let resp = svc
         .create_task(
             &scope,

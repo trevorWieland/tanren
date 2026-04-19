@@ -62,7 +62,7 @@ the orchestrator materializes new tasks from your `fix_now` findings.
 5. Call `report_phase_outcome`:
    - `complete` if all scores ≥ passing and zero `fix_now` findings
      remain. The `TaskAudited` guard will be recorded.
-   - `fail` if any `fix_now` findings are produced. The orchestrator
+   - `blocked` if any `fix_now` findings are produced. The orchestrator
      will materialize fix tasks.
    - `blocked` if you cannot complete an audit (unusual; document
      in a signpost).

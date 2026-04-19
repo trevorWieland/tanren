@@ -11,6 +11,7 @@ use super::SchemaVersion;
 
 /// `add_finding` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddFindingParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -30,6 +31,7 @@ pub struct AddFindingParams {
 
 /// `add_finding` / `record_adherence_finding` shared response shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddFindingResponse {
     pub schema_version: SchemaVersion,
     pub finding_id: FindingId,
@@ -37,6 +39,7 @@ pub struct AddFindingResponse {
 
 /// `record_adherence_finding` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RecordAdherenceFindingParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,

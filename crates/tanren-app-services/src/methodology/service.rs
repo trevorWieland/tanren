@@ -19,6 +19,7 @@ use super::errors::{MethodologyError, MethodologyResult};
 use super::phase_events::PhaseEventAttribution;
 
 const OUTBOX_DRAIN_BATCH_SIZE: u64 = 256;
+const OUTBOX_DRAIN_MAX_PASSES: u8 = 8;
 
 /// Shared methodology service.
 ///
@@ -38,6 +39,7 @@ pub struct MethodologyService {
 /// Runtime context for `phase-events.jsonl` writes.
 #[derive(Debug, Clone)]
 pub struct PhaseEventsRuntime {
+    pub spec_id: SpecId,
     pub spec_folder: PathBuf,
     pub agent_session_id: String,
 }
@@ -180,12 +182,20 @@ impl MethodologyService {
                 .as_ref()
                 .ok_or_else(|| MethodologyError::FieldValidation {
                     field_path: "/spec_folder".into(),
-                    expected: "audited runtime requires a spec-folder context".into(),
+                    expected: "audited runtime requires spec_id + spec_folder context".into(),
                     actual: "missing".into(),
                     remediation:
-                        "set --spec-folder / TANREN_SPEC_FOLDER for mutating methodology calls"
-                            .into(),
+                        "set --spec-id/--spec-folder or TANREN_SPEC_ID/TANREN_SPEC_FOLDER for mutating methodology calls".into(),
                 })?;
+        if runtime.spec_id != spec_id {
+            return Err(MethodologyError::FieldValidation {
+                field_path: "/spec_id".into(),
+                expected: runtime.spec_id.to_string(),
+                actual: spec_id.to_string(),
+                remediation:
+                    "ensure every mutation tool call targets the canonical session spec_id".into(),
+            });
+        }
         let line = super::line_for_envelope_with_attribution(
             envelope,
             spec_id,
@@ -209,14 +219,29 @@ impl MethodologyService {
     }
 
     async fn drain_phase_event_outbox_for_spec(&self, spec_id: SpecId) -> MethodologyResult<()> {
-        let pending = self
-            .store
-            .load_pending_phase_event_outbox(Some(spec_id), OUTBOX_DRAIN_BATCH_SIZE)
-            .await?;
-        for row in pending {
-            let _ = self.process_phase_event_outbox_row(row).await;
+        let mut last_pending_len = 0usize;
+        for _ in 0..OUTBOX_DRAIN_MAX_PASSES {
+            let pending = self
+                .store
+                .load_pending_phase_event_outbox(Some(spec_id), OUTBOX_DRAIN_BATCH_SIZE)
+                .await?;
+            last_pending_len = pending.len();
+            if pending.is_empty() {
+                return Ok(());
+            }
+            for row in pending {
+                self.process_phase_event_outbox_row(row).await?;
+            }
         }
-        Ok(())
+        Err(MethodologyError::FieldValidation {
+            field_path: "/phase_events_outbox".into(),
+            expected: format!(
+                "outbox projection converges within {OUTBOX_DRAIN_MAX_PASSES} drain passes"
+            ),
+            actual: format!("{last_pending_len} pending rows remained for spec `{spec_id}`"),
+            remediation:
+                "fix phase-events projection I/O and retry; use reconcile_phase_events when the filesystem is healthy".into(),
+        })
     }
 
     async fn process_phase_event_outbox_row(
@@ -227,14 +252,7 @@ impl MethodologyService {
             .increment_phase_event_outbox_attempt(row.event_id)
             .await?;
         let path = PathBuf::from(&row.spec_folder).join("phase-events.jsonl");
-        let already_projected = if row.attempt_count > 0 {
-            super::jsonl_contains_event_id(&path, row.event_id)?
-        } else {
-            false
-        };
-        if !already_projected
-            && let Err(err) = super::append_jsonl_encoded_line(&path, &row.line_json)
-        {
+        if let Err(err) = super::append_jsonl_encoded_line(&path, &row.line_json) {
             let _ = self
                 .store
                 .mark_phase_event_outbox_pending_error(row.event_id, &err.to_string())

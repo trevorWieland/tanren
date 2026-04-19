@@ -19,6 +19,7 @@ async fn mk_service(required: Vec<RequiredGuard>) -> MethodologyService {
         .await
         .expect("open");
     let runtime = tanren_app_services::methodology::service::PhaseEventsRuntime {
+        spec_id: SpecId::new(),
         spec_folder: std::env::temp_dir().join(format!(
             "tanren-methodology-rubric-{}",
             uuid::Uuid::now_v7()
@@ -39,11 +40,15 @@ fn phase(tag: &str) -> PhaseId {
     PhaseId::try_new(tag).expect("phase")
 }
 
+fn runtime_spec_id(svc: &MethodologyService) -> SpecId {
+    svc.phase_events_runtime().expect("runtime").spec_id
+}
+
 #[tokio::test]
 async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {
     let svc = mk_service(vec![]).await;
     let scope = admin_scope();
-    let spec_id = SpecId::new();
+    let spec_id = runtime_spec_id(&svc);
     let create = svc
         .create_task(
             &scope,
@@ -116,7 +121,7 @@ async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {
 async fn rubric_score_rejects_non_actionable_supporting_severity() {
     let svc = mk_service(vec![]).await;
     let scope = admin_scope();
-    let spec_id = SpecId::new();
+    let spec_id = runtime_spec_id(&svc);
     let create = svc
         .create_task(
             &scope,

@@ -168,7 +168,7 @@ types are canonical syntax.
 
 | Tool | Capability | Restriction |
 |---|---|---|
-| `report_phase_outcome(outcome, summary, next_action_hint?)` | `phase.outcome` | All agentic phases. |
+| `report_phase_outcome(spec_id, task_id?, outcome)` | `phase.outcome` | All agentic phases; `task_id` required for task-scoped `audit-task` / `adhere-task` completion bridging. |
 | `escalate_to_blocker(reason, options[])` | `phase.escalate` | **`investigate` only.** |
 | `post_reply_directive(thread_ref, body, disposition)` | `feedback.reply` | **`handle-feedback` only.** |
 
@@ -284,9 +284,9 @@ compatibility.
 ### 6.4 Atomicity
 
 Service writes event + phase-event-outbox rows in one DB transaction.
-`phase-events.jsonl` is projected asynchronously from the outbox with
-retry + exactly-once event-id checks, so DB truth and file projection
-cannot permanently diverge.
+`phase-events.jsonl` projection drains the outbox immediately in the
+mutation path (fail-closed on projection health), plus periodic retry
+worker reconciliation from the same durable outbox rows.
 
 ### 6.5 Replay
 
@@ -340,8 +340,9 @@ duplicate events from network-level retries.
 
 The service translates tool-input → validated domain event + store
 mutation atomically, then projects `phase-events.jsonl` via a durable
-outbox worker. Projection failures are retried/reconciled without
-losing the canonical event.
+outbox worker. Projection failures fail closed for mutation calls and
+are retried/reconciled from outbox state without losing the canonical
+event.
 
 ---
 
@@ -351,8 +352,9 @@ losing the canonical event.
   server advertises the highest supported revision.
 - Tool schema version: `tanren.methodology.v1`. Every tool payload
   carries `schema_version` and MCP `_meta.schema_version` mirrors the
-  same value. Backward-compatible additions are minor bumps (clients
-  tolerate unknown optional fields). Breaking changes bump major.
+  same value. Backward-compatible additions are minor bumps (new
+  optional fields); unknown input fields are rejected at the boundary.
+  Breaking changes bump major.
 - Event schema version: event envelope `schema_version` is authoritative.
 
 ---

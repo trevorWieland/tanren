@@ -3,18 +3,19 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_domain::SpecId;
-use tanren_domain::methodology::phase_id::PhaseId;
+use tanren_domain::TaskId;
 use tanren_domain::methodology::phase_outcome::PhaseOutcome;
 
 use super::SchemaVersion;
 
 /// `report_phase_outcome` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReportPhaseOutcomeParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
-    pub phase: PhaseId,
-    pub agent_session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<TaskId>,
     pub outcome: PhaseOutcome,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
@@ -22,6 +23,7 @@ pub struct ReportPhaseOutcomeParams {
 
 /// `escalate_to_blocker` params. Capability-scoped to `investigate`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct EscalateToBlockerParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -33,6 +35,7 @@ pub struct EscalateToBlockerParams {
 
 /// `post_reply_directive` params. Capability-scoped to `handle-feedback`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PostReplyDirectiveParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,

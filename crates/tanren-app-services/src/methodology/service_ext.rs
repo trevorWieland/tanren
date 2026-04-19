@@ -10,21 +10,20 @@
 //! 4. Return the typed contract response.
 
 use chrono::Utc;
+use tanren_domain::SignpostId;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{
-    MethodologyEvent, NonNegotiableComplianceRecorded, PhaseOutcomeReported,
-    ReplyDirectiveRecorded, RubricScoreRecorded, SignpostAdded, SignpostStatusUpdated, TaskRevised,
+    MethodologyEvent, NonNegotiableComplianceRecorded, RubricScoreRecorded, SignpostAdded,
+    SignpostStatusUpdated, TaskRevised,
 };
 use tanren_domain::methodology::finding::FindingSeverity;
-use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::rubric::{NonNegotiableCompliance, RubricScore};
 use tanren_domain::methodology::signpost::Signpost;
-use tanren_domain::{NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
-    AckResponse, AddSignpostParams, AddSignpostResponse, EscalateToBlockerParams, ListTasksParams,
-    ListTasksResponse, PostReplyDirectiveParams, RecordNonNegotiableComplianceParams,
-    RecordRubricScoreParams, ReportPhaseOutcomeParams, ReviseTaskParams, SchemaVersion,
+    AckResponse, AddSignpostParams, AddSignpostResponse, ListTasksParams, ListTasksResponse,
+    RecordNonNegotiableComplianceParams, RecordRubricScoreParams, ReviseTaskParams, SchemaVersion,
     UpdateSignpostStatusParams,
 };
 
@@ -313,170 +312,6 @@ impl MethodologyService {
                         spec_id,
                         status: params.status,
                         resolution: params.resolution,
-                    }),
-                )
-                .await?;
-                Ok(AckResponse::current())
-            },
-        )
-        .await
-    }
-
-    // -- §3.6 phase outcome + escalate + post_reply ---------------------------
-
-    /// `report_phase_outcome`.
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn report_phase_outcome(
-        &self,
-        scope: &CapabilityScope,
-        phase: &PhaseId,
-        params: ReportPhaseOutcomeParams,
-    ) -> MethodologyResult<AckResponse> {
-        enforce(scope, ToolCapability::PhaseOutcome, phase)?;
-        let spec_id = params.spec_id;
-        let explicit_key = params.idempotency_key.clone();
-        let idempotency_payload = params.clone();
-        self.run_idempotent_mutation(
-            "report_phase_outcome",
-            spec_id,
-            explicit_key,
-            &idempotency_payload,
-            || async move {
-                let session = super::errors::require_non_empty(
-                    "/agent_session_id",
-                    &params.agent_session_id,
-                    Some(120),
-                )?;
-                self.emit_event(
-                    phase,
-                    MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
-                        spec_id: params.spec_id,
-                        phase: params.phase,
-                        agent_session_id: session,
-                        outcome: params.outcome,
-                    }),
-                )
-                .await?;
-                Ok(AckResponse::current())
-            },
-        )
-        .await
-    }
-
-    /// `escalate_to_blocker` — capability-scoped to `investigate` at
-    /// phase config time.
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn escalate_to_blocker(
-        &self,
-        scope: &CapabilityScope,
-        phase: &PhaseId,
-        params: EscalateToBlockerParams,
-    ) -> MethodologyResult<AckResponse> {
-        enforce(scope, ToolCapability::PhaseEscalate, phase)?;
-        let spec_id = params.spec_id;
-        let explicit_key = params.idempotency_key.clone();
-        let idempotency_payload = params.clone();
-        self.run_idempotent_mutation(
-            "escalate_to_blocker",
-            spec_id,
-            explicit_key,
-            &idempotency_payload,
-            || async move {
-                if !phase.is_known(KnownPhase::Investigate) {
-                    return Err(MethodologyError::FieldValidation {
-                        field_path: "/phase".into(),
-                        expected: "escalate_to_blocker allowed only in investigate".into(),
-                        actual: phase.as_str().to_owned(),
-                        remediation: "invoke escalate_to_blocker from investigate only".into(),
-                    });
-                }
-                let reason =
-                    super::errors::require_non_empty("/reason", &params.reason, Some(1000))?;
-                let summary = NonEmptyString::try_new(format!(
-                    "escalated: {} options={}",
-                    reason.as_str(),
-                    params.options.len()
-                ))
-                .map_err(|e| MethodologyError::Internal(e.to_string()))?;
-                self.emit_event(
-                    phase,
-                    MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
-                        spec_id: params.spec_id,
-                        phase: phase.clone(),
-                        agent_session_id: NonEmptyString::try_new("escalation")
-                            .map_err(|e| MethodologyError::Internal(e.to_string()))?,
-                        outcome: tanren_domain::methodology::phase_outcome::PhaseOutcome::Blocked {
-                            reason:
-                                tanren_domain::methodology::phase_outcome::BlockedReason::Other {
-                                    detail: reason,
-                                },
-                            summary,
-                        },
-                    }),
-                )
-                .await?;
-                Ok(AckResponse::current())
-            },
-        )
-        .await
-    }
-
-    /// `post_reply_directive` — capability-scoped to `handle-feedback`.
-    /// Records the disposition on a feedback thread; the orchestrator
-    /// enacts the actual reply out-of-band.
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn post_reply_directive(
-        &self,
-        scope: &CapabilityScope,
-        phase: &PhaseId,
-        params: PostReplyDirectiveParams,
-    ) -> MethodologyResult<AckResponse> {
-        enforce(scope, ToolCapability::FeedbackReply, phase)?;
-        let spec_id = params.spec_id;
-        let explicit_key = params.idempotency_key.clone();
-        let idempotency_payload = params.clone();
-        self.run_idempotent_mutation(
-            "post_reply_directive",
-            spec_id,
-            explicit_key,
-            &idempotency_payload,
-            || async move {
-                if !phase.is_known(KnownPhase::HandleFeedback) {
-                    return Err(MethodologyError::FieldValidation {
-                        field_path: "/phase".into(),
-                        expected: "post_reply_directive allowed only in handle-feedback".into(),
-                        actual: phase.as_str().to_owned(),
-                        remediation: "invoke post_reply_directive from handle-feedback only".into(),
-                    });
-                }
-                let thread_ref =
-                    super::errors::require_non_empty("/thread_ref", &params.thread_ref, Some(200))?;
-                let body = if params.body.trim().is_empty() {
-                    return Err(MethodologyError::FieldValidation {
-                        field_path: "/body".into(),
-                        expected: "non-empty reply body".into(),
-                        actual: format!("{:?}", params.body),
-                        remediation:
-                            "supply the reply content the orchestrator's feedback adapter will post"
-                                .into(),
-                    });
-                } else {
-                    params.body
-                };
-                self.emit_event(
-                    phase,
-                    MethodologyEvent::ReplyDirectiveRecorded(ReplyDirectiveRecorded {
-                        spec_id: params.spec_id,
-                        phase: phase.clone(),
-                        thread_ref,
-                        disposition: params.disposition,
-                        body,
                     }),
                 )
                 .await?;

@@ -9,6 +9,7 @@ use super::SchemaVersion;
 
 /// `create_issue` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateIssueParams {
     pub schema_version: SchemaVersion,
     pub origin_spec_id: SpecId,
@@ -22,6 +23,7 @@ pub struct CreateIssueParams {
 
 /// `create_issue` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateIssueResponse {
     pub schema_version: SchemaVersion,
     pub issue_id: IssueId,

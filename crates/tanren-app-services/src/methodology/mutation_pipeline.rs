@@ -44,11 +44,11 @@ pub fn enter_mutation_session(spec_folder: &Path) -> MethodologyResult<Option<En
 pub async fn finalize_mutation_session(
     service: &MethodologyService,
     phase: &PhaseId,
+    spec_id: SpecId,
     spec_folder: &Path,
     agent_session_id: &str,
     guard: Option<EnforcementGuard>,
 ) -> MethodologyResult<()> {
-    let spec_id = infer_spec_id(spec_folder)?;
     let agent_session_id =
         NonEmptyString::try_new(agent_session_id).map_err(MethodologyError::Domain)?;
 
@@ -182,43 +182,6 @@ async fn emit_evidence_schema_error(
         .await
 }
 
-fn infer_spec_id(spec_folder: &Path) -> MethodologyResult<SpecId> {
-    let hay = spec_folder.to_string_lossy();
-    if let Some(spec_id) = find_uuid_like(&hay).map(SpecId::from_uuid) {
-        return Ok(spec_id);
-    }
-    let spec_md = spec_folder.join("spec.md");
-    if spec_md.exists() {
-        let raw = std::fs::read_to_string(&spec_md).map_err(|source| MethodologyError::Io {
-            path: spec_md.clone(),
-            source,
-        })?;
-        let (fm, _) = SpecFrontmatter::parse_from_markdown(&raw).map_err(|e| {
-            MethodologyError::Validation(format!("parsing {}: {e}", spec_md.display()))
-        })?;
-        return Ok(fm.spec_id);
-    }
-    Err(MethodologyError::Validation(format!(
-        "cannot infer spec_id from spec folder `{}` (no UUID-like segment, no parseable spec.md)",
-        spec_folder.display()
-    )))
-}
-
-fn find_uuid_like(input: &str) -> Option<uuid::Uuid> {
-    if input.len() < 36 {
-        return None;
-    }
-    for start in 0..=input.len() - 36 {
-        let Some(candidate) = input.get(start..start + 36) else {
-            continue;
-        };
-        if let Ok(id) = uuid::Uuid::parse_str(candidate) {
-            return Some(id);
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,18 +191,23 @@ mod tests {
     use tanren_domain::methodology::events::MethodologyEvent;
     use tanren_store::{EventFilter, EventStore, Store};
 
-    async fn mk_service() -> MethodologyService {
+    async fn mk_service() -> (MethodologyService, SpecId) {
         let store = Store::open_and_migrate("sqlite::memory:")
             .await
             .expect("open");
+        let spec_id = SpecId::new();
         let runtime = crate::methodology::service::PhaseEventsRuntime {
+            spec_id,
             spec_folder: std::env::temp_dir().join(format!(
                 "tanren-methodology-mutation-pipeline-{}",
                 uuid::Uuid::now_v7()
             )),
             agent_session_id: "test-session".into(),
         };
-        MethodologyService::with_runtime(Arc::new(store), vec![], Some(runtime), vec![])
+        (
+            MethodologyService::with_runtime(Arc::new(store), vec![], Some(runtime), vec![]),
+            spec_id,
+        )
     }
 
     #[tokio::test]
@@ -247,8 +215,7 @@ mod tests {
         #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
 
-        let service = mk_service().await;
-        let spec_id = SpecId::new();
+        let (service, spec_id) = mk_service().await;
         let root = tempfile::tempdir().expect("tempdir");
         let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
         std::fs::create_dir_all(&spec_folder).expect("mkdir");
@@ -262,7 +229,7 @@ mod tests {
         std::fs::write(&plan, "mutated\n").expect("mutate");
         let phase = PhaseId::try_new("do-task").expect("phase");
 
-        finalize_mutation_session(&service, &phase, &spec_folder, "session-1", guard)
+        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-1", guard)
             .await
             .expect("finalize");
 
@@ -288,8 +255,7 @@ mod tests {
 
     #[tokio::test]
     async fn finalize_reverts_newly_created_protected_artifact() {
-        let service = mk_service().await;
-        let spec_id = SpecId::new();
+        let (service, spec_id) = mk_service().await;
         let root = tempfile::tempdir().expect("tempdir");
         let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
         std::fs::create_dir_all(&spec_folder).expect("mkdir");
@@ -299,7 +265,7 @@ mod tests {
         std::fs::write(&created, "created during session\n").expect("create");
         let phase = PhaseId::try_new("do-task").expect("phase");
 
-        finalize_mutation_session(&service, &phase, &spec_folder, "session-3", guard)
+        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-3", guard)
             .await
             .expect("finalize");
 
@@ -327,8 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn finalize_reverts_newly_created_protected_index_artifact() {
-        let service = mk_service().await;
-        let spec_id = SpecId::new();
+        let (service, spec_id) = mk_service().await;
         let root = tempfile::tempdir().expect("tempdir");
         let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
         std::fs::create_dir_all(&spec_folder).expect("mkdir");
@@ -338,7 +303,7 @@ mod tests {
         std::fs::write(&created, "{\"generated\":true}\n").expect("create");
         let phase = PhaseId::try_new("do-task").expect("phase");
 
-        finalize_mutation_session(&service, &phase, &spec_folder, "session-4", guard)
+        finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-4", guard)
             .await
             .expect("finalize");
 
@@ -366,17 +331,17 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_evidence_emits_schema_error_and_fails_closed() {
-        let service = mk_service().await;
-        let spec_id = SpecId::new();
+        let (service, spec_id) = mk_service().await;
         let root = tempfile::tempdir().expect("tempdir");
         let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
         std::fs::create_dir_all(&spec_folder).expect("mkdir");
         std::fs::write(spec_folder.join("audit.md"), "not-frontmatter\n").expect("write");
         let phase = PhaseId::try_new("audit-task").expect("phase");
 
-        let err = finalize_mutation_session(&service, &phase, &spec_folder, "session-2", None)
-            .await
-            .expect_err("malformed evidence must fail");
+        let err =
+            finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-2", None)
+                .await
+                .expect_err("malformed evidence must fail");
         assert!(matches!(err, MethodologyError::EvidenceSchema { .. }));
 
         let events = service

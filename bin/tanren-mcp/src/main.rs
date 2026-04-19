@@ -19,9 +19,11 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 mod catalog;
 mod dispatch;
@@ -63,13 +65,33 @@ async fn run() -> Result<()> {
             runtime.standards_root.display()
         )
     })?;
-    let phase_events = std::env::var("TANREN_SPEC_FOLDER").ok().map(|spec_folder| {
-        tanren_app_services::methodology::service::PhaseEventsRuntime {
-            spec_folder: PathBuf::from(spec_folder),
-            agent_session_id: std::env::var("TANREN_AGENT_SESSION_ID")
-                .unwrap_or_else(|_| "mcp-session".to_owned()),
+    let phase_events = match (
+        std::env::var("TANREN_SPEC_ID").ok(),
+        std::env::var("TANREN_SPEC_FOLDER").ok(),
+    ) {
+        (None, None) => None,
+        (Some(spec_id_raw), Some(spec_folder)) => {
+            let spec_id_uuid = Uuid::parse_str(&spec_id_raw)
+                .with_context(|| format!("parsing TANREN_SPEC_ID `{spec_id_raw}`"))?;
+            let spec_id = tanren_app_services::methodology::SpecId::from_uuid(spec_id_uuid);
+            Some(
+                tanren_app_services::methodology::service::PhaseEventsRuntime {
+                    spec_id,
+                    spec_folder: PathBuf::from(spec_folder),
+                    agent_session_id: std::env::var("TANREN_AGENT_SESSION_ID")
+                        .unwrap_or_else(|_| "mcp-session".to_owned()),
+                },
+            )
         }
-    });
+        _ => {
+            anyhow::bail!(
+                "TANREN_SPEC_ID and TANREN_SPEC_FOLDER must either both be set or both be unset"
+            );
+        }
+    };
+    let reconcile_spec_folder = phase_events
+        .as_ref()
+        .map(|runtime| runtime.spec_folder.clone());
     let service = tanren_app_services::compose::build_methodology_service_with_config(
         &database_url,
         runtime.required_guards,
@@ -78,13 +100,41 @@ async fn run() -> Result<()> {
     )
     .await
     .context("building methodology service")?;
+    let service = Arc::new(service);
+    spawn_projection_retry_worker(Arc::clone(&service), reconcile_spec_folder);
     tracing::info!(
         capability_count = scope.0.len(),
         phase = %phase.as_str(),
         tools = catalog::all_tools().len(),
         "tanren-mcp starting on stdio transport"
     );
-    handler::serve_stdio(scope, Arc::new(service), phase).await
+    handler::serve_stdio(scope, service, phase).await
+}
+
+fn spawn_projection_retry_worker(
+    service: Arc<tanren_app_services::methodology::MethodologyService>,
+    spec_folder: Option<PathBuf>,
+) {
+    let Some(spec_folder) = spec_folder else {
+        return;
+    };
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            if let Err(err) = service
+                .reconcile_phase_events_outbox_for_folder(&spec_folder)
+                .await
+            {
+                tracing::warn!(
+                    ?err,
+                    spec_folder = %spec_folder.display(),
+                    "phase-event projection retry tick failed"
+                );
+            }
+        }
+    });
 }
 
 fn init_tracing() -> Result<()> {

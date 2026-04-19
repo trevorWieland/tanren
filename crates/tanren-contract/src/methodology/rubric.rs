@@ -13,6 +13,7 @@ use super::SchemaVersion;
 /// ⇒ findings; score < passing ⇒ `fix_now`) is applied in the service
 /// layer via `tanren_domain::methodology::rubric::RubricScore::try_new`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RecordRubricScoreParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -32,6 +33,7 @@ pub struct RecordRubricScoreParams {
 
 /// `record_non_negotiable_compliance` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RecordNonNegotiableComplianceParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,

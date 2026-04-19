@@ -1,12 +1,4 @@
 //! Integration tests for the `tanren methodology …` tool surface.
-//!
-//! Covers the happy path and a representative typed-error path for
-//! every §3 and §6 tool group. Each test shells out to the compiled
-//! CLI with `assert_cmd`, points at a fresh sqlite file, and
-//! asserts:
-//! - process exit code (0 / 4 / typed),
-//! - stdout JSON shape for success cases,
-//! - stderr JSON shape for typed `ToolError` cases.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -17,13 +9,10 @@ use tanren_domain::methodology::events::{MethodologyEvent, TaskCreated};
 use tanren_domain::methodology::task::{Task, TaskOrigin, TaskStatus};
 use tanren_domain::{NonEmptyString, SpecId, TaskId};
 use tempfile::TempDir;
-
 fn mkdb() -> (TempDir, String) {
     let dir = tempfile::tempdir().expect("tempdir");
     let db = dir.path().join("tanren.db");
     let url = format!("sqlite:{}?mode=rwc", db.display());
-    // Migrate once up-front so the first methodology call doesn't
-    // race with schema creation.
     Command::cargo_bin("tanren-cli")
         .expect("bin")
         .args(["--database-url", &url, "db", "migrate"])
@@ -41,15 +30,9 @@ fn mk_spec_folder(dir: &TempDir, spec_id: &str) -> PathBuf {
 fn cli(url: &str) -> Command {
     let mut cmd = Command::cargo_bin("tanren-cli").expect("bin");
     cmd.args(["--database-url", url]);
-    // Integration tests exercise the full tool surface without
-    // supplying a phase banner, so opt into the audited admin fallback.
-    // Production callers invoke the CLI with explicit
-    // `TANREN_PHASE_CAPABILITIES` under orchestrator dispatch; default
-    // is deny.
     cmd.env("TANREN_CAPABILITY_OVERRIDE", "admin");
     cmd
 }
-
 fn parse_stdout(out: &std::process::Output) -> Value {
     let text = String::from_utf8_lossy(&out.stdout);
     serde_json::from_str(&text).expect("stdout is JSON")
@@ -59,7 +42,6 @@ fn parse_stderr(out: &std::process::Output) -> Value {
     let text = String::from_utf8_lossy(&out.stderr);
     serde_json::from_str(&text).expect("stderr is JSON")
 }
-
 fn write_phase_events_file(folder: &std::path::Path, spec_id: SpecId) -> PathBuf {
     let task = Task {
         id: TaskId::new(),
@@ -106,6 +88,8 @@ fn task_create_then_list_round_trips() {
     let out = cli(&url)
         .args([
             "methodology",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "task",
@@ -151,6 +135,8 @@ fn validation_error_returns_exit_4_with_typed_field_path() {
     let out = cli(&url)
         .args([
             "methodology",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "task",
@@ -181,6 +167,8 @@ fn unknown_tool_json_returns_typed_validation() {
     let out = cli(&url)
         .args([
             "methodology",
+            "--spec-id",
+            "00000000-0000-0000-0000-000000000020",
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "task",
@@ -207,6 +195,8 @@ fn capability_enforcement_denies_when_env_scope_excludes_tool() {
         .env("TANREN_PHASE_CAPABILITIES", "task.read")
         .args([
             "methodology",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "task",
@@ -261,6 +251,8 @@ fn adherence_rejects_non_contract_severity_at_boundary() {
             "methodology",
             "--phase",
             "adhere-task",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "adherence",
@@ -287,6 +279,8 @@ fn create_issue_returns_urn_no_placeholder_url() {
             "methodology",
             "--phase",
             "triage-audits",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "issue",
@@ -375,6 +369,8 @@ fn replay_round_trips_real_generated_phase_events_file() {
     let create = cli(&source_url)
         .args([
             "methodology",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "task",
@@ -458,6 +454,8 @@ fn abandon_rejects_empty_replacements_and_trivial_reason() {
     let create = cli(&url)
         .args([
             "methodology",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "task",
@@ -476,6 +474,8 @@ fn abandon_rejects_empty_replacements_and_trivial_reason() {
     let out = cli(&url)
         .args([
             "methodology",
+            "--spec-id",
+            spec,
             "--spec-folder",
             spec_folder.to_str().expect("utf8"),
             "task",

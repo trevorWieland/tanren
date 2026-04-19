@@ -11,6 +11,7 @@ use super::SchemaVersion;
 
 /// `create_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTaskParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -29,6 +30,7 @@ pub struct CreateTaskParams {
 
 /// `create_task` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTaskResponse {
     pub schema_version: SchemaVersion,
     pub task_id: TaskId,
@@ -36,6 +38,7 @@ pub struct CreateTaskResponse {
 
 /// `start_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct StartTaskParams {
     pub schema_version: SchemaVersion,
     pub task_id: TaskId,
@@ -45,6 +48,7 @@ pub struct StartTaskParams {
 
 /// `complete_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CompleteTaskParams {
     pub schema_version: SchemaVersion,
     pub task_id: TaskId,
@@ -57,6 +61,7 @@ pub struct CompleteTaskParams {
 /// `revise_task` params. Non-transitional — mutates description /
 /// acceptance criteria only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReviseTaskParams {
     pub schema_version: SchemaVersion,
     pub task_id: TaskId,
@@ -69,6 +74,7 @@ pub struct ReviseTaskParams {
 
 /// `abandon_task` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AbandonTaskParams {
     pub schema_version: SchemaVersion,
     pub task_id: TaskId,
@@ -81,6 +87,7 @@ pub struct AbandonTaskParams {
 
 /// `mark_task_guard_satisfied` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MarkTaskGuardSatisfiedParams {
     pub schema_version: SchemaVersion,
     pub task_id: TaskId,
@@ -91,6 +98,7 @@ pub struct MarkTaskGuardSatisfiedParams {
 
 /// `list_tasks` filter.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListTasksParams {
     pub schema_version: SchemaVersion,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,6 +107,7 @@ pub struct ListTasksParams {
 
 /// `list_tasks` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListTasksResponse {
     pub schema_version: SchemaVersion,
     pub tasks: Vec<Task>,

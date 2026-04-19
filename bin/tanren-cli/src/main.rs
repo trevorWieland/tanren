@@ -204,12 +204,16 @@ async fn run_methodology_command(
             runtime.standards_root.display()
         ))
     })?;
-    let phase_events = global.spec_folder.as_ref().map(|spec_folder| {
-        tanren_app_services::methodology::service::PhaseEventsRuntime {
-            spec_folder: spec_folder.clone(),
-            agent_session_id: global.agent_session_id.clone(),
-        }
-    });
+    let phase_events = match (global.spec_id, global.spec_folder.clone()) {
+        (Some(spec_id), Some(spec_folder)) => Some(
+            tanren_app_services::methodology::service::PhaseEventsRuntime {
+                spec_id,
+                spec_folder,
+                agent_session_id: global.agent_session_id.clone(),
+            },
+        ),
+        _ => None,
+    };
     let service = tanren_app_services::compose::build_methodology_service_with_config(
         database_url,
         runtime.required_guards,

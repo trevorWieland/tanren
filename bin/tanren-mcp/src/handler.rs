@@ -104,11 +104,13 @@ impl ServerHandler for TanrenHandler {
                     let mut result = CallToolResult::default();
                     let outcome = dispatch::CallResult::Err(
                         tanren_app_services::methodology::ToolError::ValidationFailed {
-                            field_path: "/spec_folder".into(),
-                            expected: "audited runtime requires TANREN_SPEC_FOLDER".into(),
+                            field_path: "/spec_id".into(),
+                            expected:
+                                "audited runtime requires TANREN_SPEC_ID + TANREN_SPEC_FOLDER"
+                                    .into(),
                             actual: "missing".into(),
                             remediation:
-                                "set TANREN_SPEC_FOLDER to the active spec directory for mutating tools"
+                                "set TANREN_SPEC_ID and TANREN_SPEC_FOLDER for mutating tools"
                                     .into(),
                         },
                     );
@@ -133,6 +135,7 @@ impl ServerHandler for TanrenHandler {
                 && let Err(err) = finalize_mutation_session(
                     service.as_ref(),
                     &phase,
+                    runtime.spec_id,
                     &runtime.spec_folder,
                     &runtime.agent_session_id,
                     guard,

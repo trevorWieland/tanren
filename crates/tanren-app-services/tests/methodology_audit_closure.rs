@@ -28,6 +28,7 @@ async fn mk_service_with_standards(
         .await
         .expect("open");
     let runtime = tanren_app_services::methodology::service::PhaseEventsRuntime {
+        spec_id: SpecId::new(),
         spec_folder: std::env::temp_dir()
             .join(format!("tanren-methodology-audit-{}", uuid::Uuid::now_v7())),
         agent_session_id: "test-session".into(),
@@ -41,6 +42,10 @@ fn scope(caps: &[ToolCapability]) -> CapabilityScope {
 
 fn phase(tag: &str) -> PhaseId {
     PhaseId::try_new(tag).expect("phase")
+}
+
+fn runtime_spec_id(svc: &MethodologyService) -> SpecId {
+    svc.phase_events_runtime().expect("runtime").spec_id
 }
 
 fn phase_events(svc: &MethodologyService) -> Vec<PhaseEventLine> {
@@ -62,7 +67,7 @@ async fn adherence_rejects_unknown_standard_refs() {
             &phase("adhere-task"),
             RecordAdherenceFindingParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
-                spec_id: SpecId::new(),
+                spec_id: runtime_spec_id(&svc),
                 standard: StandardRef {
                     name: NonEmptyString::try_new("missing-standard").expect("name"),
                     category: NonEmptyString::try_new("missing-category").expect("category"),
@@ -92,7 +97,7 @@ async fn adherence_rejects_defer_for_critical_standard() {
             &phase("adhere-task"),
             RecordAdherenceFindingParams {
                 schema_version: tanren_contract::methodology::SchemaVersion::current(),
-                spec_id: SpecId::new(),
+                spec_id: runtime_spec_id(&svc),
                 standard: StandardRef {
                     name: NonEmptyString::try_new("no-unwrap-in-production").expect("name"),
                     category: NonEmptyString::try_new("rust-error-handling").expect("category"),
@@ -116,7 +121,7 @@ async fn adherence_rejects_defer_for_critical_standard() {
 #[tokio::test]
 async fn relevance_filters_use_server_derived_context_and_hints_are_additive() {
     let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
-    let spec_id = SpecId::new();
+    let spec_id = runtime_spec_id(&svc);
     let scope = scope(&[
         ToolCapability::SpecFrontmatter,
         ToolCapability::StandardRead,
@@ -235,7 +240,7 @@ async fn globset_matches_complex_patterns_with_path_normalization() {
 #[tokio::test]
 async fn guard_plus_completion_events_share_causal_link_and_origin_kind() {
     let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
-    let spec_id = SpecId::new();
+    let spec_id = runtime_spec_id(&svc);
     let task_scope = scope(&[
         ToolCapability::TaskCreate,
         ToolCapability::TaskStart,

@@ -57,6 +57,7 @@ fn spawn_mcp(db_url: &str, scope: &str, spec_id: &str) -> (TempDir, std::process
     std::fs::create_dir_all(&spec_folder).expect("mkdir spec folder");
     let child = Command::new(&bin)
         .env("TANREN_DATABASE_URL", db_url)
+        .env("TANREN_SPEC_ID", spec_id)
         .env("TANREN_SPEC_FOLDER", &spec_folder)
         .env("TANREN_PHASE_CAPABILITIES", scope)
         .stdin(Stdio::piped())

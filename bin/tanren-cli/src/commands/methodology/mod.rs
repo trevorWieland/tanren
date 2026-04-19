@@ -46,9 +46,16 @@ use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 use tanren_app_services::methodology::{
-    CapabilityScope, MethodologyError, MethodologyService, PhaseId, ToolCapability, ToolError,
-    default_scope_for_phase, enter_mutation_session, finalize_mutation_session, parse_scope_env,
+    CapabilityScope, MethodologyError, MethodologyService, PhaseId, SpecId, ToolCapability,
+    ToolError, default_scope_for_phase, enter_mutation_session, finalize_mutation_session,
+    parse_scope_env,
 };
+use uuid::Uuid;
+
+fn parse_spec_id(value: &str) -> std::result::Result<SpecId, String> {
+    let uuid = Uuid::parse_str(value).map_err(|err| err.to_string())?;
+    Ok(SpecId::from_uuid(uuid))
+}
 
 /// Top-level arguments shared by every methodology subcommand.
 #[derive(Debug, Clone, Args)]
@@ -65,6 +72,11 @@ pub(crate) struct MethodologyGlobal {
     /// Required for mutating commands.
     #[arg(long, global = true)]
     pub spec_folder: Option<PathBuf>,
+
+    /// Canonical spec identity bound to this mutation session.
+    /// Required for mutating commands.
+    #[arg(long, global = true, value_parser = parse_spec_id)]
+    pub spec_id: Option<SpecId>,
 
     /// Agent session id to stamp in `phase-events.jsonl` lines when
     /// `--spec-folder` is provided.
@@ -321,19 +333,30 @@ pub(crate) async fn dispatch(
     };
     let mut session = None;
     if is_mutation_command(&command) {
+        let Some(spec_id) = global.spec_id else {
+            return emit_result::<serde_json::Value>(Err(MethodologyError::FieldValidation {
+                field_path: "/spec_id".into(),
+                expected: "--spec-id <UUID> for audited mutation commands".into(),
+                actual: "missing".into(),
+                remediation:
+                    "pass --spec-id <spec_uuid> so mutation calls are bound to one canonical spec"
+                        .into(),
+            }));
+        };
         let Some(spec_folder) = global.spec_folder.as_deref() else {
             return emit_result::<serde_json::Value>(Err(MethodologyError::FieldValidation {
                 field_path: "/spec_folder".into(),
-                expected: "--spec-folder <PATH> for audited mutation commands".into(),
+                expected: "--spec-folder <PATH> with --spec-id for audited mutation commands"
+                    .into(),
                 actual: "missing".into(),
                 remediation:
-                    "pass --spec-folder <spec_dir> so phase-events.jsonl auditing is enforced"
-                        .into(),
+                    "pass --spec-id <spec_uuid> and --spec-folder <spec_dir> so phase-events.jsonl auditing is enforced".into(),
             }));
         };
         match enter_mutation_session(spec_folder) {
             Ok(guard) => {
                 session = Some((
+                    spec_id,
                     spec_folder.to_path_buf(),
                     global.agent_session_id.clone(),
                     guard,
@@ -359,9 +382,16 @@ pub(crate) async fn dispatch(
         MethodologyCommand::ReconcilePhaseEvents(_a) => reconcile::run(service, global).await,
     };
 
-    if let Some((spec_folder, agent_session_id, guard)) = session
-        && let Err(err) =
-            finalize_mutation_session(service, &phase, &spec_folder, &agent_session_id, guard).await
+    if let Some((spec_id, spec_folder, agent_session_id, guard)) = session
+        && let Err(err) = finalize_mutation_session(
+            service,
+            &phase,
+            spec_id,
+            &spec_folder,
+            &agent_session_id,
+            guard,
+        )
+        .await
         && code == 0
     {
         code = emit_result::<serde_json::Value>(Err(err));

@@ -19,6 +19,7 @@ use super::SchemaVersion;
 /// cannot narrow server-derived scope. All-empty derived+hint inputs
 /// fall back to the baseline-complete upper bound.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListRelevantStandardsParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -38,6 +39,7 @@ pub struct ListRelevantStandardsParams {
 /// field makes relevance inclusion explainable; operators can see which
 /// filter axis matched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RelevantStandard {
     pub schema_version: SchemaVersion,
     pub standard: tanren_domain::methodology::standard::Standard,
@@ -47,6 +49,7 @@ pub struct RelevantStandard {
 
 /// `list_relevant_standards` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListRelevantStandardsResponse {
     pub schema_version: SchemaVersion,
     pub standards: Vec<RelevantStandard>,

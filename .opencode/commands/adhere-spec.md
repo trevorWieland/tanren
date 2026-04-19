@@ -26,7 +26,7 @@ template: |2
   3. Call `report_phase_outcome`:
      - `complete` if zero `fix_now` findings — spec-level `Adherent`
        guard satisfied.
-     - `fail` if any `fix_now` — orchestrator materializes fix tasks.
+     - `blocked` if any `fix_now` — orchestrator materializes fix tasks.
 
   ## Verification
 

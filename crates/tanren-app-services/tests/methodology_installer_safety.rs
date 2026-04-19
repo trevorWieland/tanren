@@ -1,13 +1,17 @@
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
 use tanren_app_services::methodology::MethodologyError;
 use tanren_app_services::methodology::config::{
     InstallBinding, InstallFormat, InstallTarget, MergePolicy, MethodologyConfig, SourceConfig,
 };
+use tanren_app_services::methodology::formats::render_commands;
 use tanren_app_services::methodology::installer::{
     InstallPlan, PlannedWrite, apply_install, drift, plan_install,
 };
+use tanren_app_services::methodology::renderer::{CanonicalBytes, render_catalog};
+use tanren_app_services::methodology::source::load_catalog;
 use tanren_app_services::methodology::source::{CommandFamily, CommandFrontmatter, CommandSource};
 use tempfile::TempDir;
 
@@ -21,6 +25,95 @@ fn workspace_tempdir() -> TempDir {
         .prefix("installer-")
         .tempdir_in(base)
         .expect("tempdir")
+}
+
+fn default_render_context() -> HashMap<String, String> {
+    HashMap::from([
+        ("TASK_VERIFICATION_HOOK".into(), "just check".into()),
+        ("SPEC_VERIFICATION_HOOK".into(), "just ci".into()),
+        ("ISSUE_PROVIDER".into(), "GitHub".into()),
+        ("PROJECT_LANGUAGE".into(), "rust".into()),
+        ("SPEC_ROOT".into(), "tanren/specs".into()),
+        ("PRODUCT_ROOT".into(), "tanren/product".into()),
+        ("STANDARDS_ROOT".into(), "tanren/standards".into()),
+        ("AGENT_CLI_NOUN".into(), "the agent CLI".into()),
+        ("TASK_TOOL_BINDING".into(), "mcp".into()),
+        ("PHASE_EVENTS_FILE".into(), "phase-events.jsonl".into()),
+        ("ADHERE_SPEC_HOOK".into(), "just check".into()),
+        ("ADHERE_TASK_HOOK".into(), "just check".into()),
+        ("AUDIT_SPEC_HOOK".into(), "just check".into()),
+        ("AUDIT_TASK_HOOK".into(), "just check".into()),
+        ("DEMO_HOOK".into(), "just check".into()),
+        ("RUN_DEMO_HOOK".into(), "just check".into()),
+        (
+            "PILLAR_LIST".into(),
+            "completeness, performance, security".into(),
+        ),
+        ("ISSUE_REF_NOUN".into(), "GitHub issue".into()),
+        ("PR_NOUN".into(), "pull request".into()),
+        (
+            "READONLY_ARTIFACT_BANNER".into(),
+            "ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT".into(),
+        ),
+    ])
+}
+
+fn split_frontmatter(doc: &str) -> (&str, &str) {
+    assert!(doc.starts_with("---\n"), "expected YAML frontmatter");
+    let after = &doc[4..];
+    let end = after
+        .find("\n---\n")
+        .expect("expected frontmatter closing fence");
+    let fm = &after[..end];
+    let body = &after[end + 5..];
+    (fm, body)
+}
+
+fn command_name_from_dest(format: InstallFormat, dest: &Path) -> String {
+    if format == InstallFormat::CodexSkills {
+        dest.parent()
+            .and_then(Path::file_name)
+            .and_then(std::ffi::OsStr::to_str)
+            .expect("codex command dir")
+            .to_owned()
+    } else {
+        dest.file_stem()
+            .and_then(std::ffi::OsStr::to_str)
+            .expect("markdown command stem")
+            .to_owned()
+    }
+}
+
+fn semantic_body_hashes(
+    rendered: &[tanren_app_services::methodology::renderer::RenderedCommand],
+    format: InstallFormat,
+    dest_root: &Path,
+) -> BTreeMap<String, String> {
+    let artifacts = render_commands(rendered, format, dest_root).expect("render commands");
+    let mut out = BTreeMap::new();
+    for artifact in artifacts {
+        let text = String::from_utf8(artifact.bytes).expect("artifact utf8");
+        let body = if format == InstallFormat::Opencode {
+            let (fm, _body) = split_frontmatter(&text);
+            let fm_yaml: serde_yaml::Value = serde_yaml::from_str(fm).expect("parse yaml");
+            fm_yaml
+                .get("template")
+                .and_then(serde_yaml::Value::as_str)
+                .expect("template in opencode frontmatter")
+                .to_owned()
+        } else {
+            let (_fm, body) = split_frontmatter(&text);
+            body.to_owned()
+        };
+        assert!(
+            !body.contains("report_phase_outcome(\"fail\""),
+            "phase-outcome vocabulary must not drift back to `fail`"
+        );
+        let canonical = CanonicalBytes::canonicalize(&body);
+        let hash = format!("{:x}", Sha256::digest(&canonical.0));
+        out.insert(command_name_from_dest(format, &artifact.dest), hash);
+    }
+    out
 }
 
 #[test]
@@ -201,5 +294,61 @@ fn apply_install_rejects_symlink_escape_root() {
     assert!(
         matches!(err, MethodologyError::Validation(ref msg) if msg.contains("escapes workspace")),
         "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn command_matrix_semantic_hashes_match_across_all_targets() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let commands_root = repo_root.join("commands");
+    let catalog = load_catalog(&commands_root).expect("load command catalog");
+    assert_eq!(catalog.len(), 17, "lane 0.5 command matrix is 17 commands");
+    for command in &catalog {
+        assert!(
+            !command.body.contains("report_phase_outcome(\"fail\""),
+            "source command `{}` drifted to invalid phase-outcome vocabulary",
+            command.name
+        );
+    }
+
+    let (rendered, _refs) = render_catalog(&catalog, &default_render_context()).expect("render");
+    assert_eq!(
+        rendered.len(),
+        17,
+        "rendered matrix must include all 17 commands"
+    );
+    let claude = semantic_body_hashes(
+        &rendered,
+        InstallFormat::ClaudeCode,
+        Path::new(".claude/commands"),
+    );
+    let codex = semantic_body_hashes(
+        &rendered,
+        InstallFormat::CodexSkills,
+        Path::new(".codex/skills"),
+    );
+    let opencode = semantic_body_hashes(
+        &rendered,
+        InstallFormat::Opencode,
+        Path::new(".opencode/commands"),
+    );
+    assert_eq!(
+        claude.len(),
+        17,
+        "claude hash matrix must cover all commands"
+    );
+    assert_eq!(codex.len(), 17, "codex hash matrix must cover all commands");
+    assert_eq!(
+        opencode.len(),
+        17,
+        "opencode hash matrix must cover all commands"
+    );
+    assert_eq!(
+        claude, codex,
+        "claude and codex semantic body hashes must match"
+    );
+    assert_eq!(
+        claude, opencode,
+        "claude and opencode semantic body hashes must match"
     );
 }

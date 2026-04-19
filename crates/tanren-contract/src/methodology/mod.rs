@@ -56,6 +56,7 @@ impl Default for SchemaVersion {
 /// Standard acknowledgement response for mutation tools that do not
 /// return additional payload fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AckResponse {
     pub schema_version: SchemaVersion,
 }

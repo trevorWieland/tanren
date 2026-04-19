@@ -63,6 +63,7 @@ fn run_cli_tool<T: Serialize>(
     params: &T,
 ) -> Value {
     let payload = serde_json::to_string(params).expect("serialize payload");
+    let spec_id = fixed_spec_id().to_string();
     let out = Command::cargo_bin("tanren-cli")
         .expect("bin")
         .env("TANREN_CAPABILITY_OVERRIDE", "admin")
@@ -73,6 +74,8 @@ fn run_cli_tool<T: Serialize>(
             "methodology",
             "--phase",
             phase,
+            "--spec-id",
+            spec_id.as_str(),
             "--spec-folder",
             spec_folder.to_str().expect("utf8 path"),
             "--agent-session-id",
@@ -417,8 +420,7 @@ fn cli_cross_phase_mutations(url: &str, spec_folder: &Path, spec_id: SpecId) {
     let _ = run_cli_tool(url, spec_folder, "do-task", "phase", "outcome", &c::ReportPhaseOutcomeParams {
         schema_version: schema(),
         spec_id,
-        phase: PhaseId::try_new("do-task").expect("phase"),
-        agent_session_id: "parity-session".into(),
+        task_id: None,
         outcome: PhaseOutcome::Complete {
             summary: ne("completed"),
             next_action_hint: None,
@@ -531,6 +533,7 @@ impl McpSession {
         let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
         let mut child = Command::new(&bin)
             .env("TANREN_DATABASE_URL", url)
+            .env("TANREN_SPEC_ID", fixed_spec_id().to_string())
             .env(
                 "TANREN_SPEC_FOLDER",
                 spec_folder.to_str().expect("utf8 path"),
@@ -844,8 +847,7 @@ fn mcp_cross_phase_mutations(
     let _ = do_task.call("report_phase_outcome", &c::ReportPhaseOutcomeParams {
         schema_version: schema(),
         spec_id,
-        phase: PhaseId::try_new("do-task").expect("phase"),
-        agent_session_id: "parity-session".into(),
+        task_id: None,
         outcome: PhaseOutcome::Complete {
             summary: ne("completed"),
             next_action_hint: None,

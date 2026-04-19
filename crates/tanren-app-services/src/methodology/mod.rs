@@ -30,6 +30,7 @@ pub mod service_evidence;
 pub mod service_ext;
 mod service_ext_validation;
 mod service_findings_and_helpers;
+mod service_phase;
 mod service_standards;
 mod service_tasks;
 pub mod source;
@@ -50,6 +51,7 @@ pub use service::MethodologyService;
 // (tanren-cli, tanren-mcp) can depend only on tanren-app-services +
 // tanren-contract per the workspace layering rule (CRATE_GUIDE.md §7
 // rule 2).
+pub use tanren_domain::SpecId;
 pub use tanren_domain::methodology::capability::{
     CapabilityScope, ToolCapability, default_scope_for_phase,
 };

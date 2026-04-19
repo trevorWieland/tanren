@@ -49,13 +49,13 @@ complete.
    execute, show result, confirm before next.
 5. If a demo step fails during the walkthrough: STOP. Call
    `create_task(title, description, origin: User)` with the
-   observed failure, then `report_phase_outcome("fail", …)`. Do not
+   observed failure, then `report_phase_outcome("blocked", …)`. Do not
    silently fix.
 6. If the user accepts: `report_phase_outcome("complete", …)`.
    Tanren-code will create the `pull request`, update roadmap state,
    and post any required status comments.
 7. If the user rejects: `create_task(origin: User)` with the user's
-   concern; `report_phase_outcome("fail", …)`.
+   concern; `report_phase_outcome("blocked", …)`.
 
 ## Verification
 

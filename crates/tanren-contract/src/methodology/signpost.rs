@@ -9,6 +9,7 @@ use super::SchemaVersion;
 
 /// `add_signpost` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddSignpostParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -27,6 +28,7 @@ pub struct AddSignpostParams {
 
 /// `add_signpost` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddSignpostResponse {
     pub schema_version: SchemaVersion,
     pub signpost_id: SignpostId,
@@ -34,6 +36,7 @@ pub struct AddSignpostResponse {
 
 /// `update_signpost_status` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateSignpostStatusParams {
     pub schema_version: SchemaVersion,
     pub signpost_id: SignpostId,

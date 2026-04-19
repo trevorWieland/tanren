@@ -329,13 +329,15 @@ mod tests {
     use super::MethodologyError;
     use crate::methodology::service::{MethodologyService, PhaseEventsRuntime};
 
-    async fn mk_service() -> (Arc<Store>, MethodologyService) {
+    async fn mk_service() -> (Arc<Store>, MethodologyService, SpecId) {
         let store = Arc::new(
             Store::open_and_migrate("sqlite::memory:?cache=shared")
                 .await
                 .expect("open"),
         );
+        let spec_id = SpecId::new();
         let runtime = PhaseEventsRuntime {
+            spec_id,
             spec_folder: std::env::temp_dir().join(format!(
                 "tanren-methodology-idempotency-{}",
                 uuid::Uuid::now_v7()
@@ -344,7 +346,7 @@ mod tests {
         };
         let service =
             MethodologyService::with_runtime(store.clone(), vec![], Some(runtime), vec![]);
-        (store, service)
+        (store, service, spec_id)
     }
 
     fn idempotency_payload() -> serde_json::Value {
@@ -402,9 +404,8 @@ mod tests {
 
     #[tokio::test]
     async fn idempotency_replays_same_error_after_partial_event_emit() {
-        let (store, service) = mk_service().await;
+        let (store, service, spec_id) = mk_service().await;
         let phase = PhaseId::try_new("audit-task").expect("phase");
-        let spec_id = SpecId::new();
         let payload = idempotency_payload();
         let key = Some("idempotency-partial-failure".to_owned());
 

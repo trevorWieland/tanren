@@ -26,6 +26,12 @@ use super::service::MethodologyService;
 
 const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GuardBridgeOrigin<'a> {
+    pub tool_name: &'a str,
+    pub primary_origin_kind: PhaseEventOriginKind,
+}
+
 impl MethodologyService {
     /// `create_task` — emit [`MethodologyEvent::TaskCreated`].
     ///
@@ -263,7 +269,7 @@ impl MethodologyService {
     /// Fold the current status of `task_id` from the event log and
     /// consult [`TaskStatus::legal_next`]. Returns a typed
     /// [`MethodologyError::IllegalTaskTransition`] on rejection.
-    async fn check_transition(
+    pub(crate) async fn check_transition(
         &self,
         spec_id: SpecId,
         task_id: TaskId,
@@ -285,6 +291,61 @@ impl MethodologyService {
                 from: e.from.to_owned(),
                 attempted: e.attempted.to_owned(),
             })
+    }
+
+    pub(crate) async fn emit_guard_and_complete_if_converged(
+        &self,
+        phase: &PhaseId,
+        spec_id: SpecId,
+        task_id: TaskId,
+        guard: RequiredGuard,
+        idempotency_key: Option<String>,
+        origin: GuardBridgeOrigin<'_>,
+    ) -> MethodologyResult<()> {
+        let tool_call_id = idempotency_key
+            .clone()
+            .unwrap_or_else(|| format!("{}:{task_id}:{guard:?}", origin.tool_name));
+        match self
+            .check_transition(spec_id, task_id, TaskTransitionKind::Guard)
+            .await?
+        {
+            LegalTransition::Idempotent => return Ok(()),
+            LegalTransition::Transition => {}
+        }
+        self.emit_with_attribution(
+            phase,
+            guard_event(task_id, spec_id, guard.clone(), idempotency_key.clone())?,
+            PhaseEventAttribution {
+                caused_by_tool_call_id: Some(tool_call_id.clone()),
+                origin_kind: Some(origin.primary_origin_kind),
+                tool: Some(origin.tool_name.to_owned()),
+            },
+        )
+        .await?;
+        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
+            self.store(),
+            EntityRef::Task(task_id),
+            Some(spec_id),
+            METHODOLOGY_PAGE_SIZE,
+        )
+        .await?;
+        let status = fold_task_status(task_id, self.required_guards(), events.iter())
+            .unwrap_or(TaskStatus::Pending);
+        if let TaskStatus::Implemented { guards } = status
+            && guards.satisfies(self.required_guards())
+        {
+            self.emit_with_attribution(
+                phase,
+                MethodologyEvent::TaskCompleted(EvTaskCompleted { task_id, spec_id }),
+                PhaseEventAttribution {
+                    caused_by_tool_call_id: Some(tool_call_id),
+                    origin_kind: Some(PhaseEventOriginKind::ToolDerived),
+                    tool: Some(origin.tool_name.to_owned()),
+                },
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     /// `mark_task_guard_satisfied` emits one discrete guard event and,
@@ -315,51 +376,18 @@ impl MethodologyService {
             idempotency_key.clone(),
             &payload,
             || async {
-                let tool_call_id = idempotency_key
-                    .clone()
-                    .unwrap_or_else(|| format!("mark_task_guard_satisfied:{task_id}:{guard:?}"));
-                match self
-                    .check_transition(spec_id, task_id, TaskTransitionKind::Guard)
-                    .await?
-                {
-                    LegalTransition::Idempotent => return Ok(AckResponse::current()),
-                    LegalTransition::Transition => {}
-                }
-                self.emit_with_attribution(
+                self.emit_guard_and_complete_if_converged(
                     phase,
-                    guard_event(task_id, spec_id, guard.clone(), idempotency_key.clone())?,
-                    PhaseEventAttribution {
-                        caused_by_tool_call_id: Some(tool_call_id.clone()),
-                        origin_kind: Some(PhaseEventOriginKind::ToolPrimary),
-                        tool: Some("mark_task_guard_satisfied".into()),
+                    spec_id,
+                    task_id,
+                    guard.clone(),
+                    idempotency_key.clone(),
+                    GuardBridgeOrigin {
+                        tool_name: "mark_task_guard_satisfied",
+                        primary_origin_kind: PhaseEventOriginKind::ToolPrimary,
                     },
                 )
                 .await?;
-                // Re-fold and fire `TaskCompleted` once required guards converge.
-                let events =
-                    tanren_store::methodology::projections::load_methodology_events_for_entity(
-                        self.store(),
-                        EntityRef::Task(task_id),
-                        Some(spec_id),
-                        METHODOLOGY_PAGE_SIZE,
-                    )
-                    .await?;
-                let status = fold_task_status(task_id, self.required_guards(), events.iter())
-                    .unwrap_or(TaskStatus::Pending);
-                if let TaskStatus::Implemented { guards } = status
-                    && guards.satisfies(self.required_guards())
-                {
-                    self.emit_with_attribution(
-                        phase,
-                        MethodologyEvent::TaskCompleted(EvTaskCompleted { task_id, spec_id }),
-                        PhaseEventAttribution {
-                            caused_by_tool_call_id: Some(tool_call_id),
-                            origin_kind: Some(PhaseEventOriginKind::ToolDerived),
-                            tool: Some("mark_task_guard_satisfied".into()),
-                        },
-                    )
-                    .await?;
-                }
                 Ok(AckResponse::current())
             },
         )

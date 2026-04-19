@@ -9,6 +9,7 @@ use super::SchemaVersion;
 
 /// `add_demo_step` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddDemoStepParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -22,6 +23,7 @@ pub struct AddDemoStepParams {
 
 /// `mark_demo_step_skip` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MarkDemoStepSkipParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -33,6 +35,7 @@ pub struct MarkDemoStepSkipParams {
 
 /// `append_demo_result` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AppendDemoResultParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,

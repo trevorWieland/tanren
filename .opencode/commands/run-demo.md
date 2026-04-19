@@ -34,7 +34,7 @@ template: |2
   5. Call `report_phase_outcome`:
      - `complete` if every `RUN` step passes and at least one `RUN`
        step exists.
-     - `fail` if any `RUN` step fails. Orchestrator will dispatch
+     - `blocked` if any `RUN` step fails. Orchestrator will dispatch
        `investigate-spec`.
 
   ## Verification

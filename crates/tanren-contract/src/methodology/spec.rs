@@ -10,6 +10,7 @@ use super::SchemaVersion;
 
 /// `set_spec_title` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetSpecTitleParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -20,6 +21,7 @@ pub struct SetSpecTitleParams {
 
 /// `set_spec_non_negotiables` params (full replacement).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetSpecNonNegotiablesParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -30,6 +32,7 @@ pub struct SetSpecNonNegotiablesParams {
 
 /// `add_spec_acceptance_criterion` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddSpecAcceptanceCriterionParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -40,6 +43,7 @@ pub struct AddSpecAcceptanceCriterionParams {
 
 /// `set_spec_demo_environment` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetSpecDemoEnvironmentParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -50,6 +54,7 @@ pub struct SetSpecDemoEnvironmentParams {
 
 /// `set_spec_dependencies` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetSpecDependenciesParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -60,6 +65,7 @@ pub struct SetSpecDependenciesParams {
 
 /// `set_spec_base_branch` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetSpecBaseBranchParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
@@ -70,6 +76,7 @@ pub struct SetSpecBaseBranchParams {
 
 /// `set_spec_relevance_context` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetSpecRelevanceContextParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,

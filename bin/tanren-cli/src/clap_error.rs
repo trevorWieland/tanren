@@ -69,6 +69,7 @@ pub(crate) const ALLOWED_ARG_FIELDS: &[&str] = &[
     "json",
     "params_file",
     "params_stdin",
+    "spec_id",
     "agent_session_id",
     "methodology_config",
 ];
