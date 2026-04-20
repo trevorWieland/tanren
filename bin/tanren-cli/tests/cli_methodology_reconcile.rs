@@ -62,3 +62,27 @@ fn reconcile_projections_rebuilds_report() {
     assert!(v["task_spec_rows_repaired"].is_u64());
     assert!(v["signpost_spec_rows_repaired"].is_u64());
 }
+
+#[test]
+fn reconcile_phase_events_does_not_require_spec_id() {
+    let (d, url) = mkdb();
+    let spec = "00000000-0000-0000-0000-000000000415";
+    let spec_folder = mk_spec_folder(&d, spec);
+
+    let out = cli(&url)
+        .args([
+            "methodology",
+            "--spec-folder",
+            spec_folder.to_str().expect("utf8"),
+            "reconcile-phase-events",
+        ])
+        .output()
+        .expect("reconcile phase-events");
+    assert!(
+        out.status.success(),
+        "reconcile-phase-events should succeed without --spec-id: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = parse_stdout(&out);
+    assert!(v["projected"].is_u64());
+}

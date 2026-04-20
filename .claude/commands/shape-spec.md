@@ -4,7 +4,6 @@ role: conversation
 orchestration_loop: true
 autonomy: interactive
 declared_variables:
-- ISSUE_PROVIDER
 - ISSUE_REF_NOUN
 - READONLY_ARTIFACT_BANNER
 - TASK_TOOL_BINDING
@@ -41,7 +40,7 @@ PRs; Tanren-code owns all workflow mechanics.
 
 ## Inputs (from your dispatch)
 
-- A `GitHub` GitHub issue reference (id, title,
+- A `GitHub issue` reference (id, title,
   body). Tanren-code has already resolved and supplied this.
 - The effective repo profile and standards index.
 
@@ -93,7 +92,7 @@ UnauthorizedArtifactEdit event. Use the typed tool surface
 
 ## Out of scope
 
-- Creating or mutating `GitHub` GitHub issues
+- Creating or mutating `GitHub issues
 - Creating or checking out branches
 - Commit, push, or PR operations
 - Editing `plan.md`, `progress.json`, or any other orchestrator-owned

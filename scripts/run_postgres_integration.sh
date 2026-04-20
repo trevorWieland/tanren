@@ -89,6 +89,7 @@ run_store_postgres_tests() {
             -j1 \
             -p tanren-store \
             --features tanren-store/test-hooks,tanren-store/postgres-integration \
+            --locked \
             "${NEXTEST_QUIET_FLAGS[@]}" \
             --no-tests=pass
 }
@@ -101,13 +102,38 @@ run_cli_postgres_tests() {
             -j1 \
             -p tanren-cli \
             --features tanren-cli/postgres-integration \
+            --locked \
             "${NEXTEST_QUIET_FLAGS[@]}" \
             --no-tests=pass
+}
+
+prepare_mcp_binary_for_cli_tests() {
+    if [[ -n "${TANREN_MCP_BIN:-}" ]]; then
+        echo "==> Using TANREN_MCP_BIN=${TANREN_MCP_BIN}"
+        return 0
+    fi
+
+    echo "==> Building tanren-mcp test binary for CLI parity suite"
+    RUSTFLAGS="-D warnings" "${CARGO}" build -p tanren-mcp --locked --quiet
+    local target_dir="${CARGO_TARGET_DIR:-target}"
+    local candidate=""
+    if [[ "${target_dir}" = /* ]]; then
+        candidate="${target_dir}/debug/tanren-mcp"
+    else
+        candidate="${PWD}/${target_dir}/debug/tanren-mcp"
+    fi
+    if [[ ! -x "${candidate}" ]]; then
+        echo "ERROR: built tanren-mcp binary not found at ${candidate}" >&2
+        exit 1
+    fi
+    export TANREN_MCP_BIN="${candidate}"
+    echo "==> Exported TANREN_MCP_BIN=${TANREN_MCP_BIN}"
 }
 
 main() {
     preflight
     run_store_postgres_tests
+    prepare_mcp_binary_for_cli_tests
     run_cli_postgres_tests
     echo "==> All Postgres integration tests passed"
 }

@@ -367,7 +367,8 @@ pub(crate) async fn dispatch(
         }
     };
 
-    if let Some((spec_id, spec_folder, agent_session_id, guard)) = session
+    if code == 0
+        && let Some((spec_id, spec_folder, agent_session_id, guard)) = session
         && let Err(err) = finalize_mutation_session(
             service,
             &phase,
@@ -377,7 +378,6 @@ pub(crate) async fn dispatch(
             guard,
         )
         .await
-        && code == 0
     {
         code = emit_result::<serde_json::Value>(Err(err));
     }
@@ -391,6 +391,7 @@ fn is_mutation_command(command: &MethodologyCommand) -> bool {
             | MethodologyCommand::Task(task::TaskCommand::List(_))
             | MethodologyCommand::IngestPhaseEvents(_)
             | MethodologyCommand::Replay(_)
+            | MethodologyCommand::ReconcilePhaseEvents(_)
             | MethodologyCommand::ReconcileProjections(_)
     )
 }

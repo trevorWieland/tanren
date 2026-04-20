@@ -259,19 +259,22 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
         Err(e) => return fail_render(&e.to_string()),
     };
 
+    // Apply `--target` restriction to planned install writes before any
+    // MCP config synthesis so non-selected formats remain isolated.
+    if !target_filter.is_empty() {
+        plan.writes.retain(|w| target_filter.contains(&w.format));
+    }
+
     // Append MCP config writes if configured.
     for cfg_target in &methodology.mcp.also_write_configs {
+        if !target_filter.is_empty() && !target_filter.contains(&cfg_target.format) {
+            continue;
+        }
         match synth_mcp_write(&cfg_target.path, cfg_target.format) {
             Ok(Some(w)) => plan.writes.push(w),
             Ok(None) => {}
             Err(code) => return code,
         }
-    }
-
-    // Apply `--target` restriction after the plan is fully built so the
-    // filter composes with MCP-config writes too.
-    if !target_filter.is_empty() {
-        plan.writes.retain(|w| target_filter.contains(&w.format));
     }
 
     let summary = summarize_plan(&plan);

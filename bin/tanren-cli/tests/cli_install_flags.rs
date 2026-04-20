@@ -219,6 +219,50 @@ fn install_malformed_mcp_config_exits_1() {
 }
 
 #[test]
+fn install_target_filter_skips_unselected_mcp_config_synthesis_errors() {
+    let dir = TempDir::new().expect("tempdir");
+    write_command(&dir, "commands/spec");
+    std::fs::create_dir_all(dir.path().join(".codex")).expect("mkdir .codex");
+    std::fs::write(dir.path().join(".codex/config.toml"), "[mcp_servers\n")
+        .expect("seed bad codex config");
+    let cfg_yaml = r"methodology:
+  source:
+    path: commands
+  install_targets:
+    - path: .claude/commands
+      format: claude-code
+      binding: mcp
+      merge_policy: destructive
+  mcp:
+    enabled: true
+    transport: stdio
+    also_write_configs:
+      - path: .codex/config.toml
+        format: codex-config-toml
+        merge_policy: preserve_other_keys
+";
+    let cfg = write_config(&dir, cfg_yaml);
+    let out = Command::cargo_bin("tanren-cli")
+        .expect("bin")
+        .current_dir(dir.path())
+        .args([
+            "install",
+            "--config",
+            cfg.to_str().expect("cfg utf8"),
+            "--target",
+            "claude-code",
+            "--dry-run",
+        ])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "unselected malformed mcp config should not fail filtered install: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 fn install_profile_overrides_required_guards_variable() {
     let dir = TempDir::new().expect("tempdir");
     write_command_with_vars(

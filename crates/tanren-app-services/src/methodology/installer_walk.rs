@@ -66,10 +66,26 @@ fn validate_discovered_path_is_within_root(
     found: &Path,
     resolved_root: &Path,
 ) -> MethodologyResult<()> {
-    let resolved_found = std::fs::canonicalize(found).map_err(|source| MethodologyError::Io {
-        path: found.to_path_buf(),
+    let Some(parent) = found.parent() else {
+        return Err(MethodologyError::Validation(format!(
+            "refusing destructive traversal: discovered path `{}` has no parent",
+            found.display()
+        )));
+    };
+    let file_name = found.file_name().ok_or_else(|| {
+        MethodologyError::Validation(format!(
+            "refusing destructive traversal: discovered path `{}` has no filename",
+            found.display()
+        ))
+    })?;
+    let resolved_parent = std::fs::canonicalize(parent).map_err(|source| MethodologyError::Io {
+        path: parent.to_path_buf(),
         source,
     })?;
+    // Validate the discovered entry path itself (parent + basename)
+    // without following the entry target; this keeps dangling or
+    // out-of-root symlink files safe to prune as files.
+    let resolved_found = resolved_parent.join(file_name);
     if resolved_found.starts_with(resolved_root) {
         return Ok(());
     }

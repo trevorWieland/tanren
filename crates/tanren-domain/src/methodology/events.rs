@@ -349,23 +349,25 @@ where
             MethodologyEvent::TaskCreated(e) if e.task.id == task_id => {
                 status = Some(TaskStatus::Pending);
             }
-            MethodologyEvent::TaskStarted(e) if e.task_id == task_id => {
-                if !matches!(
-                    status,
-                    Some(TaskStatus::Complete | TaskStatus::Abandoned { .. })
-                ) {
-                    status = Some(TaskStatus::InProgress);
-                }
+            MethodologyEvent::TaskStarted(e)
+                if e.task_id == task_id
+                    && !matches!(
+                        status,
+                        Some(TaskStatus::Complete | TaskStatus::Abandoned { .. })
+                    ) =>
+            {
+                status = Some(TaskStatus::InProgress);
             }
-            MethodologyEvent::TaskImplemented(e) if e.task_id == task_id => {
-                if !matches!(
-                    status,
-                    Some(TaskStatus::Complete | TaskStatus::Abandoned { .. })
-                ) {
-                    status = Some(TaskStatus::Implemented {
-                        guards: guards.clone(),
-                    });
-                }
+            MethodologyEvent::TaskImplemented(e)
+                if e.task_id == task_id
+                    && !matches!(
+                        status,
+                        Some(TaskStatus::Complete | TaskStatus::Abandoned { .. })
+                    ) =>
+            {
+                status = Some(TaskStatus::Implemented {
+                    guards: guards.clone(),
+                });
             }
             MethodologyEvent::TaskGateChecked(e) if e.task_id == task_id => {
                 guards.set(&RequiredGuard::GateChecked, true);
@@ -402,23 +404,21 @@ where
                     });
                 }
             }
-            MethodologyEvent::TaskCompleted(e) if e.task_id == task_id => {
-                if matches!(status, Some(TaskStatus::Implemented { .. }))
-                    && guards.satisfies(required)
-                {
-                    status = Some(TaskStatus::Complete);
-                }
+            MethodologyEvent::TaskCompleted(e)
+                if e.task_id == task_id
+                    && matches!(status, Some(TaskStatus::Implemented { .. }))
+                    && guards.satisfies(required) =>
+            {
+                status = Some(TaskStatus::Complete);
             }
-            MethodologyEvent::TaskAbandoned(e) if e.task_id == task_id => {
-                if !matches!(status, Some(TaskStatus::Complete)) {
-                    status = Some(TaskStatus::Abandoned {
-                        disposition: e.disposition,
-                        replacements: e.replacements.clone(),
-                        explicit_user_discard_provenance: e
-                            .explicit_user_discard_provenance
-                            .clone(),
-                    });
-                }
+            MethodologyEvent::TaskAbandoned(e)
+                if e.task_id == task_id && !matches!(status, Some(TaskStatus::Complete)) =>
+            {
+                status = Some(TaskStatus::Abandoned {
+                    disposition: e.disposition,
+                    replacements: e.replacements.clone(),
+                    explicit_user_discard_provenance: e.explicit_user_discard_provenance.clone(),
+                });
             }
             _ => {}
         }

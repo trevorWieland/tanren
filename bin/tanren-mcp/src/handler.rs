@@ -102,14 +102,11 @@ impl ServerHandler for TanrenHandler {
                     let mut result = CallToolResult::default();
                     let outcome = dispatch::CallResult::Err(
                         tanren_app_services::methodology::ToolError::ValidationFailed {
-                            field_path: "/spec_id".into(),
-                            expected:
-                                "audited runtime requires TANREN_SPEC_ID + TANREN_SPEC_FOLDER"
-                                    .into(),
-                            actual: "missing".into(),
+                            field_path: "/env".into(),
+                            expected: "runtime configuration includes TANREN_SPEC_ID and TANREN_SPEC_FOLDER".into(),
+                            actual: "missing TANREN_SPEC_ID and/or TANREN_SPEC_FOLDER".into(),
                             remediation:
-                                "set TANREN_SPEC_ID and TANREN_SPEC_FOLDER for mutating tools"
-                                    .into(),
+                                "set TANREN_SPEC_ID and TANREN_SPEC_FOLDER before invoking mutating tools".into(),
                         },
                     );
                     result.content = vec![Content::text(outcome.to_json())];
@@ -129,7 +126,8 @@ impl ServerHandler for TanrenHandler {
             }
             let mut outcome =
                 dispatch::dispatch(service.as_ref(), &scope, &phase, &request.name, args).await;
-            if let Some((runtime, guard)) = session
+            if !outcome.is_error()
+                && let Some((runtime, guard)) = session
                 && let Err(err) = finalize_mutation_session(
                     service.as_ref(),
                     &phase,
@@ -139,7 +137,6 @@ impl ServerHandler for TanrenHandler {
                     guard,
                 )
                 .await
-                && !outcome.is_error()
             {
                 outcome = dispatch::CallResult::Err((&err).into());
             }

@@ -8,7 +8,7 @@ use tanren_app_services::methodology::config::{
 };
 use tanren_app_services::methodology::formats::render_commands;
 use tanren_app_services::methodology::installer::{
-    InstallPlan, PlannedWrite, apply_install, drift, plan_install,
+    DriftReason, InstallPlan, PlannedWrite, apply_install, drift, plan_install,
 };
 use tanren_app_services::methodology::renderer::{CanonicalBytes, render_catalog};
 use tanren_app_services::methodology::source::load_catalog;
@@ -304,7 +304,7 @@ fn apply_install_rejects_symlink_escape_root() {
 
 #[cfg(unix)]
 #[test]
-fn apply_install_rejects_nested_symlink_escape_during_prune() {
+fn apply_install_prunes_nested_symlink_without_following_target() {
     let inside = workspace_tempdir();
     let root = inside.path().join(".claude/commands");
     std::fs::create_dir_all(&root).expect("mkdir");
@@ -324,16 +324,24 @@ fn apply_install_rejects_nested_symlink_escape_during_prune() {
         }],
     };
 
-    let err = apply_install(&plan).expect_err("nested symlink escape must fail");
+    let written = apply_install(&plan).expect("apply should succeed");
     assert!(
-        matches!(err, MethodologyError::Validation(ref msg) if msg.contains("escapes root")),
-        "unexpected error: {err:?}"
+        written.contains(&root.join("do-task.md")),
+        "managed write should be applied"
+    );
+    assert!(
+        !nested.exists(),
+        "prune should remove nested symlink entry without traversing target"
+    );
+    assert!(
+        outside_file.exists(),
+        "prune must not follow symlink target outside root"
     );
 }
 
 #[cfg(unix)]
 #[test]
-fn drift_rejects_nested_symlink_escape_during_scan() {
+fn drift_reports_nested_symlink_as_extra_file_without_following_target() {
     let inside = workspace_tempdir();
     let root = inside.path().join(".claude/commands");
     std::fs::create_dir_all(&root).expect("mkdir");
@@ -352,10 +360,41 @@ fn drift_rejects_nested_symlink_escape_during_scan() {
         }],
     };
 
-    let err = drift(&plan).expect_err("nested symlink escape must fail");
+    let drifts = drift(&plan).expect("drift should succeed");
     assert!(
-        matches!(err, MethodologyError::Validation(ref msg) if msg.contains("escapes root")),
-        "unexpected error: {err:?}"
+        drifts
+            .iter()
+            .any(|entry| entry.dest == nested && matches!(entry.reason, DriftReason::ExtraFile)),
+        "nested symlink should be treated as an extra file entry"
+    );
+    assert!(
+        outside_file.exists(),
+        "drift scan must not follow symlink target outside root"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn apply_install_prunes_dangling_symlink_without_error() {
+    let inside = workspace_tempdir();
+    let root = inside.path().join(".claude/commands");
+    std::fs::create_dir_all(&root).expect("mkdir");
+    let dangling = root.join("dangling");
+    std::os::unix::fs::symlink(root.join("missing-target"), &dangling).expect("dangling symlink");
+
+    let plan = InstallPlan {
+        writes: vec![PlannedWrite {
+            dest: root.join("do-task.md"),
+            bytes: b"fresh\n".to_vec(),
+            merge_policy: MergePolicy::Destructive,
+            format: InstallFormat::ClaudeCode,
+        }],
+    };
+
+    apply_install(&plan).expect("apply should prune dangling symlink");
+    assert!(
+        !dangling.exists(),
+        "dangling symlink extra file should be pruned safely"
     );
 }
 

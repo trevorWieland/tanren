@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  RUST_TOOLCHAIN: "1.94.1"
 
 jobs:
   # ============================================================
@@ -26,6 +27,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -41,7 +43,7 @@ jobs:
         run: taplo fmt --check Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks -- -D warnings
+        run: cargo clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked -- -D warnings
 
   # ============================================================
   # Test
@@ -57,6 +59,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -64,8 +68,13 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Build tanren-mcp for workspace parity tests
+        run: cargo build -p tanren-mcp --locked --quiet
+
       - name: Run tests
-        run: cargo nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --no-tests=pass
+        env:
+          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
+        run: cargo nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --locked --no-tests=pass
 
   # ============================================================
   # Integration — Postgres
@@ -92,6 +101,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -102,12 +113,16 @@ jobs:
       - name: Run Postgres integration tests (store)
         env:
           TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-        run: cargo nextest run -j1 -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass
+        run: cargo nextest run -j1 -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --locked --no-tests=pass
+
+      - name: Build tanren-mcp for CLI parity integration tests
+        run: cargo build -p tanren-mcp --locked --quiet
 
       - name: Run Postgres integration tests (cli)
         env:
           TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-        run: cargo nextest run -j1 -p tanren-cli --features tanren-cli/postgres-integration --no-tests=pass
+          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
+        run: cargo nextest run -j1 -p tanren-cli --features tanren-cli/postgres-integration --locked --no-tests=pass
 
   # ============================================================
   # Coverage (Linux only)
@@ -120,6 +135,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: llvm-tools-preview
 
       - uses: Swatinem/rust-cache@v2
@@ -129,7 +145,7 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
 
       - name: Generate coverage
-        run: cargo llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --lcov --output-path lcov.info --no-tests=pass
+        run: cargo llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --lcov --output-path lcov.info --no-tests=pass
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
@@ -157,11 +173,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Build docs
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --locked
         env:
           RUSTDOCFLAGS: "-D warnings"
 
@@ -175,6 +193,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -195,6 +215,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -215,3 +237,6 @@ jobs:
 
       - name: Check local/workflow CI parity rules
         run: just check-ci-parity
+
+      - name: Check pinned Rust toolchain sync
+        run: just check-rust-toolchain-sync

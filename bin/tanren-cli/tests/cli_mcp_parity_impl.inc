@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
@@ -136,6 +136,54 @@ fn configure_mcp_signed_capability_env(
             "TANREN_MCP_CAPABILITY_AUDIENCE",
             mcp_capability_envelope::test_capability_audience(),
         );
+}
+
+fn resolve_tanren_mcp_bin() -> PathBuf {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root")
+        .to_path_buf();
+
+    if let Some(raw) = std::env::var_os("TANREN_MCP_BIN") {
+        let path = PathBuf::from(raw);
+        if path.exists() {
+            return path;
+        }
+        if path.is_relative() {
+            let workspace_relative = workspace_root.join(&path);
+            if workspace_relative.exists() {
+                return workspace_relative;
+            }
+            assert!(
+                workspace_relative.exists(),
+                "TANREN_MCP_BIN is set but does not exist: {} (also checked workspace-relative path: {})",
+                path.display(),
+                workspace_relative.display()
+            );
+        }
+        assert!(
+            path.exists(),
+            "TANREN_MCP_BIN is set but does not exist: {}",
+            path.display()
+        );
+    }
+    if let Some(raw) = std::env::var_os("CARGO_BIN_EXE_tanren-mcp") {
+        let path = PathBuf::from(raw);
+        assert!(
+            path.exists(),
+            "CARGO_BIN_EXE_tanren-mcp is set but does not exist: {}",
+            path.display()
+        );
+        return path;
+    }
+    let fallback = workspace_root.join("target/debug/tanren-mcp");
+    assert!(
+        fallback.exists(),
+        "unable to resolve tanren-mcp test binary; set TANREN_MCP_BIN (absolute or workspace-relative), run tests with CARGO_BIN_EXE_tanren-mcp available, or build {}",
+        fallback.display()
+    );
+    fallback
 }
 
 fn cli_create_tasks(url: &str, spec_folder: &Path, spec_id: SpecId) -> (tanren_domain::TaskId, tanren_domain::TaskId) {
@@ -601,8 +649,8 @@ struct McpSession {
 
 impl McpSession {
     fn start(url: &str, spec_folder: &Path, phase: &str) -> Self {
-        let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
-        let mut command = Command::new(&bin);
+        let bin = resolve_tanren_mcp_bin();
+        let mut command = Command::new(bin);
         command
             .env("TANREN_DATABASE_URL", url)
             .env(
