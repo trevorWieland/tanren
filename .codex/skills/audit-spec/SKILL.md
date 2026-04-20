@@ -19,6 +19,7 @@ declared_tools:
 required_capabilities:
 - finding.add
 - rubric.record
+- compliance.record
 - task.read
 - phase.outcome
 produces_evidence:

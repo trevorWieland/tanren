@@ -1,9 +1,7 @@
 //! `MethodologyService` — shared CLI/MCP tool service.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
@@ -12,7 +10,7 @@ use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::pillar::{Pillar, builtin_pillars};
 use tanren_domain::methodology::standard::Standard;
 use tanren_domain::methodology::task::RequiredGuard;
-use tanren_domain::{EventId, SpecId, TaskId};
+use tanren_domain::{EventId, SpecId};
 use tanren_store::Store;
 use tanren_store::methodology::{AppendPhaseEventOutboxParams, PhaseEventOutboxEntry};
 
@@ -35,8 +33,6 @@ pub struct MethodologyService {
     standards: Arc<[Standard]>,
     pillars: Arc<[Pillar]>,
     phase_events: Option<PhaseEventsRuntime>,
-    pub(crate) task_spec_cache: Arc<Mutex<HashMap<TaskId, SpecId>>>,
-    pub(crate) signpost_spec_cache: Arc<Mutex<HashMap<tanren_domain::SignpostId, SpecId>>>,
 }
 
 /// Runtime context for `phase-events.jsonl` writes.
@@ -66,8 +62,6 @@ impl MethodologyService {
             standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
             pillars: Arc::from(builtin_pillars().into_boxed_slice()),
             phase_events: None,
-            task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
-            signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -91,8 +85,6 @@ impl MethodologyService {
             standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
             pillars: Arc::from(builtin_pillars().into_boxed_slice()),
             phase_events: None,
-            task_spec_cache: Arc::new(Mutex::new(HashMap::new())),
-            signpost_spec_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

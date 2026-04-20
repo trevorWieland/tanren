@@ -75,9 +75,6 @@ impl MethodologyService {
                     }),
                 )
                 .await?;
-                if let Ok(mut cache) = self.task_spec_cache.lock() {
-                    cache.insert(task_id, params.spec_id);
-                }
                 Ok(CreateTaskResponse {
                     schema_version: SchemaVersion::current(),
                     task_id,

@@ -394,7 +394,7 @@ fn cli_quality_and_signpost(url: &str, spec_folder: &Path, spec_id: SpecId, main
     let add_finding: c::AddFindingResponse = serde_json::from_value(run_cli_tool(
         url,
         spec_folder,
-        "do-task",
+        "audit-task",
         "finding",
         "add",
         &c::AddFindingParams {
@@ -414,7 +414,7 @@ fn cli_quality_and_signpost(url: &str, spec_folder: &Path, spec_id: SpecId, main
         },
     ))
     .expect("add finding response");
-    let _ = run_cli_tool(url, spec_folder, "do-task", "rubric", "record", &c::RecordRubricScoreParams {
+    let _ = run_cli_tool(url, spec_folder, "audit-task", "rubric", "record", &c::RecordRubricScoreParams {
         schema_version: schema(),
         spec_id,
         scope: PillarScope::Task,
@@ -430,9 +430,9 @@ fn cli_quality_and_signpost(url: &str, spec_folder: &Path, spec_id: SpecId, main
     let _ = run_cli_tool(
         url,
         spec_folder,
-        "do-task",
-        "rubric",
+        "audit-task",
         "compliance",
+        "record",
         &c::RecordNonNegotiableComplianceParams {
             schema_version: schema(),
             spec_id,
@@ -874,8 +874,13 @@ fn mcp_spec_and_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {
     mcp_demo_updates(do_task, spec_id);
 }
 
-fn mcp_quality_and_signpost(do_task: &mut McpSession, spec_id: SpecId, main_task: tanren_domain::TaskId) {
-    let add_finding: c::AddFindingResponse = serde_json::from_value(do_task.call(
+fn mcp_quality_and_signpost(
+    do_task: &mut McpSession,
+    audit_task: &mut McpSession,
+    spec_id: SpecId,
+    main_task: tanren_domain::TaskId,
+) {
+    let add_finding: c::AddFindingResponse = serde_json::from_value(audit_task.call(
         "add_finding",
         &c::AddFindingParams {
             schema_version: schema(),
@@ -894,7 +899,7 @@ fn mcp_quality_and_signpost(do_task: &mut McpSession, spec_id: SpecId, main_task
         },
     ))
     .expect("add finding response");
-    let _ = do_task.call("record_rubric_score", &c::RecordRubricScoreParams {
+    let _ = audit_task.call("record_rubric_score", &c::RecordRubricScoreParams {
         schema_version: schema(),
         spec_id,
         scope: PillarScope::Task,
@@ -907,7 +912,7 @@ fn mcp_quality_and_signpost(do_task: &mut McpSession, spec_id: SpecId, main_task
         supporting_finding_ids: vec![add_finding.finding_id],
         idempotency_key: Some("parity-rubric".into()),
     });
-    let _ = do_task.call(
+    let _ = audit_task.call(
         "record_non_negotiable_compliance",
         &c::RecordNonNegotiableComplianceParams {
             schema_version: schema(),
@@ -1004,12 +1009,13 @@ fn mcp_cross_phase_mutations(
 fn run_mcp_matrix(url: &str, spec_folder: &Path) {
     let spec_id = fixed_spec_id();
     let mut do_task = McpSession::start(url, spec_folder, "do-task");
+    let mut audit_task = McpSession::start(url, spec_folder, "audit-task");
     let mut investigate = McpSession::start(url, spec_folder, "investigate");
     let mut feedback = McpSession::start(url, spec_folder, "handle-feedback");
     let (main_task, abandon_task) = mcp_create_tasks(&mut do_task, spec_id);
     mcp_task_lifecycle(&mut do_task, main_task, abandon_task);
     mcp_spec_and_demo_updates(&mut do_task, spec_id);
-    mcp_quality_and_signpost(&mut do_task, spec_id, main_task);
+    mcp_quality_and_signpost(&mut do_task, &mut audit_task, spec_id, main_task);
     mcp_cross_phase_mutations(&mut do_task, &mut investigate, &mut feedback, spec_id);
 }
 

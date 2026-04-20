@@ -104,6 +104,8 @@ fn phase_events(svc: &MethodologyService) -> Vec<PhaseEventLine> {
 
 #[path = "methodology_phase_outcome_contract/abandon_disposition.rs"]
 mod abandon_disposition;
+#[path = "methodology_phase_outcome_contract/validation_before_side_effects.rs"]
+mod validation_before_side_effects;
 
 #[tokio::test]
 async fn report_phase_outcome_complete_bridges_task_guard_and_completion() {

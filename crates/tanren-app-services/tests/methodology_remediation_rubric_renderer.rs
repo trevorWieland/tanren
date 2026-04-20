@@ -6,13 +6,17 @@ use tanren_app_services::methodology::renderer::render_command;
 use tanren_app_services::methodology::{
     CapabilityScope, MethodologyService, config::MethodologyProfile,
 };
-use tanren_contract::methodology::{AddFindingParams, CreateTaskParams, RecordRubricScoreParams};
+use tanren_contract::methodology::{
+    AddFindingParams, CreateTaskParams, RecordNonNegotiableComplianceParams,
+    RecordRubricScoreParams,
+};
 use tanren_domain::SpecId;
 use tanren_domain::methodology::finding::{FindingSeverity, FindingSource};
 use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::pillar::{
     ApplicableAt, Pillar, PillarId, PillarScope, PillarScore,
 };
+use tanren_domain::methodology::rubric::ComplianceStatus;
 use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin};
 use tanren_store::Store;
 
@@ -46,9 +50,9 @@ async fn mk_service_with_pillars(
 
 fn admin_scope() -> CapabilityScope {
     use tanren_domain::methodology::capability::ToolCapability::{
-        FindingAdd, RubricRecord, TaskCreate,
+        ComplianceRecord, FindingAdd, RubricRecord, TaskCreate,
     };
-    CapabilityScope::from_iter_caps([TaskCreate, FindingAdd, RubricRecord])
+    CapabilityScope::from_iter_caps([TaskCreate, FindingAdd, RubricRecord, ComplianceRecord])
 }
 
 fn phase(tag: &str) -> PhaseId {
@@ -58,6 +62,9 @@ fn phase(tag: &str) -> PhaseId {
 fn runtime_spec_id(svc: &MethodologyService) -> SpecId {
     svc.phase_events_runtime().expect("runtime").spec_id
 }
+
+#[path = "methodology_remediation_rubric_renderer/phase_scope.rs"]
+mod phase_scope;
 
 #[tokio::test]
 async fn rubric_score_rejects_supporting_finding_with_mismatched_pillar() {

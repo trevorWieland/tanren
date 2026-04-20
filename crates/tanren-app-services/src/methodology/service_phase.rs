@@ -63,21 +63,12 @@ impl MethodologyService {
                     &runtime.agent_session_id,
                     Some(120),
                 )?;
-                self.emit_event(
-                    phase,
-                    MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
-                        spec_id: params.spec_id,
-                        phase: phase.clone(),
-                        agent_session_id: session,
-                        outcome: params.outcome.clone(),
-                    }),
-                )
-                .await?;
                 let guard_to_bridge = match phase.known() {
                     Some(KnownPhase::AuditTask) => Some(RequiredGuard::Audited),
                     Some(KnownPhase::AdhereTask) => Some(RequiredGuard::Adherent),
                     _ => None,
                 };
+                let mut bridged_task = None;
                 if let Some(guard) = guard_to_bridge
                     && matches!(params.outcome, PhaseOutcome::Complete { .. })
                 {
@@ -95,10 +86,23 @@ impl MethodologyService {
                             expected: format!("task in spec {}", params.spec_id),
                             actual: format!("task in spec {task_spec_id}"),
                             remediation:
-                                "report task-scoped outcomes with a task_id in the same spec"
+                            "report task-scoped outcomes with a task_id in the same spec"
                                     .into(),
                         });
                     }
+                    bridged_task = Some((task_id, guard));
+                }
+                self.emit_event(
+                    phase,
+                    MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
+                        spec_id: params.spec_id,
+                        phase: phase.clone(),
+                        agent_session_id: session,
+                        outcome: params.outcome.clone(),
+                    }),
+                )
+                .await?;
+                if let Some((task_id, guard)) = bridged_task {
                     self.emit_guard_and_complete_if_converged(
                         phase,
                         params.spec_id,

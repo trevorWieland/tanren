@@ -418,29 +418,7 @@ impl From<ToolError> for MethodologyError {
 }
 
 fn parse_tool_capability(tag: &str) -> Option<ToolCapability> {
-    Some(match tag {
-        "task.create" => ToolCapability::TaskCreate,
-        "task.start" => ToolCapability::TaskStart,
-        "task.complete" => ToolCapability::TaskComplete,
-        "task.revise" => ToolCapability::TaskRevise,
-        "task.abandon" => ToolCapability::TaskAbandon,
-        "task.read" => ToolCapability::TaskRead,
-        "finding.add" => ToolCapability::FindingAdd,
-        "rubric.record" => ToolCapability::RubricRecord,
-        "compliance.record" => ToolCapability::ComplianceRecord,
-        "spec.frontmatter" => ToolCapability::SpecFrontmatter,
-        "demo.frontmatter" => ToolCapability::DemoFrontmatter,
-        "demo.results" => ToolCapability::DemoResults,
-        "signpost.add" => ToolCapability::SignpostAdd,
-        "signpost.update" => ToolCapability::SignpostUpdate,
-        "phase.outcome" => ToolCapability::PhaseOutcome,
-        "phase.escalate" => ToolCapability::PhaseEscalate,
-        "issue.create" => ToolCapability::IssueCreate,
-        "standard.read" => ToolCapability::StandardRead,
-        "adherence.record" => ToolCapability::AdherenceRecord,
-        "feedback.reply" => ToolCapability::FeedbackReply,
-        _ => return None,
-    })
+    ToolCapability::from_tag(tag)
 }
 
 /// Convenient result alias.

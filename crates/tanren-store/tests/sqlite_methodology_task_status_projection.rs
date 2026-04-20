@@ -1,10 +1,12 @@
 use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::events::{
-    MethodologyEvent, TaskCompleted, TaskCreated, TaskGateChecked, TaskImplemented, TaskStarted,
+    MethodologyEvent, SignpostAdded, TaskCompleted, TaskCreated, TaskGateChecked, TaskImplemented,
+    TaskStarted,
 };
+use tanren_domain::methodology::signpost::{Signpost, SignpostStatus};
 use tanren_domain::methodology::task::{Task, TaskGuardFlags, TaskOrigin, TaskStatus};
-use tanren_domain::{EventId, NonEmptyString, SpecId, TaskId};
+use tanren_domain::{EventId, NonEmptyString, SignpostId, SpecId, TaskId};
 use tanren_store::Store;
 
 fn envelope(event: MethodologyEvent) -> EventEnvelope {
@@ -130,4 +132,59 @@ async fn projection_retains_guard_flags_for_implemented_state() {
             },
         }
     );
+}
+
+#[tokio::test]
+async fn task_spec_projection_upserts_from_task_created() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+
+    store
+        .append_methodology_event(&envelope(MethodologyEvent::TaskCreated(TaskCreated {
+            task: Box::new(seed_task(spec_id, task_id)),
+            origin: TaskOrigin::User,
+            idempotency_key: None,
+        })))
+        .await
+        .expect("append task created");
+
+    let projected = store
+        .load_methodology_task_spec_projection(task_id)
+        .await
+        .expect("load projection");
+    assert_eq!(projected, Some(spec_id));
+}
+
+#[tokio::test]
+async fn signpost_spec_projection_upserts_from_signpost_added() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let signpost_id = SignpostId::new();
+
+    store
+        .append_methodology_event(&envelope(MethodologyEvent::SignpostAdded(SignpostAdded {
+            signpost: Box::new(Signpost {
+                id: signpost_id,
+                spec_id,
+                task_id: None,
+                status: SignpostStatus::Unresolved,
+                problem: NonEmptyString::try_new("problem").expect("problem"),
+                evidence: NonEmptyString::try_new("evidence").expect("evidence"),
+                tried: vec![],
+                solution: None,
+                resolution: None,
+                files_affected: vec![],
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            }),
+        })))
+        .await
+        .expect("append signpost added");
+
+    let projected = store
+        .load_methodology_signpost_spec_projection(signpost_id)
+        .await
+        .expect("load projection");
+    assert_eq!(projected, Some(spec_id));
 }

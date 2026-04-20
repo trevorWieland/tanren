@@ -40,60 +40,31 @@ pub fn enforce(
 /// # Errors
 /// Returns [`MethodologyError::FieldValidation`] for unknown tags.
 pub fn parse_scope_env(value: &str) -> Result<CapabilityScope, MethodologyError> {
-    use ToolCapability::{
-        AdherenceRecord, ComplianceRecord, DemoFrontmatter, DemoResults, FeedbackReply, FindingAdd,
-        IssueCreate, PhaseEscalate, PhaseOutcome, RubricRecord, SignpostAdd, SignpostUpdate,
-        SpecFrontmatter, StandardRead, TaskAbandon, TaskComplete, TaskCreate, TaskRead, TaskRevise,
-        TaskStart,
-    };
-    let known = [
-        TaskCreate,
-        TaskStart,
-        TaskComplete,
-        TaskRevise,
-        TaskAbandon,
-        TaskRead,
-        FindingAdd,
-        RubricRecord,
-        ComplianceRecord,
-        SpecFrontmatter,
-        DemoFrontmatter,
-        DemoResults,
-        SignpostAdd,
-        SignpostUpdate,
-        PhaseOutcome,
-        PhaseEscalate,
-        IssueCreate,
-        StandardRead,
-        AdherenceRecord,
-        FeedbackReply,
-    ];
     let wanted: std::collections::HashSet<&str> = value
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
-    let known_tags: std::collections::HashSet<&str> = known.iter().map(|c| c.tag()).collect();
-    let unknown: Vec<&str> = wanted
-        .iter()
-        .copied()
-        .filter(|tag| !known_tags.contains(tag))
-        .collect();
+    let mut granted = Vec::with_capacity(wanted.len());
+    let mut unknown = Vec::new();
+    for tag in wanted {
+        match ToolCapability::from_tag(tag) {
+            Some(capability) => granted.push(capability),
+            None => unknown.push(tag),
+        }
+    }
     if !unknown.is_empty() {
-        let mut sorted = unknown;
-        sorted.sort_unstable();
+        unknown.sort_unstable();
         return Err(MethodologyError::FieldValidation {
             field_path: "/TANREN_PHASE_CAPABILITIES".into(),
             expected: "comma-separated known capability tags".into(),
-            actual: sorted.join(", "),
+            actual: unknown.join(", "),
             remediation:
                 "remove unknown tags or upgrade the orchestrator/capability schema in lock-step"
                     .into(),
         });
     }
-    Ok(CapabilityScope::from_iter_caps(
-        known.into_iter().filter(|c| wanted.contains(c.tag())),
-    ))
+    Ok(CapabilityScope::from_iter_caps(granted))
 }
 
 #[cfg(test)]

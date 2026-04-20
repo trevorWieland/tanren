@@ -17,7 +17,7 @@ use tanren_domain::methodology::events::{
     SignpostStatusUpdated, TaskRevised,
 };
 use tanren_domain::methodology::finding::FindingSeverity;
-use tanren_domain::methodology::phase_id::PhaseId;
+use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 use tanren_domain::methodology::pillar::Pillar;
 use tanren_domain::methodology::rubric::{NonNegotiableCompliance, RubricScore};
 use tanren_domain::methodology::signpost::Signpost;
@@ -144,6 +144,11 @@ impl MethodologyService {
         params: RecordRubricScoreParams,
     ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::RubricRecord, phase)?;
+        require_phase_in(
+            "record_rubric_score",
+            phase,
+            &[KnownPhase::AuditTask, KnownPhase::AuditSpec],
+        )?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
         let idempotency_payload = params.clone();
@@ -237,6 +242,11 @@ impl MethodologyService {
         params: RecordNonNegotiableComplianceParams,
     ) -> MethodologyResult<AckResponse> {
         enforce(scope, ToolCapability::ComplianceRecord, phase)?;
+        require_phase_in(
+            "record_non_negotiable_compliance",
+            phase,
+            &[KnownPhase::AuditTask, KnownPhase::AuditSpec],
+        )?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
         let idempotency_payload = params.clone();
@@ -319,9 +329,6 @@ impl MethodologyService {
                     }),
                 )
                 .await?;
-                if let Ok(mut cache) = self.signpost_spec_cache.lock() {
-                    cache.insert(id, params.spec_id);
-                }
                 Ok(AddSignpostResponse {
                     schema_version: SchemaVersion::current(),
                     signpost_id: id,
@@ -366,6 +373,29 @@ impl MethodologyService {
         )
         .await
     }
+}
+
+fn require_phase_in(
+    tool_name: &str,
+    phase: &PhaseId,
+    allowed: &[KnownPhase],
+) -> MethodologyResult<()> {
+    if allowed.iter().any(|known| phase.is_known(*known)) {
+        return Ok(());
+    }
+    let allowed_tags: Vec<&str> = allowed.iter().map(|v| v.tag()).collect();
+    Err(MethodologyError::FieldValidation {
+        field_path: "/phase".into(),
+        expected: format!(
+            "{tool_name} allowed only in phases: {}",
+            allowed_tags.join(", ")
+        ),
+        actual: phase.as_str().to_owned(),
+        remediation: format!(
+            "invoke `{tool_name}` from one of: {}",
+            allowed_tags.join(", ")
+        ),
+    })
 }
 
 fn resolve_registry_pillar<'a>(

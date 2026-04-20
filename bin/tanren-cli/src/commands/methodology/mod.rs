@@ -26,6 +26,7 @@
 //! explicitly set.
 
 pub(crate) mod adherence;
+pub(crate) mod compliance;
 pub(crate) mod demo;
 pub(crate) mod finding;
 pub(crate) mod ingest;
@@ -117,9 +118,12 @@ pub(crate) enum MethodologyCommand {
     /// Findings.
     #[command(subcommand)]
     Finding(finding::FindingCommand),
-    /// Rubric / non-negotiable compliance.
+    /// Rubric scoring.
     #[command(subcommand)]
     Rubric(rubric::RubricCommand),
+    /// Non-negotiable compliance.
+    #[command(subcommand)]
+    Compliance(compliance::ComplianceCommand),
     /// Spec frontmatter.
     #[command(subcommand)]
     Spec(spec::SpecCommand),
@@ -224,34 +228,7 @@ pub(crate) fn resolve_scope(phase: &PhaseId) -> Result<CapabilityScope, Methodol
 }
 
 fn all_capabilities_scope() -> CapabilityScope {
-    use ToolCapability::{
-        AdherenceRecord, ComplianceRecord, DemoFrontmatter, DemoResults, FeedbackReply, FindingAdd,
-        IssueCreate, PhaseEscalate, PhaseOutcome, RubricRecord, SignpostAdd, SignpostUpdate,
-        SpecFrontmatter, StandardRead, TaskAbandon, TaskComplete, TaskCreate, TaskRead, TaskRevise,
-        TaskStart,
-    };
-    CapabilityScope::from_iter_caps([
-        TaskCreate,
-        TaskStart,
-        TaskComplete,
-        TaskRevise,
-        TaskAbandon,
-        TaskRead,
-        FindingAdd,
-        RubricRecord,
-        ComplianceRecord,
-        SpecFrontmatter,
-        DemoFrontmatter,
-        DemoResults,
-        SignpostAdd,
-        SignpostUpdate,
-        PhaseOutcome,
-        PhaseEscalate,
-        IssueCreate,
-        StandardRead,
-        AdherenceRecord,
-        FeedbackReply,
-    ])
+    CapabilityScope::from_iter_caps(ToolCapability::all().iter().copied())
 }
 
 /// Render a methodology result to stdout (success → JSON response;
@@ -370,6 +347,7 @@ pub(crate) async fn dispatch(
         MethodologyCommand::Task(c) => task::run(service, &scope, &phase, c).await,
         MethodologyCommand::Finding(c) => finding::run(service, &scope, &phase, c).await,
         MethodologyCommand::Rubric(c) => rubric::run(service, &scope, &phase, c).await,
+        MethodologyCommand::Compliance(c) => compliance::run(service, &scope, &phase, c).await,
         MethodologyCommand::Spec(c) => spec::run(service, &scope, &phase, c).await,
         MethodologyCommand::Demo(c) => demo::run(service, &scope, &phase, c).await,
         MethodologyCommand::Signpost(c) => signpost::run(service, &scope, &phase, c).await,

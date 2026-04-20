@@ -89,6 +89,11 @@ impl Store {
                         &methodology_event,
                     )
                     .await?;
+                    super::spec_lookup_projection::upsert_spec_lookup_projection_txn(
+                        txn,
+                        &methodology_event,
+                    )
+                    .await?;
                     Ok(())
                 })
             })

@@ -180,13 +180,20 @@ impl MethodologyService {
         }
     }
 
-    /// Resolve a task id to its spec id by querying task-root events.
+    /// Resolve a task id to its spec id through the projection table,
+    /// with event-log scan fallback for migration backfill.
     pub(crate) async fn resolve_spec_for_task(&self, task_id: TaskId) -> MethodologyResult<SpecId> {
-        if let Ok(cache) = self.task_spec_cache.lock()
-            && let Some(spec_id) = cache.get(&task_id)
+        if let Some(spec_id) = self
+            .store()
+            .load_methodology_task_spec_projection(task_id)
+            .await?
         {
-            return Ok(*spec_id);
+            return Ok(spec_id);
         }
+        tracing::warn!(
+            task_id = %task_id,
+            "task->spec projection miss; falling back to methodology event scan"
+        );
         let mut cursor = None;
         loop {
             let filter = EventFilter {
@@ -201,9 +208,9 @@ impl MethodologyService {
                 if let DomainEvent::Methodology { event } = env.payload
                     && let MethodologyEvent::TaskCreated(e) = &event
                 {
-                    if let Ok(mut cache) = self.task_spec_cache.lock() {
-                        cache.insert(task_id, e.task.spec_id);
-                    }
+                    self.store()
+                        .upsert_methodology_task_spec_projection(task_id, e.task.spec_id)
+                        .await?;
                     return Ok(e.task.spec_id);
                 }
             }

@@ -12,5 +12,7 @@ pub(crate) mod enums;
 pub(crate) mod events;
 pub(crate) mod methodology_idempotency;
 pub(crate) mod methodology_phase_event_outbox;
+pub(crate) mod methodology_signpost_spec;
+pub(crate) mod methodology_task_spec;
 pub(crate) mod methodology_task_status;
 pub(crate) mod step_projection;

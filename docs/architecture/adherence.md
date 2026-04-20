@@ -171,7 +171,8 @@ task.read
 phase.outcome
 ```
 
-Notably absent: `task.create`, `rubric.record`, `finding.add`. The
+Notably absent: `task.create`, `rubric.record`, `compliance.record`,
+`finding.add`. The
 orchestrator is the sole mutator of task state post-adherence;
 rubric scoring belongs to `audit-*`; generic `add_finding` isn't
 needed because adherence has its own typed channel.

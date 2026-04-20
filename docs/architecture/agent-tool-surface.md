@@ -135,7 +135,7 @@ types are canonical syntax.
 |---|---|---|
 | `add_finding(severity, title, description, affected_files, line_numbers?, source_phase, attached_task?, pillar?, standard_ref?)` → `FindingId` | `finding.add` | Typed finding. Severity ∈ `{fix_now, defer, note, question}`. |
 | `record_rubric_score(pillar, score, rationale, supporting_finding_ids[])` | `rubric.record` | Score 1–10. Validates finding linkage: `score < pillar.target` → non-empty findings; `score < pillar.passing` → at least one `fix_now`. |
-| `record_non_negotiable_compliance(name, status, rationale)` | `rubric.record` | Typed pass/fail compliance. |
+| `record_non_negotiable_compliance(name, status, rationale)` | `compliance.record` | Typed pass/fail compliance. |
 
 ### 3.3 Spec frontmatter
 
@@ -199,10 +199,10 @@ ignored.
 |---|---|
 | `shape-spec` | task.create, task.revise, spec.frontmatter, demo.frontmatter, signpost.add, phase.outcome |
 | `do-task` | task.start, task.complete, signpost.add, signpost.update, task.read, phase.outcome |
-| `audit-task` | finding.add, rubric.record, task.read, phase.outcome |
+| `audit-task` | finding.add, rubric.record, compliance.record, task.read, phase.outcome |
 | `adhere-task` | standard.read, adherence.record, task.read, phase.outcome |
 | `run-demo` | demo.results, finding.add, signpost.add, task.read, phase.outcome |
-| `audit-spec` | finding.add, rubric.record, task.read, phase.outcome |
+| `audit-spec` | finding.add, rubric.record, compliance.record, task.read, phase.outcome |
 | `adhere-spec` | standard.read, adherence.record, task.read, phase.outcome |
 | `walk-spec` | task.create, task.read, phase.outcome |
 | `handle-feedback` | task.create, issue.create, feedback.reply, task.read, phase.outcome |

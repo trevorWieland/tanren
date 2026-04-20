@@ -193,17 +193,23 @@ impl MethodologyService {
 
     // -- Internal helpers -----------------------------------------------------
 
-    /// Resolve signpost root to spec id through indexed signpost-root
-    /// event queries.
+    /// Resolve signpost root to spec id through projection lookup,
+    /// with an event-log scan fallback for migration backfill.
     pub(crate) async fn resolve_spec_for_signpost(
         &self,
         signpost_id: SignpostId,
     ) -> MethodologyResult<tanren_domain::SpecId> {
-        if let Ok(cache) = self.signpost_spec_cache.lock()
-            && let Some(spec_id) = cache.get(&signpost_id)
+        if let Some(spec_id) = self
+            .store()
+            .load_methodology_signpost_spec_projection(signpost_id)
+            .await?
         {
-            return Ok(*spec_id);
+            return Ok(spec_id);
         }
+        tracing::warn!(
+            signpost_id = %signpost_id,
+            "signpost->spec projection miss; falling back to methodology event scan"
+        );
         let mut cursor = None;
         loop {
             let filter = tanren_store::EventFilter {
@@ -218,9 +224,12 @@ impl MethodologyService {
                 if let tanren_domain::events::DomainEvent::Methodology { event } = env.payload
                     && let MethodologyEvent::SignpostAdded(e) = &event
                 {
-                    if let Ok(mut cache) = self.signpost_spec_cache.lock() {
-                        cache.insert(signpost_id, e.signpost.spec_id);
-                    }
+                    self.store()
+                        .upsert_methodology_signpost_spec_projection(
+                            signpost_id,
+                            e.signpost.spec_id,
+                        )
+                        .await?;
                     return Ok(e.signpost.spec_id);
                 }
             }

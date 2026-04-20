@@ -63,6 +63,33 @@ pub enum ToolCapability {
 }
 
 impl ToolCapability {
+    /// Ordered list of all known capabilities.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::TaskCreate,
+            Self::TaskStart,
+            Self::TaskComplete,
+            Self::TaskRevise,
+            Self::TaskAbandon,
+            Self::TaskRead,
+            Self::FindingAdd,
+            Self::RubricRecord,
+            Self::ComplianceRecord,
+            Self::SpecFrontmatter,
+            Self::DemoFrontmatter,
+            Self::DemoResults,
+            Self::SignpostAdd,
+            Self::SignpostUpdate,
+            Self::PhaseOutcome,
+            Self::PhaseEscalate,
+            Self::IssueCreate,
+            Self::StandardRead,
+            Self::AdherenceRecord,
+            Self::FeedbackReply,
+        ]
+    }
+
     /// Short stable `snake_case` tag. Matches the serde representation.
     #[must_use]
     pub const fn tag(self) -> &'static str {
@@ -88,6 +115,34 @@ impl ToolCapability {
             Self::AdherenceRecord => "adherence.record",
             Self::FeedbackReply => "feedback.reply",
         }
+    }
+
+    /// Parse one capability tag.
+    #[must_use]
+    pub fn from_tag(tag: &str) -> Option<Self> {
+        Some(match tag {
+            "task.create" => Self::TaskCreate,
+            "task.start" => Self::TaskStart,
+            "task.complete" => Self::TaskComplete,
+            "task.revise" => Self::TaskRevise,
+            "task.abandon" => Self::TaskAbandon,
+            "task.read" => Self::TaskRead,
+            "finding.add" => Self::FindingAdd,
+            "rubric.record" => Self::RubricRecord,
+            "compliance.record" => Self::ComplianceRecord,
+            "spec.frontmatter" => Self::SpecFrontmatter,
+            "demo.frontmatter" => Self::DemoFrontmatter,
+            "demo.results" => Self::DemoResults,
+            "signpost.add" => Self::SignpostAdd,
+            "signpost.update" => Self::SignpostUpdate,
+            "phase.outcome" => Self::PhaseOutcome,
+            "phase.escalate" => Self::PhaseEscalate,
+            "issue.create" => Self::IssueCreate,
+            "standard.read" => Self::StandardRead,
+            "adherence.record" => Self::AdherenceRecord,
+            "feedback.reply" => Self::FeedbackReply,
+            _ => return None,
+        })
     }
 }
 
@@ -229,6 +284,15 @@ mod tests {
         assert_eq!(ToolCapability::TaskCreate.tag(), "task.create");
         assert_eq!(ToolCapability::PhaseEscalate.tag(), "phase.escalate");
         assert_eq!(ToolCapability::StandardRead.tag(), "standard.read");
+    }
+
+    #[test]
+    fn parse_roundtrip_for_all_tags() {
+        for capability in ToolCapability::all() {
+            let parsed = ToolCapability::from_tag(capability.tag()).expect("known tag");
+            assert_eq!(parsed, *capability);
+        }
+        assert!(ToolCapability::from_tag("unknown.capability").is_none());
     }
 
     #[test]

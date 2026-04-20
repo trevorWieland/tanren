@@ -11,6 +11,7 @@ pub mod projections;
 pub mod replay;
 mod replay_line_validation;
 mod replay_task_state;
+mod spec_lookup_projection;
 mod task_list_projection;
 mod task_status_projection;
 
