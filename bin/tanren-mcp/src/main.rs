@@ -84,6 +84,7 @@ async fn run() -> Result<()> {
         phase_events,
         standards,
         runtime.pillars,
+        runtime.issue_provider,
     )
     .await
     .context("building methodology service")?;
@@ -183,6 +184,7 @@ struct MethodologyRuntimeSettings {
     required_guards: Vec<tanren_app_services::methodology::RequiredGuard>,
     standards_root: PathBuf,
     pillars: Vec<tanren_app_services::methodology::Pillar>,
+    issue_provider: String,
 }
 
 fn load_methodology_runtime_settings(config_path: &Path) -> Result<MethodologyRuntimeSettings> {
@@ -196,6 +198,7 @@ fn load_methodology_runtime_settings(config_path: &Path) -> Result<MethodologyRu
             ],
             standards_root: default_root,
             pillars: tanren_app_services::methodology::builtin_pillars(),
+            issue_provider: "GitHub".to_owned(),
         });
     }
     let raw = std::fs::read_to_string(config_path)
@@ -218,6 +221,13 @@ fn load_methodology_runtime_settings(config_path: &Path) -> Result<MethodologyRu
         required_guards: cfg.methodology.task_complete_requires,
         standards_root: resolve_relative_to_config(config_path, Path::new(standards_raw)),
         pillars,
+        issue_provider: cfg
+            .methodology
+            .variables
+            .get("issue_provider")
+            .or_else(|| cfg.methodology.variables.get("ISSUE_PROVIDER"))
+            .cloned()
+            .unwrap_or_else(|| "GitHub".to_owned()),
     })
 }
 

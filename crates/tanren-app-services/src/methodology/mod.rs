@@ -22,6 +22,7 @@ pub mod errors;
 pub mod formats;
 pub mod installer;
 mod installer_diff;
+mod installer_walk;
 pub mod mutation_pipeline;
 pub mod phase_events;
 pub mod renderer;

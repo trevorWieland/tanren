@@ -45,9 +45,9 @@ Companion docs:
   `transport-io`, `macros`.
 - Runtime: tokio.
 - Transport: stdio only (Lane 0.5). SSE/HTTP deferred.
-- Tool registration: `#[tool_router]` on a service impl;
-  `#[tool(description = "…")]` on methods; `#[tool(param)]` on args.
-  JSON Schema derived from Rust types.
+- Tool registration: a compile-time typed registry binds each tool's
+  descriptor, JSON schema builder, and dispatch target in one table.
+  JSON Schema is still derived from Rust contract types.
 - Logging: **stderr only**. Writing to stdout corrupts JSON-RPC
   framing. Workspace lints already forbid `println!`/`eprintln!`/
   `dbg!`; use:

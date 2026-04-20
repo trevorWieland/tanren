@@ -1,12 +1,15 @@
 use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::events::{
-    MethodologyEvent, SignpostAdded, TaskCompleted, TaskCreated, TaskGateChecked, TaskImplemented,
-    TaskStarted,
+    FindingAdded, MethodologyEvent, SignpostAdded, TaskCompleted, TaskCreated, TaskGateChecked,
+    TaskImplemented, TaskStarted,
 };
+use tanren_domain::methodology::finding::{Finding, FindingSeverity, FindingSource};
+use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::signpost::{Signpost, SignpostStatus};
-use tanren_domain::methodology::task::{Task, TaskGuardFlags, TaskOrigin, TaskStatus};
-use tanren_domain::{EventId, NonEmptyString, SignpostId, SpecId, TaskId};
+use tanren_domain::methodology::task::TaskOrigin;
+use tanren_domain::methodology::task::{Task, TaskGuardFlags, TaskStatus};
+use tanren_domain::{EventId, FindingId, NonEmptyString, SignpostId, SpecId, TaskId};
 use tanren_store::Store;
 
 fn envelope(event: MethodologyEvent) -> EventEnvelope {
@@ -187,4 +190,49 @@ async fn signpost_spec_projection_upserts_from_signpost_added() {
         .await
         .expect("load projection");
     assert_eq!(projected, Some(spec_id));
+}
+
+#[tokio::test]
+async fn task_finding_projection_upserts_from_finding_added() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let finding_id = FindingId::new();
+
+    store
+        .append_methodology_event(&envelope(MethodologyEvent::TaskCreated(TaskCreated {
+            task: Box::new(seed_task(spec_id, task_id)),
+            origin: TaskOrigin::User,
+            idempotency_key: None,
+        })))
+        .await
+        .expect("append task created");
+
+    store
+        .append_methodology_event(&envelope(MethodologyEvent::FindingAdded(FindingAdded {
+            finding: Box::new(Finding {
+                id: finding_id,
+                spec_id,
+                severity: FindingSeverity::FixNow,
+                title: NonEmptyString::try_new("fix").expect("title"),
+                description: "desc".into(),
+                affected_files: vec!["src/lib.rs".into()],
+                line_numbers: vec![1],
+                source: FindingSource::Audit {
+                    phase: PhaseId::try_new("audit-task").expect("phase"),
+                    pillar: Some(NonEmptyString::try_new("security").expect("pillar")),
+                },
+                attached_task: Some(task_id),
+                created_at: Utc::now(),
+            }),
+            idempotency_key: None,
+        })))
+        .await
+        .expect("append finding");
+
+    let finding_ids = store
+        .load_methodology_finding_ids_for_task_projection(spec_id, task_id)
+        .await
+        .expect("load finding projection");
+    assert_eq!(finding_ids, vec![finding_id]);
 }

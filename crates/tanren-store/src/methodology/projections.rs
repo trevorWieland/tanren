@@ -255,20 +255,23 @@ pub async fn findings_for_spec<S: EventStore>(
     Ok(out)
 }
 
-/// Fold to the findings attached to a specific task.
+/// Resolve findings attached to a specific task via the
+/// `(spec_id, task_id) -> finding_id[]` projection.
 ///
 /// # Errors
 /// See [`load_methodology_events`].
-pub async fn findings_for_task<S: EventStore>(
-    store: &S,
+pub async fn findings_for_task(
+    store: &Store,
     spec_id: SpecId,
     task_id: TaskId,
 ) -> Result<Vec<Finding>, MethodologyEventFetchError> {
-    let all = findings_for_spec(store, spec_id).await?;
-    Ok(all
-        .into_iter()
-        .filter(|f| f.attached_task == Some(task_id))
-        .collect())
+    let finding_ids = store
+        .load_methodology_finding_ids_for_task_projection(spec_id, task_id)
+        .await?;
+    if finding_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    findings_by_ids(store, spec_id, &finding_ids).await
 }
 
 /// Fetch a sparse set of findings by id using indexed entity-ref

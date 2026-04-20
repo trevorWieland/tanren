@@ -91,6 +91,12 @@ task-lifecycle story:
 - For any valid tool input, both produce identical events.
 - Event log contents are identical between transports.
 - MCP server writes to stderr only (stdout reserved for JSON-RPC).
+- Evidence must be traceable to executable tests:
+  - valid mutation parity proof:
+    `bin/tanren-mcp/tests/transport_parity.rs` (includes
+    `bin/tanren-cli/tests/cli_mcp_parity_impl.inc`)
+  - invalid-input no-side-effect parity proof:
+    `bin/tanren-mcp/tests/transport_parity.rs`
 
 ## 7. Installer audit
 

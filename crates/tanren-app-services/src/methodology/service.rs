@@ -37,6 +37,7 @@ pub struct MethodologyService {
     required_guards: Arc<[RequiredGuard]>,
     standards: Arc<[Standard]>,
     pillars: Arc<[Pillar]>,
+    issue_provider: Arc<str>,
     phase_events: Option<PhaseEventsRuntime>,
 }
 
@@ -64,6 +65,10 @@ fn default_required_guards() -> Arc<[RequiredGuard]> {
     ])
 }
 
+fn default_issue_provider() -> Arc<str> {
+    Arc::from("GitHub")
+}
+
 impl MethodologyService {
     /// Construct a service over a shared store handle using the default
     /// `task_complete_requires = [gate_checked, audited, adherent]` set.
@@ -74,6 +79,7 @@ impl MethodologyService {
             required_guards: default_required_guards(),
             standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
             pillars: Arc::from(builtin_pillars().into_boxed_slice()),
+            issue_provider: default_issue_provider(),
             phase_events: None,
         }
     }
@@ -97,6 +103,7 @@ impl MethodologyService {
             required_guards: Arc::from(seen.into_boxed_slice()),
             standards: Arc::from(super::standards::baseline_standards().into_boxed_slice()),
             pillars: Arc::from(builtin_pillars().into_boxed_slice()),
+            issue_provider: default_issue_provider(),
             phase_events: None,
         }
     }
@@ -122,6 +129,27 @@ impl MethodologyService {
         standards: Vec<Standard>,
         pillars: Vec<Pillar>,
     ) -> Self {
+        Self::with_runtime_and_pillars_and_issue_provider(
+            store,
+            required_guards,
+            phase_events,
+            standards,
+            pillars,
+            "GitHub",
+        )
+    }
+
+    /// Construct a service with required guards, phase-event runtime, standards,
+    /// an explicit rubric pillar registry, and a configured issue provider.
+    #[must_use]
+    pub fn with_runtime_and_pillars_and_issue_provider(
+        store: Arc<Store>,
+        required_guards: Vec<RequiredGuard>,
+        phase_events: Option<PhaseEventsRuntime>,
+        standards: Vec<Standard>,
+        pillars: Vec<Pillar>,
+        issue_provider: &str,
+    ) -> Self {
         let mut svc = Self::with_required_guards(store, required_guards);
         svc.phase_events = phase_events;
         if !standards.is_empty() {
@@ -129,6 +157,10 @@ impl MethodologyService {
         }
         if !pillars.is_empty() {
             svc.pillars = Arc::from(pillars.into_boxed_slice());
+        }
+        let trimmed = issue_provider.trim();
+        if !trimmed.is_empty() {
+            svc.issue_provider = Arc::from(trimmed.to_owned());
         }
         svc
     }
@@ -150,6 +182,12 @@ impl MethodologyService {
     #[must_use]
     pub fn pillars(&self) -> &[Pillar] {
         &self.pillars
+    }
+
+    /// Runtime issue-provider tag from config variables.
+    #[must_use]
+    pub fn issue_provider(&self) -> &str {
+        &self.issue_provider
     }
 
     /// Runtime context used for `phase-events.jsonl` and enforcement

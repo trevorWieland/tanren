@@ -220,8 +220,9 @@ disk. Free markdown body text remains agent-authored.
 
 **Transports.** Two, sharing one service:
 1. **MCP (primary).** `tanren-mcp` Rust binary using the `rmcp`
-   SDK (`modelcontextprotocol/rust-sdk`), stdio transport, tool
-   registration via `#[tool_router]` + `#[tool]` attribute macros.
+   SDK (`modelcontextprotocol/rust-sdk`), stdio transport, and one
+   compile-time typed registry that defines catalog + schema + dispatch
+   in a single source of truth.
 2. **CLI fallback.** `tanren-cli` subcommands (`tanren task create …`,
    `tanren finding add …`, `tanren phase outcome …`) for Bash-tool
    invocation when MCP isn't wired. Same service, same events, same

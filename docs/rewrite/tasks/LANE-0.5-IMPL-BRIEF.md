@@ -236,7 +236,7 @@ New subcommands under [bin/tanren-cli/src/commands/](../../../bin/tanren-cli/src
 - `issue.rs` — `tanren issue create`.
 - `standard.rs` — `tanren standard list`.
 - `adherence.rs` — `tanren adherence add-finding`.
-- `ingest.rs` — `tanren ingest-phase-events <spec_folder> [--follow]`.
+- `ingest.rs` — `tanren ingest-phase-events <phase_events_jsonl_path>`.
 - `replay.rs` — `tanren replay <spec_folder>`.
 
 All use `clap` derive. Exit codes typed. `tracing` to stderr.
@@ -250,8 +250,9 @@ New or significantly expanded [bin/tanren-mcp/](../../../bin/tanren-mcp/)
 using `rmcp` (`modelcontextprotocol/rust-sdk`, features `server`,
 `transport-io`, `macros`, tokio runtime).
 
-- Register each tool in the catalog via `#[tool_router]` + `#[tool(…)]`
-  attribute macros. Schemas derived from the contract types.
+- Register each tool in one compile-time typed registry that drives:
+  catalog entries, schema builders, and dispatch bindings together.
+  Schemas are still derived from the contract types.
 - stdio transport only (Lane 0.5 scope).
 - `TANREN_PHASE_CAPABILITIES` env var (supplied by the orchestrator
   at dispatch) drives capability-scope enforcement; out-of-scope

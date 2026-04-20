@@ -1,5 +1,9 @@
 include!("../../tanren-cli/tests/cli_mcp_parity_impl.inc");
 
+// Transport parity proof is split across:
+// - the included valid-mutation parity matrix (strict event + phase-line equivalence)
+// - this file's invalid-input parity matrix (typed rejection + no side effects)
+
 #[derive(Clone, Copy)]
 struct InvalidToolRoute {
     tool: &'static str,

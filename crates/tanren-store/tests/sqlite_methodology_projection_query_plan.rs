@@ -13,6 +13,33 @@ async fn explain_details(conn: &sea_orm::DatabaseConnection, sql: &str) -> Vec<S
         .collect()
 }
 
+async fn assert_task_findings_projection_index(conn: &sea_orm::DatabaseConnection) {
+    let task_findings_details = explain_details(
+        conn,
+        "SELECT finding_id FROM methodology_task_finding \
+         WHERE spec_id='00000000-0000-0000-0000-000000000001' \
+           AND task_id='00000000-0000-0000-0000-000000000011' \
+         ORDER BY updated_at ASC, finding_id ASC",
+    )
+    .await;
+    let task_findings_upper = task_findings_details
+        .iter()
+        .map(|line| line.to_ascii_uppercase())
+        .collect::<Vec<_>>();
+    assert!(
+        task_findings_upper
+            .iter()
+            .any(|line| line.contains("IX_METHODOLOGY_TASK_FINDING_SPEC_TASK")),
+        "expected task-finding projection index usage: {task_findings_details:?}"
+    );
+    assert!(
+        task_findings_upper
+            .iter()
+            .all(|line| !line.contains("USE TEMP B-TREE")),
+        "task-finding projection query must not spill to temp sort: {task_findings_details:?}"
+    );
+}
+
 #[tokio::test]
 async fn methodology_projection_queries_use_indexes_without_temp_sort() {
     let db_path = std::env::temp_dir().join(format!(
@@ -95,6 +122,8 @@ async fn methodology_projection_queries_use_indexes_without_temp_sort() {
             .all(|line| !line.contains("USE TEMP B-TREE")),
         "task-list projection query must not spill to temp sort: {task_list_details:?}"
     );
+
+    assert_task_findings_projection_index(&conn).await;
 
     let _ = std::fs::remove_file(db_path);
 }

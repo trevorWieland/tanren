@@ -5,6 +5,7 @@
 //! `entity_ref`) plus cursor pagination, then reconstruct typed views by
 //! delegating to the pure fold functions in `tanren_domain::methodology`.
 
+mod finding_task_projection;
 mod idempotency;
 mod outbox;
 pub mod projections;

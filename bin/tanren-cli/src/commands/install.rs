@@ -275,7 +275,10 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
     }
 
     let summary = summarize_plan(&plan);
-    let drift_list = drift(&plan);
+    let drift_list = match drift(&plan) {
+        Ok(drift) => drift,
+        Err(e) => return fail_io(&e.to_string()),
+    };
 
     if args.dry_run {
         let outcome = InstallOutcome {

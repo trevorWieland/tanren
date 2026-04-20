@@ -103,6 +103,11 @@ impl Store {
                         &methodology_event,
                     )
                     .await?;
+                    super::finding_task_projection::upsert_task_finding_projection_txn(
+                        txn,
+                        &methodology_event,
+                    )
+                    .await?;
                     Ok(())
                 })
             })

@@ -128,15 +128,17 @@ pub async fn build_methodology_service_with_config(
     phase_events: Option<crate::methodology::service::PhaseEventsRuntime>,
     standards: Vec<tanren_domain::methodology::standard::Standard>,
     pillars: Vec<tanren_domain::methodology::pillar::Pillar>,
+    issue_provider: String,
 ) -> Result<crate::methodology::MethodologyService, StoreError> {
     let store = open_store_for_write(database_url).await?;
     Ok(
-        crate::methodology::MethodologyService::with_runtime_and_pillars(
+        crate::methodology::MethodologyService::with_runtime_and_pillars_and_issue_provider(
             Arc::new(store),
             required_guards,
             phase_events,
             standards,
             pillars,
+            &issue_provider,
         ),
     )
 }

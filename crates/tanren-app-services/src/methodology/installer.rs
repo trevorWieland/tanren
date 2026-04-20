@@ -15,6 +15,7 @@ use super::config::{InstallBinding, InstallFormat, InstallTarget, MergePolicy, M
 use super::errors::{MethodologyError, MethodologyResult};
 use super::formats::render_commands;
 use super::installer_diff::{ContentDiff, exact_content_diff};
+use super::installer_walk::collect_walkable_files;
 use super::renderer::{RenderedCommand, render_catalog};
 use super::source::{CommandSource, load_catalog};
 
@@ -200,8 +201,12 @@ pub fn apply_install(plan: &InstallPlan) -> MethodologyResult<Vec<PathBuf>> {
 ///    (standards baseline) and `preserve_other_keys` (MCP config)
 ///    targets, extra-file reporting is skipped by design — the merge
 ///    policy explicitly permits adopters to keep their own files.
-#[must_use]
-pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
+///
+/// # Errors
+/// Returns [`MethodologyError`] when destructive-root traversal fails
+/// (for example unreadable directories, symlink escape attempts, or
+/// canonicalization errors while validating discovered paths).
+pub fn drift(plan: &InstallPlan) -> MethodologyResult<Vec<DriftEntry>> {
     let mut out = Vec::new();
     // Pass 1: planned write → Missing | Differs | ok.
     for w in &plan.writes {
@@ -232,22 +237,24 @@ pub fn drift(plan: &InstallPlan) -> Vec<DriftEntry> {
     // writes grouped by (format, merge_policy). We scan below each
     // root and compare to the set of planned destinations.
     let (planned_by_root, destructive_roots) = build_root_plan_index(plan);
+    let workspace_root = workspace_root()?;
     for root in destructive_roots {
         let Some(planned) = planned_by_root.get(&root) else {
             continue;
         };
-        walk_files(&root, &mut |found| {
-            if !planned.contains(found) {
+        let resolved_root = validate_safe_destructive_root(&root, planned, &workspace_root)?;
+        for found in collect_walkable_files(&root, &resolved_root)? {
+            if !planned.contains(&found) {
                 out.push(DriftEntry {
-                    dest: found.to_path_buf(),
+                    dest: found,
                     reason: DriftReason::ExtraFile,
                 });
             }
-        });
+        }
     }
 
     out.sort_by(|a, b| a.dest.cmp(&b.dest));
-    out
+    Ok(out)
 }
 
 fn prune_unmanaged_destructive_files(plan: &InstallPlan) -> MethodologyResult<()> {
@@ -257,21 +264,15 @@ fn prune_unmanaged_destructive_files(plan: &InstallPlan) -> MethodologyResult<()
         let Some(planned) = planned_by_root.get(&root) else {
             continue;
         };
-        let _ = validate_safe_destructive_root(&root, planned, &workspace_root)?;
-        let mut remove_error: Option<(PathBuf, std::io::Error)> = None;
-        walk_files(&root, &mut |found| {
-            if planned.contains(found) {
-                return;
+        let resolved_root = validate_safe_destructive_root(&root, planned, &workspace_root)?;
+        for found in collect_walkable_files(&root, &resolved_root)? {
+            if planned.contains(&found) {
+                continue;
             }
-            if remove_error.is_some() {
-                return;
-            }
-            if let Err(source) = std::fs::remove_file(found) {
-                remove_error = Some((found.to_path_buf(), source));
-            }
-        });
-        if let Some((path, source)) = remove_error {
-            return Err(MethodologyError::Io { path, source });
+            std::fs::remove_file(&found).map_err(|source| MethodologyError::Io {
+                path: found,
+                source,
+            })?;
         }
     }
     Ok(())
@@ -431,26 +432,5 @@ fn target_root_for(dest: &Path, format: InstallFormat) -> PathBuf {
         _ => dest
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
-    }
-}
-
-fn walk_files(root: &Path, visit: &mut dyn FnMut(&Path)) {
-    if !root.is_dir() {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_files(&path, visit);
-        } else if path.is_file() {
-            // Skip temporary install files from prior in-flight runs.
-            if path.extension().is_some_and(|e| e == "tanren-install-tmp") {
-                continue;
-            }
-            visit(&path);
-        }
     }
 }

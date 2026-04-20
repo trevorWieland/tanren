@@ -62,8 +62,9 @@ impl MethodologyService {
                 // until reconciled.
                 let issue_id = IssueId::new();
                 let urn = format!("urn:tanren:issue:{}:{}", params.origin_spec_id, issue_id);
+                let provider = resolve_issue_provider(self.issue_provider())?;
                 let reference = IssueRef {
-                    provider: IssueProvider::GitHub,
+                    provider,
                     number: 0,
                     url: NonEmptyString::try_new(urn)
                         .map_err(|e| MethodologyError::Internal(e.to_string()))?,
@@ -296,6 +297,24 @@ fn require_phase_in(
             allowed_tags.join(", ")
         ),
     })
+}
+
+fn resolve_issue_provider(raw: &str) -> MethodologyResult<IssueProvider> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "github" => Ok(IssueProvider::GitHub),
+        _ => Err(MethodologyError::FieldValidation {
+            field_path: "/issue_provider".into(),
+            expected: "github".into(),
+            actual: if raw.trim().is_empty() {
+                "<empty>".into()
+            } else {
+                raw.to_owned()
+            },
+            remediation: "set `methodology.variables.issue_provider` to `GitHub` in tanren.yml"
+                .into(),
+        }),
+    }
 }
 
 /// Look up a standard by `(category, name)` in the runtime registry.

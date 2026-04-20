@@ -119,7 +119,7 @@ fn semantic_body_hashes(
 #[test]
 fn empty_plan_has_no_drift() {
     let plan = InstallPlan { writes: vec![] };
-    assert!(drift(&plan).is_empty());
+    assert!(drift(&plan).expect("drift").is_empty());
 }
 
 #[test]
@@ -298,6 +298,63 @@ fn apply_install_rejects_symlink_escape_root() {
     let err = apply_install(&plan).expect_err("symlink escape must fail");
     assert!(
         matches!(err, MethodologyError::Validation(ref msg) if msg.contains("escapes workspace")),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn apply_install_rejects_nested_symlink_escape_during_prune() {
+    let inside = workspace_tempdir();
+    let root = inside.path().join(".claude/commands");
+    std::fs::create_dir_all(&root).expect("mkdir");
+    let outside = tempfile::tempdir().expect("outside tempdir");
+    let outside_file = outside.path().join("outside.md");
+    std::fs::write(&outside_file, "outside").expect("seed outside");
+    let nested = root.join("nested");
+    std::os::unix::fs::symlink(outside.path(), &nested).expect("nested symlink");
+
+    let dest = root.join("do-task.md");
+    let plan = InstallPlan {
+        writes: vec![PlannedWrite {
+            dest,
+            bytes: b"fresh\n".to_vec(),
+            merge_policy: MergePolicy::Destructive,
+            format: InstallFormat::ClaudeCode,
+        }],
+    };
+
+    let err = apply_install(&plan).expect_err("nested symlink escape must fail");
+    assert!(
+        matches!(err, MethodologyError::Validation(ref msg) if msg.contains("escapes root")),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn drift_rejects_nested_symlink_escape_during_scan() {
+    let inside = workspace_tempdir();
+    let root = inside.path().join(".claude/commands");
+    std::fs::create_dir_all(&root).expect("mkdir");
+    let outside = tempfile::tempdir().expect("outside tempdir");
+    let outside_file = outside.path().join("outside.md");
+    std::fs::write(&outside_file, "outside").expect("seed outside");
+    let nested = root.join("nested");
+    std::os::unix::fs::symlink(outside.path(), &nested).expect("nested symlink");
+
+    let plan = InstallPlan {
+        writes: vec![PlannedWrite {
+            dest: root.join("do-task.md"),
+            bytes: b"fresh\n".to_vec(),
+            merge_policy: MergePolicy::Destructive,
+            format: InstallFormat::ClaudeCode,
+        }],
+    };
+
+    let err = drift(&plan).expect_err("nested symlink escape must fail");
+    assert!(
+        matches!(err, MethodologyError::Validation(ref msg) if msg.contains("escapes root")),
         "unexpected error: {err:?}"
     );
 }

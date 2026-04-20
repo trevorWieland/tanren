@@ -383,6 +383,14 @@ async fn append_staged_atomic(store: &Store, staged: &[EventEnvelope]) -> Result
                             txn, event,
                         )
                         .await?;
+                        super::spec_lookup_projection::upsert_spec_lookup_projection_txn(
+                            txn, event,
+                        )
+                        .await?;
+                        super::finding_task_projection::upsert_task_finding_projection_txn(
+                            txn, event,
+                        )
+                        .await?;
                     }
                 }
                 Ok(())
