@@ -31,8 +31,11 @@ use uuid::Uuid;
 
 #[path = "../../../tests/support/methodology_event_parity.rs"]
 mod methodology_event_parity;
+#[path = "../../../tests/support/mcp_capability_envelope.rs"]
+mod mcp_capability_envelope;
 
 const MCP_CAPABILITIES: &str = "task.create,task.start,task.complete,task.revise,task.abandon,task.read,finding.add,rubric.record,compliance.record,spec.frontmatter,demo.frontmatter,demo.results,signpost.add,signpost.update,phase.outcome,phase.escalate,issue.create,standard.read,adherence.record,feedback.reply";
+const MCP_AGENT_SESSION_ID: &str = "parity-session";
 
 const PARITY_COVERED_TOOLS: &[&str] = &[
     "create_task",
@@ -113,7 +116,7 @@ fn run_cli_tool<T: Serialize>(
             "--spec-folder",
             spec_folder.to_str().expect("utf8 path"),
             "--agent-session-id",
-            "parity-session",
+            MCP_AGENT_SESSION_ID,
             noun,
             verb,
             "--json",
@@ -127,6 +130,35 @@ fn run_cli_tool<T: Serialize>(
         String::from_utf8_lossy(&out.stderr)
     );
     serde_json::from_slice::<Value>(&out.stdout).expect("parse cli stdout json")
+}
+
+fn configure_mcp_signed_capability_env(
+    command: &mut Command,
+    phase: &str,
+    spec_id: SpecId,
+    agent_session_id: &str,
+    capabilities_csv: &str,
+) {
+    let token = mcp_capability_envelope::signed_capability_token(
+        phase,
+        spec_id.into_uuid(),
+        agent_session_id,
+        capabilities_csv,
+    );
+    command
+        .env("TANREN_MCP_CAPABILITY_ENVELOPE", token)
+        .env(
+            "TANREN_MCP_CAPABILITY_PUBLIC_KEY_PEM",
+            mcp_capability_envelope::test_capability_public_key_pem(),
+        )
+        .env(
+            "TANREN_MCP_CAPABILITY_ISSUER",
+            mcp_capability_envelope::test_capability_issuer(),
+        )
+        .env(
+            "TANREN_MCP_CAPABILITY_AUDIENCE",
+            mcp_capability_envelope::test_capability_audience(),
+        );
 }
 
 fn cli_create_tasks(url: &str, spec_folder: &Path, spec_id: SpecId) -> (tanren_domain::TaskId, tanren_domain::TaskId) {
@@ -489,7 +521,7 @@ fn cli_cross_phase_mutations(url: &str, spec_folder: &Path, spec_id: SpecId) {
         },
         idempotency_key: Some("parity-outcome".into()),
     });
-    let _ = run_cli_tool(url, spec_folder, "do-task", "adherence", "add-finding", &c::RecordAdherenceFindingParams {
+    let _ = run_cli_tool(url, spec_folder, "adhere-task", "adherence", "add-finding", &c::RecordAdherenceFindingParams {
         schema_version: schema(),
         spec_id,
         standard: StandardRef {
@@ -593,21 +625,24 @@ struct McpSession {
 impl McpSession {
     fn start(url: &str, spec_folder: &Path, phase: &str) -> Self {
         let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
-        let mut child = Command::new(&bin)
+        let mut command = Command::new(&bin);
+        command
             .env("TANREN_DATABASE_URL", url)
-            .env("TANREN_SPEC_ID", fixed_spec_id().to_string())
             .env(
                 "TANREN_SPEC_FOLDER",
                 spec_folder.to_str().expect("utf8 path"),
             )
-            .env("TANREN_AGENT_SESSION_ID", "parity-session")
-            .env("TANREN_MCP_PHASE", phase)
-            .env("TANREN_PHASE_CAPABILITIES", MCP_CAPABILITIES)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn tanren-mcp");
+            .stderr(Stdio::null());
+        configure_mcp_signed_capability_env(
+            &mut command,
+            phase,
+            fixed_spec_id(),
+            MCP_AGENT_SESSION_ID,
+            MCP_CAPABILITIES,
+        );
+        let mut child = command.spawn().expect("spawn tanren-mcp");
         let stdout = child.stdout.take().expect("stdout");
         let mut reader = BufReader::new(stdout);
         for frame in init_frames() {
@@ -953,6 +988,7 @@ fn mcp_quality_and_signpost(
 
 fn mcp_cross_phase_mutations(
     do_task: &mut McpSession,
+    adhere_task: &mut McpSession,
     investigate: &mut McpSession,
     feedback: &mut McpSession,
     spec_id: SpecId,
@@ -967,7 +1003,7 @@ fn mcp_cross_phase_mutations(
         },
         idempotency_key: Some("parity-outcome".into()),
     });
-    let _ = do_task.call("record_adherence_finding", &c::RecordAdherenceFindingParams {
+    let _ = adhere_task.call("record_adherence_finding", &c::RecordAdherenceFindingParams {
         schema_version: schema(),
         spec_id,
         standard: StandardRef {
@@ -1009,6 +1045,7 @@ fn mcp_cross_phase_mutations(
 fn run_mcp_matrix(url: &str, spec_folder: &Path) {
     let spec_id = fixed_spec_id();
     let mut do_task = McpSession::start(url, spec_folder, "do-task");
+    let mut adhere_task = McpSession::start(url, spec_folder, "adhere-task");
     let mut audit_task = McpSession::start(url, spec_folder, "audit-task");
     let mut investigate = McpSession::start(url, spec_folder, "investigate");
     let mut feedback = McpSession::start(url, spec_folder, "handle-feedback");
@@ -1016,7 +1053,13 @@ fn run_mcp_matrix(url: &str, spec_folder: &Path) {
     mcp_task_lifecycle(&mut do_task, main_task, abandon_task);
     mcp_spec_and_demo_updates(&mut do_task, spec_id);
     mcp_quality_and_signpost(&mut do_task, &mut audit_task, spec_id, main_task);
-    mcp_cross_phase_mutations(&mut do_task, &mut investigate, &mut feedback, spec_id);
+    mcp_cross_phase_mutations(
+        &mut do_task,
+        &mut adhere_task,
+        &mut investigate,
+        &mut feedback,
+        spec_id,
+    );
 }
 
 fn assert_registry_tool_coverage(registry_tools: &[String]) {

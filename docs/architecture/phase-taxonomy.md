@@ -40,8 +40,14 @@ What slice of the work the phase operates on.
 | **TASK** | Single task slice | do-task, task-gate, audit-task, adhere-task |
 | **SPEC** | Whole-spec completeness | shape-spec, run-demo, audit-spec, adhere-spec, walk-spec, spec-gate |
 | **CROSS-PHASE** | Operates on feedback across a whole PR / review | handle-feedback |
-| **CONTEXT-DEPENDENT** | Serves either task or spec scope depending on dispatch | investigate, resolve-blockers |
+| **CONTEXT-DEPENDENT** | Dispatch-keyed: scope is derived from the triggering orchestration path (task pipeline -> TASK, spec pipeline -> SPEC) | investigate, resolve-blockers |
 | **INFRA** | Not scoped to tasks or spec | setup, cleanup |
+
+Dispatch rule (deterministic): `investigate` scope is selected by the
+orchestration edge that dispatched it; `resolve-blockers` inherits that
+same scope from the active blocker. See
+[orchestration-flow.md](orchestration-flow.md) for the dispatch graph
+and blocker lifecycle terms.
 
 ## Axis: Autonomy
 

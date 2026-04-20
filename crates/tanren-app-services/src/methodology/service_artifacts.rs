@@ -8,6 +8,7 @@ use tanren_domain::methodology::events::{AdherenceFindingAdded, IssueCreated, Me
 use tanren_domain::methodology::finding::{AdherenceSeverity, Finding, FindingSource};
 use tanren_domain::methodology::issue::{Issue, IssueProvider, IssueRef};
 use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
+use tanren_domain::methodology::validation::validate_finding_line_numbers;
 use tanren_domain::{FindingId, IssueId, NonEmptyString, SignpostId};
 
 use tanren_contract::methodology::{
@@ -17,8 +18,6 @@ use tanren_contract::methodology::{
 use super::capabilities::enforce;
 use super::errors::{MethodologyError, MethodologyResult, require_non_empty};
 use super::service::MethodologyService;
-
-const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
 
 impl MethodologyService {
     // -- §3.7 create_issue ----------------------------------------------------
@@ -111,6 +110,11 @@ impl MethodologyService {
         params: RecordAdherenceFindingParams,
     ) -> MethodologyResult<tanren_contract::methodology::AddFindingResponse> {
         enforce(scope, ToolCapability::AdherenceRecord, phase)?;
+        require_phase_in(
+            "record_adherence_finding",
+            phase,
+            &[KnownPhase::AdhereTask, KnownPhase::AdhereSpec],
+        )?;
         let spec_id = params.spec_id;
         let explicit_key = params.idempotency_key.clone();
         let idempotency_payload = params.clone();
@@ -120,6 +124,8 @@ impl MethodologyService {
             explicit_key,
             &idempotency_payload,
             || async move {
+                validate_finding_line_numbers(&params.line_numbers)
+                    .map_err(MethodologyError::from)?;
                 // Critical-cannot-defer rule per adherence.md §4.2: any finding
                 // linked to a standard with `importance = Critical` MUST NOT
                 // carry `severity = Defer`. The `StandardRef` on the wire
@@ -206,37 +212,15 @@ impl MethodologyService {
         {
             return Ok(spec_id);
         }
-        tracing::warn!(
-            signpost_id = %signpost_id,
-            "signpost->spec projection miss; falling back to methodology event scan"
-        );
-        let mut cursor = None;
-        loop {
-            let filter = tanren_store::EventFilter {
-                entity_ref: Some(EntityRef::Signpost(signpost_id)),
-                event_type: Some("methodology".into()),
-                limit: METHODOLOGY_PAGE_SIZE,
-                cursor,
-                ..tanren_store::EventFilter::default()
-            };
-            let page = tanren_store::EventStore::query_events(self.store(), &filter).await?;
-            for env in page.events {
-                if let tanren_domain::events::DomainEvent::Methodology { event } = env.payload
-                    && let MethodologyEvent::SignpostAdded(e) = &event
-                {
-                    self.store()
-                        .upsert_methodology_signpost_spec_projection(
-                            signpost_id,
-                            e.signpost.spec_id,
-                        )
-                        .await?;
-                    return Ok(e.signpost.spec_id);
-                }
-            }
-            if !page.has_more {
-                break;
-            }
-            cursor = page.next_cursor;
+        tracing::warn!(signpost_id = %signpost_id, "signpost->spec projection miss; attempting targeted recovery");
+        let recovered = self
+            .first_methodology_event_for_entity(EntityRef::Signpost(signpost_id))
+            .await?;
+        if let Some(MethodologyEvent::SignpostAdded(e)) = recovered {
+            self.store()
+                .upsert_methodology_signpost_spec_projection(signpost_id, e.signpost.spec_id)
+                .await?;
+            return Ok(e.signpost.spec_id);
         }
         Err(MethodologyError::NotFound {
             resource: "signpost".into(),

@@ -34,6 +34,7 @@ mod service_ext_validation;
 mod service_findings;
 mod service_idempotency;
 mod service_phase;
+mod service_projection_reconcile;
 mod service_standards;
 mod service_task_spec;
 mod service_tasks;
@@ -49,7 +50,7 @@ pub use phase_events::{
     jsonl_contains_event_id, line_for_envelope, line_for_envelope_with_attribution,
     project_phase_events, render_jsonl,
 };
-pub use service::MethodologyService;
+pub use service::{MethodologyService, ProjectionReconcileReport};
 
 // Re-export the domain-layer capability types so transport crates
 // (tanren-cli, tanren-mcp) can depend only on tanren-app-services +

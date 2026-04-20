@@ -4,9 +4,8 @@
 //! Lane 0.5 scope:
 //!
 //! - stdio transport only (rmcp `transport-io` feature).
-//! - Capability scope derived from `TANREN_PHASE_CAPABILITIES` env var
-//!   supplied by the orchestrator at dispatch time.
-//! - Phase name from `TANREN_MCP_PHASE` env var (default `"mcp"`).
+//! - Capability scope + phase/spec/session derived from a signed
+//!   `TANREN_MCP_CAPABILITY_ENVELOPE`.
 //! - Database URL from `TANREN_DATABASE_URL` (default
 //!   `"sqlite:tanren.db?mode=rwc"`) — the same store path the CLI
 //!   uses, so event trails are byte-identical across transports.
@@ -23,7 +22,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
 
 mod catalog;
 mod dispatch;
@@ -47,11 +45,7 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<()> {
-    let scope = scope::parse_from_env().context("parsing TANREN_PHASE_CAPABILITIES")?;
-    let phase = tanren_app_services::methodology::PhaseId::try_new(
-        std::env::var("TANREN_MCP_PHASE").unwrap_or_else(|_| "mcp".to_owned()),
-    )
-    .context("parsing TANREN_MCP_PHASE")?;
+    let envelope = scope::verify_from_env().context("verifying signed MCP capability envelope")?;
     let database_url = std::env::var("TANREN_DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:tanren.db?mode=rwc".to_owned());
     let config_path = std::env::var("TANREN_CONFIG").unwrap_or_else(|_| "tanren.yml".to_owned());
@@ -66,30 +60,20 @@ async fn run() -> Result<()> {
             runtime.standards_root.display()
         )
     })?;
-    let phase_events = match (
-        std::env::var("TANREN_SPEC_ID").ok(),
-        std::env::var("TANREN_SPEC_FOLDER").ok(),
-    ) {
-        (None, None) => None,
-        (Some(spec_id_raw), Some(spec_folder)) => {
-            let spec_id_uuid = Uuid::parse_str(&spec_id_raw)
-                .with_context(|| format!("parsing TANREN_SPEC_ID `{spec_id_raw}`"))?;
-            let spec_id = tanren_app_services::methodology::SpecId::from_uuid(spec_id_uuid);
+    let phase_events = std::env::var("TANREN_SPEC_FOLDER").ok().and_then(|raw| {
+        let spec_folder = raw.trim();
+        if spec_folder.is_empty() {
+            None
+        } else {
             Some(
                 tanren_app_services::methodology::service::PhaseEventsRuntime {
-                    spec_id,
+                    spec_id: envelope.spec_id,
                     spec_folder: PathBuf::from(spec_folder),
-                    agent_session_id: std::env::var("TANREN_AGENT_SESSION_ID")
-                        .unwrap_or_else(|_| "mcp-session".to_owned()),
+                    agent_session_id: envelope.agent_session_id.clone(),
                 },
             )
         }
-        _ => {
-            anyhow::bail!(
-                "TANREN_SPEC_ID and TANREN_SPEC_FOLDER must either both be set or both be unset"
-            );
-        }
-    };
+    });
     let reconcile_spec_folder = phase_events
         .as_ref()
         .map(|runtime| runtime.spec_folder.clone());
@@ -105,12 +89,13 @@ async fn run() -> Result<()> {
     let service = Arc::new(service);
     spawn_projection_retry_worker(Arc::clone(&service), reconcile_spec_folder);
     tracing::info!(
-        capability_count = scope.0.len(),
-        phase = %phase.as_str(),
+        capability_count = envelope.scope.0.len(),
+        phase = %envelope.phase.as_str(),
+        spec_id = %envelope.spec_id,
         tools = catalog::all_tools().len(),
         "tanren-mcp starting on stdio transport"
     );
-    handler::serve_stdio(scope, service, phase).await
+    handler::serve_stdio(envelope.scope, service, envelope.phase).await
 }
 
 fn spawn_projection_retry_worker(

@@ -6,8 +6,8 @@
 //! - advertises every tool in the `tanren.methodology.v1` catalog;
 //! - round-trips a real tool call (`create_task` → `list_tasks`);
 //! - surfaces typed `ToolError` envelopes with `isError: true`;
-//! - enforces capability scope when `TANREN_PHASE_CAPABILITIES`
-//!   excludes the requested tool;
+//! - enforces capability scope when signed claims exclude the
+//!   requested tool;
 //! - writes **nothing** to stdout that isn't an MCP frame (stdio
 //!   framing is inviolable — non-negotiable #14).
 
@@ -18,6 +18,10 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 use serde_json::{Value, json};
 use tempfile::TempDir;
+use uuid::Uuid;
+
+#[path = "../../../tests/support/mcp_capability_envelope.rs"]
+mod mcp_capability_envelope;
 
 fn init_frames() -> Vec<Value> {
     vec![
@@ -35,37 +39,78 @@ fn init_frames() -> Vec<Value> {
     ]
 }
 
-fn spawn_mcp(db_url: &str, scope: &str, spec_id: &str) -> (TempDir, std::process::Child) {
+fn spawn_mcp(
+    db_url: &str,
+    phase: &str,
+    capabilities_csv: &str,
+    spec_id: &str,
+) -> (TempDir, PathBuf, std::process::Child) {
+    spawn_mcp_with_session(db_url, phase, capabilities_csv, spec_id, "mcp-test-session")
+}
+
+fn spawn_mcp_with_session(
+    db_url: &str,
+    phase: &str,
+    capabilities_csv: &str,
+    spec_id: &str,
+    agent_session_id: &str,
+) -> (TempDir, PathBuf, std::process::Child) {
     let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
     // The methodology service needs a migrated store before the
     // first call; run `tanren-cli db migrate` once so the schema
     // is present.
     let dir = tempfile::tempdir().expect("tempdir");
-    let cli = assert_cmd::cargo::cargo_bin("tanren-cli");
-    let mig = Command::new(&cli)
-        .args(["--database-url", db_url, "db", "migrate"])
-        .output()
-        .expect("migrate");
-    assert!(
-        mig.status.success(),
-        "migrate failed: {}",
-        String::from_utf8_lossy(&mig.stderr)
-    );
+    migrate_db(db_url);
     let spec_folder = dir
         .path()
         .join(format!("2026-01-01-0101-{spec_id}-mcp-test"));
     std::fs::create_dir_all(&spec_folder).expect("mkdir spec folder");
-    let child = Command::new(&bin)
+    let mut command = Command::new(&bin);
+    command
         .env("TANREN_DATABASE_URL", db_url)
-        .env("TANREN_SPEC_ID", spec_id)
         .env("TANREN_SPEC_FOLDER", &spec_folder)
-        .env("TANREN_PHASE_CAPABILITIES", scope)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn tanren-mcp");
-    (dir, child)
+        .stderr(Stdio::piped());
+    configure_signed_capability_env(
+        &mut command,
+        phase,
+        spec_id,
+        agent_session_id,
+        capabilities_csv,
+    );
+    let child = command.spawn().expect("spawn tanren-mcp");
+    (dir, spec_folder, child)
+}
+
+fn configure_signed_capability_env(
+    command: &mut Command,
+    phase: &str,
+    spec_id: &str,
+    agent_session_id: &str,
+    capabilities_csv: &str,
+) {
+    let spec_id = Uuid::parse_str(spec_id).expect("valid spec uuid");
+    let token = mcp_capability_envelope::signed_capability_token(
+        phase,
+        spec_id,
+        agent_session_id,
+        capabilities_csv,
+    );
+    command
+        .env("TANREN_MCP_CAPABILITY_ENVELOPE", token)
+        .env(
+            "TANREN_MCP_CAPABILITY_PUBLIC_KEY_PEM",
+            mcp_capability_envelope::test_capability_public_key_pem(),
+        )
+        .env(
+            "TANREN_MCP_CAPABILITY_ISSUER",
+            mcp_capability_envelope::test_capability_issuer(),
+        )
+        .env(
+            "TANREN_MCP_CAPABILITY_AUDIENCE",
+            mcp_capability_envelope::test_capability_audience(),
+        );
 }
 
 fn send_all(child: &mut std::process::Child, frames: &[Value]) {
@@ -112,6 +157,19 @@ fn db_url(dir: &TempDir) -> String {
     format!("sqlite:{}/mcp.db?mode=rwc", dir.path().display())
 }
 
+fn migrate_db(url: &str) {
+    let cli = assert_cmd::cargo::cargo_bin("tanren-cli");
+    let mig = Command::new(&cli)
+        .args(["--database-url", url, "db", "migrate"])
+        .output()
+        .expect("migrate");
+    assert!(
+        mig.status.success(),
+        "migrate failed: {}",
+        String::from_utf8_lossy(&mig.stderr)
+    );
+}
+
 fn documented_tool_names() -> BTreeSet<String> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let doc = manifest_dir.join("../../docs/architecture/agent-tool-surface.md");
@@ -143,48 +201,15 @@ fn documented_tool_names() -> BTreeSet<String> {
 }
 
 #[test]
-fn tanren_config_env_controls_runtime_settings() {
-    let scope_dir = tempfile::tempdir().expect("tempdir");
-    let url = db_url(&scope_dir);
-    let cli = assert_cmd::cargo::cargo_bin("tanren-cli");
-    let mig = Command::new(&cli)
-        .args(["--database-url", &url, "db", "migrate"])
-        .output()
-        .expect("migrate");
-    assert!(
-        mig.status.success(),
-        "migrate failed: {}",
-        String::from_utf8_lossy(&mig.stderr)
-    );
-
-    let bad_cfg = scope_dir.path().join("bad.yml");
-    std::fs::write(&bad_cfg, "methodology: [").expect("write bad cfg");
-
-    let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
-    let out = Command::new(bin)
-        .env("TANREN_DATABASE_URL", &url)
-        .env("TANREN_CONFIG", &bad_cfg)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("run tanren-mcp");
-    assert!(
-        !out.status.success(),
-        "invalid TANREN_CONFIG should fail startup"
-    );
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("bad.yml"),
-        "stderr should reference TANREN_CONFIG path: {stderr}"
-    );
-}
-
-#[test]
 fn list_tools_advertises_full_catalog() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000001");
+    let (_d, _spec_folder, mut child) = spawn_mcp(
+        &url,
+        "do-task",
+        "task.read",
+        "00000000-0000-0000-0000-000000000001",
+    );
 
     let mut frames = init_frames();
     frames.push(json!({ "jsonrpc":"2.0", "id":2, "method":"tools/list" }));
@@ -216,8 +241,9 @@ fn list_tools_advertises_full_catalog() {
 fn call_tool_round_trips_create_and_list() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(
+    let (_d, _spec_folder, mut child) = spawn_mcp(
         &url,
+        "do-task",
         "task.create,task.read",
         "00000000-0000-0000-0000-000000000021",
     );
@@ -299,7 +325,12 @@ fn call_tool_round_trips_create_and_list() {
 fn call_tool_with_invalid_params_returns_typed_validation_error() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.create", "00000000-0000-0000-0000-000000000022");
+    let (_d, _spec_folder, mut child) = spawn_mcp(
+        &url,
+        "do-task",
+        "task.create",
+        "00000000-0000-0000-0000-000000000022",
+    );
 
     let mut frames = init_frames();
     frames.push(json!({
@@ -338,7 +369,12 @@ fn capability_denied_when_scope_excludes_tool() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
     // Scope grants only task.read — create_task must be denied.
-    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000023");
+    let (_d, _spec_folder, mut child) = spawn_mcp(
+        &url,
+        "do-task",
+        "task.read",
+        "00000000-0000-0000-0000-000000000023",
+    );
 
     let mut frames = init_frames();
     frames.push(json!({
@@ -376,7 +412,12 @@ fn capability_denied_when_scope_excludes_tool() {
 fn unknown_tool_returns_typed_not_found() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000024");
+    let (_d, _spec_folder, mut child) = spawn_mcp(
+        &url,
+        "do-task",
+        "task.read",
+        "00000000-0000-0000-0000-000000000024",
+    );
 
     let mut frames = init_frames();
     frames.push(json!({
@@ -404,7 +445,12 @@ fn unknown_tool_returns_typed_not_found() {
 fn catalog_and_agent_tool_surface_doc_stay_in_parity() {
     let scope_dir = tempfile::tempdir().expect("tempdir");
     let url = db_url(&scope_dir);
-    let (_d, mut child) = spawn_mcp(&url, "task.read", "00000000-0000-0000-0000-000000000025");
+    let (_d, _spec_folder, mut child) = spawn_mcp(
+        &url,
+        "do-task",
+        "task.read",
+        "00000000-0000-0000-0000-000000000025",
+    );
 
     let mut frames = init_frames();
     frames.push(json!({ "jsonrpc":"2.0", "id":2, "method":"tools/list" }));

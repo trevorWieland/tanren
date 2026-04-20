@@ -189,11 +189,14 @@ types are canonical syntax.
 
 ## 4. Per-phase capability scopes
 
-Enforced at dispatch time via `TANREN_PHASE_CAPABILITIES` env var (a
-comma-separated list of capability strings) consulted by both MCP
-server and CLI. Out-of-scope calls return `CapabilityDenied`. Unknown
-capability tags are validation failures (hard error), not silently
-ignored.
+Enforced at dispatch time:
+- CLI reads `TANREN_PHASE_CAPABILITIES` (comma-separated capability tags).
+- MCP requires a signed `TANREN_MCP_CAPABILITY_ENVELOPE` claim set
+  (issuer/audience/exp/nbf/iat/jti/phase/spec/session/capabilities)
+  verified against an Ed25519 public key at server startup.
+
+Out-of-scope calls return `CapabilityDenied`. Unknown capability tags
+are validation failures (hard error), not silently ignored.
 
 | Phase | Capabilities |
 |---|---|

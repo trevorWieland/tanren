@@ -119,6 +119,66 @@ async fn adherence_rejects_defer_for_critical_standard() {
 }
 
 #[tokio::test]
+async fn adherence_rejects_zero_line_number_with_indexed_path() {
+    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
+    let err = svc
+        .record_adherence_finding(
+            &scope(&[ToolCapability::AdherenceRecord]),
+            &phase("adhere-task"),
+            RecordAdherenceFindingParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: runtime_spec_id(&svc),
+                standard: StandardRef {
+                    name: NonEmptyString::try_new("no-unwrap-in-production").expect("name"),
+                    category: NonEmptyString::try_new("rust-error-handling").expect("category"),
+                },
+                affected_files: vec!["src/lib.rs".into()],
+                line_numbers: vec![0],
+                severity: AdherenceSeverity::FixNow,
+                rationale: "invalid source coordinate".into(),
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect_err("line number zero must fail");
+    assert!(matches!(
+        err,
+        tanren_app_services::methodology::MethodologyError::FieldValidation { field_path, .. }
+            if field_path == "/line_numbers/0"
+    ));
+}
+
+#[tokio::test]
+async fn adherence_rejects_non_adherence_phase_even_with_capability() {
+    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
+    let err = svc
+        .record_adherence_finding(
+            &scope(&[ToolCapability::AdherenceRecord]),
+            &phase("do-task"),
+            RecordAdherenceFindingParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: runtime_spec_id(&svc),
+                standard: StandardRef {
+                    name: NonEmptyString::try_new("no-unwrap-in-production").expect("name"),
+                    category: NonEmptyString::try_new("rust-error-handling").expect("category"),
+                },
+                affected_files: vec!["src/lib.rs".into()],
+                line_numbers: vec![11],
+                severity: AdherenceSeverity::FixNow,
+                rationale: "wrong phase".into(),
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect_err("adhere phase gate must deny");
+    assert!(matches!(
+        err,
+        tanren_app_services::methodology::MethodologyError::FieldValidation { field_path, .. }
+            if field_path == "/phase"
+    ));
+}
+
+#[tokio::test]
 async fn relevance_filters_use_server_derived_context_and_hints_are_additive() {
     let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
     let spec_id = runtime_spec_id(&svc);

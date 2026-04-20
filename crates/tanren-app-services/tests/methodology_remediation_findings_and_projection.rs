@@ -222,7 +222,7 @@ async fn list_tasks_projection_first_matches_fold_truth() {
 }
 
 #[tokio::test]
-async fn list_tasks_fallback_backfills_missing_projection_snapshots() {
+async fn list_tasks_targeted_heal_backfills_missing_projection_snapshots() {
     let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
     let scope = admin_scope();
     let spec_id = runtime_spec_id(&svc);
@@ -272,7 +272,7 @@ async fn list_tasks_fallback_backfills_missing_projection_snapshots() {
         .expect("load degraded projection");
     assert!(
         degraded.iter().any(|row| row.task.is_none()),
-        "expected status-only projection row before fallback/backfill"
+        "expected status-only projection row before targeted healing"
     );
 
     let listed = svc
@@ -285,10 +285,10 @@ async fn list_tasks_fallback_backfills_missing_projection_snapshots() {
             },
         )
         .await
-        .expect("list via fallback");
+        .expect("list via targeted projection healing");
     assert!(
         listed.tasks.iter().any(|task| task.id == created.task_id),
-        "fallback path must still return folded tasks"
+        "targeted healing path must still return projected tasks"
     );
 
     let healed = svc
@@ -298,6 +298,147 @@ async fn list_tasks_fallback_backfills_missing_projection_snapshots() {
         .expect("load healed projection");
     assert!(
         healed.iter().all(|row| row.task.is_some()),
-        "fallback path must backfill missing task snapshots"
+        "targeted healing path must backfill missing task snapshots"
+    );
+}
+
+#[tokio::test]
+async fn projection_reconcile_repairs_spec_lookup_rows() {
+    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let created = svc
+        .create_task(
+            &scope,
+            &phase("do-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "projection reconcile".into(),
+                description: "repair lookup projection".into(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+    svc.start_task(
+        &scope,
+        &phase("do-task"),
+        tanren_contract::methodology::StartTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
+            task_id: created.task_id,
+        },
+    )
+    .await
+    .expect("start");
+
+    svc.store()
+        .upsert_methodology_task_status_projection(
+            spec_id,
+            created.task_id,
+            &TaskStatus::InProgress,
+        )
+        .await
+        .expect("degrade task snapshot");
+
+    let report = svc
+        .reconcile_methodology_projections_for_spec(spec_id)
+        .await
+        .expect("reconcile projections");
+    assert!(
+        report.tasks_rebuilt >= 1,
+        "reconcile must rebuild at least one task projection row"
+    );
+    let healed = svc
+        .store()
+        .load_methodology_task_list_projection(spec_id)
+        .await
+        .expect("load healed projection");
+    assert!(
+        healed.iter().all(|row| row.task.is_some()),
+        "reconcile must restore task snapshots"
+    );
+}
+
+#[tokio::test]
+async fn list_tasks_targeted_heal_scales_on_large_fixture() {
+    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let mut task_ids = Vec::new();
+    for idx in 0..240_u32 {
+        let created = svc
+            .create_task(
+                &scope,
+                &phase("do-task"),
+                CreateTaskParams {
+                    schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                    idempotency_key: Some(format!("bulk-create-{idx}")),
+                    spec_id,
+                    title: format!("bulk task {idx}"),
+                    description: "fixture".into(),
+                    acceptance_criteria: vec![],
+                    depends_on: vec![],
+                    parent_task_id: None,
+                    origin: TaskOrigin::ShapeSpec,
+                },
+            )
+            .await
+            .expect("create");
+        task_ids.push(created.task_id);
+    }
+
+    for (idx, task_id) in task_ids.iter().copied().enumerate() {
+        if idx % 2 == 0 {
+            svc.start_task(
+                &scope,
+                &phase("do-task"),
+                tanren_contract::methodology::StartTaskParams {
+                    schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                    idempotency_key: Some(format!("bulk-start-{idx}")),
+                    task_id,
+                },
+            )
+            .await
+            .expect("start");
+        }
+        if idx % 3 == 0 {
+            svc.store()
+                .upsert_methodology_task_status_projection(spec_id, task_id, &TaskStatus::Pending)
+                .await
+                .expect("degrade projection snapshot");
+        }
+    }
+
+    let listed = svc
+        .list_tasks(
+            &scope,
+            &phase("do-task"),
+            ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: Some(spec_id),
+            },
+        )
+        .await
+        .expect("list with targeted healing");
+    assert_eq!(
+        listed.tasks.len(),
+        task_ids.len(),
+        "list_tasks should return all tasks on large fixture"
+    );
+
+    let healed = svc
+        .store()
+        .load_methodology_task_list_projection(spec_id)
+        .await
+        .expect("load healed projection");
+    assert!(
+        healed.iter().all(|row| row.task.is_some()),
+        "targeted healing should restore snapshots for large fixture rows"
     );
 }

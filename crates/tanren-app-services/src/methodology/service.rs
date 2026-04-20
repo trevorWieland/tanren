@@ -45,6 +45,14 @@ pub struct PhaseEventsRuntime {
     pub agent_session_id: String,
 }
 
+/// Summary of explicit projection-reconcile work for one spec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ProjectionReconcileReport {
+    pub tasks_rebuilt: u64,
+    pub task_spec_rows_repaired: u64,
+    pub signpost_spec_rows_repaired: u64,
+}
+
 fn default_required_guards() -> Arc<[RequiredGuard]> {
     Arc::from([
         RequiredGuard::GateChecked,

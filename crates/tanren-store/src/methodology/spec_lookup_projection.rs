@@ -1,6 +1,6 @@
 use chrono::Utc;
 use sea_orm::ActiveValue::Set;
-use sea_orm::{ActiveModelTrait, DatabaseTransaction, EntityTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter};
 use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::{SignpostId, SpecId, TaskId};
 
@@ -27,6 +27,21 @@ impl Store {
         spec_id: SpecId,
     ) -> StoreResult<()> {
         upsert_task_spec_projection(self.conn(), task_id, spec_id).await
+    }
+
+    /// Read all task ids mapped to one spec in the task->spec lookup projection.
+    pub async fn load_methodology_task_ids_for_spec_projection(
+        &self,
+        spec_id: SpecId,
+    ) -> StoreResult<Vec<TaskId>> {
+        let rows = methodology_task_spec::Entity::find()
+            .filter(methodology_task_spec::Column::SpecId.eq(spec_id.into_uuid()))
+            .all(self.conn())
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| TaskId::from_uuid(row.task_id))
+            .collect())
     }
 
     /// Read one signpost->spec projection row by signpost id.

@@ -201,7 +201,7 @@ fn run_cli_tool_expect_error(
             "--spec-folder",
             spec_folder.to_str().expect("utf8 path"),
             "--agent-session-id",
-            "parity-session",
+            MCP_AGENT_SESSION_ID,
             noun,
             verb,
             "--json",

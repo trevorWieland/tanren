@@ -18,11 +18,12 @@
 //!
 //! ## Phase + capability resolution
 //!
-//! Capability enforcement mirrors the MCP transport: we consult the
+//! CLI capability enforcement consults the
 //! `TANREN_PHASE_CAPABILITIES` env var (comma-separated capability
 //! tags). When unset, we fall back to the `--phase`-keyed default
 //! scope from `default_scope_for_phase`. When neither yields a scope,
-//! the CLI defaults deny.
+//! the CLI defaults deny. (MCP uses a signed capability envelope at
+//! its own transport boundary.)
 
 pub(crate) mod adherence;
 pub(crate) mod compliance;
@@ -149,6 +150,8 @@ pub(crate) enum MethodologyCommand {
     Replay(replay::ReplayArgs),
     /// Reconcile pending phase-event outbox rows into phase-events.jsonl.
     ReconcilePhaseEvents(reconcile::ReconcilePhaseEventsArgs),
+    /// Rebuild methodology projections for one spec.
+    ReconcileProjections(reconcile::ReconcileProjectionsArgs),
 }
 
 /// Load JSON params from the configured input source and deserialize
@@ -359,6 +362,9 @@ pub(crate) async fn dispatch(
         MethodologyCommand::IngestPhaseEvents(a) => ingest::run(service, a).await,
         MethodologyCommand::Replay(a) => replay::run(service, a).await,
         MethodologyCommand::ReconcilePhaseEvents(_a) => reconcile::run(service, global).await,
+        MethodologyCommand::ReconcileProjections(_a) => {
+            reconcile::run_projection_reconcile(service, global).await
+        }
     };
 
     if let Some((spec_id, spec_folder, agent_session_id, guard)) = session
@@ -385,6 +391,7 @@ fn is_mutation_command(command: &MethodologyCommand) -> bool {
             | MethodologyCommand::Task(task::TaskCommand::List(_))
             | MethodologyCommand::IngestPhaseEvents(_)
             | MethodologyCommand::Replay(_)
+            | MethodologyCommand::ReconcileProjections(_)
     )
 }
 

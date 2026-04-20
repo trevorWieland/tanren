@@ -8,10 +8,8 @@
 //! contract params type, invokes the matching service method, and
 //! serializes the typed response or `ToolError` back.
 //!
-//! The phase name advertised to capability enforcement is the
-//! `TANREN_MCP_PHASE` env var (defaults to `"mcp"`). Orchestrators
-//! typically set both `TANREN_PHASE_CAPABILITIES` and
-//! `TANREN_MCP_PHASE` per dispatch.
+//! Phase + capability scope are derived from the verified
+//! `TANREN_MCP_CAPABILITY_ENVELOPE` claims at startup.
 
 use std::future::Future;
 use std::sync::Arc;
