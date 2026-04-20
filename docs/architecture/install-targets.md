@@ -70,9 +70,9 @@ Companion docs:
 - **Merge (commands):** `destructive`
 - **Merge (config):** `preserve_other_keys` (only overwrite
   `[mcp_servers.tanren]` section)
-- **Legacy note:** `.codex/prompts/*.md` is deprecated; Skills is the
-  supported modern format. `AGENTS.md` is a separate shared-
-  instructions convention and is not touched by `tanren install`.
+- Codex command rendering targets `.codex/skills/*/SKILL.md`.
+  `AGENTS.md` is a separate shared-instructions convention and is not
+  touched by `tanren install`.
 
 ### 2.3 OpenCode (`opencode`)
 
@@ -120,7 +120,7 @@ pub struct RenderedCommand {
     pub declared_tools: Vec<String>,
     pub required_capabilities: Vec<String>,
     pub produces_evidence: Vec<String>,
-    pub frontmatter_extras: BTreeMap<String, serde_yaml::Value>,
+    pub extensions: BTreeMap<String, serde_yaml::Value>,
     pub body: String,                  // fully substituted markdown
 }
 ```
@@ -187,7 +187,7 @@ and collects results for dry-run output.
 | `{{TASK_TOOL_BINDING}}` | install-target `binding` (`mcp` | `cli`) |
 | `{{PHASE_EVENTS_FILE}}` | `{spec_folder}/phase-events.jsonl` |
 | `{{READONLY_ARTIFACT_BANNER}}` | fixed prose |
-| `{{PILLAR_LIST}}` | effective rubric pillar ids: `tanren/rubric.yml` (preferred) → `tanren.yml methodology.rubric` (canonical) → deprecated top-level `rubric` alias → built-in pillar ids |
+| `{{PILLAR_LIST}}` | effective rubric pillar ids: `tanren/rubric.yml` (preferred) → `tanren.yml methodology.rubric` (canonical) → built-in pillar ids |
 | `{{REQUIRED_GUARDS}}` | effective `methodology.task_complete_requires` after profile overrides (`tanren install --profile`) |
 
 The installer must resolve both variables at install time from the

@@ -86,3 +86,62 @@ required_capabilities:
         "unexpected error: {err}"
     );
 }
+
+#[test]
+fn load_catalog_rejects_unknown_top_level_frontmatter_key() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_command(
+        dir.path(),
+        "spec/demo.md",
+        r#"name: demo
+role: audit
+declared_variables: []
+declared_tools:
+  - record_rubric_score
+required_capabilities:
+  - rubric.record
+unknown_field: true
+"#,
+        "body",
+    );
+
+    let err = load_catalog(dir.path()).expect_err("unknown frontmatter field must fail");
+    assert!(
+        err.to_string().contains("frontmatter schema error"),
+        "unexpected error: {err}"
+    );
+    assert!(
+        err.to_string().contains("unknown field"),
+        "error should mention unknown field: {err}"
+    );
+}
+
+#[test]
+fn load_catalog_accepts_extension_namespace() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_command(
+        dir.path(),
+        "spec/demo.md",
+        r#"name: demo
+role: audit
+declared_variables: []
+declared_tools:
+  - record_rubric_score
+required_capabilities:
+  - rubric.record
+extensions:
+  custom_prompt_hint: "v1"
+"#,
+        "body",
+    );
+
+    let catalog = load_catalog(dir.path()).expect("extensions namespace should parse");
+    assert_eq!(catalog.len(), 1, "expected one command");
+    assert!(
+        catalog[0]
+            .frontmatter
+            .extensions
+            .contains_key("custom_prompt_hint"),
+        "extensions key should be preserved"
+    );
+}

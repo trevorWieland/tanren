@@ -32,13 +32,6 @@ pub struct ReplayStats {
     pub events_skipped_duplicate_event_id: usize,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ReplayOptions {
-    /// When true, allow legacy lines that omit provenance metadata.
-    /// Default is false: origin metadata is required by schema.
-    pub allow_legacy_provenance: bool,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum ReplayError {
     #[error("I/O error reading {path}: {source}")]
@@ -201,16 +194,6 @@ pub async fn ingest_phase_events(
     path: &Path,
     required_guards: &[RequiredGuard],
 ) -> Result<ReplayStats, ReplayError> {
-    ingest_phase_events_with_options(store, path, required_guards, ReplayOptions::default()).await
-}
-
-/// Ingest with explicit replay options.
-pub async fn ingest_phase_events_with_options(
-    store: &Store,
-    path: &Path,
-    required_guards: &[RequiredGuard],
-    options: ReplayOptions,
-) -> Result<ReplayStats, ReplayError> {
     let file = tokio::fs::File::open(path)
         .await
         .map_err(|source| ReplayError::Io {
@@ -257,7 +240,6 @@ pub async fn ingest_phase_events_with_options(
                 store,
                 path,
                 required_guards,
-                options,
                 &mut pending,
                 &mut ingest_state,
                 &mut stats,
@@ -270,7 +252,6 @@ pub async fn ingest_phase_events_with_options(
             store,
             path,
             required_guards,
-            options,
             &mut pending,
             &mut ingest_state,
             &mut stats,
@@ -285,7 +266,6 @@ async fn process_pending_chunk(
     store: &Store,
     path: &Path,
     required_guards: &[RequiredGuard],
-    options: ReplayOptions,
     pending: &mut Vec<ParsedLine>,
     ingest_state: &mut IngestState,
     stats: &mut ReplayStats,
@@ -303,7 +283,7 @@ async fn process_pending_chunk(
             stats.events_skipped_duplicate_event_id += 1;
             continue;
         }
-        validate_envelope_metadata(path, entry.line_no, &entry.line, options)?;
+        validate_envelope_metadata(path, entry.line_no, &entry.line)?;
         validate_event_semantics(
             store,
             path,

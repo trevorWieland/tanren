@@ -4,7 +4,7 @@
 //! budget while keeping related relevance logic together.
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 use tanren_contract::methodology::{
     ListRelevantStandardsParams, ListRelevantStandardsResponse, SchemaVersion,
@@ -180,26 +180,35 @@ fn relevance_reason(
         let std_langs: std::collections::HashSet<String> = standard
             .applies_to_languages
             .iter()
-            .map(|v| v.to_ascii_lowercase())
+            .map(|v| normalize_match_label(v))
+            .filter(|v| !v.is_empty())
             .collect();
         if let Some(lang) = params
             .project_languages
             .iter()
-            .find(|lang| std_langs.contains(&lang.to_ascii_lowercase()))
+            .find(|lang| std_langs.contains(*lang))
         {
             return Ok(Some(format!(
                 "matched `applies_to_languages` against `{lang}`"
             )));
         }
     }
-    if !params.domains.is_empty()
-        && !standard.applies_to_domains.is_empty()
-        && let Some(d) = params
+    if !params.domains.is_empty() && !standard.applies_to_domains.is_empty() {
+        let std_domains: std::collections::HashSet<String> = standard
+            .applies_to_domains
+            .iter()
+            .map(|v| normalize_match_label(v))
+            .filter(|v| !v.is_empty())
+            .collect();
+        if let Some(domain) = params
             .domains
             .iter()
-            .find(|d| standard.applies_to_domains.iter().any(|sd| sd == *d))
-    {
-        return Ok(Some(format!("matched `applies_to_domains` against `{d}`")));
+            .find(|domain| std_domains.contains(*domain))
+        {
+            return Ok(Some(format!(
+                "matched `applies_to_domains` against `{domain}`"
+            )));
+        }
     }
     Ok(None)
 }
@@ -321,32 +330,59 @@ impl EffectiveRelevanceInputs {
         touched_files.sort();
         touched_files.dedup();
 
-        let mut project_languages = Vec::new();
+        let mut project_languages = BTreeSet::new();
         if let Some(v) = derived.project_language.as_deref() {
-            project_languages.push(v.to_owned());
+            let normalized = normalize_match_label(v);
+            if !normalized.is_empty() {
+                project_languages.insert(normalized);
+            }
         }
         if let Some(v) = hints.project_language.as_deref() {
-            project_languages.push(v.to_owned());
+            let normalized = normalize_match_label(v);
+            if !normalized.is_empty() {
+                project_languages.insert(normalized);
+            }
         }
-        project_languages.sort_by_key(|v| v.to_ascii_lowercase());
-        project_languages.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-
-        let mut domains = derived.tags.clone();
+        let mut domains = BTreeSet::new();
+        for tag in &derived.tags {
+            let normalized = normalize_match_label(tag);
+            if !normalized.is_empty() {
+                domains.insert(normalized);
+            }
+        }
         if let Some(category) = derived.category.as_deref() {
-            domains.push(category.to_owned());
+            let normalized = normalize_match_label(category);
+            if !normalized.is_empty() {
+                domains.insert(normalized);
+            }
         }
-        domains.extend(hints.domains.clone());
-        domains.extend(hints.tags.clone());
+        for domain in &hints.domains {
+            let normalized = normalize_match_label(domain);
+            if !normalized.is_empty() {
+                domains.insert(normalized);
+            }
+        }
+        for tag in &hints.tags {
+            let normalized = normalize_match_label(tag);
+            if !normalized.is_empty() {
+                domains.insert(normalized);
+            }
+        }
         if let Some(category) = hints.category.as_deref() {
-            domains.push(category.to_owned());
+            let normalized = normalize_match_label(category);
+            if !normalized.is_empty() {
+                domains.insert(normalized);
+            }
         }
-        domains.sort();
-        domains.dedup();
 
         Self {
             touched_files,
-            project_languages,
-            domains,
+            project_languages: project_languages.into_iter().collect(),
+            domains: domains.into_iter().collect(),
         }
     }
+}
+
+fn normalize_match_label(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase()
 }

@@ -268,9 +268,7 @@ event per line.
 }
 ```
 
-`tool` records the actual emitting tool name for new lines. Legacy
-sentinel tool aliases are accepted only for replay backward
-compatibility.
+`tool` records the canonical emitting tool name for every line.
 
 ### 6.3 Tool-Call Causality
 
@@ -297,9 +295,9 @@ to the store via a validated replay-apply path
 checks canonical envelope shape, tool/payload consistency, task
 transition legality, required provenance metadata (`origin_kind`,
 `caused_by_tool_call_id` for `tool_derived`), and event-id
-idempotency. Legacy lines without provenance are accepted only when
-the explicit legacy replay flag is enabled. Produces the same
-projections the live run would. Used for recovery and debugging.
+idempotency. Replay is strict: missing provenance metadata is rejected.
+Produces the same projections the live run would. Used for recovery
+and debugging.
 
 ---
 

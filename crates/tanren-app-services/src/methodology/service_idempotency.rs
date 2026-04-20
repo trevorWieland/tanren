@@ -1,28 +1,12 @@
 use std::future::Future;
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use tanren_domain::SpecId;
-use tanren_domain::entity::EntityRef;
-use tanren_domain::events::DomainEvent;
-use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
-use tanren_domain::methodology::events::{FindingAdded, MethodologyEvent};
-use tanren_domain::methodology::finding::Finding;
-use tanren_domain::methodology::phase_id::PhaseId;
-use tanren_domain::methodology::validation::{
-    validate_finding_attached_task_spec, validate_finding_line_numbers,
-};
-use tanren_domain::{FindingId, TaskId};
-use tanren_store::{EventFilter, EventStore};
-
-use tanren_contract::methodology::{AddFindingParams, AddFindingResponse, SchemaVersion};
 
 use super::MethodologyService;
-use super::capabilities::enforce;
-use super::errors::{MethodologyError, MethodologyResult, ToolError, require_non_empty};
+use super::errors::{MethodologyError, MethodologyResult, ToolError};
 
-const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
 const REQUEST_HASH_ALGO_SHA256_CANONICAL_JSON_V1: &str = "sha256-canonical-json-v1";
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 
@@ -34,72 +18,6 @@ enum StoredIdempotencyOutcome {
 }
 
 impl MethodologyService {
-    // -- §3.2 Findings --------------------------------------------------------
-
-    /// `add_finding` — emit [`MethodologyEvent::FindingAdded`].
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn add_finding(
-        &self,
-        scope: &CapabilityScope,
-        phase: &PhaseId,
-        params: AddFindingParams,
-    ) -> MethodologyResult<AddFindingResponse> {
-        enforce(scope, ToolCapability::FindingAdd, phase)?;
-        let spec_id = params.spec_id;
-        let explicit_key = params.idempotency_key.clone();
-        let idempotency_payload = params.clone();
-        self.run_idempotent_mutation(
-            "add_finding",
-            spec_id,
-            explicit_key,
-            &idempotency_payload,
-            || async move {
-                let title = require_non_empty("/title", &params.title, Some(200))?;
-                validate_finding_line_numbers(&params.line_numbers)
-                    .map_err(MethodologyError::from)?;
-                if let Some(attached_task) = params.attached_task {
-                    let task_spec_id = self.resolve_spec_for_task(attached_task).await?;
-                    validate_finding_attached_task_spec(
-                        attached_task,
-                        params.spec_id,
-                        task_spec_id,
-                    )
-                    .map_err(MethodologyError::from)?;
-                }
-                let finding = Finding {
-                    id: FindingId::new(),
-                    spec_id: params.spec_id,
-                    severity: params.severity,
-                    title,
-                    description: params.description,
-                    affected_files: params.affected_files,
-                    line_numbers: params.line_numbers,
-                    source: params.source,
-                    attached_task: params.attached_task,
-                    created_at: Utc::now(),
-                };
-                let id = finding.id;
-                self.emit(
-                    phase,
-                    MethodologyEvent::FindingAdded(FindingAdded {
-                        finding: Box::new(finding),
-                        idempotency_key: params.idempotency_key,
-                    }),
-                )
-                .await?;
-                Ok(AddFindingResponse {
-                    schema_version: SchemaVersion::current(),
-                    finding_id: id,
-                })
-            },
-        )
-        .await
-    }
-
-    // -- Shared helpers -------------------------------------------------------
-
     pub(crate) async fn run_idempotent_mutation<R, P, F, Fut>(
         &self,
         tool: &str,
@@ -178,71 +96,6 @@ impl MethodologyService {
                 Err(MethodologyError::from(replayable_error))
             }
         }
-    }
-
-    /// Resolve a task id to its spec id through the projection table,
-    /// with event-log scan fallback for migration backfill.
-    pub(crate) async fn resolve_spec_for_task(&self, task_id: TaskId) -> MethodologyResult<SpecId> {
-        if let Some(spec_id) = self
-            .store()
-            .load_methodology_task_spec_projection(task_id)
-            .await?
-        {
-            return Ok(spec_id);
-        }
-        tracing::warn!(
-            task_id = %task_id,
-            "task->spec projection miss; falling back to methodology event scan"
-        );
-        let mut cursor = None;
-        loop {
-            let filter = EventFilter {
-                entity_ref: Some(EntityRef::Task(task_id)),
-                event_type: Some("methodology".into()),
-                limit: METHODOLOGY_PAGE_SIZE,
-                cursor,
-                ..EventFilter::default()
-            };
-            let page = EventStore::query_events(self.store(), &filter).await?;
-            for env in page.events {
-                if let DomainEvent::Methodology { event } = env.payload
-                    && let MethodologyEvent::TaskCreated(e) = &event
-                {
-                    self.store()
-                        .upsert_methodology_task_spec_projection(task_id, e.task.spec_id)
-                        .await?;
-                    return Ok(e.task.spec_id);
-                }
-            }
-            if !page.has_more {
-                break;
-            }
-            cursor = page.next_cursor;
-        }
-        Err(MethodologyError::NotFound {
-            resource: "task".into(),
-            key: task_id.to_string(),
-        })
-    }
-
-    /// Emit a pre-built methodology event. Transport crates use this to
-    /// compose higher-level workflows (e.g. `tanren session exit`
-    /// emitting one `UnauthorizedArtifactEdit` per reverted file).
-    ///
-    /// # Errors
-    /// See [`MethodologyError`].
-    pub async fn emit_event(
-        &self,
-        phase: &PhaseId,
-        event: MethodologyEvent,
-    ) -> MethodologyResult<()> {
-        self.emit(phase, event).await.map(|_| ())
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn store(&self) -> &tanren_store::Store {
-        self.store.as_ref()
     }
 }
 

@@ -29,7 +29,10 @@ pub(super) fn mk_spec_folder(dir: &TempDir, spec_id: &str) -> PathBuf {
 pub(super) fn cli(url: &str) -> Command {
     let mut cmd = Command::cargo_bin("tanren-cli").expect("bin");
     cmd.args(["--database-url", url]);
-    cmd.env("TANREN_CAPABILITY_OVERRIDE", "admin");
+    cmd.env(
+        "TANREN_PHASE_CAPABILITIES",
+        "task.create,task.start,task.complete,task.revise,task.abandon,task.read,finding.add,rubric.record,compliance.record,spec.frontmatter,demo.frontmatter,demo.results,signpost.add,signpost.update,phase.outcome,phase.escalate,issue.create,standard.read,adherence.record,feedback.reply",
+    );
     cmd
 }
 
@@ -85,7 +88,7 @@ pub(super) fn write_legacy_phase_events_file(folder: &Path, spec_id: SpecId) -> 
     let task = Task {
         id: TaskId::new(),
         spec_id,
-        title: NonEmptyString::try_new("legacy replay task").expect("title"),
+        title: NonEmptyString::try_new("replay task missing provenance").expect("title"),
         description: String::new(),
         acceptance_criteria: vec![],
         origin: TaskOrigin::User,

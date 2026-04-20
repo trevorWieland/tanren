@@ -155,6 +155,10 @@ install:
 install-commands:
     @{{ cargo }} run --quiet -p tanren-cli -- install
 
+# Preview installer writes without mutating files.
+install-commands-dry-run:
+    @{{ cargo }} run --quiet -p tanren-cli -- install --dry-run
+
 # Strict dry-run: fail if rendered artifacts drift from the plan.
 # Wired into `just ci` below so merging a command-source change
 # without re-running `install-commands` fails at PR time.

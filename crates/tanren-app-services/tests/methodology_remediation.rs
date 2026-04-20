@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
-use tanren_contract::methodology::{CreateTaskParams, ListRelevantStandardsParams};
+use tanren_contract::methodology::CreateTaskParams;
 use tanren_domain::methodology::events::{
     MethodologyEvent, TaskAdherent, TaskAudited, TaskGateChecked, TaskXChecked,
 };
@@ -54,6 +54,9 @@ fn phase(tag: &str) -> PhaseId {
 fn runtime_spec_id(svc: &MethodologyService) -> SpecId {
     svc.phase_events_runtime().expect("runtime").spec_id
 }
+
+#[path = "methodology_remediation/relevance.rs"]
+mod relevance;
 
 #[tokio::test]
 async fn required_guards_come_from_config_not_hardcoded() {
@@ -434,62 +437,4 @@ async fn list_tasks_without_spec_id_and_runtime_is_typed_error() {
         tanren_app_services::methodology::MethodologyError::FieldValidation { ref field_path, .. }
             if field_path == "/spec_id"
     ));
-}
-
-#[tokio::test]
-async fn relevance_filter_explains_inclusion_by_touched_files() {
-    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
-    let scope = admin_scope();
-    let out = svc
-        .list_relevant_standards_filtered(
-            &scope,
-            &phase("adhere-task"),
-            &ListRelevantStandardsParams {
-                schema_version: tanren_contract::methodology::SchemaVersion::current(),
-                spec_id: SpecId::new(),
-                touched_files: vec!["crates/tanren-domain/src/lib.rs".into()],
-                project_language: Some("rust".into()),
-                domains: vec![],
-                tags: vec![],
-                category: None,
-            },
-        )
-        .await
-        .expect("filtered");
-    assert!(
-        !out.standards.is_empty(),
-        "rust-touched file should match >=1 std"
-    );
-    assert!(
-        out.standards.iter().all(|r| !r.inclusion_reason.is_empty()),
-        "every kept standard must carry an explanation"
-    );
-}
-
-#[tokio::test]
-async fn relevance_filter_empty_inputs_returns_full_baseline() {
-    let svc = mk_service(vec![]).await;
-    let scope = admin_scope();
-    let out = svc
-        .list_relevant_standards_filtered(
-            &scope,
-            &phase("adhere-task"),
-            &ListRelevantStandardsParams {
-                schema_version: tanren_contract::methodology::SchemaVersion::current(),
-                spec_id: SpecId::new(),
-                touched_files: vec![],
-                project_language: None,
-                domains: vec![],
-                tags: vec![],
-                category: None,
-            },
-        )
-        .await
-        .expect("baseline");
-    assert!(!out.standards.is_empty());
-    assert!(
-        out.standards
-            .iter()
-            .any(|r| r.inclusion_reason.contains("baseline"))
-    );
 }

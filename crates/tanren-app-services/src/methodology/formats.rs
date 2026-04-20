@@ -104,18 +104,24 @@ fn opencode(cmd: &RenderedCommand, root: &Path) -> MethodologyResult<RenderedArt
     fm.insert(
         "agent".into(),
         serde_yaml::Value::String(
-            frontmatter_extra_string(cmd, "agent").unwrap_or_else(|| cmd.frontmatter.role.clone()),
+            cmd.frontmatter
+                .agent
+                .clone()
+                .unwrap_or_else(|| cmd.frontmatter.role.clone()),
         ),
     );
     fm.insert(
         "model".into(),
         serde_yaml::Value::String(
-            frontmatter_extra_string(cmd, "model").unwrap_or_else(|| "default".into()),
+            cmd.frontmatter
+                .model
+                .clone()
+                .unwrap_or_else(|| "default".into()),
         ),
     );
     fm.insert(
         "subtask".into(),
-        serde_yaml::Value::Bool(frontmatter_extra_bool(cmd, "subtask").unwrap_or(false)),
+        serde_yaml::Value::Bool(cmd.frontmatter.subtask.unwrap_or(false)),
     );
     fm.insert(
         "template".into(),
@@ -188,27 +194,14 @@ fn codex_frontmatter<'a>(cmd: &'a RenderedCommand) -> MethodologyResult<CodexFro
 }
 
 fn command_description(cmd: &RenderedCommand) -> String {
-    frontmatter_extra_string(cmd, "description")
-        .unwrap_or_else(|| format!("Tanren methodology command `{}`", cmd.frontmatter.name))
-}
-
-fn frontmatter_extra_string(cmd: &RenderedCommand, key: &str) -> Option<String> {
-    match cmd.frontmatter.extras.get(key) {
-        Some(serde_yaml::Value::String(s)) if !s.trim().is_empty() => Some(s.clone()),
-        _ => None,
-    }
-}
-
-fn frontmatter_extra_bool(cmd: &RenderedCommand, key: &str) -> Option<bool> {
-    match cmd.frontmatter.extras.get(key) {
-        Some(serde_yaml::Value::Bool(v)) => Some(*v),
-        Some(serde_yaml::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
-            "true" => Some(true),
-            "false" => Some(false),
-            _ => None,
-        },
-        _ => None,
-    }
+    cmd.frontmatter
+        .description
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map_or_else(
+            || format!("Tanren methodology command `{}`", cmd.frontmatter.name),
+            str::to_owned,
+        )
 }
 
 /// `.mcp.json` writer — merges a `tanren` server stanza into existing
@@ -354,7 +347,11 @@ mod tests {
                 declared_tools: vec![],
                 required_capabilities: vec![],
                 produces_evidence: vec![],
-                extras: Default::default(),
+                description: None,
+                agent: None,
+                model: None,
+                subtask: None,
+                extensions: Default::default(),
             },
             body: body.into(),
         }

@@ -256,7 +256,7 @@ Tanren targets three deployment classes with the same architecture:
 
 The rewrite does not aim to:
 
-- re-implement every legacy behavior before establishing the new contract foundation
+- re-implement every prior behavior before establishing the new contract foundation
 - lock tanren to one harness provider
 - force one environment substrate
-- preserve undocumented drift between legacy interfaces
+- preserve undocumented drift between prior interfaces

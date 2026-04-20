@@ -124,7 +124,7 @@ Each pillar has `id`, `name`, `task_description`, `spec_description`,
   scaffolding.
 
 ### 3.10 Style
-- **Task:** matches existing code; 2026 best practices; no legacy
+- **Task:** matches existing code; 2026 best practices; no obsolete
   patterns kept for their own sake.
 - **Spec:** whole-surface style consistency; new conventions (if
   any) documented.
@@ -154,7 +154,6 @@ Each pillar has `id`, `name`, `task_description`, `spec_description`,
 
 Pillars live in `tanren/rubric.yml` (preferred) or under
 `tanren.yml` `methodology.rubric.pillars` as the canonical fallback.
-Legacy top-level `rubric` remains a deprecated compatibility alias.
 Each entry:
 
 ```yaml

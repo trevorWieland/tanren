@@ -104,6 +104,8 @@ fn phase_events(svc: &MethodologyService) -> Vec<PhaseEventLine> {
 
 #[path = "methodology_phase_outcome_contract/abandon_disposition.rs"]
 mod abandon_disposition;
+#[path = "methodology_phase_outcome_contract/reconcile_pagination.rs"]
+mod reconcile_pagination;
 #[path = "methodology_phase_outcome_contract/validation_before_side_effects.rs"]
 mod validation_before_side_effects;
 

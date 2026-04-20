@@ -8,10 +8,10 @@ use tanren_domain::methodology::events::{
 use tanren_domain::methodology::task::{RequiredGuard, Task, TaskOrigin, TaskStatus};
 use tanren_domain::{NonEmptyString, SpecId, TaskId};
 use tanren_store::Store;
-use tanren_store::methodology::ingest_phase_events;
+use tanren_store::methodology::{ReplayError, ingest_phase_events};
 
 #[tokio::test]
-async fn replay_accepts_report_phase_outcome_alias_for_bridged_guard_completion() {
+async fn replay_rejects_report_phase_outcome_alias_for_bridged_guard_completion() {
     let store = fresh_store().await;
     let spec_id = SpecId::new();
     let task_id = TaskId::new();
@@ -96,14 +96,14 @@ async fn replay_accepts_report_phase_outcome_alias_for_bridged_guard_completion(
     }
     std::fs::write(&path, content).expect("write jsonl");
 
-    let stats = ingest_phase_events(
+    let err = ingest_phase_events(
         &store,
         &path,
         &[RequiredGuard::Audited, RequiredGuard::Adherent],
     )
     .await
-    .expect("ingest bridged alias");
-    assert_eq!(stats.events_appended, events.len());
+    .expect_err("non-canonical alias must fail replay");
+    assert!(matches!(err, ReplayError::ToolMismatch { .. }));
 }
 
 async fn fresh_store() -> Store {

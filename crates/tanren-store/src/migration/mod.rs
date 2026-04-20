@@ -25,6 +25,7 @@ mod m_0014_methodology_idempotency_hash_algo;
 mod m_0015_methodology_task_status_projection;
 mod m_0016_methodology_task_projection_snapshot;
 mod m_0017_methodology_spec_lookup_projection;
+mod m_0018_methodology_phase_event_outbox_indexes;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
@@ -35,7 +36,7 @@ pub(crate) struct Migrator;
 impl Migrator {
     /// Name of the latest expected schema migration.
     pub(crate) const LATEST_MIGRATION_NAME: &'static str =
-        "m_0017_methodology_spec_lookup_projection";
+        "m_0018_methodology_phase_event_outbox_indexes";
 }
 
 #[async_trait::async_trait]
@@ -59,6 +60,7 @@ impl MigratorTrait for Migrator {
             Box::new(m_0015_methodology_task_status_projection::Migration),
             Box::new(m_0016_methodology_task_projection_snapshot::Migration),
             Box::new(m_0017_methodology_spec_lookup_projection::Migration),
+            Box::new(m_0018_methodology_phase_event_outbox_indexes::Migration),
         ]
     }
 }
@@ -224,11 +226,11 @@ mod tests {
     async fn m0011_down_and_up_round_trip_restores_enforcement() {
         let conn = Database::connect("sqlite::memory:").await.expect("connect");
         Migrator::up(&conn, None).await.expect("up");
-        // m_0012..m_0017 now sit above m_0011; roll all seven
+        // m_0012..m_0018 now sit above m_0011; roll all eight
         // back so this test exercises m_0011's `down` behavior.
-        Migrator::down(&conn, Some(7))
+        Migrator::down(&conn, Some(8))
             .await
-            .expect("down seven steps");
+            .expect("down eight steps");
 
         conn.execute(Statement::from_string(
             DbBackend::Sqlite,

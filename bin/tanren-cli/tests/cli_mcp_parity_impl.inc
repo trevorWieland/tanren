@@ -4,11 +4,13 @@ use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
 use assert_cmd::prelude::*;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tanren_contract::methodology as c;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
+use tanren_domain::methodology::event_tool::canonical_tool_for_event;
 use tanren_domain::methodology::evidence::demo::{DemoStatus, DemoStepMode};
 use tanren_domain::methodology::finding::{
     AdherenceSeverity, FindingSeverity, FindingSource, StandardRef,
@@ -23,8 +25,7 @@ use tanren_domain::methodology::spec::{
     ConnectionKind, DemoConnection, DemoEnvironment, SpecDependencies, SpecRelevanceContext,
 };
 use tanren_domain::methodology::task::{AcceptanceCriterion, RequiredGuard, TaskOrigin};
-use tanren_domain::{NonEmptyString, SpecId};
-use tanren_store::{EventFilter, EventStore, Store};
+use tanren_domain::{EntityRef, EventId, NonEmptyString, SpecId};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -100,7 +101,6 @@ fn run_cli_tool<T: Serialize>(
     let spec_id = fixed_spec_id().to_string();
     let out = Command::cargo_bin("tanren-cli")
         .expect("bin")
-        .env("TANREN_CAPABILITY_OVERRIDE", "admin")
         .env("TANREN_PHASE_CAPABILITIES", MCP_CAPABILITIES)
         .args([
             "--database-url",
@@ -1145,7 +1145,7 @@ fn reconcile_phase_events(url: &str, spec_folder: &Path) {
     let spec_id = fixed_spec_id().to_string();
     let out = Command::cargo_bin("tanren-cli")
         .expect("bin")
-        .env("TANREN_CAPABILITY_OVERRIDE", "admin")
+        .env("TANREN_PHASE_CAPABILITIES", MCP_CAPABILITIES)
         .args([
             "--database-url",
             url,
@@ -1166,26 +1166,41 @@ fn reconcile_phase_events(url: &str, spec_folder: &Path) {
 }
 
 async fn methodology_envelopes(url: &str) -> Vec<EventEnvelope> {
-    let store = Store::new(url).await.expect("open store");
-    let mut out = Vec::new();
-    let mut cursor = None;
-    loop {
-        let page = store
-            .query_events(&EventFilter {
-                event_type: Some("methodology".into()),
-                limit: 512,
-                cursor,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query events");
-        out.extend(page.events);
-        if !page.has_more {
-            break;
-        }
-        cursor = page.next_cursor;
-    }
-    out
+    let conn = Database::connect(url).await.expect("connect event db");
+    let stmt = Statement::from_string(
+        DbBackend::Sqlite,
+        "SELECT schema_version, event_id, timestamp, entity_kind, entity_id, payload FROM events WHERE event_type='methodology' ORDER BY id ASC".to_owned(),
+    );
+    conn.query_all(stmt)
+        .await
+        .expect("query methodology events")
+        .into_iter()
+        .map(|row| {
+            let schema_version_raw: i32 = row
+                .try_get("", "schema_version")
+                .expect("events.schema_version");
+            let event_id_uuid: Uuid = row.try_get("", "event_id").expect("events.event_id");
+            let timestamp: DateTime<Utc> = row.try_get("", "timestamp").expect("events.timestamp");
+            let entity_kind: String = row.try_get("", "entity_kind").expect("events.entity_kind");
+            let entity_id: String = row.try_get("", "entity_id").expect("events.entity_id");
+            let payload_value: Value = row.try_get("", "payload").expect("events.payload");
+            let payload: DomainEvent =
+                serde_json::from_value(payload_value).expect("decode DomainEvent payload");
+            let entity_ref: EntityRef = serde_json::from_value(json!({
+                "type": entity_kind,
+                "id": entity_id,
+            }))
+            .expect("decode EntityRef from row");
+            EventEnvelope {
+                schema_version: u32::try_from(schema_version_raw)
+                    .expect("events.schema_version must be non-negative"),
+                event_id: EventId::from_uuid(event_id_uuid),
+                timestamp,
+                entity_ref,
+                payload,
+            }
+        })
+        .collect()
 }
 
 fn phase_event_lines(spec_folder: &Path) -> Vec<Value> {
@@ -1213,6 +1228,26 @@ fn assert_event_stream_strict_parity(cli_events: &[EventEnvelope], mcp_events: &
 
 fn assert_phase_lines_strict_parity(cli_lines: &[Value], mcp_lines: &[Value]) {
     methodology_event_parity::assert_phase_lines_strict_parity(cli_lines, mcp_lines);
+}
+
+fn assert_phase_line_tools_are_canonical(lines: &[Value], transport: &str) {
+    for (idx, line) in lines.iter().enumerate() {
+        let tool = line
+            .get("tool")
+            .and_then(Value::as_str)
+            .expect("phase-event line tool");
+        let payload = line
+            .get("payload")
+            .cloned()
+            .expect("phase-event line payload");
+        let event: tanren_domain::methodology::events::MethodologyEvent =
+            serde_json::from_value(payload).expect("phase-event payload decode");
+        let expected = canonical_tool_for_event(&event);
+        assert_eq!(
+            tool, expected,
+            "{transport} phase-events line {idx} must use canonical tool name"
+        );
+    }
 }
 
 fn methodology_event_tag(
@@ -1351,6 +1386,8 @@ async fn cli_and_mcp_match_full_envelopes_and_phase_event_projection_for_mutatio
 
     let cli_lines = phase_event_lines(&cli_spec_folder);
     let mcp_lines = phase_event_lines(&mcp_spec_folder);
+    assert_phase_line_tools_are_canonical(&cli_lines, "cli");
+    assert_phase_line_tools_are_canonical(&mcp_lines, "mcp");
     assert_phase_lines_strict_parity(&cli_lines, &mcp_lines);
 
     assert_eq!(

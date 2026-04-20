@@ -42,6 +42,7 @@ impl CommandFamily {
 
 /// YAML frontmatter of a source command.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommandFrontmatter {
     pub name: String,
     pub role: String,
@@ -57,9 +58,17 @@ pub struct CommandFrontmatter {
     pub required_capabilities: Vec<String>,
     #[serde(default)]
     pub produces_evidence: Vec<String>,
-    /// Permit forward-compatible frontmatter fields.
-    #[serde(flatten)]
-    pub extras: std::collections::BTreeMap<String, serde_yaml::Value>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub subtask: Option<bool>,
+    /// Explicit extension namespace for forward-compatible metadata.
+    #[serde(default)]
+    pub extensions: std::collections::BTreeMap<String, serde_yaml::Value>,
 }
 
 fn default_autonomy() -> String {

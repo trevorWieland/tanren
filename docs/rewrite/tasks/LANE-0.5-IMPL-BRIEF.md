@@ -259,9 +259,9 @@ using `rmcp` (`modelcontextprotocol/rust-sdk`, features `server`,
 - `tracing_subscriber::fmt().with_writer(std::io::stderr).init();` —
   **never** write to stdout; stdio framing will corrupt.
 - Handshake version negotiation honored; pin the `rmcp` major at
-  implementation time via `cargo search rmcp`. Before adding the
-  dep, **verify the license against `deny.toml`'s allowlist**
-  (MIT/Apache-2.0 expected but not guaranteed).
+  implementation time. Before adding the dep, **verify the license
+  against `deny.toml`'s allowlist** (MIT/Apache-2.0 expected but not
+  guaranteed).
 - Backend = the same `methodology::service` methods; both transports
   produce identical events.
 
@@ -329,16 +329,10 @@ taxonomy.
 
 #### B.3 `justfile`
 
-Add **tanren-repo-specific** recipes (document as such — these are
+Expose **tanren-repo-specific** recipes (document as such — these are
 dogfooding, not prescribed to downstream adopters):
-
-```justfile
-install-commands:
-    cargo run -p tanren-cli -- install
-
-install-commands-check:
-    cargo run -p tanren-cli -- install --strict --dry-run
-```
+- `just install-commands`
+- `just install-commands-check`
 
 Extend `just ci` to run `install-commands-check`. Drift in the
 rendered directories becomes a CI failure.
@@ -405,7 +399,7 @@ agents, these apply to the implementation:
     only in bins, derive-based clap, serde + serde_yaml + toml,
     tracing with stderr writer for MCP, conventional commits, zero
     `#[allow]`/`#[expect]`, workspace-level lints honored,
-    `cargo-machete` clean, `cargo deny` clean.
+    `just machete` clean, `just deny` clean.
 
 The **audit rubric** in
 [audit-rubric.md](../../architecture/audit-rubric.md)
@@ -453,17 +447,17 @@ Sequential; do not skip any step.
    ```
 2. **Canon cross-check** — skim the 13 docs in §0 for drift; fix if
    found.
-3. **Build** — `cargo build --workspace` green.
-4. **Test** — `cargo nextest run` green (including new property +
+3. **Build** — `just build` green.
+4. **Test** — `just test` green (including new property +
    insta + contract + integration tests).
 5. **Installer smoke:**
    ```
-   cargo run -p tanren-cli -- install --dry-run
-   cargo run -p tanren-cli -- install
-   cargo run -p tanren-cli -- install   # second run = no-op
-   cargo run -p tanren-cli -- install --strict --dry-run   # exit 0 (no drift)
+   just install-commands-dry-run
+   just install-commands
+   just install-commands   # second run = no-op
+   just install-commands-check   # exit 0 (no drift)
    # Hand-edit .claude/commands/do-task.md, then:
-   cargo run -p tanren-cli -- install --strict --dry-run   # exit 3 with diff
+   just install-commands-check   # non-zero with diff
    ```
 6. **Multi-target parity** — integration test in
    `crates/tanren-app-services/tests/install_parity.rs`.
@@ -516,7 +510,7 @@ Sequential; do not skip any step.
 Every item true at final audit:
 
 1. All mechanical sweeps return zero hits.
-2. All crate builds green; `cargo nextest run` green including new
+2. All crate builds green; `just test` green including new
    property, insta, contract, and integration tests.
 3. `just ci` green across the full workspace including
    `install-commands-check`.

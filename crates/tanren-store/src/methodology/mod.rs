@@ -17,15 +17,14 @@ mod task_status_projection;
 
 pub use idempotency::{InsertMethodologyIdempotencyParams, MethodologyIdempotencyEntry};
 pub use outbox::{
-    AppendPhaseEventOutboxParams, PhaseEventOutboxEntry, PhaseEventProjectedOutboxEntry,
+    AppendPhaseEventOutboxParams, PhaseEventOutboxCursor, PhaseEventOutboxEntry,
+    PhaseEventProjectedOutboxEntry,
 };
 pub use projections::{
     MethodologyEventFetchError, adherence_findings_for_spec, findings_by_ids, findings_for_spec,
     findings_for_task, load_methodology_events, rubric_for_spec, signposts_for_spec,
     tasks_for_spec,
 };
-pub use replay::{
-    ReplayError, ReplayOptions, ReplayStats, ingest_phase_events, ingest_phase_events_with_options,
-};
+pub use replay::{ReplayError, ReplayStats, ingest_phase_events};
 pub use task_list_projection::TaskListProjectionRow;
 pub use task_status_projection::TaskStatusProjection;

@@ -4,7 +4,7 @@ This folder contains forward-looking planning documents for the clean-room
 tanren reimplementation.
 
 These docs are intentionally separate from current implementation docs so we
-can design the target architecture without conflating it with the legacy
+can design the target architecture without conflating it with the existing
 Python system.
 
 ## Documents

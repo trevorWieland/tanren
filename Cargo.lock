@@ -3381,7 +3381,6 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
- "tracing",
  "uuid",
  "wiremock",
 ]
@@ -3435,6 +3434,7 @@ dependencies = [
  "chrono",
  "rmcp",
  "schemars 1.2.1",
+ "sea-orm",
  "serde",
  "serde_json",
  "tanren-app-services",

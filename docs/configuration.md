@@ -20,7 +20,7 @@ env vars are never overwritten.
 | `WM_COMMANDS_DIR` | Relative path to tanren commands within a project |
 | `WM_EVENTS_DB` | SQLite path or `postgresql://` URL for the unified store |
 | `WM_WORKTREE_REGISTRY_PATH` | Path to `worktrees.json` registry file |
-| `WM_POLL_INTERVAL` | Seconds between filesystem dispatch polls (legacy) |
+| `WM_POLL_INTERVAL` | Seconds between filesystem dispatch polls |
 | `WM_HEARTBEAT_INTERVAL` | Seconds between heartbeat file updates |
 | `WM_OPENCODE_PATH` | Path to opencode CLI binary |
 | `WM_CODEX_PATH` | Path to codex CLI binary |

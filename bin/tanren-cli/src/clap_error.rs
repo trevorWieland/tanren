@@ -72,7 +72,6 @@ pub(crate) const ALLOWED_ARG_FIELDS: &[&str] = &[
     "spec_id",
     "agent_session_id",
     "methodology_config",
-    "allow_legacy_provenance",
 ];
 
 /// Translate a clap parser failure into a transport-safe

@@ -36,7 +36,7 @@ automatically between backends:
   tracking, rollback capability, and CI-verifiable schema drift detection.
 
 The initial Alembic migration was generated from the ORM models (not from
-legacy DDL strings), establishing a clean baseline.
+old handwritten DDL strings), establishing a clean baseline.
 
 ## Creating a Migration
 

@@ -31,9 +31,11 @@ pub mod service_artifacts;
 pub mod service_evidence;
 pub mod service_ext;
 mod service_ext_validation;
-mod service_findings_and_helpers;
+mod service_findings;
+mod service_idempotency;
 mod service_phase;
 mod service_standards;
+mod service_task_spec;
 mod service_tasks;
 pub mod source;
 pub mod standards;
@@ -61,7 +63,6 @@ pub use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 pub use tanren_domain::methodology::pillar::{Pillar, builtin_pillars};
 pub use tanren_domain::methodology::task::RequiredGuard;
 
-pub use tanren_store::methodology::{ReplayOptions, ingest_phase_events_with_options};
 /// Re-exported store-layer replay entry point so transports can
 /// drive `tanren replay` / `tanren ingest-phase-events` through a
 /// single `app-services` dep.

@@ -10,9 +10,7 @@ use tanren_domain::methodology::events::{
 };
 use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin};
 use tanren_domain::{EntityKind, FindingId, SpecId, TaskId};
-use tanren_store::methodology::{
-    ReplayError, ReplayOptions, ingest_phase_events, ingest_phase_events_with_options,
-};
+use tanren_store::methodology::{ReplayError, ingest_phase_events};
 use tanren_store::{EventFilter, EventStore};
 
 use self::methodology_replay_support::{
@@ -85,48 +83,6 @@ async fn replay_rejects_missing_origin_kind_by_default() {
         .await
         .expect_err("missing origin_kind must fail in strict mode");
     assert!(matches!(err, ReplayError::MissingOriginKind { .. }));
-}
-
-#[tokio::test]
-async fn replay_legacy_mode_accepts_missing_origin_kind() {
-    let store = fresh_store().await;
-    let spec_id = SpecId::new();
-    let task_id = TaskId::new();
-    let event = MethodologyEvent::TaskCreated(TaskCreated {
-        task: Box::new(seed_task(spec_id, task_id)),
-        origin: TaskOrigin::User,
-        idempotency_key: None,
-    });
-    let path = temp_path("replay-legacy-origin-kind");
-    std::fs::write(
-        &path,
-        format!(
-            "{}\n",
-            serde_json::to_string(&json!({
-                "event_id": uuid::Uuid::now_v7(),
-                "spec_id": spec_id,
-                "phase": "do-task",
-                "agent_session_id": "session-1",
-                "timestamp": Utc::now(),
-                "tool": canonical_tool_for_event(&event),
-                "payload": event,
-            }))
-            .expect("serialize")
-        ),
-    )
-    .expect("write");
-
-    let stats = ingest_phase_events_with_options(
-        &store,
-        &path,
-        &[RequiredGuard::GateChecked],
-        ReplayOptions {
-            allow_legacy_provenance: true,
-        },
-    )
-    .await
-    .expect("legacy replay");
-    assert_eq!(stats.events_appended, 1);
 }
 
 #[tokio::test]

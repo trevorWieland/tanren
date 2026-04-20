@@ -2,7 +2,7 @@
 //! to keep that file under the 500-line budget after the Lane 0.5
 //! diagnostic-span additions.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use tanren_app_services::methodology::renderer::{CanonicalBytes, render_command};
 use tanren_app_services::methodology::source::{CommandFamily, CommandFrontmatter, CommandSource};
@@ -20,7 +20,11 @@ fn source_with(vars: Vec<String>, body: &str) -> CommandSource {
             declared_tools: vec![],
             required_capabilities: vec![],
             produces_evidence: vec![],
-            extras: Default::default(),
+            description: None,
+            agent: None,
+            model: None,
+            subtask: None,
+            extensions: Default::default(),
         },
         body: body.into(),
         source_path: "x".into(),
@@ -98,7 +102,11 @@ fn frontmatter_vars_are_extracted_and_substituted() {
             declared_tools: vec![],
             required_capabilities: vec![],
             produces_evidence: vec!["{{PRODUCT_ROOT}}/spec.md".into()],
-            extras: Default::default(),
+            description: None,
+            agent: None,
+            model: None,
+            subtask: None,
+            extensions: Default::default(),
         },
         body: "see {{PRODUCT_ROOT}}".into(),
         source_path: "x".into(),
@@ -108,4 +116,42 @@ fn frontmatter_vars_are_extracted_and_substituted() {
     let r = render_command(&src, &ctx).expect("ok");
     assert_eq!(r.frontmatter.produces_evidence, vec!["docs/spec.md"]);
     assert_eq!(r.body, "see docs");
+}
+
+#[test]
+fn extension_namespace_vars_are_extracted_and_substituted() {
+    let mut extensions = BTreeMap::new();
+    extensions.insert(
+        "custom_hint".into(),
+        serde_yaml::Value::String("Run {{PRODUCT_ROOT}} safely".into()),
+    );
+    let src = CommandSource {
+        name: "demo".into(),
+        family: CommandFamily::SpecLoop,
+        frontmatter: CommandFrontmatter {
+            name: "demo".into(),
+            role: "impl".into(),
+            orchestration_loop: false,
+            autonomy: "autonomous".into(),
+            declared_variables: vec!["PRODUCT_ROOT".into()],
+            declared_tools: vec![],
+            required_capabilities: vec![],
+            produces_evidence: vec![],
+            description: None,
+            agent: None,
+            model: None,
+            subtask: None,
+            extensions,
+        },
+        body: "see {{PRODUCT_ROOT}}".into(),
+        source_path: "x".into(),
+    };
+    let mut ctx = HashMap::new();
+    ctx.insert("PRODUCT_ROOT".into(), "docs".into());
+    let r = render_command(&src, &ctx).expect("ok");
+    assert_eq!(r.body, "see docs");
+    assert_eq!(
+        r.frontmatter.extensions.get("custom_hint"),
+        Some(&serde_yaml::Value::String("Run docs safely".into()))
+    );
 }

@@ -136,13 +136,13 @@ developed in parallel. Integration happens at phase boundaries.
 
 ## Phase 6 - Migration and Cutover
 
-**Goal**: Replace legacy Python implementation safely with minimal disruption.
+**Goal**: Replace the existing Python implementation safely with minimal disruption.
 
 ### Lanes
 
 | Lane | Area | Deliverable |
 |------|------|-------------|
-| 6.1 | Compatibility Layer | Legacy-to-new command/API compatibility where required for transition. |
+| 6.1 | Compatibility Layer | Existing-to-new command/API compatibility where required for transition. |
 | 6.2 | Data Migration | Event/state migration tooling with validation and rollback strategy. |
 | 6.3 | Dual-Run Validation | Side-by-side execution comparison for correctness and performance. |
 | 6.4 | Cutover | Production rollout playbook, staged enablement, fallback procedure. |

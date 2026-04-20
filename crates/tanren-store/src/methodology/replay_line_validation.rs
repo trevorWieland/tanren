@@ -1,8 +1,6 @@
 use std::path::Path;
 
-use tanren_domain::methodology::event_tool::{
-    PhaseEventOriginKind, canonical_tool_for_event, is_tool_allowed_for_event,
-};
+use tanren_domain::methodology::event_tool::{PhaseEventOriginKind, canonical_tool_for_event};
 use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::methodology::task::RequiredGuard;
 use tanren_domain::methodology::validation::{
@@ -14,7 +12,7 @@ use tanren_domain::{EntityRef, SpecId, TaskId};
 use crate::Store;
 use crate::methodology::projections;
 
-use super::replay::{IngestState, PhaseEventLine, ReplayError, ReplayOptions};
+use super::replay::{IngestState, PhaseEventLine, ReplayError};
 use super::replay_task_state::validate_task_transition;
 
 const TASK_EVENT_PAGE_SIZE: u64 = 1_000;
@@ -23,7 +21,6 @@ pub(super) fn validate_envelope_metadata(
     path: &Path,
     line_no: usize,
     parsed: &PhaseEventLine,
-    options: ReplayOptions,
 ) -> Result<(), ReplayError> {
     let payload_spec_id =
         parsed
@@ -42,7 +39,7 @@ pub(super) fn validate_envelope_metadata(
         });
     }
     let expected_tool = canonical_tool_for_event(&parsed.payload);
-    if !is_tool_allowed_for_event(&parsed.payload, &parsed.tool) {
+    if parsed.tool != expected_tool {
         return Err(ReplayError::ToolMismatch {
             path: path.to_path_buf(),
             line: line_no,
@@ -50,7 +47,7 @@ pub(super) fn validate_envelope_metadata(
             actual: parsed.tool.clone(),
         });
     }
-    validate_origin_metadata(path, line_no, parsed, options)
+    validate_origin_metadata(path, line_no, parsed)
 }
 
 pub(super) async fn validate_event_semantics(
@@ -179,12 +176,8 @@ fn validate_origin_metadata(
     path: &Path,
     line_no: usize,
     parsed: &PhaseEventLine,
-    options: ReplayOptions,
 ) -> Result<(), ReplayError> {
     let Some(origin_kind) = parsed.origin_kind else {
-        if options.allow_legacy_provenance && parsed.caused_by_tool_call_id.is_none() {
-            return Ok(());
-        }
         return Err(ReplayError::MissingOriginKind {
             path: path.to_path_buf(),
             line: line_no,

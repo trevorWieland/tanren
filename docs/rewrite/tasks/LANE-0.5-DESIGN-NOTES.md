@@ -356,8 +356,7 @@ into three agent-specific formats simultaneously:
 - Claude Code: `.claude/commands/<name>.md` — YAML frontmatter + markdown body, MCP config at `.mcp.json` (JSON).
 - Codex Skills: `.codex/skills/<name>/SKILL.md` — **directory per
   command**, YAML frontmatter + markdown body, MCP config at
-  `.codex/config.toml` (**TOML**, `[mcp_servers.<name>]`), legacy
-  `.codex/prompts` deprecated.
+  `.codex/config.toml` (**TOML**, `[mcp_servers.<name>]`).
 - OpenCode: `.opencode/commands/<name>.md` — YAML frontmatter with
   **prompt body inside the `template` field** (not the markdown body),
   MCP config at `opencode.json` (JSON).
@@ -580,7 +579,7 @@ The Python implementation is preserved as reference-only (§2.1).
 - **Claude Code.** `.claude/commands/<name>.md`, YAML frontmatter +
   markdown body, MCP config at `.mcp.json`.
 - **Codex CLI.** Modern: Skills — `.codex/skills/<name>/SKILL.md`
-  (directory per command). Legacy `.codex/prompts` deprecated. MCP
+  (directory per command). MCP
   config in **TOML** at `.codex/config.toml`
   (`[mcp_servers.<name>]`). `AGENTS.md` is a separate convention for
   shared instructions, not commands.

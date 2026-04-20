@@ -310,27 +310,6 @@ fn ingest_phase_events_strict_provenance_rejects_legacy_lines() {
 }
 
 #[test]
-fn ingest_phase_events_legacy_flag_allows_legacy_lines() {
-    let (d, url) = mkdb();
-    let spec_id = SpecId::new();
-    let file = write_legacy_phase_events_file(d.path(), spec_id);
-    let out = cli(&url)
-        .args([
-            "methodology",
-            "ingest-phase-events",
-            file.to_str().expect("utf8"),
-            "--allow-legacy-provenance",
-        ])
-        .output()
-        .expect("cli");
-    assert!(
-        out.status.success(),
-        "legacy override should allow replay: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-#[test]
 fn replay_round_trips_real_generated_phase_events_file() {
     let (source_dir, source_url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000031";

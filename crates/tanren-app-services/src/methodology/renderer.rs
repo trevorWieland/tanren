@@ -140,7 +140,7 @@ pub fn render_command(
 
 /// Collect every `{{VAR}}` reference from the string fields of a
 /// frontmatter block (declared_tools, required_capabilities,
-/// produces_evidence, extras, name, role, autonomy).
+/// produces_evidence, extensions, name, role, autonomy).
 fn frontmatter_references(fm: &super::source::CommandFrontmatter) -> Vec<String> {
     let mut out: BTreeSet<String> = BTreeSet::new();
     let mut visit = |s: &str| {
@@ -160,7 +160,16 @@ fn frontmatter_references(fm: &super::source::CommandFrontmatter) -> Vec<String>
     for v in &fm.produces_evidence {
         visit(v);
     }
-    for v in fm.extras.values() {
+    if let Some(v) = fm.description.as_deref() {
+        visit(v);
+    }
+    if let Some(v) = fm.agent.as_deref() {
+        visit(v);
+    }
+    if let Some(v) = fm.model.as_deref() {
+        visit(v);
+    }
+    for v in fm.extensions.values() {
         collect_yaml_refs(v, &mut out);
     }
     out.into_iter().collect()
@@ -210,11 +219,14 @@ fn substitute_frontmatter(
         .iter()
         .map(|s| substitute(s, ctx))
         .collect();
-    let mut new_extras = BTreeMap::new();
-    for (k, v) in &out.extras {
-        new_extras.insert(k.clone(), substitute_yaml(v, ctx));
+    out.description = out.description.as_ref().map(|s| substitute(s, ctx));
+    out.agent = out.agent.as_ref().map(|s| substitute(s, ctx));
+    out.model = out.model.as_ref().map(|s| substitute(s, ctx));
+    let mut new_extensions = BTreeMap::new();
+    for (k, v) in &out.extensions {
+        new_extensions.insert(k.clone(), substitute_yaml(v, ctx));
     }
-    out.extras = new_extras;
+    out.extensions = new_extensions;
     out
 }
 

@@ -157,7 +157,7 @@ impl MethodologyService {
                             PhaseEventAttribution {
                                 caused_by_tool_call_id: Some(tool_call_id.clone()),
                                 origin_kind: Some(PhaseEventOriginKind::ToolPrimary),
-                                tool: Some("complete_task".into()),
+                                tool: None,
                             },
                         )
                         .await?;
@@ -171,7 +171,7 @@ impl MethodologyService {
                                 PhaseEventAttribution {
                                     caused_by_tool_call_id: Some(tool_call_id),
                                     origin_kind: Some(PhaseEventOriginKind::ToolDerived),
-                                    tool: Some("complete_task".into()),
+                                    tool: None,
                                 },
                             )
                             .await?;
@@ -280,7 +280,7 @@ impl MethodologyService {
             PhaseEventAttribution {
                 caused_by_tool_call_id: Some(tool_call_id.clone()),
                 origin_kind: Some(origin.primary_origin_kind),
-                tool: Some(origin.tool_name.to_owned()),
+                tool: None,
             },
         )
         .await?;
@@ -294,7 +294,7 @@ impl MethodologyService {
                 PhaseEventAttribution {
                     caused_by_tool_call_id: Some(tool_call_id),
                     origin_kind: Some(PhaseEventOriginKind::ToolDerived),
-                    tool: Some(origin.tool_name.to_owned()),
+                    tool: None,
                 },
             )
             .await?;

@@ -12,7 +12,9 @@ use tanren_domain::methodology::standard::Standard;
 use tanren_domain::methodology::task::RequiredGuard;
 use tanren_domain::{EventId, SpecId};
 use tanren_store::Store;
-use tanren_store::methodology::{AppendPhaseEventOutboxParams, PhaseEventOutboxEntry};
+use tanren_store::methodology::{
+    AppendPhaseEventOutboxParams, PhaseEventOutboxCursor, PhaseEventOutboxEntry,
+};
 
 use super::errors::{MethodologyError, MethodologyResult};
 use super::phase_events::PhaseEventAttribution;
@@ -241,11 +243,13 @@ impl MethodologyService {
         let started = std::time::Instant::now();
         let time_budget = std::time::Duration::from_millis(OUTBOX_DRAIN_TIME_BUDGET_MS);
         let mut remaining_rows = OUTBOX_DRAIN_ROW_BUDGET;
+        let mut cursor: Option<PhaseEventOutboxCursor> = None;
         while remaining_rows > 0 && started.elapsed() < time_budget {
             let pending = self
                 .store
-                .load_pending_phase_event_outbox(
+                .load_pending_phase_event_outbox_with_cursor(
                     Some(spec_id),
+                    cursor,
                     OUTBOX_DRAIN_BATCH_SIZE.min(remaining_rows),
                 )
                 .await?;
@@ -253,6 +257,7 @@ impl MethodologyService {
                 return Ok(());
             }
             for row in pending {
+                cursor = Some(cursor_for_row(&row));
                 self.process_phase_event_outbox_row(row).await?;
                 remaining_rows = remaining_rows.saturating_sub(1);
                 if remaining_rows == 0 || started.elapsed() >= time_budget {
@@ -292,19 +297,38 @@ impl MethodologyService {
         &self,
         spec_folder: &std::path::Path,
     ) -> MethodologyResult<u64> {
-        let pending = self
-            .store
-            .load_pending_phase_event_outbox(None, 10_000)
-            .await?;
         let spec_folder = spec_folder.to_string_lossy().to_string();
+        let runtime_spec_filter = self.phase_events.as_ref().and_then(|runtime| {
+            (runtime.spec_folder.to_string_lossy() == spec_folder).then_some(runtime.spec_id)
+        });
+        let mut cursor: Option<PhaseEventOutboxCursor> = None;
         let mut projected = 0_u64;
-        for row in pending {
-            if row.spec_folder != spec_folder {
-                continue;
+        loop {
+            let pending = self
+                .store
+                .load_pending_phase_event_outbox_for_folder(
+                    &spec_folder,
+                    runtime_spec_filter,
+                    cursor,
+                    OUTBOX_DRAIN_BATCH_SIZE,
+                )
+                .await?;
+            if pending.is_empty() {
+                break;
             }
-            self.process_phase_event_outbox_row(row).await?;
-            projected = projected.saturating_add(1);
+            for row in pending {
+                cursor = Some(cursor_for_row(&row));
+                self.process_phase_event_outbox_row(row).await?;
+                projected = projected.saturating_add(1);
+            }
         }
         Ok(projected)
+    }
+}
+
+fn cursor_for_row(row: &PhaseEventOutboxEntry) -> PhaseEventOutboxCursor {
+    PhaseEventOutboxCursor {
+        created_at: row.created_at,
+        event_id: row.event_id,
     }
 }

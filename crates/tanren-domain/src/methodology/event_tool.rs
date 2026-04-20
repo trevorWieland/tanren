@@ -63,7 +63,7 @@ pub fn canonical_tool_for_event(event: &MethodologyEvent) -> &'static str {
 
 /// Allowed tool labels for one event variant.
 ///
-/// Includes legacy sentinel aliases for replay backward compatibility.
+/// Strict mode accepts canonical tool names only.
 #[must_use]
 pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static str] {
     match event {
@@ -74,17 +74,8 @@ pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static s
         MethodologyEvent::TaskGateChecked(_)
         | MethodologyEvent::TaskAudited(_)
         | MethodologyEvent::TaskAdherent(_)
-        | MethodologyEvent::TaskXChecked(_) => &[
-            "mark_task_guard_satisfied",
-            "report_phase_outcome",
-            "<guard-phase>",
-        ],
-        MethodologyEvent::TaskCompleted(_) => &[
-            "mark_task_guard_satisfied",
-            "report_phase_outcome",
-            "complete_task",
-            "<orchestrator>",
-        ],
+        | MethodologyEvent::TaskXChecked(_)
+        | MethodologyEvent::TaskCompleted(_) => &["mark_task_guard_satisfied"],
         MethodologyEvent::TaskAbandoned(_) => &["abandon_task"],
         MethodologyEvent::TaskRevised(_) => &["revise_task"],
         MethodologyEvent::FindingAdded(_) => &["add_finding"],
@@ -96,9 +87,7 @@ pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static s
         MethodologyEvent::SignpostAdded(_) => &["add_signpost"],
         MethodologyEvent::SignpostStatusUpdated(_) => &["update_signpost_status"],
         MethodologyEvent::IssueCreated(_) => &["create_issue"],
-        MethodologyEvent::PhaseOutcomeReported(_) => {
-            &["report_phase_outcome", "escalate_to_blocker"]
-        }
+        MethodologyEvent::PhaseOutcomeReported(_) => &["report_phase_outcome"],
         MethodologyEvent::ReplyDirectiveRecorded(_) => &["post_reply_directive"],
         MethodologyEvent::SpecFrontmatterUpdated(e) => match &e.patch {
             SpecFrontmatterPatch::SetTitle { .. } => &["set_spec_title"],
@@ -116,10 +105,8 @@ pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static s
             DemoFrontmatterPatch::MarkStepSkip { .. } => &["mark_demo_step_skip"],
             DemoFrontmatterPatch::AppendResult { .. } => &["append_demo_result"],
         },
-        MethodologyEvent::UnauthorizedArtifactEdit(_) => {
-            &["finalize_mutation_session", "<enforcement>"]
-        }
-        MethodologyEvent::EvidenceSchemaError(_) => &["finalize_mutation_session", "<postflight>"],
+        MethodologyEvent::UnauthorizedArtifactEdit(_)
+        | MethodologyEvent::EvidenceSchemaError(_) => &["finalize_mutation_session"],
     }
 }
 

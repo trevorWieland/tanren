@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::ActiveValue::Set;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     TransactionTrait,
 };
 use tanren_domain::events::{DomainEvent, EventEnvelope};
@@ -23,6 +23,7 @@ pub struct PhaseEventOutboxEntry {
     pub spec_folder: String,
     pub line_json: String,
     pub attempt_count: u32,
+    pub created_at: chrono::DateTime<Utc>,
 }
 
 /// One projected row used by strict append-only verification.
@@ -38,6 +39,13 @@ pub struct AppendPhaseEventOutboxParams {
     pub spec_id: SpecId,
     pub spec_folder: String,
     pub line_json: String,
+}
+
+/// Stable keyset cursor for pending outbox pagination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhaseEventOutboxCursor {
+    pub created_at: chrono::DateTime<Utc>,
+    pub event_id: EventId,
 }
 
 impl Store {
@@ -118,12 +126,75 @@ impl Store {
         spec_id: Option<SpecId>,
         limit: u64,
     ) -> StoreResult<Vec<PhaseEventOutboxEntry>> {
+        self.load_pending_phase_event_outbox_with_cursor(spec_id, None, limit)
+            .await
+    }
+
+    /// Load pending rows for one spec id using keyset pagination.
+    ///
+    /// # Errors
+    /// Returns a store/database error on query failure.
+    pub async fn load_pending_phase_event_outbox_with_cursor(
+        &self,
+        spec_id: Option<SpecId>,
+        cursor: Option<PhaseEventOutboxCursor>,
+        limit: u64,
+    ) -> StoreResult<Vec<PhaseEventOutboxEntry>> {
+        self.load_pending_phase_event_outbox_scoped(None, spec_id, cursor, limit)
+            .await
+    }
+
+    /// Load pending rows for one spec folder and optional spec id using
+    /// keyset pagination.
+    ///
+    /// # Errors
+    /// Returns a store/database error on query failure.
+    pub async fn load_pending_phase_event_outbox_for_folder(
+        &self,
+        spec_folder: &str,
+        spec_id: Option<SpecId>,
+        cursor: Option<PhaseEventOutboxCursor>,
+        limit: u64,
+    ) -> StoreResult<Vec<PhaseEventOutboxEntry>> {
+        self.load_pending_phase_event_outbox_scoped(Some(spec_folder), spec_id, cursor, limit)
+            .await
+    }
+
+    async fn load_pending_phase_event_outbox_scoped(
+        &self,
+        spec_folder: Option<&str>,
+        spec_id: Option<SpecId>,
+        cursor: Option<PhaseEventOutboxCursor>,
+        limit: u64,
+    ) -> StoreResult<Vec<PhaseEventOutboxEntry>> {
         let mut query = methodology_phase_event_outbox::Entity::find()
             .filter(methodology_phase_event_outbox::Column::Status.eq(OUTBOX_STATUS_PENDING))
-            .order_by_asc(methodology_phase_event_outbox::Column::CreatedAt);
+            .order_by_asc(methodology_phase_event_outbox::Column::CreatedAt)
+            .order_by_asc(methodology_phase_event_outbox::Column::EventId);
+        if let Some(spec_folder) = spec_folder {
+            query =
+                query.filter(methodology_phase_event_outbox::Column::SpecFolder.eq(spec_folder));
+        }
         if let Some(spec_id) = spec_id {
             query = query
                 .filter(methodology_phase_event_outbox::Column::SpecId.eq(spec_id.into_uuid()));
+        }
+        if let Some(cursor) = cursor {
+            query = query.filter(
+                Condition::any()
+                    .add(methodology_phase_event_outbox::Column::CreatedAt.gt(cursor.created_at))
+                    .add(
+                        Condition::all()
+                            .add(
+                                methodology_phase_event_outbox::Column::CreatedAt
+                                    .eq(cursor.created_at),
+                            )
+                            .add(
+                                methodology_phase_event_outbox::Column::EventId
+                                    .gt(cursor.event_id.into_uuid()),
+                            ),
+                    ),
+            );
         }
         let rows = query.limit(limit.max(1)).all(self.conn()).await?;
         let mut out = Vec::with_capacity(rows.len());
@@ -139,6 +210,7 @@ impl Store {
                 spec_folder: row.spec_folder,
                 line_json: row.line_json,
                 attempt_count,
+                created_at: row.created_at,
             });
         }
         Ok(out)
