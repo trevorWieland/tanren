@@ -16,7 +16,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use tanren_app_services::methodology::{
-    CapabilityScope, MethodologyError, MethodologyService, PhaseId, ToolError,
+    CapabilityScope, MethodologyError, MethodologyService, PhaseId, ToolDescriptor, ToolError,
+    ToolId, descriptor,
 };
 use tanren_contract::methodology::{METHODOLOGY_SCHEMA_NAMESPACE, METHODOLOGY_SCHEMA_VERSION};
 
@@ -52,9 +53,8 @@ impl CallResult {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ToolRegistration {
-    pub name: &'static str,
+    pub descriptor: &'static ToolDescriptor,
     pub description: &'static str,
-    pub mutation: bool,
     pub schema_builder: SchemaBuilder,
     pub dispatch: DispatchFn,
 }
@@ -63,11 +63,10 @@ macro_rules! define_tools {
     ($(
         {
             id: $id:ident,
-            name: $name:literal,
+            tool_id: $tool_id:expr,
             description: $description:literal,
             params: $params:ty,
             method: $method:ident,
-            mutation: $mutation:expr
         }
     ),+ $(,)?) => {
         $(
@@ -78,7 +77,7 @@ macro_rules! define_tools {
                 args: Value,
             ) -> DispatchFuture<'a> {
                 Box::pin(async move {
-                    match decode::<$params>($name, args) {
+                    match decode::<$params>(descriptor($tool_id).name, args) {
                         Ok(params) => wrap(service.$method(scope, phase, params).await),
                         Err(err) => CallResult::Err(err),
                     }
@@ -89,9 +88,8 @@ macro_rules! define_tools {
         const REGISTRY: &[ToolRegistration] = &[
             $(
                 ToolRegistration {
-                    name: $name,
+                    descriptor: descriptor($tool_id),
                     description: $description,
-                    mutation: $mutation,
                     schema_builder: schema_object::<$params>,
                     dispatch: $id,
                 },
@@ -103,227 +101,199 @@ macro_rules! define_tools {
 define_tools! {
     {
         id: dispatch_create_task,
-        name: "create_task",
+        tool_id: ToolId::CreateTask,
         description: "Create a new task in a spec. Emits TaskCreated and returns the new task_id.",
         params: tanren_contract::methodology::CreateTaskParams,
         method: create_task,
-        mutation: true
     },
     {
         id: dispatch_start_task,
-        name: "start_task",
+        tool_id: ToolId::StartTask,
         description: "Transition a task Pending → InProgress. Idempotent on InProgress.",
         params: tanren_contract::methodology::StartTaskParams,
         method: start_task,
-        mutation: true
     },
     {
         id: dispatch_complete_task,
-        name: "complete_task",
+        tool_id: ToolId::CompleteTask,
         description: "Transition a task InProgress → Implemented. Required guards still gate Complete.",
         params: tanren_contract::methodology::CompleteTaskParams,
         method: complete_task,
-        mutation: true
     },
     {
         id: dispatch_mark_task_guard_satisfied,
-        name: "mark_task_guard_satisfied",
+        tool_id: ToolId::MarkTaskGuardSatisfied,
         description: "Mark one completion guard satisfied; emits TaskCompleted when required guards converge.",
         params: tanren_contract::methodology::MarkTaskGuardSatisfiedParams,
         method: mark_task_guard_satisfied_with_params,
-        mutation: true
     },
     {
         id: dispatch_revise_task,
-        name: "revise_task",
+        tool_id: ToolId::ReviseTask,
         description: "Non-transitional revision of description or acceptance criteria.",
         params: tanren_contract::methodology::ReviseTaskParams,
         method: revise_task,
-        mutation: true
     },
     {
         id: dispatch_abandon_task,
-        name: "abandon_task",
+        tool_id: ToolId::AbandonTask,
         description: "Terminal abandonment with typed disposition and provenance.",
         params: tanren_contract::methodology::AbandonTaskParams,
         method: abandon_task,
-        mutation: true
     },
     {
         id: dispatch_list_tasks,
-        name: "list_tasks",
+        tool_id: ToolId::ListTasks,
         description: "Projection: all tasks for a spec with current status.",
         params: tanren_contract::methodology::ListTasksParams,
         method: list_tasks,
-        mutation: false
     },
     {
         id: dispatch_add_finding,
-        name: "add_finding",
+        tool_id: ToolId::AddFinding,
         description: "Record an audit / demo / investigation / feedback finding.",
         params: tanren_contract::methodology::AddFindingParams,
         method: add_finding,
-        mutation: true
     },
     {
         id: dispatch_record_rubric_score,
-        name: "record_rubric_score",
+        tool_id: ToolId::RecordRubricScore,
         description: "Record a per-pillar rubric score. Score<passing requires a fix_now finding.",
         params: tanren_contract::methodology::RecordRubricScoreParams,
         method: record_rubric_score,
-        mutation: true
     },
     {
         id: dispatch_record_non_negotiable_compliance,
-        name: "record_non_negotiable_compliance",
+        tool_id: ToolId::RecordNonNegotiableCompliance,
         description: "Record a pass/fail decision on a named non-negotiable.",
         params: tanren_contract::methodology::RecordNonNegotiableComplianceParams,
         method: record_non_negotiable_compliance,
-        mutation: true
     },
     {
         id: dispatch_set_spec_title,
-        name: "set_spec_title",
+        tool_id: ToolId::SetSpecTitle,
         description: "Set the spec's title (frontmatter).",
         params: tanren_contract::methodology::SetSpecTitleParams,
         method: set_spec_title,
-        mutation: true
     },
     {
         id: dispatch_set_spec_non_negotiables,
-        name: "set_spec_non_negotiables",
+        tool_id: ToolId::SetSpecNonNegotiables,
         description: "Full-replace the spec's non-negotiables list.",
         params: tanren_contract::methodology::SetSpecNonNegotiablesParams,
         method: set_spec_non_negotiables,
-        mutation: true
     },
     {
         id: dispatch_add_spec_acceptance_criterion,
-        name: "add_spec_acceptance_criterion",
+        tool_id: ToolId::AddSpecAcceptanceCriterion,
         description: "Append one acceptance criterion to the spec frontmatter.",
         params: tanren_contract::methodology::AddSpecAcceptanceCriterionParams,
         method: add_spec_acceptance_criterion,
-        mutation: true
     },
     {
         id: dispatch_set_spec_demo_environment,
-        name: "set_spec_demo_environment",
+        tool_id: ToolId::SetSpecDemoEnvironment,
         description: "Set the spec's demo-environment block.",
         params: tanren_contract::methodology::SetSpecDemoEnvironmentParams,
         method: set_spec_demo_environment,
-        mutation: true
     },
     {
         id: dispatch_set_spec_dependencies,
-        name: "set_spec_dependencies",
+        tool_id: ToolId::SetSpecDependencies,
         description: "Set the spec's dependency graph (depends_on_spec_ids etc.).",
         params: tanren_contract::methodology::SetSpecDependenciesParams,
         method: set_spec_dependencies,
-        mutation: true
     },
     {
         id: dispatch_set_spec_base_branch,
-        name: "set_spec_base_branch",
+        tool_id: ToolId::SetSpecBaseBranch,
         description: "Set the spec's base branch.",
         params: tanren_contract::methodology::SetSpecBaseBranchParams,
         method: set_spec_base_branch,
-        mutation: true
     },
     {
         id: dispatch_set_spec_relevance_context,
-        name: "set_spec_relevance_context",
+        tool_id: ToolId::SetSpecRelevanceContext,
         description: "Set the spec's relevance context (touched files/language/tags/category).",
         params: tanren_contract::methodology::SetSpecRelevanceContextParams,
         method: set_spec_relevance_context,
-        mutation: true
     },
     {
         id: dispatch_add_demo_step,
-        name: "add_demo_step",
+        tool_id: ToolId::AddDemoStep,
         description: "Add a demo step with id, mode, description, and expected_observable.",
         params: tanren_contract::methodology::AddDemoStepParams,
         method: add_demo_step,
-        mutation: true
     },
     {
         id: dispatch_mark_demo_step_skip,
-        name: "mark_demo_step_skip",
+        tool_id: ToolId::MarkDemoStepSkip,
         description: "Mark a demo step as skipped with a reason.",
         params: tanren_contract::methodology::MarkDemoStepSkipParams,
         method: mark_demo_step_skip,
-        mutation: true
     },
     {
         id: dispatch_append_demo_result,
-        name: "append_demo_result",
+        tool_id: ToolId::AppendDemoResult,
         description: "Append an observed result (status + observed) for a demo step.",
         params: tanren_contract::methodology::AppendDemoResultParams,
         method: append_demo_result,
-        mutation: true
     },
     {
         id: dispatch_add_signpost,
-        name: "add_signpost",
+        tool_id: ToolId::AddSignpost,
         description: "Record a signpost against a task or spec scope.",
         params: tanren_contract::methodology::AddSignpostParams,
         method: add_signpost,
-        mutation: true
     },
     {
         id: dispatch_update_signpost_status,
-        name: "update_signpost_status",
+        tool_id: ToolId::UpdateSignpostStatus,
         description: "Update a signpost's status (and optional resolution text).",
         params: tanren_contract::methodology::UpdateSignpostStatusParams,
         method: update_signpost_status,
-        mutation: true
     },
     {
         id: dispatch_report_phase_outcome,
-        name: "report_phase_outcome",
+        tool_id: ToolId::ReportPhaseOutcome,
         description: "End-of-phase outcome: complete | blocked | error.",
         params: tanren_contract::methodology::ReportPhaseOutcomeParams,
         method: report_phase_outcome,
-        mutation: true
     },
     {
         id: dispatch_escalate_to_blocker,
-        name: "escalate_to_blocker",
+        tool_id: ToolId::EscalateToBlocker,
         description: "Escalate to a blocker phase. Capability-scoped to `investigate`.",
         params: tanren_contract::methodology::EscalateToBlockerParams,
         method: escalate_to_blocker,
-        mutation: true
     },
     {
         id: dispatch_post_reply_directive,
-        name: "post_reply_directive",
+        tool_id: ToolId::PostReplyDirective,
         description: "Record a feedback reply directive. Capability-scoped to `handle-feedback`.",
         params: tanren_contract::methodology::PostReplyDirectiveParams,
         method: post_reply_directive,
-        mutation: true
     },
     {
         id: dispatch_create_issue,
-        name: "create_issue",
+        tool_id: ToolId::CreateIssue,
         description: "Record a backlog issue. Returns a stable URN-shaped IssueRef until adapter reconciliation.",
         params: tanren_contract::methodology::CreateIssueParams,
         method: create_issue,
-        mutation: true
     },
     {
         id: dispatch_list_relevant_standards,
-        name: "list_relevant_standards",
+        tool_id: ToolId::ListRelevantStandards,
         description: "Read-only: the baseline standards applicable to a spec.",
         params: tanren_contract::methodology::ListRelevantStandardsParams,
         method: list_relevant_standards_from_params,
-        mutation: false
     },
     {
         id: dispatch_record_adherence_finding,
-        name: "record_adherence_finding",
+        tool_id: ToolId::RecordAdherenceFinding,
         description: "Record an adherence finding. Critical-importance standards cannot be deferred.",
         params: tanren_contract::methodology::RecordAdherenceFindingParams,
         method: record_adherence_finding,
-        mutation: true
     }
 }
 
@@ -334,13 +304,13 @@ pub(crate) fn all() -> &'static [ToolRegistration] {
 
 #[must_use]
 pub(crate) fn find(name: &str) -> Option<&'static ToolRegistration> {
-    REGISTRY.iter().find(|entry| entry.name == name)
+    REGISTRY.iter().find(|entry| entry.descriptor.name == name)
 }
 
 #[must_use]
 pub(crate) fn as_rmcp_tool(registration: &ToolRegistration) -> Tool {
     let mut tool = Tool::default();
-    tool.name = Cow::Borrowed(registration.name);
+    tool.name = Cow::Borrowed(registration.descriptor.name);
     tool.description = Some(Cow::Borrowed(registration.description));
     tool.input_schema = Arc::new((registration.schema_builder)());
     tool.meta = Some(version_meta());

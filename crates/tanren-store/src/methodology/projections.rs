@@ -325,6 +325,48 @@ pub async fn findings_by_ids(
         .collect::<Vec<_>>())
 }
 
+/// Resolve task -> spec ids for a sparse task-id set using batched
+/// indexed entity-ref reads.
+///
+/// # Errors
+/// See [`load_methodology_events`].
+pub async fn task_specs_by_ids(
+    store: &Store,
+    ids: &[TaskId],
+) -> Result<std::collections::HashMap<TaskId, SpecId>, MethodologyEventFetchError> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let chunk_size = entity_ref_chunk_size(store);
+    let mut resolved = std::collections::HashMap::new();
+    for chunk in ids.chunks(chunk_size) {
+        let entity_refs: Vec<EntityRef> = chunk.iter().copied().map(EntityRef::Task).collect();
+        let mut cursor = None;
+        loop {
+            let filter = EventFilter {
+                entity_refs: Some(entity_refs.clone()),
+                event_type: Some("methodology".into()),
+                limit: METHODOLOGY_PAGE_SIZE,
+                cursor,
+                ..EventFilter::new()
+            };
+            let page = store.query_events(&filter).await?;
+            for env in page.events {
+                if let DomainEvent::Methodology { event } = env.payload
+                    && let MethodologyEvent::TaskCreated(e) = event
+                {
+                    resolved.entry(e.task.id).or_insert(e.task.spec_id);
+                }
+            }
+            if !page.has_more {
+                break;
+            }
+            cursor = page.next_cursor;
+        }
+    }
+    Ok(resolved)
+}
+
 fn entity_ref_chunk_size(store: &Store) -> usize {
     use sea_orm::ConnectionTrait;
     match store.conn().get_database_backend() {
@@ -439,45 +481,5 @@ pub async fn rubric_for_spec<S: EventStore>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Utc;
-    use tanren_domain::NonEmptyString;
-    use tanren_domain::methodology::task::{Task, TaskOrigin, TaskStatus};
-
-    fn seed_task(spec: SpecId) -> Task {
-        Task {
-            id: TaskId::new(),
-            spec_id: spec,
-            title: NonEmptyString::try_new("t").expect("non-empty"),
-            description: String::new(),
-            acceptance_criteria: vec![],
-            origin: TaskOrigin::ShapeSpec,
-            status: TaskStatus::Pending,
-            depends_on: vec![],
-            parent_task_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        }
-    }
-
-    #[test]
-    fn fold_tasks_returns_pending_on_creation() {
-        let spec = SpecId::new();
-        let t = seed_task(spec);
-        let events = vec![MethodologyEvent::TaskCreated(EvTaskCreated {
-            task: Box::new(t.clone()),
-            origin: TaskOrigin::ShapeSpec,
-            idempotency_key: None,
-        })];
-        let required = [
-            RequiredGuard::GateChecked,
-            RequiredGuard::Audited,
-            RequiredGuard::Adherent,
-        ];
-        let tasks = fold_tasks(&events, &required);
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].id, t.id);
-        assert_eq!(tasks[0].status, TaskStatus::Pending);
-    }
-}
+#[path = "projections_tests.rs"]
+mod tests;

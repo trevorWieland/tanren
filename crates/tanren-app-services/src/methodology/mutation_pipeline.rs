@@ -96,9 +96,7 @@ async fn projected_phase_event_append_expectations(
         return Ok(std::collections::BTreeMap::new());
     };
     if delta.appended_lines.is_empty() {
-        let mut out = std::collections::BTreeMap::new();
-        out.insert(phase_events_path, Vec::new());
-        return Ok(out);
+        return Ok(std::collections::BTreeMap::new());
     }
 
     let mut baseline_event_ids = std::collections::HashSet::new();

@@ -67,6 +67,7 @@ serde.workspace = true
 serde_json.workspace = true
 globset.workspace = true
 sha2.workspace = true
+fs2.workspace = true
 # Evidence + tanren.yml + command-frontmatter parsing.
 serde_yaml.workspace = true
 # Codex MCP config writer (`.codex/config.toml`).

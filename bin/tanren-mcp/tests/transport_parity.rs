@@ -7,148 +7,16 @@ struct InvalidToolRoute {
     verb: &'static str,
 }
 
-const INVALID_TOOL_ROUTES: &[InvalidToolRoute] = &[
-    InvalidToolRoute {
-        tool: "create_task",
-        noun: "task",
-        verb: "create",
-    },
-    InvalidToolRoute {
-        tool: "start_task",
-        noun: "task",
-        verb: "start",
-    },
-    InvalidToolRoute {
-        tool: "complete_task",
-        noun: "task",
-        verb: "complete",
-    },
-    InvalidToolRoute {
-        tool: "mark_task_guard_satisfied",
-        noun: "task",
-        verb: "guard",
-    },
-    InvalidToolRoute {
-        tool: "revise_task",
-        noun: "task",
-        verb: "revise",
-    },
-    InvalidToolRoute {
-        tool: "abandon_task",
-        noun: "task",
-        verb: "abandon",
-    },
-    InvalidToolRoute {
-        tool: "list_tasks",
-        noun: "task",
-        verb: "list",
-    },
-    InvalidToolRoute {
-        tool: "add_finding",
-        noun: "finding",
-        verb: "add",
-    },
-    InvalidToolRoute {
-        tool: "record_rubric_score",
-        noun: "rubric",
-        verb: "record",
-    },
-    InvalidToolRoute {
-        tool: "record_non_negotiable_compliance",
-        noun: "compliance",
-        verb: "record",
-    },
-    InvalidToolRoute {
-        tool: "set_spec_title",
-        noun: "spec",
-        verb: "set-title",
-    },
-    InvalidToolRoute {
-        tool: "set_spec_non_negotiables",
-        noun: "spec",
-        verb: "set-non-negotiables",
-    },
-    InvalidToolRoute {
-        tool: "add_spec_acceptance_criterion",
-        noun: "spec",
-        verb: "add-acceptance-criterion",
-    },
-    InvalidToolRoute {
-        tool: "set_spec_demo_environment",
-        noun: "spec",
-        verb: "set-demo-environment",
-    },
-    InvalidToolRoute {
-        tool: "set_spec_dependencies",
-        noun: "spec",
-        verb: "set-dependencies",
-    },
-    InvalidToolRoute {
-        tool: "set_spec_base_branch",
-        noun: "spec",
-        verb: "set-base-branch",
-    },
-    InvalidToolRoute {
-        tool: "set_spec_relevance_context",
-        noun: "spec",
-        verb: "set-relevance-context",
-    },
-    InvalidToolRoute {
-        tool: "add_demo_step",
-        noun: "demo",
-        verb: "add-step",
-    },
-    InvalidToolRoute {
-        tool: "mark_demo_step_skip",
-        noun: "demo",
-        verb: "mark-step-skip",
-    },
-    InvalidToolRoute {
-        tool: "append_demo_result",
-        noun: "demo",
-        verb: "append-result",
-    },
-    InvalidToolRoute {
-        tool: "add_signpost",
-        noun: "signpost",
-        verb: "add",
-    },
-    InvalidToolRoute {
-        tool: "update_signpost_status",
-        noun: "signpost",
-        verb: "update-status",
-    },
-    InvalidToolRoute {
-        tool: "report_phase_outcome",
-        noun: "phase",
-        verb: "outcome",
-    },
-    InvalidToolRoute {
-        tool: "escalate_to_blocker",
-        noun: "phase",
-        verb: "escalate",
-    },
-    InvalidToolRoute {
-        tool: "post_reply_directive",
-        noun: "phase",
-        verb: "reply",
-    },
-    InvalidToolRoute {
-        tool: "create_issue",
-        noun: "issue",
-        verb: "create",
-    },
-    InvalidToolRoute {
-        tool: "list_relevant_standards",
-        noun: "standard",
-        verb: "list",
-    },
-    InvalidToolRoute {
-        tool: "record_adherence_finding",
-        noun: "adherence",
-        verb: "add-finding",
-    },
-];
+fn invalid_tool_routes() -> Vec<InvalidToolRoute> {
+    all_tool_descriptors()
+        .iter()
+        .map(|descriptor| InvalidToolRoute {
+            tool: descriptor.name,
+            noun: descriptor.cli_noun,
+            verb: descriptor.cli_verb,
+        })
+        .collect()
+}
 
 impl McpSession {
     fn call_expect_error_json(&mut self, tool: &str, args: &Value) -> Value {
@@ -285,9 +153,10 @@ async fn cli_and_mcp_match_invalid_input_rejection_for_full_tool_matrix() {
     drop(registry_probe);
 
     let mut mcp = McpSession::start(&mcp_url, &mcp_spec_folder, "do-task");
-    let mut cli_errors = Vec::with_capacity(INVALID_TOOL_ROUTES.len());
-    let mut mcp_errors = Vec::with_capacity(INVALID_TOOL_ROUTES.len());
-    for route in INVALID_TOOL_ROUTES {
+    let invalid_routes = invalid_tool_routes();
+    let mut cli_errors = Vec::with_capacity(invalid_routes.len());
+    let mut mcp_errors = Vec::with_capacity(invalid_routes.len());
+    for route in &invalid_routes {
         let cli_error = assert_cli_invalid_tool_no_side_effects(
             &cli_url,
             &cli_spec_folder,
@@ -319,12 +188,12 @@ async fn cli_and_mcp_match_invalid_input_rejection_for_full_tool_matrix() {
     }
     assert_eq!(
         cli_errors.len(),
-        PARITY_COVERED_TOOLS.len(),
+        parity_covered_tools().len(),
         "cli invalid matrix must cover all tools"
     );
     assert_eq!(
         mcp_errors.len(),
-        PARITY_COVERED_TOOLS.len(),
+        parity_covered_tools().len(),
         "mcp invalid matrix must cover all tools"
     );
 }

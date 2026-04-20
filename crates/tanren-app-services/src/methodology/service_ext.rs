@@ -10,7 +10,7 @@
 //! 4. Return the typed contract response.
 
 use chrono::Utc;
-use tanren_domain::entity::EntityRef;
+use tanren_domain::SignpostId;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::{
     MethodologyEvent, NonNegotiableComplianceRecorded, RubricScoreRecorded, SignpostAdded,
@@ -21,7 +21,6 @@ use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 use tanren_domain::methodology::pillar::Pillar;
 use tanren_domain::methodology::rubric::{NonNegotiableCompliance, RubricScore};
 use tanren_domain::methodology::signpost::Signpost;
-use tanren_domain::{SignpostId, TaskId};
 
 use tanren_contract::methodology::{
     AckResponse, AddSignpostParams, AddSignpostResponse, ListTasksParams, ListTasksResponse,
@@ -33,8 +32,6 @@ use super::capabilities::enforce;
 use super::errors::{MethodologyError, MethodologyResult};
 use super::service::MethodologyService;
 use super::service_ext_validation::{validate_rubric_scope, validate_supporting_findings};
-
-const METHODOLOGY_PAGE_SIZE: u64 = 1_000;
 
 impl MethodologyService {
     // -- §3.1 task_revise / task_list ----------------------------------------
@@ -107,13 +104,11 @@ impl MethodologyService {
             .store()
             .load_methodology_task_list_projection(spec_id)
             .await?;
-        let mut snapshot_missing_ids = std::collections::HashSet::new();
+        let mut needs_heal = false;
         let mut projected_task_ids = std::collections::HashSet::new();
         for row in &projected {
             projected_task_ids.insert(row.task_id);
-            if row.task.is_none() {
-                snapshot_missing_ids.insert(row.task_id);
-            }
+            needs_heal |= row.task.is_none();
         }
 
         let lookup_ids = self
@@ -122,12 +117,14 @@ impl MethodologyService {
             .await?;
         for task_id in lookup_ids {
             if !projected_task_ids.contains(&task_id) {
-                snapshot_missing_ids.insert(task_id);
+                needs_heal = true;
+                break;
             }
         }
 
-        for task_id in snapshot_missing_ids {
-            self.heal_task_projection_snapshot(spec_id, task_id).await?;
+        if needs_heal {
+            self.heal_task_projection_snapshots_for_spec(spec_id)
+                .await?;
         }
 
         let healed = self
@@ -387,32 +384,24 @@ impl MethodologyService {
         .await
     }
 
-    async fn heal_task_projection_snapshot(
+    async fn heal_task_projection_snapshots_for_spec(
         &self,
         spec_id: tanren_domain::SpecId,
-        task_id: TaskId,
     ) -> MethodologyResult<()> {
-        let events = tanren_store::methodology::projections::load_methodology_events_for_entity(
+        let tasks = tanren_store::methodology::projections::tasks_for_spec(
             self.store(),
-            EntityRef::Task(task_id),
-            Some(spec_id),
-            METHODOLOGY_PAGE_SIZE,
+            spec_id,
+            self.required_guards(),
         )
         .await?;
-        let task =
-            tanren_store::methodology::projections::fold_tasks(&events, self.required_guards())
-                .into_iter()
-                .find(|task| task.id == task_id)
-                .ok_or(MethodologyError::NotFound {
-                    resource: "task".into(),
-                    key: task_id.to_string(),
-                })?;
-        self.store()
-            .upsert_methodology_task_projection_snapshot(&task)
-            .await?;
-        self.store()
-            .upsert_methodology_task_spec_projection(task_id, spec_id)
-            .await?;
+        for task in tasks {
+            self.store()
+                .upsert_methodology_task_projection_snapshot(&task)
+                .await?;
+            self.store()
+                .upsert_methodology_task_spec_projection(task.id, spec_id)
+                .await?;
+        }
         Ok(())
     }
 }

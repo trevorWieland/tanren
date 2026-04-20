@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use tanren_domain::SpecId;
@@ -9,6 +10,11 @@ use super::errors::{MethodologyError, MethodologyResult, ToolError};
 
 const REQUEST_HASH_ALGO_SHA256_CANONICAL_JSON_V1: &str = "sha256-canonical-json-v1";
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+const DEFAULT_IDEMPOTENCY_RESERVATION_LEASE_SECS: i64 = 300;
+const MIN_IDEMPOTENCY_RESERVATION_LEASE_SECS: i64 = 30;
+const MAX_IDEMPOTENCY_RESERVATION_LEASE_SECS: i64 = 3_600;
+const IDEMPOTENCY_STALE_SWEEP_LIMIT: u64 = 128;
+const IDEMPOTENCY_RESERVATION_LEASE_ENV: &str = "TANREN_METHODOLOGY_IDEMPOTENCY_LEASE_SECS";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -37,34 +43,70 @@ impl MethodologyService {
         let request_hash = sha256_hex(canonical_payload.as_bytes());
         let derived_key = explicit_key.unwrap_or_else(|| format!("payload:{request_hash}"));
         let scope_key = spec_id.to_string();
+        let lease_duration = idempotency_reservation_lease()?;
+        loop {
+            let now = Utc::now();
+            let reservation_expires_at = now + lease_duration;
+            let _ = self
+                .store
+                .purge_expired_methodology_idempotency_reservations(
+                    tool,
+                    &scope_key,
+                    now,
+                    IDEMPOTENCY_STALE_SWEEP_LIMIT,
+                )
+                .await?;
 
-        if let Some(existing) = self
-            .store
-            .get_methodology_idempotency(tool, &scope_key, &derived_key)
-            .await?
-        {
-            return resolve_existing_idempotency_entry(tool, &request_hash, existing);
-        }
-
-        let inserted = self
-            .store
-            .insert_methodology_idempotency_reservation(
-                tanren_store::methodology::InsertMethodologyIdempotencyParams {
-                    tool: tool.to_owned(),
-                    scope_key: scope_key.clone(),
-                    idempotency_key: derived_key.clone(),
-                    request_hash: request_hash.clone(),
-                    request_hash_algo: REQUEST_HASH_ALGO_SHA256_CANONICAL_JSON_V1.into(),
-                },
-            )
-            .await?;
-        if !inserted
-            && let Some(existing) = self
+            if let Some(existing) = self
                 .store
                 .get_methodology_idempotency(tool, &scope_key, &derived_key)
                 .await?
-        {
-            return resolve_existing_idempotency_entry(tool, &request_hash, existing);
+            {
+                validate_idempotency_hash(tool, &request_hash, &existing)?;
+                if let Some(response_json) = existing.response_json {
+                    return replay_stored_outcome(&response_json);
+                }
+                if reservation_is_active(existing.reservation_expires_at, now) {
+                    return Err(MethodologyError::Conflict {
+                        resource: tool.to_owned(),
+                        reason: format!(
+                            "idempotency key `{}` is reserved by an unfinished prior attempt",
+                            existing.idempotency_key
+                        ),
+                    });
+                }
+                let reclaimed = self
+                    .store
+                    .reclaim_methodology_idempotency_reservation(
+                        tool,
+                        &scope_key,
+                        &derived_key,
+                        now,
+                        reservation_expires_at,
+                    )
+                    .await?;
+                if reclaimed {
+                    break;
+                }
+                continue;
+            }
+
+            let inserted = self
+                .store
+                .insert_methodology_idempotency_reservation(
+                    tanren_store::methodology::InsertMethodologyIdempotencyParams {
+                        tool: tool.to_owned(),
+                        scope_key: scope_key.clone(),
+                        idempotency_key: derived_key.clone(),
+                        request_hash: request_hash.clone(),
+                        request_hash_algo: REQUEST_HASH_ALGO_SHA256_CANONICAL_JSON_V1.into(),
+                        reservation_expires_at,
+                    },
+                )
+                .await?;
+            if inserted {
+                break;
+            }
         }
 
         match op().await {
@@ -109,11 +151,11 @@ fn sha256_hex(input: &[u8]) -> String {
     out
 }
 
-fn resolve_existing_idempotency_entry<R: DeserializeOwned>(
+fn validate_idempotency_hash(
     tool: &str,
     request_hash: &str,
-    existing: tanren_store::methodology::MethodologyIdempotencyEntry,
-) -> MethodologyResult<R> {
+    existing: &tanren_store::methodology::MethodologyIdempotencyEntry,
+) -> MethodologyResult<()> {
     if existing.request_hash_algo != REQUEST_HASH_ALGO_SHA256_CANONICAL_JSON_V1
         || existing.request_hash != request_hash
     {
@@ -125,22 +167,60 @@ fn resolve_existing_idempotency_entry<R: DeserializeOwned>(
             ),
         });
     }
-    let Some(response_json) = existing.response_json else {
-        return Err(MethodologyError::Conflict {
-            resource: tool.to_owned(),
-            reason: format!(
-                "idempotency key `{}` is reserved by an unfinished prior attempt",
-                existing.idempotency_key
-            ),
-        });
-    };
-    let outcome = serde_json::from_str::<StoredIdempotencyOutcome>(&response_json)
+    Ok(())
+}
+
+fn replay_stored_outcome<R: DeserializeOwned>(response_json: &str) -> MethodologyResult<R> {
+    let outcome = serde_json::from_str::<StoredIdempotencyOutcome>(response_json)
         .map_err(|e| MethodologyError::Internal(format!("idempotency replay decode: {e}")))?;
     match outcome {
         StoredIdempotencyOutcome::Success { response } => serde_json::from_value::<R>(response)
             .map_err(|e| MethodologyError::Internal(format!("idempotency replay decode: {e}"))),
         StoredIdempotencyOutcome::Error { error } => Err(MethodologyError::from(error)),
     }
+}
+
+fn reservation_is_active(
+    reservation_expires_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> bool {
+    reservation_expires_at.is_some_and(|expires_at| expires_at > now)
+}
+
+fn idempotency_reservation_lease() -> MethodologyResult<Duration> {
+    let raw = std::env::var(IDEMPOTENCY_RESERVATION_LEASE_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let seconds = match raw {
+        Some(raw) => raw
+            .parse::<i64>()
+            .map_err(|e| MethodologyError::FieldValidation {
+                field_path: format!("/env/{IDEMPOTENCY_RESERVATION_LEASE_ENV}"),
+                expected: format!(
+                    "integer seconds between {MIN_IDEMPOTENCY_RESERVATION_LEASE_SECS} and {MAX_IDEMPOTENCY_RESERVATION_LEASE_SECS}"
+                ),
+                actual: format!("{raw} ({e})"),
+                remediation:
+                    "set TANREN_METHODOLOGY_IDEMPOTENCY_LEASE_SECS to a bounded integer second value"
+                        .into(),
+            })?,
+        None => DEFAULT_IDEMPOTENCY_RESERVATION_LEASE_SECS,
+    };
+    if !(MIN_IDEMPOTENCY_RESERVATION_LEASE_SECS..=MAX_IDEMPOTENCY_RESERVATION_LEASE_SECS)
+        .contains(&seconds)
+    {
+        return Err(MethodologyError::FieldValidation {
+            field_path: format!("/env/{IDEMPOTENCY_RESERVATION_LEASE_ENV}"),
+            expected: format!(
+                "integer seconds between {MIN_IDEMPOTENCY_RESERVATION_LEASE_SECS} and {MAX_IDEMPOTENCY_RESERVATION_LEASE_SECS}"
+            ),
+            actual: seconds.to_string(),
+            remediation:
+                "set TANREN_METHODOLOGY_IDEMPOTENCY_LEASE_SECS to a bounded integer second value"
+                    .into(),
+        });
+    }
+    Ok(Duration::seconds(seconds))
 }
 
 fn encode_stored_success<R: Serialize>(response: &R) -> MethodologyResult<String> {
@@ -187,165 +267,5 @@ fn canonicalize_value(value: serde_json::Value) -> serde_json::Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use chrono::Utc;
-    use tanren_contract::methodology::SchemaVersion;
-    use tanren_domain::events::DomainEvent;
-    use tanren_domain::methodology::events::{FindingAdded, MethodologyEvent};
-    use tanren_domain::methodology::finding::{Finding, FindingSeverity, FindingSource};
-    use tanren_domain::methodology::phase_id::PhaseId;
-    use tanren_domain::{EntityKind, FindingId, NonEmptyString, SpecId};
-    use tanren_store::EventFilter;
-    use tanren_store::{EventStore, Store};
-
-    use super::MethodologyError;
-    use crate::methodology::service::{MethodologyService, PhaseEventsRuntime};
-
-    async fn mk_service() -> (Arc<Store>, MethodologyService, SpecId) {
-        let store = Arc::new(
-            Store::open_and_migrate("sqlite::memory:?cache=shared")
-                .await
-                .expect("open"),
-        );
-        let spec_id = SpecId::new();
-        let runtime = PhaseEventsRuntime {
-            spec_id,
-            spec_folder: std::env::temp_dir().join(format!(
-                "tanren-methodology-idempotency-{}",
-                uuid::Uuid::now_v7()
-            )),
-            agent_session_id: "test-session".into(),
-        };
-        let service =
-            MethodologyService::with_runtime(store.clone(), vec![], Some(runtime), vec![]);
-        (store, service, spec_id)
-    }
-
-    fn idempotency_payload() -> serde_json::Value {
-        serde_json::json!({
-            "schema_version": SchemaVersion::current(),
-            "kind": "partial-failure-check"
-        })
-    }
-
-    async fn run_partial_failure(
-        service: &MethodologyService,
-        phase: &PhaseId,
-        spec_id: SpecId,
-        key: Option<String>,
-        payload: &serde_json::Value,
-    ) -> Result<serde_json::Value, MethodologyError> {
-        service
-            .run_idempotent_mutation(
-                "test_partial_failure",
-                spec_id,
-                key.clone(),
-                payload,
-                || async {
-                    let finding = Finding {
-                        id: FindingId::new(),
-                        spec_id,
-                        severity: FindingSeverity::FixNow,
-                        title: NonEmptyString::try_new("partial emit").expect("title"),
-                        description: String::new(),
-                        affected_files: vec!["src/lib.rs".into()],
-                        line_numbers: vec![],
-                        source: FindingSource::Audit {
-                            phase: PhaseId::try_new("audit-task").expect("phase"),
-                            pillar: None,
-                        },
-                        attached_task: None,
-                        created_at: Utc::now(),
-                    };
-                    service
-                        .emit(
-                            phase,
-                            MethodologyEvent::FindingAdded(FindingAdded {
-                                finding: Box::new(finding),
-                                idempotency_key: key.clone(),
-                            }),
-                        )
-                        .await?;
-                    Err(MethodologyError::FieldValidation {
-                        field_path: "/test_partial_failure".into(),
-                        expected: "success".into(),
-                        actual: "forced failure".into(),
-                        remediation: "intentional partial failure".into(),
-                    })
-                },
-            )
-            .await
-    }
-
-    #[tokio::test]
-    async fn idempotency_replays_same_error_after_partial_event_emit() {
-        let (store, service, spec_id) = mk_service().await;
-        let phase = PhaseId::try_new("audit-task").expect("phase");
-        let payload = idempotency_payload();
-        let key = Some("idempotency-partial-failure".to_owned());
-
-        let first = run_partial_failure(&service, &phase, spec_id, key.clone(), &payload).await;
-        assert!(matches!(
-            first,
-            Err(MethodologyError::FieldValidation { .. })
-        ));
-
-        let second = service
-            .run_idempotent_mutation("test_partial_failure", spec_id, key, &payload, || async {
-                Ok(serde_json::json!({"unexpected":"success"}))
-            })
-            .await;
-        assert!(matches!(
-            second,
-            Err(MethodologyError::FieldValidation { .. })
-        ));
-
-        let events = store
-            .query_events(&EventFilter {
-                entity_kind: Some(EntityKind::Finding),
-                spec_id: Some(spec_id),
-                limit: 100,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query events");
-        assert_eq!(
-            events.events.len(),
-            1,
-            "partial failure replay must not append duplicate events"
-        );
-
-        let idem = store
-            .get_methodology_idempotency(
-                "test_partial_failure",
-                &spec_id.to_string(),
-                "idempotency-partial-failure",
-            )
-            .await
-            .expect("load idempotency")
-            .expect("entry exists");
-        assert!(
-            idem.response_json.is_some(),
-            "failed attempts must store terminal idempotency outcomes"
-        );
-
-        let stored = store
-            .query_events(&EventFilter {
-                event_type: Some("methodology".into()),
-                spec_id: Some(spec_id),
-                limit: 10,
-                ..EventFilter::new()
-            })
-            .await
-            .expect("query")
-            .events;
-        assert!(stored.iter().any(|env| matches!(
-            env.payload,
-            DomainEvent::Methodology {
-                event: MethodologyEvent::FindingAdded(_)
-            }
-        )));
-    }
-}
+#[path = "service_idempotency_tests.rs"]
+mod tests;

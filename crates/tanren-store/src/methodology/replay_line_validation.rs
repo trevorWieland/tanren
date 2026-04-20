@@ -7,15 +7,13 @@ use tanren_domain::methodology::validation::{
     ValidationIssue, validate_finding_attached_task_spec, validate_finding_line_numbers,
     validate_task_abandon_semantics,
 };
-use tanren_domain::{EntityRef, SpecId, TaskId};
+use tanren_domain::{SpecId, TaskId};
 
 use crate::Store;
 use crate::methodology::projections;
 
 use super::replay::{IngestState, PhaseEventLine, ReplayError};
 use super::replay_task_state::validate_task_transition;
-
-const TASK_EVENT_PAGE_SIZE: u64 = 1_000;
 
 pub(super) fn validate_envelope_metadata(
     path: &Path,
@@ -112,6 +110,50 @@ pub(super) async fn validate_event_semantics(
     .await
 }
 
+pub(super) async fn prefetch_task_specs_for_replay(
+    store: &Store,
+    task_ids: &std::collections::HashSet<TaskId>,
+    ingest_state: &mut IngestState,
+) -> Result<(), ReplayError> {
+    if task_ids.is_empty() {
+        return Ok(());
+    }
+    let unresolved: Vec<TaskId> = task_ids
+        .iter()
+        .copied()
+        .filter(|task_id| !ingest_state.task_spec_lookup.contains_key(task_id))
+        .collect();
+    if unresolved.is_empty() {
+        return Ok(());
+    }
+
+    let projection = store
+        .load_methodology_task_specs_projection(&unresolved)
+        .await
+        .map_err(|source| ReplayError::Store { source })?;
+    let missing: Vec<TaskId> = unresolved
+        .iter()
+        .copied()
+        .filter(|task_id| !projection.contains_key(task_id))
+        .collect();
+    let fallback = projections::task_specs_by_ids(store, &missing)
+        .await
+        .map_err(|source| match source {
+            projections::MethodologyEventFetchError::Store { source } => {
+                ReplayError::Store { source }
+            }
+        })?;
+
+    for task_id in unresolved {
+        let resolved = projection
+            .get(&task_id)
+            .copied()
+            .or_else(|| fallback.get(&task_id).copied());
+        ingest_state.task_spec_lookup.insert(task_id, resolved);
+    }
+    Ok(())
+}
+
 async fn validate_attached_task_for_finding(
     store: &Store,
     path: &Path,
@@ -143,20 +185,22 @@ async fn resolve_task_spec_for_replay(
     if let Some(cached) = ingest_state.task_spec_lookup.get(&task_id) {
         return Ok(*cached);
     }
-    let events = projections::load_methodology_events_for_entity(
-        store,
-        EntityRef::Task(task_id),
-        None,
-        TASK_EVENT_PAGE_SIZE,
-    )
-    .await
-    .map_err(|source| match source {
-        projections::MethodologyEventFetchError::Store { source } => ReplayError::Store { source },
-    })?;
-    let resolved = events.into_iter().find_map(|event| match event {
-        MethodologyEvent::TaskCreated(e) => Some(e.task.spec_id),
-        _ => None,
-    });
+    let projection = store
+        .load_methodology_task_specs_projection(&[task_id])
+        .await
+        .map_err(|source| ReplayError::Store { source })?;
+    let resolved = if let Some(spec_id) = projection.get(&task_id).copied() {
+        Some(spec_id)
+    } else {
+        let fallback = projections::task_specs_by_ids(store, &[task_id])
+            .await
+            .map_err(|source| match source {
+                projections::MethodologyEventFetchError::Store { source } => {
+                    ReplayError::Store { source }
+                }
+            })?;
+        fallback.get(&task_id).copied()
+    };
     ingest_state.task_spec_lookup.insert(task_id, resolved);
     Ok(resolved)
 }

@@ -139,6 +139,23 @@ fn configure_signed_capability_env(
         );
 }
 
+fn configure_signed_capability_env_with_token(command: &mut Command, token: &str) {
+    command
+        .env("TANREN_MCP_CAPABILITY_ENVELOPE", token)
+        .env(
+            "TANREN_MCP_CAPABILITY_PUBLIC_KEY_PEM",
+            mcp_capability_envelope::test_capability_public_key_pem(),
+        )
+        .env(
+            "TANREN_MCP_CAPABILITY_ISSUER",
+            mcp_capability_envelope::test_capability_issuer(),
+        )
+        .env(
+            "TANREN_MCP_CAPABILITY_AUDIENCE",
+            mcp_capability_envelope::test_capability_audience(),
+        );
+}
+
 fn spawn_mcp_with_session(
     db_url: &str,
     phase: &str,
@@ -308,6 +325,59 @@ fn startup_rejects_invalid_or_expired_signed_envelope() {
     assert!(
         !wrong_issuer.status.success(),
         "startup with issuer mismatch must fail"
+    );
+}
+
+#[test]
+fn startup_rejects_replayed_signed_envelope_jti() {
+    let scope_dir = tempfile::tempdir().expect("tempdir");
+    let url = db_url(&scope_dir);
+    migrate_db(&url);
+    let spec_id = Uuid::parse_str("00000000-0000-0000-0000-000000000027").expect("uuid");
+    let spec_folder = scope_dir.path().join("spec-replayed-token");
+    std::fs::create_dir_all(&spec_folder).expect("mkdir spec folder");
+    let token = mcp_capability_envelope::signed_capability_token(
+        "do-task",
+        spec_id,
+        "mcp-replay",
+        "task.read",
+    );
+
+    let bin = assert_cmd::cargo::cargo_bin("tanren-mcp");
+    let mut first = Command::new(&bin);
+    first
+        .env("TANREN_DATABASE_URL", &url)
+        .env("TANREN_SPEC_FOLDER", &spec_folder)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure_signed_capability_env_with_token(&mut first, &token);
+    let mut first = first.spawn().expect("spawn first");
+    let stdout = first.stdout.take().expect("stdout");
+    let mut reader = BufReader::new(stdout);
+    send_all(&mut first, &init_frames());
+    let responses = read_responses(&mut reader, 1);
+    assert!(
+        !responses.is_empty(),
+        "first startup should initialize successfully before replay rejection path"
+    );
+    kill(first);
+
+    let replay = run_mcp_startup_output(
+        &url,
+        &spec_folder,
+        Some(token),
+        mcp_capability_envelope::test_capability_issuer(),
+        mcp_capability_envelope::test_capability_audience(),
+    );
+    assert!(
+        !replay.status.success(),
+        "startup with replayed jti must fail"
+    );
+    let stderr = String::from_utf8_lossy(&replay.stderr).to_ascii_lowercase();
+    assert!(
+        stderr.contains("replay") || stderr.contains("already been consumed"),
+        "stderr should mention replay rejection: {stderr}"
     );
 }
 

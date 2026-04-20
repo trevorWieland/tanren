@@ -59,6 +59,15 @@ impl MigrationTrait for Migration {
             )
             .await?;
         manager
+            .drop_index(
+                Index::drop()
+                    .if_exists()
+                    .name("ix_methodology_idempotency_reservation_expiry")
+                    .table(MethodologyIdempotency::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
             .drop_table(
                 Table::drop()
                     .if_exists()
@@ -221,6 +230,11 @@ async fn create_methodology_idempotency_table(manager: &SchemaManager<'_>) -> Re
                         .default("default-hasher-json-v0"),
                 )
                 .col(
+                    ColumnDef::new(MethodologyIdempotency::ReservationExpiresAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
                     ColumnDef::new(MethodologyIdempotency::ResponseJson)
                         .text()
                         .null(),
@@ -258,6 +272,16 @@ async fn create_methodology_idempotency_table(manager: &SchemaManager<'_>) -> Re
                 .col(MethodologyIdempotency::UpdatedAt)
                 .to_owned(),
         )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .if_not_exists()
+                .name("ix_methodology_idempotency_reservation_expiry")
+                .table(MethodologyIdempotency::Table)
+                .col(MethodologyIdempotency::ReservationExpiresAt)
+                .to_owned(),
+        )
         .await
 }
 
@@ -292,6 +316,7 @@ enum MethodologyIdempotency {
     IdempotencyKey,
     RequestHash,
     RequestHashAlgo,
+    ReservationExpiresAt,
     ResponseJson,
     FirstEventId,
     CreatedAt,

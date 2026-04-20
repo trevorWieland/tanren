@@ -33,6 +33,7 @@ pub mod signpost;
 pub mod spec;
 pub mod standard;
 pub mod task;
+pub mod tool_catalog;
 pub mod validation;
 
 pub use events::{
@@ -63,6 +64,9 @@ pub use standard::{Standard, StandardImportance};
 pub use task::{
     AcceptanceCriterion, ExplicitUserDiscardProvenance, RequiredGuard, Task,
     TaskAbandonDisposition, TaskGuardFlags, TaskOrigin, TaskStatus,
+};
+pub use tool_catalog::{
+    ToolDescriptor, ToolId, all_tool_descriptors, descriptor, descriptor_by_name,
 };
 pub use validation::{
     ValidationIssue, validate_finding_attached_task_spec, validate_finding_line_numbers,

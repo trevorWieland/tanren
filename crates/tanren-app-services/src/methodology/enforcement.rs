@@ -185,6 +185,23 @@ impl EnforcementGuard {
         if !snap.existed_before {
             if snap.path.exists() {
                 if matches!(snap.mode, ProtectionMode::AppendOnly) {
+                    let current = read_optional_bytes(&snap.path)?;
+                    if let Some(current) = current
+                        && append_file_creation_matches_expectation(
+                            &snap.path,
+                            &current,
+                            append_expectations,
+                        )
+                    {
+                        return Ok(());
+                    }
+                    remove_path(&snap.path)?;
+                    edits.push(UnauthorizedEdit {
+                        path: snap.path.clone(),
+                        diff_preview:
+                            "append-only file was created without authorized projected lines and removed"
+                                .into(),
+                    });
                     return Ok(());
                 }
                 remove_path(&snap.path)?;
@@ -256,6 +273,27 @@ fn append_segment_matches_expectation(
         .into_iter()
         .zip(expected.iter())
         .all(|(actual, expected_line)| actual == expected_line)
+}
+
+fn append_file_creation_matches_expectation(
+    path: &Path,
+    current_bytes: &[u8],
+    append_expectations: &std::collections::BTreeMap<PathBuf, Vec<String>>,
+) -> bool {
+    let Some(expected) = append_expectations.get(path) else {
+        return false;
+    };
+    if expected.is_empty() {
+        return false;
+    }
+    let Some(observed) = parse_lf_lines(current_bytes) else {
+        return false;
+    };
+    observed.len() == expected.len()
+        && observed
+            .iter()
+            .zip(expected.iter())
+            .all(|(actual, expected_line)| actual == expected_line)
 }
 
 fn parse_lf_lines(bytes: &[u8]) -> Option<Vec<String>> {

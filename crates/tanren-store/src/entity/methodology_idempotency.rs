@@ -11,6 +11,7 @@ pub struct Model {
     pub idempotency_key: String,
     pub request_hash: String,
     pub request_hash_algo: String,
+    pub reservation_expires_at: Option<DateTimeUtc>,
     pub response_json: Option<String>,
     pub first_event_id: Option<Uuid>,
     pub created_at: DateTimeUtc,

@@ -17,6 +17,7 @@ use std::time::Duration;
 use std::{collections::BTreeSet, path::PathBuf};
 
 use serde_json::{Value, json};
+use tanren_domain::methodology::all_tool_descriptors;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -470,8 +471,16 @@ fn catalog_and_agent_tool_surface_doc_stay_in_parity() {
         .filter_map(|t| t["name"].as_str().map(str::to_owned))
         .collect();
     let documented = documented_tool_names();
+    let domain: BTreeSet<String> = all_tool_descriptors()
+        .iter()
+        .map(|descriptor| descriptor.name.to_owned())
+        .collect();
     assert_eq!(
         runtime, documented,
         "runtime catalog and docs/architecture/agent-tool-surface.md must match"
+    );
+    assert_eq!(
+        runtime, domain,
+        "runtime catalog and typed tanren-domain tool catalog must match"
     );
 }

@@ -15,6 +15,9 @@ use tanren_store::Store;
 use tanren_store::methodology::{
     AppendPhaseEventOutboxParams, PhaseEventOutboxCursor, PhaseEventOutboxEntry,
 };
+use tanren_store::{
+    ConsumeActorTokenJtiParams, PurgeExpiredActorTokenJtisParams, TokenReplayStore,
+};
 
 use super::errors::{MethodologyError, MethodologyResult};
 use super::phase_events::PhaseEventAttribution;
@@ -166,6 +169,52 @@ impl MethodologyService {
         }
     }
 
+    /// Consume one replay guard key for the MCP signed-envelope boundary.
+    ///
+    /// Returns `Ok(true)` when the `(issuer, audience, jti)` tuple is
+    /// newly consumed, and `Ok(false)` when it has already been used.
+    ///
+    /// # Errors
+    /// Returns a store/database error on persistence failures.
+    pub async fn consume_replay_guard_once(
+        &self,
+        issuer: String,
+        audience: String,
+        jti: String,
+        iat_unix: i64,
+        exp_unix: i64,
+    ) -> MethodologyResult<bool> {
+        self.store
+            .consume_actor_token_jti(ConsumeActorTokenJtiParams {
+                issuer,
+                audience,
+                jti,
+                iat_unix,
+                exp_unix,
+                consumed_at: Utc::now(),
+            })
+            .await
+            .map_err(MethodologyError::from)
+    }
+
+    /// Best-effort bounded purge of expired replay-guard rows.
+    ///
+    /// # Errors
+    /// Returns a store/database error on purge failures.
+    pub async fn purge_expired_replay_guards(
+        &self,
+        expires_before_unix: i64,
+        limit: u64,
+    ) -> MethodologyResult<u64> {
+        self.store
+            .purge_expired_actor_token_jtis(PurgeExpiredActorTokenJtisParams {
+                expires_before_unix,
+                limit,
+            })
+            .await
+            .map_err(MethodologyError::from)
+    }
+
     pub(crate) async fn emit(
         &self,
         phase: &PhaseId,
@@ -266,7 +315,7 @@ impl MethodologyService {
             }
             for row in pending {
                 cursor = Some(cursor_for_row(&row));
-                self.process_phase_event_outbox_row(row).await?;
+                let _ = self.process_phase_event_outbox_row(row).await?;
                 remaining_rows = remaining_rows.saturating_sub(1);
                 if remaining_rows == 0 || started.elapsed() >= time_budget {
                     break;
@@ -279,22 +328,31 @@ impl MethodologyService {
     async fn process_phase_event_outbox_row(
         &self,
         row: PhaseEventOutboxEntry,
-    ) -> MethodologyResult<()> {
-        self.store
-            .increment_phase_event_outbox_attempt(row.event_id)
+    ) -> MethodologyResult<bool> {
+        let claimed = self
+            .store
+            .claim_phase_event_outbox_pending(row.event_id, row.attempt_count)
             .await?;
+        if !claimed {
+            return Ok(false);
+        }
         let path = PathBuf::from(&row.spec_folder).join("phase-events.jsonl");
-        if let Err(err) = super::append_jsonl_encoded_line(&path, &row.line_json) {
+        if let Err(err) = super::append_jsonl_encoded_line_if_missing_event_id(
+            &path,
+            &row.line_json,
+            Some(row.event_id),
+        ) {
             let _ = self
                 .store
                 .mark_phase_event_outbox_pending_error(row.event_id, &err.to_string())
                 .await;
             return Err(err);
         }
-        self.store
+        let projected = self
+            .store
             .mark_phase_event_outbox_projected(row.event_id)
             .await?;
-        Ok(())
+        Ok(projected)
     }
 
     /// Reconcile pending `phase-events.jsonl` outbox rows for one spec folder.
@@ -326,8 +384,9 @@ impl MethodologyService {
             }
             for row in pending {
                 cursor = Some(cursor_for_row(&row));
-                self.process_phase_event_outbox_row(row).await?;
-                projected = projected.saturating_add(1);
+                if self.process_phase_event_outbox_row(row).await? {
+                    projected = projected.saturating_add(1);
+                }
             }
         }
         Ok(projected)

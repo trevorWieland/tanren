@@ -20,7 +20,9 @@ use crate::entity::events;
 use crate::errors::StoreError;
 use tokio::io::AsyncBufReadExt;
 
-use super::replay_line_validation::{validate_envelope_metadata, validate_event_semantics};
+use super::replay_line_validation::{
+    prefetch_task_specs_for_replay, validate_envelope_metadata, validate_event_semantics,
+};
 use super::replay_task_state::TaskValidationState;
 
 const EVENT_ID_LOOKUP_BATCH_SIZE: usize = 256;
@@ -270,6 +272,8 @@ async fn process_pending_chunk(
     ingest_state: &mut IngestState,
     stats: &mut ReplayStats,
 ) -> Result<(), ReplayError> {
+    prefetch_task_specs_for_replay(store, &collect_attached_task_ids(pending), ingest_state)
+        .await?;
     let ids: Vec<EventId> = pending
         .iter()
         .map(|entry| entry.line.event_id)
@@ -299,6 +303,26 @@ async fn process_pending_chunk(
         stats.events_appended += 1;
     }
     Ok(())
+}
+
+fn collect_attached_task_ids(pending: &[ParsedLine]) -> HashSet<TaskId> {
+    let mut out = HashSet::new();
+    for entry in pending {
+        match &entry.line.payload {
+            MethodologyEvent::FindingAdded(e) => {
+                if let Some(task_id) = e.finding.attached_task {
+                    out.insert(task_id);
+                }
+            }
+            MethodologyEvent::AdherenceFindingAdded(e) => {
+                if let Some(task_id) = e.finding.attached_task {
+                    out.insert(task_id);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 fn replay_envelope(line: PhaseEventLine) -> EventEnvelope {

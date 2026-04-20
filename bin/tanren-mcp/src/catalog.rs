@@ -14,6 +14,7 @@ pub(crate) fn all_tools() -> Vec<Tool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tanren_domain::methodology::all_tool_descriptors;
 
     #[test]
     fn catalog_has_all_28_tools() {
@@ -77,5 +78,21 @@ mod tests {
             .unwrap_or_default();
         assert_eq!(ns, "tanren.methodology.v1");
         assert_eq!(ver, "1.0.0");
+    }
+
+    #[test]
+    fn catalog_names_match_typed_domain_tool_catalog() {
+        let registry: std::collections::BTreeSet<String> = all_tools()
+            .into_iter()
+            .map(|tool| tool.name.into_owned())
+            .collect();
+        let domain: std::collections::BTreeSet<String> = all_tool_descriptors()
+            .iter()
+            .map(|descriptor| descriptor.name.to_owned())
+            .collect();
+        assert_eq!(
+            registry, domain,
+            "MCP registry names must match tanren-domain typed tool catalog"
+        );
     }
 }

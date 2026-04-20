@@ -25,6 +25,7 @@ use tanren_domain::methodology::spec::{
     ConnectionKind, DemoConnection, DemoEnvironment, SpecDependencies, SpecRelevanceContext,
 };
 use tanren_domain::methodology::task::{AcceptanceCriterion, RequiredGuard, TaskOrigin};
+use tanren_domain::methodology::all_tool_descriptors;
 use tanren_domain::{EntityRef, EventId, NonEmptyString, SpecId};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -37,36 +38,12 @@ mod mcp_capability_envelope;
 const MCP_CAPABILITIES: &str = "task.create,task.start,task.complete,task.revise,task.abandon,task.read,finding.add,rubric.record,compliance.record,spec.frontmatter,demo.frontmatter,demo.results,signpost.add,signpost.update,phase.outcome,phase.escalate,issue.create,standard.read,adherence.record,feedback.reply";
 const MCP_AGENT_SESSION_ID: &str = "parity-session";
 
-const PARITY_COVERED_TOOLS: &[&str] = &[
-    "create_task",
-    "start_task",
-    "complete_task",
-    "mark_task_guard_satisfied",
-    "revise_task",
-    "abandon_task",
-    "list_tasks",
-    "add_finding",
-    "record_rubric_score",
-    "record_non_negotiable_compliance",
-    "set_spec_title",
-    "set_spec_non_negotiables",
-    "add_spec_acceptance_criterion",
-    "set_spec_demo_environment",
-    "set_spec_dependencies",
-    "set_spec_base_branch",
-    "set_spec_relevance_context",
-    "add_demo_step",
-    "mark_demo_step_skip",
-    "append_demo_result",
-    "add_signpost",
-    "update_signpost_status",
-    "report_phase_outcome",
-    "escalate_to_blocker",
-    "post_reply_directive",
-    "create_issue",
-    "list_relevant_standards",
-    "record_adherence_finding",
-];
+fn parity_covered_tools() -> Vec<&'static str> {
+    all_tool_descriptors()
+        .iter()
+        .map(|descriptor| descriptor.name)
+        .collect()
+}
 
 fn fixed_spec_id() -> SpecId {
     SpecId::from_uuid(Uuid::parse_str("00000000-0000-0000-0000-0000000000a1").expect("uuid"))
@@ -1063,11 +1040,11 @@ fn run_mcp_matrix(url: &str, spec_folder: &Path) {
 }
 
 fn assert_registry_tool_coverage(registry_tools: &[String]) {
-    let expected: std::collections::BTreeSet<&str> = PARITY_COVERED_TOOLS.iter().copied().collect();
+    let expected: std::collections::BTreeSet<&str> = parity_covered_tools().into_iter().collect();
     let actual: std::collections::BTreeSet<&str> = registry_tools.iter().map(String::as_str).collect();
     assert_eq!(
         actual, expected,
-        "parity coverage must include every MCP registry tool; update PARITY_COVERED_TOOLS and matrix calls together",
+        "parity coverage must include every MCP registry tool; update matrix calls when tool catalog changes",
     );
 }
 

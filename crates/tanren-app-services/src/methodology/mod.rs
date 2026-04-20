@@ -46,7 +46,8 @@ pub use enforcement::{EnforcementGuard, FileSnapshot, UnauthorizedEdit};
 pub use errors::{MethodologyError, MethodologyResult, ToolError};
 pub use mutation_pipeline::{enter_mutation_session, finalize_mutation_session};
 pub use phase_events::{
-    PhaseEventAttribution, PhaseEventLine, append_jsonl_encoded_line, append_jsonl_line_atomic,
+    PhaseEventAttribution, PhaseEventLine, append_jsonl_encoded_line,
+    append_jsonl_encoded_line_if_missing_event_id, append_jsonl_line_atomic,
     jsonl_contains_event_id, line_for_envelope, line_for_envelope_with_attribution,
     project_phase_events, render_jsonl,
 };
@@ -63,6 +64,9 @@ pub use tanren_domain::methodology::capability::{
 pub use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 pub use tanren_domain::methodology::pillar::{Pillar, builtin_pillars};
 pub use tanren_domain::methodology::task::RequiredGuard;
+pub use tanren_domain::methodology::tool_catalog::{
+    ToolDescriptor, ToolId, all_tool_descriptors, descriptor, descriptor_by_name,
+};
 
 /// Re-exported store-layer replay entry point so transports can
 /// drive `tanren replay` / `tanren ingest-phase-events` through a

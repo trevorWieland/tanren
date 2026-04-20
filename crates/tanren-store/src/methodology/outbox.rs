@@ -1,5 +1,6 @@
 use chrono::Utc;
 use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     TransactionTrait,
@@ -275,27 +276,81 @@ impl Store {
         Ok(())
     }
 
+    /// Claim one pending outbox row using compare-and-swap semantics.
+    ///
+    /// Returns `Ok(true)` when this caller successfully increments the row's
+    /// `attempt_count` from the expected version.
+    /// Returns `Ok(false)` when another worker already claimed or projected it.
+    ///
+    /// # Errors
+    /// Returns a store/database error on update failures.
+    pub async fn claim_phase_event_outbox_pending(
+        &self,
+        event_id: EventId,
+        expected_attempt_count: u32,
+    ) -> StoreResult<bool> {
+        let expected_attempt =
+            i32::try_from(expected_attempt_count).map_err(|_| StoreError::Conversion {
+                context: "claim_phase_event_outbox_pending",
+                reason: "expected_attempt_count exceeds i32::MAX".into(),
+            })?;
+        let result = methodology_phase_event_outbox::Entity::update_many()
+            .col_expr(
+                methodology_phase_event_outbox::Column::AttemptCount,
+                Expr::col(methodology_phase_event_outbox::Column::AttemptCount).add(1),
+            )
+            .col_expr(
+                methodology_phase_event_outbox::Column::LastError,
+                Expr::value(Option::<String>::None),
+            )
+            .filter(methodology_phase_event_outbox::Column::EventId.eq(event_id.into_uuid()))
+            .filter(methodology_phase_event_outbox::Column::Status.eq(OUTBOX_STATUS_PENDING))
+            .filter(methodology_phase_event_outbox::Column::AttemptCount.eq(expected_attempt))
+            .exec(self.conn())
+            .await?;
+        Ok(result.rows_affected == 1)
+    }
+
     /// Mark an outbox row as projected after a successful file append.
+    ///
+    /// Returns `Ok(true)` when this call transitioned the row to `projected`.
+    /// Returns `Ok(false)` when the row was already projected by another worker.
     ///
     /// # Errors
     /// Returns [`StoreError::NotFound`] when `event_id` is unknown.
-    pub async fn mark_phase_event_outbox_projected(&self, event_id: EventId) -> StoreResult<()> {
-        let Some(mut row) =
-            methodology_phase_event_outbox::Entity::find_by_id(event_id.into_uuid())
-                .one(self.conn())
-                .await?
-                .map(methodology_phase_event_outbox::ActiveModel::from)
-        else {
+    pub async fn mark_phase_event_outbox_projected(&self, event_id: EventId) -> StoreResult<bool> {
+        let now = Utc::now();
+        let result = methodology_phase_event_outbox::Entity::update_many()
+            .col_expr(
+                methodology_phase_event_outbox::Column::Status,
+                Expr::value(OUTBOX_STATUS_PROJECTED),
+            )
+            .col_expr(
+                methodology_phase_event_outbox::Column::ProjectedAt,
+                Expr::value(Some(now)),
+            )
+            .col_expr(
+                methodology_phase_event_outbox::Column::LastError,
+                Expr::value(Option::<String>::None),
+            )
+            .filter(methodology_phase_event_outbox::Column::EventId.eq(event_id.into_uuid()))
+            .filter(methodology_phase_event_outbox::Column::Status.ne(OUTBOX_STATUS_PROJECTED))
+            .exec(self.conn())
+            .await?;
+        if result.rows_affected == 1 {
+            return Ok(true);
+        }
+        let exists = methodology_phase_event_outbox::Entity::find_by_id(event_id.into_uuid())
+            .one(self.conn())
+            .await?
+            .is_some();
+        if !exists {
             return Err(StoreError::NotFound {
                 entity_kind: tanren_domain::EntityKind::Spec,
                 id: format!("phase_event_outbox:{event_id}"),
             });
-        };
-        row.status = Set(OUTBOX_STATUS_PROJECTED.to_owned());
-        row.projected_at = Set(Some(Utc::now()));
-        row.last_error = Set(None);
-        row.update(self.conn()).await?;
-        Ok(())
+        }
+        Ok(false)
     }
 
     /// Reset an outbox row to pending with an error marker.

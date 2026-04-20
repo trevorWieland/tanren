@@ -9,6 +9,7 @@ use std::io::Write as _;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
+use fs2::FileExt as _;
 use serde::{Deserialize, Serialize};
 use tanren_domain::events::EventEnvelope;
 use tanren_domain::methodology::event_tool::{PhaseEventOriginKind, canonical_tool_for_event};
@@ -173,11 +174,52 @@ pub fn append_jsonl_line_atomic(
 /// # Errors
 /// Returns [`MethodologyError::Io`] on filesystem failures.
 pub fn append_jsonl_encoded_line(path: &Path, encoded: &str) -> Result<(), MethodologyError> {
+    let _ = append_jsonl_encoded_line_if_missing_event_id(path, encoded, None)?;
+    Ok(())
+}
+
+/// Append one serialized JSON line unless `event_id` already exists.
+///
+/// When `event_id` is `Some`, this function checks for an existing
+/// event id under the same file lock to prevent duplicate writes from
+/// concurrent outbox drainers.
+///
+/// Returns `Ok(true)` when a line was appended and `Ok(false)` when
+/// the line was skipped due to an existing event id.
+///
+/// # Errors
+/// Returns [`MethodologyError::Io`] on filesystem failures.
+pub fn append_jsonl_encoded_line_if_missing_event_id(
+    path: &Path,
+    encoded: &str,
+    event_id: Option<EventId>,
+) -> Result<bool, MethodologyError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| MethodologyError::Io {
             path: parent.to_path_buf(),
             source,
         })?;
+    }
+    let lock_path = phase_events_lock_path(path);
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&lock_path)
+        .map_err(|source| MethodologyError::Io {
+            path: lock_path.clone(),
+            source,
+        })?;
+    lock_file
+        .lock_exclusive()
+        .map_err(|source| MethodologyError::Io {
+            path: lock_path,
+            source,
+        })?;
+    if let Some(event_id) = event_id
+        && jsonl_contains_event_id_locked(path, event_id)?
+    {
+        drop(lock_file);
+        return Ok(false);
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -187,12 +229,10 @@ pub fn append_jsonl_encoded_line(path: &Path, encoded: &str) -> Result<(), Metho
             path: path.to_path_buf(),
             source,
         })?;
-    file.write_all(encoded.as_bytes())
-        .map_err(|source| MethodologyError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    file.write_all(b"\n")
+    let mut line = String::with_capacity(encoded.len() + 1);
+    line.push_str(encoded);
+    line.push('\n');
+    file.write_all(line.as_bytes())
         .map_err(|source| MethodologyError::Io {
             path: path.to_path_buf(),
             source,
@@ -206,7 +246,15 @@ pub fn append_jsonl_encoded_line(path: &Path, encoded: &str) -> Result<(), Metho
     {
         let _ = dir.sync_all();
     }
-    Ok(())
+    drop(lock_file);
+    Ok(true)
+}
+
+fn phase_events_lock_path(path: &Path) -> std::path::PathBuf {
+    let Some(file_name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
+        return path.with_extension("lock");
+    };
+    path.with_file_name(format!("{file_name}.lock"))
 }
 
 /// Check whether `phase-events.jsonl` already contains `event_id`.
@@ -217,11 +265,27 @@ pub fn jsonl_contains_event_id(path: &Path, event_id: EventId) -> Result<bool, M
     if !path.exists() {
         return Ok(false);
     }
+    jsonl_contains_event_id_locked(path, event_id)
+}
+
+fn jsonl_contains_event_id_locked(
+    path: &Path,
+    event_id: EventId,
+) -> Result<bool, MethodologyError> {
+    if !path.exists() {
+        return Ok(false);
+    }
     let needle = event_id.to_string();
-    let file = std::fs::File::open(path).map_err(|source| MethodologyError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => {
+            return Err(MethodologyError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
     let reader = std::io::BufReader::new(file);
     for line in std::io::BufRead::lines(reader) {
         let line = line.map_err(|source| MethodologyError::Io {
@@ -321,5 +385,51 @@ mod tests {
         let text = render_jsonl(&[line.clone(), line]).expect("render");
         assert_eq!(text.lines().count(), 2);
         assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn append_jsonl_encoded_line_is_line_safe_under_concurrency() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let path = root.path().join("phase-events.jsonl");
+        let workers = 8usize;
+        let per_worker = 100usize;
+        let mut handles = Vec::with_capacity(workers);
+        for worker in 0..workers {
+            let path = path.clone();
+            handles.push(std::thread::spawn(move || {
+                for i in 0..per_worker {
+                    let encoded = format!("{{\"worker\":{worker},\"seq\":{i}}}");
+                    append_jsonl_encoded_line(&path, &encoded).expect("append");
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("join");
+        }
+        let text = std::fs::read_to_string(&path).expect("read");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), workers * per_worker);
+        for line in lines {
+            let parsed: serde_json::Value = serde_json::from_str(line).expect("valid json");
+            assert!(parsed.get("worker").is_some());
+            assert!(parsed.get("seq").is_some());
+        }
+    }
+
+    #[test]
+    fn append_jsonl_encoded_line_dedup_skips_existing_event_id() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let path = root.path().join("phase-events.jsonl");
+        let event_id = EventId::new();
+        let encoded = format!("{{\"event_id\":\"{event_id}\",\"value\":1}}");
+        let first = append_jsonl_encoded_line_if_missing_event_id(&path, &encoded, Some(event_id))
+            .expect("first append");
+        let second = append_jsonl_encoded_line_if_missing_event_id(&path, &encoded, Some(event_id))
+            .expect("second append");
+        assert!(first, "first append should write");
+        assert!(!second, "second append should be skipped as duplicate");
+        let raw = std::fs::read_to_string(path).expect("read");
+        let lines: Vec<&str> = raw.lines().filter(|line| !line.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
     }
 }

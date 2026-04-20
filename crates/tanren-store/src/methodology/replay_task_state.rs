@@ -96,6 +96,21 @@ async fn ensure_task_state_loaded(
     if task_state.by_task.contains_key(&task_id) {
         return Ok(());
     }
+    if let Some(projected) = store
+        .load_methodology_task_status_projection_by_task_id(task_id)
+        .await
+        .map_err(|source| ReplayError::Store { source })?
+        && projected.spec_id == spec_id
+    {
+        task_state.by_task.insert(
+            task_id,
+            TaskReplayState {
+                has_created: true,
+                current: projected.status,
+            },
+        );
+        return Ok(());
+    }
     let existing = projections::load_methodology_events_for_entity(
         store,
         EntityRef::Task(task_id),

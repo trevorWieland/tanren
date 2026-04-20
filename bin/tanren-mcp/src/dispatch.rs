@@ -26,5 +26,5 @@ pub(crate) async fn dispatch(
 /// True when the tool mutates methodology state or evidence.
 #[must_use]
 pub(crate) fn is_mutation_tool(tool: &str) -> bool {
-    super::tool_registry::find(tool).is_some_and(|registration| registration.mutation)
+    super::tool_registry::find(tool).is_some_and(|registration| registration.descriptor.mutation)
 }

@@ -8,6 +8,8 @@ use crate::Store;
 use crate::entity::{methodology_signpost_spec, methodology_task_spec};
 use crate::errors::StoreResult;
 
+const SQLITE_CHUNK_SIZE: usize = 800;
+
 impl Store {
     /// Read one task->spec projection row by task id.
     pub async fn load_methodology_task_spec_projection(
@@ -42,6 +44,37 @@ impl Store {
             .into_iter()
             .map(|row| TaskId::from_uuid(row.task_id))
             .collect())
+    }
+
+    /// Read task->spec projection rows for a batch of task ids.
+    ///
+    /// Missing task ids are omitted from the returned map.
+    ///
+    /// # Errors
+    /// Returns a store/database error on query failures.
+    pub async fn load_methodology_task_specs_projection(
+        &self,
+        task_ids: &[TaskId],
+    ) -> StoreResult<std::collections::HashMap<TaskId, SpecId>> {
+        if task_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let mut out = std::collections::HashMap::new();
+        for chunk in task_ids.chunks(SQLITE_CHUNK_SIZE) {
+            let task_ids: Vec<uuid::Uuid> =
+                chunk.iter().map(|task_id| task_id.into_uuid()).collect();
+            let rows = methodology_task_spec::Entity::find()
+                .filter(methodology_task_spec::Column::TaskId.is_in(task_ids))
+                .all(self.conn())
+                .await?;
+            for row in rows {
+                out.insert(
+                    TaskId::from_uuid(row.task_id),
+                    SpecId::from_uuid(row.spec_id),
+                );
+            }
+        }
+        Ok(out)
     }
 
     /// Read one signpost->spec projection row by signpost id.

@@ -1,11 +1,12 @@
 //! Capability enforcement on the tool surface.
 //!
-//! The MCP transport receives its allowed scope via the
-//! `TANREN_PHASE_CAPABILITIES` env var (supplied by the orchestrator at
-//! dispatch). The CLI transport loads its scope from the session guard
-//! state. Both transports share the same `CapabilityScope` type from
-//! `tanren_domain::methodology::capability` and run through
-//! [`enforce`] below.
+//! The MCP transport resolves its allowed scope from signed capability
+//! envelope claims and parses those claim values through
+//! [`parse_scope_env`]. The CLI transport can still read a
+//! `TANREN_PHASE_CAPABILITIES` override for local fallback transport
+//! parity. Both transports share the same `CapabilityScope` type from
+//! `tanren_domain::methodology::capability` and run through [`enforce`]
+//! below.
 
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::phase_id::PhaseId;

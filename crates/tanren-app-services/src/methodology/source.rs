@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use tanren_domain::methodology::capability::ToolCapability;
+use tanren_domain::methodology::descriptor_by_name;
 use tanren_domain::methodology::evidence::frontmatter::{FrontmatterError, parse_typed};
 
 use super::errors::{MethodologyError, MethodologyResult};
@@ -182,33 +183,5 @@ fn validate_command_contract(command: &CommandSource) -> MethodologyResult<()> {
 }
 
 fn implied_capability_for_tool(tool: &str) -> Option<ToolCapability> {
-    Some(match tool {
-        "create_task" => ToolCapability::TaskCreate,
-        "start_task" => ToolCapability::TaskStart,
-        "complete_task" | "mark_task_guard_satisfied" => ToolCapability::TaskComplete,
-        "revise_task" => ToolCapability::TaskRevise,
-        "abandon_task" => ToolCapability::TaskAbandon,
-        "list_tasks" => ToolCapability::TaskRead,
-        "add_finding" => ToolCapability::FindingAdd,
-        "record_rubric_score" => ToolCapability::RubricRecord,
-        "record_non_negotiable_compliance" => ToolCapability::ComplianceRecord,
-        "set_spec_title"
-        | "set_spec_non_negotiables"
-        | "add_spec_acceptance_criterion"
-        | "set_spec_demo_environment"
-        | "set_spec_dependencies"
-        | "set_spec_base_branch"
-        | "set_spec_relevance_context" => ToolCapability::SpecFrontmatter,
-        "add_demo_step" | "mark_demo_step_skip" => ToolCapability::DemoFrontmatter,
-        "append_demo_result" => ToolCapability::DemoResults,
-        "add_signpost" => ToolCapability::SignpostAdd,
-        "update_signpost_status" => ToolCapability::SignpostUpdate,
-        "report_phase_outcome" => ToolCapability::PhaseOutcome,
-        "escalate_to_blocker" => ToolCapability::PhaseEscalate,
-        "post_reply_directive" => ToolCapability::FeedbackReply,
-        "create_issue" => ToolCapability::IssueCreate,
-        "list_relevant_standards" => ToolCapability::StandardRead,
-        "record_adherence_finding" => ToolCapability::AdherenceRecord,
-        _ => return None,
-    })
+    descriptor_by_name(tool).map(|descriptor| descriptor.capability)
 }

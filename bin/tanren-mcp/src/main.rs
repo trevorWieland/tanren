@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use tracing_subscriber::EnvFilter;
 
 mod catalog;
@@ -87,6 +88,10 @@ async fn run() -> Result<()> {
     .await
     .context("building methodology service")?;
     let service = Arc::new(service);
+    consume_capability_envelope_jti_once(service.as_ref(), &envelope)
+        .await
+        .context("consuming signed capability envelope replay key")?;
+    best_effort_purge_capability_replay_rows(service.as_ref()).await;
     spawn_projection_retry_worker(Arc::clone(&service), reconcile_spec_folder);
     tracing::info!(
         capability_count = envelope.scope.0.len(),
@@ -96,6 +101,40 @@ async fn run() -> Result<()> {
         "tanren-mcp starting on stdio transport"
     );
     handler::serve_stdio(envelope.scope, service, envelope.phase).await
+}
+
+async fn consume_capability_envelope_jti_once(
+    service: &tanren_app_services::methodology::MethodologyService,
+    envelope: &scope::VerifiedCapabilityEnvelope,
+) -> Result<()> {
+    let consumed = service
+        .consume_replay_guard_once(
+            envelope.replay_claims.issuer.clone(),
+            envelope.replay_claims.audience.clone(),
+            envelope.replay_claims.jti.clone(),
+            envelope.replay_claims.iat_unix,
+            envelope.replay_claims.exp_unix,
+        )
+        .await
+        .context("persisting capability-envelope replay key")?;
+    if consumed {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "capability envelope replay rejected: jti has already been consumed"
+        ))
+    }
+}
+
+async fn best_effort_purge_capability_replay_rows(
+    service: &tanren_app_services::methodology::MethodologyService,
+) {
+    if let Err(err) = service
+        .purge_expired_replay_guards(Utc::now().timestamp(), 512)
+        .await
+    {
+        tracing::warn!(?err, "capability-envelope replay purge tick failed");
+    }
 }
 
 fn spawn_projection_retry_worker(

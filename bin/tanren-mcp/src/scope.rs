@@ -32,6 +32,16 @@ pub(crate) struct VerifiedCapabilityEnvelope {
     pub(crate) phase: PhaseId,
     pub(crate) spec_id: SpecId,
     pub(crate) agent_session_id: String,
+    pub(crate) replay_claims: CapabilityReplayClaims,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CapabilityReplayClaims {
+    pub(crate) issuer: String,
+    pub(crate) audience: String,
+    pub(crate) jti: String,
+    pub(crate) iat_unix: i64,
+    pub(crate) exp_unix: i64,
 }
 
 /// Parse + verify the signed capability envelope from environment.
@@ -92,6 +102,13 @@ fn verify_signed_envelope(
         phase,
         spec_id,
         agent_session_id: claims.agent_session_id,
+        replay_claims: CapabilityReplayClaims {
+            issuer: claims.iss,
+            audience: claims.aud,
+            jti: claims.jti,
+            iat_unix: claims.iat,
+            exp_unix: claims.exp,
+        },
     })
 }
 
