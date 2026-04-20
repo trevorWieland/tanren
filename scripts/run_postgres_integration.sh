@@ -23,18 +23,44 @@ readonly NEXTEST_QUIET_FLAGS=(
     --cargo-quiet
 )
 
+resolve_runtime_bin() {
+    local name="$1"
+    local candidate
+
+    if candidate="$(command -v "$name" 2>/dev/null)"; then
+        echo "$candidate"
+        return 0
+    fi
+
+    for candidate in \
+        "/usr/local/bin/$name" \
+        "/opt/homebrew/bin/$name" \
+        "$HOME/.local/bin/$name"
+    do
+        if [[ -x "$candidate" ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 preflight() {
+    local docker_bin=""
+    local podman_bin=""
+
     if [[ -n "${!POSTGRES_URL_ENV:-}" ]]; then
         echo "==> Postgres integration: using ${POSTGRES_URL_ENV}"
         return 0
     fi
 
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    if docker_bin="$(resolve_runtime_bin docker)" && "$docker_bin" info >/dev/null 2>&1; then
         echo "==> Postgres integration: docker is available; fixture will spin a container"
         return 0
     fi
 
-    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+    if podman_bin="$(resolve_runtime_bin podman)" && "$podman_bin" info >/dev/null 2>&1; then
         echo "==> Postgres integration: podman is available; fixture will spin a container"
         return 0
     fi

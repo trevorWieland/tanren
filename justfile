@@ -376,7 +376,21 @@ check-deps:
 
 # Verify local CI recipes stay aligned with workflow strict rust commands.
 check-ci-parity:
-    @uv run python scripts/check_ci_parity.py
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    uv_bin="$(command -v uv || true)"
+    if [[ -z "$uv_bin" && -x "$HOME/.local/bin/uv" ]]; then
+        uv_bin="$HOME/.local/bin/uv"
+    fi
+    if [[ -z "$uv_bin" ]]; then
+        echo "FAIL: uv not found. Install uv or add it to PATH."
+        exit 127
+    fi
+
+    # Keep cache local when HOME cache is unavailable (sandboxed runs).
+    export UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/.uv-cache}"
+    "$uv_bin" run python scripts/check_ci_parity.py
 
 # Prohibit inline lint suppression (#[allow/expect])
 check-suppression:
