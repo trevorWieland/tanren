@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -110,7 +111,12 @@ fn semantic_body_hashes(
             "phase-outcome vocabulary must not drift back to `fail`"
         );
         let canonical = CanonicalBytes::canonicalize(&body);
-        let hash = format!("{:x}", Sha256::digest(&canonical.0));
+        let hash = Sha256::digest(&canonical.0)
+            .iter()
+            .fold(String::new(), |mut out, byte| {
+                let _ = write!(&mut out, "{byte:02x}");
+                out
+            });
         out.insert(command_name_from_dest(format, &artifact.dest), hash);
     }
     out

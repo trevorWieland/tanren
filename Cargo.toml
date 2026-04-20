@@ -96,7 +96,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13", default-features = false, features = [
   "rustls-tls",
   "json",
 ] }
@@ -105,7 +105,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 globset = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 fs2 = "0.4"
 # Evidence frontmatter and install-config files.
 # serde_yaml is formally deprecated upstream but remains the de-facto
@@ -168,15 +168,15 @@ sea-orm-migration = { version = "1.1", features = [
 ] }
 
 # Integration test containers (Postgres)
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["postgres"] }
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
 
 # TUI
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = "0.29"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -185,7 +185,8 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v7", "serde"] }
 
 # JWT verification
-jsonwebtoken = { version = "9", default-features = false, features = [
+jsonwebtoken = { version = "10", default-features = false, features = [
+  "aws_lc_rs",
   "use_pem",
 ] }
 
