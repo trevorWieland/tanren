@@ -12,8 +12,17 @@ workspace = true
 
 [dependencies]
 chrono = { workspace = true }
+# JSON Schema derive for the methodology types consumed by the
+# contract crate's tool-surface schemas. Pure derive; no runtime or
+# I/O concern — consistent with the existing serde derives.
+schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# YAML frontmatter parse/render for typed evidence files (spec.md,
+# plan.md, demo.md, audit.md, signposts.md). Pure serialization —
+# consistent with serde/serde_json already present here; no runtime
+# or I/O concern.
+serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 

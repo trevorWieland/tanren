@@ -49,6 +49,7 @@ rand_core = { workspace = true }
 # `cli_replay_purge` integration test. Production binary still has
 # zero direct dependency on the store crate.
 tanren-store = { path = "../../crates/tanren-store" }
+tanren-domain = { path = "../../crates/tanren-domain" }
 # Postgres integration test dependencies (only exercised when running the
 # `postgres-integration`-gated test binary; transport-dep hygiene is still
 # fine because these are dev-only and don't land in the binary itself).

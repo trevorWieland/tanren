@@ -9,8 +9,8 @@
 | 0.1 | workspace scaffold | ✅ merged | just tooling, lints, CI |
 | 0.2 | `tanren-domain` | ✅ merged, audit-certified | canonical domain model frozen for downstream lanes |
 | 0.3 | `tanren-store` | ✅ merged | foundation now carries the real store boundary |
-| 0.4 | `tanren-contract`, `tanren-policy`, `tanren-orchestrator`, `tanren-app-services`, `tanren-observability`, `tanren-cli` | 🔵 in progress on `lane-0.4` | concise implementation + audit briefs are ready for the implementation agent |
-| 0.5 | methodology boundary docs + shared command markdown | 🟡 planned | separates tanren-code workflow mechanics from tanren-markdown agent behavior |
+| 0.4 | `tanren-contract`, `tanren-policy`, `tanren-orchestrator`, `tanren-app-services`, `tanren-observability`, `tanren-cli` | ✅ merged | dispatch CRUD slice merged into `rewrite/tanren-2-foundation` |
+| 0.5 | methodology boundary docs + shared command markdown | 🔵 in progress on `lane-0.5` | separates tanren-code workflow mechanics from tanren-markdown agent behavior |
 
 ### Execution Order
 
@@ -22,7 +22,7 @@ Lane 0.2 (Domain Model) ✅ merged
          │
          ├────────────────────┬────────────────────┐
          ▼                    ▼                    ▼
-Lane 0.3 (Store Core) ✅ merged   Lane 0.4 (Contract + CLI Wiring) 🔵 in progress   Lane 0.5 (Methodology Boundary) 🟡 planned
+Lane 0.3 (Store Core) ✅ merged   Lane 0.4 (Contract + CLI Wiring) ✅ merged   Lane 0.5 (Methodology Boundary) 🔵 in progress
          │                    │                    │
          └────────┬───────────┴───────────┬────────┘
                   ▼                       ▼
@@ -36,8 +36,8 @@ Lane 0.3 (Store Core) ✅ merged   Lane 0.4 (Contract + CLI Wiring) 🔵 in prog
 | 0.1 | workspace | — | ✅ Complete: scaffold, just, CI, lints |
 | 0.2 | `tanren-domain` | 0.1 | ✅ merged, audit-certified | [LANE-0.2-DOMAIN.md](LANE-0.2-DOMAIN.md) |
 | 0.3 | `tanren-store` | 0.2 | ✅ merged | [LANE-0.3-STORE.md](LANE-0.3-STORE.md) |
-| 0.4 | `tanren-contract`, `tanren-policy`, `tanren-orchestrator`, `tanren-app-services`, `tanren-observability`, `tanren-cli` | 0.2 | 🔵 in progress on `lane-0.4` | [LANE-0.4-CLI-WIRING.md](LANE-0.4-CLI-WIRING.md) |
-| 0.5 | methodology boundary docs + shared command markdown | 0.2 | 🟡 planned | [LANE-0.5-METHODOLOGY.md](LANE-0.5-METHODOLOGY.md) |
+| 0.4 | `tanren-contract`, `tanren-policy`, `tanren-orchestrator`, `tanren-app-services`, `tanren-observability`, `tanren-cli` | 0.2 | ✅ merged | [LANE-0.4-CLI-WIRING.md](LANE-0.4-CLI-WIRING.md) |
+| 0.5 | methodology boundary, typed task state, agent tool surface, multi-agent install, self-hosting (`tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/`) | 0.2, 0.3, 0.4 | 🔵 in progress on `lane-0.5` | [LANE-0.5-BRIEF.md](LANE-0.5-BRIEF.md) · [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md) |
 
 ### First Milestone Exit Criteria
 
@@ -53,18 +53,14 @@ All of the following must be true:
 
 ### Parallelization Strategy
 
-**Lane 0.2** ran first with one agent. With domain merged, **Lane 0.3**
-and **Lane 0.4** can proceed in parallel worktrees:
-
-- Lane 0.3 agent works in `crates/tanren-store/` — needs domain types but not CLI/contract
-- Lane 0.4 agent works in `crates/tanren-{contract,policy,orchestrator,app-services,observability}/` and `bin/tanren-cli/` — needs domain types but can mock store traits
+**Lane 0.2** ran first with one agent. **Lane 0.3** and **Lane 0.4** ran in
+parallel worktrees and are now merged into foundation.
 
 Dispatch rules:
 
-- Implementation agents get `LANE-0.4-BRIEF.md` plus the full spec
-- Audit agents get `LANE-0.4-AUDIT.md` plus the full spec
-- Lane 0.4 should target `rewrite/tanren-2-foundation` tip after lane 0.3 merges, but it can begin on a parallel lane branch immediately against the same domain foundation
-- Lane 0.5 is docs/methodology work that should stay out of lane 0.4 implementation scope
+- Implementation agents for the current lane get `LANE-0.5-BRIEF.md` plus `LANE-0.5-DESIGN-NOTES.md`
+- Audit agents for the current lane get `LANE-0.5-AUDIT.md` plus `LANE-0.5-DESIGN-NOTES.md`
+- Lane 0.5 scope is Phase-0 completion (methodology + typed task state + tool surface + install + self-hosting); it does not widen into Phase 1 harness/environment runtime work
 
 Integration happens when both lanes merge: the CLI binary connects to the real store.
 

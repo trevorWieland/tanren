@@ -1,11 +1,6 @@
-//! Tanren CLI — the composition root for command-line operation.
-//!
-//! Parses args, initializes tracing, and delegates to the app-services
-//! composition root for wiring, then dispatches to the appropriate
-//! subcommand handler.
-//!
-//! All failures — including startup errors — produce deterministic JSON
-//! on stderr and a non-zero exit code.
+//! Tanren CLI — composition root. Parses args, initializes tracing,
+//! delegates to app-services, and dispatches to the subcommand. All
+//! failures produce JSON on stderr + a non-zero exit code.
 #![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
 mod actor_token;
@@ -13,7 +8,7 @@ mod clap_error;
 mod commands;
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
@@ -27,6 +22,8 @@ use tanren_observability::{
 use actor_token::{resolve_actor_token, resolve_actor_token_verifier};
 use clap_error::clap_error_to_response;
 use commands::dispatch::{DispatchCommand, DispatchRequest};
+use commands::install::{InstallArgs, run as run_install};
+use commands::methodology::{MethodologyCommand, MethodologyGlobal, dispatch as run_methodology};
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
@@ -80,6 +77,19 @@ enum Commands {
     /// Manage database schema.
     #[command(subcommand)]
     Db(DbCommand),
+    /// Render the methodology command catalog and bundled standards
+    /// to their configured targets per `tanren.yml`.
+    Install(InstallArgs),
+    /// Methodology tool surface (CLI fallback for the MCP catalog).
+    /// Each subcommand maps 1:1 to a tool in
+    /// `docs/architecture/agent-tool-surface.md` §3.
+    #[command(flatten_help = true)]
+    Methodology {
+        #[command(flatten)]
+        global: MethodologyGlobal,
+        #[command(subcommand)]
+        command: MethodologyCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -107,8 +117,9 @@ enum DbCommand {
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     match run().await {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(err) => {
+        Ok(code) => code,
+        Err(RunError::TypedExit(code)) => std::process::ExitCode::from(code),
+        Err(RunError::Other(err)) => {
             let error_response = into_error_response(err);
             if let Ok(json) = serde_json::to_string_pretty(&error_response) {
                 let _ = writeln!(std::io::stderr(), "{json}");
@@ -118,39 +129,115 @@ async fn main() -> std::process::ExitCode {
     }
 }
 
-async fn run() -> Result<()> {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
+/// Internal error envelope that preserves typed CLI exit codes
+/// (`tanren install`: 0/1/2/3/4; methodology subcommands: 0/2/4 per
+/// `agent-tool-surface.md §5`). Other subcommands collapse into
+/// `Other` and exit with the generic `ExitCode::FAILURE` path.
+enum RunError {
+    TypedExit(u8),
+    Other(anyhow::Error),
+}
+
+impl From<anyhow::Error> for RunError {
+    fn from(e: anyhow::Error) -> Self {
+        Self::Other(e)
+    }
+}
+
+fn parse_cli() -> std::result::Result<Cli, RunError> {
+    match Cli::try_parse() {
+        Ok(cli) => Ok(cli),
         Err(err) => {
             if matches!(
                 err.kind(),
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) {
-                err.print()?;
-                return Ok(());
+                err.print().map_err(anyhow::Error::new)?;
+                return Err(RunError::TypedExit(0));
             }
-            return Err(anyhow::Error::new(clap_error_to_response(&err)));
+            Err(RunError::Other(anyhow::Error::new(clap_error_to_response(
+                &err,
+            ))))
         }
-    };
+    }
+}
 
-    match init_tracing_for_contract_io(&cli.log_level) {
-        Ok(()) | Err(ObservabilityError::AlreadyInitialized) => {}
-        Err(ObservabilityError::FilterParse(reason)) => {
-            return Err(anyhow::Error::new(ErrorResponse::from(
-                ContractError::InvalidField {
-                    field: "log_level".to_owned(),
-                    reason,
-                },
-            )));
-        }
+fn init_cli_tracing(log_level: &str) -> std::result::Result<(), RunError> {
+    match init_tracing_for_contract_io(log_level) {
+        Ok(()) | Err(ObservabilityError::AlreadyInitialized) => Ok(()),
+        Err(ObservabilityError::FilterParse(reason)) => Err(RunError::Other(anyhow::Error::new(
+            ErrorResponse::from(ContractError::InvalidField {
+                field: "log_level".to_owned(),
+                reason,
+            }),
+        ))),
         Err(ObservabilityError::SinkSerialize(_) | ObservabilityError::SinkIo(_)) => {
-            return Err(anyhow::Error::new(ErrorResponse {
+            Err(RunError::Other(anyhow::Error::new(ErrorResponse {
                 code: ErrorCode::Internal,
                 message: "internal error".to_owned(),
                 details: None,
-            }));
+            })))
         }
     }
+}
+
+fn install_exit(code: u8) -> std::result::Result<std::process::ExitCode, RunError> {
+    if code == 0 {
+        Ok(std::process::ExitCode::SUCCESS)
+    } else {
+        Err(RunError::TypedExit(code))
+    }
+}
+
+async fn run_methodology_command(
+    database_url: &str,
+    global: MethodologyGlobal,
+    command: MethodologyCommand,
+) -> std::result::Result<std::process::ExitCode, RunError> {
+    let runtime = load_methodology_runtime_settings(&global.methodology_config)?;
+    let standards = tanren_app_services::methodology::standards::load_runtime_standards(
+        &runtime.standards_root,
+    )
+    .map_err(|err| {
+        RunError::Other(anyhow::anyhow!(
+            "loading standards from {}: {err}",
+            runtime.standards_root.display()
+        ))
+    })?;
+    let phase_events = match (global.spec_id, global.spec_folder.clone()) {
+        (Some(spec_id), Some(spec_folder)) => Some(
+            tanren_app_services::methodology::service::PhaseEventsRuntime {
+                spec_id,
+                spec_folder,
+                agent_session_id: global.agent_session_id.clone(),
+            },
+        ),
+        _ => None,
+    };
+    let service = tanren_app_services::compose::build_methodology_service_with_config(
+        database_url,
+        runtime.required_guards,
+        phase_events,
+        standards,
+        runtime.pillars,
+        runtime.issue_provider,
+    )
+    .await
+    .map_err(|err| {
+        RunError::Other(anyhow::Error::new(
+            tanren_app_services::error::map_store_error(&err),
+        ))
+    })?;
+    install_exit(run_methodology(&service, &global, command).await)
+}
+
+async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
+    let cli = match parse_cli() {
+        Ok(cli) => cli,
+        Err(RunError::TypedExit(0)) => return Ok(std::process::ExitCode::SUCCESS),
+        Err(err) => return Err(err),
+    };
+    init_cli_tracing(&cli.log_level)?;
 
     let Cli {
         database_url,
@@ -164,9 +251,127 @@ async fn run() -> Result<()> {
         command,
     } = cli;
 
+    // Install and Methodology are factored out because they have
+    // typed exit-code contracts distinct from the generic
+    // `ErrorResponse` path used by every other subcommand.
+    match command {
+        Commands::Install(args) => return install_exit(run_install(&args)),
+        Commands::Methodology { global, command } => {
+            return run_methodology_command(&database_url, global, command).await;
+        }
+        _ => {}
+    }
+
+    let auth = AuthInputs {
+        actor_token_stdin,
+        actor_token_file,
+        actor_public_key_file,
+        token_issuer,
+        token_audience,
+        actor_token_max_ttl_secs,
+    };
+    dispatch_non_install(command, &database_url, &auth)
+        .await
+        .map(|()| std::process::ExitCode::SUCCESS)
+        .map_err(RunError::Other)
+}
+
+struct MethodologyRuntimeSettings {
+    required_guards: Vec<tanren_app_services::methodology::RequiredGuard>,
+    standards_root: PathBuf,
+    pillars: Vec<tanren_app_services::methodology::Pillar>,
+    issue_provider: String,
+}
+
+fn load_methodology_runtime_settings(
+    config_path: &PathBuf,
+) -> std::result::Result<MethodologyRuntimeSettings, RunError> {
+    let default_root = resolve_relative_to_config(config_path, Path::new("tanren/standards"));
+    if !config_path.exists() {
+        return Ok(MethodologyRuntimeSettings {
+            required_guards: vec![
+                tanren_app_services::methodology::RequiredGuard::GateChecked,
+                tanren_app_services::methodology::RequiredGuard::Audited,
+                tanren_app_services::methodology::RequiredGuard::Adherent,
+            ],
+            standards_root: default_root,
+            pillars: tanren_app_services::methodology::builtin_pillars(),
+            issue_provider: "GitHub".to_owned(),
+        });
+    }
+    let raw = std::fs::read_to_string(config_path).map_err(|e| {
+        RunError::Other(anyhow::anyhow!(
+            "reading methodology config {}: {e}",
+            config_path.display()
+        ))
+    })?;
+    let cfg =
+        tanren_app_services::methodology::config::TanrenConfig::from_yaml(&raw).map_err(|e| {
+            RunError::Other(anyhow::anyhow!(
+                "parsing methodology config {}: {e}",
+                config_path.display()
+            ))
+        })?;
+    let standards_raw = cfg
+        .methodology
+        .variables
+        .get("standards_root")
+        .or_else(|| cfg.methodology.variables.get("STANDARDS_ROOT"))
+        .map_or("tanren/standards", String::as_str);
+    let pillars = tanren_app_services::methodology::rubric_registry::effective_pillars_for_runtime(
+        config_path,
+        &cfg,
+    )
+    .map_err(|e| {
+        RunError::Other(anyhow::anyhow!(
+            "resolving rubric pillars from {}: {e}",
+            config_path.display()
+        ))
+    })?;
+    Ok(MethodologyRuntimeSettings {
+        required_guards: cfg.methodology.task_complete_requires,
+        standards_root: resolve_relative_to_config(config_path, Path::new(standards_raw)),
+        pillars,
+        issue_provider: cfg
+            .methodology
+            .variables
+            .get("issue_provider")
+            .or_else(|| cfg.methodology.variables.get("ISSUE_PROVIDER"))
+            .cloned()
+            .unwrap_or_else(|| "GitHub".to_owned()),
+    })
+}
+
+fn resolve_relative_to_config(config_path: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let base = config_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    base.join(path)
+}
+
+/// Bundled actor-token inputs. Keeps `dispatch_non_install`'s arity
+/// within workspace clippy thresholds.
+struct AuthInputs {
+    actor_token_stdin: bool,
+    actor_token_file: Option<PathBuf>,
+    actor_public_key_file: Option<PathBuf>,
+    token_issuer: Option<String>,
+    token_audience: Option<String>,
+    actor_token_max_ttl_secs: u64,
+}
+
+async fn dispatch_non_install(
+    command: Commands,
+    database_url: &str,
+    auth: &AuthInputs,
+) -> Result<()> {
     match command {
         Commands::Db(DbCommand::Migrate) => {
-            tanren_app_services::compose::run_migrations(&database_url)
+            tanren_app_services::compose::run_migrations(database_url)
                 .await
                 .map_err(|err| {
                     anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
@@ -182,7 +387,7 @@ async fn run() -> Result<()> {
                 retention: std::time::Duration::from_secs(retention_secs),
                 ..tanren_app_services::ReplayPurgeConfig::default()
             };
-            let stats = tanren_app_services::compose::purge_replay_tokens_once(&database_url, cfg)
+            let stats = tanren_app_services::compose::purge_replay_tokens_once(database_url, cfg)
                 .await
                 .map_err(|err| {
                     anyhow::Error::new(tanren_app_services::error::map_store_error(&err))
@@ -191,24 +396,27 @@ async fn run() -> Result<()> {
         }
         Commands::Dispatch(dispatch_cmd) => {
             let (context, replay_guard) = authenticate(
-                actor_token_stdin,
-                actor_token_file.as_ref(),
-                actor_public_key_file.as_ref(),
-                token_issuer.as_deref(),
-                token_audience.as_deref(),
-                actor_token_max_ttl_secs,
+                auth.actor_token_stdin,
+                auth.actor_token_file.as_ref(),
+                auth.actor_public_key_file.as_ref(),
+                auth.token_issuer.as_deref(),
+                auth.token_audience.as_deref(),
+                auth.actor_token_max_ttl_secs,
             )?;
             match dispatch_cmd.split() {
                 DispatchRequest::Read(cmd) => {
-                    let service = build_read_service(&database_url).await?;
+                    let service = build_read_service(database_url).await?;
                     commands::dispatch::handle_read(cmd, &service, &context).await
                 }
                 DispatchRequest::Mutation(cmd) => {
-                    let service = build_write_service(&database_url).await?;
+                    let service = build_write_service(database_url).await?;
                     commands::dispatch::handle_mutation(cmd, &service, &context, &replay_guard)
                         .await
                 }
             }
+        }
+        Commands::Install(_) | Commands::Methodology { .. } => {
+            unreachable!("handled in run()")
         }
     }
 }
@@ -265,146 +473,5 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read};
-
-    use clap::{CommandFactory, Parser};
-    use tanren_app_services::auth::DEFAULT_ACTOR_TOKEN_MAX_BYTES;
-    use tanren_contract::{CliParseReasonCode, ErrorCode, ErrorDetails};
-
-    use super::actor_token::read_actor_token_from_reader;
-    use super::clap_error::{ALLOWED_ARG_FIELDS, clap_error_to_response};
-    use super::{Cli, into_error_response};
-
-    struct FailingReader;
-
-    impl Read for FailingReader {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Err(IoError::new(
-                IoErrorKind::PermissionDenied,
-                "redacted-test-io-detail",
-            ))
-        }
-    }
-
-    #[test]
-    fn actor_token_stdin_failure_is_generic_and_redacted() {
-        let mut reader = FailingReader;
-        let err = read_actor_token_from_reader(&mut reader).expect_err("read should fail");
-        let response = into_error_response(err);
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert!(response.message.contains("invalid actor token source"));
-        assert!(!response.message.contains("stdin"));
-        assert!(!response.message.contains("PermissionDenied"));
-        assert!(!response.message.contains("redacted-test-io-detail"));
-    }
-
-    #[test]
-    fn actor_token_stdin_overflow_is_generic_and_invalid_input() {
-        let oversized = "x".repeat(DEFAULT_ACTOR_TOKEN_MAX_BYTES + 1);
-        let mut reader = std::io::Cursor::new(oversized);
-        let err = read_actor_token_from_reader(&mut reader).expect_err("oversized input");
-        let response = into_error_response(err);
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert!(response.message.contains("invalid actor token source"));
-    }
-
-    #[test]
-    fn allowed_arg_fields_covers_every_declared_long_flag() {
-        use std::collections::BTreeSet;
-
-        fn collect_longs(cmd: &clap::Command, acc: &mut BTreeSet<String>) {
-            for arg in cmd.get_arguments() {
-                if let Some(long) = arg.get_long() {
-                    acc.insert(long.replace('-', "_"));
-                }
-            }
-            for sub in cmd.get_subcommands() {
-                collect_longs(sub, acc);
-            }
-        }
-
-        let mut declared = BTreeSet::new();
-        collect_longs(&Cli::command(), &mut declared);
-
-        let allowlist: BTreeSet<String> =
-            ALLOWED_ARG_FIELDS.iter().map(|s| (*s).to_owned()).collect();
-
-        for long in &declared {
-            assert!(
-                allowlist.contains(long),
-                "declared flag --{long} is not listed in ALLOWED_ARG_FIELDS"
-            );
-        }
-    }
-
-    #[test]
-    fn missing_required_argument_maps_to_safe_wire_response() {
-        let err = Cli::try_parse_from(["tanren", "dispatch", "create"])
-            .expect_err("missing --project must fail");
-        let response = clap_error_to_response(&err);
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert_eq!(response.message, "invalid cli args");
-        assert!(
-            matches!(
-                &response.details,
-                Some(ErrorDetails::InvalidArgs { reason_code, .. })
-                    if *reason_code == CliParseReasonCode::MissingRequiredArgument
-            ),
-            "expected missing_required_argument details, got {:?}",
-            response.details
-        );
-    }
-
-    #[test]
-    fn invalid_value_does_not_echo_user_input_on_wire() {
-        // User supplies a made-up phase value that also contains a
-        // pretend-secret-shaped token. The wire payload must not
-        // include any of that text.
-        let err = Cli::try_parse_from([
-            "tanren",
-            "dispatch",
-            "create",
-            "--project",
-            "p",
-            "--phase",
-            "sk-super-secret-value",
-            "--cli",
-            "claude",
-            "--branch",
-            "b",
-            "--spec-folder",
-            "s",
-            "--workflow-id",
-            "w",
-        ])
-        .expect_err("invalid --phase value must fail");
-        let response = clap_error_to_response(&err);
-        let json = serde_json::to_string(&response).expect("serialize");
-        assert!(
-            !json.contains("sk-super-secret-value"),
-            "raw user value leaked into wire: {json}"
-        );
-        assert!(
-            !json.contains("super-secret"),
-            "raw user value leaked into wire: {json}"
-        );
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert_eq!(response.message, "invalid cli args");
-    }
-
-    #[test]
-    fn unknown_argument_with_secret_value_is_not_echoed() {
-        let err = Cli::try_parse_from(["tanren", "dispatch", "list", "--secret-value=sk-1234"])
-            .expect_err("unknown --secret-value must fail");
-        let response = clap_error_to_response(&err);
-        let json = serde_json::to_string(&response).expect("serialize");
-        assert!(!json.contains("sk-1234"), "raw secret leaked: {json}");
-        assert!(
-            !json.contains("secret-value"),
-            "unknown flag name not allowlisted must not reach wire: {json}"
-        );
-        assert_eq!(response.code, ErrorCode::InvalidInput);
-        assert_eq!(response.message, "invalid cli args");
-    }
-}
+#[path = "main_tests.rs"]
+mod tests;

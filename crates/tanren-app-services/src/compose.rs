@@ -89,6 +89,60 @@ pub async fn purge_replay_tokens_once(
     service.run_once().await
 }
 
+/// Build a fully-wired [`crate::methodology::MethodologyService`]
+/// over the persistent store. Applies migrations first so downstream
+/// event appends never race a cold database.
+///
+/// Used by both `tanren-cli` methodology subcommands and
+/// `tanren-mcp` so both transports produce byte-identical event
+/// trails against the same store.
+///
+/// # Errors
+/// Returns [`StoreError`] on open/migration failure.
+pub async fn build_methodology_service(
+    database_url: &str,
+) -> Result<crate::methodology::MethodologyService, StoreError> {
+    let store = open_store_for_write(database_url).await?;
+    Ok(crate::methodology::MethodologyService::with_runtime(
+        Arc::new(store),
+        vec![
+            tanren_domain::methodology::task::RequiredGuard::GateChecked,
+            tanren_domain::methodology::task::RequiredGuard::Audited,
+            tanren_domain::methodology::task::RequiredGuard::Adherent,
+        ],
+        None,
+        vec![],
+    ))
+}
+
+/// Like [`build_methodology_service`] but threads the config-driven
+/// `task_complete_requires` list through so the service's guard
+/// convergence logic is driven by the repo's `tanren.yml` rather than
+/// the default `[gate_checked, audited, adherent]`.
+///
+/// # Errors
+/// Returns [`StoreError`] on open/migration failure.
+pub async fn build_methodology_service_with_config(
+    database_url: &str,
+    required_guards: Vec<tanren_domain::methodology::task::RequiredGuard>,
+    phase_events: Option<crate::methodology::service::PhaseEventsRuntime>,
+    standards: Vec<tanren_domain::methodology::standard::Standard>,
+    pillars: Vec<tanren_domain::methodology::pillar::Pillar>,
+    issue_provider: String,
+) -> Result<crate::methodology::MethodologyService, StoreError> {
+    let store = open_store_for_write(database_url).await?;
+    Ok(
+        crate::methodology::MethodologyService::with_runtime_and_pillars_and_issue_provider(
+            Arc::new(store),
+            required_guards,
+            phase_events,
+            standards,
+            pillars,
+            &issue_provider,
+        ),
+    )
+}
+
 /// Spawn a long-running replay-purge loop onto the current tokio
 /// runtime. Intended for the future `tanren-daemon` binary.
 pub fn spawn_replay_purge(

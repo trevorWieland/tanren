@@ -19,6 +19,15 @@ mod m_0008_dispatch_scope_common_tuple_indexes;
 mod m_0009_actor_token_replay;
 mod m_0010_projection_enum_constraints;
 mod m_0011_dispatch_projection_org_id_not_null;
+mod m_0012_methodology_audit_pipeline;
+mod m_0013_methodology_read_indexes;
+mod m_0014_methodology_idempotency_hash_algo;
+mod m_0015_methodology_task_status_projection;
+mod m_0016_methodology_task_projection_snapshot;
+mod m_0017_methodology_spec_lookup_projection;
+mod m_0018_methodology_phase_event_outbox_indexes;
+mod m_0019_methodology_idempotency_reservation_lease;
+mod m_0020_methodology_task_finding_projection;
 
 /// Master migrator for the store. Run against a live
 /// [`sea_orm::DatabaseConnection`] by
@@ -29,7 +38,7 @@ pub(crate) struct Migrator;
 impl Migrator {
     /// Name of the latest expected schema migration.
     pub(crate) const LATEST_MIGRATION_NAME: &'static str =
-        "m_0011_dispatch_projection_org_id_not_null";
+        "m_0020_methodology_task_finding_projection";
 }
 
 #[async_trait::async_trait]
@@ -47,6 +56,15 @@ impl MigratorTrait for Migrator {
             Box::new(m_0009_actor_token_replay::Migration),
             Box::new(m_0010_projection_enum_constraints::Migration),
             Box::new(m_0011_dispatch_projection_org_id_not_null::Migration),
+            Box::new(m_0012_methodology_audit_pipeline::Migration),
+            Box::new(m_0013_methodology_read_indexes::Migration),
+            Box::new(m_0014_methodology_idempotency_hash_algo::Migration),
+            Box::new(m_0015_methodology_task_status_projection::Migration),
+            Box::new(m_0016_methodology_task_projection_snapshot::Migration),
+            Box::new(m_0017_methodology_spec_lookup_projection::Migration),
+            Box::new(m_0018_methodology_phase_event_outbox_indexes::Migration),
+            Box::new(m_0019_methodology_idempotency_reservation_lease::Migration),
+            Box::new(m_0020_methodology_task_finding_projection::Migration),
         ]
     }
 }
@@ -212,7 +230,11 @@ mod tests {
     async fn m0011_down_and_up_round_trip_restores_enforcement() {
         let conn = Database::connect("sqlite::memory:").await.expect("connect");
         Migrator::up(&conn, None).await.expect("up");
-        Migrator::down(&conn, Some(1)).await.expect("down one step");
+        // m_0012..m_0020 now sit above m_0011; roll all ten
+        // back so this test exercises m_0011's `down` behavior.
+        Migrator::down(&conn, Some(10))
+            .await
+            .expect("down ten steps");
 
         conn.execute(Statement::from_string(
             DbBackend::Sqlite,

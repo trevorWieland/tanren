@@ -105,12 +105,56 @@ Implication:
 
 ## 11. Workflow Mechanics in Code, Agent Behavior in Markdown
 
-Workflow mechanics must live in Tanren code. Command markdown defines what an
-agent should do, not how Tanren resolves workflow state.
+Workflow mechanics must live in Tanren code. Command markdown defines
+what an agent should do, not how Tanren resolves workflow state.
 
 Implication:
 
-- issue tracker operations, verification-hook resolution, branch/PR flow, and
-  workflow-target selection belong in code
-- shared command markdown stays provider-agnostic and repo-agnostic
-- installed command files are rendered artifacts, not the workflow engine
+- Issue tracker operations, verification-hook resolution, branch/PR
+  flow, workflow-target selection, task-selection, gate-resolution,
+  issue-provider ownership, publication workflow, and review-reply
+  mechanics all belong in code.
+- Shared command markdown stays provider-agnostic and repo-agnostic;
+  variability lives in `{{DOUBLE_BRACE_UPPER}}` template variables
+  filled install-time.
+- Installed command files are rendered artifacts, not the workflow
+  engine. Destructive-on-reinstall for commands; `preserve_existing`
+  for repo-tailored standards.
+
+## 12. Typed State and Single Philosophy for Artifacts
+
+Every structured artifact the orchestrator consumes or produces —
+tasks, findings, rubric scores, evidence frontmatter, phase outcomes,
+events — is a typed Rust domain value with a serde schema. Markdown
+checkbox parsing, `.agent-status` signal files, and ad-hoc JSON
+scraping are not permitted.
+
+Implication:
+
+- Task state machine is monotonic (`Complete` is terminal) with typed
+  guards; remediation is always a new task with provenance `origin`.
+- Evidence files use YAML frontmatter + markdown body; frontmatter is
+  typed and managed exclusively via tools.
+- Events are the canonical history; projections are the query surface;
+  `phase-events.jsonl` is the committed audit trail.
+
+## 13. Tool-First Schema Enforcement
+
+Agents interact with the orchestrator exclusively through a typed
+tool surface. Schema validation happens at the tool boundary, not in
+postflight. Invalid inputs return actionable typed errors; valid
+structured state cannot be produced by any other path.
+
+Implication:
+
+- All structured mutation (tasks, findings, frontmatter, rubric
+  scores, signposts) goes through the tool catalog. No file-writing
+  shortcuts.
+- Two transports share one service: MCP (primary) and CLI (fallback).
+- Per-phase capability scopes confine sensitive tools
+  (`escalate_to_blocker` → investigate only; `post_reply_directive`
+  → handle-feedback only; `create_task` → shape-spec, investigate,
+  walk-spec reject, resolve-blockers; `create_issue` → triage-audits
+  and handle-feedback out-of-scope items).
+- Tool call failures with `remediation` guidance keep agents
+  recoverable within a session.

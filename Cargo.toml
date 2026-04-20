@@ -96,7 +96,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13", default-features = false, features = [
   "rustls-tls",
   "json",
 ] }
@@ -104,6 +104,36 @@ reqwest = { version = "0.12", default-features = false, features = [
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+globset = "0.4"
+sha2 = "0.11"
+fs2 = "0.4"
+# Evidence frontmatter and install-config files.
+# serde_yaml is formally deprecated upstream but remains the de-facto
+# YAML crate in the Rust ecosystem; no drop-in maintained replacement
+# has stable-API parity as of 2026. Revisit if an audited successor
+# lands.
+serde_yaml = "0.9"
+# TOML config writer for Codex's `.codex/config.toml`.
+toml = "1"
+
+# JSON Schema generation for the tanren.methodology.v1 contract surface.
+# schemars is re-exported by rmcp's `server` feature; pinning it at the
+# workspace level keeps the contract crate's direct use independent of
+# rmcp's version bumps.
+schemars = { version = "1", features = ["chrono04", "uuid1"] }
+
+# Model Context Protocol SDK. License verified via `cargo info rmcp`
+# (Apache-2.0, in deny.toml allowlist) before this dep was added.
+# `server` enables `#[tool_router]`/`#[tool]` macros and the derive
+# path; `transport-io` wires stdio (required by Lane 0.5 scope);
+# `macros` brings the attribute-macro surface; `schemars` re-export
+# ensures contract types produce the JSON Schemas rmcp registers.
+rmcp = { version = "1", features = [
+  "server",
+  "transport-io",
+  "macros",
+  "schemars",
+] }
 
 # Error handling
 thiserror = "2"
@@ -138,15 +168,15 @@ sea-orm-migration = { version = "1.1", features = [
 ] }
 
 # Integration test containers (Postgres)
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["postgres"] }
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
 
 # TUI
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = "0.29"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -155,7 +185,8 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v7", "serde"] }
 
 # JWT verification
-jsonwebtoken = { version = "9", default-features = false, features = [
+jsonwebtoken = { version = "10", default-features = false, features = [
+  "aws_lc_rs",
   "use_pem",
 ] }
 

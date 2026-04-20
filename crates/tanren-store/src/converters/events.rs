@@ -32,6 +32,10 @@ pub(crate) fn envelope_to_active_model(
             context: "events::envelope_to_active_model",
             reason: "schema_version exceeds i32::MAX".to_owned(),
         })?;
+    let spec_id = match &envelope.payload {
+        DomainEvent::Methodology { event } => event.spec_id().map(tanren_domain::SpecId::into_uuid),
+        _ => None,
+    };
 
     Ok(events::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
@@ -40,6 +44,7 @@ pub(crate) fn envelope_to_active_model(
         entity_kind: Set(entity_kind),
         entity_id: Set(entity_id),
         event_type: Set(event_type),
+        spec_id: Set(spec_id),
         schema_version: Set(schema_version),
         payload: Set(payload_value),
     })
@@ -227,7 +232,7 @@ mod tests {
 
     fn unwrap_active<T>(value: ActiveValue<T>) -> T
     where
-        T: Clone + Into<sea_orm::Value> + sea_orm::sea_query::Nullable,
+        T: Into<sea_orm::Value>,
     {
         match value {
             ActiveSet(v) | ActiveUnchanged(v) => v,
@@ -243,6 +248,7 @@ mod tests {
             entity_kind: unwrap_active(active.entity_kind),
             entity_id: unwrap_active(active.entity_id),
             event_type: unwrap_active(active.event_type),
+            spec_id: unwrap_active(active.spec_id),
             schema_version: unwrap_active(active.schema_version),
             payload: unwrap_active(active.payload),
         }

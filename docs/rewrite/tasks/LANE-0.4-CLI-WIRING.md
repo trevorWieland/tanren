@@ -64,7 +64,7 @@ These are mandatory lane-0.4 behaviors for parity/security/stability:
 
 5. **Typed conflict wire codes are deterministic**
    - `invalid_transition` and `contention_conflict` are distinct machine codes.
-   - Generic `conflict` is reserved for uncategorized legacy conflict paths.
+   - Generic `conflict` is reserved for uncategorized compatibility conflict paths.
 
 4. **Step response is enum-typed**
    - Contract `StepResponse` uses enums for step type/status/ready-state/lane.
@@ -274,7 +274,7 @@ consumers counted failures differently.
   mixed with `DispatchFailed`.
 
 This rule must be enforced in the orchestrator — the domain model
-permits both paths by design (so projections can reconstruct legacy
+permits both paths by design (so projections can reconstruct prior
 state) but production emission is single-path.
 
 ### 4. App-Services Layer (`crates/tanren-app-services`)

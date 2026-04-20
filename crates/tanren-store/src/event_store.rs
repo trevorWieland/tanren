@@ -88,6 +88,9 @@ impl Store {
     }
 }
 
+// Methodology-event append helpers live in `methodology::outbox` to
+// keep event_store.rs within the 500-line budget.
+
 #[async_trait]
 impl EventStore for Store {
     async fn query_events(&self, filter: &EventFilter) -> StoreResult<EventQueryResult> {
@@ -227,6 +230,9 @@ fn apply_filters(
     if let Some(entity_kind) = filter.entity_kind {
         query = query.filter(events::Column::EntityKind.eq(entity_kind.to_string()));
     }
+    if let Some(spec_id) = filter.spec_id {
+        query = query.filter(events::Column::SpecId.eq(spec_id.into_uuid()));
+    }
     if let Some(ref event_type) = filter.event_type {
         query = query.filter(events::Column::EventType.eq(event_type.as_str()));
     }
@@ -300,6 +306,11 @@ fn entity_ref_to_id_string(entity_ref: &tanren_domain::EntityRef) -> String {
         tanren_domain::EntityRef::Team(id) => id.into_uuid().to_string(),
         tanren_domain::EntityRef::Project(id) => id.into_uuid().to_string(),
         tanren_domain::EntityRef::ApiKey(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Spec(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Task(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Finding(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Signpost(id) => id.into_uuid().to_string(),
+        tanren_domain::EntityRef::Issue(id) => id.into_uuid().to_string(),
     }
 }
 

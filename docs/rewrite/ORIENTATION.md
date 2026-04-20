@@ -52,11 +52,11 @@ lives in the repo. Follow the links for depth.
 | 0.1  | workspace scaffold | ✅ merged | just tooling, lints, CI |
 | 0.2  | `tanren-domain` | ✅ merged, audit-certified | 164 tests, SeaORM `Value` round-trip verified |
 | 0.3  | `tanren-store` | ✅ merged into `rewrite/tanren-2-foundation` | real store boundary now lives on the foundation branch |
-| 0.4  | `tanren-{contract,policy,orchestrator,app-services,observability}` + `tanren-cli` | 🔵 in progress on `lane-0.4` | full spec + concise brief + audit brief are ready |
-| 0.5  | methodology boundary docs + shared command markdown | 🟡 planned | documents tanren-code vs tanren-markdown ownership before Phase 1 |
+| 0.4  | `tanren-{contract,policy,orchestrator,app-services,observability}` + `tanren-cli` | ✅ merged into `rewrite/tanren-2-foundation` | full dispatch CRUD slice now lives on the foundation branch |
+| 0.5  | methodology boundary + typed task state + agent tool surface + multi-agent install + self-hosting | 🔵 in progress on `lane-0.5` | Phase-0-completing lane: `tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/spec/` + `commands/project/`, rendered `.claude/`/`.codex/`/`.opencode/` |
 
-The first end-to-end milestone lands when 0.3 + 0.4 converge: the CLI
-creates a dispatch, store it, and reads it back via the real store
+The first end-to-end milestone has landed with 0.3 + 0.4 merged: the CLI
+creates a dispatch, stores it, and reads it back via the real store
 implementation.
 
 **Phase 1+ is sketched, not planned in depth.** Stubs exist at:
@@ -92,7 +92,7 @@ Current lane briefs:
 - `LANE-0.2-DOMAIN.md` + `LANE-0.2-BRIEF.md` + `LANE-0.2-AUDIT.md` + `LANE-0.2-AUDIT-FINAL.md`
 - `LANE-0.3-STORE.md` + `LANE-0.3-BRIEF.md` + `LANE-0.3-AUDIT.md`
 - `LANE-0.4-CLI-WIRING.md` + `LANE-0.4-BRIEF.md` + `LANE-0.4-AUDIT.md`
-- `LANE-0.5-METHODOLOGY.md` + `LANE-0.5-BRIEF.md` + `LANE-0.5-AUDIT.md`
+- `LANE-0.5-METHODOLOGY.md` + `LANE-0.5-BRIEF.md` + `LANE-0.5-AUDIT.md` + `LANE-0.5-DESIGN-NOTES.md`
 - `ADDON-SEAORM.md` — delta brief explaining the sqlx→SeaORM shift
 - `README.md` — lane execution order and parallelization strategy
 

@@ -42,8 +42,14 @@ bootstrap:
         exit 1
     fi
 
-    echo "==> Ensuring stable toolchain with components..."
-    rustup show active-toolchain &>/dev/null || rustup default stable
+    expected_toolchain="$(awk -F'\"' '/^channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+    if [[ -z "$expected_toolchain" ]]; then
+        echo "FAIL: unable to resolve pinned toolchain from rust-toolchain.toml"
+        exit 1
+    fi
+    echo "==> Ensuring pinned toolchain ${expected_toolchain} with components..."
+    rustup show active-toolchain &>/dev/null || rustup default "${expected_toolchain}"
+    rustup toolchain install "${expected_toolchain}" >/dev/null 2>&1 || true
     rustup component add rustfmt clippy llvm-tools-preview 2>/dev/null || true
 
     echo "==> Installing cargo-binstall..."
@@ -73,6 +79,7 @@ bootstrap:
         "cargo-deny:cargo-deny"
         "cargo-llvm-cov:cargo-llvm-cov"
         "cargo-machete:cargo-machete"
+        "cargo-upgrade:cargo-edit"
         "cargo-hack:cargo-hack"
         "cargo-insta:cargo-insta"
         "taplo:taplo-cli"
@@ -136,8 +143,73 @@ bootstrap:
 
 # Fetch dependencies and verify build
 install:
-    {{ cargo }} fetch
-    {{ cargo }} build --workspace
+    {{ cargo }} fetch --locked
+    {{ cargo }} build --workspace --locked
+
+# Verify lockfile and manifests are in sync without mutating Cargo.lock
+deps-locked-check:
+    @{{ cargo }} metadata --locked --format-version 1 --no-deps >/dev/null
+
+# Upgrade dependency requirements to latest compatible versions, refresh lockfile, then run full CI
+deps-upgrade:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v cargo-upgrade &>/dev/null; then
+        echo "FAIL: cargo upgrade is unavailable. Install cargo-edit (run 'just bootstrap')." >&2
+        exit 127
+    fi
+    {{ cargo }} upgrade
+    {{ cargo }} update -w
+    just ci
+
+# Upgrade dependency requirements including major versions, refresh lockfile, then run full CI
+deps-upgrade-major:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v cargo-upgrade &>/dev/null; then
+        echo "FAIL: cargo upgrade is unavailable. Install cargo-edit (run 'just bootstrap')." >&2
+        exit 127
+    fi
+    {{ cargo }} upgrade --incompatible
+    {{ cargo }} update -w
+    just ci
+
+# ============================================================================
+# Methodology self-hosting (tanren-repo specific)
+#
+# Dogfoods the methodology installer: renders `commands/` + the
+# bundled baseline standards into the three agent targets and writes
+# the MCP server registration into each agent's config. Adopters need
+# not replicate these recipes — `tanren install` is the single
+# public-facing entry point; these are convenience wrappers over it
+# for local development and CI drift-detection on the tanren repo
+# itself.
+# ============================================================================
+
+# Render the command catalog and standards per `tanren.yml`.
+install-commands:
+    @{{ cargo }} run --quiet -p tanren-cli -- install
+
+# Preview installer writes without mutating files.
+install-commands-dry-run:
+    @{{ cargo }} run --quiet -p tanren-cli -- install --dry-run
+
+# Strict dry-run: fail if rendered artifacts drift from the plan.
+# Wired into `just ci` below so merging a command-source change
+# without re-running `install-commands` fails at PR time.
+#
+# Captures install stdout/stderr so the happy path is silent; on
+# drift (exit 3) or any other failure the full plan + error are
+# replayed to the console for triage.
+install-commands-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    output=$({{ cargo }} run --quiet -p tanren-cli -- install --dry-run --strict 2>&1) && status=0 || status=$?
+    if [[ $status -ne 0 ]]; then
+        echo "$output"
+        echo "FAIL: installer drift — re-run 'just install-commands' and commit the result." >&2
+        exit "$status"
+    fi
 
 # ============================================================================
 # Build
@@ -145,11 +217,12 @@ install:
 
 # Build all workspace crates
 build:
-    @{{ cargo }} build --workspace --quiet
+    @{{ cargo }} build --workspace --locked --quiet
 
 # Type-check all workspace crates
 check:
-    @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet
+    @just deps-locked-check
+    @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet
 
 # ============================================================================
 # Test
@@ -157,11 +230,11 @@ check:
 
 # Run all tests via nextest (pass extra args after --)
 test *args:
-    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks,tanren-orchestrator/test-hooks {{ nextest_quiet_flags }} {{ args }}
+    @{{ cargo }} nextest run --workspace --no-tests=pass --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked {{ nextest_quiet_flags }} {{ args }}
 
 # Generate code coverage report (lcov)
 coverage:
-    @{{ cargo }} llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --lcov --output-path lcov.info --no-tests=pass
+    @{{ cargo }} llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --lcov --output-path lcov.info --no-tests=pass
     @echo "Coverage report: lcov.info"
 
 # ============================================================================
@@ -170,7 +243,7 @@ coverage:
 
 # Run clippy with deny warnings
 lint:
-    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet -- -D warnings
 
 # Glob for Rust workspace TOML files (excludes Python pyproject.toml)
 toml_globs := "Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml lefthook.yml"
@@ -209,7 +282,7 @@ machete:
 
 # Build documentation (warnings are errors)
 doc:
-    @RUSTDOCFLAGS="-D warnings" {{ cargo }} doc --workspace --no-deps --quiet
+    @RUSTDOCFLAGS="-D warnings" {{ cargo }} doc --workspace --no-deps --locked --quiet
 
 # ============================================================================
 # Quality Gates
@@ -339,7 +412,57 @@ check-deps:
 
 # Verify local CI recipes stay aligned with workflow strict rust commands.
 check-ci-parity:
-    @uv run python scripts/check_ci_parity.py
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    uv_bin="$(command -v uv || true)"
+    if [[ -z "$uv_bin" && -x "$HOME/.local/bin/uv" ]]; then
+        uv_bin="$HOME/.local/bin/uv"
+    fi
+    if [[ -z "$uv_bin" ]]; then
+        echo "FAIL: uv not found. Install uv or add it to PATH."
+        exit 127
+    fi
+
+    # Keep cache local when HOME cache is unavailable (sandboxed runs).
+    export UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/.uv-cache}"
+    "$uv_bin" run python scripts/check_ci_parity.py
+
+# Verify active rustc/clippy match the pinned toolchain in rust-toolchain.toml.
+check-rust-toolchain-sync:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    expected="$(awk -F'"' '/^channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+    if [[ -z "${expected:-}" ]]; then
+        echo "FAIL: rust-toolchain.toml missing pinned channel."
+        exit 1
+    fi
+
+    rustc_version="$(rustc -V | awk '{print $2}')"
+    if [[ "$rustc_version" != "$expected" ]]; then
+        echo "FAIL: active rustc is ${rustc_version}, expected ${expected} from rust-toolchain.toml."
+        exit 1
+    fi
+
+    rustc_hash="$(rustc -Vv | awk '$1 == "commit-hash:" {print $2}')"
+    clippy_hash="$(
+        cargo clippy --version \
+            | awk -F'[()]' '{print $2}' \
+            | awk '{print $1}' \
+            | awk '/^[0-9a-f]+$/ {print; exit}'
+    )"
+    if [[ -z "${rustc_hash:-}" || -z "${clippy_hash:-}" ]]; then
+        echo "FAIL: unable to parse rustc/clippy version metadata."
+        exit 1
+    fi
+
+    rustc_short="${rustc_hash:0:10}"
+    if [[ "$clippy_hash" != "$rustc_short" ]]; then
+        echo "FAIL: clippy commit ${clippy_hash} does not match rustc commit ${rustc_short}."
+        exit 1
+    fi
+    echo "Rust toolchain sync check passed (${expected}, ${rustc_short})."
 
 # Prohibit inline lint suppression (#[allow/expect])
 check-suppression:
@@ -384,15 +507,23 @@ clean:
 
 # Run workflow-equivalent strict Rust checks locally.
 ci-rust-strict:
+    @echo "==> Lockfile guard"
+    @just deps-locked-check
+    @echo "==> Toolchain sync"
+    @just check-rust-toolchain-sync
     @echo "==> Clippy"
-    @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings
+    @RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet -- -D warnings
+    @echo "==> Build tanren-mcp for parity tests"
+    @RUSTFLAGS="-D warnings" {{ cargo }} build -p tanren-mcp --locked --quiet
     @echo "==> Workspace tests"
-    @RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --no-tests=pass {{ nextest_quiet_flags }}
+    @target_dir="${CARGO_TARGET_DIR:-target}"; if [[ "$target_dir" = /* ]]; then tanren_mcp_bin="${target_dir}/debug/tanren-mcp"; else tanren_mcp_bin="$PWD/${target_dir}/debug/tanren-mcp"; fi; if [[ ! -x "$tanren_mcp_bin" ]]; then echo "FAIL: tanren-mcp test binary missing at ${tanren_mcp_bin}."; exit 1; fi; RUSTFLAGS="-D warnings" TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --locked --no-tests=pass {{ nextest_quiet_flags }}
     @echo "==> Postgres integration"
     @./scripts/run_postgres_integration.sh
 
 # Run full CI check locally.
 ci:
+    @echo "==> Lockfile guard"
+    @just deps-locked-check
     @echo "==> Format"
     @just fmt
     @echo "==> File length guard"
@@ -411,4 +542,6 @@ ci:
     @just machete
     @echo "==> Strict Rust CI"
     @just ci-rust-strict
+    @echo "==> Installer drift guard"
+    @just install-commands-check
     @echo "==> All CI checks passed!"

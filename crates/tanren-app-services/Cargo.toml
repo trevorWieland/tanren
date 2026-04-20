@@ -7,8 +7,52 @@ license.workspace = true
 publish = false
 description = "Shared application service layer — stable use-case APIs for CLI/API/MCP/TUI"
 
-[lints]
-workspace = true
+[lints.rust]
+warnings = "deny"
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+unimplemented = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Relaxations for the methodology installer + renderer surface:
+# - doc_markdown: installer doc-comments reference `.codex/`, etc. with
+#   dots clippy would want backticked; harder to read at source site.
+# - implicit_hasher: installer signatures take `&HashMap<String, String>`
+#   context maps from callers; the default `RandomState` is the right
+#   fit.
+# - type_complexity: a couple of static tuple arrays carry frontmatter
+#   rows; typedef'ing buries intent.
+# - default_trait_access: `#[serde(flatten)] extras: BTreeMap<..>` uses
+#   `Default::default()` idiomatically.
+# - elidable_lifetime_names, unnecessary_wraps, redundant_slicing,
+#   unnecessary_raw_string_hashes: ergonomic fits for the renderer's
+#   byte-walking loop and docstring-heavy modules.
+doc_markdown = "allow"
+implicit_hasher = "allow"
+type_complexity = "allow"
+default_trait_access = "allow"
+elidable_lifetime_names = "allow"
+unnecessary_wraps = "allow"
+redundant_slicing = "allow"
+needless_raw_string_hashes = "allow"
 
 [dependencies]
 tanren-domain = { path = "../tanren-domain" }
@@ -20,8 +64,17 @@ tanren-observability = { path = "../tanren-observability" }
 uuid.workspace = true
 chrono.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+globset.workspace = true
+sha2.workspace = true
+fs2.workspace = true
+# Evidence + tanren.yml + command-frontmatter parsing.
+serde_yaml.workspace = true
+# Codex MCP config writer (`.codex/config.toml`).
+toml.workspace = true
 jsonwebtoken.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 # `spawn_replay_purge` spawns the long-running purge loop for the
 # future `tanren-daemon` binary; JoinHandle is a tokio primitive.
@@ -29,6 +82,7 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 async-trait.workspace = true
+tempfile = "3"
 # Generates ephemeral Ed25519 keypairs for the actor-token verifier
 # tests. Keeps test private-key material out of source control.
 ed25519-dalek = { workspace = true }

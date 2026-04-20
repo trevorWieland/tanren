@@ -14,46 +14,59 @@ WRAPPER_PATH = Path("scripts/run_postgres_integration.sh")
 
 WORKFLOW_REQUIRED = [
     'RUSTFLAGS: "-D warnings"',
+    'RUST_TOOLCHAIN: "1.94.1"',
+    "toolchain: ${{ env.RUST_TOOLCHAIN }}",
     (
         "cargo clippy --workspace --all-targets "
         "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
-        "-- -D warnings"
+        "--locked -- -D warnings"
     ),
     (
         "cargo nextest run --workspace "
         "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
-        "--profile ci --no-tests=pass"
+        "--profile ci --locked --no-tests=pass"
     ),
+    "Build tanren-mcp for workspace parity tests",
     (
         "cargo nextest run -j1 -p tanren-store --features "
-        "tanren-store/test-hooks,tanren-store/postgres-integration --no-tests=pass"
+        "tanren-store/test-hooks,tanren-store/postgres-integration --locked --no-tests=pass"
     ),
     (
         "cargo nextest run -j1 -p tanren-cli "
-        "--features tanren-cli/postgres-integration --no-tests=pass"
+        "--features tanren-cli/postgres-integration --locked --no-tests=pass"
     ),
+    "cargo build -p tanren-mcp --locked --quiet",
+    "Build tanren-mcp for CLI parity integration tests",
+    "TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp",
+    "Check pinned Rust toolchain sync",
 ]
 
 JUST_REQUIRED = [
+    "deps-locked-check:",
+    "@just deps-locked-check",
+    "check-rust-toolchain-sync:",
+    "@just check-rust-toolchain-sync",
     (
         'RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets '
-        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks --quiet -- -D warnings"
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet -- -D warnings"
     ),
-    (
-        'RUSTFLAGS="-D warnings" {{ cargo }} nextest run --workspace '
-        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
-        "--profile ci --no-tests=pass"
-    ),
+    '{{ cargo }} build -p tanren-mcp --locked --quiet',
+    'RUSTFLAGS="-D warnings" TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace',
+    'TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace',
     "./scripts/run_postgres_integration.sh",
     "check-ci-parity:",
 ]
 
 WRAPPER_REQUIRED = [
+    'RUSTFLAGS="-D warnings" "${CARGO}" build -p tanren-mcp --locked --quiet',
+    'candidate="${PWD}/${target_dir}/debug/tanren-mcp"',
+    'export TANREN_MCP_BIN="${candidate}"',
     (
         '"${CARGO}" nextest run \\\n'
         "            -j1 \\\n"
         "            -p tanren-store \\\n"
         "            --features tanren-store/test-hooks,tanren-store/postgres-integration \\\n"
+        "            --locked \\\n"
         '            "${NEXTEST_QUIET_FLAGS[@]}" \\\n'
         "            --no-tests=pass"
     ),
@@ -62,6 +75,7 @@ WRAPPER_REQUIRED = [
         "            -j1 \\\n"
         "            -p tanren-cli \\\n"
         "            --features tanren-cli/postgres-integration \\\n"
+        "            --locked \\\n"
         '            "${NEXTEST_QUIET_FLAGS[@]}" \\\n'
         "            --no-tests=pass"
     ),

@@ -1,0 +1,87 @@
+# tanren repo self-hosting configuration.
+#
+# Drives `tanren install`, which renders the command catalog in
+# commands/{spec,project}/*.md to each configured agent target and
+# bootstraps tanren/standards/ from the bundled baseline. The
+# tanren-repo dogfoods the very pipeline it ships.
+#
+# Task lifecycle:
+#
+# - `task_complete_requires` lists the guards a task must satisfy
+#   before `TaskCompleted` transitions it to the terminal Complete
+#   state. Lane 0.5 defaults: gate-checked + audited + adherent.
+#
+# Install targets:
+#
+# - Three agent render targets (Claude Code / Codex Skills / OpenCode).
+#   All three produce semantically identical content; format wrappers
+#   differ only (multi-target parity is part of Wave 9's tests).
+# - `tanren/standards` gets the bundled baseline with
+#   preserve_existing, so adopter edits are never overwritten on
+#   reinstall.
+# - `mcp.also_write_configs` adds the MCP-server registration to each
+#   agent's config file using `preserve_other_keys` — existing keys in
+#   those files remain untouched.
+#
+# Variables:
+#
+# - All variables referenced by the command templates must resolve at
+#   install time (non-negotiable #5). Built-in fallbacks exist in the
+#   CLI (`tanren install`); supplying them here lets adopters
+#   override per-repo.
+
+methodology:
+  task_complete_requires: [gate_checked, audited, adherent]
+
+  source:
+    path: commands
+
+  install_targets:
+    - path: .claude/commands
+      format: claude-code
+      binding: mcp
+      merge_policy: destructive
+    - path: .codex/skills
+      format: codex-skills
+      binding: mcp
+      merge_policy: destructive
+    - path: .opencode/commands
+      format: opencode
+      binding: mcp
+      merge_policy: destructive
+    - path: tanren/standards
+      format: standards-baseline
+      binding: none
+      merge_policy: preserve_existing
+
+  mcp:
+    enabled: true
+    transport: stdio
+    also_write_configs:
+      - path: .mcp.json
+        format: claude-mcp-json
+        merge_policy: preserve_other_keys
+      - path: .codex/config.toml
+        format: codex-config-toml
+        merge_policy: preserve_other_keys
+      - path: opencode.json
+        format: opencode-json
+        merge_policy: preserve_other_keys
+
+  variables:
+    task_verification_hook: "just check"
+    spec_verification_hook: "just ci"
+    issue_provider: GitHub
+    project_language: rust
+    spec_root: tanren/specs
+    product_root: tanren/product
+    standards_root: tanren/standards
+    agent_cli_noun: "the agent CLI"
+    task_tool_binding: mcp
+    phase_events_file: phase-events.jsonl
+    readonly_artifact_banner: |
+      ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+      plan.md and progress.json are generated from the typed task store.
+      Postflight reverts unauthorized edits and emits an
+      UnauthorizedArtifactEdit event. Use the typed tool surface
+      (MCP or CLI) to record progress.

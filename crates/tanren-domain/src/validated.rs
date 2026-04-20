@@ -6,13 +6,15 @@
 //! re-runs the same validation — including the `serde_json::Value`
 //! path used by `SeaORM`'s `JsonBinary` columns.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::DomainError;
 
 /// A string guaranteed to be non-empty (and not whitespace-only).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema)]
 #[serde(transparent)]
+#[schemars(transparent)]
 pub struct NonEmptyString(String);
 
 impl NonEmptyString {

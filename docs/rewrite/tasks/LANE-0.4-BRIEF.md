@@ -1,5 +1,11 @@
 # Lane 0.4 — Contract, App-Services, and CLI Skeleton — Agent Brief
 
+> **Out of scope for 0.4 (handled in 0.5):** methodology boundary,
+> typed task lifecycle, agent tool surface (MCP / CLI), shared
+> command refactor, `tanren install`, self-hosting. See
+> [LANE-0.5-BRIEF.md](LANE-0.5-BRIEF.md) and
+> [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md).
+
 ## Task
 
 Implement the first end-to-end vertical slice of Tanren 2.0 across the

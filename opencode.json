@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "tanren": {
+      "args": [
+        "serve"
+      ],
+      "command": "tanren-mcp",
+      "env": {
+        "TANREN_CONFIG": "./tanren.yml"
+      }
+    }
+  }
+}

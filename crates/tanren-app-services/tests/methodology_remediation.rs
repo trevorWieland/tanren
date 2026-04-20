@@ -1,0 +1,440 @@
+//! Integration tests for Lane 0.5 audit-remediation behavior.
+
+use std::sync::Arc;
+
+use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
+use tanren_contract::methodology::CreateTaskParams;
+use tanren_domain::methodology::events::{
+    MethodologyEvent, TaskAdherent, TaskAudited, TaskGateChecked, TaskXChecked,
+};
+use tanren_domain::methodology::phase_id::PhaseId;
+use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin, TaskStatus};
+use tanren_domain::{SpecId, TaskId};
+use tanren_store::Store;
+
+async fn mk_service(required: Vec<RequiredGuard>) -> MethodologyService {
+    let url = "sqlite::memory:?cache=shared";
+    let store = Store::open_and_migrate(url).await.expect("open");
+    let runtime = tanren_app_services::methodology::service::PhaseEventsRuntime {
+        spec_id: SpecId::new(),
+        spec_folder: std::env::temp_dir().join(format!(
+            "tanren-methodology-remediation-{}",
+            uuid::Uuid::now_v7()
+        )),
+        agent_session_id: "test-session".into(),
+    };
+    MethodologyService::with_runtime(Arc::new(store), required, Some(runtime), vec![])
+}
+
+fn admin_scope() -> CapabilityScope {
+    use tanren_domain::methodology::capability::ToolCapability::{
+        FindingAdd, PhaseEscalate, PhaseOutcome, RubricRecord, SignpostAdd, StandardRead,
+        TaskAbandon, TaskComplete, TaskCreate, TaskRead, TaskRevise, TaskStart,
+    };
+    CapabilityScope::from_iter_caps([
+        TaskCreate,
+        TaskStart,
+        TaskComplete,
+        TaskRevise,
+        TaskAbandon,
+        TaskRead,
+        FindingAdd,
+        RubricRecord,
+        SignpostAdd,
+        StandardRead,
+        PhaseOutcome,
+        PhaseEscalate,
+    ])
+}
+
+fn phase(tag: &str) -> PhaseId {
+    PhaseId::try_new(tag).expect("phase")
+}
+
+fn runtime_spec_id(svc: &MethodologyService) -> SpecId {
+    svc.phase_events_runtime().expect("runtime").spec_id
+}
+
+#[path = "methodology_remediation/relevance.rs"]
+mod relevance;
+
+#[tokio::test]
+async fn required_guards_come_from_config_not_hardcoded() {
+    // Two services with different configs; the list_tasks projection
+    // must respect each service's guard set.
+    let default = mk_service(vec![
+        RequiredGuard::GateChecked,
+        RequiredGuard::Audited,
+        RequiredGuard::Adherent,
+    ])
+    .await;
+    let relaxed = mk_service(vec![RequiredGuard::GateChecked]).await;
+    assert_eq!(default.required_guards().len(), 3);
+    assert_eq!(relaxed.required_guards().len(), 1);
+    assert_eq!(relaxed.required_guards()[0], RequiredGuard::GateChecked);
+}
+
+#[tokio::test]
+async fn config_driven_guards_dedup_on_construction() {
+    let svc = mk_service(vec![
+        RequiredGuard::GateChecked,
+        RequiredGuard::GateChecked,
+        RequiredGuard::Audited,
+    ])
+    .await;
+    assert_eq!(svc.required_guards().len(), 2);
+}
+
+#[test]
+fn canonical_guard_name_mapping_is_stable() {
+    let spec = SpecId::new();
+    let tid = TaskId::new();
+    let events = [
+        MethodologyEvent::TaskGateChecked(TaskGateChecked {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: Some("k1".into()),
+        }),
+        MethodologyEvent::TaskAudited(TaskAudited {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: Some("k2".into()),
+        }),
+        MethodologyEvent::TaskAdherent(TaskAdherent {
+            task_id: tid,
+            spec_id: spec,
+            idempotency_key: Some("k3".into()),
+        }),
+        MethodologyEvent::TaskXChecked(TaskXChecked {
+            task_id: tid,
+            spec_id: spec,
+            guard_name: tanren_domain::NonEmptyString::try_new("perf_checked").expect("non-empty"),
+            idempotency_key: Some("k4".into()),
+        }),
+    ];
+    for event in events {
+        let json = serde_json::to_string(&event).expect("serialize");
+        let back: MethodologyEvent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(event, back);
+    }
+}
+
+#[test]
+fn idempotency_key_serializes_and_round_trips() {
+    let ev = TaskGateChecked {
+        task_id: TaskId::new(),
+        spec_id: SpecId::new(),
+        idempotency_key: Some("blake3:abc".into()),
+    };
+    let json = serde_json::to_string(&MethodologyEvent::TaskGateChecked(ev.clone())).expect("ser");
+    assert!(json.contains("idempotency_key"));
+    let back: MethodologyEvent = serde_json::from_str(&json).expect("de");
+    let MethodologyEvent::TaskGateChecked(decoded) = back else {
+        unreachable!("wrong variant after round-trip");
+    };
+    assert_eq!(decoded, ev);
+}
+
+#[test]
+fn idempotency_key_absent_in_json_when_none() {
+    let ev = TaskAudited {
+        task_id: TaskId::new(),
+        spec_id: SpecId::new(),
+        idempotency_key: None,
+    };
+    let json = serde_json::to_string(&MethodologyEvent::TaskAudited(ev)).expect("ser");
+    // skip_serializing_if keeps the wire shape minimal for callers.
+    assert!(
+        !json.contains("idempotency_key"),
+        "expected idempotency_key omitted when None, got: {json}"
+    );
+}
+
+#[tokio::test]
+async fn mark_guard_satisfied_fires_task_completed_when_config_satisfied() {
+    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let resp = svc
+        .create_task(
+            &scope,
+            &phase("do-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "T".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+    svc.start_task(
+        &scope,
+        &phase("do-task"),
+        tanren_contract::methodology::StartTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
+            task_id: resp.task_id,
+        },
+    )
+    .await
+    .expect("start");
+    svc.complete_task(
+        &scope,
+        &phase("do-task"),
+        tanren_contract::methodology::CompleteTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
+            task_id: resp.task_id,
+            evidence_refs: vec![],
+        },
+    )
+    .await
+    .expect("implement");
+    svc.mark_task_guard_satisfied(
+        &scope,
+        &phase("do-task"),
+        resp.task_id,
+        RequiredGuard::GateChecked,
+        Some("test-idem".into()),
+    )
+    .await
+    .expect("mark guard");
+
+    // Re-fold via list_tasks; the task should now be `Complete`.
+    let tasks = svc
+        .list_tasks(
+            &scope,
+            &phase("do-task"),
+            tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: Some(spec_id),
+            },
+        )
+        .await
+        .expect("list");
+    let task = tasks
+        .tasks
+        .iter()
+        .find(|t| t.id == resp.task_id)
+        .expect("task");
+    assert_eq!(task.status, TaskStatus::Complete);
+}
+
+#[tokio::test]
+async fn mark_guard_satisfied_keeps_implemented_when_guard_not_required() {
+    // Service configured to require Audited; firing GateChecked alone
+    // must leave the task at Implemented, not Complete.
+    let svc = mk_service(vec![RequiredGuard::Audited]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let resp = svc
+        .create_task(
+            &scope,
+            &phase("do-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "T".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+    svc.start_task(
+        &scope,
+        &phase("do-task"),
+        tanren_contract::methodology::StartTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
+            task_id: resp.task_id,
+        },
+    )
+    .await
+    .expect("start");
+    svc.complete_task(
+        &scope,
+        &phase("do-task"),
+        tanren_contract::methodology::CompleteTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
+            task_id: resp.task_id,
+            evidence_refs: vec![],
+        },
+    )
+    .await
+    .expect("implement");
+    svc.mark_task_guard_satisfied(
+        &scope,
+        &phase("do-task"),
+        resp.task_id,
+        RequiredGuard::GateChecked,
+        None,
+    )
+    .await
+    .expect("mark non-required");
+
+    let tasks = svc
+        .list_tasks(
+            &scope,
+            &phase("do-task"),
+            tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: Some(spec_id),
+            },
+        )
+        .await
+        .expect("list");
+    let task = tasks
+        .tasks
+        .iter()
+        .find(|t| t.id == resp.task_id)
+        .expect("task");
+    assert!(
+        matches!(task.status, TaskStatus::Implemented { .. }),
+        "expected Implemented, got {:?}",
+        task.status
+    );
+}
+
+#[tokio::test]
+async fn complete_task_with_empty_required_guards_completes_immediately() {
+    let svc = mk_service(vec![]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let resp = svc
+        .create_task(
+            &scope,
+            &phase("do-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "T".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+    svc.start_task(
+        &scope,
+        &phase("do-task"),
+        tanren_contract::methodology::StartTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
+            task_id: resp.task_id,
+        },
+    )
+    .await
+    .expect("start");
+    svc.complete_task(
+        &scope,
+        &phase("do-task"),
+        tanren_contract::methodology::CompleteTaskParams {
+            schema_version: tanren_contract::methodology::SchemaVersion::current(),
+            idempotency_key: None,
+            task_id: resp.task_id,
+            evidence_refs: vec![],
+        },
+    )
+    .await
+    .expect("complete");
+    let tasks = svc
+        .list_tasks(
+            &scope,
+            &phase("do-task"),
+            tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: Some(spec_id),
+            },
+        )
+        .await
+        .expect("list");
+    let task = tasks
+        .tasks
+        .iter()
+        .find(|t| t.id == resp.task_id)
+        .expect("task");
+    assert_eq!(task.status, TaskStatus::Complete);
+}
+
+#[tokio::test]
+async fn list_tasks_without_spec_id_uses_runtime_spec() {
+    let svc = mk_service(vec![RequiredGuard::GateChecked]).await;
+    let scope = admin_scope();
+    let spec_id = runtime_spec_id(&svc);
+    let created = svc
+        .create_task(
+            &scope,
+            &phase("do-task"),
+            CreateTaskParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                idempotency_key: None,
+                spec_id,
+                title: "runtime list".into(),
+                description: String::new(),
+                acceptance_criteria: vec![],
+                depends_on: vec![],
+                parent_task_id: None,
+                origin: TaskOrigin::ShapeSpec,
+            },
+        )
+        .await
+        .expect("create");
+
+    let listed = svc
+        .list_tasks(
+            &scope,
+            &phase("do-task"),
+            tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: None,
+            },
+        )
+        .await
+        .expect("list");
+    assert!(
+        listed.tasks.iter().any(|task| task.id == created.task_id),
+        "list_tasks without explicit spec_id should use runtime bound spec"
+    );
+}
+
+#[tokio::test]
+async fn list_tasks_without_spec_id_and_runtime_is_typed_error() {
+    let store = Arc::new(
+        Store::open_and_migrate("sqlite::memory:?cache=shared")
+            .await
+            .expect("open"),
+    );
+    let svc = MethodologyService::with_runtime(store, vec![], None, vec![]);
+    let err = svc
+        .list_tasks(
+            &admin_scope(),
+            &phase("do-task"),
+            tanren_contract::methodology::ListTasksParams {
+                schema_version: tanren_contract::methodology::SchemaVersion::current(),
+                spec_id: None,
+            },
+        )
+        .await
+        .expect_err("missing runtime and spec_id should fail");
+    assert!(matches!(
+        err,
+        tanren_app_services::methodology::MethodologyError::FieldValidation { ref field_path, .. }
+            if field_path == "/spec_id"
+    ));
+}

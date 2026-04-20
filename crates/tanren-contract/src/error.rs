@@ -329,6 +329,11 @@ fn entity_ref_id(entity: &EntityRef) -> String {
         EntityRef::Team(id) => id.to_string(),
         EntityRef::Project(id) => id.to_string(),
         EntityRef::ApiKey(id) => id.to_string(),
+        EntityRef::Spec(id) => id.to_string(),
+        EntityRef::Task(id) => id.to_string(),
+        EntityRef::Finding(id) => id.to_string(),
+        EntityRef::Signpost(id) => id.to_string(),
+        EntityRef::Issue(id) => id.to_string(),
     }
 }
 

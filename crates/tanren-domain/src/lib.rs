@@ -27,6 +27,7 @@ pub mod events;
 pub mod graph;
 pub mod guards;
 pub mod ids;
+pub mod methodology;
 pub mod payloads;
 pub mod policy;
 pub mod status;
@@ -47,7 +48,8 @@ pub use self::events::{
 pub use self::graph::GraphRevision;
 pub use self::guards::{check_execute_guards, check_teardown_guards};
 pub use self::ids::{
-    ApiKeyId, DispatchId, EventId, LeaseId, OrgId, ProjectId, StepId, TeamId, UserId,
+    ApiKeyId, DispatchId, EventId, FindingId, IssueId, LeaseId, OrgId, ProjectId, SignpostId,
+    SpecId, StepId, TaskId, TeamId, UserId,
 };
 pub use self::payloads::{
     ConfigEnv, ConfigKeys, DispatchSnapshot, DispatchSnapshotRef, DryRunPayload, DryRunResult,
