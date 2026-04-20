@@ -1,0 +1,40 @@
+# Phase 0 Proof Evidence Index
+
+Freshness timestamp: `2026-04-20T00:00:00Z`  
+Generated via: `scripts/proof/phase0/run.sh`  
+BDD source: `docs/rewrite/PHASE0_PROOF_BDD.md`
+
+## Scenario Matrix
+
+| Scenario | Positive witness artifact | Falsification witness artifact | Producer command(s) | Owner | Freshness |
+|---|---|---|---|---|---|
+| 1.1 | `artifacts/phase0-proof/<timestamp>/scenarios/1.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/1.1/falsification/` | `cargo nextest run -p tanren-orchestrator --locked --no-tests=pass create_dispatch_returns_pending_view`<br>`cargo nextest run -p tanren-orchestrator --locked --no-tests=pass finalize_without_running_state_rejected` | orchestrator | 2026-04-20 |
+| 1.2 | `artifacts/phase0-proof/<timestamp>/scenarios/1.2/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/1.2/falsification/` | `cargo nextest run -p tanren-orchestrator --locked --no-tests=pass cancel_already_cancelled_returns_error`<br>`cargo nextest run -p tanren-orchestrator --locked --no-tests=pass cancel_dispatch_transitions_to_cancelled` | orchestrator | 2026-04-20 |
+| 2.1 | `artifacts/phase0-proof/<timestamp>/scenarios/2.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/2.1/falsification/` | `cargo nextest run -p tanren-orchestrator --locked --no-tests=pass create_emits_dispatch_created_and_step_enqueued`<br>`cargo nextest run -p tanren-store --locked --no-tests=pass create_dispatch_replay_rejection_rolls_back_projection_step_and_events` | store+orchestrator | 2026-04-20 |
+| 2.2 | `artifacts/phase0-proof/<timestamp>/scenarios/2.2/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/2.2/falsification/` | `cargo nextest run -p tanren-cli --locked --no-tests=pass replay_round_trips_real_generated_phase_events_file`<br>`cargo nextest run -p tanren-store --locked --no-tests=pass replay_rejects_tool_mismatch` | cli+store | 2026-04-20 |
+| 2.3 | `artifacts/phase0-proof/<timestamp>/scenarios/2.3/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/2.3/falsification/` | `cargo nextest run -p tanren-store --locked --no-tests=pass replay_reports_malformed_line_with_raw_context`<br>`cargo nextest run -p tanren-store --locked --no-tests=pass replay_preserves_line_number_and_raw_for_midstream_malformed_line` | store | 2026-04-20 |
+| 3.1 | `artifacts/phase0-proof/<timestamp>/scenarios/3.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/3.1/falsification/` | `cargo nextest run -p tanren-cli --locked --no-tests=pass sqlite_lifecycle_create_get_list_cancel_is_consistent`<br>`cargo nextest run -p tanren-cli --locked --no-tests=pass cancel_unauthorized_dispatch_is_hidden_as_not_found` | cli | 2026-04-20 |
+| 3.2 | `artifacts/phase0-proof/<timestamp>/scenarios/3.2/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/3.2/falsification/` | `cargo nextest run -p tanren-cli --locked --no-tests=pass token_without_kid_header_is_accepted_with_static_public_key`<br>`cargo nextest run -p tanren-cli --locked --no-tests=pass mutating_commands_consume_replay_and_reject_second_use` | cli-auth | 2026-04-20 |
+| 4.1 | `artifacts/phase0-proof/<timestamp>/scenarios/4.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/4.1/falsification/` | `cargo nextest run -p tanren-app-services --locked --no-tests=pass finalize_emits_unauthorized_edit_and_reverts_file`<br>`cargo nextest run -p tanren-app-services --locked --no-tests=pass finalize_allows_projected_phase_events_appends` | app-services | 2026-04-20 |
+| 4.2 | `artifacts/phase0-proof/<timestamp>/scenarios/4.2/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/4.2/falsification/` | `cargo nextest run -p tanren-app-services --locked --no-tests=pass load_catalog_accepts_extension_namespace`<br>`cargo nextest run -p tanren-app-services --locked --no-tests=pass load_catalog_rejects_unknown_declared_tool` | app-services | 2026-04-20 |
+| 5.1 | `artifacts/phase0-proof/<timestamp>/scenarios/5.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/5.1/falsification/` | `cargo nextest run -p tanren-app-services --locked --no-tests=pass mark_guard_satisfied_fires_task_completed_when_config_satisfied`<br>`cargo nextest run -p tanren-app-services --locked --no-tests=pass mark_guard_satisfied_keeps_implemented_when_guard_not_required` | app-services | 2026-04-20 |
+| 5.2 | `artifacts/phase0-proof/<timestamp>/scenarios/5.2/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/5.2/falsification/` | `cargo nextest run -p tanren-domain --locked --no-tests=pass complete_remains_terminal_under_arbitrary_suffixes`<br>`cargo nextest run -p tanren-domain --locked --no-tests=pass completed_without_all_guards_stays_implemented` | domain | 2026-04-20 |
+| 6.1 | `artifacts/phase0-proof/<timestamp>/scenarios/6.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/6.1/falsification/` | `cargo nextest run -p tanren-cli --locked --no-tests=pass validation_error_returns_exit_4_with_typed_field_path`<br>`cargo nextest run -p tanren-cli --locked --no-tests=pass task_create_then_list_round_trips` | cli-methodology | 2026-04-20 |
+| 6.2 | `artifacts/phase0-proof/<timestamp>/scenarios/6.2/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/6.2/falsification/` | `cargo nextest run -p tanren-cli --locked --no-tests=pass capability_enforcement_denies_when_env_scope_excludes_tool`<br>`cargo nextest run -p tanren-cli --locked --no-tests=pass task_create_then_list_round_trips` | cli-methodology | 2026-04-20 |
+| 6.3 | `artifacts/phase0-proof/<timestamp>/scenarios/6.3/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/6.3/falsification/` | `cargo nextest run -p tanren-cli --locked --no-tests=pass cli_and_mcp_match_full_envelopes_and_phase_event_projection_for_mutation_matrix`<br>`cargo nextest run -p tanren-mcp --locked --no-tests=pass cli_and_mcp_match_invalid_input_rejection_for_full_tool_matrix` | cli+mcp | 2026-04-20 |
+| 7.1 | `artifacts/phase0-proof/<timestamp>/scenarios/7.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/7.1/falsification/` | `cargo nextest run -p tanren-app-services --locked --no-tests=pass plan_install_applies_task_tool_binding_per_target`<br>`cargo nextest run -p tanren-app-services --locked --no-tests=pass empty_plan_has_no_drift` | installer | 2026-04-20 |
+| 7.2 | `artifacts/phase0-proof/<timestamp>/scenarios/7.2/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/7.2/falsification/` | `cargo nextest run -p tanren-app-services --locked --no-tests=pass drift_reports_nested_symlink_as_extra_file_without_following_target`<br>`cargo nextest run -p tanren-cli --locked --no-tests=pass install_strict_dry_run_reports_exact_diff_payload` | installer | 2026-04-20 |
+| 7.3 | `artifacts/phase0-proof/<timestamp>/scenarios/7.3/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/7.3/falsification/` | `cargo nextest run -p tanren-app-services --locked --no-tests=pass command_matrix_semantic_hashes_match_across_all_targets`<br>`cargo nextest run -p tanren-app-services --locked --no-tests=pass load_catalog_rejects_unknown_required_capability` | installer+command-contract | 2026-04-20 |
+| 8.1 | `artifacts/phase0-proof/<timestamp>/scenarios/8.1/positive/` | `artifacts/phase0-proof/<timestamp>/scenarios/8.1/falsification/` | `test -f artifacts/phase0-proof/<timestamp>/manual-walkthrough/summary.json`<br>`cargo nextest run -p tanren-cli --locked --no-tests=pass ingest_phase_events_strict_provenance_rejects_legacy_lines` | methodology-runtime | 2026-04-20 |
+
+## Supplemental Packs
+
+- Auth/replay operator pack:
+  - `artifacts/phase0-proof/<timestamp>/auth-replay/summary.json`
+- Replay parity + rollback pack:
+  - `artifacts/phase0-proof/<timestamp>/replay-pack/verdicts/equivalence.json`
+  - `artifacts/phase0-proof/<timestamp>/replay-pack/verdicts/rollback.json`
+- Manual walkthrough runtime pack:
+  - `artifacts/phase0-proof/<timestamp>/manual-walkthrough/summary.json`
+- Committed walkthrough sample:
+  - `docs/rewrite/proof-samples/phase0-manual-walkthrough-2026-04-20/`

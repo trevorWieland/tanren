@@ -53,11 +53,16 @@ lives in the repo. Follow the links for depth.
 | 0.2  | `tanren-domain` | ✅ merged, audit-certified | 164 tests, SeaORM `Value` round-trip verified |
 | 0.3  | `tanren-store` | ✅ merged into `rewrite/tanren-2-foundation` | real store boundary now lives on the foundation branch |
 | 0.4  | `tanren-{contract,policy,orchestrator,app-services,observability}` + `tanren-cli` | ✅ merged into `rewrite/tanren-2-foundation` | full dispatch CRUD slice now lives on the foundation branch |
-| 0.5  | methodology boundary + typed task state + agent tool surface + multi-agent install + self-hosting | 🔵 in progress on `lane-0.5` | Phase-0-completing lane: `tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/spec/` + `commands/project/`, rendered `.claude/`/`.codex/`/`.opencode/` |
+| 0.5  | methodology boundary + typed task state + agent tool surface + multi-agent install + self-hosting | ✅ merged into `rewrite/tanren-2-foundation` | Phase 0 completion lane landed: `tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/spec/` + `commands/project/`, rendered `.claude/`/`.codex/`/`.opencode/` |
 
 The first end-to-end milestone has landed with 0.3 + 0.4 merged: the CLI
 creates a dispatch, stores it, and reads it back via the real store
-implementation.
+implementation. Lane 0.5 is also merged; Phase 0 proof packaging now lives in:
+
+- `docs/rewrite/PHASE0_PROOF_BDD.md`
+- `docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md`
+- `docs/rewrite/PHASE0_PROOF_RUNBOOK.md`
+- `scripts/proof/phase0/run.sh` + `scripts/proof/phase0/verify.sh`
 
 **Phase 1+ is sketched, not planned in depth.** Stubs exist at:
 - `docs/rewrite/tasks/LANE-1.1-HARNESS.md` — harness contract + output redaction

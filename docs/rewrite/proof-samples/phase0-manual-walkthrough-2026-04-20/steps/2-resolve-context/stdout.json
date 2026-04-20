@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "tasks": [
+    {
+      "id": "019dad0f-4395-7d71-956b-e825545afd4f",
+      "spec_id": "00000000-0000-0000-0000-0000000008a1",
+      "title": "Draft proof closure plan",
+      "description": "Create deterministic proof harness and docs.",
+      "acceptance_criteria": [],
+      "origin": {
+        "kind": "user"
+      },
+      "status": {
+        "state": "pending"
+      },
+      "parent_task_id": null,
+      "created_at": "2026-04-20T22:42:31.957712Z",
+      "updated_at": "2026-04-20T22:42:31.957712Z"
+    }
+  ]
+}

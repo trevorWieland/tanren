@@ -10,7 +10,7 @@
 | 0.2 | `tanren-domain` | ✅ merged, audit-certified | canonical domain model frozen for downstream lanes |
 | 0.3 | `tanren-store` | ✅ merged | foundation now carries the real store boundary |
 | 0.4 | `tanren-contract`, `tanren-policy`, `tanren-orchestrator`, `tanren-app-services`, `tanren-observability`, `tanren-cli` | ✅ merged | dispatch CRUD slice merged into `rewrite/tanren-2-foundation` |
-| 0.5 | methodology boundary docs + shared command markdown | 🔵 in progress on `lane-0.5` | separates tanren-code workflow mechanics from tanren-markdown agent behavior |
+| 0.5 | methodology boundary docs + shared command markdown | ✅ merged | separates tanren-code workflow mechanics from tanren-markdown agent behavior |
 
 ### Execution Order
 
@@ -22,7 +22,7 @@ Lane 0.2 (Domain Model) ✅ merged
          │
          ├────────────────────┬────────────────────┐
          ▼                    ▼                    ▼
-Lane 0.3 (Store Core) ✅ merged   Lane 0.4 (Contract + CLI Wiring) ✅ merged   Lane 0.5 (Methodology Boundary) 🔵 in progress
+Lane 0.3 (Store Core) ✅ merged   Lane 0.4 (Contract + CLI Wiring) ✅ merged   Lane 0.5 (Methodology Boundary) ✅ merged
          │                    │                    │
          └────────┬───────────┴───────────┬────────┘
                   ▼                       ▼
@@ -37,7 +37,7 @@ Lane 0.3 (Store Core) ✅ merged   Lane 0.4 (Contract + CLI Wiring) ✅ merged  
 | 0.2 | `tanren-domain` | 0.1 | ✅ merged, audit-certified | [LANE-0.2-DOMAIN.md](LANE-0.2-DOMAIN.md) |
 | 0.3 | `tanren-store` | 0.2 | ✅ merged | [LANE-0.3-STORE.md](LANE-0.3-STORE.md) |
 | 0.4 | `tanren-contract`, `tanren-policy`, `tanren-orchestrator`, `tanren-app-services`, `tanren-observability`, `tanren-cli` | 0.2 | ✅ merged | [LANE-0.4-CLI-WIRING.md](LANE-0.4-CLI-WIRING.md) |
-| 0.5 | methodology boundary, typed task state, agent tool surface, multi-agent install, self-hosting (`tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/`) | 0.2, 0.3, 0.4 | 🔵 in progress on `lane-0.5` | [LANE-0.5-BRIEF.md](LANE-0.5-BRIEF.md) · [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md) |
+| 0.5 | methodology boundary, typed task state, agent tool surface, multi-agent install, self-hosting (`tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/`) | 0.2, 0.3, 0.4 | ✅ merged | [LANE-0.5-BRIEF.md](LANE-0.5-BRIEF.md) · [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md) |
 
 ### First Milestone Exit Criteria
 
@@ -62,7 +62,16 @@ Dispatch rules:
 - Audit agents for the current lane get `LANE-0.5-AUDIT.md` plus `LANE-0.5-DESIGN-NOTES.md`
 - Lane 0.5 scope is Phase-0 completion (methodology + typed task state + tool surface + install + self-hosting); it does not widen into Phase 1 harness/environment runtime work
 
-Integration happens when both lanes merge: the CLI binary connects to the real store.
+Integration happened at the Phase 0 boundary: the CLI binary connects to the real store and the methodology/tool-surface lane is merged.
+
+### Phase 0 Proof Closure
+
+Phase 0 proof closure is now tracked and reproducible via:
+
+- [../PHASE0_PROOF_BDD.md](../PHASE0_PROOF_BDD.md)
+- [../PHASE0_PROOF_EVIDENCE_INDEX.md](../PHASE0_PROOF_EVIDENCE_INDEX.md)
+- [../PHASE0_PROOF_RUNBOOK.md](../PHASE0_PROOF_RUNBOOK.md)
+- `scripts/proof/phase0/run.sh` and `scripts/proof/phase0/verify.sh`
 
 ## Future Phases
 
