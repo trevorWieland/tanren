@@ -30,8 +30,8 @@ pub use capability::{
 pub use conformance::{
     ConformanceEventRecorder, ConformanceResult, RedactionConformanceExpectations,
     assert_capability_denial_is_preflight, assert_failure_classification,
-    assert_provider_metadata_fail_closed, assert_redaction_before_persistence,
-    assert_terminal_typed_code_mapping,
+    assert_failure_path_leak_detected, assert_provider_metadata_fail_closed,
+    assert_redaction_before_persistence, assert_terminal_typed_code_mapping,
 };
 pub use execution::{
     HarnessExecutionRequest, HarnessExecutionResult, PersistableOutput, RawExecutionOutput,
@@ -40,10 +40,13 @@ pub use execution::{
 pub use failure::{
     AuditProviderFailureCode, AuditProviderFailureContext, HarnessFailure, HarnessFailureClass,
     ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier,
-    ProviderIdentifierError, classify_provider_failure, classify_provider_failure_for_audit,
+    ProviderIdentifierError, ProviderRunId, ProviderRunIdError, classify_provider_failure,
+    classify_provider_failure_for_audit,
 };
 pub use redaction::{
-    DefaultOutputRedactor, OutputRedactor, RedactionAudit, RedactionError, RedactionHints,
-    RedactionOutcome, RedactionPolicy, RedactionPolicyBuilder, RedactionPolicyError,
-    default_redaction_policy, default_redaction_policy_dataset_version,
+    DefaultOutputRedactor, MAX_REDACTION_HINT_SECRET_BYTES, MAX_REDACTION_HINT_SECRET_COUNT,
+    MAX_REDACTION_HINT_TOTAL_SECRET_BYTES, OutputRedactor, RedactionAudit, RedactionError,
+    RedactionHintBoundsError, RedactionHints, RedactionOutcome, RedactionPolicy,
+    RedactionPolicyBuilder, RedactionPolicyError, default_redaction_policy,
+    default_redaction_policy_dataset_version,
 };

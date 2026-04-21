@@ -3,11 +3,16 @@ use std::fmt;
 
 use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
 
+mod hints;
 pub(crate) mod policy;
 pub(crate) mod policy_dataset;
 pub(crate) mod scanner;
 pub(crate) mod secret_matcher;
 
+pub use self::hints::{
+    MAX_REDACTION_HINT_SECRET_BYTES, MAX_REDACTION_HINT_SECRET_COUNT,
+    MAX_REDACTION_HINT_TOTAL_SECRET_BYTES, RedactionHintBoundsError,
+};
 pub use self::policy::{
     RedactionPolicy, RedactionPolicyBuilder, RedactionPolicyError, default_redaction_policy,
     default_redaction_policy_dataset_version,
@@ -36,6 +41,8 @@ impl fmt::Debug for RedactionHints {
 /// Redaction failure classes.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RedactionError {
+    #[error(transparent)]
+    InvalidHints(#[from] RedactionHintBoundsError),
     #[error("redaction policy violation")]
     PolicyViolation,
 }
@@ -105,6 +112,7 @@ pub trait OutputRedactor: Send + Sync {
 pub struct DefaultOutputRedactor {
     policy: RedactionPolicy,
     normalized_sensitive_key_names: HashSet<String>,
+    token_prefix_matcher: scanner::CompiledTokenPrefixMatcher,
 }
 
 impl Default for DefaultOutputRedactor {
@@ -121,9 +129,12 @@ impl DefaultOutputRedactor {
             .iter()
             .map(|value| value.to_ascii_lowercase())
             .collect();
+        let token_prefix_matcher =
+            scanner::CompiledTokenPrefixMatcher::new(policy.token_prefixes());
         Self {
             policy,
             normalized_sensitive_key_names,
+            token_prefix_matcher,
         }
     }
 
@@ -182,6 +193,9 @@ impl OutputRedactor for DefaultOutputRedactor {
     }
 
     fn has_known_secret_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
+        if hints.validate_bounds().is_err() {
+            return true;
+        }
         let matcher =
             CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len());
         Self::channels(output)
@@ -191,6 +205,9 @@ impl OutputRedactor for DefaultOutputRedactor {
     }
 
     fn has_policy_residual_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
+        if hints.validate_bounds().is_err() {
+            return true;
+        }
         let hint_keys = hints
             .required_secret_names
             .iter()
@@ -200,7 +217,7 @@ impl OutputRedactor for DefaultOutputRedactor {
         let matcher = CompiledChannelMatcher::new(
             &self.normalized_sensitive_key_names,
             &hint_keys,
-            self.policy.token_prefixes(),
+            &self.token_prefix_matcher,
             self.policy.min_token_len(),
             REDACTION_TOKEN,
         );
@@ -218,6 +235,7 @@ impl OutputRedactor for DefaultOutputRedactor {
         output: RawExecutionOutput,
         hints: &RedactionHints,
     ) -> Result<RedactionOutcome, RedactionError> {
+        hints.validate_bounds()?;
         let hint_keys = hints
             .required_secret_names
             .iter()
@@ -227,7 +245,7 @@ impl OutputRedactor for DefaultOutputRedactor {
         let channel_matcher = CompiledChannelMatcher::new(
             &self.normalized_sensitive_key_names,
             &hint_keys,
-            self.policy.token_prefixes(),
+            &self.token_prefix_matcher,
             self.policy.min_token_len(),
             REDACTION_TOKEN,
         );
@@ -283,7 +301,7 @@ impl OutputRedactor for DefaultOutputRedactor {
 struct CompiledChannelMatcher<'a> {
     policy_keys: &'a HashSet<String>,
     hint_keys: &'a HashSet<String>,
-    token_prefix_matcher: scanner::CompiledTokenPrefixMatcher,
+    token_prefix_matcher: &'a scanner::CompiledTokenPrefixMatcher,
     min_token_len: usize,
     redaction_token: &'a str,
 }
@@ -292,14 +310,14 @@ impl<'a> CompiledChannelMatcher<'a> {
     fn new(
         policy_keys: &'a HashSet<String>,
         hint_keys: &'a HashSet<String>,
-        token_prefixes: &[String],
+        token_prefix_matcher: &'a scanner::CompiledTokenPrefixMatcher,
         min_token_len: usize,
         redaction_token: &'a str,
     ) -> Self {
         Self {
             policy_keys,
             hint_keys,
-            token_prefix_matcher: scanner::CompiledTokenPrefixMatcher::new(token_prefixes),
+            token_prefix_matcher,
             min_token_len,
             redaction_token,
         }
@@ -311,7 +329,7 @@ impl<'a> CompiledChannelMatcher<'a> {
             &scanner::ChannelScanConfig {
                 policy_keys: self.policy_keys,
                 hint_keys: self.hint_keys,
-                token_prefix_matcher: &self.token_prefix_matcher,
+                token_prefix_matcher: self.token_prefix_matcher,
                 min_token_len: self.min_token_len,
                 redaction_token: self.redaction_token,
             },

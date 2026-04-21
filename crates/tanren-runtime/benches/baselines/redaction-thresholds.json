@@ -1,10 +1,26 @@
 {
   "unit": "mean_nanoseconds",
+  "max_regression_pct": 10.0,
   "scenarios": {
-    "redaction/large_output": 120000000,
-    "redaction/many_secret_hints": 3000000,
-    "redaction/prefix_density/10": 450000,
-    "redaction/prefix_density/50": 500000,
-    "redaction/prefix_density/200": 900000
+    "redaction/large_output": {
+      "baseline_mean_ns": 47000000,
+      "max_mean_ns": 55000000
+    },
+    "redaction/many_secret_hints": {
+      "baseline_mean_ns": 1200000,
+      "max_mean_ns": 1500000
+    },
+    "redaction/prefix_density/10": {
+      "baseline_mean_ns": 200000,
+      "max_mean_ns": 260000
+    },
+    "redaction/prefix_density/50": {
+      "baseline_mean_ns": 210000,
+      "max_mean_ns": 280000
+    },
+    "redaction/prefix_density/200": {
+      "baseline_mean_ns": 270000,
+      "max_mean_ns": 360000
+    }
   }
 }

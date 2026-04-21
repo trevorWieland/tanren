@@ -65,6 +65,8 @@ execution; parity proof is accepted only in Lane 1.2.
 - `HarnessExecutionRequest` is the provider-agnostic input shape.
 - Secret material in `HarnessExecutionRequest` is carried as secrecy-backed
   values and never serialized.
+- Explicit redaction hints are hard-bounded at contract entry:
+  max count `256`, max per-secret bytes `4096`, max total bytes `65536`.
 - `HarnessAdapter::execute` returns `ExecutionSignal` with raw output and
   provider-native failure payloads (`ProviderFailure`).
 - `execute_with_contract` enforces:
@@ -72,7 +74,7 @@ execution; parity proof is accepted only in Lane 1.2.
   2. sealed adapter execution (contract-only call token)
   3. redaction hints derived from request data (not caller-provided)
   4. contract-owned redaction + single-pass leak audit to `PersistableOutput`
-  5. fail-closed metadata sanitization for `provider_run_id`,
+  5. fail-closed typed metadata sanitization for `provider_run_id`,
      `provider_code`, and `provider_kind`
   6. source-tagged event emission (`contract` vs `adapter`) for conformance-safe
      ordering assertions
@@ -92,6 +94,8 @@ execution; parity proof is accepted only in Lane 1.2.
   telemetry utility for bounded fallback heuristics.
 - `HarnessFailureClass::to_domain_error_class` maps to
   `tanren_domain::ErrorClass` for retry policy consistency.
+- Failure-payload sanitization leaks are surfaced via dedicated contract error
+  `FailurePathRedactionLeakDetected`.
 
 ### Redaction Contract
 
@@ -105,8 +109,9 @@ execution; parity proof is accepted only in Lane 1.2.
   request secrets by the contract wrapper.
 - Redaction matcher coverage includes context-aware short multiline fragments
   and encoded secret variants (URL/base64 forms) derived from known hints.
-- Prefix matching uses a compiled trie and secret matching uses a compiled
-  multi-pattern automaton (Aho-Corasick style) for scalable cardinality.
+- Prefix matching uses a precompiled trie cached on the redactor instance and
+  secret matching uses a compiled multi-pattern automaton (Aho-Corasick style)
+  for scalable cardinality.
 - Redaction is applied to all persistable output channels:
   `gate_output`, `tail_output`, `stderr_tail`.
 
@@ -119,6 +124,7 @@ execution; parity proof is accepted only in Lane 1.2.
 5. Conformance is executable through reusable tests, not prose-only.
 6. Verification for this lane is executed with `just ci` from repo root (`make`-based checks are legacy and non-authoritative for acceptance).
 7. Lane 1.1 audits must score adapter implementation completeness as out-of-scope and defer that criterion to Lane 1.2.
+8. Redaction perf gate enforces both relative regression budget and absolute SLO ceilings.
 
 ## Redaction Minimum Coverage
 
@@ -136,6 +142,7 @@ Lane 1.2 adapter crates must reuse `tanren-runtime` conformance helpers:
 - `assert_capability_denial_is_preflight`
 - `assert_redaction_before_persistence`
 - `assert_failure_classification`
+- `assert_failure_path_leak_detected`
 - `assert_provider_metadata_fail_closed`
 - `assert_terminal_typed_code_mapping`
 

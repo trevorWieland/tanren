@@ -45,6 +45,10 @@ Approval denials are now represented only by reachable states:
 `HarnessExecutionRequest` is the normalized request shape.
 
 - `required_secret_names` is strongly typed (`SecretName`).
+- explicit redaction hint values are hard-bounded:
+  - max secret count: `256`
+  - max per-secret bytes: `4096`
+  - max total bytes: `65536`
 - redaction secret values are in-memory only (`RedactionSecret`) and excluded
   from serialized payloads.
 
@@ -57,6 +61,7 @@ execution:
 4. single-pass redaction audit verdict (known-secret + residual policy)
 5. metadata sanitization and allowlist validation
    (`provider_run_id`, `provider_code`, `provider_kind`, fail-closed)
+   with typed `ProviderRunId` / `ProviderIdentifier` parsing
 6. persistable output release
 
 Adapters must not bypass this wrapper when producing persistable output.
@@ -98,8 +103,8 @@ Policy behavior:
 - encoded secret variant redaction (URL/base64 forms derived from known hints)
 - bounded per-channel persistence with deterministic truncation marker
 - validated immutable policy schema (`RedactionPolicy::try_new` / builder)
-- compiled prefix trie and multi-pattern secret matcher (Aho-Corasick style)
-  for scalable hint/prefix cardinality
+- precompiled prefix trie and multi-pattern secret matcher (Aho-Corasick style)
+  for scalable hint/prefix cardinality and per-call reuse
 
 `RedactionHints` is secret-safe:
 
@@ -135,6 +140,8 @@ Required adapter evidence:
   runtime registry patterns.
 - provider metadata is sanitized and validated under a strict fail-closed policy
   before exposure/persistence.
+- adapter failure payload sanitization emits a dedicated
+  `FailurePathRedactionLeakDetected` contract error on residual leaks.
 - default redaction policy/patterns are sourced from a versioned dataset.
 - test-only customization for contract internals is crate-scoped.
 - `HarnessExecutionEvent` is source-tagged (`contract` vs `adapter`) and adapter

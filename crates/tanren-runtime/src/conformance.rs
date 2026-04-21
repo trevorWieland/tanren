@@ -121,7 +121,7 @@ pub async fn assert_redaction_before_persistence(
 
     assert_event_ordering(recorder.events())?;
 
-    let hints = request.redaction_hints();
+    let hints = request.redaction_hints().map_err(|err| err.to_string())?;
     let channels = [
         result.output.gate_output.as_deref(),
         result.output.tail_output.as_deref(),
@@ -226,6 +226,20 @@ pub fn assert_terminal_typed_code_mapping(
 ) -> Result<(), String> {
     let ctx = ProviderFailureContext::new(typed_code);
     assert_failure_classification(&ctx, expected)
+}
+
+/// Assert that adapter failure payload sanitization reports dedicated leak errors.
+///
+/// # Errors
+/// Returns a message when the error is not the expected failure-path leak variant.
+pub fn assert_failure_path_leak_detected(err: &HarnessContractError) -> Result<(), String> {
+    if matches!(err, HarnessContractError::FailurePathRedactionLeakDetected) {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected FailurePathRedactionLeakDetected, got {err}"
+        ))
+    }
 }
 
 /// Assert that unsafe provider metadata is rejected fail-closed.

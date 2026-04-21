@@ -187,6 +187,63 @@ pub enum ProviderIdentifierError {
     InvalidCharacter,
 }
 
+/// Normalized provider run identifier surfaced on successful execution.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct ProviderRunId(String);
+
+impl ProviderRunId {
+    pub const MAX_LEN: usize = 128;
+
+    /// Build a strict provider run identifier.
+    ///
+    /// # Errors
+    /// Returns [`ProviderRunIdError`] when empty or format-invalid.
+    pub fn try_new(value: impl Into<String>) -> Result<Self, ProviderRunIdError> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(ProviderRunIdError::EmptyOrWhitespace);
+        }
+        if value.len() > Self::MAX_LEN {
+            return Err(ProviderRunIdError::TooLong {
+                max_len: Self::MAX_LEN,
+            });
+        }
+        if !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+        {
+            return Err(ProviderRunIdError::InvalidCharacter);
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderRunId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::try_new(raw).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProviderRunIdError {
+    #[error("provider run id must not be empty")]
+    EmptyOrWhitespace,
+    #[error("provider run id exceeds max length {max_len}")]
+    TooLong { max_len: usize },
+    #[error("provider run id contains unsupported characters")]
+    InvalidCharacter,
+}
+
 /// Normalized context adapters pass for terminal failure classification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderFailureContext {

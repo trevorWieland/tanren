@@ -7,7 +7,9 @@ use tanren_domain::{
 };
 
 use super::*;
-use crate::adapter::{ExecutionSignal, HarnessExecutionEvent, HarnessExecutionEventKind};
+use crate::adapter::{
+    ExecutionSignal, HarnessContractError, HarnessExecutionEvent, HarnessExecutionEventKind,
+};
 use crate::capability::{
     ApprovalMode, HarnessCapabilities, HarnessRequirements, OutputStreaming, PatchApplyRequirement,
     PatchApplySupport, RequirementLevel, SandboxMode, SessionResumeRequirement,
@@ -15,7 +17,7 @@ use crate::capability::{
 };
 use crate::execution::{RawExecutionOutput, RedactionSecret, SecretName};
 use crate::failure::{
-    ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier,
+    ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier, ProviderRunId,
 };
 
 const FULL_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
@@ -83,7 +85,7 @@ impl HarnessAdapter for FullHarnessAdapter {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionSignal {
             output: self.raw_output.clone(),
-            provider_run_id: Some("mock-run".into()),
+            provider_run_id: Some(ProviderRunId::try_new("mock-run").expect("run id")),
             session_resumed: false,
         })
     }
@@ -115,7 +117,7 @@ impl HarnessAdapter for PollutingHarnessAdapter {
         ));
         Ok(ExecutionSignal {
             output: self.raw_output.clone(),
-            provider_run_id: Some("polluting-run".into()),
+            provider_run_id: Some(ProviderRunId::try_new("polluting-run").expect("run id")),
             session_resumed: false,
         })
     }
@@ -159,7 +161,7 @@ impl HarnessAdapter for ToolDeniedHarnessAdapter {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionSignal {
             output: self.raw_output.clone(),
-            provider_run_id: Some("tool-denied-run".into()),
+            provider_run_id: Some(ProviderRunId::try_new("tool-denied-run").expect("run id")),
             session_resumed: false,
         })
     }
@@ -203,7 +205,7 @@ impl HarnessAdapter for LimitedLevelsHarnessAdapter {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionSignal {
             output: self.raw_output.clone(),
-            provider_run_id: Some("levels-limited-run".into()),
+            provider_run_id: Some(ProviderRunId::try_new("levels-limited-run").expect("run id")),
             session_resumed: false,
         })
     }
@@ -232,7 +234,7 @@ impl HarnessAdapter for UnsafeMetadataHarnessAdapter {
     ) -> Result<ExecutionSignal, ProviderFailure> {
         Ok(ExecutionSignal {
             output: self.raw_output.clone(),
-            provider_run_id: Some("run-sk-live-secret".into()),
+            provider_run_id: Some(ProviderRunId::try_new("run-sk-live-secret").expect("run id")),
             session_resumed: false,
         })
     }
@@ -434,6 +436,14 @@ fn conformance_enforces_terminal_typed_code_mapping() {
             HarnessFailureClass::TransportUnavailable,
         )
         .is_ok()
+    );
+}
+
+#[test]
+fn conformance_asserts_dedicated_failure_path_leak_error() {
+    assert!(
+        assert_failure_path_leak_detected(&HarnessContractError::FailurePathRedactionLeakDetected)
+            .is_ok()
     );
 }
 

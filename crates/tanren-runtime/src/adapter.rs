@@ -4,8 +4,10 @@ use std::sync::{Arc, OnceLock};
 
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
-use crate::failure::{HarnessFailure, ProviderFailure, ProviderIdentifier};
-use crate::redaction::{DefaultOutputRedactor, OutputRedactor, RedactionError, RedactionHints};
+use crate::failure::{HarnessFailure, ProviderFailure, ProviderIdentifier, ProviderRunId};
+use crate::redaction::{
+    DefaultOutputRedactor, OutputRedactor, RedactionError, RedactionHintBoundsError, RedactionHints,
+};
 
 /// Events emitted by the contract wrapper and adapters during execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +83,7 @@ impl ContractCallToken {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecutionSignal {
     pub output: RawExecutionOutput,
-    pub provider_run_id: Option<String>,
+    pub provider_run_id: Option<ProviderRunId>,
     pub session_resumed: bool,
 }
 
@@ -173,6 +175,8 @@ pub enum HarnessContractError {
     #[error(transparent)]
     CompatibilityDenied(#[from] CompatibilityDenial),
     #[error(transparent)]
+    InvalidRedactionHints(#[from] RedactionHintBoundsError),
+    #[error(transparent)]
     AdapterFailure(#[from] HarnessFailure),
     #[error("unsafe provider metadata in `{field}`: {violation}")]
     UnsafeProviderMetadata {
@@ -181,6 +185,8 @@ pub enum HarnessContractError {
     },
     #[error(transparent)]
     Redaction(#[from] RedactionError),
+    #[error("redaction leak detected while sanitizing adapter failure payload")]
+    FailurePathRedactionLeakDetected,
     #[error("redaction leak detected in persistable output")]
     RedactionLeakDetected,
 }
@@ -209,7 +215,7 @@ async fn execute_with_contract_internal(
     redactor: &dyn OutputRedactor,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
-    let hints = request.redaction_hints();
+    let hints = request.redaction_hints()?;
     adapter
         .capabilities()
         .ensure_admissible(&request.requirements)
@@ -280,9 +286,7 @@ fn sanitize_provider_failure(
     )
     .map_err(HarnessContractError::Redaction)?;
     if sanitized.audit.has_any_leak() {
-        return Err(HarnessContractError::Redaction(
-            RedactionError::PolicyViolation,
-        ));
+        return Err(HarnessContractError::FailurePathRedactionLeakDetected);
     }
     failure.message = sanitized
         .output
@@ -315,13 +319,7 @@ fn sanitize_provider_identifier(
         return Ok(None);
     };
 
-    let candidate = sanitize_metadata_value(
-        field,
-        raw_identifier.as_str(),
-        ProviderIdentifier::MAX_LEN,
-        redactor,
-        hints,
-    )?;
+    let candidate = sanitize_metadata_value(field, raw_identifier.as_str(), redactor, hints)?;
     let parsed = ProviderIdentifier::try_new(candidate).map_err(|_| {
         HarnessContractError::UnsafeProviderMetadata {
             field,
@@ -332,30 +330,28 @@ fn sanitize_provider_identifier(
 }
 
 fn sanitize_provider_run_id(
-    provider_run_id: Option<String>,
+    provider_run_id: Option<ProviderRunId>,
     redactor: &dyn OutputRedactor,
     hints: &RedactionHints,
-) -> Result<Option<String>, HarnessContractError> {
-    const MAX_PROVIDER_RUN_ID_LEN: usize = 128;
-
+) -> Result<Option<ProviderRunId>, HarnessContractError> {
     let Some(raw_value) = provider_run_id else {
         return Ok(None);
     };
 
-    let candidate = sanitize_metadata_value(
-        "provider_run_id",
-        &raw_value,
-        MAX_PROVIDER_RUN_ID_LEN,
-        redactor,
-        hints,
-    )?;
-    Ok(Some(candidate))
+    let candidate =
+        sanitize_metadata_value("provider_run_id", raw_value.as_str(), redactor, hints)?;
+    let parsed = ProviderRunId::try_new(candidate).map_err(|_| {
+        HarnessContractError::UnsafeProviderMetadata {
+            field: "provider_run_id",
+            violation: ProviderMetadataViolation::InvalidFormat,
+        }
+    })?;
+    Ok(Some(parsed))
 }
 
 fn sanitize_metadata_value(
     field: &'static str,
     raw_value: &str,
-    max_len: usize,
     redactor: &dyn OutputRedactor,
     hints: &RedactionHints,
 ) -> Result<String, HarnessContractError> {
@@ -383,22 +379,7 @@ fn sanitize_metadata_value(
         });
     }
 
-    if !is_valid_provider_metadata_value(&candidate, max_len) {
-        return Err(HarnessContractError::UnsafeProviderMetadata {
-            field,
-            violation: ProviderMetadataViolation::InvalidFormat,
-        });
-    }
-
     Ok(candidate)
-}
-
-fn is_valid_provider_metadata_value(value: &str, max_len: usize) -> bool {
-    !value.is_empty()
-        && value.len() <= max_len
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
 }
 
 fn sanitize_failure_payload(

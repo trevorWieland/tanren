@@ -10,7 +10,7 @@ use crate::capability::{
 };
 use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
 use crate::failure::{
-    ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier,
+    ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier, ProviderRunId,
 };
 use crate::redaction::{OutputRedactor, RedactionError, RedactionHints};
 
@@ -29,7 +29,7 @@ impl HarnessObserver for Recorder {
 struct MockAdapter {
     output: RawExecutionOutput,
     provider_failure: Option<ProviderFailure>,
-    provider_run_id: Option<String>,
+    provider_run_id: Option<ProviderRunId>,
 }
 
 impl MockAdapter {
@@ -225,6 +225,33 @@ async fn emits_expected_event_sequence_for_adapter_failure() {
         .await
         .expect_err("must fail");
     assert!(matches!(err, HarnessContractError::AdapterFailure(_)));
+    assert_eq!(
+        recorder.events,
+        vec![
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::PreflightAccepted),
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::AdapterInvoked)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn emits_dedicated_error_for_failure_path_leak_detection() {
+    let adapter = MockAdapter {
+        output: raw_output(),
+        provider_failure: Some(ProviderFailure::new(
+            ProviderFailureCode::Fatal,
+            "adapter failed with secret",
+        )),
+        provider_run_id: None,
+    };
+    let mut recorder = Recorder::default();
+    let err = execute_with_contract_for_tests(&adapter, &request(), &LeakRedactor, &mut recorder)
+        .await
+        .expect_err("must fail");
+    assert!(matches!(
+        err,
+        HarnessContractError::FailurePathRedactionLeakDetected
+    ));
     assert_eq!(
         recorder.events,
         vec![
@@ -442,58 +469,5 @@ async fn emits_expected_event_sequence_for_policy_residual_leak_detection() {
     );
 }
 
-#[tokio::test]
-async fn preserves_provider_run_id_when_it_is_safe() {
-    let adapter = MockAdapter {
-        output: raw_output(),
-        provider_failure: None,
-        provider_run_id: Some("run_12345:abc.DEF".into()),
-    };
-    let mut recorder = Recorder::default();
-    let result = execute_with_contract(&adapter, &request(), &mut recorder)
-        .await
-        .expect("must succeed");
-    assert_eq!(result.provider_run_id.as_deref(), Some("run_12345:abc.DEF"));
-}
-
-#[tokio::test]
-async fn fails_closed_when_provider_run_id_format_is_invalid() {
-    let adapter = MockAdapter {
-        output: raw_output(),
-        provider_failure: None,
-        provider_run_id: Some("run with spaces".into()),
-    };
-    let mut recorder = Recorder::default();
-    let err = execute_with_contract(&adapter, &request(), &mut recorder)
-        .await
-        .expect_err("must fail closed");
-    assert!(matches!(
-        err,
-        HarnessContractError::UnsafeProviderMetadata {
-            field: "provider_run_id",
-            violation: ProviderMetadataViolation::InvalidFormat
-        }
-    ));
-}
-
-#[tokio::test]
-async fn fails_closed_when_provider_run_id_is_redaction_mutated() {
-    let adapter = MockAdapter {
-        output: raw_output(),
-        provider_failure: None,
-        provider_run_id: Some("run-sk-live-secret".into()),
-    };
-    let mut recorder = Recorder::default();
-    let err = execute_with_contract(&adapter, &request(), &mut recorder)
-        .await
-        .expect_err("must fail closed");
-    assert!(matches!(
-        err,
-        HarnessContractError::UnsafeProviderMetadata {
-            field: "provider_run_id",
-            violation: ProviderMetadataViolation::RedactedOrMutated
-        }
-    ));
-}
-
+mod provider_run_id_tests;
 mod registry_tests;

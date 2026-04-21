@@ -231,8 +231,7 @@ const fn is_secret_token_char(byte: u8) -> bool {
 }
 
 fn add_encoded_variants(secret: &str, min_secret_fragment_len: usize, sink: &mut HashSet<String>) {
-    const MAX_ENCODE_SOURCE_LEN: usize = 64;
-    if secret.len() < min_secret_fragment_len || secret.len() > MAX_ENCODE_SOURCE_LEN {
+    if secret.len() < min_secret_fragment_len {
         return;
     }
 

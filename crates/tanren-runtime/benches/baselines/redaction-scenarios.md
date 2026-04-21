@@ -28,4 +28,7 @@ uv run python scripts/check_redaction_perf.py
 ```
 
 The checker reads Criterion outputs under `target/criterion` and fails when any
-scenario mean exceeds its threshold budget.
+scenario violates either:
+
+1. relative regression budget (`max_regression_pct` from locked baseline mean)
+2. absolute mean ceiling (`max_mean_ns`)

@@ -89,6 +89,15 @@ fn provider_identifier_rejects_whitespace_and_invalid_chars() {
 }
 
 #[test]
+fn provider_run_id_rejects_whitespace_and_invalid_chars() {
+    let empty = ProviderRunId::try_new(" ").expect_err("must reject empty");
+    assert_eq!(empty, ProviderRunIdError::EmptyOrWhitespace);
+    let invalid =
+        ProviderRunId::try_new("bad value").expect_err("space is not an allowed run id character");
+    assert_eq!(invalid, ProviderRunIdError::InvalidCharacter);
+}
+
+#[test]
 fn deserialization_rejects_unknown_typed_code() {
     let payload = serde_json::json!({
         "class": "unknown",

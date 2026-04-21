@@ -294,6 +294,7 @@ proptest! {
         prop_assert!(gate.contains(&marker));
         prop_assert!(!gate.contains(&secret));
     }
+
 }
 
 #[test]

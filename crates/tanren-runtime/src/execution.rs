@@ -8,7 +8,8 @@ use tanren_domain::{
 };
 
 use crate::capability::HarnessRequirements;
-use crate::redaction::RedactionHints;
+use crate::failure::ProviderRunId;
+use crate::redaction::{RedactionHintBoundsError, RedactionHints};
 
 /// In-memory secret material used only for redaction.
 #[derive(Clone)]
@@ -111,19 +112,15 @@ pub struct HarnessExecutionRequest {
 }
 
 impl HarnessExecutionRequest {
-    #[must_use]
-    pub fn redaction_hints(&self) -> RedactionHints {
-        RedactionHints {
-            required_secret_names: self.required_secret_names.clone(),
-            secret_values: self
-                .secret_values_for_redaction
-                .iter()
-                .filter_map(|secret| {
-                    let trimmed = secret.expose().trim();
-                    (!trimmed.is_empty()).then(|| RedactionSecret::from(trimmed))
-                })
-                .collect(),
-        }
+    /// Build validated redaction hints for contract-owned redaction.
+    ///
+    /// # Errors
+    /// Returns [`RedactionHintBoundsError`] when explicit secret hints exceed hard bounds.
+    pub fn redaction_hints(&self) -> Result<RedactionHints, RedactionHintBoundsError> {
+        RedactionHints::try_from_request(
+            self.required_secret_names.clone(),
+            &self.secret_values_for_redaction,
+        )
     }
 }
 
@@ -231,7 +228,7 @@ impl PersistableOutput {
 pub struct HarnessExecutionResult {
     pub output: PersistableOutput,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_run_id: Option<String>,
+    pub provider_run_id: Option<ProviderRunId>,
     #[serde(default)]
     pub session_resumed: bool,
 }
@@ -276,7 +273,7 @@ mod tests {
                 RedactionSecret::from("  "),
             ],
         };
-        let hints = request.redaction_hints();
+        let hints = request.redaction_hints().expect("hints");
         assert_eq!(
             hints.required_secret_names,
             vec![SecretName::try_new("api_token").expect("k")]
@@ -285,6 +282,107 @@ mod tests {
             hints.secret_values,
             vec![RedactionSecret::from("sk-super-secret")]
         );
+    }
+
+    #[test]
+    fn redaction_hints_reject_secret_count_over_limit() {
+        let request = HarnessExecutionRequest {
+            dispatch_id: DispatchId::new(),
+            step_id: StepId::new(),
+            cli: Cli::Codex,
+            phase: Phase::DoTask,
+            timeout_secs: TimeoutSecs::try_new(60).expect("timeout"),
+            working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
+            prompt: "ship it".into(),
+            requirements: HarnessRequirements::default(),
+            required_secret_names: vec![],
+            secret_values_for_redaction: vec![RedactionSecret::from("x"); 257],
+        };
+
+        let err = request
+            .redaction_hints()
+            .expect_err("must reject over-count");
+        assert!(matches!(
+            err,
+            RedactionHintBoundsError::TooManySecrets {
+                max_count: 256,
+                actual_count: 257
+            }
+        ));
+    }
+
+    #[test]
+    fn redaction_hints_reject_oversized_secret_literal() {
+        let request = HarnessExecutionRequest {
+            dispatch_id: DispatchId::new(),
+            step_id: StepId::new(),
+            cli: Cli::Codex,
+            phase: Phase::DoTask,
+            timeout_secs: TimeoutSecs::try_new(60).expect("timeout"),
+            working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
+            prompt: "ship it".into(),
+            requirements: HarnessRequirements::default(),
+            required_secret_names: vec![],
+            secret_values_for_redaction: vec![RedactionSecret::from("x".repeat(4097))],
+        };
+
+        let err = request
+            .redaction_hints()
+            .expect_err("must reject oversize secret");
+        assert!(matches!(
+            err,
+            RedactionHintBoundsError::SecretTooLarge {
+                index: 0,
+                max_bytes: 4096,
+                actual_bytes: 4097
+            }
+        ));
+    }
+
+    #[test]
+    fn redaction_hints_reject_total_secret_bytes_over_limit() {
+        let request = HarnessExecutionRequest {
+            dispatch_id: DispatchId::new(),
+            step_id: StepId::new(),
+            cli: Cli::Codex,
+            phase: Phase::DoTask,
+            timeout_secs: TimeoutSecs::try_new(60).expect("timeout"),
+            working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
+            prompt: "ship it".into(),
+            requirements: HarnessRequirements::default(),
+            required_secret_names: vec![],
+            secret_values_for_redaction: vec![RedactionSecret::from("a".repeat(4096)); 17],
+        };
+
+        let err = request
+            .redaction_hints()
+            .expect_err("must reject total bytes overflow");
+        assert!(matches!(
+            err,
+            RedactionHintBoundsError::TotalBytesExceeded {
+                max_total_bytes: 65536,
+                actual_total_bytes
+            } if actual_total_bytes > 65536
+        ));
+    }
+
+    #[test]
+    fn redaction_hints_accept_boundary_sized_secret_payload() {
+        let request = HarnessExecutionRequest {
+            dispatch_id: DispatchId::new(),
+            step_id: StepId::new(),
+            cli: Cli::Codex,
+            phase: Phase::DoTask,
+            timeout_secs: TimeoutSecs::try_new(60).expect("timeout"),
+            working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
+            prompt: "ship it".into(),
+            requirements: HarnessRequirements::default(),
+            required_secret_names: vec![],
+            secret_values_for_redaction: vec![RedactionSecret::from("a".repeat(4096)); 16],
+        };
+
+        let hints = request.redaction_hints().expect("must accept boundary");
+        assert_eq!(hints.secret_values.len(), 16);
     }
 
     #[test]
