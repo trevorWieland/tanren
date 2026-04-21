@@ -3870,6 +3870,13 @@ dependencies = [
 [[package]]
 name = "tanren-runtime"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "tanren-domain",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "tanren-runtime-docker"
