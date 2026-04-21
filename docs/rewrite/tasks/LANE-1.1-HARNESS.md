@@ -42,6 +42,9 @@ This lane does **not** ship concrete provider adapters.
 - `HarnessRequirements` describes what a dispatch needs.
 - Sandbox and approval requirements support both minimum capability and maximum
   privilege bounds.
+- Approval bounds are dual-axis:
+  - minimum approval uses strictness (`never < on_escalation < on_demand`)
+  - maximum approval uses privilege risk (`on_demand < on_escalation < never`)
 - `ensure_admissible` performs preflight checks and returns typed
   `CompatibilityDenial` when unsupported.
 
@@ -50,20 +53,26 @@ This lane does **not** ship concrete provider adapters.
 - `HarnessExecutionRequest` is the provider-agnostic input shape.
 - Secret material in `HarnessExecutionRequest` is carried as secrecy-backed
   values and never serialized.
-- `HarnessAdapter::execute` returns `ExecutionSignal` with raw output.
+- `HarnessAdapter::execute` returns `ExecutionSignal` with raw output and
+  provider-native failure payloads (`ProviderFailure`).
 - `execute_with_contract` enforces:
   1. preflight capability check
   2. adapter execution
   3. redaction hints derived from request data (not caller-provided)
   4. contract-owned redaction to `PersistableOutput`
-  5. known-secret leak check before persistence
+  5. known-secret + policy residual leak checks before persistence
+  6. source-tagged event emission (`contract` vs `adapter`) for conformance-safe
+     ordering assertions
 
 ### Failure Contract
 
 - `HarnessFailureClass` is the stable failure taxonomy.
+- `HarnessFailure` is constructor-normalized with invariant-safe class/code
+  states; conflicting class/typed-code combinations are rejected at
+  deserialization boundaries.
 - `classify_provider_failure` maps provider-native context into
   `HarnessFailureClass`, preferring typed adapter codes and structured
-  context before text fallback heuristics.
+  context before bounded text fallback heuristics.
 - `HarnessFailureClass::to_domain_error_class` maps to
   `tanren_domain::ErrorClass` for retry policy consistency.
 
@@ -72,6 +81,7 @@ This lane does **not** ship concrete provider adapters.
 - `OutputRedactor` defines redaction behavior; persistence-bound execution uses
   the contract-owned default redactor.
 - `DefaultOutputRedactor` + `RedactionPolicy` provide the shared baseline.
+- Default redaction policy data is sourced from a versioned dataset.
 - `RedactionHints` is an internal capture-time representation derived from
   request secrets by the contract wrapper.
 - Redaction is applied to all persistable output channels:

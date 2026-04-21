@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
-use tanren_domain::FiniteF64;
 
 use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
 
+pub(crate) mod policy_dataset;
 pub(crate) mod scanner;
 
 const REDACTION_TOKEN: &str = "[REDACTED]";
@@ -41,46 +41,36 @@ pub struct RedactionPolicy {
 
 /// Build the default redaction policy for Phase 1 harness adapters.
 #[must_use]
+pub const fn default_redaction_policy_dataset_version() -> &'static str {
+    policy_dataset::DEFAULT_REDACTION_POLICY_DATASET_VERSION
+}
+
+/// Build the default redaction policy for Phase 1 harness adapters.
+#[must_use]
 pub fn default_redaction_policy() -> RedactionPolicy {
+    let dataset = policy_dataset::default_policy_dataset_v1();
     RedactionPolicy {
-        min_token_len: 10,
-        min_secret_fragment_len: 4,
-        sensitive_key_names: vec![
-            "api_key".into(),
-            "api-token".into(),
-            "api_token".into(),
-            "auth_token".into(),
-            "access_token".into(),
-            "refresh_token".into(),
-            "session_token".into(),
-            "authorization".into(),
-            "bearer".into(),
-            "cookie".into(),
-            "set-cookie".into(),
-            "password".into(),
-            "secret".into(),
-            "private_key".into(),
-            "aws_access_key_id".into(),
-            "aws_secret_access_key".into(),
-            "x-api-key".into(),
-        ],
-        token_prefixes: vec![
-            "sk-".into(),
-            "ghp_".into(),
-            "gho_".into(),
-            "xoxb-".into(),
-            "xoxp-".into(),
-            "AKIA".into(),
-        ],
-        max_persistable_channel_bytes: 512 * 1024,
+        min_token_len: dataset.min_token_len,
+        min_secret_fragment_len: dataset.min_secret_fragment_len,
+        sensitive_key_names: dataset
+            .sensitive_key_names
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        token_prefixes: dataset
+            .token_prefixes
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        max_persistable_channel_bytes: dataset.max_persistable_channel_bytes,
     }
 }
 
 /// Redaction failure classes.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RedactionError {
-    #[error("execution duration is non-finite")]
-    InvalidDuration,
+    #[error("redaction policy violation")]
+    PolicyViolation,
 }
 
 /// Redacts raw harness output into persistable output.
@@ -98,6 +88,10 @@ pub trait OutputRedactor: Send + Sync {
     /// Detect whether the normalized output still leaks known secret values.
     #[must_use]
     fn has_known_secret_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool;
+
+    /// Detect whether normalized output still contains policy-defined secret patterns.
+    #[must_use]
+    fn has_policy_residual_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool;
 }
 
 /// Default policy-driven output redactor.
@@ -129,66 +123,39 @@ impl DefaultOutputRedactor {
 
     fn redact_text(&self, input: Option<String>, hints: &RedactionHints) -> Option<String> {
         input.map(|value| {
-            let mut out =
-                truncate_for_persistence(value, self.policy.max_persistable_channel_bytes);
-            out = self.redact_structured_key_values(out, hints);
-            out = self.redact_bearer_tokens(out);
-            out = self.redact_prefixed_tokens(out);
-            out = self.redact_explicit_secret_values(out, hints);
-            out
-        })
-    }
+            let out = truncate_for_persistence(value, self.policy.max_persistable_channel_bytes);
+            let hint_key_names = hints
+                .required_secret_names
+                .iter()
+                .map(SecretName::as_str)
+                .map(str::to_owned)
+                .collect::<HashSet<_>>();
 
-    fn redact_structured_key_values(&self, input: String, hints: &RedactionHints) -> String {
-        let hint_key_names = hints
-            .required_secret_names
-            .iter()
-            .map(SecretName::as_str)
-            .map(str::to_owned)
-            .collect::<HashSet<_>>();
-
-        let mut out = String::with_capacity(input.len());
-        for line in input.split_inclusive('\n') {
-            let redacted_line = redact_assignments_for_keys(
-                line,
+            let mut ranges = scanner::collect_assignment_value_ranges(
+                &out,
                 &self.normalized_sensitive_key_names,
                 &hint_key_names,
+                REDACTION_TOKEN,
             );
-            out.push_str(&redacted_line);
-        }
+            ranges.extend(scanner::collect_bearer_token_ranges(
+                &out,
+                self.policy.min_token_len,
+                REDACTION_TOKEN,
+            ));
+            ranges.extend(scanner::collect_prefixed_token_ranges(
+                &out,
+                &self.policy.token_prefixes,
+                self.policy.min_token_len,
+                REDACTION_TOKEN,
+            ));
+            ranges.extend(collect_explicit_secret_ranges(
+                &out,
+                hints,
+                self.policy.min_secret_fragment_len,
+            ));
 
-        if out.is_empty() { input } else { out }
-    }
-
-    fn redact_bearer_tokens(&self, input: String) -> String {
-        redact_keyword_token(input, "bearer ", self.policy.min_token_len)
-    }
-
-    fn redact_prefixed_tokens(&self, input: String) -> String {
-        let mut out = input;
-        for prefix in &self.policy.token_prefixes {
-            out = redact_prefixed_token(out, prefix, self.policy.min_token_len);
-        }
-        out
-    }
-
-    fn redact_explicit_secret_values(&self, input: String, hints: &RedactionHints) -> String {
-        let mut out = input;
-        for secret in &hints.secret_values {
-            let value = secret.expose();
-            if value.trim().is_empty() {
-                continue;
-            }
-            out = out.replace(value, REDACTION_TOKEN);
-            if value.contains('\n') {
-                for fragment in value.lines() {
-                    if fragment.trim().len() >= self.policy.min_secret_fragment_len {
-                        out = out.replace(fragment.trim(), REDACTION_TOKEN);
-                    }
-                }
-            }
-        }
-        out
+            apply_redaction_ranges(out, ranges)
+        })
     }
 
     fn any_field_contains_secret(output: &PersistableOutput, secret: &str) -> bool {
@@ -205,6 +172,14 @@ impl DefaultOutputRedactor {
                 .as_deref()
                 .is_some_and(|v| v.contains(secret))
     }
+
+    fn channels(output: &PersistableOutput) -> [Option<&str>; 3] {
+        [
+            output.gate_output.as_deref(),
+            output.tail_output.as_deref(),
+            output.stderr_tail.as_deref(),
+        ]
+    }
 }
 
 impl OutputRedactor for DefaultOutputRedactor {
@@ -213,13 +188,11 @@ impl OutputRedactor for DefaultOutputRedactor {
         output: RawExecutionOutput,
         hints: &RedactionHints,
     ) -> Result<PersistableOutput, RedactionError> {
-        let duration_secs = FiniteF64::try_new(output.duration_secs)
-            .map_err(|_| RedactionError::InvalidDuration)?;
         Ok(PersistableOutput {
             outcome: output.outcome,
             signal: output.signal,
             exit_code: output.exit_code,
-            duration_secs,
+            duration_secs: output.duration_secs,
             gate_output: self.redact_text(output.gate_output, hints),
             tail_output: self.redact_text(output.tail_output, hints),
             stderr_tail: self.redact_text(output.stderr_tail, hints),
@@ -253,133 +226,110 @@ impl OutputRedactor for DefaultOutputRedactor {
         }
         false
     }
-}
 
-fn redact_assignments_for_keys(
-    line: &str,
-    policy_keys: &HashSet<String>,
-    hint_keys: &HashSet<String>,
-) -> String {
-    let bytes = line.as_bytes();
-    let mut ranges: Vec<(usize, usize)> = Vec::new();
-    let mut cursor = 0;
+    fn has_policy_residual_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
+        let hint_keys = hints
+            .required_secret_names
+            .iter()
+            .map(SecretName::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
 
-    while cursor < bytes.len() {
-        if !is_key_start(bytes[cursor]) {
-            cursor += 1;
-            continue;
-        }
-
-        let key_start = cursor;
-        cursor += 1;
-        while cursor < bytes.len() && is_key_char(bytes[cursor]) {
-            cursor += 1;
-        }
-        let key_end = cursor;
-
-        let mut value_cursor = cursor;
-        while value_cursor < bytes.len() && bytes[value_cursor].is_ascii_whitespace() {
-            value_cursor += 1;
-        }
-        if value_cursor >= bytes.len() || !matches!(bytes[value_cursor], b'=' | b':') {
-            continue;
-        }
-
-        let key = line[key_start..key_end].to_ascii_lowercase();
-        let is_sensitive = policy_keys.contains(&key) || hint_keys.contains(&key);
-
-        value_cursor += 1;
-        while value_cursor < bytes.len() && bytes[value_cursor].is_ascii_whitespace() {
-            value_cursor += 1;
-        }
-        if value_cursor >= bytes.len() {
-            break;
-        }
-
-        let (value_start, value_end) = if matches!(bytes[value_cursor], b'"' | b'\'') {
-            let quoted_end =
-                scanner::find_quoted_value_end(line, value_cursor).unwrap_or(line.len());
-            (value_cursor.saturating_add(1), quoted_end)
-        } else {
-            (
-                value_cursor,
-                scanner::find_unquoted_value_end(line, value_cursor),
-            )
-        };
-
-        if is_sensitive
-            && value_start < value_end
-            && &line[value_start..value_end] != REDACTION_TOKEN
-        {
-            ranges.push((value_start, value_end));
-        }
-
-        cursor = value_end.saturating_add(1);
-    }
-
-    if ranges.is_empty() {
-        return line.to_owned();
-    }
-
-    let mut out = line.to_owned();
-    for (start, end) in ranges.into_iter().rev() {
-        out.replace_range(start..end, REDACTION_TOKEN);
-    }
-    out
-}
-
-const fn is_key_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
-}
-
-const fn is_key_char(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
-}
-
-fn redact_keyword_token(mut value: String, keyword: &str, min_token_len: usize) -> String {
-    let mut search_from = 0;
-    loop {
-        let Some(index) = scanner::find_ascii_case_insensitive(&value, keyword, search_from) else {
-            return value;
-        };
-
-        let token_start = index + keyword.len();
-        let token_end = scanner::find_unquoted_value_end(&value, token_start);
-        if token_end.saturating_sub(token_start) < min_token_len {
-            search_from = token_end.saturating_add(1);
-            continue;
-        }
-        if &value[token_start..token_end] != REDACTION_TOKEN {
-            value.replace_range(token_start..token_end, REDACTION_TOKEN);
-        }
-        search_from = token_start.saturating_add(REDACTION_TOKEN.len());
-    }
-}
-
-fn redact_prefixed_token(mut value: String, prefix: &str, min_token_len: usize) -> String {
-    let mut search_from = 0;
-    loop {
-        let Some(start) = scanner::find_ascii_case_insensitive(&value, prefix, search_from) else {
-            return value;
-        };
-        let mut end = start + prefix.len();
-        let bytes = value.as_bytes();
-        while end < bytes.len() {
-            let ch = bytes[end];
-            if !(ch.is_ascii_alphanumeric() || matches!(ch, b'-' | b'_' | b'/' | b'+' | b'=')) {
-                break;
+        for channel in Self::channels(output).iter().flatten() {
+            for key in &self.policy.sensitive_key_names {
+                if scanner::contains_unredacted_assignment(channel, key, REDACTION_TOKEN) {
+                    return true;
+                }
             }
-            end += 1;
+            for key in &hint_keys {
+                if scanner::contains_unredacted_assignment(channel, key, REDACTION_TOKEN) {
+                    return true;
+                }
+            }
+            if scanner::contains_unredacted_bearer_token(
+                channel,
+                self.policy.min_token_len,
+                REDACTION_TOKEN,
+            ) {
+                return true;
+            }
+            for prefix in &self.policy.token_prefixes {
+                if scanner::contains_unredacted_prefixed_token(
+                    channel,
+                    prefix,
+                    self.policy.min_token_len,
+                    REDACTION_TOKEN,
+                ) {
+                    return true;
+                }
+            }
         }
-        if end.saturating_sub(start) < min_token_len {
-            search_from = end.saturating_add(1);
+        false
+    }
+}
+
+fn collect_explicit_secret_ranges(
+    text: &str,
+    hints: &RedactionHints,
+    min_secret_fragment_len: usize,
+) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    for secret in &hints.secret_values {
+        let value = secret.expose();
+        if value.trim().is_empty() {
             continue;
         }
-        if &value[start..end] != REDACTION_TOKEN {
-            value.replace_range(start..end, REDACTION_TOKEN);
+        ranges.extend(collect_literal_ranges(text, value));
+        if value.contains('\n') {
+            for fragment in value.lines() {
+                let trimmed = fragment.trim();
+                if trimmed.len() >= min_secret_fragment_len {
+                    ranges.extend(collect_literal_ranges(text, trimmed));
+                }
+            }
         }
-        search_from = start.saturating_add(REDACTION_TOKEN.len());
     }
+    ranges
+}
+
+fn collect_literal_ranges(haystack: &str, needle: &str) -> Vec<(usize, usize)> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut search_from = 0;
+    while let Some(found) = haystack[search_from..].find(needle) {
+        let start = search_from + found;
+        let end = start + needle.len();
+        ranges.push((start, end));
+        search_from = end;
+    }
+    ranges
+}
+
+fn apply_redaction_ranges(mut text: String, mut ranges: Vec<(usize, usize)>) -> String {
+    if ranges.is_empty() {
+        return text;
+    }
+
+    ranges.sort_unstable_by_key(|(start, _)| *start);
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        if let Some((_, prev_end)) = merged.last_mut()
+            && start <= *prev_end
+        {
+            *prev_end = (*prev_end).max(end);
+            continue;
+        }
+        merged.push((start, end));
+    }
+
+    for (start, end) in merged.into_iter().rev() {
+        if start < end && end <= text.len() {
+            text.replace_range(start..end, REDACTION_TOKEN);
+        }
+    }
+    text
 }
 
 fn truncate_for_persistence(mut input: String, max_bytes: usize) -> String {

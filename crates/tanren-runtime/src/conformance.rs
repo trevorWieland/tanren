@@ -1,6 +1,6 @@
 use crate::adapter::{
-    HarnessAdapter, HarnessContractError, HarnessExecutionEvent, HarnessObserver,
-    execute_with_contract,
+    HarnessAdapter, HarnessContractError, HarnessEventSource, HarnessExecutionEvent,
+    HarnessExecutionEventKind, HarnessObserver, execute_with_contract,
 };
 use crate::execution::HarnessExecutionRequest;
 use crate::failure::{HarnessFailureClass, ProviderFailureContext, classify_provider_failure};
@@ -54,11 +54,10 @@ pub async fn assert_capability_denial_is_preflight(
         HarnessContractError::CompatibilityDenied(_) => {}
         other => return Err(format!("expected compatibility denial, got {other}")),
     }
-    if recorder
-        .events()
-        .iter()
-        .any(|event| matches!(event, HarnessExecutionEvent::AdapterInvoked))
-    {
+    if recorder.events().iter().any(|event| {
+        event.source == HarnessEventSource::Contract
+            && matches!(event.kind, HarnessExecutionEventKind::AdapterInvoked)
+    }) {
         return Err("adapter was invoked despite capability denial".into());
     }
     Ok(ConformanceResult {
@@ -133,7 +132,6 @@ pub async fn assert_redaction_before_persistence(
             ));
         }
     }
-
     for fragment in &expectations.required_absent_fragments {
         if channels
             .iter()
@@ -181,17 +179,23 @@ pub fn assert_failure_classification(
 
 fn assert_event_ordering(events: &[HarnessExecutionEvent]) -> Result<(), String> {
     let accepted = event_index(events, |event| {
-        matches!(event, HarnessExecutionEvent::PreflightAccepted)
+        event.source == HarnessEventSource::Contract
+            && matches!(event.kind, HarnessExecutionEventKind::PreflightAccepted)
     })
     .ok_or_else(|| "missing PreflightAccepted event".to_string())?;
 
     let invoked = event_index(events, |event| {
-        matches!(event, HarnessExecutionEvent::AdapterInvoked)
+        event.source == HarnessEventSource::Contract
+            && matches!(event.kind, HarnessExecutionEventKind::AdapterInvoked)
     })
     .ok_or_else(|| "missing AdapterInvoked event".to_string())?;
 
     let persistable = event_index(events, |event| {
-        matches!(event, HarnessExecutionEvent::PersistableOutputReady)
+        event.source == HarnessEventSource::Contract
+            && matches!(
+                event.kind,
+                HarnessExecutionEventKind::PersistableOutputReady
+            )
     })
     .ok_or_else(|| "missing PersistableOutputReady event".to_string())?;
 

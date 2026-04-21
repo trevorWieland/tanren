@@ -24,6 +24,9 @@ least-privilege bounds:
 
 - capability minimums (for required features)
 - privilege maximums (for sandbox/approval ceilings)
+- dual approval ordering:
+  - minimum approval uses strictness (`never < on_escalation < on_demand`)
+  - maximum approval uses privilege risk (`on_demand < on_escalation < never`)
 
 `ensure_admissible` performs preflight checks and returns typed
 `CompatibilityDenialKind` before side effects.
@@ -42,7 +45,7 @@ execution:
 1. capability preflight
 2. adapter invocation
 3. contract-owned redaction (not caller-injected)
-4. known-secret leak check
+4. known-secret + policy residual leak checks
 5. persistable output release
 
 Adapters must not bypass this wrapper when producing persistable output.
@@ -52,12 +55,15 @@ Adapters must not bypass this wrapper when producing persistable output.
 `HarnessFailureClass` is the stable taxonomy consumed by orchestrator retry
 policy (`to_domain_error_class`).
 
+Adapters now return provider-native failures (`ProviderFailure`) and the
+contract wrapper is the only normalization boundary to `HarnessFailure`.
+
 `ProviderFailureContext` supports typed/normalized classification:
 
 - typed adapter code first (`ProviderFailureCode`)
 - normalized provider identifiers (`ProviderIdentifier`)
 - deterministic signal/exit-code mapping
-- boundary-aware text fallback last
+- bounded boundary-aware text fallback last
 
 ### Redaction Contract
 
@@ -70,6 +76,7 @@ Redaction runs before persistence on all channels:
 Policy behavior:
 
 - sensitive assignment redaction by normalized key
+- JSON/YAML-style quoted-key assignment redaction
 - bearer token redaction
 - case-insensitive prefixed token redaction
 - explicit secret value redaction (including multiline fragments)
@@ -98,6 +105,8 @@ Required adapter evidence:
 
 - `OutputRedactor` remains a runtime abstraction, but persistence-bound policy
   enforcement is sealed inside `execute_with_contract`.
+- default redaction policy/patterns are sourced from a versioned dataset.
 - test-only customization for contract internals is crate-scoped.
-- contract event ordering is observable through `HarnessObserver` for
-  deterministic tests and telemetry.
+- `HarnessExecutionEvent` is source-tagged (`contract` vs `adapter`) and adapter
+  emissions are proxied as adapter-source events so conformance ordering cannot
+  be polluted by adapter-generated contract-like events.

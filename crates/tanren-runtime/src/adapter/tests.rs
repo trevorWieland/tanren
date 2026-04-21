@@ -9,7 +9,7 @@ use crate::capability::{
     SandboxMode, SessionResumeSupport,
 };
 use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
-use crate::failure::{HarnessFailure, HarnessFailureClass};
+use crate::failure::{ProviderFailure, ProviderFailureCode, ProviderFailureContext};
 use crate::redaction::{OutputRedactor, RedactionError, RedactionHints};
 
 #[derive(Default)]
@@ -26,7 +26,7 @@ impl HarnessObserver for Recorder {
 #[derive(Clone)]
 struct MockAdapter {
     output: RawExecutionOutput,
-    should_fail: bool,
+    provider_failure: Option<ProviderFailure>,
 }
 
 #[async_trait]
@@ -50,15 +50,9 @@ impl HarnessAdapter for MockAdapter {
         &self,
         _request: &HarnessExecutionRequest,
         _observer: &mut dyn HarnessObserver,
-    ) -> Result<ExecutionSignal, HarnessFailure> {
-        if self.should_fail {
-            return Err(HarnessFailure {
-                class: HarnessFailureClass::Fatal,
-                message: "adapter failed".into(),
-                provider_code: None,
-                provider_kind: None,
-                typed_code: None,
-            });
+    ) -> Result<ExecutionSignal, ProviderFailure> {
+        if let Some(failure) = &self.provider_failure {
+            return Err(failure.clone());
         }
         Ok(ExecutionSignal {
             output: self.output.clone(),
@@ -80,8 +74,7 @@ impl OutputRedactor for LeakRedactor {
             outcome: output.outcome,
             signal: output.signal,
             exit_code: output.exit_code,
-            duration_secs: FiniteF64::try_new(output.duration_secs)
-                .map_err(|_| RedactionError::InvalidDuration)?,
+            duration_secs: output.duration_secs,
             gate_output: output.gate_output,
             tail_output: output.tail_output,
             stderr_tail: output.stderr_tail,
@@ -95,6 +88,76 @@ impl OutputRedactor for LeakRedactor {
     }
 
     fn has_known_secret_leak(&self, _output: &PersistableOutput, _hints: &RedactionHints) -> bool {
+        true
+    }
+
+    fn has_policy_residual_leak(
+        &self,
+        _output: &PersistableOutput,
+        _hints: &RedactionHints,
+    ) -> bool {
+        false
+    }
+}
+
+struct ErrorRedactor;
+
+impl OutputRedactor for ErrorRedactor {
+    fn redact(
+        &self,
+        _output: RawExecutionOutput,
+        _hints: &RedactionHints,
+    ) -> Result<PersistableOutput, RedactionError> {
+        Err(RedactionError::PolicyViolation)
+    }
+
+    fn has_known_secret_leak(&self, _output: &PersistableOutput, _hints: &RedactionHints) -> bool {
+        false
+    }
+
+    fn has_policy_residual_leak(
+        &self,
+        _output: &PersistableOutput,
+        _hints: &RedactionHints,
+    ) -> bool {
+        false
+    }
+}
+
+struct PolicyLeakRedactor;
+
+impl OutputRedactor for PolicyLeakRedactor {
+    fn redact(
+        &self,
+        output: RawExecutionOutput,
+        _hints: &RedactionHints,
+    ) -> Result<PersistableOutput, RedactionError> {
+        Ok(PersistableOutput {
+            outcome: output.outcome,
+            signal: output.signal,
+            exit_code: output.exit_code,
+            duration_secs: output.duration_secs,
+            gate_output: output.gate_output,
+            tail_output: output.tail_output,
+            stderr_tail: output.stderr_tail,
+            pushed: output.pushed,
+            plan_hash: output.plan_hash,
+            unchecked_tasks: output.unchecked_tasks,
+            spec_modified: output.spec_modified,
+            findings: output.findings,
+            token_usage: output.token_usage,
+        })
+    }
+
+    fn has_known_secret_leak(&self, _output: &PersistableOutput, _hints: &RedactionHints) -> bool {
+        false
+    }
+
+    fn has_policy_residual_leak(
+        &self,
+        _output: &PersistableOutput,
+        _hints: &RedactionHints,
+    ) -> bool {
         true
     }
 }
@@ -119,7 +182,7 @@ fn raw_output() -> RawExecutionOutput {
         outcome: Outcome::Success,
         signal: None,
         exit_code: Some(0),
-        duration_secs: 1.0,
+        duration_secs: FiniteF64::try_new(1.0).expect("finite"),
         gate_output: Some("safe".into()),
         tail_output: Some("safe".into()),
         stderr_tail: Some("safe".into()),
@@ -136,7 +199,7 @@ fn raw_output() -> RawExecutionOutput {
 async fn emits_expected_event_sequence_for_adapter_failure() {
     let adapter = MockAdapter {
         output: raw_output(),
-        should_fail: true,
+        provider_failure: Some(ProviderFailure::new("adapter failed")),
     };
     let mut recorder = Recorder::default();
     let err = execute_with_contract(&adapter, &request(), &mut recorder)
@@ -146,31 +209,55 @@ async fn emits_expected_event_sequence_for_adapter_failure() {
     assert_eq!(
         recorder.events,
         vec![
-            HarnessExecutionEvent::PreflightAccepted,
-            HarnessExecutionEvent::AdapterInvoked
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::PreflightAccepted),
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::AdapterInvoked)
         ]
     );
 }
 
 #[tokio::test]
-async fn emits_expected_event_sequence_for_redaction_error() {
+async fn normalizes_adapter_provider_failure_in_contract_wrapper() {
     let adapter = MockAdapter {
-        output: RawExecutionOutput {
-            duration_secs: f64::NAN,
-            ..raw_output()
-        },
-        should_fail: false,
+        output: raw_output(),
+        provider_failure: Some(ProviderFailure::new("provider timeout").with_context(
+            ProviderFailureContext {
+                typed_code: Some(ProviderFailureCode::Timeout),
+                stderr_tail: Some("401 invalid api key".into()),
+                ..ProviderFailureContext::default()
+            },
+        )),
     };
     let mut recorder = Recorder::default();
     let err = execute_with_contract(&adapter, &request(), &mut recorder)
+        .await
+        .expect_err("must fail");
+    assert!(matches!(err, HarnessContractError::AdapterFailure(_)));
+    let HarnessContractError::AdapterFailure(failure) = err else {
+        unreachable!("checked by matches assertion");
+    };
+    assert_eq!(
+        failure.class(),
+        crate::failure::HarnessFailureClass::Timeout
+    );
+    assert_eq!(failure.typed_code(), Some(ProviderFailureCode::Timeout));
+}
+
+#[tokio::test]
+async fn emits_expected_event_sequence_for_redaction_error() {
+    let adapter = MockAdapter {
+        output: raw_output(),
+        provider_failure: None,
+    };
+    let mut recorder = Recorder::default();
+    let err = execute_with_contract_for_tests(&adapter, &request(), &ErrorRedactor, &mut recorder)
         .await
         .expect_err("must fail");
     assert!(matches!(err, HarnessContractError::Redaction(_)));
     assert_eq!(
         recorder.events,
         vec![
-            HarnessExecutionEvent::PreflightAccepted,
-            HarnessExecutionEvent::AdapterInvoked
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::PreflightAccepted),
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::AdapterInvoked)
         ]
     );
 }
@@ -179,7 +266,7 @@ async fn emits_expected_event_sequence_for_redaction_error() {
 async fn emits_expected_event_sequence_for_leak_detection() {
     let adapter = MockAdapter {
         output: raw_output(),
-        should_fail: false,
+        provider_failure: None,
     };
     let mut recorder = Recorder::default();
     let err = execute_with_contract_for_tests(&adapter, &request(), &LeakRedactor, &mut recorder)
@@ -189,8 +276,29 @@ async fn emits_expected_event_sequence_for_leak_detection() {
     assert_eq!(
         recorder.events,
         vec![
-            HarnessExecutionEvent::PreflightAccepted,
-            HarnessExecutionEvent::AdapterInvoked
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::PreflightAccepted),
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::AdapterInvoked)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn emits_expected_event_sequence_for_policy_residual_leak_detection() {
+    let adapter = MockAdapter {
+        output: raw_output(),
+        provider_failure: None,
+    };
+    let mut recorder = Recorder::default();
+    let err =
+        execute_with_contract_for_tests(&adapter, &request(), &PolicyLeakRedactor, &mut recorder)
+            .await
+            .expect_err("must fail");
+    assert!(matches!(err, HarnessContractError::RedactionLeakDetected));
+    assert_eq!(
+        recorder.events,
+        vec![
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::PreflightAccepted),
+            HarnessExecutionEvent::contract(HarnessExecutionEventKind::AdapterInvoked)
         ]
     );
 }

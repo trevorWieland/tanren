@@ -1,5 +1,5 @@
 use proptest::prelude::*;
-use tanren_domain::Outcome;
+use tanren_domain::{FiniteF64, Outcome};
 
 use super::*;
 use crate::execution::{RedactionSecret, SecretName};
@@ -9,7 +9,7 @@ fn raw_output(text: &str) -> RawExecutionOutput {
         outcome: Outcome::Success,
         signal: None,
         exit_code: Some(0),
-        duration_secs: 1.0,
+        duration_secs: FiniteF64::try_new(1.0).expect("finite"),
         gate_output: Some(text.into()),
         tail_output: Some(text.into()),
         stderr_tail: Some(text.into()),
@@ -101,6 +101,28 @@ fn redacts_assignment_variants_with_colon_and_quotes() {
 }
 
 #[test]
+fn redacts_json_and_yaml_quoted_secret_keys() {
+    let redactor = DefaultOutputRedactor::default();
+    let hints = RedactionHints {
+        required_secret_names: vec![SecretName::try_new("api_key").expect("secret key")],
+        secret_values: vec![],
+    };
+    let out = redactor
+        .redact(
+            raw_output(
+                "{\"api_key\":\"json-secret\",\"nested\":{\"api_key\":\"inner\"}}\n'api_key': 'yaml-secret'",
+            ),
+            &hints,
+        )
+        .expect("redact");
+    let gate = out.gate_output.expect("gate");
+
+    assert!(!gate.contains("json-secret"), "{gate}");
+    assert!(!gate.contains("inner"), "{gate}");
+    assert!(!gate.contains("yaml-secret"), "{gate}");
+}
+
+#[test]
 fn leaves_non_sensitive_assignments_intact() {
     let redactor = DefaultOutputRedactor::default();
     let out = redactor
@@ -140,18 +162,97 @@ fn leak_detection_flags_remaining_secret() {
 }
 
 #[test]
-fn rejects_non_finite_duration() {
+fn policy_residual_leak_detects_unredacted_pattern_not_in_hints() {
     let redactor = DefaultOutputRedactor::default();
-    let err = redactor
+    let output = PersistableOutput {
+        outcome: Outcome::Success,
+        signal: None,
+        exit_code: None,
+        duration_secs: FiniteF64::try_new(1.0).expect("finite"),
+        gate_output: Some("authorization: Bearer sk-live-raw-token-value".into()),
+        tail_output: None,
+        stderr_tail: None,
+        pushed: false,
+        plan_hash: None,
+        unchecked_tasks: 0,
+        spec_modified: false,
+        findings: vec![],
+        token_usage: None,
+    };
+    assert!(redactor.has_policy_residual_leak(&output, &RedactionHints::default()));
+}
+
+#[test]
+fn conformance_fixture_has_no_leak_after_redaction() {
+    let redactor = DefaultOutputRedactor::default();
+    let hints = RedactionHints {
+        required_secret_names: vec![SecretName::try_new("API_TOKEN").expect("secret key")],
+        secret_values: vec![RedactionSecret::from("line1-secret\nline2-secret")],
+    };
+    let out = redactor
         .redact(
             RawExecutionOutput {
-                duration_secs: f64::NAN,
-                ..raw_output("ok")
+                outcome: Outcome::Success,
+                signal: None,
+                exit_code: Some(0),
+                duration_secs: FiniteF64::try_new(1.2).expect("finite"),
+                gate_output: Some("API_TOKEN=abc API_TOKEN='def' SAFE_MARKER".into()),
+                tail_output: Some("Bearer sk-live-secret line1-secret AKIA123456789012345".into()),
+                stderr_tail: Some("aws_secret_access_key=ghi line2-secret".into()),
+                pushed: false,
+                plan_hash: None,
+                unchecked_tasks: 0,
+                spec_modified: false,
+                findings: vec![],
+                token_usage: None,
             },
-            &RedactionHints::default(),
+            &hints,
         )
-        .expect_err("must fail");
-    assert_eq!(err, RedactionError::InvalidDuration);
+        .expect("redact");
+    assert!(
+        !redactor.has_known_secret_leak(&out, &hints),
+        "known leak gate={:?} tail={:?} stderr={:?}",
+        out.gate_output,
+        out.tail_output,
+        out.stderr_tail
+    );
+    let policy = default_redaction_policy();
+    let mut reasons = Vec::new();
+    for channel in [
+        out.gate_output.as_deref(),
+        out.tail_output.as_deref(),
+        out.stderr_tail.as_deref(),
+    ]
+    .iter()
+    .flatten()
+    {
+        for key in &policy.sensitive_key_names {
+            if scanner::contains_unredacted_assignment(channel, key, "[REDACTED]") {
+                reasons.push(format!("assignment:{key}:{channel}"));
+            }
+        }
+        if scanner::contains_unredacted_bearer_token(channel, policy.min_token_len, "[REDACTED]") {
+            reasons.push(format!("bearer:{channel}"));
+        }
+        for prefix in &policy.token_prefixes {
+            if scanner::contains_unredacted_prefixed_token(
+                channel,
+                prefix,
+                policy.min_token_len,
+                "[REDACTED]",
+            ) {
+                reasons.push(format!("prefix:{prefix}:{channel}"));
+            }
+        }
+    }
+    assert!(
+        !redactor.has_policy_residual_leak(&out, &hints),
+        "policy leak gate={:?} tail={:?} stderr={:?} reasons={:?}",
+        out.gate_output,
+        out.tail_output,
+        out.stderr_tail,
+        reasons
+    );
 }
 
 proptest! {
@@ -199,12 +300,12 @@ fn redacts_prefixed_tokens_case_insensitively() {
     let redactor = DefaultOutputRedactor::default();
     let out = redactor
         .redact(
-            raw_output("token akia123456789012345 and GHP_abcdefghijklmnopqrstuvwxyz"),
+            raw_output("token asia123456789012345 and GHP_abcdefghijklmnopqrstuvwxyz"),
             &RedactionHints::default(),
         )
         .expect("redact");
     let gate = out.gate_output.expect("gate");
-    assert!(!gate.contains("akia123456789012345"));
+    assert!(!gate.contains("asia123456789012345"));
     assert!(!gate.contains("GHP_abcdefghijklmnopqrstuvwxyz"));
 }
 

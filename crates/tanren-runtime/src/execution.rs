@@ -155,7 +155,7 @@ pub struct RawExecutionOutput {
     pub signal: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
-    pub duration_secs: f64,
+    pub duration_secs: FiniteF64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate_output: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,17 +1,47 @@
 use async_trait::async_trait;
+use std::sync::OnceLock;
 
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
-use crate::failure::HarnessFailure;
+use crate::failure::{HarnessFailure, ProviderFailure};
 use crate::redaction::{DefaultOutputRedactor, OutputRedactor, RedactionError};
 
 /// Events emitted by the contract wrapper and adapters during execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HarnessExecutionEvent {
+pub enum HarnessExecutionEventKind {
     PreflightAccepted,
     PreflightDenied(CompatibilityDenialKind),
     AdapterInvoked,
     PersistableOutputReady,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HarnessEventSource {
+    Contract,
+    Adapter,
+}
+
+/// Events emitted by the contract wrapper and adapters during execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HarnessExecutionEvent {
+    pub source: HarnessEventSource,
+    pub kind: HarnessExecutionEventKind,
+}
+
+impl HarnessExecutionEvent {
+    #[must_use]
+    pub const fn contract(kind: HarnessExecutionEventKind) -> Self {
+        Self {
+            source: HarnessEventSource::Contract,
+            kind,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_source(mut self, source: HarnessEventSource) -> Self {
+        self.source = source;
+        self
+    }
 }
 
 /// Observer for execution events.
@@ -37,12 +67,12 @@ pub trait HarnessAdapter: Send + Sync {
     /// Execute one request and return raw output prior to redaction.
     ///
     /// # Errors
-    /// Returns [`HarnessFailure`] if the provider returns a terminal failure.
+    /// Returns [`ProviderFailure`] if the provider returns a terminal failure.
     async fn execute(
         &self,
         request: &HarnessExecutionRequest,
         observer: &mut dyn HarnessObserver,
-    ) -> Result<ExecutionSignal, HarnessFailure>;
+    ) -> Result<ExecutionSignal, ProviderFailure>;
 }
 
 /// Contract-level failures surfaced to orchestrator/worker layers.
@@ -71,8 +101,9 @@ pub async fn execute_with_contract(
     request: &HarnessExecutionRequest,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
-    let redactor = DefaultOutputRedactor::default();
-    execute_with_contract_internal(adapter, request, &redactor, observer).await
+    static DEFAULT_OUTPUT_REDACTOR: OnceLock<DefaultOutputRedactor> = OnceLock::new();
+    let redactor = DEFAULT_OUTPUT_REDACTOR.get_or_init(DefaultOutputRedactor::default);
+    execute_with_contract_internal(adapter, request, redactor, observer).await
 }
 
 async fn execute_with_contract_internal(
@@ -85,24 +116,49 @@ async fn execute_with_contract_internal(
         .capabilities()
         .ensure_admissible(&request.requirements)
         .map_err(|err| {
-            observer.on_event(HarnessExecutionEvent::PreflightDenied(err.kind));
+            emit_contract_event(
+                observer,
+                HarnessExecutionEventKind::PreflightDenied(err.kind),
+            );
             HarnessContractError::CompatibilityDenied(err)
         })?;
-    observer.on_event(HarnessExecutionEvent::PreflightAccepted);
-    observer.on_event(HarnessExecutionEvent::AdapterInvoked);
+    emit_contract_event(observer, HarnessExecutionEventKind::PreflightAccepted);
+    emit_contract_event(observer, HarnessExecutionEventKind::AdapterInvoked);
 
-    let signal = adapter.execute(request, observer).await?;
+    let mut adapter_observer = AdapterObserverProxy { inner: observer };
+    let signal = adapter
+        .execute(request, &mut adapter_observer)
+        .await
+        .map_err(HarnessFailure::from_provider_failure)
+        .map_err(HarnessContractError::AdapterFailure)?;
     let hints = request.redaction_hints();
     let output = redactor.redact(signal.output, &hints)?;
-    if redactor.has_known_secret_leak(&output, &hints) {
+    if redactor.has_known_secret_leak(&output, &hints)
+        || redactor.has_policy_residual_leak(&output, &hints)
+    {
         return Err(HarnessContractError::RedactionLeakDetected);
     }
-    observer.on_event(HarnessExecutionEvent::PersistableOutputReady);
+    emit_contract_event(observer, HarnessExecutionEventKind::PersistableOutputReady);
     Ok(HarnessExecutionResult {
         output,
         provider_run_id: signal.provider_run_id,
         session_resumed: signal.session_resumed,
     })
+}
+
+fn emit_contract_event(observer: &mut dyn HarnessObserver, kind: HarnessExecutionEventKind) {
+    observer.on_event(HarnessExecutionEvent::contract(kind));
+}
+
+struct AdapterObserverProxy<'a> {
+    inner: &'a mut dyn HarnessObserver,
+}
+
+impl HarnessObserver for AdapterObserverProxy<'_> {
+    fn on_event(&mut self, event: HarnessExecutionEvent) {
+        self.inner
+            .on_event(event.with_source(HarnessEventSource::Adapter));
+    }
 }
 
 #[cfg(test)]

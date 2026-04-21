@@ -208,7 +208,7 @@ fn denies_when_approval_mode_is_below_minimum() {
 #[test]
 fn denies_when_approval_mode_exceeds_maximum() {
     let caps = HarnessCapabilities {
-        approval_mode: ApprovalMode::OnDemand,
+        approval_mode: ApprovalMode::Never,
         ..baseline()
     };
     let requirements = HarnessRequirements {
@@ -225,19 +225,17 @@ fn denies_when_approval_mode_exceeds_maximum() {
 }
 
 #[test]
-fn denies_when_approval_range_is_invalid() {
+fn approval_minimum_and_maximum_can_coexist_with_dual_ordering() {
     let requirements = HarnessRequirements {
         minimum_approval_mode: Some(ApprovalMode::OnDemand),
         maximum_approval_mode: Some(ApprovalMode::OnEscalation),
         ..HarnessRequirements::default()
     };
-    let denial = baseline()
-        .ensure_admissible(&requirements)
-        .expect_err("must deny invalid range");
-    assert_eq!(
-        denial.kind,
-        CompatibilityDenialKind::ApprovalModeInvalidRange
-    );
+    let caps = HarnessCapabilities {
+        approval_mode: ApprovalMode::OnDemand,
+        ..baseline()
+    };
+    assert!(caps.ensure_admissible(&requirements).is_ok());
 }
 
 #[test]
@@ -246,8 +244,90 @@ fn allows_when_modes_are_within_min_max_bounds() {
         minimum_sandbox_mode: Some(SandboxMode::ReadOnly),
         maximum_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
         minimum_approval_mode: Some(ApprovalMode::OnEscalation),
-        maximum_approval_mode: Some(ApprovalMode::OnDemand),
+        maximum_approval_mode: Some(ApprovalMode::OnEscalation),
         ..HarnessRequirements::default()
     };
     assert!(baseline().ensure_admissible(&requirements).is_ok());
+}
+
+fn strictness_rank(mode: ApprovalMode) -> u8 {
+    match mode {
+        ApprovalMode::Never => 0,
+        ApprovalMode::OnEscalation => 1,
+        ApprovalMode::OnDemand => 2,
+    }
+}
+
+fn privilege_rank(mode: ApprovalMode) -> u8 {
+    match mode {
+        ApprovalMode::OnDemand => 0,
+        ApprovalMode::OnEscalation => 1,
+        ApprovalMode::Never => 2,
+    }
+}
+
+fn expected_approval_denial(
+    actual: ApprovalMode,
+    minimum: Option<ApprovalMode>,
+    maximum: Option<ApprovalMode>,
+) -> Option<CompatibilityDenialKind> {
+    if let Some(minimum_mode) = minimum
+        && strictness_rank(actual) < strictness_rank(minimum_mode)
+    {
+        return Some(CompatibilityDenialKind::ApprovalModeBelowMinimum);
+    }
+    if let Some(maximum_mode) = maximum
+        && privilege_rank(actual) > privilege_rank(maximum_mode)
+    {
+        return Some(CompatibilityDenialKind::ApprovalModeExceedsMaximum);
+    }
+    None
+}
+
+#[test]
+fn approval_mode_dual_ordering_matrix_is_exhaustive() {
+    let modes = [
+        ApprovalMode::Never,
+        ApprovalMode::OnEscalation,
+        ApprovalMode::OnDemand,
+    ];
+    let bounds = [
+        None,
+        Some(ApprovalMode::Never),
+        Some(ApprovalMode::OnEscalation),
+        Some(ApprovalMode::OnDemand),
+    ];
+
+    for actual in modes {
+        for minimum in bounds {
+            for maximum in bounds {
+                let caps = HarnessCapabilities {
+                    approval_mode: actual,
+                    ..baseline()
+                };
+                let requirements = HarnessRequirements {
+                    minimum_approval_mode: minimum,
+                    maximum_approval_mode: maximum,
+                    ..HarnessRequirements::default()
+                };
+                let expected = expected_approval_denial(actual, minimum, maximum);
+                let result = caps.ensure_admissible(&requirements);
+                match expected {
+                    Some(expected_kind) => {
+                        let denial = result.expect_err("expected denial");
+                        assert_eq!(
+                            denial.kind, expected_kind,
+                            "actual={actual:?} minimum={minimum:?} maximum={maximum:?}"
+                        );
+                    }
+                    None => {
+                        assert!(
+                            result.is_ok(),
+                            "actual={actual:?} minimum={minimum:?} maximum={maximum:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

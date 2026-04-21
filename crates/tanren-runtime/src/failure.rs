@@ -1,3 +1,5 @@
+mod text_classifier;
+
 use serde::{Deserialize, Serialize};
 use tanren_domain::{ErrorClass, NonEmptyString};
 
@@ -113,20 +115,6 @@ pub enum ProviderIdentifierError {
     EmptyOrWhitespace,
 }
 
-/// Typed failure payload returned by harness adapters.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
-#[error("{class:?}: {message}")]
-pub struct HarnessFailure {
-    pub class: HarnessFailureClass,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_code: Option<ProviderIdentifier>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_kind: Option<ProviderIdentifier>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub typed_code: Option<ProviderFailureCode>,
-}
-
 /// Normalized raw context adapters can pass into classification helpers.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ProviderFailureContext {
@@ -146,13 +134,145 @@ pub struct ProviderFailureContext {
     pub stderr_tail: Option<String>,
 }
 
+/// Provider-native failure payload adapters return to the contract wrapper.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[error("{message}")]
+pub struct ProviderFailure {
+    pub message: String,
+    #[serde(flatten)]
+    pub context: ProviderFailureContext,
+}
+
+impl ProviderFailure {
+    #[must_use]
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            context: ProviderFailureContext::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_context(mut self, context: ProviderFailureContext) -> Self {
+        self.context = context;
+        self
+    }
+
+    #[must_use]
+    pub fn into_harness_failure(self) -> HarnessFailure {
+        HarnessFailure::from_provider_failure(self)
+    }
+}
+
+/// Typed failure payload returned by the harness contract wrapper.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{class:?}: {message}")]
+pub struct HarnessFailure {
+    class: HarnessFailureClass,
+    message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_code: Option<ProviderIdentifier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_kind: Option<ProviderIdentifier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    typed_code: Option<ProviderFailureCode>,
+}
+
+impl HarnessFailure {
+    #[must_use]
+    pub fn new(class: HarnessFailureClass, message: impl Into<String>) -> Self {
+        Self {
+            class,
+            message: message.into(),
+            provider_code: None,
+            provider_kind: None,
+            typed_code: None,
+        }
+    }
+
+    #[must_use]
+    pub fn from_provider_failure(failure: ProviderFailure) -> Self {
+        let class = classify_provider_failure(&failure.context);
+        Self {
+            class,
+            message: failure.message,
+            provider_code: failure.context.provider_code,
+            provider_kind: failure.context.provider_kind,
+            typed_code: failure.context.typed_code,
+        }
+    }
+
+    #[must_use]
+    pub const fn class(&self) -> HarnessFailureClass {
+        self.class
+    }
+
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    #[must_use]
+    pub fn provider_code(&self) -> Option<&ProviderIdentifier> {
+        self.provider_code.as_ref()
+    }
+
+    #[must_use]
+    pub fn provider_kind(&self) -> Option<&ProviderIdentifier> {
+        self.provider_kind.as_ref()
+    }
+
+    #[must_use]
+    pub const fn typed_code(&self) -> Option<ProviderFailureCode> {
+        self.typed_code
+    }
+}
+
+#[derive(Deserialize)]
+struct HarnessFailureWire {
+    class: HarnessFailureClass,
+    message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_code: Option<ProviderIdentifier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_kind: Option<ProviderIdentifier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    typed_code: Option<ProviderFailureCode>,
+}
+
+impl<'de> Deserialize<'de> for HarnessFailure {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = HarnessFailureWire::deserialize(deserializer)?;
+        if let Some(typed_code) = wire.typed_code {
+            let expected = typed_code.to_harness_failure_class();
+            if wire.class != expected {
+                return Err(serde::de::Error::custom(format!(
+                    "typed_code {typed_code:?} implies class {expected:?}, got {:?}",
+                    wire.class
+                )));
+            }
+        }
+
+        Ok(Self {
+            class: wire.class,
+            message: wire.message,
+            provider_code: wire.provider_code,
+            provider_kind: wire.provider_kind,
+            typed_code: wire.typed_code,
+        })
+    }
+}
+
 /// Classify provider-native failures into stable harness classes.
 ///
 /// Order of precedence:
 /// 1) typed code from adapter
 /// 2) deterministic exact-token mappings from structured fields
 /// 3) deterministic exit/signal mappings
-/// 4) boundary-aware text fallback heuristics
+/// 4) bounded boundary-aware text fallback heuristics
 #[must_use]
 pub fn classify_provider_failure(ctx: &ProviderFailureContext) -> HarnessFailureClass {
     if let Some(code) = ctx.typed_code {
@@ -183,16 +303,7 @@ pub fn classify_provider_failure(ctx: &ProviderFailureContext) -> HarnessFailure
         return class;
     }
 
-    let mut merged = String::new();
-    if let Some(value) = &ctx.stdout_tail {
-        merged.push_str(value);
-        merged.push('\n');
-    }
-    if let Some(value) = &ctx.stderr_tail {
-        merged.push_str(value);
-    }
-
-    classify_text_fallback(&merged)
+    text_classifier::classify_text_fallback(ctx.stdout_tail.as_deref(), ctx.stderr_tail.as_deref())
 }
 
 fn normalize_identifier(raw: &str) -> String {
@@ -245,113 +356,6 @@ const fn classify_exit_code(code: i32) -> Option<HarnessFailureClass> {
     }
 }
 
-fn classify_text_fallback(text: &str) -> HarnessFailureClass {
-    let tokens = tokenize(text);
-
-    if has_token(&tokens, "capability_denied")
-        || has_phrase(&tokens, &["unsupported", "capability"])
-    {
-        return HarnessFailureClass::CapabilityDenied;
-    }
-    if has_phrase(&tokens, &["approval", "denied"])
-        || has_token(&tokens, "approval_required")
-        || has_phrase(&tokens, &["consent", "denied"])
-    {
-        return HarnessFailureClass::ApprovalDenied;
-    }
-    if has_token(&tokens, "authentication")
-        || has_token(&tokens, "invalid_api_key")
-        || has_phrase(&tokens, &["invalid", "api", "key"])
-        || has_phrase(&tokens, &["permission", "denied"])
-        || has_any_token(&tokens, &["401", "403"])
-    {
-        return HarnessFailureClass::Authentication;
-    }
-    if has_phrase(&tokens, &["rate", "limit"])
-        || has_token(&tokens, "rate_limited")
-        || has_token(&tokens, "too_many_requests")
-        || has_phrase(&tokens, &["too", "many", "requests"])
-        || has_token(&tokens, "429")
-    {
-        return HarnessFailureClass::RateLimited;
-    }
-    if has_any_token(&tokens, &["timeout", "deadline_exceeded", "timed_out"])
-        || has_phrase(&tokens, &["deadline", "exceeded"])
-        || has_phrase(&tokens, &["timed", "out"])
-    {
-        return HarnessFailureClass::Timeout;
-    }
-    if has_phrase(&tokens, &["connection", "refused"])
-        || has_phrase(&tokens, &["network", "unreachable"])
-        || has_any_token(&tokens, &["dns", "econnreset"])
-        || has_phrase(&tokens, &["temporarily", "unavailable"])
-        || has_token(&tokens, "503")
-    {
-        return HarnessFailureClass::TransportUnavailable;
-    }
-    if has_phrase(&tokens, &["out", "of", "memory"])
-        || has_phrase(&tokens, &["resource", "exhausted"])
-        || has_phrase(&tokens, &["quota", "exceeded"])
-        || has_phrase(&tokens, &["exit", "code", "137"])
-    {
-        return HarnessFailureClass::ResourceExhausted;
-    }
-    if has_any_token(&tokens, &["temporary", "retryable", "transient", "eagain"])
-        || has_phrase(&tokens, &["try", "again"])
-    {
-        return HarnessFailureClass::Transient;
-    }
-    if has_phrase(&tokens, &["invalid", "argument"])
-        || has_phrase(&tokens, &["bad", "request"])
-        || has_token(&tokens, "malformed")
-    {
-        return HarnessFailureClass::InvalidRequest;
-    }
-    if has_any_token(&tokens, &["panic", "fatal", "internal_error"])
-        || has_phrase(&tokens, &["internal", "error"])
-    {
-        return HarnessFailureClass::Fatal;
-    }
-
-    HarnessFailureClass::Unknown
-}
-
-fn tokenize(text: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    for ch in text.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            current.push(ch.to_ascii_lowercase());
-        } else if !current.is_empty() {
-            tokens.push(std::mem::take(&mut current));
-        }
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    tokens
-}
-
-fn has_token(tokens: &[String], token: &str) -> bool {
-    tokens.iter().any(|value| value == token)
-}
-
-fn has_any_token(tokens: &[String], expected: &[&str]) -> bool {
-    expected.iter().any(|token| has_token(tokens, token))
-}
-
-fn has_phrase(tokens: &[String], phrase: &[&str]) -> bool {
-    if phrase.is_empty() || tokens.len() < phrase.len() {
-        return false;
-    }
-    tokens.windows(phrase.len()).any(|window| {
-        window
-            .iter()
-            .zip(phrase.iter())
-            .all(|(actual, expected)| actual == expected)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -366,6 +370,20 @@ mod tests {
             ..ProviderFailureContext::default()
         });
         assert_eq!(class, HarnessFailureClass::Timeout);
+    }
+
+    #[test]
+    fn provider_failure_normalizes_through_context_classification() {
+        let provider_failure =
+            ProviderFailure::new("raw adapter failure").with_context(ProviderFailureContext {
+                typed_code: Some(ProviderFailureCode::RateLimited),
+                stderr_tail: Some("fatal panic".into()),
+                ..ProviderFailureContext::default()
+            });
+
+        let failure = provider_failure.into_harness_failure();
+        assert_eq!(failure.class(), HarnessFailureClass::RateLimited);
+        assert_eq!(failure.typed_code(), Some(ProviderFailureCode::RateLimited));
     }
 
     #[test]
@@ -430,6 +448,15 @@ mod tests {
             ..ProviderFailureContext::default()
         });
         assert_eq!(class, HarnessFailureClass::Unknown);
+    }
+
+    #[test]
+    fn fallback_scans_bounded_tail_for_large_output() {
+        let class = classify_provider_failure(&ProviderFailureContext {
+            stderr_tail: Some(format!("{} timeout", "x".repeat(24 * 1024))),
+            ..ProviderFailureContext::default()
+        });
+        assert_eq!(class, HarnessFailureClass::Timeout);
     }
 
     #[test]

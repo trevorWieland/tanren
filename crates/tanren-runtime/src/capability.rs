@@ -49,6 +49,10 @@ pub enum SandboxMode {
 }
 
 /// Human approval behavior for restricted actions.
+///
+/// Ordering semantics are explicit and dual-axis:
+/// - minimum bounds use strictness (`never` < `on_escalation` < `on_demand`)
+/// - maximum bounds use privilege risk (`on_demand` < `on_escalation` < `never`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalMode {
@@ -239,21 +243,21 @@ impl HarnessCapabilities {
         if let (Some(minimum), Some(maximum)) = (
             requirements.minimum_approval_mode,
             requirements.maximum_approval_mode,
-        ) && approval_mode_rank(minimum) > approval_mode_rank(maximum)
+        ) && !approval_mode_range_has_solution(minimum, maximum)
         {
             return CapabilityAdmissibility::Denied(
                 CompatibilityDenialKind::ApprovalModeInvalidRange,
             );
         }
         if let Some(minimum) = requirements.minimum_approval_mode
-            && !approval_mode_satisfies(self.approval_mode, minimum)
+            && !approval_mode_satisfies_minimum(self.approval_mode, minimum)
         {
             return CapabilityAdmissibility::Denied(
                 CompatibilityDenialKind::ApprovalModeBelowMinimum,
             );
         }
         if let Some(maximum) = requirements.maximum_approval_mode
-            && approval_mode_rank(self.approval_mode) > approval_mode_rank(maximum)
+            && !approval_mode_within_maximum(self.approval_mode, maximum)
         {
             return CapabilityAdmissibility::Denied(
                 CompatibilityDenialKind::ApprovalModeExceedsMaximum,
@@ -334,7 +338,7 @@ const fn sandbox_mode_satisfies(actual: SandboxMode, required: SandboxMode) -> b
     sandbox_mode_rank(actual) >= sandbox_mode_rank(required)
 }
 
-const fn approval_mode_rank(mode: ApprovalMode) -> u8 {
+const fn approval_strictness_rank(mode: ApprovalMode) -> u8 {
     match mode {
         ApprovalMode::Never => 0,
         ApprovalMode::OnEscalation => 1,
@@ -342,8 +346,29 @@ const fn approval_mode_rank(mode: ApprovalMode) -> u8 {
     }
 }
 
-const fn approval_mode_satisfies(actual: ApprovalMode, required: ApprovalMode) -> bool {
-    approval_mode_rank(actual) >= approval_mode_rank(required)
+const fn approval_privilege_rank(mode: ApprovalMode) -> u8 {
+    match mode {
+        ApprovalMode::OnDemand => 0,
+        ApprovalMode::OnEscalation => 1,
+        ApprovalMode::Never => 2,
+    }
+}
+
+const fn approval_mode_satisfies_minimum(actual: ApprovalMode, minimum: ApprovalMode) -> bool {
+    approval_strictness_rank(actual) >= approval_strictness_rank(minimum)
+}
+
+const fn approval_mode_within_maximum(actual: ApprovalMode, maximum: ApprovalMode) -> bool {
+    approval_privilege_rank(actual) <= approval_privilege_rank(maximum)
+}
+
+const fn approval_mode_range_has_solution(minimum: ApprovalMode, maximum: ApprovalMode) -> bool {
+    approval_mode_satisfies_minimum(ApprovalMode::Never, minimum)
+        && approval_mode_within_maximum(ApprovalMode::Never, maximum)
+        || approval_mode_satisfies_minimum(ApprovalMode::OnEscalation, minimum)
+            && approval_mode_within_maximum(ApprovalMode::OnEscalation, maximum)
+        || approval_mode_satisfies_minimum(ApprovalMode::OnDemand, minimum)
+            && approval_mode_within_maximum(ApprovalMode::OnDemand, maximum)
 }
 
 #[cfg(test)]

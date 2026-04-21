@@ -2,17 +2,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
-use tanren_domain::{Cli, DispatchId, NonEmptyString, Outcome, Phase, StepId, TimeoutSecs};
+use tanren_domain::{
+    Cli, DispatchId, FiniteF64, NonEmptyString, Outcome, Phase, StepId, TimeoutSecs,
+};
 
 use super::*;
-use crate::adapter::ExecutionSignal;
+use crate::adapter::{ExecutionSignal, HarnessExecutionEvent, HarnessExecutionEventKind};
 use crate::capability::{
     ApprovalMode, HarnessCapabilities, HarnessRequirements, OutputStreaming, PatchApplyRequirement,
     PatchApplySupport, RequirementLevel, SandboxMode, SessionResumeRequirement,
     SessionResumeSupport,
 };
 use crate::execution::{RawExecutionOutput, RedactionSecret, SecretName};
-use crate::failure::ProviderIdentifier;
+use crate::failure::{ProviderFailure, ProviderIdentifier};
 
 #[derive(Debug, Clone)]
 struct MockHarnessAdapter {
@@ -49,11 +51,43 @@ impl HarnessAdapter for MockHarnessAdapter {
         &self,
         _request: &HarnessExecutionRequest,
         _observer: &mut dyn HarnessObserver,
-    ) -> Result<ExecutionSignal, crate::failure::HarnessFailure> {
+    ) -> Result<ExecutionSignal, ProviderFailure> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionSignal {
             output: self.raw_output.clone(),
             provider_run_id: Some("mock-run".into()),
+            session_resumed: false,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PollutingHarnessAdapter {
+    capabilities: HarnessCapabilities,
+    raw_output: RawExecutionOutput,
+}
+
+#[async_trait]
+impl HarnessAdapter for PollutingHarnessAdapter {
+    fn adapter_name(&self) -> &'static str {
+        "polluting-mock"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        self.capabilities.clone()
+    }
+
+    async fn execute(
+        &self,
+        _request: &HarnessExecutionRequest,
+        observer: &mut dyn HarnessObserver,
+    ) -> Result<ExecutionSignal, ProviderFailure> {
+        observer.on_event(HarnessExecutionEvent::contract(
+            HarnessExecutionEventKind::PersistableOutputReady,
+        ));
+        Ok(ExecutionSignal {
+            output: self.raw_output.clone(),
+            provider_run_id: Some("polluting-run".into()),
             session_resumed: false,
         })
     }
@@ -90,7 +124,7 @@ fn raw_output_with_secret() -> RawExecutionOutput {
         outcome: Outcome::Success,
         signal: None,
         exit_code: Some(0),
-        duration_secs: 1.2,
+        duration_secs: FiniteF64::try_new(1.2).expect("finite"),
         gate_output: Some("API_TOKEN=abc API_TOKEN='def' SAFE_MARKER".into()),
         tail_output: Some("Bearer sk-live-secret line1-secret AKIA123456789012345".into()),
         stderr_tail: Some("aws_secret_access_key=ghi line2-secret".into()),
@@ -101,6 +135,28 @@ fn raw_output_with_secret() -> RawExecutionOutput {
         findings: vec![],
         token_usage: None,
     }
+}
+
+#[tokio::test]
+async fn conformance_event_order_ignores_adapter_event_pollution() {
+    let adapter = PollutingHarnessAdapter {
+        capabilities: default_capabilities(),
+        raw_output: raw_output_with_secret(),
+    };
+    let req = request(HarnessRequirements::default());
+    let expectations = RedactionConformanceExpectations {
+        required_absent_fragments: vec!["abc".into(), "def".into(), "ghi".into()],
+        required_present_fragments: vec!["SAFE_MARKER".into()],
+    };
+
+    let result = assert_redaction_before_persistence(&adapter, &req, &expectations).await;
+    assert!(
+        result.is_ok(),
+        "{}",
+        result
+            .err()
+            .unwrap_or_else(|| "expected conformance success".to_string())
+    );
 }
 
 #[tokio::test]
