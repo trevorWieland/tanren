@@ -1,14 +1,17 @@
 use std::collections::HashSet;
 use std::fmt;
+use std::sync::{Arc, RwLock};
 
 use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
 
+mod compiled_hints;
 mod hints;
 pub(crate) mod policy;
 pub(crate) mod policy_dataset;
 pub(crate) mod scanner;
 pub(crate) mod secret_matcher;
 
+use self::compiled_hints::CompiledHintArtifacts;
 pub use self::hints::{
     MAX_REDACTION_HINT_SECRET_BYTES, MAX_REDACTION_HINT_SECRET_COUNT,
     MAX_REDACTION_HINT_TOTAL_SECRET_BYTES, RedactionHintBoundsError,
@@ -113,6 +116,7 @@ pub struct DefaultOutputRedactor {
     policy: RedactionPolicy,
     normalized_sensitive_key_names: HashSet<String>,
     token_prefix_matcher: scanner::CompiledTokenPrefixMatcher,
+    cached_hint_artifacts: Arc<RwLock<Option<CompiledHintArtifacts>>>,
 }
 
 impl Default for DefaultOutputRedactor {
@@ -135,6 +139,7 @@ impl DefaultOutputRedactor {
             policy,
             normalized_sensitive_key_names,
             token_prefix_matcher,
+            cached_hint_artifacts: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -148,16 +153,28 @@ impl DefaultOutputRedactor {
             return ChannelRedactionResult::default();
         };
         let artifacts = channel_matcher.scan(&value);
-        let mut ranges = artifacts.assignment_value_ranges.clone();
-        ranges.extend_from_slice(&artifacts.bearer_token_ranges);
-        ranges.extend_from_slice(&artifacts.prefixed_token_ranges);
-        ranges.extend(explicit_secret_matcher.collect_ranges(&value));
-        let redacted = apply_redaction_ranges(value, ranges);
-        let redacted =
-            truncate_for_persistence(redacted, self.policy.max_persistable_channel_bytes());
-        let post_scan = channel_matcher.scan(&redacted);
-        let known_secret_leak = !explicit_secret_matcher.collect_ranges(&redacted).is_empty();
-        let policy_residual_leak = post_scan.has_policy_residual_leak();
+        let explicit_secret_ranges = explicit_secret_matcher.collect_ranges(&value);
+        let mut ranges = Vec::with_capacity(
+            artifacts.assignment_value_ranges.len()
+                + artifacts.bearer_token_ranges.len()
+                + artifacts.prefixed_token_ranges.len()
+                + explicit_secret_ranges.len(),
+        );
+        ranges.extend(artifacts.assignment_value_ranges.iter().copied());
+        ranges.extend(artifacts.bearer_token_ranges.iter().copied());
+        ranges.extend(artifacts.prefixed_token_ranges.iter().copied());
+        ranges.extend(explicit_secret_ranges);
+
+        let redaction_result = apply_redaction_ranges(value, ranges);
+        let redacted = truncate_for_persistence(
+            redaction_result.redacted,
+            self.policy.max_persistable_channel_bytes(),
+        );
+        let requires_fallback_verification = redaction_result.had_invalid_ranges;
+        let known_secret_leak = requires_fallback_verification
+            && !explicit_secret_matcher.collect_ranges(&redacted).is_empty();
+        let policy_residual_leak = requires_fallback_verification
+            && channel_matcher.scan(&redacted).has_policy_residual_leak();
 
         ChannelRedactionResult {
             value: Some(redacted),
@@ -175,7 +192,7 @@ impl DefaultOutputRedactor {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct ChannelRedactionResult {
     value: Option<String>,
     known_secret_leak: bool,
@@ -196,27 +213,23 @@ impl OutputRedactor for DefaultOutputRedactor {
         if hints.validate_bounds().is_err() {
             return true;
         }
-        let matcher =
-            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len());
-        Self::channels(output)
-            .iter()
-            .flatten()
-            .any(|channel| !matcher.collect_ranges(channel).is_empty())
+        let compiled_hints = self.compiled_hint_artifacts(hints);
+        Self::channels(output).iter().flatten().any(|channel| {
+            !compiled_hints
+                .secret_matcher
+                .collect_ranges(channel)
+                .is_empty()
+        })
     }
 
     fn has_policy_residual_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
         if hints.validate_bounds().is_err() {
             return true;
         }
-        let hint_keys = hints
-            .required_secret_names
-            .iter()
-            .map(SecretName::as_str)
-            .map(str::to_owned)
-            .collect::<HashSet<_>>();
+        let compiled_hints = self.compiled_hint_artifacts(hints);
         let matcher = CompiledChannelMatcher::new(
             &self.normalized_sensitive_key_names,
-            &hint_keys,
+            compiled_hints.hint_keys.as_ref(),
             &self.token_prefix_matcher,
             self.policy.min_token_len(),
             REDACTION_TOKEN,
@@ -236,37 +249,59 @@ impl OutputRedactor for DefaultOutputRedactor {
         hints: &RedactionHints,
     ) -> Result<RedactionOutcome, RedactionError> {
         hints.validate_bounds()?;
-        let hint_keys = hints
-            .required_secret_names
-            .iter()
-            .map(SecretName::as_str)
-            .map(str::to_owned)
-            .collect::<HashSet<_>>();
+        let RawExecutionOutput {
+            outcome,
+            signal,
+            exit_code,
+            duration_secs,
+            gate_output,
+            tail_output,
+            stderr_tail,
+            pushed,
+            plan_hash,
+            unchecked_tasks,
+            spec_modified,
+            findings,
+            token_usage,
+        } = output;
+        let gate_tail_same = gate_output.as_deref() == tail_output.as_deref();
+        let gate_stderr_same = gate_output.as_deref() == stderr_tail.as_deref();
+        let tail_stderr_same = tail_output.as_deref() == stderr_tail.as_deref();
+
+        let compiled_hints = self.compiled_hint_artifacts(hints);
         let channel_matcher = CompiledChannelMatcher::new(
             &self.normalized_sensitive_key_names,
-            &hint_keys,
+            compiled_hints.hint_keys.as_ref(),
             &self.token_prefix_matcher,
             self.policy.min_token_len(),
             REDACTION_TOKEN,
         );
-        let explicit_secret_matcher =
-            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len());
 
         let gate = self.redact_channel(
-            output.gate_output,
+            gate_output,
             &channel_matcher,
-            &explicit_secret_matcher,
+            compiled_hints.secret_matcher.as_ref(),
         );
-        let tail = self.redact_channel(
-            output.tail_output,
-            &channel_matcher,
-            &explicit_secret_matcher,
-        );
-        let stderr = self.redact_channel(
-            output.stderr_tail,
-            &channel_matcher,
-            &explicit_secret_matcher,
-        );
+        let tail = if gate_tail_same {
+            gate.clone()
+        } else {
+            self.redact_channel(
+                tail_output,
+                &channel_matcher,
+                compiled_hints.secret_matcher.as_ref(),
+            )
+        };
+        let stderr = if gate_stderr_same {
+            gate.clone()
+        } else if tail_stderr_same {
+            tail.clone()
+        } else {
+            self.redact_channel(
+                stderr_tail,
+                &channel_matcher,
+                compiled_hints.secret_matcher.as_ref(),
+            )
+        };
 
         let audit = RedactionAudit {
             known_secret_leak: gate.known_secret_leak
@@ -279,19 +314,19 @@ impl OutputRedactor for DefaultOutputRedactor {
 
         Ok(RedactionOutcome {
             output: PersistableOutput {
-                outcome: output.outcome,
-                signal: output.signal,
-                exit_code: output.exit_code,
-                duration_secs: output.duration_secs,
+                outcome,
+                signal,
+                exit_code,
+                duration_secs,
                 gate_output: gate.value,
                 tail_output: tail.value,
                 stderr_tail: stderr.value,
-                pushed: output.pushed,
-                plan_hash: output.plan_hash,
-                unchecked_tasks: output.unchecked_tasks,
-                spec_modified: output.spec_modified,
-                findings: output.findings,
-                token_usage: output.token_usage,
+                pushed,
+                plan_hash,
+                unchecked_tasks,
+                spec_modified,
+                findings,
+                token_usage,
             },
             audit,
         })
@@ -337,9 +372,17 @@ impl<'a> CompiledChannelMatcher<'a> {
     }
 }
 
-fn apply_redaction_ranges(text: String, mut ranges: Vec<(usize, usize)>) -> String {
+struct RedactionApplyResult {
+    redacted: String,
+    had_invalid_ranges: bool,
+}
+
+fn apply_redaction_ranges(text: String, mut ranges: Vec<(usize, usize)>) -> RedactionApplyResult {
     if ranges.is_empty() {
-        return text;
+        return RedactionApplyResult {
+            redacted: text,
+            had_invalid_ranges: false,
+        };
     }
 
     ranges.sort_unstable_by_key(|(start, _)| *start);
@@ -355,6 +398,7 @@ fn apply_redaction_ranges(text: String, mut ranges: Vec<(usize, usize)>) -> Stri
     }
 
     let mut redacted = String::with_capacity(text.len());
+    let mut had_invalid_ranges = false;
     let mut cursor = 0;
     for (start, end) in merged {
         if !(start < end
@@ -362,6 +406,7 @@ fn apply_redaction_ranges(text: String, mut ranges: Vec<(usize, usize)>) -> Stri
             && text.is_char_boundary(start)
             && text.is_char_boundary(end))
         {
+            had_invalid_ranges = true;
             continue;
         }
 
@@ -374,7 +419,10 @@ fn apply_redaction_ranges(text: String, mut ranges: Vec<(usize, usize)>) -> Stri
     if cursor < text.len() {
         redacted.push_str(&text[cursor..]);
     }
-    redacted
+    RedactionApplyResult {
+        redacted,
+        had_invalid_ranges,
+    }
 }
 
 fn truncate_for_persistence(mut input: String, max_bytes: usize) -> String {

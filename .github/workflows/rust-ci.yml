@@ -144,7 +144,15 @@ jobs:
         with:
           tool: cargo-nextest,cargo-llvm-cov
 
+      - name: Build tanren-mcp for workspace parity tests
+        run: cargo build -p tanren-mcp --locked --quiet
+
+      - name: Verify tanren-mcp test binary path
+        run: test -x "${{ github.workspace }}/target/debug/tanren-mcp"
+
       - name: Generate coverage
+        env:
+          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
         run: cargo llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --lcov --output-path lcov.info --no-tests=pass
 
       - name: Upload coverage to Codecov

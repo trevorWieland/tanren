@@ -15,7 +15,7 @@ struct AutomatonNode {
     outputs: Vec<usize>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct CompiledSecretMatcher {
     nodes: Vec<AutomatonNode>,
     candidates: Vec<SecretCandidate>,
