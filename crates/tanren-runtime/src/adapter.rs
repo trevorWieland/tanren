@@ -3,10 +3,7 @@ use std::sync::OnceLock;
 
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
-use crate::failure::{
-    HarnessFailure, ProviderFailure, TerminalFailureCodeError, classify_provider_failure,
-    ensure_terminal_failure_code,
-};
+use crate::failure::{HarnessFailure, ProviderFailure, ProviderIdentifier};
 use crate::redaction::{DefaultOutputRedactor, OutputRedactor, RedactionError, RedactionHints};
 
 /// Events emitted by the contract wrapper and adapters during execution.
@@ -123,8 +120,6 @@ pub enum HarnessContractError {
     CompatibilityDenied(#[from] CompatibilityDenial),
     #[error(transparent)]
     AdapterFailure(#[from] HarnessFailure),
-    #[error(transparent)]
-    InvalidTerminalFailureCode(#[from] TerminalFailureCodeError),
     #[error("unsafe provider metadata in `{field}`: {violation}")]
     UnsafeProviderMetadata {
         field: &'static str,
@@ -180,12 +175,9 @@ async fn execute_with_contract_internal<A: HarnessAdapter>(
     {
         Ok(signal) => signal,
         Err(provider_failure) => {
-            let sanitized = sanitize_provider_failure(provider_failure, redactor, &hints)
-                .map_err(HarnessContractError::Redaction)?;
-            ensure_terminal_failure_code(sanitized.context.typed_code)?;
-            let class = classify_provider_failure(&sanitized.context);
+            let sanitized = sanitize_provider_failure(provider_failure, redactor, &hints)?;
             return Err(HarnessContractError::AdapterFailure(
-                HarnessFailure::from_provider_failure_with_class(sanitized, class),
+                HarnessFailure::from_provider_failure(sanitized),
             ));
         }
     };
@@ -221,7 +213,7 @@ fn sanitize_provider_failure(
     mut failure: ProviderFailure,
     redactor: &dyn OutputRedactor,
     hints: &RedactionHints,
-) -> Result<ProviderFailure, RedactionError> {
+) -> Result<ProviderFailure, HarnessContractError> {
     let context = failure.context.clone();
     let sanitized = sanitize_failure_payload(
         redactor,
@@ -230,9 +222,12 @@ fn sanitize_provider_failure(
         context.exit_code,
         context.stdout_tail.as_deref(),
         context.stderr_tail.as_deref(),
-    )?;
+    )
+    .map_err(HarnessContractError::Redaction)?;
     if sanitized.audit.has_any_leak() {
-        return Err(RedactionError::PolicyViolation);
+        return Err(HarnessContractError::Redaction(
+            RedactionError::PolicyViolation,
+        ));
     }
     failure.message = sanitized
         .output
@@ -240,7 +235,45 @@ fn sanitize_provider_failure(
         .unwrap_or_else(|| "[REDACTED]".to_owned());
     failure.context.stdout_tail = sanitized.output.tail_output;
     failure.context.stderr_tail = sanitized.output.stderr_tail;
+    failure.context.provider_code = sanitize_provider_identifier(
+        "provider_code",
+        failure.context.provider_code,
+        redactor,
+        hints,
+    )?;
+    failure.context.provider_kind = sanitize_provider_identifier(
+        "provider_kind",
+        failure.context.provider_kind,
+        redactor,
+        hints,
+    )?;
     Ok(failure)
+}
+
+fn sanitize_provider_identifier(
+    field: &'static str,
+    provider_identifier: Option<ProviderIdentifier>,
+    redactor: &dyn OutputRedactor,
+    hints: &RedactionHints,
+) -> Result<Option<ProviderIdentifier>, HarnessContractError> {
+    let Some(raw_identifier) = provider_identifier else {
+        return Ok(None);
+    };
+
+    let candidate = sanitize_metadata_value(
+        field,
+        raw_identifier.as_str(),
+        ProviderIdentifier::MAX_LEN,
+        redactor,
+        hints,
+    )?;
+    let parsed = ProviderIdentifier::try_new(candidate).map_err(|_| {
+        HarnessContractError::UnsafeProviderMetadata {
+            field,
+            violation: ProviderMetadataViolation::InvalidFormat,
+        }
+    })?;
+    Ok(Some(parsed))
 }
 
 fn sanitize_provider_run_id(
@@ -248,36 +281,69 @@ fn sanitize_provider_run_id(
     redactor: &dyn OutputRedactor,
     hints: &RedactionHints,
 ) -> Result<Option<String>, HarnessContractError> {
+    const MAX_PROVIDER_RUN_ID_LEN: usize = 128;
+
     let Some(raw_value) = provider_run_id else {
         return Ok(None);
     };
-    let sanitized = sanitize_failure_payload(redactor, hints, &raw_value, None, None, None)
+
+    let candidate = sanitize_metadata_value(
+        "provider_run_id",
+        &raw_value,
+        MAX_PROVIDER_RUN_ID_LEN,
+        redactor,
+        hints,
+    )?;
+    Ok(Some(candidate))
+}
+
+fn sanitize_metadata_value(
+    field: &'static str,
+    raw_value: &str,
+    max_len: usize,
+    redactor: &dyn OutputRedactor,
+    hints: &RedactionHints,
+) -> Result<String, HarnessContractError> {
+    let sanitized = sanitize_failure_payload(redactor, hints, raw_value, None, None, None)
         .map_err(HarnessContractError::Redaction)?;
+
     if sanitized.audit.has_any_leak() {
         return Err(HarnessContractError::UnsafeProviderMetadata {
-            field: "provider_run_id",
+            field,
             violation: ProviderMetadataViolation::LeakDetected,
         });
     }
+
     let Some(candidate) = sanitized.output.gate_output else {
         return Err(HarnessContractError::UnsafeProviderMetadata {
-            field: "provider_run_id",
+            field,
             violation: ProviderMetadataViolation::RedactedOrMutated,
         });
     };
+
     if candidate != raw_value {
         return Err(HarnessContractError::UnsafeProviderMetadata {
-            field: "provider_run_id",
+            field,
             violation: ProviderMetadataViolation::RedactedOrMutated,
         });
     }
-    if !is_valid_provider_run_id(&candidate) {
+
+    if !is_valid_provider_metadata_value(&candidate, max_len) {
         return Err(HarnessContractError::UnsafeProviderMetadata {
-            field: "provider_run_id",
+            field,
             violation: ProviderMetadataViolation::InvalidFormat,
         });
     }
-    Ok(Some(candidate))
+
+    Ok(candidate)
+}
+
+fn is_valid_provider_metadata_value(value: &str, max_len: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max_len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
 }
 
 fn sanitize_failure_payload(
@@ -306,15 +372,6 @@ fn sanitize_failure_payload(
         token_usage: None,
     };
     redactor.redact_with_audit(output, hints)
-}
-
-fn is_valid_provider_run_id(value: &str) -> bool {
-    const MAX_PROVIDER_RUN_ID_LEN: usize = 128;
-    !value.is_empty()
-        && value.len() <= MAX_PROVIDER_RUN_ID_LEN
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
 }
 
 #[cfg(test)]

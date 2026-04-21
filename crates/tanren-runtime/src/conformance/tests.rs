@@ -14,7 +14,9 @@ use crate::capability::{
     SessionResumeSupport,
 };
 use crate::execution::{RawExecutionOutput, RedactionSecret, SecretName};
-use crate::failure::{ProviderFailure, ProviderIdentifier};
+use crate::failure::{
+    ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier,
+};
 
 #[derive(Debug, Clone)]
 struct FullHarnessAdapter {
@@ -193,6 +195,68 @@ impl HarnessAdapter for LimitedLevelsHarnessAdapter {
     }
 }
 
+#[derive(Debug, Clone)]
+struct UnsafeMetadataHarnessAdapter {
+    raw_output: RawExecutionOutput,
+}
+
+#[async_trait]
+impl HarnessAdapter for UnsafeMetadataHarnessAdapter {
+    const CAPABILITIES: HarnessCapabilities = FullHarnessAdapter::CAPABILITIES;
+
+    fn adapter_name(&self) -> &'static str {
+        "unsafe-metadata"
+    }
+
+    async fn execute(
+        &self,
+        _request: &HarnessExecutionRequest,
+        _observer: &mut dyn HarnessObserver,
+        _token: crate::adapter::ContractCallToken,
+    ) -> Result<ExecutionSignal, ProviderFailure> {
+        Ok(ExecutionSignal {
+            output: self.raw_output.clone(),
+            provider_run_id: Some("run-sk-live-secret".into()),
+            session_resumed: false,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct UnsafeFailureMetadataHarnessAdapter;
+
+#[async_trait]
+impl HarnessAdapter for UnsafeFailureMetadataHarnessAdapter {
+    const CAPABILITIES: HarnessCapabilities = FullHarnessAdapter::CAPABILITIES;
+
+    fn adapter_name(&self) -> &'static str {
+        "unsafe-failure-metadata"
+    }
+
+    async fn execute(
+        &self,
+        _request: &HarnessExecutionRequest,
+        _observer: &mut dyn HarnessObserver,
+        _token: crate::adapter::ContractCallToken,
+    ) -> Result<ExecutionSignal, ProviderFailure> {
+        Err(
+            ProviderFailure::new(ProviderFailureCode::Authentication, "auth").with_context(
+                ProviderFailureContext {
+                    typed_code: ProviderFailureCode::Authentication,
+                    provider_code: Some(
+                        ProviderIdentifier::try_new("sk-live-secret").expect("identifier"),
+                    ),
+                    provider_kind: None,
+                    signal: None,
+                    exit_code: None,
+                    stdout_tail: None,
+                    stderr_tail: None,
+                },
+            ),
+        )
+    }
+}
+
 fn request(requirements: HarnessRequirements) -> HarnessExecutionRequest {
     HarnessExecutionRequest {
         dispatch_id: DispatchId::new(),
@@ -250,10 +314,11 @@ async fn conformance_event_order_ignores_adapter_event_pollution() {
 #[tokio::test]
 async fn conformance_denies_before_adapter_side_effects() {
     let adapter = ToolDeniedHarnessAdapter::new(raw_output_with_secret());
-    let req = request(HarnessRequirements {
-        tool_use: RequirementLevel::Required,
-        ..HarnessRequirements::default()
-    });
+    let req = request(
+        HarnessRequirements::builder()
+            .tool_use(RequirementLevel::Required)
+            .build(),
+    );
     let result = assert_capability_denial_is_preflight(&adapter, &req).await;
     assert!(
         result.is_ok(),
@@ -293,23 +358,63 @@ async fn conformance_enforces_redaction_before_persistence() {
 #[tokio::test]
 async fn conformance_enforces_capability_levels() {
     let adapter = LimitedLevelsHarnessAdapter::new(raw_output_with_secret());
-    let req = request(HarnessRequirements {
-        patch_apply: PatchApplyRequirement::ApplyPatchAndUnifiedDiff,
-        session_resume: SessionResumeRequirement::CrossProcess,
-        ..HarnessRequirements::default()
-    });
+    let requirements = HarnessRequirements::builder()
+        .patch_apply(PatchApplyRequirement::ApplyPatchAndUnifiedDiff)
+        .session_resume(SessionResumeRequirement::CrossProcess)
+        .build();
+    let req = request(requirements);
 
     let result = assert_capability_denial_is_preflight(&adapter, &req).await;
     assert!(result.is_ok(), "must deny insufficient capability levels");
     assert_eq!(adapter.calls(), 0);
 }
 
+#[tokio::test]
+async fn conformance_enforces_metadata_fail_closed_for_run_id() {
+    let adapter = UnsafeMetadataHarnessAdapter {
+        raw_output: raw_output_with_secret(),
+    };
+    let mut req = request(HarnessRequirements::default());
+    req.secret_values_for_redaction = vec![RedactionSecret::from("sk-live-secret")];
+    let result = assert_provider_metadata_fail_closed(&adapter, &req, "provider_run_id").await;
+    assert!(
+        result.is_ok(),
+        "must fail closed for unsafe provider metadata"
+    );
+}
+
+#[tokio::test]
+async fn conformance_enforces_metadata_fail_closed_for_provider_code() {
+    let adapter = UnsafeFailureMetadataHarnessAdapter;
+    let req = request(HarnessRequirements::default());
+    let result = assert_provider_metadata_fail_closed(&adapter, &req, "provider_code").await;
+    assert!(
+        result.is_ok(),
+        "must fail closed for unsafe provider metadata"
+    );
+}
+
 #[test]
 fn conformance_classifies_failures() {
     let ctx = ProviderFailureContext {
-        typed_code: crate::failure::ProviderFailureCode::RateLimited,
+        typed_code: ProviderFailureCode::RateLimited,
         provider_code: Some(ProviderIdentifier::try_new("429").expect("provider code")),
-        ..ProviderFailureContext::default()
+        provider_kind: None,
+        signal: None,
+        exit_code: None,
+        stdout_tail: None,
+        stderr_tail: None,
     };
     assert!(assert_failure_classification(&ctx, HarnessFailureClass::RateLimited).is_ok());
+}
+
+#[test]
+fn conformance_enforces_terminal_typed_code_mapping() {
+    assert!(
+        assert_terminal_typed_code_mapping(
+            ProviderFailureCode::TransportUnavailable,
+            HarnessFailureClass::TransportUnavailable,
+        )
+        .is_ok()
+    );
 }

@@ -23,7 +23,7 @@ Capability metadata is immutable and type-level in the adapter contract;
 preflight checks read static capability data rather than invoking adapter
 instance logic.
 
-`HarnessRequirements` defines dispatch requirements and now supports explicit
+`HarnessRequirements` defines dispatch requirements and supports explicit
 least-privilege bounds:
 
 - capability minimums (for required features)
@@ -31,6 +31,8 @@ least-privilege bounds:
 - dual approval ordering:
   - minimum approval uses strictness (`never < on_escalation < on_demand`)
   - maximum approval uses privilege risk (`on_demand < on_escalation < never`)
+- validated bound types (`SandboxModeBounds`, `ApprovalModeBounds`) plus
+  builder-based construction prevent invalid range objects at creation time.
 
 `ensure_admissible` performs preflight checks and returns typed
 `CompatibilityDenialKind` before side effects.
@@ -53,7 +55,8 @@ execution:
 2. sealed adapter invocation (contract-only call token)
 3. contract-owned redaction (not caller-injected)
 4. single-pass redaction audit verdict (known-secret + residual policy)
-5. metadata sanitization and allowlist validation (`provider_run_id`, fail-closed)
+5. metadata sanitization and allowlist validation
+   (`provider_run_id`, `provider_code`, `provider_kind`, fail-closed)
 6. persistable output release
 
 Adapters must not bypass this wrapper when producing persistable output.
@@ -69,9 +72,10 @@ contract wrapper is the only normalization boundary to `HarnessFailure`.
 `ProviderFailureContext` supports typed/normalized classification:
 
 - mandatory typed adapter code (`ProviderFailureCode`) for terminal failures
-- `typed_code=unknown` is forbidden for terminal failures
+- terminal typed code is strict and has no `unknown` variant
 - deterministic typed mapping only for semantic normalization
 - optional audit-only fallback utility (`classify_provider_failure_for_audit`)
+  is carried by `AuditProviderFailureContext`/`AuditProviderFailureCode`.
 
 ### Redaction Contract
 
@@ -104,12 +108,16 @@ Lane 1.2+ adapter crates must reuse `tanren-runtime` conformance helpers:
 - `assert_capability_denial_is_preflight`
 - `assert_redaction_before_persistence`
 - `assert_failure_classification`
+- `assert_provider_metadata_fail_closed`
+- `assert_terminal_typed_code_mapping`
 
 Required adapter evidence:
 
 1. capability denial is preflight-only
 2. redaction completes before persistence
 3. failure mapping is stable across provider-native payloads
+4. provider metadata sanitization is fail-closed
+5. terminal typed-code semantics remain deterministic
 
 ## Implementation Notes
 

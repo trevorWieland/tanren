@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+mod requirements;
+
+pub use requirements::{
+    ApprovalModeBounds, HarnessRequirements, HarnessRequirementsBuilder,
+    OutputStreamingRequirement, PatchApplyRequirement, RequirementBoundsError, RequirementLevel,
+    SandboxModeBounds, SessionResumeRequirement,
+};
+
 /// Output streaming support advertised by a harness adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -72,81 +80,6 @@ pub struct HarnessCapabilities {
     pub approval_mode: ApprovalMode,
 }
 
-/// Requirement strictness for one capability.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum RequirementLevel {
-    #[default]
-    Optional,
-    Required,
-}
-
-impl RequirementLevel {
-    #[must_use]
-    pub const fn is_required(self) -> bool {
-        matches!(self, Self::Required)
-    }
-}
-
-/// Required output-streaming class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum OutputStreamingRequirement {
-    #[default]
-    None,
-    Text,
-    TextAndToolEvents,
-}
-
-/// Minimum patch-apply support required for admissibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum PatchApplyRequirement {
-    #[default]
-    None,
-    ApplyPatchOnly,
-    ApplyPatchAndUnifiedDiff,
-}
-
-/// Minimum session-resume support required for admissibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionResumeRequirement {
-    #[default]
-    None,
-    SameProcessOnly,
-    CrossProcess,
-}
-
-/// Pre-execution requirements a dispatch needs from the selected harness.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct HarnessRequirements {
-    #[serde(default)]
-    pub output_streaming: OutputStreamingRequirement,
-    #[serde(default)]
-    pub tool_use: RequirementLevel,
-    #[serde(default)]
-    pub patch_apply: PatchApplyRequirement,
-    #[serde(default)]
-    pub session_resume: SessionResumeRequirement,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        alias = "required_sandbox_mode"
-    )]
-    pub minimum_sandbox_mode: Option<SandboxMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub maximum_sandbox_mode: Option<SandboxMode>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        alias = "required_approval_mode"
-    )]
-    pub minimum_approval_mode: Option<ApprovalMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub maximum_approval_mode: Option<ApprovalMode>,
-}
-
 /// Typed mismatch classes used for deterministic denial handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -158,7 +91,6 @@ pub enum CompatibilityDenialKind {
     SessionResumeLevelInsufficient,
     SandboxModeBelowMinimum,
     SandboxModeExceedsMaximum,
-    SandboxModeInvalidRange,
     ApprovalModeBelowMinimum,
     ApprovalModeExceedsMaximum,
 }
@@ -181,7 +113,7 @@ impl HarnessCapabilities {
     /// Evaluate whether this adapter can satisfy the provided requirements.
     #[must_use]
     pub fn evaluate(&self, requirements: &HarnessRequirements) -> CapabilityAdmissibility {
-        match requirements.output_streaming {
+        match requirements.output_streaming() {
             OutputStreamingRequirement::None => {}
             OutputStreamingRequirement::Text => {
                 if !self.output_streaming.supports_text() {
@@ -199,39 +131,31 @@ impl HarnessCapabilities {
             }
         }
 
-        if requirements.tool_use.is_required() && !self.can_use_tools {
+        if requirements.tool_use().is_required() && !self.can_use_tools {
             return CapabilityAdmissibility::Denied(CompatibilityDenialKind::ToolUseUnsupported);
         }
 
-        if !patch_apply_satisfies(self.patch_apply, requirements.patch_apply) {
+        if !patch_apply_satisfies(self.patch_apply, requirements.patch_apply()) {
             return CapabilityAdmissibility::Denied(
                 CompatibilityDenialKind::PatchApplyLevelInsufficient,
             );
         }
 
-        if !session_resume_satisfies(self.session_resume, requirements.session_resume) {
+        if !session_resume_satisfies(self.session_resume, requirements.session_resume()) {
             return CapabilityAdmissibility::Denied(
                 CompatibilityDenialKind::SessionResumeLevelInsufficient,
             );
         }
 
-        if let (Some(minimum), Some(maximum)) = (
-            requirements.minimum_sandbox_mode,
-            requirements.maximum_sandbox_mode,
-        ) && sandbox_mode_rank(minimum) > sandbox_mode_rank(maximum)
-        {
-            return CapabilityAdmissibility::Denied(
-                CompatibilityDenialKind::SandboxModeInvalidRange,
-            );
-        }
-        if let Some(minimum) = requirements.minimum_sandbox_mode
+        let sandbox_bounds = requirements.sandbox_mode_bounds();
+        if let Some(minimum) = sandbox_bounds.minimum()
             && !sandbox_mode_satisfies(self.sandbox_mode, minimum)
         {
             return CapabilityAdmissibility::Denied(
                 CompatibilityDenialKind::SandboxModeBelowMinimum,
             );
         }
-        if let Some(maximum) = requirements.maximum_sandbox_mode
+        if let Some(maximum) = sandbox_bounds.maximum()
             && sandbox_mode_rank(self.sandbox_mode) > sandbox_mode_rank(maximum)
         {
             return CapabilityAdmissibility::Denied(
@@ -239,14 +163,15 @@ impl HarnessCapabilities {
             );
         }
 
-        if let Some(minimum) = requirements.minimum_approval_mode
+        let approval_bounds = requirements.approval_mode_bounds();
+        if let Some(minimum) = approval_bounds.minimum()
             && !approval_mode_satisfies_minimum(self.approval_mode, minimum)
         {
             return CapabilityAdmissibility::Denied(
                 CompatibilityDenialKind::ApprovalModeBelowMinimum,
             );
         }
-        if let Some(maximum) = requirements.maximum_approval_mode
+        if let Some(maximum) = approval_bounds.maximum()
             && !approval_mode_within_maximum(self.approval_mode, maximum)
         {
             return CapabilityAdmissibility::Denied(

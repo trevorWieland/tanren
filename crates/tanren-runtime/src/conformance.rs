@@ -1,9 +1,11 @@
 use crate::adapter::{
     HarnessAdapter, HarnessContractError, HarnessEventSource, HarnessExecutionEvent,
-    HarnessExecutionEventKind, HarnessObserver, execute_with_contract,
+    HarnessExecutionEventKind, HarnessObserver, ProviderMetadataViolation, execute_with_contract,
 };
 use crate::execution::HarnessExecutionRequest;
-use crate::failure::{HarnessFailureClass, ProviderFailureContext, classify_provider_failure};
+use crate::failure::{
+    HarnessFailureClass, ProviderFailureCode, ProviderFailureContext, classify_provider_failure,
+};
 use crate::redaction::{default_redaction_policy, scanner};
 
 /// Minimal result wrapper for reusable conformance checks.
@@ -197,6 +199,81 @@ pub fn assert_failure_classification(
     } else {
         Err(format!("expected {expected:?}, got {actual:?}"))
     }
+}
+
+/// Assert that terminal typed-code semantics are deterministic and stable.
+///
+/// # Errors
+/// Returns a message when the code-to-class mapping does not match.
+pub fn assert_terminal_typed_code_mapping(
+    typed_code: ProviderFailureCode,
+    expected: HarnessFailureClass,
+) -> Result<(), String> {
+    let ctx = ProviderFailureContext::new(typed_code);
+    assert_failure_classification(&ctx, expected)
+}
+
+/// Assert that unsafe provider metadata is rejected fail-closed.
+///
+/// # Errors
+/// Returns a message describing the violated conformance rule.
+pub async fn assert_provider_metadata_fail_closed(
+    adapter: &impl HarnessAdapter,
+    request: &HarnessExecutionRequest,
+    field: &'static str,
+) -> Result<ConformanceResult, String> {
+    let mut recorder = ConformanceEventRecorder::default();
+    let err = execute_with_contract(adapter, request, &mut recorder).await;
+    let violation = match err {
+        Err(HarnessContractError::UnsafeProviderMetadata {
+            field: actual_field,
+            violation,
+        }) if actual_field == field => violation,
+        Err(other) => {
+            return Err(format!(
+                "expected UnsafeProviderMetadata for `{field}`, got {other}"
+            ));
+        }
+        Ok(_) => return Err("expected unsafe provider metadata failure".to_string()),
+    };
+
+    if !matches!(
+        violation,
+        ProviderMetadataViolation::RedactedOrMutated
+            | ProviderMetadataViolation::InvalidFormat
+            | ProviderMetadataViolation::LeakDetected
+    ) {
+        return Err(format!(
+            "unexpected provider metadata violation for `{field}`: {violation:?}"
+        ));
+    }
+
+    let accepted = event_index(recorder.events(), |event| {
+        event.source == HarnessEventSource::Contract
+            && matches!(event.kind, HarnessExecutionEventKind::PreflightAccepted)
+    })
+    .is_some();
+    let invoked = event_index(recorder.events(), |event| {
+        event.source == HarnessEventSource::Contract
+            && matches!(event.kind, HarnessExecutionEventKind::AdapterInvoked)
+    })
+    .is_some();
+    let persistable = event_index(recorder.events(), |event| {
+        event.source == HarnessEventSource::Contract
+            && matches!(
+                event.kind,
+                HarnessExecutionEventKind::PersistableOutputReady
+            )
+    })
+    .is_some();
+
+    if !(accepted && invoked && !persistable) {
+        return Err("metadata fail-closed event ordering invariant violated".to_string());
+    }
+
+    Ok(ConformanceResult {
+        events: recorder.events,
+    })
 }
 
 fn assert_event_ordering(events: &[HarnessExecutionEvent]) -> Result<(), String> {

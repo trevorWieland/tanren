@@ -197,7 +197,7 @@ fn collect_token_style_ranges(
     let mut prefixed_ranges = Vec::new();
     let bytes = text.as_bytes();
     let mut cursor = 0;
-    let mut previous_token: Option<String> = None;
+    let mut previous_token_is_bearer = false;
 
     while cursor < bytes.len() {
         while cursor < bytes.len() && !is_secret_token_char(bytes[cursor]) {
@@ -212,14 +212,10 @@ fn collect_token_style_ranges(
         }
 
         let token = &text[start..cursor];
-        let normalized = token.to_ascii_lowercase();
         let token_len = cursor.saturating_sub(start);
         let is_redaction_token = token == redaction_token;
 
-        if previous_token.as_deref() == Some("bearer")
-            && token_len >= min_token_len
-            && !is_redaction_token
-        {
+        if previous_token_is_bearer && token_len >= min_token_len && !is_redaction_token {
             bearer_ranges.push((start, cursor));
         }
 
@@ -232,7 +228,7 @@ fn collect_token_style_ranges(
             prefixed_ranges.push((start, cursor));
         }
 
-        previous_token = Some(normalized);
+        previous_token_is_bearer = token.eq_ignore_ascii_case("bearer");
     }
 
     (bearer_ranges, prefixed_ranges)

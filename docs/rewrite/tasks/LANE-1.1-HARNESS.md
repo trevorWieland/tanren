@@ -43,9 +43,11 @@ execution; parity proof is accepted only in Lane 1.2.
   - session-resume support
   - sandbox mode
   - approval mode
-- `HarnessRequirements` describes what a dispatch needs.
-- Sandbox and approval requirements support both minimum capability and maximum
-  privilege bounds.
+- `HarnessRequirements` describes what a dispatch needs and is constructed via
+  validated builder APIs.
+- Sandbox and approval requirements use validated bound types
+  (`SandboxModeBounds`, `ApprovalModeBounds`) for minimum capability and maximum
+  privilege constraints.
 - Approval bounds are dual-axis:
   - minimum approval uses strictness (`never < on_escalation < on_demand`)
   - maximum approval uses privilege risk (`on_demand < on_escalation < never`)
@@ -66,7 +68,8 @@ execution; parity proof is accepted only in Lane 1.2.
   2. sealed adapter execution (contract-only call token)
   3. redaction hints derived from request data (not caller-provided)
   4. contract-owned redaction + single-pass leak audit to `PersistableOutput`
-  5. fail-closed metadata sanitization for `provider_run_id`
+  5. fail-closed metadata sanitization for `provider_run_id`,
+     `provider_code`, and `provider_kind`
   6. source-tagged event emission (`contract` vs `adapter`) for conformance-safe
      ordering assertions
 
@@ -76,11 +79,12 @@ execution; parity proof is accepted only in Lane 1.2.
 - `HarnessFailure` is constructor-normalized with invariant-safe class/code
   states; conflicting class/typed-code combinations are rejected at
   deserialization boundaries.
-- `ProviderFailureContext.typed_code` is mandatory for terminal adapter failures;
-  `typed_code=unknown` is rejected at the contract boundary.
+- `ProviderFailureContext.typed_code` is mandatory for terminal adapter
+  failures and uses terminal-only `ProviderFailureCode` (no `unknown` variant).
 - `classify_provider_failure` maps terminal provider failures deterministically
   from typed adapter code only.
-- `classify_provider_failure_for_audit` remains available as an explicit
+- `classify_provider_failure_for_audit` remains available via
+  `AuditProviderFailureContext`/`AuditProviderFailureCode` as an explicit
   telemetry utility for bounded fallback heuristics.
 - `HarnessFailureClass::to_domain_error_class` maps to
   `tanren_domain::ErrorClass` for retry policy consistency.
@@ -124,12 +128,16 @@ Lane 1.2 adapter crates must reuse `tanren-runtime` conformance helpers:
 - `assert_capability_denial_is_preflight`
 - `assert_redaction_before_persistence`
 - `assert_failure_classification`
+- `assert_provider_metadata_fail_closed`
+- `assert_terminal_typed_code_mapping`
 
 Each adapter must prove:
 
 1. capability denial happens before side effects
 2. redaction is complete before persistence
 3. provider-specific failures normalize to stable failure classes
+4. unsafe provider metadata is rejected fail-closed
+5. typed terminal failure code mappings remain stable
 
 Lane 1.2 acceptance also requires parity scenarios for
 [../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md) Feature 1, Feature 3, and

@@ -180,12 +180,14 @@ impl DefaultOutputRedactor {
         let redacted = apply_redaction_ranges(value, ranges);
         let redacted =
             truncate_for_persistence(redacted, self.policy.max_persistable_channel_bytes);
+        let post_scan = channel_matcher.scan(&redacted);
         let known_secret_leak = !explicit_secret_matcher.collect_ranges(&redacted).is_empty();
+        let policy_residual_leak = post_scan.has_policy_residual_leak();
 
         ChannelRedactionResult {
             value: Some(redacted),
             known_secret_leak,
-            policy_residual_leak: false,
+            policy_residual_leak,
         }
     }
 
@@ -352,7 +354,7 @@ impl<'a> CompiledChannelMatcher<'a> {
     }
 }
 
-fn apply_redaction_ranges(mut text: String, mut ranges: Vec<(usize, usize)>) -> String {
+fn apply_redaction_ranges(text: String, mut ranges: Vec<(usize, usize)>) -> String {
     if ranges.is_empty() {
         return text;
     }
@@ -369,12 +371,27 @@ fn apply_redaction_ranges(mut text: String, mut ranges: Vec<(usize, usize)>) -> 
         merged.push((start, end));
     }
 
-    for (start, end) in merged.into_iter().rev() {
-        if start < end && end <= text.len() {
-            text.replace_range(start..end, REDACTION_TOKEN);
+    let mut redacted = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for (start, end) in merged {
+        if !(start < end
+            && end <= text.len()
+            && text.is_char_boundary(start)
+            && text.is_char_boundary(end))
+        {
+            continue;
         }
+
+        if cursor < start {
+            redacted.push_str(&text[cursor..start]);
+        }
+        redacted.push_str(REDACTION_TOKEN);
+        cursor = end;
     }
-    text
+    if cursor < text.len() {
+        redacted.push_str(&text[cursor..]);
+    }
+    redacted
 }
 
 fn truncate_for_persistence(mut input: String, max_bytes: usize) -> String {

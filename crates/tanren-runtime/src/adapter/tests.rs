@@ -10,7 +10,7 @@ use crate::capability::{
 };
 use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
 use crate::failure::{
-    ProviderFailure, ProviderFailureCode, ProviderFailureContext, TerminalFailureCodeError,
+    ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier,
 };
 use crate::redaction::{OutputRedactor, RedactionError, RedactionHints};
 
@@ -236,8 +236,12 @@ async fn normalizes_adapter_provider_failure_in_contract_wrapper() {
             ProviderFailure::new(ProviderFailureCode::Timeout, "provider timeout").with_context(
                 ProviderFailureContext {
                     typed_code: ProviderFailureCode::Timeout,
+                    provider_code: None,
+                    provider_kind: None,
+                    signal: None,
+                    exit_code: None,
+                    stdout_tail: None,
                     stderr_tail: Some("401 invalid api key".into()),
-                    ..ProviderFailureContext::default()
                 },
             ),
         ),
@@ -259,6 +263,76 @@ async fn normalizes_adapter_provider_failure_in_contract_wrapper() {
 }
 
 #[tokio::test]
+async fn preserves_safe_provider_failure_identifiers() {
+    let adapter = MockAdapter {
+        output: raw_output(),
+        provider_failure: Some(
+            ProviderFailure::new(ProviderFailureCode::Authentication, "auth failed").with_context(
+                ProviderFailureContext {
+                    typed_code: ProviderFailureCode::Authentication,
+                    provider_code: Some(ProviderIdentifier::try_new("auth_401").expect("code")),
+                    provider_kind: Some(ProviderIdentifier::try_new("http").expect("kind")),
+                    signal: None,
+                    exit_code: None,
+                    stdout_tail: None,
+                    stderr_tail: None,
+                },
+            ),
+        ),
+        provider_run_id: None,
+    };
+    let mut recorder = Recorder::default();
+    let err = execute_with_contract(&adapter, &request(), &mut recorder)
+        .await
+        .expect_err("must fail");
+    let HarnessContractError::AdapterFailure(failure) = err else {
+        unreachable!("checked by expect_err");
+    };
+    assert_eq!(
+        failure.provider_code().map(ProviderIdentifier::as_str),
+        Some("auth_401")
+    );
+    assert_eq!(
+        failure.provider_kind().map(ProviderIdentifier::as_str),
+        Some("http")
+    );
+}
+
+#[tokio::test]
+async fn fails_closed_when_provider_failure_identifier_is_redaction_mutated() {
+    let adapter = MockAdapter {
+        output: raw_output(),
+        provider_failure: Some(
+            ProviderFailure::new(ProviderFailureCode::Authentication, "auth failed").with_context(
+                ProviderFailureContext {
+                    typed_code: ProviderFailureCode::Authentication,
+                    provider_code: Some(
+                        ProviderIdentifier::try_new("sk-live-secret").expect("identifier"),
+                    ),
+                    provider_kind: None,
+                    signal: None,
+                    exit_code: None,
+                    stdout_tail: None,
+                    stderr_tail: None,
+                },
+            ),
+        ),
+        provider_run_id: None,
+    };
+    let mut recorder = Recorder::default();
+    let err = execute_with_contract(&adapter, &request(), &mut recorder)
+        .await
+        .expect_err("must fail closed");
+    assert!(matches!(
+        err,
+        HarnessContractError::UnsafeProviderMetadata {
+            field: "provider_code",
+            violation: ProviderMetadataViolation::RedactedOrMutated
+        }
+    ));
+}
+
+#[tokio::test]
 async fn sanitizes_failure_message_and_context_before_surface() {
     let adapter = MockAdapter {
         output: raw_output(),
@@ -269,9 +343,12 @@ async fn sanitizes_failure_message_and_context_before_surface() {
             )
             .with_context(ProviderFailureContext {
                 typed_code: ProviderFailureCode::Authentication,
+                provider_code: None,
+                provider_kind: None,
+                signal: None,
+                exit_code: None,
                 stdout_tail: Some("stdout secret sk-live-secret".into()),
                 stderr_tail: Some("stderr secret API_TOKEN=super-secret".into()),
-                ..ProviderFailureContext::default()
             }),
         ),
         provider_run_id: None,
@@ -410,24 +487,5 @@ async fn fails_closed_when_provider_run_id_is_redaction_mutated() {
             field: "provider_run_id",
             violation: ProviderMetadataViolation::RedactedOrMutated
         }
-    ));
-}
-
-#[tokio::test]
-async fn rejects_unknown_typed_code_for_terminal_adapter_failures() {
-    let adapter = MockAdapter {
-        output: raw_output(),
-        provider_failure: Some(ProviderFailure::new(ProviderFailureCode::Unknown, "opaque")),
-        provider_run_id: None,
-    };
-    let mut recorder = Recorder::default();
-    let err = execute_with_contract(&adapter, &request(), &mut recorder)
-        .await
-        .expect_err("must fail");
-    assert!(matches!(
-        err,
-        HarnessContractError::InvalidTerminalFailureCode(
-            TerminalFailureCodeError::UnknownForbidden
-        )
     ));
 }

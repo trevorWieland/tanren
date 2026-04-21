@@ -2,8 +2,8 @@ mod taxonomy;
 mod text_classifier;
 
 use serde::{Deserialize, Serialize};
-use tanren_domain::{ErrorClass, NonEmptyString};
-use taxonomy::{classify_exact_identifier, classify_exit_code, normalize_identifier};
+use tanren_domain::ErrorClass;
+use taxonomy::{classify_exact_identifier, classify_exit_code};
 
 /// Canonical failure classes exposed by harness adapters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -42,10 +42,44 @@ impl HarnessFailureClass {
     }
 }
 
-/// Typed provider-level error codes adapters should emit when available.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+/// Typed provider-level error codes adapters emit for terminal failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderFailureCode {
+    CapabilityDenied,
+    ApprovalDenied,
+    Authentication,
+    RateLimited,
+    Timeout,
+    TransportUnavailable,
+    ResourceExhausted,
+    InvalidRequest,
+    Fatal,
+    Transient,
+}
+
+impl ProviderFailureCode {
+    #[must_use]
+    pub const fn to_harness_failure_class(self) -> HarnessFailureClass {
+        match self {
+            Self::CapabilityDenied => HarnessFailureClass::CapabilityDenied,
+            Self::ApprovalDenied => HarnessFailureClass::ApprovalDenied,
+            Self::Authentication => HarnessFailureClass::Authentication,
+            Self::RateLimited => HarnessFailureClass::RateLimited,
+            Self::Timeout => HarnessFailureClass::Timeout,
+            Self::TransportUnavailable => HarnessFailureClass::TransportUnavailable,
+            Self::ResourceExhausted => HarnessFailureClass::ResourceExhausted,
+            Self::InvalidRequest => HarnessFailureClass::InvalidRequest,
+            Self::Fatal => HarnessFailureClass::Fatal,
+            Self::Transient => HarnessFailureClass::Transient,
+        }
+    }
+}
+
+/// Typed provider-level error codes used in audit/telemetry paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditProviderFailureCode {
     CapabilityDenied,
     ApprovalDenied,
     Authentication,
@@ -60,38 +94,38 @@ pub enum ProviderFailureCode {
     Unknown,
 }
 
-impl ProviderFailureCode {
+impl AuditProviderFailureCode {
     #[must_use]
-    pub const fn from_harness_failure_class(class: HarnessFailureClass) -> Self {
-        match class {
-            HarnessFailureClass::CapabilityDenied => Self::CapabilityDenied,
-            HarnessFailureClass::ApprovalDenied => Self::ApprovalDenied,
-            HarnessFailureClass::Authentication => Self::Authentication,
-            HarnessFailureClass::RateLimited => Self::RateLimited,
-            HarnessFailureClass::Timeout => Self::Timeout,
-            HarnessFailureClass::TransportUnavailable => Self::TransportUnavailable,
-            HarnessFailureClass::ResourceExhausted => Self::ResourceExhausted,
-            HarnessFailureClass::InvalidRequest => Self::InvalidRequest,
-            HarnessFailureClass::Fatal => Self::Fatal,
-            HarnessFailureClass::Transient => Self::Transient,
-            HarnessFailureClass::Unknown => Self::Unknown,
+    pub const fn to_terminal_code(self) -> Option<ProviderFailureCode> {
+        match self {
+            Self::CapabilityDenied => Some(ProviderFailureCode::CapabilityDenied),
+            Self::ApprovalDenied => Some(ProviderFailureCode::ApprovalDenied),
+            Self::Authentication => Some(ProviderFailureCode::Authentication),
+            Self::RateLimited => Some(ProviderFailureCode::RateLimited),
+            Self::Timeout => Some(ProviderFailureCode::Timeout),
+            Self::TransportUnavailable => Some(ProviderFailureCode::TransportUnavailable),
+            Self::ResourceExhausted => Some(ProviderFailureCode::ResourceExhausted),
+            Self::InvalidRequest => Some(ProviderFailureCode::InvalidRequest),
+            Self::Fatal => Some(ProviderFailureCode::Fatal),
+            Self::Transient => Some(ProviderFailureCode::Transient),
+            Self::Unknown => None,
         }
     }
+}
 
-    #[must_use]
-    pub const fn to_harness_failure_class(self) -> HarnessFailureClass {
-        match self {
-            Self::CapabilityDenied => HarnessFailureClass::CapabilityDenied,
-            Self::ApprovalDenied => HarnessFailureClass::ApprovalDenied,
-            Self::Authentication => HarnessFailureClass::Authentication,
-            Self::RateLimited => HarnessFailureClass::RateLimited,
-            Self::Timeout => HarnessFailureClass::Timeout,
-            Self::TransportUnavailable => HarnessFailureClass::TransportUnavailable,
-            Self::ResourceExhausted => HarnessFailureClass::ResourceExhausted,
-            Self::InvalidRequest => HarnessFailureClass::InvalidRequest,
-            Self::Fatal => HarnessFailureClass::Fatal,
-            Self::Transient => HarnessFailureClass::Transient,
-            Self::Unknown => HarnessFailureClass::Unknown,
+impl From<ProviderFailureCode> for AuditProviderFailureCode {
+    fn from(value: ProviderFailureCode) -> Self {
+        match value {
+            ProviderFailureCode::CapabilityDenied => Self::CapabilityDenied,
+            ProviderFailureCode::ApprovalDenied => Self::ApprovalDenied,
+            ProviderFailureCode::Authentication => Self::Authentication,
+            ProviderFailureCode::RateLimited => Self::RateLimited,
+            ProviderFailureCode::Timeout => Self::Timeout,
+            ProviderFailureCode::TransportUnavailable => Self::TransportUnavailable,
+            ProviderFailureCode::ResourceExhausted => Self::ResourceExhausted,
+            ProviderFailureCode::InvalidRequest => Self::InvalidRequest,
+            ProviderFailureCode::Fatal => Self::Fatal,
+            ProviderFailureCode::Transient => Self::Transient,
         }
     }
 }
@@ -99,17 +133,31 @@ impl ProviderFailureCode {
 /// Normalized provider identifier used by failure classification.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
-pub struct ProviderIdentifier(NonEmptyString);
+pub struct ProviderIdentifier(String);
 
 impl ProviderIdentifier {
-    /// Build a normalized provider identifier.
+    pub const MAX_LEN: usize = 64;
+
+    /// Build a strict provider identifier.
     ///
     /// # Errors
-    /// Returns [`ProviderIdentifierError`] when the value is blank.
+    /// Returns [`ProviderIdentifierError`] when empty or format-invalid.
     pub fn try_new(value: impl Into<String>) -> Result<Self, ProviderIdentifierError> {
-        let normalized = normalize_identifier(&value.into());
-        let value = NonEmptyString::try_new(normalized)
-            .map_err(|_| ProviderIdentifierError::EmptyOrWhitespace)?;
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(ProviderIdentifierError::EmptyOrWhitespace);
+        }
+        if value.len() > Self::MAX_LEN {
+            return Err(ProviderIdentifierError::TooLong {
+                max_len: Self::MAX_LEN,
+            });
+        }
+        if !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+        {
+            return Err(ProviderIdentifierError::InvalidCharacter);
+        }
         Ok(Self(value))
     }
 
@@ -133,10 +181,14 @@ impl<'de> Deserialize<'de> for ProviderIdentifier {
 pub enum ProviderIdentifierError {
     #[error("provider identifier must not be empty")]
     EmptyOrWhitespace,
+    #[error("provider identifier exceeds max length {max_len}")]
+    TooLong { max_len: usize },
+    #[error("provider identifier contains unsupported characters")]
+    InvalidCharacter,
 }
 
-/// Normalized raw context adapters can pass into classification helpers.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// Normalized context adapters pass for terminal failure classification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderFailureContext {
     pub typed_code: ProviderFailureCode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,6 +205,53 @@ pub struct ProviderFailureContext {
     pub stderr_tail: Option<String>,
 }
 
+impl ProviderFailureContext {
+    #[must_use]
+    pub fn new(typed_code: ProviderFailureCode) -> Self {
+        Self {
+            typed_code,
+            provider_code: None,
+            provider_kind: None,
+            signal: None,
+            exit_code: None,
+            stdout_tail: None,
+            stderr_tail: None,
+        }
+    }
+}
+
+/// Context for audit-only fallback classification paths.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AuditProviderFailureContext {
+    pub typed_code: AuditProviderFailureCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_code: Option<ProviderIdentifier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_kind: Option<ProviderIdentifier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout_tail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stderr_tail: Option<String>,
+}
+
+impl From<&ProviderFailureContext> for AuditProviderFailureContext {
+    fn from(value: &ProviderFailureContext) -> Self {
+        Self {
+            typed_code: value.typed_code.into(),
+            provider_code: value.provider_code.clone(),
+            provider_kind: value.provider_kind.clone(),
+            signal: value.signal.clone(),
+            exit_code: value.exit_code,
+            stdout_tail: value.stdout_tail.clone(),
+            stderr_tail: value.stderr_tail.clone(),
+        }
+    }
+}
+
 /// Provider-native failure payload adapters return to the contract wrapper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[error("{message}")]
@@ -167,10 +266,7 @@ impl ProviderFailure {
     pub fn new(typed_code: ProviderFailureCode, message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            context: ProviderFailureContext {
-                typed_code,
-                ..ProviderFailureContext::default()
-            },
+            context: ProviderFailureContext::new(typed_code),
         }
     }
 
@@ -183,8 +279,7 @@ impl ProviderFailure {
     #[cfg(test)]
     #[must_use]
     pub(crate) fn into_harness_failure(self) -> HarnessFailure {
-        let class = classify_provider_failure(&self.context);
-        HarnessFailure::from_provider_failure_with_class(self, class)
+        HarnessFailure::from_provider_failure(self)
     }
 }
 
@@ -203,21 +298,19 @@ pub struct HarnessFailure {
 
 impl HarnessFailure {
     #[must_use]
-    pub fn new(class: HarnessFailureClass, message: impl Into<String>) -> Self {
+    pub fn new(typed_code: ProviderFailureCode, message: impl Into<String>) -> Self {
         Self {
-            class,
+            class: typed_code.to_harness_failure_class(),
             message: message.into(),
             provider_code: None,
             provider_kind: None,
-            typed_code: ProviderFailureCode::from_harness_failure_class(class),
+            typed_code,
         }
     }
 
     #[must_use]
-    pub(crate) fn from_provider_failure_with_class(
-        failure: ProviderFailure,
-        class: HarnessFailureClass,
-    ) -> Self {
+    pub(crate) fn from_provider_failure(failure: ProviderFailure) -> Self {
+        let class = classify_provider_failure(&failure.context);
         Self {
             class,
             message: failure.message,
@@ -261,7 +354,6 @@ struct HarnessFailureWire {
     provider_code: Option<ProviderIdentifier>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider_kind: Option<ProviderIdentifier>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     typed_code: ProviderFailureCode,
 }
 
@@ -271,11 +363,6 @@ impl<'de> Deserialize<'de> for HarnessFailure {
         D: serde::Deserializer<'de>,
     {
         let wire = HarnessFailureWire::deserialize(deserializer)?;
-        if wire.typed_code == ProviderFailureCode::Unknown {
-            return Err(serde::de::Error::custom(
-                "typed_code unknown is forbidden for terminal harness failures",
-            ));
-        }
         let expected = wire.typed_code.to_harness_failure_class();
         if wire.class != expected {
             return Err(serde::de::Error::custom(format!(
@@ -306,9 +393,11 @@ pub fn classify_provider_failure(ctx: &ProviderFailureContext) -> HarnessFailure
 ///
 /// This API is explicitly non-authoritative for terminal failure semantics.
 #[must_use]
-pub fn classify_provider_failure_for_audit(ctx: &ProviderFailureContext) -> HarnessFailureClass {
-    if ctx.typed_code != ProviderFailureCode::Unknown {
-        return ctx.typed_code.to_harness_failure_class();
+pub fn classify_provider_failure_for_audit(
+    ctx: &AuditProviderFailureContext,
+) -> HarnessFailureClass {
+    if let Some(typed_code) = ctx.typed_code.to_terminal_code() {
+        return typed_code.to_harness_failure_class();
     }
 
     if let Some(class) = ctx
@@ -338,134 +427,5 @@ pub fn classify_provider_failure_for_audit(ctx: &ProviderFailureContext) -> Harn
     text_classifier::classify_text_fallback(ctx.stdout_tail.as_deref(), ctx.stderr_tail.as_deref())
 }
 
-/// Validate terminal adapter failure context invariants.
-///
-/// # Errors
-/// Returns [`TerminalFailureCodeError`] when `typed_code` is not admissible.
-pub(crate) fn ensure_terminal_failure_code(
-    code: ProviderFailureCode,
-) -> Result<(), TerminalFailureCodeError> {
-    if code == ProviderFailureCode::Unknown {
-        return Err(TerminalFailureCodeError::UnknownForbidden);
-    }
-    Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum TerminalFailureCodeError {
-    #[error("typed_code unknown is forbidden for terminal adapter failures")]
-    UnknownForbidden,
-}
-
 #[cfg(test)]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::*;
-
-    #[test]
-    fn typed_code_is_the_only_terminal_classification_input() {
-        let class = classify_provider_failure(&ProviderFailureContext {
-            typed_code: ProviderFailureCode::Timeout,
-            provider_code: Some(ProviderIdentifier::try_new("rate_limited").expect("code")),
-            stderr_tail: Some("401 invalid api key".into()),
-            ..ProviderFailureContext::default()
-        });
-        assert_eq!(class, HarnessFailureClass::Timeout);
-    }
-
-    #[test]
-    fn provider_failure_normalizes_through_context_classification() {
-        let provider_failure =
-            ProviderFailure::new(ProviderFailureCode::RateLimited, "raw adapter failure")
-                .with_context(ProviderFailureContext {
-                    typed_code: ProviderFailureCode::RateLimited,
-                    stderr_tail: Some("fatal panic".into()),
-                    ..ProviderFailureContext::default()
-                });
-
-        let failure = provider_failure.into_harness_failure();
-        assert_eq!(failure.class(), HarnessFailureClass::RateLimited);
-        assert_eq!(failure.typed_code(), ProviderFailureCode::RateLimited);
-    }
-
-    #[test]
-    fn audit_classifier_uses_structured_and_text_fallback_only_for_unknown_typed_code() {
-        let class = classify_provider_failure_for_audit(&ProviderFailureContext {
-            typed_code: ProviderFailureCode::Unknown,
-            provider_code: Some(ProviderIdentifier::try_new("rate_limited").expect("code")),
-            ..ProviderFailureContext::default()
-        });
-        assert_eq!(class, HarnessFailureClass::RateLimited);
-
-        let from_text = classify_provider_failure_for_audit(&ProviderFailureContext {
-            typed_code: ProviderFailureCode::Unknown,
-            stderr_tail: Some("429 too many requests".into()),
-            ..ProviderFailureContext::default()
-        });
-        assert_eq!(from_text, HarnessFailureClass::RateLimited);
-    }
-
-    #[test]
-    fn maps_rate_limit_to_transient_domain_error_class() {
-        let class = classify_provider_failure(&ProviderFailureContext {
-            typed_code: ProviderFailureCode::RateLimited,
-            ..ProviderFailureContext::default()
-        });
-        assert_eq!(class, HarnessFailureClass::RateLimited);
-        assert_eq!(class.to_domain_error_class(), ErrorClass::Transient);
-    }
-
-    #[test]
-    fn maps_capability_denial_to_fatal_domain_error_class() {
-        let class = classify_provider_failure(&ProviderFailureContext {
-            typed_code: ProviderFailureCode::CapabilityDenied,
-            ..ProviderFailureContext::default()
-        });
-        assert_eq!(class, HarnessFailureClass::CapabilityDenied);
-        assert_eq!(class.to_domain_error_class(), ErrorClass::Fatal);
-    }
-
-    #[test]
-    fn terminal_unknown_typed_code_is_rejected() {
-        let err =
-            ensure_terminal_failure_code(ProviderFailureCode::Unknown).expect_err("must deny");
-        assert_eq!(err, TerminalFailureCodeError::UnknownForbidden);
-    }
-
-    #[test]
-    fn deserialization_rejects_unknown_typed_code() {
-        let payload = serde_json::json!({
-            "class": "unknown",
-            "message": "bad",
-            "typed_code": "unknown"
-        });
-        let err = serde_json::from_value::<HarnessFailure>(payload).expect_err("must reject");
-        let msg = err.to_string();
-        assert!(msg.contains("unknown is forbidden"), "{msg}");
-    }
-
-    proptest! {
-        #[test]
-        fn typed_codes_are_never_overridden_by_audit_fallback(noise in ".{0,120}") {
-            let class = classify_provider_failure(&ProviderFailureContext {
-                typed_code: ProviderFailureCode::Authentication,
-                stdout_tail: Some(noise),
-                stderr_tail: Some("429 too many requests temporary".into()),
-                ..ProviderFailureContext::default()
-            });
-            prop_assert_eq!(class, HarnessFailureClass::Authentication);
-        }
-
-        #[test]
-        fn audit_fallback_still_classifies_unknown_typed_code_from_exit_code(noise in ".{0,120}") {
-            let class = classify_provider_failure_for_audit(&ProviderFailureContext {
-                typed_code: ProviderFailureCode::Unknown,
-                exit_code: Some(75),
-                stderr_tail: Some(noise),
-                ..ProviderFailureContext::default()
-            });
-            prop_assert_eq!(class, HarnessFailureClass::Transient);
-        }
-    }
-}
+mod tests;

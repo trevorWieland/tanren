@@ -26,10 +26,9 @@ fn denies_text_streaming_requirement_when_output_streaming_is_none() {
         output_streaming: OutputStreaming::None,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        output_streaming: OutputStreamingRequirement::Text,
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .output_streaming(OutputStreamingRequirement::Text)
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny text requirement");
@@ -45,10 +44,9 @@ fn denies_tool_event_streaming_requirement_without_tool_events() {
         output_streaming: OutputStreaming::TextDeltas,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        output_streaming: OutputStreamingRequirement::TextAndToolEvents,
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .output_streaming(OutputStreamingRequirement::TextAndToolEvents)
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny tool-events requirement");
@@ -64,10 +62,9 @@ fn allows_text_requirement_with_text_deltas() {
         output_streaming: OutputStreaming::TextDeltas,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        output_streaming: OutputStreamingRequirement::Text,
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .output_streaming(OutputStreamingRequirement::Text)
+        .build();
     assert!(caps.ensure_admissible(&requirements).is_ok());
 }
 
@@ -75,10 +72,9 @@ fn allows_text_requirement_with_text_deltas() {
 fn denies_when_tool_use_is_required_but_missing() {
     let mut caps = baseline();
     caps.can_use_tools = false;
-    let requirements = HarnessRequirements {
-        tool_use: RequirementLevel::Required,
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .tool_use(RequirementLevel::Required)
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny");
@@ -91,10 +87,9 @@ fn denies_when_patch_apply_level_is_insufficient() {
         patch_apply: PatchApplySupport::ApplyPatchOnly,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        patch_apply: PatchApplyRequirement::ApplyPatchAndUnifiedDiff,
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .patch_apply(PatchApplyRequirement::ApplyPatchAndUnifiedDiff)
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny");
@@ -110,10 +105,9 @@ fn denies_when_session_resume_level_is_insufficient() {
         session_resume: SessionResumeSupport::SameProcessOnly,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        session_resume: SessionResumeRequirement::CrossProcess,
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .session_resume(SessionResumeRequirement::CrossProcess)
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny");
@@ -125,10 +119,9 @@ fn denies_when_session_resume_level_is_insufficient() {
 
 #[test]
 fn allows_cross_process_for_same_process_requirement() {
-    let requirements = HarnessRequirements {
-        session_resume: SessionResumeRequirement::SameProcessOnly,
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .session_resume(SessionResumeRequirement::SameProcessOnly)
+        .build();
     assert!(baseline().ensure_admissible(&requirements).is_ok());
 }
 
@@ -138,10 +131,10 @@ fn denies_when_sandbox_mode_is_below_minimum() {
         sandbox_mode: SandboxMode::ReadOnly,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        minimum_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .sandbox_mode_bounds(Some(SandboxMode::WorkspaceWrite), None)
+        .expect("valid bounds")
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny");
@@ -157,10 +150,10 @@ fn denies_when_sandbox_mode_exceeds_maximum() {
         sandbox_mode: SandboxMode::Unrestricted,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        maximum_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .sandbox_mode_bounds(None, Some(SandboxMode::WorkspaceWrite))
+        .expect("valid bounds")
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny");
@@ -171,19 +164,14 @@ fn denies_when_sandbox_mode_exceeds_maximum() {
 }
 
 #[test]
-fn denies_when_sandbox_range_is_invalid() {
-    let requirements = HarnessRequirements {
-        minimum_sandbox_mode: Some(SandboxMode::Unrestricted),
-        maximum_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
-        ..HarnessRequirements::default()
-    };
-    let denial = baseline()
-        .ensure_admissible(&requirements)
-        .expect_err("must deny invalid range");
-    assert_eq!(
-        denial.kind,
-        CompatibilityDenialKind::SandboxModeInvalidRange
-    );
+fn rejects_invalid_sandbox_bounds_at_construction() {
+    let err = HarnessRequirements::builder()
+        .sandbox_mode_bounds(
+            Some(SandboxMode::Unrestricted),
+            Some(SandboxMode::WorkspaceWrite),
+        )
+        .expect_err("must reject invalid range");
+    assert_eq!(err, RequirementBoundsError::SandboxModeInvalidRange);
 }
 
 #[test]
@@ -192,10 +180,9 @@ fn denies_when_approval_mode_is_below_minimum() {
         approval_mode: ApprovalMode::OnEscalation,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        minimum_approval_mode: Some(ApprovalMode::OnDemand),
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .approval_mode_bounds(Some(ApprovalMode::OnDemand), None)
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny");
@@ -211,10 +198,9 @@ fn denies_when_approval_mode_exceeds_maximum() {
         approval_mode: ApprovalMode::Never,
         ..baseline()
     };
-    let requirements = HarnessRequirements {
-        maximum_approval_mode: Some(ApprovalMode::OnEscalation),
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .approval_mode_bounds(None, Some(ApprovalMode::OnEscalation))
+        .build();
     let denial = caps
         .ensure_admissible(&requirements)
         .expect_err("must deny");
@@ -226,11 +212,12 @@ fn denies_when_approval_mode_exceeds_maximum() {
 
 #[test]
 fn approval_minimum_and_maximum_can_coexist_with_dual_ordering() {
-    let requirements = HarnessRequirements {
-        minimum_approval_mode: Some(ApprovalMode::OnDemand),
-        maximum_approval_mode: Some(ApprovalMode::OnEscalation),
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .approval_mode_bounds(
+            Some(ApprovalMode::OnDemand),
+            Some(ApprovalMode::OnEscalation),
+        )
+        .build();
     let caps = HarnessCapabilities {
         approval_mode: ApprovalMode::OnDemand,
         ..baseline()
@@ -240,13 +227,17 @@ fn approval_minimum_and_maximum_can_coexist_with_dual_ordering() {
 
 #[test]
 fn allows_when_modes_are_within_min_max_bounds() {
-    let requirements = HarnessRequirements {
-        minimum_sandbox_mode: Some(SandboxMode::ReadOnly),
-        maximum_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
-        minimum_approval_mode: Some(ApprovalMode::OnEscalation),
-        maximum_approval_mode: Some(ApprovalMode::OnEscalation),
-        ..HarnessRequirements::default()
-    };
+    let requirements = HarnessRequirements::builder()
+        .sandbox_mode_bounds(
+            Some(SandboxMode::ReadOnly),
+            Some(SandboxMode::WorkspaceWrite),
+        )
+        .expect("valid bounds")
+        .approval_mode_bounds(
+            Some(ApprovalMode::OnEscalation),
+            Some(ApprovalMode::OnEscalation),
+        )
+        .build();
     assert!(baseline().ensure_admissible(&requirements).is_ok());
 }
 
@@ -305,11 +296,9 @@ fn approval_mode_dual_ordering_matrix_is_exhaustive() {
                     approval_mode: actual,
                     ..baseline()
                 };
-                let requirements = HarnessRequirements {
-                    minimum_approval_mode: minimum,
-                    maximum_approval_mode: maximum,
-                    ..HarnessRequirements::default()
-                };
+                let requirements = HarnessRequirements::builder()
+                    .approval_mode_bounds(minimum, maximum)
+                    .build();
                 let expected = expected_approval_denial(actual, minimum, maximum);
                 let result = caps.ensure_admissible(&requirements);
                 match expected {
@@ -330,4 +319,14 @@ fn approval_mode_dual_ordering_matrix_is_exhaustive() {
             }
         }
     }
+}
+
+#[test]
+fn deserialization_rejects_invalid_sandbox_bounds() {
+    let json = serde_json::json!({
+        "minimum_sandbox_mode": "unrestricted",
+        "maximum_sandbox_mode": "workspace_write"
+    });
+    let err = serde_json::from_value::<HarnessRequirements>(json).expect_err("must reject");
+    assert!(err.to_string().contains("sandbox minimum exceeds maximum"));
 }
