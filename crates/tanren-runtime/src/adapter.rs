@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
-use crate::failure::{HarnessFailure, ProviderFailure};
+use crate::failure::{HarnessFailure, ProviderFailure, classify_provider_failure};
 use crate::redaction::{DefaultOutputRedactor, OutputRedactor, RedactionError};
 
 /// Events emitted by the contract wrapper and adapters during execution.
@@ -60,9 +60,9 @@ pub struct ExecutionSignal {
 /// Adapter trait for provider-specific harness integrations.
 #[async_trait]
 pub trait HarnessAdapter: Send + Sync {
-    fn adapter_name(&self) -> &'static str;
+    const CAPABILITIES: HarnessCapabilities;
 
-    fn capabilities(&self) -> HarnessCapabilities;
+    fn adapter_name(&self) -> &'static str;
 
     /// Execute one request and return raw output prior to redaction.
     ///
@@ -96,8 +96,8 @@ pub enum HarnessContractError {
 ///
 /// # Errors
 /// Returns [`HarnessContractError`] for any failed stage.
-pub async fn execute_with_contract(
-    adapter: &dyn HarnessAdapter,
+pub async fn execute_with_contract<A: HarnessAdapter>(
+    adapter: &A,
     request: &HarnessExecutionRequest,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
@@ -106,14 +106,14 @@ pub async fn execute_with_contract(
     execute_with_contract_internal(adapter, request, redactor, observer).await
 }
 
-async fn execute_with_contract_internal(
-    adapter: &dyn HarnessAdapter,
+async fn execute_with_contract_internal<A: HarnessAdapter>(
+    adapter: &A,
     request: &HarnessExecutionRequest,
     redactor: &dyn OutputRedactor,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
-    adapter
-        .capabilities()
+    let hints = request.redaction_hints();
+    A::CAPABILITIES
         .ensure_admissible(&request.requirements)
         .map_err(|err| {
             emit_contract_event(
@@ -126,12 +126,17 @@ async fn execute_with_contract_internal(
     emit_contract_event(observer, HarnessExecutionEventKind::AdapterInvoked);
 
     let mut adapter_observer = AdapterObserverProxy { inner: observer };
-    let signal = adapter
-        .execute(request, &mut adapter_observer)
-        .await
-        .map_err(HarnessFailure::from_provider_failure)
-        .map_err(HarnessContractError::AdapterFailure)?;
-    let hints = request.redaction_hints();
+    let signal = match adapter.execute(request, &mut adapter_observer).await {
+        Ok(signal) => signal,
+        Err(provider_failure) => {
+            let class = classify_provider_failure(&provider_failure.context);
+            let sanitized = sanitize_provider_failure(provider_failure, redactor, &hints)
+                .map_err(HarnessContractError::Redaction)?;
+            return Err(HarnessContractError::AdapterFailure(
+                HarnessFailure::from_provider_failure_with_class(sanitized, class),
+            ));
+        }
+    };
     let output = redactor.redact(signal.output, &hints)?;
     if redactor.has_known_secret_leak(&output, &hints)
         || redactor.has_policy_residual_leak(&output, &hints)
@@ -161,9 +166,40 @@ impl HarnessObserver for AdapterObserverProxy<'_> {
     }
 }
 
+fn sanitize_provider_failure(
+    mut failure: ProviderFailure,
+    redactor: &dyn OutputRedactor,
+    hints: &crate::redaction::RedactionHints,
+) -> Result<ProviderFailure, RedactionError> {
+    let zero_duration =
+        tanren_domain::FiniteF64::try_new(0.0).map_err(|_| RedactionError::PolicyViolation)?;
+    let output = RawExecutionOutput {
+        outcome: tanren_domain::Outcome::Error,
+        signal: None,
+        exit_code: failure.context.exit_code,
+        duration_secs: zero_duration,
+        gate_output: Some(failure.message),
+        tail_output: failure.context.stdout_tail.take(),
+        stderr_tail: failure.context.stderr_tail.take(),
+        pushed: false,
+        plan_hash: None,
+        unchecked_tasks: 0,
+        spec_modified: false,
+        findings: Vec::new(),
+        token_usage: None,
+    };
+    let sanitized = redactor.redact(output, hints)?;
+    failure.message = sanitized
+        .gate_output
+        .unwrap_or_else(|| "[REDACTED]".to_owned());
+    failure.context.stdout_tail = sanitized.tail_output;
+    failure.context.stderr_tail = sanitized.stderr_tail;
+    Ok(failure)
+}
+
 #[cfg(test)]
-pub(crate) async fn execute_with_contract_for_tests(
-    adapter: &dyn HarnessAdapter,
+pub(crate) async fn execute_with_contract_for_tests<A: HarnessAdapter>(
+    adapter: &A,
     request: &HarnessExecutionRequest,
     redactor: &dyn OutputRedactor,
     observer: &mut dyn HarnessObserver,

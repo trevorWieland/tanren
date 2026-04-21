@@ -15,6 +15,8 @@ Feature 1, Feature 3, and Feature 6.
 Lane 1.1 establishes the canonical contract and executable conformance
 checks required to validate those features. Cross-harness semantic
 equivalence evidence is accepted in Lane 1.2, where concrete adapters exist.
+Lane 1.1 acceptance explicitly excludes shipping concrete harness adapter
+implementations; those are mandatory Lane 1.2 deliverables.
 
 ## Scope
 
@@ -27,6 +29,8 @@ This lane ships (in `crates/tanren-runtime`):
 - reusable adapter conformance test helpers for Lane 1.2
 
 This lane does **not** ship concrete provider adapters.
+This lane also does **not** claim cross-harness parity proof based on adapter
+execution; parity proof is accepted only in Lane 1.2.
 
 ## Contract Surfaces
 
@@ -94,6 +98,8 @@ This lane does **not** ship concrete provider adapters.
 3. Raw provider failures map to typed contract classes.
 4. Persisted output is redacted before durable storage.
 5. Conformance is executable through reusable tests, not prose-only.
+6. Verification for this lane is executed with `just ci` from repo root (`make`-based checks are legacy and non-authoritative for acceptance).
+7. Lane 1.1 audits must score adapter implementation completeness as out-of-scope and defer that criterion to Lane 1.2.
 
 ## Redaction Minimum Coverage
 

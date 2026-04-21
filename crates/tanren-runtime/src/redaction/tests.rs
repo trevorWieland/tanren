@@ -339,3 +339,101 @@ fn redaction_hints_debug_is_redacted() {
     assert!(debug.contains("secret_value_count"));
     assert!(!debug.contains("super-secret"));
 }
+
+#[test]
+fn redacts_before_truncation_for_boundary_sensitive_fragments() {
+    let mut payload = "x".repeat((512 * 1024) - 4);
+    payload.push_str("API_TOKEN=boundary-secret");
+    let redactor = DefaultOutputRedactor::default();
+    let out = redactor
+        .redact(
+            raw_output(&payload),
+            &RedactionHints {
+                required_secret_names: vec![SecretName::try_new("API_TOKEN").expect("secret key")],
+                secret_values: vec![RedactionSecret::from("boundary-secret")],
+            },
+        )
+        .expect("redact");
+    let gate = out.gate_output.expect("gate");
+    assert!(!gate.contains("boundary-secret"), "{gate}");
+}
+
+#[test]
+fn scanner_does_not_reenter_nested_assignment_like_value_body() {
+    let redactor = DefaultOutputRedactor::default();
+    let hints = RedactionHints {
+        required_secret_names: vec![SecretName::try_new("api_token").expect("secret key")],
+        secret_values: vec![],
+    };
+    let out = redactor
+        .redact(
+            raw_output("api_token=\"outer value includes inner=still-safe\" marker=ok"),
+            &hints,
+        )
+        .expect("redact");
+    let gate = out.gate_output.expect("gate");
+    assert!(gate.contains("marker=ok"), "{gate}");
+    assert!(!gate.contains("outer value"), "{gate}");
+    assert!(!gate.contains("still-safe"), "{gate}");
+}
+
+#[test]
+fn policy_dataset_snapshot_and_checksum_are_guarded() {
+    let snapshot = policy_dataset::canonical_policy_dataset_snapshot_v1();
+    let expected_snapshot = r"version=2026-04-21.v1
+provenance=owner=tanren-runtime;source=curated_phase1_minimum;change_control=version_bump_required
+min_token_len=10
+min_secret_fragment_len=4
+max_persistable_channel_bytes=524288
+sensitive_key=api_key
+sensitive_key=api-token
+sensitive_key=api_token
+sensitive_key=auth_token
+sensitive_key=access_token
+sensitive_key=refresh_token
+sensitive_key=session_token
+sensitive_key=authorization
+sensitive_key=bearer
+sensitive_key=cookie
+sensitive_key=set-cookie
+sensitive_key=password
+sensitive_key=secret
+sensitive_key=secret_key
+sensitive_key=private_key
+sensitive_key=client_secret
+sensitive_key=id_token
+sensitive_key=personal_access_token
+sensitive_key=aws_access_key_id
+sensitive_key=aws_secret_access_key
+sensitive_key=x-api-key
+token_prefix=sk-
+token_prefix=sk-proj-
+token_prefix=sk-ant-
+token_prefix=ghp_
+token_prefix=gho_
+token_prefix=ghu_
+token_prefix=ghs_
+token_prefix=github_pat_
+token_prefix=xoxb-
+token_prefix=xoxp-
+token_prefix=xoxa-
+token_prefix=xoxr-
+token_prefix=AKIA
+token_prefix=ASIA
+token_prefix=AIza
+token_prefix=ya29.";
+    assert_eq!(snapshot, expected_snapshot);
+    let checksum = policy_dataset::policy_dataset_checksum_fnv64(&snapshot);
+    assert_eq!(
+        checksum,
+        policy_dataset::DEFAULT_REDACTION_POLICY_DATASET_CHECKSUM_FNV64
+    );
+    let version = policy_dataset::DEFAULT_REDACTION_POLICY_DATASET_VERSION;
+    let mut parts = version.rsplitn(2, ".v");
+    let revision = parts.next().unwrap_or_default();
+    let has_prefix = parts.next().is_some();
+    assert!(
+        has_prefix && !revision.is_empty() && revision.chars().all(|ch| ch.is_ascii_digit()),
+        "dataset version must include explicit revision suffix"
+    );
+}

@@ -1,36 +1,32 @@
 use std::collections::HashSet;
 
-pub(crate) fn find_ascii_case_insensitive(
-    haystack: &str,
-    needle: &str,
-    start: usize,
-) -> Option<usize> {
-    if needle.is_empty() || start >= haystack.len() {
-        return None;
-    }
+type ByteRange = (usize, usize);
+type TokenRanges = (Vec<ByteRange>, Vec<ByteRange>);
 
-    let haystack_bytes = haystack.as_bytes();
-    let needle_bytes = needle.as_bytes();
-    if haystack_bytes.len() < needle_bytes.len() {
-        return None;
-    }
+#[derive(Debug)]
+pub(crate) struct ChannelScanConfig<'a> {
+    pub policy_keys: &'a HashSet<String>,
+    pub hint_keys: &'a HashSet<String>,
+    pub token_prefixes: &'a [String],
+    pub min_token_len: usize,
+    pub redaction_token: &'a str,
+}
 
-    let mut idx = start;
-    while idx + needle_bytes.len() <= haystack_bytes.len() {
-        let mut match_all = true;
-        for offset in 0..needle_bytes.len() {
-            if !haystack_bytes[idx + offset].eq_ignore_ascii_case(&needle_bytes[offset]) {
-                match_all = false;
-                break;
-            }
-        }
-        if match_all {
-            return Some(idx);
-        }
-        idx += 1;
-    }
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct ChannelScanArtifacts {
+    pub assignment_value_ranges: Vec<ByteRange>,
+    pub has_unredacted_sensitive_assignment: bool,
+    pub bearer_token_ranges: Vec<ByteRange>,
+    pub prefixed_token_ranges: Vec<ByteRange>,
+}
 
-    None
+impl ChannelScanArtifacts {
+    #[must_use]
+    pub(crate) fn has_policy_residual_leak(&self) -> bool {
+        self.has_unredacted_sensitive_assignment
+            || !self.bearer_token_ranges.is_empty()
+            || !self.prefixed_token_ranges.is_empty()
+    }
 }
 
 pub(crate) fn find_quoted_value_end(value: &str, start: usize) -> Option<usize> {
@@ -62,24 +58,29 @@ pub(crate) fn find_unquoted_value_end(value: &str, start: usize) -> usize {
     cursor
 }
 
-pub(crate) fn collect_assignment_value_ranges(
-    text: &str,
-    policy_keys: &HashSet<String>,
-    hint_keys: &HashSet<String>,
-    redaction_token: &str,
-) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> = Vec::new();
+pub(crate) fn scan_channel(text: &str, config: &ChannelScanConfig<'_>) -> ChannelScanArtifacts {
+    let mut artifacts = ChannelScanArtifacts::default();
     scan_assignments(text, |key, value_start, value_end| {
-        let is_sensitive = policy_keys.contains(key) || hint_keys.contains(key);
-        if is_sensitive
-            && value_end > value_start
-            && &text[value_start..value_end] != redaction_token
-        {
-            ranges.push((value_start, value_end));
+        let is_sensitive = config.policy_keys.contains(key) || config.hint_keys.contains(key);
+        let is_unredacted =
+            value_end > value_start && &text[value_start..value_end] != config.redaction_token;
+        if is_sensitive && is_unredacted {
+            artifacts
+                .assignment_value_ranges
+                .push((value_start, value_end));
+            artifacts.has_unredacted_sensitive_assignment = true;
         }
         false
     });
-    ranges
+    let (bearer_ranges, prefixed_ranges) = collect_token_style_ranges(
+        text,
+        config.token_prefixes,
+        config.min_token_len,
+        config.redaction_token,
+    );
+    artifacts.bearer_token_ranges = bearer_ranges;
+    artifacts.prefixed_token_ranges = prefixed_ranges;
+    artifacts
 }
 
 pub(crate) fn contains_unredacted_assignment(text: &str, key: &str, redaction_token: &str) -> bool {
@@ -106,19 +107,8 @@ pub(crate) fn collect_bearer_token_ranges(
     text: &str,
     min_token_len: usize,
     redaction_token: &str,
-) -> Vec<(usize, usize)> {
-    let mut ranges = Vec::new();
-    let mut search_from = 0;
-    while let Some(index) = find_ascii_case_insensitive(text, "bearer ", search_from) {
-        let token_start = index + "bearer ".len();
-        let token_end = find_unquoted_value_end(text, token_start);
-        if token_end.saturating_sub(token_start) >= min_token_len
-            && &text[token_start..token_end] != redaction_token
-        {
-            ranges.push((token_start, token_end));
-        }
-        search_from = token_end.saturating_add(1);
-    }
+) -> Vec<ByteRange> {
+    let (ranges, _) = collect_token_style_ranges(text, &[], min_token_len, redaction_token);
     ranges
 }
 
@@ -135,29 +125,8 @@ pub(crate) fn collect_prefixed_token_ranges(
     prefixes: &[String],
     min_token_len: usize,
     redaction_token: &str,
-) -> Vec<(usize, usize)> {
-    let mut ranges = Vec::new();
-    for prefix in prefixes {
-        let mut search_from = 0;
-        while let Some(start) = find_ascii_case_insensitive(text, prefix, search_from) {
-            let mut end = start + prefix.len();
-            while end < text.len() {
-                let ch = text.as_bytes()[end];
-                if !(ch.is_ascii_alphanumeric()
-                    || matches!(ch, b'-' | b'_' | b'/' | b'+' | b'=' | b'.'))
-                {
-                    break;
-                }
-                end += 1;
-            }
-
-            if end.saturating_sub(start) >= min_token_len && &text[start..end] != redaction_token {
-                ranges.push((start, end));
-            }
-
-            search_from = end.saturating_add(1);
-        }
-    }
+) -> Vec<ByteRange> {
+    let (_, ranges) = collect_token_style_ranges(text, prefixes, min_token_len, redaction_token);
     ranges
 }
 
@@ -198,6 +167,7 @@ fn scan_assignments(text: &str, mut visitor: impl FnMut(&str, usize, usize) -> b
             return;
         }
 
+        let structured_value = matches!(bytes[value_cursor], b'{' | b'[');
         let (value_start, value_end) = if matches!(bytes[value_cursor], b'"' | b'\'') {
             let quoted_end = find_quoted_value_end(text, value_cursor).unwrap_or(text.len());
             (value_cursor.saturating_add(1), quoted_end)
@@ -209,8 +179,72 @@ fn scan_assignments(text: &str, mut visitor: impl FnMut(&str, usize, usize) -> b
             return;
         }
 
-        cursor = key_end;
+        cursor = if structured_value {
+            value_start.saturating_add(1)
+        } else {
+            value_end.saturating_add(1)
+        };
     }
+}
+
+fn collect_token_style_ranges(
+    text: &str,
+    prefixes: &[String],
+    min_token_len: usize,
+    redaction_token: &str,
+) -> TokenRanges {
+    let mut bearer_ranges = Vec::new();
+    let mut prefixed_ranges = Vec::new();
+    let bytes = text.as_bytes();
+    let mut cursor = 0;
+    let mut previous_token: Option<String> = None;
+
+    while cursor < bytes.len() {
+        while cursor < bytes.len() && !is_secret_token_char(bytes[cursor]) {
+            cursor += 1;
+        }
+        let start = cursor;
+        while cursor < bytes.len() && is_secret_token_char(bytes[cursor]) {
+            cursor += 1;
+        }
+        if start == cursor {
+            continue;
+        }
+
+        let token = &text[start..cursor];
+        let normalized = token.to_ascii_lowercase();
+        let token_len = cursor.saturating_sub(start);
+        let is_redaction_token = token == redaction_token;
+
+        if previous_token.as_deref() == Some("bearer")
+            && token_len >= min_token_len
+            && !is_redaction_token
+        {
+            bearer_ranges.push((start, cursor));
+        }
+
+        if token_len >= min_token_len
+            && !is_redaction_token
+            && prefixes
+                .iter()
+                .any(|prefix| starts_with_ascii_case_insensitive(token, prefix))
+        {
+            prefixed_ranges.push((start, cursor));
+        }
+
+        previous_token = Some(normalized);
+    }
+
+    (bearer_ranges, prefixed_ranges)
+}
+
+fn starts_with_ascii_case_insensitive(value: &str, prefix: &str) -> bool {
+    value
+        .as_bytes()
+        .iter()
+        .zip(prefix.as_bytes().iter())
+        .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
+        && value.len() >= prefix.len()
 }
 
 fn parse_assignment_key(text: &str, start: usize) -> Option<(String, usize)> {
@@ -247,4 +281,8 @@ const fn is_key_start(byte: u8) -> bool {
 
 const fn is_key_char(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
+}
+
+const fn is_secret_token_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'/' | b'+' | b'=' | b'.')
 }

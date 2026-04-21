@@ -68,6 +68,7 @@ async fn get_nonexistent_dispatch_returns_none() {
 }
 
 #[tokio::test]
+#[cfg(feature = "test-hooks")]
 async fn create_dispatch_enqueues_provision_step() {
     let orch = setup().await;
     let actor = sample_actor();

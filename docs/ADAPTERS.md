@@ -19,6 +19,10 @@ provider-agnostic harness contract that all concrete harness adapters must use
 - sandbox mode
 - approval mode
 
+Capability metadata is immutable and type-level in the adapter contract;
+preflight checks read static capability data rather than invoking adapter
+instance logic.
+
 `HarnessRequirements` defines dispatch requirements and now supports explicit
 least-privilege bounds:
 

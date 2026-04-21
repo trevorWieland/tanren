@@ -43,17 +43,39 @@ impl HarnessObserver for ConformanceEventRecorder {
 /// # Errors
 /// Returns a message describing the violated conformance rule.
 pub async fn assert_capability_denial_is_preflight(
-    adapter: &dyn HarnessAdapter,
+    adapter: &impl HarnessAdapter,
     request: &HarnessExecutionRequest,
 ) -> Result<ConformanceResult, String> {
     let mut recorder = ConformanceEventRecorder::default();
-    let err = execute_with_contract(adapter, request, &mut recorder)
-        .await
-        .expect_err("request should be denied");
-    match err {
-        HarnessContractError::CompatibilityDenied(_) => {}
-        other => return Err(format!("expected compatibility denial, got {other}")),
+    let err = execute_with_contract(adapter, request, &mut recorder).await;
+    let denial_kind = match err {
+        Err(HarnessContractError::CompatibilityDenied(denial)) => denial.kind,
+        Err(other) => return Err(format!("expected compatibility denial, got {other}")),
+        Ok(_) => {
+            return Err("expected compatibility denial but execution succeeded".to_string());
+        }
+    };
+
+    let denied = recorder.events().iter().any(|event| {
+        event.source == HarnessEventSource::Contract
+            && matches!(
+                event.kind,
+                HarnessExecutionEventKind::PreflightDenied(kind) if kind == denial_kind
+            )
+    });
+    if !denied {
+        return Err(format!(
+            "missing PreflightDenied({denial_kind:?}) contract event"
+        ));
     }
+
+    if recorder.events().iter().any(|event| {
+        event.source == HarnessEventSource::Contract
+            && matches!(event.kind, HarnessExecutionEventKind::PreflightAccepted)
+    }) {
+        return Err("preflight accepted event emitted for denied request".into());
+    }
+
     if recorder.events().iter().any(|event| {
         event.source == HarnessEventSource::Contract
             && matches!(event.kind, HarnessExecutionEventKind::AdapterInvoked)
@@ -70,7 +92,7 @@ pub async fn assert_capability_denial_is_preflight(
 /// # Errors
 /// Returns a message describing the violated conformance rule.
 pub async fn assert_redaction_before_persistence(
-    adapter: &dyn HarnessAdapter,
+    adapter: &impl HarnessAdapter,
     request: &HarnessExecutionRequest,
     expectations: &RedactionConformanceExpectations,
 ) -> Result<ConformanceResult, String> {

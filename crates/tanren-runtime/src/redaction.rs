@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -121,40 +121,20 @@ impl DefaultOutputRedactor {
         }
     }
 
-    fn redact_text(&self, input: Option<String>, hints: &RedactionHints) -> Option<String> {
+    fn redact_text(
+        &self,
+        input: Option<String>,
+        channel_matcher: &CompiledChannelMatcher<'_>,
+        explicit_secret_matcher: &CompiledSecretMatcher,
+    ) -> Option<String> {
         input.map(|value| {
-            let out = truncate_for_persistence(value, self.policy.max_persistable_channel_bytes);
-            let hint_key_names = hints
-                .required_secret_names
-                .iter()
-                .map(SecretName::as_str)
-                .map(str::to_owned)
-                .collect::<HashSet<_>>();
-
-            let mut ranges = scanner::collect_assignment_value_ranges(
-                &out,
-                &self.normalized_sensitive_key_names,
-                &hint_key_names,
-                REDACTION_TOKEN,
-            );
-            ranges.extend(scanner::collect_bearer_token_ranges(
-                &out,
-                self.policy.min_token_len,
-                REDACTION_TOKEN,
-            ));
-            ranges.extend(scanner::collect_prefixed_token_ranges(
-                &out,
-                &self.policy.token_prefixes,
-                self.policy.min_token_len,
-                REDACTION_TOKEN,
-            ));
-            ranges.extend(collect_explicit_secret_ranges(
-                &out,
-                hints,
-                self.policy.min_secret_fragment_len,
-            ));
-
-            apply_redaction_ranges(out, ranges)
+            let artifacts = channel_matcher.scan(&value);
+            let mut ranges = artifacts.assignment_value_ranges;
+            ranges.extend(artifacts.bearer_token_ranges);
+            ranges.extend(artifacts.prefixed_token_ranges);
+            ranges.extend(explicit_secret_matcher.collect_ranges(&value));
+            let redacted = apply_redaction_ranges(value, ranges);
+            truncate_for_persistence(redacted, self.policy.max_persistable_channel_bytes)
         })
     }
 
@@ -188,14 +168,41 @@ impl OutputRedactor for DefaultOutputRedactor {
         output: RawExecutionOutput,
         hints: &RedactionHints,
     ) -> Result<PersistableOutput, RedactionError> {
+        let hint_keys = hints
+            .required_secret_names
+            .iter()
+            .map(SecretName::as_str)
+            .map(str::to_owned)
+            .collect::<HashSet<_>>();
+        let channel_matcher = CompiledChannelMatcher::new(
+            &self.normalized_sensitive_key_names,
+            &hint_keys,
+            &self.policy.token_prefixes,
+            self.policy.min_token_len,
+            REDACTION_TOKEN,
+        );
+        let explicit_secret_matcher =
+            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len);
         Ok(PersistableOutput {
             outcome: output.outcome,
             signal: output.signal,
             exit_code: output.exit_code,
             duration_secs: output.duration_secs,
-            gate_output: self.redact_text(output.gate_output, hints),
-            tail_output: self.redact_text(output.tail_output, hints),
-            stderr_tail: self.redact_text(output.stderr_tail, hints),
+            gate_output: self.redact_text(
+                output.gate_output,
+                &channel_matcher,
+                &explicit_secret_matcher,
+            ),
+            tail_output: self.redact_text(
+                output.tail_output,
+                &channel_matcher,
+                &explicit_secret_matcher,
+            ),
+            stderr_tail: self.redact_text(
+                output.stderr_tail,
+                &channel_matcher,
+                &explicit_secret_matcher,
+            ),
             pushed: output.pushed,
             plan_hash: output.plan_hash,
             unchecked_tasks: output.unchecked_tasks,
@@ -233,78 +240,131 @@ impl OutputRedactor for DefaultOutputRedactor {
             .iter()
             .map(SecretName::as_str)
             .map(str::to_owned)
-            .collect::<Vec<_>>();
+            .collect::<HashSet<_>>();
+        let matcher = CompiledChannelMatcher::new(
+            &self.normalized_sensitive_key_names,
+            &hint_keys,
+            &self.policy.token_prefixes,
+            self.policy.min_token_len,
+            REDACTION_TOKEN,
+        );
 
         for channel in Self::channels(output).iter().flatten() {
-            for key in &self.policy.sensitive_key_names {
-                if scanner::contains_unredacted_assignment(channel, key, REDACTION_TOKEN) {
-                    return true;
-                }
-            }
-            for key in &hint_keys {
-                if scanner::contains_unredacted_assignment(channel, key, REDACTION_TOKEN) {
-                    return true;
-                }
-            }
-            if scanner::contains_unredacted_bearer_token(
-                channel,
-                self.policy.min_token_len,
-                REDACTION_TOKEN,
-            ) {
+            if matcher.scan(channel).has_policy_residual_leak() {
                 return true;
-            }
-            for prefix in &self.policy.token_prefixes {
-                if scanner::contains_unredacted_prefixed_token(
-                    channel,
-                    prefix,
-                    self.policy.min_token_len,
-                    REDACTION_TOKEN,
-                ) {
-                    return true;
-                }
             }
         }
         false
     }
 }
 
-fn collect_explicit_secret_ranges(
-    text: &str,
-    hints: &RedactionHints,
-    min_secret_fragment_len: usize,
-) -> Vec<(usize, usize)> {
-    let mut ranges = Vec::new();
-    for secret in &hints.secret_values {
-        let value = secret.expose();
-        if value.trim().is_empty() {
-            continue;
+struct CompiledChannelMatcher<'a> {
+    policy_keys: &'a HashSet<String>,
+    hint_keys: &'a HashSet<String>,
+    token_prefixes: &'a [String],
+    min_token_len: usize,
+    redaction_token: &'a str,
+}
+
+impl<'a> CompiledChannelMatcher<'a> {
+    fn new(
+        policy_keys: &'a HashSet<String>,
+        hint_keys: &'a HashSet<String>,
+        token_prefixes: &'a [String],
+        min_token_len: usize,
+        redaction_token: &'a str,
+    ) -> Self {
+        Self {
+            policy_keys,
+            hint_keys,
+            token_prefixes,
+            min_token_len,
+            redaction_token,
         }
-        ranges.extend(collect_literal_ranges(text, value));
-        if value.contains('\n') {
-            for fragment in value.lines() {
-                let trimmed = fragment.trim();
-                if trimmed.len() >= min_secret_fragment_len {
-                    ranges.extend(collect_literal_ranges(text, trimmed));
+    }
+
+    fn scan(&self, text: &str) -> scanner::ChannelScanArtifacts {
+        scanner::scan_channel(
+            text,
+            &scanner::ChannelScanConfig {
+                policy_keys: self.policy_keys,
+                hint_keys: self.hint_keys,
+                token_prefixes: self.token_prefixes,
+                min_token_len: self.min_token_len,
+                redaction_token: self.redaction_token,
+            },
+        )
+    }
+}
+
+#[derive(Default)]
+struct CompiledSecretMatcher {
+    by_first_byte: HashMap<u8, Vec<Vec<u8>>>,
+}
+
+impl CompiledSecretMatcher {
+    fn from_hints(hints: &RedactionHints, min_secret_fragment_len: usize) -> Self {
+        let mut literals = HashSet::new();
+        for secret in &hints.secret_values {
+            let value = secret.expose().trim();
+            if value.is_empty() {
+                continue;
+            }
+            literals.insert(value.to_owned());
+            if value.contains('\n') {
+                for fragment in value.lines() {
+                    let trimmed = fragment.trim();
+                    if trimmed.len() >= min_secret_fragment_len {
+                        literals.insert(trimmed.to_owned());
+                    }
                 }
             }
         }
-    }
-    ranges
-}
 
-fn collect_literal_ranges(haystack: &str, needle: &str) -> Vec<(usize, usize)> {
-    if needle.is_empty() {
-        return Vec::new();
+        let mut by_first_byte: HashMap<u8, Vec<Vec<u8>>> = HashMap::new();
+        for literal in literals {
+            let bytes = literal.into_bytes();
+            if let Some(first) = bytes.first().copied() {
+                by_first_byte.entry(first).or_default().push(bytes);
+            }
+        }
+        for candidates in by_first_byte.values_mut() {
+            candidates.sort_by_key(|value| std::cmp::Reverse(value.len()));
+        }
+        Self { by_first_byte }
     }
-    let mut ranges = Vec::new();
-    let mut search_from = 0;
-    while let Some(found) = haystack[search_from..].find(needle) {
-        let start = search_from + found;
-        let end = start + needle.len();
-        ranges.push((start, end));
-        search_from = end;
+
+    fn collect_ranges(&self, text: &str) -> Vec<(usize, usize)> {
+        let mut ranges = Vec::new();
+        let bytes = text.as_bytes();
+        let mut cursor = 0;
+
+        while cursor < bytes.len() {
+            let Some(candidates) = self.by_first_byte.get(&bytes[cursor]) else {
+                cursor += 1;
+                continue;
+            };
+
+            let mut matched = false;
+            for candidate in candidates {
+                let end = cursor.saturating_add(candidate.len());
+                if end <= bytes.len()
+                    && &bytes[cursor..end] == candidate.as_slice()
+                    && text.is_char_boundary(cursor)
+                    && text.is_char_boundary(end)
+                {
+                    ranges.push((cursor, end));
+                    cursor = end;
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                cursor += 1;
+            }
+        }
+        ranges
     }
-    ranges
 }
 
 fn apply_redaction_ranges(mut text: String, mut ranges: Vec<(usize, usize)>) -> String {

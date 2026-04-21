@@ -48,9 +48,10 @@ JUST_REQUIRED = [
     "@just check-rust-toolchain-sync",
     (
         'RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets '
-        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet -- -D warnings"
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
+        "--locked --quiet -- -D warnings"
     ),
-    '{{ cargo }} build -p tanren-mcp --locked --quiet',
+    "{{ cargo }} build -p tanren-mcp --locked --quiet",
     'RUSTFLAGS="-D warnings" TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace',
     'TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace',
     "./scripts/run_postgres_integration.sh",

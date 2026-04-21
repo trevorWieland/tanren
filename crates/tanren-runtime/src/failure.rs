@@ -1,7 +1,9 @@
+mod taxonomy;
 mod text_classifier;
 
 use serde::{Deserialize, Serialize};
 use tanren_domain::{ErrorClass, NonEmptyString};
+use taxonomy::{classify_exact_identifier, classify_exit_code, normalize_identifier};
 
 /// Canonical failure classes exposed by harness adapters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -193,6 +195,14 @@ impl HarnessFailure {
     #[must_use]
     pub fn from_provider_failure(failure: ProviderFailure) -> Self {
         let class = classify_provider_failure(&failure.context);
+        Self::from_provider_failure_with_class(failure, class)
+    }
+
+    #[must_use]
+    pub fn from_provider_failure_with_class(
+        failure: ProviderFailure,
+        class: HarnessFailureClass,
+    ) -> Self {
         Self {
             class,
             message: failure.message,
@@ -306,56 +316,6 @@ pub fn classify_provider_failure(ctx: &ProviderFailureContext) -> HarnessFailure
     text_classifier::classify_text_fallback(ctx.stdout_tail.as_deref(), ctx.stderr_tail.as_deref())
 }
 
-fn normalize_identifier(raw: &str) -> String {
-    raw.trim().to_ascii_lowercase().replace([' ', '-'], "_")
-}
-
-fn classify_exact_identifier(raw: &str) -> Option<HarnessFailureClass> {
-    let token = normalize_identifier(raw);
-    match token.as_str() {
-        "capability_denied" | "unsupported_capability" => {
-            Some(HarnessFailureClass::CapabilityDenied)
-        }
-        "approval_denied" | "approval_required" | "consent_denied" => {
-            Some(HarnessFailureClass::ApprovalDenied)
-        }
-        "authentication" | "unauthorized" | "forbidden" | "invalid_api_key" | "401" | "403" => {
-            Some(HarnessFailureClass::Authentication)
-        }
-        "rate_limited" | "rate_limit" | "too_many_requests" | "429" => {
-            Some(HarnessFailureClass::RateLimited)
-        }
-        "timeout" | "deadline_exceeded" | "timed_out" | "124" => Some(HarnessFailureClass::Timeout),
-        "transport_unavailable"
-        | "connection_refused"
-        | "network_unreachable"
-        | "dns"
-        | "econnreset"
-        | "503" => Some(HarnessFailureClass::TransportUnavailable),
-        "resource_exhausted" | "out_of_memory" | "quota_exceeded" | "137" => {
-            Some(HarnessFailureClass::ResourceExhausted)
-        }
-        "invalid_request" | "invalid_argument" | "bad_request" | "malformed" | "400" => {
-            Some(HarnessFailureClass::InvalidRequest)
-        }
-        "transient" | "temporary" | "temporarily_unavailable" | "retryable" | "eagain" | "75" => {
-            Some(HarnessFailureClass::Transient)
-        }
-        "fatal" | "panic" | "internal_error" => Some(HarnessFailureClass::Fatal),
-        "unknown" => Some(HarnessFailureClass::Unknown),
-        _ => None,
-    }
-}
-
-const fn classify_exit_code(code: i32) -> Option<HarnessFailureClass> {
-    match code {
-        124 => Some(HarnessFailureClass::Timeout),
-        137 => Some(HarnessFailureClass::ResourceExhausted),
-        75 => Some(HarnessFailureClass::Transient),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -408,6 +368,12 @@ mod tests {
             ..ProviderFailureContext::default()
         });
         assert_eq!(from_exit, HarnessFailureClass::Transient);
+
+        let from_sigterm_exit = classify_provider_failure(&ProviderFailureContext {
+            exit_code: Some(143),
+            ..ProviderFailureContext::default()
+        });
+        assert_eq!(from_sigterm_exit, HarnessFailureClass::Transient);
     }
 
     #[test]
@@ -442,6 +408,30 @@ mod tests {
     }
 
     #[test]
+    fn classification_covers_common_provider_variants() {
+        let cases = [
+            ("auth_failed", HarnessFailureClass::Authentication),
+            ("throttling", HarnessFailureClass::RateLimited),
+            ("gateway_timeout", HarnessFailureClass::Timeout),
+            ("econnrefused", HarnessFailureClass::TransportUnavailable),
+            (
+                "context_length_exceeded",
+                HarnessFailureClass::ResourceExhausted,
+            ),
+            ("unprocessable_entity", HarnessFailureClass::InvalidRequest),
+            ("backoff_required", HarnessFailureClass::Transient),
+            ("assertion_failed", HarnessFailureClass::Fatal),
+        ];
+        for (provider_code, expected) in cases {
+            let class = classify_provider_failure(&ProviderFailureContext {
+                provider_code: Some(ProviderIdentifier::try_new(provider_code).expect("code")),
+                ..ProviderFailureContext::default()
+            });
+            assert_eq!(class, expected, "provider_code={provider_code}");
+        }
+    }
+
+    #[test]
     fn fallback_ignores_numeric_substrings_without_token_boundaries() {
         let class = classify_provider_failure(&ProviderFailureContext {
             stderr_tail: Some("artifact_1401 metrics_2403".into()),
@@ -457,6 +447,21 @@ mod tests {
             ..ProviderFailureContext::default()
         });
         assert_eq!(class, HarnessFailureClass::Timeout);
+    }
+
+    #[test]
+    fn fallback_phrase_detection_uses_shared_taxonomy() {
+        let class = classify_provider_failure(&ProviderFailureContext {
+            stderr_tail: Some("provider returned permission denied for token".into()),
+            ..ProviderFailureContext::default()
+        });
+        assert_eq!(class, HarnessFailureClass::Authentication);
+
+        let class = classify_provider_failure(&ProviderFailureContext {
+            stderr_tail: Some("service unavailable while dialing upstream".into()),
+            ..ProviderFailureContext::default()
+        });
+        assert_eq!(class, HarnessFailureClass::TransportUnavailable);
     }
 
     #[test]

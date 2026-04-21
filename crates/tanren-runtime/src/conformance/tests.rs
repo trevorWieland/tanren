@@ -17,16 +17,14 @@ use crate::execution::{RawExecutionOutput, RedactionSecret, SecretName};
 use crate::failure::{ProviderFailure, ProviderIdentifier};
 
 #[derive(Debug, Clone)]
-struct MockHarnessAdapter {
-    capabilities: HarnessCapabilities,
+struct FullHarnessAdapter {
     raw_output: RawExecutionOutput,
     call_count: Arc<AtomicUsize>,
 }
 
-impl MockHarnessAdapter {
-    fn new(capabilities: HarnessCapabilities, raw_output: RawExecutionOutput) -> Self {
+impl FullHarnessAdapter {
+    fn new(raw_output: RawExecutionOutput) -> Self {
         Self {
-            capabilities,
             raw_output,
             call_count: Arc::new(AtomicUsize::new(0)),
         }
@@ -38,13 +36,18 @@ impl MockHarnessAdapter {
 }
 
 #[async_trait]
-impl HarnessAdapter for MockHarnessAdapter {
-    fn adapter_name(&self) -> &'static str {
-        "mock"
-    }
+impl HarnessAdapter for FullHarnessAdapter {
+    const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
+        output_streaming: OutputStreaming::TextAndToolEvents,
+        can_use_tools: true,
+        patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
+        session_resume: SessionResumeSupport::CrossProcess,
+        sandbox_mode: SandboxMode::WorkspaceWrite,
+        approval_mode: ApprovalMode::OnDemand,
+    };
 
-    fn capabilities(&self) -> HarnessCapabilities {
-        self.capabilities.clone()
+    fn adapter_name(&self) -> &'static str {
+        "full"
     }
 
     async fn execute(
@@ -63,18 +66,15 @@ impl HarnessAdapter for MockHarnessAdapter {
 
 #[derive(Debug, Clone)]
 struct PollutingHarnessAdapter {
-    capabilities: HarnessCapabilities,
     raw_output: RawExecutionOutput,
 }
 
 #[async_trait]
 impl HarnessAdapter for PollutingHarnessAdapter {
+    const CAPABILITIES: HarnessCapabilities = FullHarnessAdapter::CAPABILITIES;
+
     fn adapter_name(&self) -> &'static str {
         "polluting-mock"
-    }
-
-    fn capabilities(&self) -> HarnessCapabilities {
-        self.capabilities.clone()
     }
 
     async fn execute(
@@ -93,14 +93,99 @@ impl HarnessAdapter for PollutingHarnessAdapter {
     }
 }
 
-fn default_capabilities() -> HarnessCapabilities {
-    HarnessCapabilities {
+#[derive(Debug, Clone)]
+struct ToolDeniedHarnessAdapter {
+    raw_output: RawExecutionOutput,
+    call_count: Arc<AtomicUsize>,
+}
+
+impl ToolDeniedHarnessAdapter {
+    fn new(raw_output: RawExecutionOutput) -> Self {
+        Self {
+            raw_output,
+            call_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn calls(&self) -> usize {
+        self.call_count.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl HarnessAdapter for ToolDeniedHarnessAdapter {
+    const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
         output_streaming: OutputStreaming::TextAndToolEvents,
-        can_use_tools: true,
+        can_use_tools: false,
         patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
         session_resume: SessionResumeSupport::CrossProcess,
         sandbox_mode: SandboxMode::WorkspaceWrite,
         approval_mode: ApprovalMode::OnDemand,
+    };
+
+    fn adapter_name(&self) -> &'static str {
+        "tool-denied"
+    }
+
+    async fn execute(
+        &self,
+        _request: &HarnessExecutionRequest,
+        _observer: &mut dyn HarnessObserver,
+    ) -> Result<ExecutionSignal, ProviderFailure> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        Ok(ExecutionSignal {
+            output: self.raw_output.clone(),
+            provider_run_id: Some("tool-denied-run".into()),
+            session_resumed: false,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LimitedLevelsHarnessAdapter {
+    raw_output: RawExecutionOutput,
+    call_count: Arc<AtomicUsize>,
+}
+
+impl LimitedLevelsHarnessAdapter {
+    fn new(raw_output: RawExecutionOutput) -> Self {
+        Self {
+            raw_output,
+            call_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn calls(&self) -> usize {
+        self.call_count.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl HarnessAdapter for LimitedLevelsHarnessAdapter {
+    const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
+        output_streaming: OutputStreaming::TextAndToolEvents,
+        can_use_tools: true,
+        patch_apply: PatchApplySupport::ApplyPatchOnly,
+        session_resume: SessionResumeSupport::SameProcessOnly,
+        sandbox_mode: SandboxMode::WorkspaceWrite,
+        approval_mode: ApprovalMode::OnDemand,
+    };
+
+    fn adapter_name(&self) -> &'static str {
+        "levels-limited"
+    }
+
+    async fn execute(
+        &self,
+        _request: &HarnessExecutionRequest,
+        _observer: &mut dyn HarnessObserver,
+    ) -> Result<ExecutionSignal, ProviderFailure> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        Ok(ExecutionSignal {
+            output: self.raw_output.clone(),
+            provider_run_id: Some("levels-limited-run".into()),
+            session_resumed: false,
+        })
     }
 }
 
@@ -140,7 +225,6 @@ fn raw_output_with_secret() -> RawExecutionOutput {
 #[tokio::test]
 async fn conformance_event_order_ignores_adapter_event_pollution() {
     let adapter = PollutingHarnessAdapter {
-        capabilities: default_capabilities(),
         raw_output: raw_output_with_secret(),
     };
     let req = request(HarnessRequirements::default());
@@ -161,11 +245,7 @@ async fn conformance_event_order_ignores_adapter_event_pollution() {
 
 #[tokio::test]
 async fn conformance_denies_before_adapter_side_effects() {
-    let capabilities = HarnessCapabilities {
-        can_use_tools: false,
-        ..default_capabilities()
-    };
-    let adapter = MockHarnessAdapter::new(capabilities, raw_output_with_secret());
+    let adapter = ToolDeniedHarnessAdapter::new(raw_output_with_secret());
     let req = request(HarnessRequirements {
         tool_use: RequirementLevel::Required,
         ..HarnessRequirements::default()
@@ -183,7 +263,7 @@ async fn conformance_denies_before_adapter_side_effects() {
 
 #[tokio::test]
 async fn conformance_enforces_redaction_before_persistence() {
-    let adapter = MockHarnessAdapter::new(default_capabilities(), raw_output_with_secret());
+    let adapter = FullHarnessAdapter::new(raw_output_with_secret());
     let req = request(HarnessRequirements::default());
     let expectations = RedactionConformanceExpectations {
         required_absent_fragments: vec![
@@ -208,12 +288,7 @@ async fn conformance_enforces_redaction_before_persistence() {
 
 #[tokio::test]
 async fn conformance_enforces_capability_levels() {
-    let capabilities = HarnessCapabilities {
-        patch_apply: PatchApplySupport::ApplyPatchOnly,
-        session_resume: SessionResumeSupport::SameProcessOnly,
-        ..default_capabilities()
-    };
-    let adapter = MockHarnessAdapter::new(capabilities, raw_output_with_secret());
+    let adapter = LimitedLevelsHarnessAdapter::new(raw_output_with_secret());
     let req = request(HarnessRequirements {
         patch_apply: PatchApplyRequirement::ApplyPatchAndUnifiedDiff,
         session_resume: SessionResumeRequirement::CrossProcess,

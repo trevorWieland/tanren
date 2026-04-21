@@ -31,19 +31,17 @@ struct MockAdapter {
 
 #[async_trait]
 impl HarnessAdapter for MockAdapter {
+    const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
+        output_streaming: OutputStreaming::TextAndToolEvents,
+        can_use_tools: true,
+        patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
+        session_resume: SessionResumeSupport::CrossProcess,
+        sandbox_mode: SandboxMode::WorkspaceWrite,
+        approval_mode: ApprovalMode::OnDemand,
+    };
+
     fn adapter_name(&self) -> &'static str {
         "mock"
-    }
-
-    fn capabilities(&self) -> HarnessCapabilities {
-        HarnessCapabilities {
-            output_streaming: OutputStreaming::TextAndToolEvents,
-            can_use_tools: true,
-            patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
-            session_resume: SessionResumeSupport::CrossProcess,
-            sandbox_mode: SandboxMode::WorkspaceWrite,
-            approval_mode: ApprovalMode::OnDemand,
-        }
     }
 
     async fn execute(
@@ -195,6 +193,13 @@ fn raw_output() -> RawExecutionOutput {
     }
 }
 
+#[test]
+fn capabilities_are_immutable_type_metadata() {
+    let capabilities = MockAdapter::CAPABILITIES;
+    assert!(capabilities.can_use_tools);
+    assert_eq!(capabilities.sandbox_mode, SandboxMode::WorkspaceWrite);
+}
+
 #[tokio::test]
 async fn emits_expected_event_sequence_for_adapter_failure() {
     let adapter = MockAdapter {
@@ -240,6 +245,39 @@ async fn normalizes_adapter_provider_failure_in_contract_wrapper() {
         crate::failure::HarnessFailureClass::Timeout
     );
     assert_eq!(failure.typed_code(), Some(ProviderFailureCode::Timeout));
+}
+
+#[tokio::test]
+async fn sanitizes_failure_message_and_context_before_surface() {
+    let adapter = MockAdapter {
+        output: raw_output(),
+        provider_failure: Some(
+            ProviderFailure::new("request failed with API_TOKEN=super-secret and sk-live-secret")
+                .with_context(ProviderFailureContext {
+                    typed_code: Some(ProviderFailureCode::Authentication),
+                    stdout_tail: Some("stdout secret sk-live-secret".into()),
+                    stderr_tail: Some("stderr secret API_TOKEN=super-secret".into()),
+                    ..ProviderFailureContext::default()
+                }),
+        ),
+    };
+    let mut req = request();
+    req.secret_values_for_redaction = vec![RedactionSecret::from("super-secret")];
+    req.required_secret_names = vec![SecretName::try_new("API_TOKEN").expect("secret key")];
+    let mut recorder = Recorder::default();
+    let err = execute_with_contract(&adapter, &req, &mut recorder)
+        .await
+        .expect_err("must fail");
+    let HarnessContractError::AdapterFailure(failure) = err else {
+        unreachable!("checked by expect_err");
+    };
+    assert!(!failure.message().contains("super-secret"));
+    assert!(!failure.message().contains("sk-live-secret"));
+    assert!(failure.message().contains("[REDACTED]"));
+    assert_eq!(
+        failure.class(),
+        crate::failure::HarnessFailureClass::Authentication
+    );
 }
 
 #[tokio::test]
