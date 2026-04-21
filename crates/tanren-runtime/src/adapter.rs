@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
 use crate::failure::HarnessFailure;
-use crate::redaction::{OutputRedactor, RedactionError};
+use crate::redaction::{DefaultOutputRedactor, OutputRedactor, RedactionError};
 
 /// Events emitted by the contract wrapper and adapters during execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +69,15 @@ pub enum HarnessContractError {
 pub async fn execute_with_contract(
     adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
+    observer: &mut dyn HarnessObserver,
+) -> Result<HarnessExecutionResult, HarnessContractError> {
+    let redactor = DefaultOutputRedactor::default();
+    execute_with_contract_internal(adapter, request, &redactor, observer).await
+}
+
+async fn execute_with_contract_internal(
+    adapter: &dyn HarnessAdapter,
+    request: &HarnessExecutionRequest,
     redactor: &dyn OutputRedactor,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
@@ -95,3 +104,16 @@ pub async fn execute_with_contract(
         session_resumed: signal.session_resumed,
     })
 }
+
+#[cfg(test)]
+pub(crate) async fn execute_with_contract_for_tests(
+    adapter: &dyn HarnessAdapter,
+    request: &HarnessExecutionRequest,
+    redactor: &dyn OutputRedactor,
+    observer: &mut dyn HarnessObserver,
+) -> Result<HarnessExecutionResult, HarnessContractError> {
+    execute_with_contract_internal(adapter, request, redactor, observer).await
+}
+
+#[cfg(test)]
+mod tests;

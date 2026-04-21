@@ -1,17 +1,30 @@
 use std::collections::HashSet;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use tanren_domain::FiniteF64;
 
-use crate::execution::{PersistableOutput, RawExecutionOutput};
+use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
+
+pub(crate) mod scanner;
 
 const REDACTION_TOKEN: &str = "[REDACTED]";
+const TRUNCATION_MARKER: &str = "[TRUNCATED_FOR_PERSISTENCE]";
 
 /// Inputs used by redaction policy at capture-time.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct RedactionHints {
-    pub required_secret_names: Vec<String>,
-    pub secret_values: Vec<String>,
+    pub required_secret_names: Vec<SecretName>,
+    pub secret_values: Vec<RedactionSecret>,
+}
+
+impl fmt::Debug for RedactionHints {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RedactionHints")
+            .field("required_secret_names", &self.required_secret_names)
+            .field("secret_value_count", &self.secret_values.len())
+            .finish()
+    }
 }
 
 /// Deterministic redaction policy used by all adapters unless overridden.
@@ -23,6 +36,7 @@ pub struct RedactionPolicy {
     pub sensitive_key_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub token_prefixes: Vec<String>,
+    pub max_persistable_channel_bytes: usize,
 }
 
 /// Build the default redaction policy for Phase 1 harness adapters.
@@ -58,6 +72,7 @@ pub fn default_redaction_policy() -> RedactionPolicy {
             "xoxp-".into(),
             "AKIA".into(),
         ],
+        max_persistable_channel_bytes: 512 * 1024,
     }
 }
 
@@ -114,7 +129,8 @@ impl DefaultOutputRedactor {
 
     fn redact_text(&self, input: Option<String>, hints: &RedactionHints) -> Option<String> {
         input.map(|value| {
-            let mut out = value;
+            let mut out =
+                truncate_for_persistence(value, self.policy.max_persistable_channel_bytes);
             out = self.redact_structured_key_values(out, hints);
             out = self.redact_bearer_tokens(out);
             out = self.redact_prefixed_tokens(out);
@@ -127,9 +143,8 @@ impl DefaultOutputRedactor {
         let hint_key_names = hints
             .required_secret_names
             .iter()
-            .map(|name| name.trim())
-            .filter(|name| !name.is_empty())
-            .map(str::to_ascii_lowercase)
+            .map(SecretName::as_str)
+            .map(str::to_owned)
             .collect::<HashSet<_>>();
 
         let mut out = String::with_capacity(input.len());
@@ -159,7 +174,8 @@ impl DefaultOutputRedactor {
 
     fn redact_explicit_secret_values(&self, input: String, hints: &RedactionHints) -> String {
         let mut out = input;
-        for value in &hints.secret_values {
+        for secret in &hints.secret_values {
+            let value = secret.expose();
             if value.trim().is_empty() {
                 continue;
             }
@@ -218,6 +234,7 @@ impl OutputRedactor for DefaultOutputRedactor {
 
     fn has_known_secret_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
         for secret in &hints.secret_values {
+            let secret = secret.expose();
             if secret.trim().is_empty() {
                 continue;
             }
@@ -280,10 +297,14 @@ fn redact_assignments_for_keys(
         }
 
         let (value_start, value_end) = if matches!(bytes[value_cursor], b'"' | b'\'') {
-            let quoted_end = find_quoted_value_end(line, value_cursor).unwrap_or(line.len());
+            let quoted_end =
+                scanner::find_quoted_value_end(line, value_cursor).unwrap_or(line.len());
             (value_cursor.saturating_add(1), quoted_end)
         } else {
-            (value_cursor, find_unquoted_value_end(line, value_cursor))
+            (
+                value_cursor,
+                scanner::find_unquoted_value_end(line, value_cursor),
+            )
         };
 
         if is_sensitive
@@ -315,73 +336,15 @@ const fn is_key_char(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
 }
 
-fn find_quoted_value_end(value: &str, start: usize) -> Option<usize> {
-    let bytes = value.as_bytes();
-    if start >= bytes.len() {
-        return None;
-    }
-    let quote = bytes[start];
-    let mut cursor = start + 1;
-    while cursor < bytes.len() {
-        if bytes[cursor] == quote && bytes[cursor.saturating_sub(1)] != b'\\' {
-            return Some(cursor);
-        }
-        cursor += 1;
-    }
-    Some(value.len())
-}
-
-fn find_unquoted_value_end(value: &str, start: usize) -> usize {
-    let bytes = value.as_bytes();
-    let mut cursor = start;
-    while cursor < bytes.len() {
-        let ch = bytes[cursor];
-        if ch.is_ascii_whitespace() || ch == b',' || ch == b';' {
-            break;
-        }
-        cursor += 1;
-    }
-    cursor
-}
-
-fn find_ascii_case_insensitive(haystack: &str, needle: &str, start: usize) -> Option<usize> {
-    if needle.is_empty() || start >= haystack.len() {
-        return None;
-    }
-
-    let haystack_bytes = haystack.as_bytes();
-    let needle_bytes = needle.as_bytes();
-    if haystack_bytes.len() < needle_bytes.len() {
-        return None;
-    }
-
-    let mut idx = start;
-    while idx + needle_bytes.len() <= haystack_bytes.len() {
-        let mut match_all = true;
-        for offset in 0..needle_bytes.len() {
-            if !haystack_bytes[idx + offset].eq_ignore_ascii_case(&needle_bytes[offset]) {
-                match_all = false;
-                break;
-            }
-        }
-        if match_all {
-            return Some(idx);
-        }
-        idx += 1;
-    }
-
-    None
-}
-
 fn redact_keyword_token(mut value: String, keyword: &str, min_token_len: usize) -> String {
     let mut search_from = 0;
     loop {
-        let Some(index) = find_ascii_case_insensitive(&value, keyword, search_from) else {
+        let Some(index) = scanner::find_ascii_case_insensitive(&value, keyword, search_from) else {
             return value;
         };
 
         let token_start = index + keyword.len();
-        let token_end = find_unquoted_value_end(&value, token_start);
+        let token_end = scanner::find_unquoted_value_end(&value, token_start);
         if token_end.saturating_sub(token_start) < min_token_len {
             search_from = token_end.saturating_add(1);
             continue;
@@ -396,10 +359,9 @@ fn redact_keyword_token(mut value: String, keyword: &str, min_token_len: usize) 
 fn redact_prefixed_token(mut value: String, prefix: &str, min_token_len: usize) -> String {
     let mut search_from = 0;
     loop {
-        let Some(offset) = value[search_from..].find(prefix) else {
+        let Some(start) = scanner::find_ascii_case_insensitive(&value, prefix, search_from) else {
             return value;
         };
-        let start = search_from + offset;
         let mut end = start + prefix.len();
         let bytes = value.as_bytes();
         while end < bytes.len() {
@@ -418,6 +380,51 @@ fn redact_prefixed_token(mut value: String, prefix: &str, min_token_len: usize) 
         }
         search_from = start.saturating_add(REDACTION_TOKEN.len());
     }
+}
+
+fn truncate_for_persistence(mut input: String, max_bytes: usize) -> String {
+    if input.len() <= max_bytes {
+        return input;
+    }
+
+    if max_bytes == 0 {
+        return TRUNCATION_MARKER.to_owned();
+    }
+
+    let cutoff = nearest_char_boundary(&input, max_bytes);
+    let boundary = nearest_delimiter_before(&input, cutoff);
+    input.truncate(boundary);
+    if !input.ends_with('\n') {
+        input.push('\n');
+    }
+    input.push_str(TRUNCATION_MARKER);
+    input
+}
+
+fn nearest_char_boundary(value: &str, preferred: usize) -> usize {
+    if preferred >= value.len() {
+        return value.len();
+    }
+    let mut idx = preferred;
+    while idx > 0 && !value.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
+fn nearest_delimiter_before(value: &str, cutoff: usize) -> usize {
+    let floor = cutoff.saturating_sub(256);
+    let mut idx = cutoff;
+    while idx > floor {
+        let Some(ch) = value[..idx].chars().next_back() else {
+            break;
+        };
+        if ch.is_ascii_whitespace() || matches!(ch, ',' | ';' | '|' | '&') {
+            return idx;
+        }
+        idx = idx.saturating_sub(ch.len_utf8());
+    }
+    cutoff
 }
 
 #[cfg(test)]

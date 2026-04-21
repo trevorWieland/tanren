@@ -125,10 +125,22 @@ pub struct HarnessRequirements {
     pub patch_apply: PatchApplyRequirement,
     #[serde(default)]
     pub session_resume: SessionResumeRequirement,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "required_sandbox_mode"
+    )]
+    pub minimum_sandbox_mode: Option<SandboxMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub required_sandbox_mode: Option<SandboxMode>,
+    pub maximum_sandbox_mode: Option<SandboxMode>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "required_approval_mode"
+    )]
+    pub minimum_approval_mode: Option<ApprovalMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub required_approval_mode: Option<ApprovalMode>,
+    pub maximum_approval_mode: Option<ApprovalMode>,
 }
 
 /// Typed mismatch classes used for deterministic denial handling.
@@ -140,8 +152,12 @@ pub enum CompatibilityDenialKind {
     ToolUseUnsupported,
     PatchApplyLevelInsufficient,
     SessionResumeLevelInsufficient,
-    SandboxModeInsufficient,
-    ApprovalModeInsufficient,
+    SandboxModeBelowMinimum,
+    SandboxModeExceedsMaximum,
+    SandboxModeInvalidRange,
+    ApprovalModeBelowMinimum,
+    ApprovalModeExceedsMaximum,
+    ApprovalModeInvalidRange,
 }
 
 /// Typed denial returned when requirements do not match adapter capabilities.
@@ -196,20 +212,52 @@ impl HarnessCapabilities {
             );
         }
 
-        if let Some(required) = requirements.required_sandbox_mode {
-            if !sandbox_mode_satisfies(self.sandbox_mode, required) {
-                return CapabilityAdmissibility::Denied(
-                    CompatibilityDenialKind::SandboxModeInsufficient,
-                );
-            }
+        if let (Some(minimum), Some(maximum)) = (
+            requirements.minimum_sandbox_mode,
+            requirements.maximum_sandbox_mode,
+        ) && sandbox_mode_rank(minimum) > sandbox_mode_rank(maximum)
+        {
+            return CapabilityAdmissibility::Denied(
+                CompatibilityDenialKind::SandboxModeInvalidRange,
+            );
+        }
+        if let Some(minimum) = requirements.minimum_sandbox_mode
+            && !sandbox_mode_satisfies(self.sandbox_mode, minimum)
+        {
+            return CapabilityAdmissibility::Denied(
+                CompatibilityDenialKind::SandboxModeBelowMinimum,
+            );
+        }
+        if let Some(maximum) = requirements.maximum_sandbox_mode
+            && sandbox_mode_rank(self.sandbox_mode) > sandbox_mode_rank(maximum)
+        {
+            return CapabilityAdmissibility::Denied(
+                CompatibilityDenialKind::SandboxModeExceedsMaximum,
+            );
         }
 
-        if let Some(required) = requirements.required_approval_mode {
-            if !approval_mode_satisfies(self.approval_mode, required) {
-                return CapabilityAdmissibility::Denied(
-                    CompatibilityDenialKind::ApprovalModeInsufficient,
-                );
-            }
+        if let (Some(minimum), Some(maximum)) = (
+            requirements.minimum_approval_mode,
+            requirements.maximum_approval_mode,
+        ) && approval_mode_rank(minimum) > approval_mode_rank(maximum)
+        {
+            return CapabilityAdmissibility::Denied(
+                CompatibilityDenialKind::ApprovalModeInvalidRange,
+            );
+        }
+        if let Some(minimum) = requirements.minimum_approval_mode
+            && !approval_mode_satisfies(self.approval_mode, minimum)
+        {
+            return CapabilityAdmissibility::Denied(
+                CompatibilityDenialKind::ApprovalModeBelowMinimum,
+            );
+        }
+        if let Some(maximum) = requirements.maximum_approval_mode
+            && approval_mode_rank(self.approval_mode) > approval_mode_rank(maximum)
+        {
+            return CapabilityAdmissibility::Denied(
+                CompatibilityDenialKind::ApprovalModeExceedsMaximum,
+            );
         }
 
         CapabilityAdmissibility::Admissible
@@ -299,202 +347,4 @@ const fn approval_mode_satisfies(actual: ApprovalMode, required: ApprovalMode) -
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn baseline() -> HarnessCapabilities {
-        HarnessCapabilities {
-            output_streaming: OutputStreaming::TextAndToolEvents,
-            can_use_tools: true,
-            patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
-            session_resume: SessionResumeSupport::CrossProcess,
-            sandbox_mode: SandboxMode::WorkspaceWrite,
-            approval_mode: ApprovalMode::OnDemand,
-        }
-    }
-
-    #[test]
-    fn baseline_is_admissible_for_default_requirements() {
-        let requirements = HarnessRequirements::default();
-        assert_eq!(
-            baseline().evaluate(&requirements),
-            CapabilityAdmissibility::Admissible
-        );
-    }
-
-    #[test]
-    fn denies_text_streaming_requirement_when_output_streaming_is_none() {
-        let caps = HarnessCapabilities {
-            output_streaming: OutputStreaming::None,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            output_streaming: OutputStreamingRequirement::Text,
-            ..HarnessRequirements::default()
-        };
-        let denial = caps
-            .ensure_admissible(&requirements)
-            .expect_err("must deny text requirement");
-        assert_eq!(
-            denial.kind,
-            CompatibilityDenialKind::TextStreamingUnsupported
-        );
-    }
-
-    #[test]
-    fn denies_tool_event_streaming_requirement_without_tool_events() {
-        let caps = HarnessCapabilities {
-            output_streaming: OutputStreaming::TextDeltas,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            output_streaming: OutputStreamingRequirement::TextAndToolEvents,
-            ..HarnessRequirements::default()
-        };
-        let denial = caps
-            .ensure_admissible(&requirements)
-            .expect_err("must deny tool-events requirement");
-        assert_eq!(
-            denial.kind,
-            CompatibilityDenialKind::ToolEventStreamingUnsupported
-        );
-    }
-
-    #[test]
-    fn allows_text_requirement_with_text_deltas() {
-        let caps = HarnessCapabilities {
-            output_streaming: OutputStreaming::TextDeltas,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            output_streaming: OutputStreamingRequirement::Text,
-            ..HarnessRequirements::default()
-        };
-        assert!(caps.ensure_admissible(&requirements).is_ok());
-    }
-
-    #[test]
-    fn denies_when_tool_use_is_required_but_missing() {
-        let mut caps = baseline();
-        caps.can_use_tools = false;
-        let requirements = HarnessRequirements {
-            tool_use: RequirementLevel::Required,
-            ..HarnessRequirements::default()
-        };
-        let denial = caps
-            .ensure_admissible(&requirements)
-            .expect_err("must deny");
-        assert_eq!(denial.kind, CompatibilityDenialKind::ToolUseUnsupported);
-    }
-
-    #[test]
-    fn denies_when_patch_apply_level_is_insufficient() {
-        let caps = HarnessCapabilities {
-            patch_apply: PatchApplySupport::ApplyPatchOnly,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            patch_apply: PatchApplyRequirement::ApplyPatchAndUnifiedDiff,
-            ..HarnessRequirements::default()
-        };
-        let denial = caps
-            .ensure_admissible(&requirements)
-            .expect_err("must deny");
-        assert_eq!(
-            denial.kind,
-            CompatibilityDenialKind::PatchApplyLevelInsufficient
-        );
-    }
-
-    #[test]
-    fn denies_when_session_resume_level_is_insufficient() {
-        let caps = HarnessCapabilities {
-            session_resume: SessionResumeSupport::SameProcessOnly,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            session_resume: SessionResumeRequirement::CrossProcess,
-            ..HarnessRequirements::default()
-        };
-        let denial = caps
-            .ensure_admissible(&requirements)
-            .expect_err("must deny");
-        assert_eq!(
-            denial.kind,
-            CompatibilityDenialKind::SessionResumeLevelInsufficient
-        );
-    }
-
-    #[test]
-    fn allows_cross_process_for_same_process_requirement() {
-        let requirements = HarnessRequirements {
-            session_resume: SessionResumeRequirement::SameProcessOnly,
-            ..HarnessRequirements::default()
-        };
-        assert!(baseline().ensure_admissible(&requirements).is_ok());
-    }
-
-    #[test]
-    fn denies_when_sandbox_rank_is_insufficient() {
-        let caps = HarnessCapabilities {
-            sandbox_mode: SandboxMode::ReadOnly,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            required_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
-            ..HarnessRequirements::default()
-        };
-        let denial = caps
-            .ensure_admissible(&requirements)
-            .expect_err("must deny");
-        assert_eq!(
-            denial.kind,
-            CompatibilityDenialKind::SandboxModeInsufficient
-        );
-    }
-
-    #[test]
-    fn allows_stronger_sandbox_mode() {
-        let caps = HarnessCapabilities {
-            sandbox_mode: SandboxMode::Unrestricted,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            required_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
-            ..HarnessRequirements::default()
-        };
-        assert!(caps.ensure_admissible(&requirements).is_ok());
-    }
-
-    #[test]
-    fn denies_when_approval_mode_is_insufficient() {
-        let caps = HarnessCapabilities {
-            approval_mode: ApprovalMode::OnEscalation,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            required_approval_mode: Some(ApprovalMode::OnDemand),
-            ..HarnessRequirements::default()
-        };
-        let denial = caps
-            .ensure_admissible(&requirements)
-            .expect_err("must deny");
-        assert_eq!(
-            denial.kind,
-            CompatibilityDenialKind::ApprovalModeInsufficient
-        );
-    }
-
-    #[test]
-    fn allows_stronger_approval_mode() {
-        let caps = HarnessCapabilities {
-            approval_mode: ApprovalMode::OnDemand,
-            ..baseline()
-        };
-        let requirements = HarnessRequirements {
-            required_approval_mode: Some(ApprovalMode::OnEscalation),
-            ..HarnessRequirements::default()
-        };
-        assert!(caps.ensure_admissible(&requirements).is_ok());
-    }
-}
+mod tests;

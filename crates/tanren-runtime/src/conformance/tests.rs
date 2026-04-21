@@ -11,7 +11,8 @@ use crate::capability::{
     PatchApplySupport, RequirementLevel, SandboxMode, SessionResumeRequirement,
     SessionResumeSupport,
 };
-use crate::execution::{RawExecutionOutput, RedactionSecret};
+use crate::execution::{RawExecutionOutput, RedactionSecret, SecretName};
+use crate::failure::ProviderIdentifier;
 
 #[derive(Debug, Clone)]
 struct MockHarnessAdapter {
@@ -79,7 +80,7 @@ fn request(requirements: HarnessRequirements) -> HarnessExecutionRequest {
         working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
         prompt: "perform work".into(),
         requirements,
-        required_secret_names: vec!["API_TOKEN".into()],
+        required_secret_names: vec![SecretName::try_new("API_TOKEN").expect("secret key")],
         secret_values_for_redaction: vec![RedactionSecret::from("line1-secret\nline2-secret")],
     }
 }
@@ -171,7 +172,7 @@ async fn conformance_enforces_capability_levels() {
 #[test]
 fn conformance_classifies_failures() {
     let ctx = ProviderFailureContext {
-        provider_code: Some("429".into()),
+        provider_code: Some(ProviderIdentifier::try_new("429").expect("provider code")),
         ..ProviderFailureContext::default()
     };
     assert!(assert_failure_classification(&ctx, HarnessFailureClass::RateLimited).is_ok());

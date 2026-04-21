@@ -2,6 +2,7 @@ use proptest::prelude::*;
 use tanren_domain::Outcome;
 
 use super::*;
+use crate::execution::{RedactionSecret, SecretName};
 
 fn raw_output(text: &str) -> RawExecutionOutput {
     RawExecutionOutput {
@@ -40,8 +41,8 @@ fn redacts_bearer_and_prefixed_tokens() {
 fn redacts_explicit_secret_values_and_multiline_fragments() {
     let redactor = DefaultOutputRedactor::default();
     let hints = RedactionHints {
-        required_secret_names: vec!["MY_SECRET".into()],
-        secret_values: vec!["line1-secret\nline2-secret".into()],
+        required_secret_names: vec![SecretName::try_new("MY_SECRET").expect("secret key")],
+        secret_values: vec![RedactionSecret::from("line1-secret\nline2-secret")],
     };
     let out = redactor
         .redact(
@@ -59,7 +60,7 @@ fn redacts_explicit_secret_values_and_multiline_fragments() {
 fn redacts_every_assignment_when_same_key_appears_multiple_times_on_line() {
     let redactor = DefaultOutputRedactor::default();
     let hints = RedactionHints {
-        required_secret_names: vec!["API_TOKEN".into()],
+        required_secret_names: vec![SecretName::try_new("API_TOKEN").expect("secret key")],
         secret_values: vec![],
     };
     let out = redactor
@@ -83,7 +84,7 @@ fn redacts_every_assignment_when_same_key_appears_multiple_times_on_line() {
 fn redacts_assignment_variants_with_colon_and_quotes() {
     let redactor = DefaultOutputRedactor::default();
     let hints = RedactionHints {
-        required_secret_names: vec!["my-secret".into()],
+        required_secret_names: vec![SecretName::try_new("my-secret").expect("secret key")],
         secret_values: vec![],
     };
     let out = redactor
@@ -118,7 +119,7 @@ fn leak_detection_flags_remaining_secret() {
     let redactor = DefaultOutputRedactor::default();
     let hints = RedactionHints {
         required_secret_names: vec![],
-        secret_values: vec!["secret-value".into()],
+        secret_values: vec![RedactionSecret::from("secret-value")],
     };
     let output = PersistableOutput {
         outcome: Outcome::Success,
@@ -161,8 +162,8 @@ proptest! {
     ) {
         let redactor = DefaultOutputRedactor::default();
         let hints = RedactionHints {
-            required_secret_names: vec![key.clone()],
-            secret_values: vec![secret.clone()],
+            required_secret_names: vec![SecretName::try_new(key.clone()).expect("secret key")],
+            secret_values: vec![RedactionSecret::from(secret.clone())],
         };
         let payload = format!("{key}={secret} and {secret} and {key}:{secret}");
         let out = redactor.redact(raw_output(&payload), &hints).expect("redact");
@@ -180,8 +181,8 @@ proptest! {
     ) {
         let redactor = DefaultOutputRedactor::default();
         let hints = RedactionHints {
-            required_secret_names: vec!["API_TOKEN".into()],
-            secret_values: vec![secret.clone()],
+            required_secret_names: vec![SecretName::try_new("API_TOKEN").expect("secret key")],
+            secret_values: vec![RedactionSecret::from(secret.clone())],
         };
         let marker = format!("SAFE_MARKER_{benign}");
         let payload = format!("API_TOKEN={secret} {marker}");
@@ -191,4 +192,49 @@ proptest! {
         prop_assert!(gate.contains(&marker));
         prop_assert!(!gate.contains(&secret));
     }
+}
+
+#[test]
+fn redacts_prefixed_tokens_case_insensitively() {
+    let redactor = DefaultOutputRedactor::default();
+    let out = redactor
+        .redact(
+            raw_output("token akia123456789012345 and GHP_abcdefghijklmnopqrstuvwxyz"),
+            &RedactionHints::default(),
+        )
+        .expect("redact");
+    let gate = out.gate_output.expect("gate");
+    assert!(!gate.contains("akia123456789012345"));
+    assert!(!gate.contains("GHP_abcdefghijklmnopqrstuvwxyz"));
+}
+
+#[test]
+fn truncates_large_channel_and_preserves_redaction() {
+    let mut payload = String::with_capacity((512 * 1024) + 128);
+    payload.push_str("API_TOKEN=very-secret-value ");
+    payload.push_str(&"x".repeat((512 * 1024) + 32));
+    let redactor = DefaultOutputRedactor::default();
+    let out = redactor
+        .redact(
+            raw_output(&payload),
+            &RedactionHints {
+                required_secret_names: vec![SecretName::try_new("API_TOKEN").expect("secret key")],
+                secret_values: vec![RedactionSecret::from("very-secret-value")],
+            },
+        )
+        .expect("redact");
+    let gate = out.gate_output.expect("gate");
+    assert!(!gate.contains("very-secret-value"));
+    assert!(gate.contains("[TRUNCATED_FOR_PERSISTENCE]"));
+}
+
+#[test]
+fn redaction_hints_debug_is_redacted() {
+    let hints = RedactionHints {
+        required_secret_names: vec![SecretName::try_new("api_token").expect("secret key")],
+        secret_values: vec![RedactionSecret::from("super-secret")],
+    };
+    let debug = format!("{hints:?}");
+    assert!(debug.contains("secret_value_count"));
+    assert!(!debug.contains("super-secret"));
 }

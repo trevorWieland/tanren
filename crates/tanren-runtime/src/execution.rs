@@ -3,8 +3,8 @@ use std::fmt;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use tanren_domain::{
-    Cli, DispatchId, ExecuteResult, Finding, FiniteF64, NonEmptyString, Outcome, Phase, StepId,
-    TimeoutSecs, TokenUsage,
+    Cli, DispatchId, DomainError, ExecuteResult, Finding, FiniteF64, NonEmptyString, Outcome,
+    Phase, StepId, TimeoutSecs, TokenUsage,
 };
 
 use crate::capability::HarnessRequirements;
@@ -52,6 +52,43 @@ impl From<&str> for RedactionSecret {
     }
 }
 
+/// Canonical key identifier for secret assignments.
+#[derive(Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct SecretName(NonEmptyString);
+
+impl SecretName {
+    /// Build a normalized secret key name.
+    ///
+    /// # Errors
+    /// Returns [`DomainError`] when the name is blank after normalization.
+    pub fn try_new(value: impl Into<String>) -> Result<Self, DomainError> {
+        let normalized = value.into().trim().to_ascii_lowercase();
+        Ok(Self(NonEmptyString::try_new(normalized)?))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl fmt::Debug for SecretName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::try_new(raw).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Normalized harness execution request.
 ///
 /// Secret values are carried only for in-process redaction and are never
@@ -68,7 +105,7 @@ pub struct HarnessExecutionRequest {
     #[serde(default)]
     pub requirements: HarnessRequirements,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub required_secret_names: Vec<String>,
+    pub required_secret_names: Vec<SecretName>,
     #[serde(default, skip_serializing, skip_deserializing)]
     pub secret_values_for_redaction: Vec<RedactionSecret>,
 }
@@ -77,20 +114,14 @@ impl HarnessExecutionRequest {
     #[must_use]
     pub fn redaction_hints(&self) -> RedactionHints {
         RedactionHints {
-            required_secret_names: self
-                .required_secret_names
-                .iter()
-                .map(|key| key.trim())
-                .filter(|key| !key.is_empty())
-                .map(str::to_owned)
-                .collect(),
+            required_secret_names: self.required_secret_names.clone(),
             secret_values: self
                 .secret_values_for_redaction
                 .iter()
-                .map(RedactionSecret::expose)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
+                .filter_map(|secret| {
+                    let trimmed = secret.expose().trim();
+                    (!trimmed.is_empty()).then(|| RedactionSecret::from(trimmed))
+                })
                 .collect(),
         }
     }
@@ -220,7 +251,7 @@ mod tests {
             working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
             prompt: "ship it".into(),
             requirements: HarnessRequirements::default(),
-            required_secret_names: vec!["API_TOKEN".into()],
+            required_secret_names: vec![SecretName::try_new("API_TOKEN").expect("secret key")],
             secret_values_for_redaction: vec![RedactionSecret::from("sk-super-secret")],
         };
         let debug = format!("{request:?}");
@@ -239,15 +270,21 @@ mod tests {
             working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
             prompt: "ship it".into(),
             requirements: HarnessRequirements::default(),
-            required_secret_names: vec![" API_TOKEN ".into(), String::new()],
+            required_secret_names: vec![SecretName::try_new(" API_TOKEN ").expect("secret key")],
             secret_values_for_redaction: vec![
                 RedactionSecret::from("sk-super-secret"),
                 RedactionSecret::from("  "),
             ],
         };
         let hints = request.redaction_hints();
-        assert_eq!(hints.required_secret_names, vec!["API_TOKEN"]);
-        assert_eq!(hints.secret_values, vec!["sk-super-secret"]);
+        assert_eq!(
+            hints.required_secret_names,
+            vec![SecretName::try_new("api_token").expect("k")]
+        );
+        assert_eq!(
+            hints.secret_values,
+            vec![RedactionSecret::from("sk-super-secret")]
+        );
     }
 
     #[test]

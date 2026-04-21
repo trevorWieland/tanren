@@ -32,11 +32,11 @@ pub use conformance::{
 };
 pub use execution::{
     HarnessExecutionRequest, HarnessExecutionResult, PersistableOutput, RawExecutionOutput,
-    RedactionSecret,
+    RedactionSecret, SecretName,
 };
 pub use failure::{
     HarnessFailure, HarnessFailureClass, ProviderFailureCode, ProviderFailureContext,
-    classify_provider_failure,
+    ProviderIdentifier, ProviderIdentifierError, classify_provider_failure,
 };
 pub use redaction::{
     DefaultOutputRedactor, OutputRedactor, RedactionError, RedactionHints, RedactionPolicy,

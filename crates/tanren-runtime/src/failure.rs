@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tanren_domain::ErrorClass;
+use tanren_domain::{ErrorClass, NonEmptyString};
 
 /// Canonical failure classes exposed by harness adapters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -74,6 +74,45 @@ impl ProviderFailureCode {
     }
 }
 
+/// Normalized provider identifier used by failure classification.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct ProviderIdentifier(NonEmptyString);
+
+impl ProviderIdentifier {
+    /// Build a normalized provider identifier.
+    ///
+    /// # Errors
+    /// Returns [`ProviderIdentifierError`] when the value is blank.
+    pub fn try_new(value: impl Into<String>) -> Result<Self, ProviderIdentifierError> {
+        let normalized = normalize_identifier(&value.into());
+        let value = NonEmptyString::try_new(normalized)
+            .map_err(|_| ProviderIdentifierError::EmptyOrWhitespace)?;
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderIdentifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::try_new(raw).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProviderIdentifierError {
+    #[error("provider identifier must not be empty")]
+    EmptyOrWhitespace,
+}
+
 /// Typed failure payload returned by harness adapters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[error("{class:?}: {message}")]
@@ -81,9 +120,9 @@ pub struct HarnessFailure {
     pub class: HarnessFailureClass,
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_code: Option<String>,
+    pub provider_code: Option<ProviderIdentifier>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_kind: Option<String>,
+    pub provider_kind: Option<ProviderIdentifier>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typed_code: Option<ProviderFailureCode>,
 }
@@ -94,9 +133,9 @@ pub struct ProviderFailureContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typed_code: Option<ProviderFailureCode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_code: Option<String>,
+    pub provider_code: Option<ProviderIdentifier>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_kind: Option<String>,
+    pub provider_kind: Option<ProviderIdentifier>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,7 +152,7 @@ pub struct ProviderFailureContext {
 /// 1) typed code from adapter
 /// 2) deterministic exact-token mappings from structured fields
 /// 3) deterministic exit/signal mappings
-/// 4) free-text fallback heuristics
+/// 4) boundary-aware text fallback heuristics
 #[must_use]
 pub fn classify_provider_failure(ctx: &ProviderFailureContext) -> HarnessFailureClass {
     if let Some(code) = ctx.typed_code {
@@ -122,16 +161,16 @@ pub fn classify_provider_failure(ctx: &ProviderFailureContext) -> HarnessFailure
 
     if let Some(class) = ctx
         .provider_code
-        .as_deref()
-        .and_then(classify_exact_identifier)
+        .as_ref()
+        .and_then(|value| classify_exact_identifier(value.as_str()))
     {
         return class;
     }
 
     if let Some(class) = ctx
         .provider_kind
-        .as_deref()
-        .and_then(classify_exact_identifier)
+        .as_ref()
+        .and_then(|value| classify_exact_identifier(value.as_str()))
     {
         return class;
     }
@@ -207,80 +246,110 @@ const fn classify_exit_code(code: i32) -> Option<HarnessFailureClass> {
 }
 
 fn classify_text_fallback(text: &str) -> HarnessFailureClass {
-    let haystack = text.to_ascii_lowercase();
+    let tokens = tokenize(text);
 
-    if contains_any(&haystack, &["capability_denied", "unsupported capability"]) {
+    if has_token(&tokens, "capability_denied")
+        || has_phrase(&tokens, &["unsupported", "capability"])
+    {
         return HarnessFailureClass::CapabilityDenied;
     }
-    if contains_any(
-        &haystack,
-        &["approval denied", "approval_required", "consent denied"],
-    ) {
+    if has_phrase(&tokens, &["approval", "denied"])
+        || has_token(&tokens, "approval_required")
+        || has_phrase(&tokens, &["consent", "denied"])
+    {
         return HarnessFailureClass::ApprovalDenied;
     }
-    if contains_any(
-        &haystack,
-        &[
-            "authentication",
-            "invalid api key",
-            "permission denied",
-            "401",
-            "403",
-        ],
-    ) {
+    if has_token(&tokens, "authentication")
+        || has_token(&tokens, "invalid_api_key")
+        || has_phrase(&tokens, &["invalid", "api", "key"])
+        || has_phrase(&tokens, &["permission", "denied"])
+        || has_any_token(&tokens, &["401", "403"])
+    {
         return HarnessFailureClass::Authentication;
     }
-    if contains_any(
-        &haystack,
-        &["rate limit", "rate_limited", "too many requests", "429"],
-    ) {
+    if has_phrase(&tokens, &["rate", "limit"])
+        || has_token(&tokens, "rate_limited")
+        || has_token(&tokens, "too_many_requests")
+        || has_phrase(&tokens, &["too", "many", "requests"])
+        || has_token(&tokens, "429")
+    {
         return HarnessFailureClass::RateLimited;
     }
-    if contains_any(&haystack, &["timeout", "deadline exceeded", "timed out"]) {
+    if has_any_token(&tokens, &["timeout", "deadline_exceeded", "timed_out"])
+        || has_phrase(&tokens, &["deadline", "exceeded"])
+        || has_phrase(&tokens, &["timed", "out"])
+    {
         return HarnessFailureClass::Timeout;
     }
-    if contains_any(
-        &haystack,
-        &[
-            "connection refused",
-            "network unreachable",
-            "dns",
-            "econnreset",
-            "temporarily unavailable",
-            "503",
-        ],
-    ) {
+    if has_phrase(&tokens, &["connection", "refused"])
+        || has_phrase(&tokens, &["network", "unreachable"])
+        || has_any_token(&tokens, &["dns", "econnreset"])
+        || has_phrase(&tokens, &["temporarily", "unavailable"])
+        || has_token(&tokens, "503")
+    {
         return HarnessFailureClass::TransportUnavailable;
     }
-    if contains_any(
-        &haystack,
-        &[
-            "out of memory",
-            "resource exhausted",
-            "quota exceeded",
-            "exit code 137",
-        ],
-    ) {
+    if has_phrase(&tokens, &["out", "of", "memory"])
+        || has_phrase(&tokens, &["resource", "exhausted"])
+        || has_phrase(&tokens, &["quota", "exceeded"])
+        || has_phrase(&tokens, &["exit", "code", "137"])
+    {
         return HarnessFailureClass::ResourceExhausted;
     }
-    if contains_any(
-        &haystack,
-        &["temporary", "retryable", "transient", "try again", "eagain"],
-    ) {
+    if has_any_token(&tokens, &["temporary", "retryable", "transient", "eagain"])
+        || has_phrase(&tokens, &["try", "again"])
+    {
         return HarnessFailureClass::Transient;
     }
-    if contains_any(&haystack, &["invalid argument", "bad request", "malformed"]) {
+    if has_phrase(&tokens, &["invalid", "argument"])
+        || has_phrase(&tokens, &["bad", "request"])
+        || has_token(&tokens, "malformed")
+    {
         return HarnessFailureClass::InvalidRequest;
     }
-    if contains_any(&haystack, &["panic", "fatal", "internal error"]) {
+    if has_any_token(&tokens, &["panic", "fatal", "internal_error"])
+        || has_phrase(&tokens, &["internal", "error"])
+    {
         return HarnessFailureClass::Fatal;
     }
 
     HarnessFailureClass::Unknown
 }
 
-fn contains_any(haystack: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| haystack.contains(needle))
+fn tokenize(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            current.push(ch.to_ascii_lowercase());
+        } else if !current.is_empty() {
+            tokens.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn has_token(tokens: &[String], token: &str) -> bool {
+    tokens.iter().any(|value| value == token)
+}
+
+fn has_any_token(tokens: &[String], expected: &[&str]) -> bool {
+    expected.iter().any(|token| has_token(tokens, token))
+}
+
+fn has_phrase(tokens: &[String], phrase: &[&str]) -> bool {
+    if phrase.is_empty() || tokens.len() < phrase.len() {
+        return false;
+    }
+    tokens.windows(phrase.len()).any(|window| {
+        window
+            .iter()
+            .zip(phrase.iter())
+            .all(|(actual, expected)| actual == expected)
+    })
 }
 
 #[cfg(test)]
@@ -302,7 +371,7 @@ mod tests {
     #[test]
     fn maps_exact_provider_code_without_text_fallback() {
         let class = classify_provider_failure(&ProviderFailureContext {
-            provider_code: Some("rate_limited".into()),
+            provider_code: Some(ProviderIdentifier::try_new("rate_limited").expect("code")),
             ..ProviderFailureContext::default()
         });
         assert_eq!(class, HarnessFailureClass::RateLimited);
@@ -326,7 +395,7 @@ mod tests {
     #[test]
     fn maps_rate_limit_to_transient_domain_error_class() {
         let class = classify_provider_failure(&ProviderFailureContext {
-            provider_code: Some("429".into()),
+            provider_code: Some(ProviderIdentifier::try_new("429").expect("code")),
             ..ProviderFailureContext::default()
         });
         assert_eq!(class, HarnessFailureClass::RateLimited);
@@ -336,7 +405,9 @@ mod tests {
     #[test]
     fn maps_capability_denial_to_fatal_domain_error_class() {
         let class = classify_provider_failure(&ProviderFailureContext {
-            provider_kind: Some("unsupported_capability".into()),
+            provider_kind: Some(
+                ProviderIdentifier::try_new("unsupported_capability").expect("kind"),
+            ),
             ..ProviderFailureContext::default()
         });
         assert_eq!(class, HarnessFailureClass::CapabilityDenied);
@@ -350,6 +421,15 @@ mod tests {
             ..ProviderFailureContext::default()
         });
         assert_eq!(class, HarnessFailureClass::RateLimited);
+    }
+
+    #[test]
+    fn fallback_ignores_numeric_substrings_without_token_boundaries() {
+        let class = classify_provider_failure(&ProviderFailureContext {
+            stderr_tail: Some("artifact_1401 metrics_2403".into()),
+            ..ProviderFailureContext::default()
+        });
+        assert_eq!(class, HarnessFailureClass::Unknown);
     }
 
     #[test]

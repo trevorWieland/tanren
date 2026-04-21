@@ -20,14 +20,13 @@ This lane ships:
 - three production harness adapters: Claude Code, Codex, and OpenCode
 - capability reporting for each shipped adapter
 - typed failure mapping from harness-native errors into Tanren classes
-- shared redaction contract usage via `OutputRedactor`
+- shared redaction contract enforcement via `execute_with_contract`
 - conformance and parity evidence across the shipped harnesses
 
 Lane 1.2 adapters must consume the Lane 1.1 runtime contract APIs in
 `crates/tanren-runtime`, especially:
 
 - `execute_with_contract` for preflight + redaction enforcement
-- `DefaultOutputRedactor` for output safety
 - `assert_capability_denial_is_preflight`
 - `assert_redaction_before_persistence`
 - `assert_failure_classification`

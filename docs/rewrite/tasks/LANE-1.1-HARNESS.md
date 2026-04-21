@@ -40,6 +40,8 @@ This lane does **not** ship concrete provider adapters.
   - sandbox mode
   - approval mode
 - `HarnessRequirements` describes what a dispatch needs.
+- Sandbox and approval requirements support both minimum capability and maximum
+  privilege bounds.
 - `ensure_admissible` performs preflight checks and returns typed
   `CompatibilityDenial` when unsupported.
 
@@ -53,7 +55,7 @@ This lane does **not** ship concrete provider adapters.
   1. preflight capability check
   2. adapter execution
   3. redaction hints derived from request data (not caller-provided)
-  4. redaction to `PersistableOutput`
+  4. contract-owned redaction to `PersistableOutput`
   5. known-secret leak check before persistence
 
 ### Failure Contract
@@ -67,7 +69,8 @@ This lane does **not** ship concrete provider adapters.
 
 ### Redaction Contract
 
-- `OutputRedactor` is the contract adapters use.
+- `OutputRedactor` defines redaction behavior; persistence-bound execution uses
+  the contract-owned default redactor.
 - `DefaultOutputRedactor` + `RedactionPolicy` provide the shared baseline.
 - `RedactionHints` is an internal capture-time representation derived from
   request secrets by the contract wrapper.
