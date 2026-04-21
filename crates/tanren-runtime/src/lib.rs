@@ -16,9 +16,9 @@ mod failure;
 mod redaction;
 
 pub use adapter::{
-    ContractCallToken, ExecutionSignal, HarnessAdapter, HarnessContractError, HarnessEventSource,
-    HarnessExecutionEvent, HarnessExecutionEventKind, HarnessObserver, ProviderMetadataViolation,
-    execute_with_contract,
+    ContractCallToken, ExecutionSignal, HarnessAdapter, HarnessAdapterRegistry,
+    HarnessAdapterRegistryError, HarnessContractError, HarnessEventSource, HarnessExecutionEvent,
+    HarnessExecutionEventKind, HarnessObserver, ProviderMetadataViolation, execute_with_contract,
 };
 pub use capability::{
     ApprovalMode, ApprovalModeBounds, CapabilityAdmissibility, CompatibilityDenial,
@@ -44,6 +44,6 @@ pub use failure::{
 };
 pub use redaction::{
     DefaultOutputRedactor, OutputRedactor, RedactionAudit, RedactionError, RedactionHints,
-    RedactionOutcome, RedactionPolicy, default_redaction_policy,
-    default_redaction_policy_dataset_version,
+    RedactionOutcome, RedactionPolicy, RedactionPolicyBuilder, RedactionPolicyError,
+    default_redaction_policy, default_redaction_policy_dataset_version,
 };

@@ -238,5 +238,8 @@ jobs:
       - name: Check local/workflow CI parity rules
         run: just check-ci-parity
 
+      - name: Check redaction perf regression thresholds
+        run: just check-redaction-perf
+
       - name: Check pinned Rust toolchain sync
         run: just check-rust-toolchain-sync

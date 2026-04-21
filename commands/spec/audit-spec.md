@@ -23,6 +23,7 @@ required_capabilities:
   - phase.outcome
 produces_evidence:
   - audit.md (spec-scope narrative body)
+  - behavior-map.md
 ---
 
 # audit-spec
@@ -40,23 +41,34 @@ spec) or `defer` (backlog for future specs via `triage-audits`).
 - Relevant standards (for context; compliance is `adhere-spec`).
 - `{{PILLAR_LIST}}` — effective pillar set for spec scope.
 - The spec's non-negotiables (from spec frontmatter).
+- `behavior-map.md`, linked scenarios, and demo outcomes.
 
 ## Responsibilities
 
 1. Review the full spec's diff against the spec's acceptance
    criteria, non-negotiables, and pillar expectations.
-2. For each finding: `add_finding` with severity, title,
+2. Verify behavior coverage integrity at spec scope:
+   - every shaped behavior is mapped
+   - mapped scenarios exist and pass
+   - deprecated behaviors are intentionally handled
+3. Verify mutation evidence quality at spec scope:
+   surviving mutants are triaged and mapped to concrete follow-up
+   actions when needed.
+4. Verify coverage-gap interpretation quality:
+   uncovered paths are classified as missing scenario vs dead/non-
+   scenario support code.
+5. For each finding: `add_finding` with severity, title,
    affected files/lines, source phase `audit-spec`, the pillar it
    relates to, and `attached_task` if it scopes to one. Cross-
    reference signposts to avoid duplicating known-deferred issues.
-3. For each applicable pillar: `record_rubric_score(pillar, score,
+6. For each applicable pillar: `record_rubric_score(pillar, score,
    rationale, supporting_finding_ids)`. Same invariants as
    `audit-task` (target 10, passing 7, findings required for gaps,
    `fix_now` required below passing).
-4. For each non-negotiable: `record_non_negotiable_compliance(name,
+7. For each non-negotiable: `record_non_negotiable_compliance(name,
    status, rationale)`.
-5. Write reasoning into the `audit.md` body.
-6. Call `report_phase_outcome`:
+8. Write reasoning into the `audit.md` body.
+9. Call `report_phase_outcome`:
    - `complete` if every pillar ≥ passing, every non-negotiable
      `pass`, demo passed, zero unaddressed `fix_now`.
    - `blocked` otherwise. Orchestrator materializes new tasks from

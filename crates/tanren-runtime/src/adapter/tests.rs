@@ -32,8 +32,7 @@ struct MockAdapter {
     provider_run_id: Option<String>,
 }
 
-#[async_trait]
-impl HarnessAdapter for MockAdapter {
+impl MockAdapter {
     const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
         output_streaming: OutputStreaming::TextAndToolEvents,
         can_use_tools: true,
@@ -42,9 +41,16 @@ impl HarnessAdapter for MockAdapter {
         sandbox_mode: SandboxMode::WorkspaceWrite,
         approval_mode: ApprovalMode::OnDemand,
     };
+}
 
+#[async_trait]
+impl HarnessAdapter for MockAdapter {
     fn adapter_name(&self) -> &'static str {
         "mock"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        Self::CAPABILITIES
     }
 
     async fn execute(
@@ -489,3 +495,5 @@ async fn fails_closed_when_provider_run_id_is_redaction_mutated() {
         }
     ));
 }
+
+mod registry_tests;

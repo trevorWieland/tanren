@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use std::sync::OnceLock;
+use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock};
 
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
@@ -87,9 +88,8 @@ pub struct ExecutionSignal {
 /// Adapter trait for provider-specific harness integrations.
 #[async_trait]
 pub trait HarnessAdapter: Send + Sync {
-    const CAPABILITIES: HarnessCapabilities;
-
     fn adapter_name(&self) -> &'static str;
+    fn capabilities(&self) -> HarnessCapabilities;
 
     /// Execute one request and return raw output prior to redaction.
     ///
@@ -101,6 +101,60 @@ pub trait HarnessAdapter: Send + Sync {
         observer: &mut dyn HarnessObserver,
         token: ContractCallToken,
     ) -> Result<ExecutionSignal, ProviderFailure>;
+}
+
+/// Runtime registry for trait-object harness adapter instances.
+#[derive(Default, Clone)]
+pub struct HarnessAdapterRegistry {
+    adapters: BTreeMap<&'static str, Arc<dyn HarnessAdapter>>,
+}
+
+impl std::fmt::Debug for HarnessAdapterRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HarnessAdapterRegistry")
+            .field("adapters", &self.names())
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum HarnessAdapterRegistryError {
+    #[error("adapter `{name}` is already registered")]
+    DuplicateAdapterName { name: &'static str },
+}
+
+impl HarnessAdapterRegistry {
+    pub fn register(
+        &mut self,
+        adapter: Arc<dyn HarnessAdapter>,
+    ) -> Result<(), HarnessAdapterRegistryError> {
+        let name = adapter.adapter_name();
+        if self.adapters.contains_key(name) {
+            return Err(HarnessAdapterRegistryError::DuplicateAdapterName { name });
+        }
+        self.adapters.insert(name, adapter);
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&dyn HarnessAdapter> {
+        self.adapters.get(name).map(Arc::as_ref)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.adapters.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.adapters.is_empty()
+    }
+
+    #[must_use]
+    pub fn names(&self) -> Vec<&'static str> {
+        self.adapters.keys().copied().collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -139,8 +193,8 @@ pub enum HarnessContractError {
 ///
 /// # Errors
 /// Returns [`HarnessContractError`] for any failed stage.
-pub async fn execute_with_contract<A: HarnessAdapter>(
-    adapter: &A,
+pub async fn execute_with_contract(
+    adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
@@ -149,14 +203,15 @@ pub async fn execute_with_contract<A: HarnessAdapter>(
     execute_with_contract_internal(adapter, request, redactor, observer).await
 }
 
-async fn execute_with_contract_internal<A: HarnessAdapter>(
-    adapter: &A,
+async fn execute_with_contract_internal(
+    adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
     redactor: &dyn OutputRedactor,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
     let hints = request.redaction_hints();
-    A::CAPABILITIES
+    adapter
+        .capabilities()
         .ensure_admissible(&request.requirements)
         .map_err(|err| {
             emit_contract_event(
@@ -375,8 +430,8 @@ fn sanitize_failure_payload(
 }
 
 #[cfg(test)]
-pub(crate) async fn execute_with_contract_for_tests<A: HarnessAdapter>(
-    adapter: &A,
+pub(crate) async fn execute_with_contract_for_tests(
+    adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
     redactor: &dyn OutputRedactor,
     observer: &mut dyn HarnessObserver,

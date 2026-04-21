@@ -91,14 +91,19 @@ fn bench_many_secrets(c: &mut Criterion) {
 fn bench_many_policy_prefixes(c: &mut Criterion) {
     let mut group = c.benchmark_group("redaction/prefix_density");
     for prefix_count in [10_usize, 50, 200] {
-        let policy = RedactionPolicy {
-            min_token_len: 8,
-            min_secret_fragment_len: 6,
-            sensitive_key_names: vec!["api_key".to_owned(), "token".to_owned()],
-            token_prefixes: (0..prefix_count)
-                .map(|idx| format!("p{idx:03}_"))
-                .collect::<Vec<_>>(),
-            max_persistable_channel_bytes: 256 * 1024,
+        let Ok(policy) = RedactionPolicy::builder()
+            .min_token_len(8)
+            .min_secret_fragment_len(6)
+            .sensitive_key_names(vec!["api_key".to_owned(), "token".to_owned()])
+            .token_prefixes(
+                (0..prefix_count)
+                    .map(|idx| format!("p{idx:03}_"))
+                    .collect::<Vec<_>>(),
+            )
+            .max_persistable_channel_bytes(256 * 1024)
+            .build()
+        else {
+            continue;
         };
         let redactor = DefaultOutputRedactor::new(policy);
         let mut payload = String::new();

@@ -19,9 +19,9 @@ provider-agnostic harness contract that all concrete harness adapters must use
 - sandbox mode
 - approval mode
 
-Capability metadata is immutable and type-level in the adapter contract;
-preflight checks read static capability data rather than invoking adapter
-instance logic.
+Capability metadata is immutable in the adapter contract and exposed through
+`HarnessAdapter::capabilities()`.
+Preflight checks read adapter-declared data before execution side effects.
 
 `HarnessRequirements` defines dispatch requirements and supports explicit
 least-privilege bounds:
@@ -68,6 +68,8 @@ policy (`to_domain_error_class`).
 
 Adapters now return provider-native failures (`ProviderFailure`) and the
 contract wrapper is the only normalization boundary to `HarnessFailure`.
+`HarnessFailure` construction is crate-internal; callers cannot mint terminal
+failures directly.
 
 `ProviderFailureContext` supports typed/normalized classification:
 
@@ -95,6 +97,9 @@ Policy behavior:
 - context-aware short multiline-fragment redaction (bounded rules)
 - encoded secret variant redaction (URL/base64 forms derived from known hints)
 - bounded per-channel persistence with deterministic truncation marker
+- validated immutable policy schema (`RedactionPolicy::try_new` / builder)
+- compiled prefix trie and multi-pattern secret matcher (Aho-Corasick style)
+  for scalable hint/prefix cardinality
 
 `RedactionHints` is secret-safe:
 
@@ -118,6 +123,7 @@ Required adapter evidence:
 3. failure mapping is stable across provider-native payloads
 4. provider metadata sanitization is fail-closed
 5. terminal typed-code semantics remain deterministic
+6. contract event checks enforce exact cardinality and ordering (no duplicates)
 
 ## Implementation Notes
 
@@ -125,6 +131,8 @@ Required adapter evidence:
   enforcement is sealed inside `execute_with_contract`.
 - `HarnessAdapter::execute` requires an unconstructable contract token so
   callers cannot directly invoke adapter execution from outside the contract.
+- `HarnessAdapterRegistry` enables trait-object adapter registration/lookup for
+  runtime registry patterns.
 - provider metadata is sanitized and validated under a strict fail-closed policy
   before exposure/persistence.
 - default redaction policy/patterns are sourced from a versioned dataset.

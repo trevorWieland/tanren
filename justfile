@@ -493,6 +493,15 @@ check-suppression:
 bench:
     {{ cargo }} bench --workspace
 
+# Run redaction benchmark scenarios used by the perf regression gate.
+bench-redaction:
+    @{{ cargo }} bench -p tanren-runtime --bench redaction -- --noplot
+
+# Enforce benchmark thresholds for redaction scenarios.
+check-redaction-perf:
+    @just bench-redaction
+    @UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/.uv-cache}" uv run python scripts/check_redaction_perf.py
+
 # ============================================================================
 # Maintenance
 # ============================================================================
@@ -542,6 +551,8 @@ ci:
     @just machete
     @echo "==> Strict Rust CI"
     @just ci-rust-strict
+    @echo "==> Redaction perf regression gate"
+    @just check-redaction-perf
     @echo "==> Installer drift guard"
     @just install-commands-check
     @echo "==> All CI checks passed!"

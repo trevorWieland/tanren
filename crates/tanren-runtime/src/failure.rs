@@ -284,6 +284,15 @@ impl ProviderFailure {
 }
 
 /// Typed failure payload returned by the harness contract wrapper.
+///
+/// External callers cannot construct terminal failures directly; adapter
+/// failures must be normalized by the contract wrapper.
+///
+/// ```compile_fail
+/// use tanren_runtime::{HarnessFailure, ProviderFailureCode};
+///
+/// let _ = HarnessFailure::new(ProviderFailureCode::Fatal, "unsanitized");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{class:?}: {message}")]
 pub struct HarnessFailure {
@@ -297,17 +306,6 @@ pub struct HarnessFailure {
 }
 
 impl HarnessFailure {
-    #[must_use]
-    pub fn new(typed_code: ProviderFailureCode, message: impl Into<String>) -> Self {
-        Self {
-            class: typed_code.to_harness_failure_class(),
-            message: message.into(),
-            provider_code: None,
-            provider_kind: None,
-            typed_code,
-        }
-    }
-
     #[must_use]
     pub(crate) fn from_provider_failure(failure: ProviderFailure) -> Self {
         let class = classify_provider_failure(&failure.context);

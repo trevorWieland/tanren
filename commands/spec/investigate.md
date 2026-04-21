@@ -52,23 +52,28 @@ resort — escalate to a blocker for `resolve-blockers`.
 
 1. Read the failure evidence in full. Distinguish root causes from
    symptoms. Do not modify code; this phase is read-only.
-2. Identify each root cause. For each, choose one action:
+2. Classify root causes explicitly. Include BDD-specific classes when
+   applicable:
+   - missing scenario for claimed behavior
+   - weak scenario (mutation survivor)
+   - behavior-map drift (implementation and mapping out of sync)
+   - acceptance criteria ambiguity
+   - environment drift
+3. For each root cause, choose one action:
    - **Task scope was wrong:** `revise_task(task_id,
-     revised_description, revised_acceptance, reason)`. Use this
-     when the acceptance criteria were ambiguous or incomplete.
+     revised_description, revised_acceptance, reason)`.
    - **A new fix scope is required:** `create_task(title,
      description, origin: Investigation { source_phase,
      source_task, loop_index }, acceptance_criteria)`.
    - **Task is infeasible:** `abandon_task(task_id, reason,
      replacements)` with at least one replacement.
    - **Cannot resolve autonomously:** `escalate_to_blocker(reason,
-     options)`. Use this only after attempting diagnosis and only
-     when a human judgment call is genuinely needed.
-3. Add `note` / `question` findings for observations that are not
+     options)`.
+4. Add `note` / `question` findings for observations that are not
    immediately actionable but might be useful to the next phase.
-4. Write a narrative for `investigation-report.json` (tool-generated
+5. Write a narrative for `investigation-report.json` (tool-generated
    from your calls; the narrative field is your prose).
-5. Call `report_phase_outcome("complete", <one-line summary>)`.
+6. Call `report_phase_outcome("complete", <one-line summary>)`.
 
 ## Verification
 

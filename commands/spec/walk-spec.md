@@ -17,24 +17,26 @@ required_capabilities:
   - task.create
   - task.read
   - phase.outcome
-produces_evidence: []
+produces_evidence:
+  - behavior-map.md
 ---
 
 # walk-spec
 
 ## Purpose
 
-The user's acceptance checkpoint. Walk through the demo live, confirm
-acceptance criteria are met, surface any last concerns, and signal
-completion. Tanren-code handles `{{PR_NOUN}}` creation, roadmap
-updates, and `{{ISSUE_PROVIDER}}` communication after you signal
-complete.
+The user's acceptance checkpoint. Walk through behavior outcomes live,
+confirm acceptance criteria are met, surface any last concerns, and
+signal completion. Tanren-code handles `{{PR_NOUN}}` creation,
+roadmap updates, and `{{ISSUE_PROVIDER}}` communication after you
+signal complete.
 
 ## Inputs (from your dispatch)
 
 - The fully-implemented spec (all tasks Complete, audits passed,
   demo passed).
-- The spec's `spec.md`, `plan.md`, `demo.md`, `audit.md`.
+- The spec's `spec.md`, `plan.md`, `demo.md`, `audit.md`, and
+  `behavior-map.md`.
 
 ## Responsibilities
 
@@ -43,8 +45,8 @@ complete.
    `report_phase_outcome("error", …)` immediately — walk-spec is
    not the place to fix unfinished work.
 2. Run `{{SPEC_VERIFICATION_HOOK}}` and confirm green.
-3. Present an implementation summary + acceptance-criteria proof to
-   the user. Keep it concise; the user has the diff and can read it.
+3. Present an implementation summary in behavior terms:
+   behavior IDs, mapped scenarios, and demo evidence.
 4. Walk through the demo step-by-step. For each step: explain,
    execute, show result, confirm before next.
 5. If a demo step fails during the walkthrough: STOP. Call

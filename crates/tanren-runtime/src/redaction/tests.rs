@@ -226,19 +226,20 @@ fn conformance_fixture_has_no_leak_after_redaction() {
     .iter()
     .flatten()
     {
-        for key in &policy.sensitive_key_names {
+        for key in policy.sensitive_key_names() {
             if scanner::contains_unredacted_assignment(channel, key, "[REDACTED]") {
                 reasons.push(format!("assignment:{key}:{channel}"));
             }
         }
-        if scanner::contains_unredacted_bearer_token(channel, policy.min_token_len, "[REDACTED]") {
+        if scanner::contains_unredacted_bearer_token(channel, policy.min_token_len(), "[REDACTED]")
+        {
             reasons.push(format!("bearer:{channel}"));
         }
-        for prefix in &policy.token_prefixes {
+        for prefix in policy.token_prefixes() {
             if scanner::contains_unredacted_prefixed_token(
                 channel,
                 prefix,
-                policy.min_token_len,
+                policy.min_token_len(),
                 "[REDACTED]",
             ) {
                 reasons.push(format!("prefix:{prefix}:{channel}"));
@@ -439,3 +440,4 @@ token_prefix=ya29.";
 }
 
 mod hardening_tests;
+mod policy_validation_tests;

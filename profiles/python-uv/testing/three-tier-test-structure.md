@@ -1,57 +1,35 @@
-# Three-Tier Test Structure
+# Three-Tier BDD Structure
 
-All tests live under `tests/unit`, `tests/integration`, or `tests/quality`. No exceptions.
+All executable tests are scenario-driven and organized by runtime tier. Each tier still uses `.feature` files and BDD step bindings.
 
 ```
 tests/
-├── unit/           # <250ms per test, mocks only, no external services
-│   ├── core/
-│   ├── cli/
-│   └── tui/
-├── integration/    # <5s per test, minimal mocks, real services, NO LLMs
-│   ├── core/
-│   ├── cli/
-│   └── tui/
-└── quality/        # <30s per test, minimal mocks, real services, REAL LLMs
-    ├── core/
-    └── cli/
+├── unit/
+│   ├── features/
+│   │   └── processor.feature
+│   └── steps/
+│       └── test_processor_steps.py
+├── integration/
+│   ├── features/
+│   │   └── pipeline.feature
+│   └── steps/
+│       └── test_pipeline_steps.py
+└── quality/
+    ├── features/
+    │   └── model_quality.feature
+    └── steps/
+        └── test_model_quality_steps.py
 ```
 
 **Tier definitions:**
+- `unit`: <250ms per scenario, isolated logic, no external services
+- `integration`: <5s per scenario, real services, mocked model adapters
+- `quality`: <30s per scenario, real services, real model adapters
 
-**Unit tests** (`tests/unit/`):
-- Fast: <250ms per test
-- Mocks allowed and encouraged
-- No external services (no network, no LLMs, no databases)
-- Test isolated logic and algorithms
+**Rules:**
+- All scenarios live in `features/*.feature`
+- All step bindings live in `steps/test_*_steps.py`
+- No free-form executable tests outside scenario bindings
+- Every scenario has a behavior tag and a tier tag
 
-**Integration tests** (`tests/integration/`):
-- Moderate speed: <5s per test
-- Minimal mocks (only when unavoidable)
-- Real services (storage, vector store, file system)
-- **NO LLMs** - use mock model adapters for LLM calls
-- BDD-style (Given/When/Then)
-
-**Quality tests** (`tests/quality/`):
-- Slower but bounded: <30s per test
-- Minimal mocks (only when unavoidable)
-- Real services (storage, vector store, file system)
-- **REAL LLMs** - actual model calls, not mocked
-- BDD-style (Given/When/Then)
-
-**Package structure mirrors source:**
-- `tests/unit/core/` tests `src/core/`
-- `tests/integration/cli/` tests `src/cli/`
-- Mirror your source package layout
-
-**Never place tests:**
-- Outside the three tier folders
-- In source code directories
-- In ad-hoc locations (scripts, benchmarks, etc.)
-
-**CI execution:**
-- Unit tests: Run on every PR, fast feedback
-- Integration tests: Run on every PR or schedule
-- Quality tests: Run on schedule or manual trigger (slower)
-
-**Why:** Clear purpose and scope for each test tier, and enables selective execution by tier (unit fast/run frequently, integration/quality slower/run selectively).
+**Why:** Runtime tiers remain useful for speed and environment control while preserving a single behavior-first testing model.

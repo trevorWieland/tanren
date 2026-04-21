@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::redaction::RedactionHints;
 
@@ -8,9 +8,25 @@ struct SecretCandidate {
     contextual_short: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+struct AutomatonNode {
+    next: HashMap<u8, usize>,
+    fail: usize,
+    outputs: Vec<usize>,
+}
+
 #[derive(Default)]
 pub(super) struct CompiledSecretMatcher {
-    by_first_byte: HashMap<u8, Vec<SecretCandidate>>,
+    nodes: Vec<AutomatonNode>,
+    candidates: Vec<SecretCandidate>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SecretMatcherStats {
+    pub states: usize,
+    pub transitions: usize,
+    pub patterns: usize,
 }
 
 impl CompiledSecretMatcher {
@@ -43,73 +59,138 @@ impl CompiledSecretMatcher {
             }
         }
 
-        let mut by_first_byte: HashMap<u8, Vec<SecretCandidate>> = HashMap::new();
+        let mut candidates = Vec::with_capacity(literals.len() + contextual_short_literals.len());
         for literal in literals {
-            let bytes = literal.into_bytes();
-            if let Some(first) = bytes.first().copied() {
-                by_first_byte
-                    .entry(first)
-                    .or_default()
-                    .push(SecretCandidate {
-                        bytes,
-                        contextual_short: false,
-                    });
-            }
+            candidates.push(SecretCandidate {
+                bytes: literal.into_bytes(),
+                contextual_short: false,
+            });
         }
         for literal in contextual_short_literals {
-            let bytes = literal.into_bytes();
-            if let Some(first) = bytes.first().copied() {
-                by_first_byte
-                    .entry(first)
-                    .or_default()
-                    .push(SecretCandidate {
-                        bytes,
-                        contextual_short: true,
-                    });
+            candidates.push(SecretCandidate {
+                bytes: literal.into_bytes(),
+                contextual_short: true,
+            });
+        }
+
+        Self::from_candidates(candidates)
+    }
+
+    fn from_candidates(mut candidates: Vec<SecretCandidate>) -> Self {
+        if candidates.is_empty() {
+            return Self::default();
+        }
+
+        // Sort by length descending so ranges stay deterministic for overlapping outputs.
+        candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.bytes.len()));
+
+        let mut nodes = vec![AutomatonNode::default()];
+        for (idx, candidate) in candidates.iter().enumerate() {
+            let mut state = 0;
+            for &byte in &candidate.bytes {
+                let next = if let Some(existing) = nodes[state].next.get(&byte).copied() {
+                    existing
+                } else {
+                    let created = nodes.len();
+                    nodes.push(AutomatonNode::default());
+                    nodes[state].next.insert(byte, created);
+                    created
+                };
+                state = next;
+            }
+            nodes[state].outputs.push(idx);
+        }
+
+        let mut queue = VecDeque::new();
+        let root_children = nodes[0].next.values().copied().collect::<Vec<_>>();
+        for child in root_children {
+            nodes[child].fail = 0;
+            queue.push_back(child);
+        }
+
+        while let Some(state) = queue.pop_front() {
+            let transitions = nodes[state]
+                .next
+                .iter()
+                .map(|(&byte, &next)| (byte, next))
+                .collect::<Vec<_>>();
+            for (byte, next_state) in transitions {
+                queue.push_back(next_state);
+
+                let mut fail = nodes[state].fail;
+                while fail != 0 && !nodes[fail].next.contains_key(&byte) {
+                    fail = nodes[fail].fail;
+                }
+
+                if let Some(&fallback) = nodes[fail].next.get(&byte) {
+                    nodes[next_state].fail = fallback;
+                }
+
+                let fallback_outputs = nodes[nodes[next_state].fail].outputs.clone();
+                nodes[next_state].outputs.extend(fallback_outputs);
             }
         }
-        for candidates in by_first_byte.values_mut() {
-            candidates.sort_by_key(|value| std::cmp::Reverse(value.bytes.len()));
+
+        for node in &mut nodes {
+            node.outputs
+                .sort_by_key(|idx| std::cmp::Reverse(candidates[*idx].bytes.len()));
+            node.outputs.dedup();
         }
-        Self { by_first_byte }
+
+        Self { nodes, candidates }
     }
 
     pub(super) fn collect_ranges(&self, text: &str) -> Vec<(usize, usize)> {
-        let mut ranges = Vec::new();
+        if self.nodes.is_empty() || self.candidates.is_empty() {
+            return Vec::new();
+        }
+
         let bytes = text.as_bytes();
-        let mut cursor = 0;
+        let mut state = 0;
+        let mut ranges = Vec::new();
 
-        while cursor < bytes.len() {
-            let Some(candidates) = self.by_first_byte.get(&bytes[cursor]) else {
-                cursor += 1;
+        for (idx, &byte) in bytes.iter().enumerate() {
+            while state != 0 && !self.nodes[state].next.contains_key(&byte) {
+                state = self.nodes[state].fail;
+            }
+
+            if let Some(&next) = self.nodes[state].next.get(&byte) {
+                state = next;
+            }
+
+            if self.nodes[state].outputs.is_empty() {
                 continue;
-            };
+            }
 
-            let mut matched = false;
-            for candidate in candidates {
-                let end = cursor.saturating_add(candidate.bytes.len());
-                if end > bytes.len()
-                    || &bytes[cursor..end] != candidate.bytes.as_slice()
-                    || !text.is_char_boundary(cursor)
-                    || !text.is_char_boundary(end)
-                {
+            for &candidate_idx in &self.nodes[state].outputs {
+                let candidate = &self.candidates[candidate_idx];
+                let end = idx.saturating_add(1);
+                let Some(start) = end.checked_sub(candidate.bytes.len()) else {
+                    continue;
+                };
+                if !text.is_char_boundary(start) || !text.is_char_boundary(end) {
                     continue;
                 }
                 if candidate.contextual_short
-                    && !is_contextual_short_fragment_match(bytes, cursor, end)
+                    && !is_contextual_short_fragment_match(bytes, start, end)
                 {
                     continue;
                 }
-                ranges.push((cursor, end));
-                cursor = end;
-                matched = true;
-                break;
-            }
-            if !matched {
-                cursor += 1;
+                ranges.push((start, end));
             }
         }
+
         ranges
+    }
+
+    #[cfg(test)]
+    pub(super) fn stats(&self) -> SecretMatcherStats {
+        let transition_count = self.nodes.iter().map(|node| node.next.len()).sum();
+        SecretMatcherStats {
+            states: self.nodes.len(),
+            transitions: transition_count,
+            patterns: self.candidates.len(),
+        }
     }
 }
 

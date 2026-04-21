@@ -18,6 +18,33 @@ use crate::failure::{
     ProviderFailure, ProviderFailureCode, ProviderFailureContext, ProviderIdentifier,
 };
 
+const FULL_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
+    output_streaming: OutputStreaming::TextAndToolEvents,
+    can_use_tools: true,
+    patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
+    session_resume: SessionResumeSupport::CrossProcess,
+    sandbox_mode: SandboxMode::WorkspaceWrite,
+    approval_mode: ApprovalMode::OnDemand,
+};
+
+const TOOL_DENIED_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
+    output_streaming: OutputStreaming::TextAndToolEvents,
+    can_use_tools: false,
+    patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
+    session_resume: SessionResumeSupport::CrossProcess,
+    sandbox_mode: SandboxMode::WorkspaceWrite,
+    approval_mode: ApprovalMode::OnDemand,
+};
+
+const LIMITED_LEVEL_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
+    output_streaming: OutputStreaming::TextAndToolEvents,
+    can_use_tools: true,
+    patch_apply: PatchApplySupport::ApplyPatchOnly,
+    session_resume: SessionResumeSupport::SameProcessOnly,
+    sandbox_mode: SandboxMode::WorkspaceWrite,
+    approval_mode: ApprovalMode::OnDemand,
+};
+
 #[derive(Debug, Clone)]
 struct FullHarnessAdapter {
     raw_output: RawExecutionOutput,
@@ -39,17 +66,12 @@ impl FullHarnessAdapter {
 
 #[async_trait]
 impl HarnessAdapter for FullHarnessAdapter {
-    const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
-        output_streaming: OutputStreaming::TextAndToolEvents,
-        can_use_tools: true,
-        patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
-        session_resume: SessionResumeSupport::CrossProcess,
-        sandbox_mode: SandboxMode::WorkspaceWrite,
-        approval_mode: ApprovalMode::OnDemand,
-    };
-
     fn adapter_name(&self) -> &'static str {
         "full"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        FULL_CAPABILITIES
     }
 
     async fn execute(
@@ -74,10 +96,12 @@ struct PollutingHarnessAdapter {
 
 #[async_trait]
 impl HarnessAdapter for PollutingHarnessAdapter {
-    const CAPABILITIES: HarnessCapabilities = FullHarnessAdapter::CAPABILITIES;
-
     fn adapter_name(&self) -> &'static str {
         "polluting-mock"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        FULL_CAPABILITIES
     }
 
     async fn execute(
@@ -118,17 +142,12 @@ impl ToolDeniedHarnessAdapter {
 
 #[async_trait]
 impl HarnessAdapter for ToolDeniedHarnessAdapter {
-    const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
-        output_streaming: OutputStreaming::TextAndToolEvents,
-        can_use_tools: false,
-        patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
-        session_resume: SessionResumeSupport::CrossProcess,
-        sandbox_mode: SandboxMode::WorkspaceWrite,
-        approval_mode: ApprovalMode::OnDemand,
-    };
-
     fn adapter_name(&self) -> &'static str {
         "tool-denied"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        TOOL_DENIED_CAPABILITIES
     }
 
     async fn execute(
@@ -167,17 +186,12 @@ impl LimitedLevelsHarnessAdapter {
 
 #[async_trait]
 impl HarnessAdapter for LimitedLevelsHarnessAdapter {
-    const CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
-        output_streaming: OutputStreaming::TextAndToolEvents,
-        can_use_tools: true,
-        patch_apply: PatchApplySupport::ApplyPatchOnly,
-        session_resume: SessionResumeSupport::SameProcessOnly,
-        sandbox_mode: SandboxMode::WorkspaceWrite,
-        approval_mode: ApprovalMode::OnDemand,
-    };
-
     fn adapter_name(&self) -> &'static str {
         "levels-limited"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        LIMITED_LEVEL_CAPABILITIES
     }
 
     async fn execute(
@@ -202,10 +216,12 @@ struct UnsafeMetadataHarnessAdapter {
 
 #[async_trait]
 impl HarnessAdapter for UnsafeMetadataHarnessAdapter {
-    const CAPABILITIES: HarnessCapabilities = FullHarnessAdapter::CAPABILITIES;
-
     fn adapter_name(&self) -> &'static str {
         "unsafe-metadata"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        FULL_CAPABILITIES
     }
 
     async fn execute(
@@ -227,10 +243,12 @@ struct UnsafeFailureMetadataHarnessAdapter;
 
 #[async_trait]
 impl HarnessAdapter for UnsafeFailureMetadataHarnessAdapter {
-    const CAPABILITIES: HarnessCapabilities = FullHarnessAdapter::CAPABILITIES;
-
     fn adapter_name(&self) -> &'static str {
         "unsafe-failure-metadata"
+    }
+
+    fn capabilities(&self) -> HarnessCapabilities {
+        FULL_CAPABILITIES
     }
 
     async fn execute(
@@ -416,5 +434,37 @@ fn conformance_enforces_terminal_typed_code_mapping() {
             HarnessFailureClass::TransportUnavailable,
         )
         .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn conformance_helpers_accept_dyn_adapter_objects() {
+    let adapter: Box<dyn HarnessAdapter> =
+        Box::new(FullHarnessAdapter::new(raw_output_with_secret()));
+    let req = request(HarnessRequirements::default());
+    let expectations = RedactionConformanceExpectations {
+        required_absent_fragments: vec!["abc".into(), "def".into(), "ghi".into()],
+        required_present_fragments: vec!["SAFE_MARKER".into()],
+    };
+    let result = assert_redaction_before_persistence(adapter.as_ref(), &req, &expectations).await;
+    assert!(
+        result.is_ok(),
+        "dyn adapter should satisfy conformance checks"
+    );
+}
+
+#[test]
+fn conformance_event_ordering_requires_exact_contract_event_cardinality() {
+    let events = vec![
+        HarnessExecutionEvent::contract(HarnessExecutionEventKind::PreflightAccepted),
+        HarnessExecutionEvent::contract(HarnessExecutionEventKind::PreflightAccepted),
+        HarnessExecutionEvent::contract(HarnessExecutionEventKind::AdapterInvoked),
+        HarnessExecutionEvent::contract(HarnessExecutionEventKind::PersistableOutputReady),
+    ];
+
+    let err = assert_event_ordering(&events).expect_err("duplicate contract events must fail");
+    assert!(
+        err.contains("expected exactly one matching contract event"),
+        "unexpected error: {err}"
     );
 }

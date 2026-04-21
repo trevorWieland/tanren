@@ -43,6 +43,10 @@ execution; parity proof is accepted only in Lane 1.2.
   - session-resume support
   - sandbox mode
   - approval mode
+- `HarnessAdapter` is object-safe and exposes capabilities via
+  `HarnessAdapter::capabilities()`.
+- `HarnessAdapterRegistry` supports runtime trait-object registration and
+  lookup by adapter name.
 - `HarnessRequirements` describes what a dispatch needs and is constructed via
   validated builder APIs.
 - Sandbox and approval requirements use validated bound types
@@ -76,8 +80,8 @@ execution; parity proof is accepted only in Lane 1.2.
 ### Failure Contract
 
 - `HarnessFailureClass` is the stable failure taxonomy.
-- `HarnessFailure` is constructor-normalized with invariant-safe class/code
-  states; conflicting class/typed-code combinations are rejected at
+- `HarnessFailure` normalization is contract-owned and constructor-sealed from
+  external callers; conflicting class/typed-code combinations are rejected at
   deserialization boundaries.
 - `ProviderFailureContext.typed_code` is mandatory for terminal adapter
   failures and uses terminal-only `ProviderFailureCode` (no `unknown` variant).
@@ -95,10 +99,14 @@ execution; parity proof is accepted only in Lane 1.2.
   the contract-owned default redactor.
 - `DefaultOutputRedactor` + `RedactionPolicy` provide the shared baseline.
 - Default redaction policy data is sourced from a versioned dataset.
+- `RedactionPolicy` is immutable and validated (`try_new`/builder) to reject
+  unsafe threshold or duplicate-pattern configurations.
 - `RedactionHints` is an internal capture-time representation derived from
   request secrets by the contract wrapper.
 - Redaction matcher coverage includes context-aware short multiline fragments
   and encoded secret variants (URL/base64 forms) derived from known hints.
+- Prefix matching uses a compiled trie and secret matching uses a compiled
+  multi-pattern automaton (Aho-Corasick style) for scalable cardinality.
 - Redaction is applied to all persistable output channels:
   `gate_output`, `tail_output`, `stderr_tail`.
 
@@ -138,6 +146,7 @@ Each adapter must prove:
 3. provider-specific failures normalize to stable failure classes
 4. unsafe provider metadata is rejected fail-closed
 5. typed terminal failure code mappings remain stable
+6. contract lifecycle events satisfy strict cardinality + ordering invariants
 
 Lane 1.2 acceptance also requires parity scenarios for
 [../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md) Feature 1, Feature 3, and

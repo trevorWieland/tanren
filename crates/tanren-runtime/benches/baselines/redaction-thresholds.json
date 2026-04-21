@@ -1,0 +1,10 @@
+{
+  "unit": "mean_nanoseconds",
+  "scenarios": {
+    "redaction/large_output": 120000000,
+    "redaction/many_secret_hints": 3000000,
+    "redaction/prefix_density/10": 450000,
+    "redaction/prefix_density/50": 500000,
+    "redaction/prefix_density/200": 900000
+  }
+}

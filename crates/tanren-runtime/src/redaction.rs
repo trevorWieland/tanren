@@ -1,14 +1,17 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
-
 use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, SecretName};
 
+pub(crate) mod policy;
 pub(crate) mod policy_dataset;
 pub(crate) mod scanner;
 pub(crate) mod secret_matcher;
 
+pub use self::policy::{
+    RedactionPolicy, RedactionPolicyBuilder, RedactionPolicyError, default_redaction_policy,
+    default_redaction_policy_dataset_version,
+};
 use self::secret_matcher::CompiledSecretMatcher;
 
 const REDACTION_TOKEN: &str = "[REDACTED]";
@@ -27,45 +30,6 @@ impl fmt::Debug for RedactionHints {
             .field("required_secret_names", &self.required_secret_names)
             .field("secret_value_count", &self.secret_values.len())
             .finish()
-    }
-}
-
-/// Deterministic redaction policy used by all adapters unless overridden.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RedactionPolicy {
-    pub min_token_len: usize,
-    pub min_secret_fragment_len: usize,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sensitive_key_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub token_prefixes: Vec<String>,
-    pub max_persistable_channel_bytes: usize,
-}
-
-/// Build the default redaction policy for Phase 1 harness adapters.
-#[must_use]
-pub const fn default_redaction_policy_dataset_version() -> &'static str {
-    policy_dataset::DEFAULT_REDACTION_POLICY_DATASET_VERSION
-}
-
-/// Build the default redaction policy for Phase 1 harness adapters.
-#[must_use]
-pub fn default_redaction_policy() -> RedactionPolicy {
-    let dataset = policy_dataset::default_policy_dataset_v1();
-    RedactionPolicy {
-        min_token_len: dataset.min_token_len,
-        min_secret_fragment_len: dataset.min_secret_fragment_len,
-        sensitive_key_names: dataset
-            .sensitive_key_names
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
-        token_prefixes: dataset
-            .token_prefixes
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
-        max_persistable_channel_bytes: dataset.max_persistable_channel_bytes,
     }
 }
 
@@ -153,7 +117,7 @@ impl DefaultOutputRedactor {
     #[must_use]
     pub fn new(policy: RedactionPolicy) -> Self {
         let normalized_sensitive_key_names = policy
-            .sensitive_key_names
+            .sensitive_key_names()
             .iter()
             .map(|value| value.to_ascii_lowercase())
             .collect();
@@ -179,7 +143,7 @@ impl DefaultOutputRedactor {
         ranges.extend(explicit_secret_matcher.collect_ranges(&value));
         let redacted = apply_redaction_ranges(value, ranges);
         let redacted =
-            truncate_for_persistence(redacted, self.policy.max_persistable_channel_bytes);
+            truncate_for_persistence(redacted, self.policy.max_persistable_channel_bytes());
         let post_scan = channel_matcher.scan(&redacted);
         let known_secret_leak = !explicit_secret_matcher.collect_ranges(&redacted).is_empty();
         let policy_residual_leak = post_scan.has_policy_residual_leak();
@@ -218,7 +182,8 @@ impl OutputRedactor for DefaultOutputRedactor {
     }
 
     fn has_known_secret_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
-        let matcher = CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len);
+        let matcher =
+            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len());
         Self::channels(output)
             .iter()
             .flatten()
@@ -235,8 +200,8 @@ impl OutputRedactor for DefaultOutputRedactor {
         let matcher = CompiledChannelMatcher::new(
             &self.normalized_sensitive_key_names,
             &hint_keys,
-            &self.policy.token_prefixes,
-            self.policy.min_token_len,
+            self.policy.token_prefixes(),
+            self.policy.min_token_len(),
             REDACTION_TOKEN,
         );
 
@@ -262,12 +227,12 @@ impl OutputRedactor for DefaultOutputRedactor {
         let channel_matcher = CompiledChannelMatcher::new(
             &self.normalized_sensitive_key_names,
             &hint_keys,
-            &self.policy.token_prefixes,
-            self.policy.min_token_len,
+            self.policy.token_prefixes(),
+            self.policy.min_token_len(),
             REDACTION_TOKEN,
         );
         let explicit_secret_matcher =
-            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len);
+            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len());
 
         let gate = self.redact_channel(
             output.gate_output,
@@ -318,7 +283,7 @@ impl OutputRedactor for DefaultOutputRedactor {
 struct CompiledChannelMatcher<'a> {
     policy_keys: &'a HashSet<String>,
     hint_keys: &'a HashSet<String>,
-    token_prefixes: &'a [String],
+    token_prefix_matcher: scanner::CompiledTokenPrefixMatcher,
     min_token_len: usize,
     redaction_token: &'a str,
 }
@@ -327,14 +292,14 @@ impl<'a> CompiledChannelMatcher<'a> {
     fn new(
         policy_keys: &'a HashSet<String>,
         hint_keys: &'a HashSet<String>,
-        token_prefixes: &'a [String],
+        token_prefixes: &[String],
         min_token_len: usize,
         redaction_token: &'a str,
     ) -> Self {
         Self {
             policy_keys,
             hint_keys,
-            token_prefixes,
+            token_prefix_matcher: scanner::CompiledTokenPrefixMatcher::new(token_prefixes),
             min_token_len,
             redaction_token,
         }
@@ -346,7 +311,7 @@ impl<'a> CompiledChannelMatcher<'a> {
             &scanner::ChannelScanConfig {
                 policy_keys: self.policy_keys,
                 hint_keys: self.hint_keys,
-                token_prefixes: self.token_prefixes,
+                token_prefix_matcher: &self.token_prefix_matcher,
                 min_token_len: self.min_token_len,
                 redaction_token: self.redaction_token,
             },

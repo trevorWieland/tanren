@@ -1,38 +1,19 @@
-# Validate Generated Artifacts Against Target Schemas
+# Validate Generated Artifacts Against Consuming Schemas
 
-When code produces data consumed by another component, test it against the consuming schema — not just syntax.
+When a behavior scenario generates an artifact consumed elsewhere, validate against the real consumer schema.
 
-## Rule
-
-If a function generates config, data files, fixtures, or any artifact that another component will parse, the test must:
-
-1. Generate the artifact
-2. Validate it against the consuming component's schema (e.g., `RunConfig.model_validate()`, `SourceLine.model_validate()`)
-3. Verify path references resolve correctly (file paths, input_path, output_dir)
-
-## Examples
-
-```python
-# BAD: only checks syntax
-config = generate_project(answers, target_dir)
-assert (target_dir / "config.toml").exists()
-
-# GOOD: validates against consuming schema
-config = generate_project(answers, target_dir)
-data = tomllib.loads((target_dir / "config.toml").read_text())
-validated = RunConfig.model_validate(data)  # schema validation
-
-# GOOD: verifies path alignment
-assert (target_dir / validated.project.paths.input_path).exists()  # path resolves
+```gherkin
+@behavior(BEH-CONFIG-004) @tier(integration)
+Scenario: Generated config is consumable by runtime
+  Given a generated project config artifact
+  When the runtime loads that config
+  Then schema validation succeeds
+  And all referenced paths resolve
 ```
 
-## Common Failures
+**Rules:**
+- Validate generated artifacts with the consuming schema type
+- Assert path/reference alignment, not only parse validity
+- Keep this validation in behavior scenarios tied to behavior IDs
 
-- Field names don't match schema (e.g., `original_text` vs `text`)
-- ID patterns don't match regex validators (e.g., `"001"` vs `"line_001"`)
-- File paths in config don't match generated file locations
-- Schema validation passes but runtime execution fails (validate + execute)
-
-## Why
-
-Syntactic tests (file exists, TOML parses) miss semantic mismatches. The consuming component's schema is the contract — test against it directly.
+**Why:** "File exists" checks are weak; scenario proof requires real consumer compatibility.

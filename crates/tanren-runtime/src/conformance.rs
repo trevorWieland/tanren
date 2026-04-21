@@ -45,7 +45,7 @@ impl HarnessObserver for ConformanceEventRecorder {
 /// # Errors
 /// Returns a message describing the violated conformance rule.
 pub async fn assert_capability_denial_is_preflight(
-    adapter: &impl HarnessAdapter,
+    adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
 ) -> Result<ConformanceResult, String> {
     let mut recorder = ConformanceEventRecorder::default();
@@ -71,19 +71,34 @@ pub async fn assert_capability_denial_is_preflight(
         ));
     }
 
-    if recorder.events().iter().any(|event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(event.kind, HarnessExecutionEventKind::PreflightAccepted)
-    }) {
+    if count_contract_events(
+        recorder.events(),
+        |kind| matches!(kind, HarnessExecutionEventKind::PreflightDenied(kind) if *kind == denial_kind),
+    ) != 1
+    {
+        return Err("expected exactly one matching PreflightDenied contract event".into());
+    }
+
+    if count_contract_events(recorder.events(), |kind| {
+        matches!(kind, HarnessExecutionEventKind::PreflightAccepted)
+    }) != 0
+    {
         return Err("preflight accepted event emitted for denied request".into());
     }
 
-    if recorder.events().iter().any(|event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(event.kind, HarnessExecutionEventKind::AdapterInvoked)
-    }) {
+    if count_contract_events(recorder.events(), |kind| {
+        matches!(kind, HarnessExecutionEventKind::AdapterInvoked)
+    }) != 0
+    {
         return Err("adapter was invoked despite capability denial".into());
     }
+    if count_contract_events(recorder.events(), |kind| {
+        matches!(kind, HarnessExecutionEventKind::PersistableOutputReady)
+    }) != 0
+    {
+        return Err("persistable output event emitted for denied request".into());
+    }
+
     Ok(ConformanceResult {
         events: recorder.events,
     })
@@ -94,7 +109,7 @@ pub async fn assert_capability_denial_is_preflight(
 /// # Errors
 /// Returns a message describing the violated conformance rule.
 pub async fn assert_redaction_before_persistence(
-    adapter: &impl HarnessAdapter,
+    adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
     expectations: &RedactionConformanceExpectations,
 ) -> Result<ConformanceResult, String> {
@@ -137,17 +152,17 @@ pub async fn assert_redaction_before_persistence(
     }
 
     if channels.iter().flatten().any(|text| {
-        scanner::contains_unredacted_bearer_token(text, policy.min_token_len, "[REDACTED]")
+        scanner::contains_unredacted_bearer_token(text, policy.min_token_len(), "[REDACTED]")
     }) {
         return Err("persistable output leaked bearer-style token".into());
     }
 
-    for prefix in &policy.token_prefixes {
+    for prefix in policy.token_prefixes() {
         if channels.iter().flatten().any(|text| {
             scanner::contains_unredacted_prefixed_token(
                 text,
                 prefix,
-                policy.min_token_len,
+                policy.min_token_len(),
                 "[REDACTED]",
             )
         }) {
@@ -218,7 +233,7 @@ pub fn assert_terminal_typed_code_mapping(
 /// # Errors
 /// Returns a message describing the violated conformance rule.
 pub async fn assert_provider_metadata_fail_closed(
-    adapter: &impl HarnessAdapter,
+    adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
     field: &'static str,
 ) -> Result<ConformanceResult, String> {
@@ -248,26 +263,17 @@ pub async fn assert_provider_metadata_fail_closed(
         ));
     }
 
-    let accepted = event_index(recorder.events(), |event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(event.kind, HarnessExecutionEventKind::PreflightAccepted)
-    })
-    .is_some();
-    let invoked = event_index(recorder.events(), |event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(event.kind, HarnessExecutionEventKind::AdapterInvoked)
-    })
-    .is_some();
-    let persistable = event_index(recorder.events(), |event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(
-                event.kind,
-                HarnessExecutionEventKind::PersistableOutputReady
-            )
-    })
-    .is_some();
+    let accepted = count_contract_events(recorder.events(), |kind| {
+        matches!(kind, HarnessExecutionEventKind::PreflightAccepted)
+    });
+    let invoked = count_contract_events(recorder.events(), |kind| {
+        matches!(kind, HarnessExecutionEventKind::AdapterInvoked)
+    });
+    let persistable = count_contract_events(recorder.events(), |kind| {
+        matches!(kind, HarnessExecutionEventKind::PersistableOutputReady)
+    });
 
-    if !(accepted && invoked && !persistable) {
+    if accepted != 1 || invoked != 1 || persistable != 0 {
         return Err("metadata fail-closed event ordering invariant violated".to_string());
     }
 
@@ -277,26 +283,15 @@ pub async fn assert_provider_metadata_fail_closed(
 }
 
 fn assert_event_ordering(events: &[HarnessExecutionEvent]) -> Result<(), String> {
-    let accepted = event_index(events, |event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(event.kind, HarnessExecutionEventKind::PreflightAccepted)
-    })
-    .ok_or_else(|| "missing PreflightAccepted event".to_string())?;
-
-    let invoked = event_index(events, |event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(event.kind, HarnessExecutionEventKind::AdapterInvoked)
-    })
-    .ok_or_else(|| "missing AdapterInvoked event".to_string())?;
-
-    let persistable = event_index(events, |event| {
-        event.source == HarnessEventSource::Contract
-            && matches!(
-                event.kind,
-                HarnessExecutionEventKind::PersistableOutputReady
-            )
-    })
-    .ok_or_else(|| "missing PersistableOutputReady event".to_string())?;
+    let accepted = single_contract_event_index(events, |kind| {
+        matches!(kind, HarnessExecutionEventKind::PreflightAccepted)
+    })?;
+    let invoked = single_contract_event_index(events, |kind| {
+        matches!(kind, HarnessExecutionEventKind::AdapterInvoked)
+    })?;
+    let persistable = single_contract_event_index(events, |kind| {
+        matches!(kind, HarnessExecutionEventKind::PersistableOutputReady)
+    })?;
 
     if !(accepted < invoked && invoked < persistable) {
         return Err("execution events are out of required order".into());
@@ -305,11 +300,36 @@ fn assert_event_ordering(events: &[HarnessExecutionEvent]) -> Result<(), String>
     Ok(())
 }
 
-fn event_index(
+fn single_contract_event_index(
     events: &[HarnessExecutionEvent],
-    predicate: impl Fn(&HarnessExecutionEvent) -> bool,
-) -> Option<usize> {
-    events.iter().position(predicate)
+    predicate: impl Fn(&HarnessExecutionEventKind) -> bool,
+) -> Result<usize, String> {
+    let mut indexes = events
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, event)| {
+            (event.source == HarnessEventSource::Contract && predicate(&event.kind)).then_some(idx)
+        })
+        .collect::<Vec<_>>();
+
+    if indexes.len() != 1 {
+        return Err(format!(
+            "expected exactly one matching contract event, found {}",
+            indexes.len()
+        ));
+    }
+
+    Ok(indexes.remove(0))
+}
+
+fn count_contract_events(
+    events: &[HarnessExecutionEvent],
+    predicate: impl Fn(&HarnessExecutionEventKind) -> bool,
+) -> usize {
+    events
+        .iter()
+        .filter(|event| event.source == HarnessEventSource::Contract && predicate(&event.kind))
+        .count()
 }
 
 #[cfg(test)]

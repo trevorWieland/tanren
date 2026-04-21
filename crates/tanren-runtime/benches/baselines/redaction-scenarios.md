@@ -2,6 +2,7 @@
 
 This file defines the fixed benchmark scenario set for `benches/redaction.rs`.
 It is the baseline artifact used for regression comparisons across runs.
+`redaction-thresholds.json` is the machine-enforced CI budget for these scenarios.
 
 ## Scenarios
 
@@ -23,6 +24,8 @@ Run locally:
 
 ```bash
 cargo bench -p tanren-runtime --bench redaction
+uv run python scripts/check_redaction_perf.py
 ```
 
-Compare resulting Criterion output directories between commits for regressions.
+The checker reads Criterion outputs under `target/criterion` and fails when any
+scenario mean exceeds its threshold budget.

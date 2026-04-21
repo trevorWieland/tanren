@@ -3,11 +3,114 @@ use std::collections::HashSet;
 type ByteRange = (usize, usize);
 type TokenRanges = (Vec<ByteRange>, Vec<ByteRange>);
 
+#[derive(Debug, Clone)]
+struct PrefixTrieNode {
+    next: [Option<usize>; 256],
+    terminal: bool,
+}
+
+impl Default for PrefixTrieNode {
+    fn default() -> Self {
+        Self {
+            next: [None; 256],
+            terminal: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CompiledTokenPrefixMatcher {
+    nodes: Vec<PrefixTrieNode>,
+    prefix_count: usize,
+}
+
+impl Default for CompiledTokenPrefixMatcher {
+    fn default() -> Self {
+        Self {
+            nodes: vec![PrefixTrieNode::default()],
+            prefix_count: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TokenPrefixMatcherStats {
+    pub nodes: usize,
+    pub transitions: usize,
+    pub prefixes: usize,
+}
+
+impl CompiledTokenPrefixMatcher {
+    pub(crate) fn new(prefixes: &[String]) -> Self {
+        let mut matcher = Self::default();
+        for prefix in prefixes {
+            matcher.insert(prefix);
+        }
+        matcher
+    }
+
+    pub(crate) fn matches(&self, token: &str) -> bool {
+        let mut state = 0;
+        for byte in token.bytes() {
+            let idx = byte.to_ascii_lowercase() as usize;
+            let Some(next) = self.nodes[state].next[idx] else {
+                return false;
+            };
+            state = next;
+            if self.nodes[state].terminal {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn insert(&mut self, prefix: &str) {
+        let trimmed = prefix.trim().to_ascii_lowercase();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        let mut state = 0;
+        for byte in trimmed.bytes() {
+            let idx = byte as usize;
+            let next = if let Some(existing) = self.nodes[state].next[idx] {
+                existing
+            } else {
+                let created = self.nodes.len();
+                self.nodes.push(PrefixTrieNode::default());
+                self.nodes[state].next[idx] = Some(created);
+                created
+            };
+            state = next;
+        }
+
+        if !self.nodes[state].terminal {
+            self.prefix_count += 1;
+            self.nodes[state].terminal = true;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> TokenPrefixMatcherStats {
+        let transition_count = self
+            .nodes
+            .iter()
+            .map(|node| node.next.iter().flatten().count())
+            .sum();
+        TokenPrefixMatcherStats {
+            nodes: self.nodes.len(),
+            transitions: transition_count,
+            prefixes: self.prefix_count,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ChannelScanConfig<'a> {
     pub policy_keys: &'a HashSet<String>,
     pub hint_keys: &'a HashSet<String>,
-    pub token_prefixes: &'a [String],
+    pub token_prefix_matcher: &'a CompiledTokenPrefixMatcher,
     pub min_token_len: usize,
     pub redaction_token: &'a str,
 }
@@ -74,7 +177,7 @@ pub(crate) fn scan_channel(text: &str, config: &ChannelScanConfig<'_>) -> Channe
     });
     let (bearer_ranges, prefixed_ranges) = collect_token_style_ranges(
         text,
-        config.token_prefixes,
+        config.token_prefix_matcher,
         config.min_token_len,
         config.redaction_token,
     );
@@ -108,7 +211,9 @@ pub(crate) fn collect_bearer_token_ranges(
     min_token_len: usize,
     redaction_token: &str,
 ) -> Vec<ByteRange> {
-    let (ranges, _) = collect_token_style_ranges(text, &[], min_token_len, redaction_token);
+    let prefix_matcher = CompiledTokenPrefixMatcher::default();
+    let (ranges, _) =
+        collect_token_style_ranges(text, &prefix_matcher, min_token_len, redaction_token);
     ranges
 }
 
@@ -126,7 +231,9 @@ pub(crate) fn collect_prefixed_token_ranges(
     min_token_len: usize,
     redaction_token: &str,
 ) -> Vec<ByteRange> {
-    let (_, ranges) = collect_token_style_ranges(text, prefixes, min_token_len, redaction_token);
+    let prefix_matcher = CompiledTokenPrefixMatcher::new(prefixes);
+    let (_, ranges) =
+        collect_token_style_ranges(text, &prefix_matcher, min_token_len, redaction_token);
     ranges
 }
 
@@ -189,7 +296,7 @@ fn scan_assignments(text: &str, mut visitor: impl FnMut(&str, usize, usize) -> b
 
 fn collect_token_style_ranges(
     text: &str,
-    prefixes: &[String],
+    prefix_matcher: &CompiledTokenPrefixMatcher,
     min_token_len: usize,
     redaction_token: &str,
 ) -> TokenRanges {
@@ -219,12 +326,7 @@ fn collect_token_style_ranges(
             bearer_ranges.push((start, cursor));
         }
 
-        if token_len >= min_token_len
-            && !is_redaction_token
-            && prefixes
-                .iter()
-                .any(|prefix| starts_with_ascii_case_insensitive(token, prefix))
-        {
+        if token_len >= min_token_len && !is_redaction_token && prefix_matcher.matches(token) {
             prefixed_ranges.push((start, cursor));
         }
 
@@ -232,15 +334,6 @@ fn collect_token_style_ranges(
     }
 
     (bearer_ranges, prefixed_ranges)
-}
-
-fn starts_with_ascii_case_insensitive(value: &str, prefix: &str) -> bool {
-    value
-        .as_bytes()
-        .iter()
-        .zip(prefix.as_bytes().iter())
-        .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
-        && value.len() >= prefix.len()
 }
 
 fn parse_assignment_key(text: &str, start: usize) -> Option<(String, usize)> {
