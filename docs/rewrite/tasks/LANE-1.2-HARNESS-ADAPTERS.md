@@ -27,10 +27,16 @@ Lane 1.2 adapters must consume the Lane 1.1 runtime contract APIs in
 `crates/tanren-runtime`, especially:
 
 - `execute_with_contract` for preflight + redaction enforcement
-- `DefaultOutputRedactor` / `RedactionHints` for output safety
+- `DefaultOutputRedactor` for output safety
 - `assert_capability_denial_is_preflight`
 - `assert_redaction_before_persistence`
 - `assert_failure_classification`
+
+Lane 1.2 adapter acceptance is blocked until each shipped adapter proves:
+
+- mandatory reuse of Lane 1.1 conformance helpers
+- parity coverage for [../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md)
+  Feature 1, Feature 3, and Feature 6 scenarios
 
 ## Behavioral requirements
 
@@ -39,6 +45,8 @@ Lane 1.2 adapters must consume the Lane 1.1 runtime contract APIs in
 2. Capability mismatches produce typed denials, not partial execution.
 3. Failure classes are stable and operator-readable across adapters.
 4. Redaction requirements from Lane 1.1 remain enforced in every adapter.
+5. Cross-harness semantic equivalence proof is delivered in this lane,
+   not inferred from Lane 1.1 contract shape alone.
 
 ## Dependencies
 

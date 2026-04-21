@@ -30,13 +30,6 @@ pub enum PatchApplySupport {
     ApplyPatchAndUnifiedDiff,
 }
 
-impl PatchApplySupport {
-    #[must_use]
-    pub const fn supports_apply_patch(self) -> bool {
-        !matches!(self, Self::Unsupported)
-    }
-}
-
 /// Session behavior supported by the harness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -44,13 +37,6 @@ pub enum SessionResumeSupport {
     Never,
     SameProcessOnly,
     CrossProcess,
-}
-
-impl SessionResumeSupport {
-    #[must_use]
-    pub const fn allows_resume(self) -> bool {
-        !matches!(self, Self::Never)
-    }
 }
 
 /// Sandbox behavior normalized across providers.
@@ -108,6 +94,26 @@ pub enum OutputStreamingRequirement {
     TextAndToolEvents,
 }
 
+/// Minimum patch-apply support required for admissibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchApplyRequirement {
+    #[default]
+    None,
+    ApplyPatchOnly,
+    ApplyPatchAndUnifiedDiff,
+}
+
+/// Minimum session-resume support required for admissibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionResumeRequirement {
+    #[default]
+    None,
+    SameProcessOnly,
+    CrossProcess,
+}
+
 /// Pre-execution requirements a dispatch needs from the selected harness.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct HarnessRequirements {
@@ -116,9 +122,9 @@ pub struct HarnessRequirements {
     #[serde(default)]
     pub tool_use: RequirementLevel,
     #[serde(default)]
-    pub patch_apply: RequirementLevel,
+    pub patch_apply: PatchApplyRequirement,
     #[serde(default)]
-    pub session_resume: RequirementLevel,
+    pub session_resume: SessionResumeRequirement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub required_sandbox_mode: Option<SandboxMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,8 +138,8 @@ pub enum CompatibilityDenialKind {
     TextStreamingUnsupported,
     ToolEventStreamingUnsupported,
     ToolUseUnsupported,
-    PatchApplyUnsupported,
-    SessionResumeUnsupported,
+    PatchApplyLevelInsufficient,
+    SessionResumeLevelInsufficient,
     SandboxModeInsufficient,
     ApprovalModeInsufficient,
 }
@@ -173,17 +179,23 @@ impl HarnessCapabilities {
                 }
             }
         }
+
         if requirements.tool_use.is_required() && !self.can_use_tools {
             return CapabilityAdmissibility::Denied(CompatibilityDenialKind::ToolUseUnsupported);
         }
-        if requirements.patch_apply.is_required() && !self.patch_apply.supports_apply_patch() {
-            return CapabilityAdmissibility::Denied(CompatibilityDenialKind::PatchApplyUnsupported);
-        }
-        if requirements.session_resume.is_required() && !self.session_resume.allows_resume() {
+
+        if !patch_apply_satisfies(self.patch_apply, requirements.patch_apply) {
             return CapabilityAdmissibility::Denied(
-                CompatibilityDenialKind::SessionResumeUnsupported,
+                CompatibilityDenialKind::PatchApplyLevelInsufficient,
             );
         }
+
+        if !session_resume_satisfies(self.session_resume, requirements.session_resume) {
+            return CapabilityAdmissibility::Denied(
+                CompatibilityDenialKind::SessionResumeLevelInsufficient,
+            );
+        }
+
         if let Some(required) = requirements.required_sandbox_mode {
             if !sandbox_mode_satisfies(self.sandbox_mode, required) {
                 return CapabilityAdmissibility::Denied(
@@ -191,6 +203,7 @@ impl HarnessCapabilities {
                 );
             }
         }
+
         if let Some(required) = requirements.required_approval_mode {
             if !approval_mode_satisfies(self.approval_mode, required) {
                 return CapabilityAdmissibility::Denied(
@@ -198,6 +211,7 @@ impl HarnessCapabilities {
                 );
             }
         }
+
         CapabilityAdmissibility::Admissible
     }
 
@@ -215,6 +229,49 @@ impl HarnessCapabilities {
             CapabilityAdmissibility::Denied(kind) => Err(CompatibilityDenial { kind }),
         }
     }
+}
+
+const fn patch_apply_support_rank(support: PatchApplySupport) -> u8 {
+    match support {
+        PatchApplySupport::Unsupported => 0,
+        PatchApplySupport::ApplyPatchOnly => 1,
+        PatchApplySupport::ApplyPatchAndUnifiedDiff => 2,
+    }
+}
+
+const fn patch_apply_requirement_rank(requirement: PatchApplyRequirement) -> u8 {
+    match requirement {
+        PatchApplyRequirement::None => 0,
+        PatchApplyRequirement::ApplyPatchOnly => 1,
+        PatchApplyRequirement::ApplyPatchAndUnifiedDiff => 2,
+    }
+}
+
+const fn patch_apply_satisfies(actual: PatchApplySupport, required: PatchApplyRequirement) -> bool {
+    patch_apply_support_rank(actual) >= patch_apply_requirement_rank(required)
+}
+
+const fn session_resume_support_rank(support: SessionResumeSupport) -> u8 {
+    match support {
+        SessionResumeSupport::Never => 0,
+        SessionResumeSupport::SameProcessOnly => 1,
+        SessionResumeSupport::CrossProcess => 2,
+    }
+}
+
+const fn session_resume_requirement_rank(requirement: SessionResumeRequirement) -> u8 {
+    match requirement {
+        SessionResumeRequirement::None => 0,
+        SessionResumeRequirement::SameProcessOnly => 1,
+        SessionResumeRequirement::CrossProcess => 2,
+    }
+}
+
+const fn session_resume_satisfies(
+    actual: SessionResumeSupport,
+    required: SessionResumeRequirement,
+) -> bool {
+    session_resume_support_rank(actual) >= session_resume_requirement_rank(required)
 }
 
 const fn sandbox_mode_rank(mode: SandboxMode) -> u8 {
@@ -266,6 +323,57 @@ mod tests {
     }
 
     #[test]
+    fn denies_text_streaming_requirement_when_output_streaming_is_none() {
+        let caps = HarnessCapabilities {
+            output_streaming: OutputStreaming::None,
+            ..baseline()
+        };
+        let requirements = HarnessRequirements {
+            output_streaming: OutputStreamingRequirement::Text,
+            ..HarnessRequirements::default()
+        };
+        let denial = caps
+            .ensure_admissible(&requirements)
+            .expect_err("must deny text requirement");
+        assert_eq!(
+            denial.kind,
+            CompatibilityDenialKind::TextStreamingUnsupported
+        );
+    }
+
+    #[test]
+    fn denies_tool_event_streaming_requirement_without_tool_events() {
+        let caps = HarnessCapabilities {
+            output_streaming: OutputStreaming::TextDeltas,
+            ..baseline()
+        };
+        let requirements = HarnessRequirements {
+            output_streaming: OutputStreamingRequirement::TextAndToolEvents,
+            ..HarnessRequirements::default()
+        };
+        let denial = caps
+            .ensure_admissible(&requirements)
+            .expect_err("must deny tool-events requirement");
+        assert_eq!(
+            denial.kind,
+            CompatibilityDenialKind::ToolEventStreamingUnsupported
+        );
+    }
+
+    #[test]
+    fn allows_text_requirement_with_text_deltas() {
+        let caps = HarnessCapabilities {
+            output_streaming: OutputStreaming::TextDeltas,
+            ..baseline()
+        };
+        let requirements = HarnessRequirements {
+            output_streaming: OutputStreamingRequirement::Text,
+            ..HarnessRequirements::default()
+        };
+        assert!(caps.ensure_admissible(&requirements).is_ok());
+    }
+
+    #[test]
     fn denies_when_tool_use_is_required_but_missing() {
         let mut caps = baseline();
         caps.can_use_tools = false;
@@ -280,17 +388,50 @@ mod tests {
     }
 
     #[test]
-    fn denies_when_patch_apply_is_required_but_missing() {
-        let mut caps = baseline();
-        caps.patch_apply = PatchApplySupport::Unsupported;
+    fn denies_when_patch_apply_level_is_insufficient() {
+        let caps = HarnessCapabilities {
+            patch_apply: PatchApplySupport::ApplyPatchOnly,
+            ..baseline()
+        };
         let requirements = HarnessRequirements {
-            patch_apply: RequirementLevel::Required,
+            patch_apply: PatchApplyRequirement::ApplyPatchAndUnifiedDiff,
             ..HarnessRequirements::default()
         };
         let denial = caps
             .ensure_admissible(&requirements)
             .expect_err("must deny");
-        assert_eq!(denial.kind, CompatibilityDenialKind::PatchApplyUnsupported);
+        assert_eq!(
+            denial.kind,
+            CompatibilityDenialKind::PatchApplyLevelInsufficient
+        );
+    }
+
+    #[test]
+    fn denies_when_session_resume_level_is_insufficient() {
+        let caps = HarnessCapabilities {
+            session_resume: SessionResumeSupport::SameProcessOnly,
+            ..baseline()
+        };
+        let requirements = HarnessRequirements {
+            session_resume: SessionResumeRequirement::CrossProcess,
+            ..HarnessRequirements::default()
+        };
+        let denial = caps
+            .ensure_admissible(&requirements)
+            .expect_err("must deny");
+        assert_eq!(
+            denial.kind,
+            CompatibilityDenialKind::SessionResumeLevelInsufficient
+        );
+    }
+
+    #[test]
+    fn allows_cross_process_for_same_process_requirement() {
+        let requirements = HarnessRequirements {
+            session_resume: SessionResumeRequirement::SameProcessOnly,
+            ..HarnessRequirements::default()
+        };
+        assert!(baseline().ensure_admissible(&requirements).is_ok());
     }
 
     #[test]
@@ -320,6 +461,38 @@ mod tests {
         };
         let requirements = HarnessRequirements {
             required_sandbox_mode: Some(SandboxMode::WorkspaceWrite),
+            ..HarnessRequirements::default()
+        };
+        assert!(caps.ensure_admissible(&requirements).is_ok());
+    }
+
+    #[test]
+    fn denies_when_approval_mode_is_insufficient() {
+        let caps = HarnessCapabilities {
+            approval_mode: ApprovalMode::OnEscalation,
+            ..baseline()
+        };
+        let requirements = HarnessRequirements {
+            required_approval_mode: Some(ApprovalMode::OnDemand),
+            ..HarnessRequirements::default()
+        };
+        let denial = caps
+            .ensure_admissible(&requirements)
+            .expect_err("must deny");
+        assert_eq!(
+            denial.kind,
+            CompatibilityDenialKind::ApprovalModeInsufficient
+        );
+    }
+
+    #[test]
+    fn allows_stronger_approval_mode() {
+        let caps = HarnessCapabilities {
+            approval_mode: ApprovalMode::OnDemand,
+            ..baseline()
+        };
+        let requirements = HarnessRequirements {
+            required_approval_mode: Some(ApprovalMode::OnEscalation),
             ..HarnessRequirements::default()
         };
         assert!(caps.ensure_admissible(&requirements).is_ok());

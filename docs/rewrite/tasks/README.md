@@ -83,7 +83,7 @@ Behavioral source of truth:
 
 | Lane | Area | Depends On | Status | Spec | Brief |
 |------|------|------------|--------|------|-------|
-| 1.1 | Harness contract | 0.5 | ✅ implemented on `rewrite/lane-1-1` (pending merge) | [LANE-1.1-HARNESS.md](LANE-1.1-HARNESS.md) | [LANE-1.1-BRIEF.md](LANE-1.1-BRIEF.md) |
+| 1.1 | Harness contract | 0.5 | ✅ implemented on `rewrite/lane-1-1` (pending merge); contract-level guarantees only | [LANE-1.1-HARNESS.md](LANE-1.1-HARNESS.md) | [LANE-1.1-BRIEF.md](LANE-1.1-BRIEF.md) |
 | 1.2 | Initial harness adapters (Claude Code, Codex, OpenCode) | 1.1 | ⏳ planned | [LANE-1.2-HARNESS-ADAPTERS.md](LANE-1.2-HARNESS-ADAPTERS.md) | [LANE-1.2-BRIEF.md](LANE-1.2-BRIEF.md) |
 | 1.3 | Environment lease contract | 1.1, 1.2 | ⏳ planned | [LANE-1.3-ENV-CONTRACT.md](LANE-1.3-ENV-CONTRACT.md) | [LANE-1.3-BRIEF.md](LANE-1.3-BRIEF.md) |
 | 1.4 | Initial environment adapters (local worktree + local-daemon containerized, DooD-ready constraints) | 1.3 | ⏳ planned | [LANE-1.4-ENV-ADAPTERS.md](LANE-1.4-ENV-ADAPTERS.md) | [LANE-1.4-BRIEF.md](LANE-1.4-BRIEF.md) |
@@ -116,6 +116,11 @@ Lane 1.5 (Worker Runtime + Proof Closure)
 By Phase 1 close, the same dispatch contract must run across multiple
 harnesses and environments with normalized lifecycle/error semantics and
 reproducible proof artifacts.
+
+Lane boundary note: Lane 1.1 defines and hardens the harness contract and
+conformance helpers; cross-harness semantic equivalence evidence for Feature 1,
+Feature 3, and Feature 6 is accepted in Lane 1.2 when concrete adapters are
+implemented.
 
 ## Future Phases (Beyond Phase 1)
 

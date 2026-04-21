@@ -4,12 +4,19 @@ use crate::adapter::{
 };
 use crate::execution::HarnessExecutionRequest;
 use crate::failure::{HarnessFailureClass, ProviderFailureContext, classify_provider_failure};
-use crate::redaction::{DefaultOutputRedactor, RedactionHints};
+use crate::redaction::{DefaultOutputRedactor, default_redaction_policy};
 
 /// Minimal result wrapper for reusable conformance checks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConformanceResult {
     pub events: Vec<HarnessExecutionEvent>,
+}
+
+/// Additional conformance assertions for redaction outcomes.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RedactionConformanceExpectations {
+    pub required_absent_fragments: Vec<String>,
+    pub required_present_fragments: Vec<String>,
 }
 
 /// Simple observer used by reusable conformance assertions.
@@ -41,8 +48,7 @@ pub async fn assert_capability_denial_is_preflight(
 ) -> Result<ConformanceResult, String> {
     let mut recorder = ConformanceEventRecorder::default();
     let redactor = DefaultOutputRedactor::default();
-    let hints = RedactionHints::default();
-    let err = execute_with_contract(adapter, request, &redactor, &hints, &mut recorder)
+    let err = execute_with_contract(adapter, request, &redactor, &mut recorder)
         .await
         .expect_err("request should be denied");
     match err {
@@ -68,43 +74,93 @@ pub async fn assert_capability_denial_is_preflight(
 pub async fn assert_redaction_before_persistence(
     adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
-    hints: &RedactionHints,
+    expectations: &RedactionConformanceExpectations,
 ) -> Result<ConformanceResult, String> {
-    let redactor = DefaultOutputRedactor::default();
+    let policy = default_redaction_policy();
+    let redactor = DefaultOutputRedactor::new(policy.clone());
     let mut recorder = ConformanceEventRecorder::default();
-    let result = execute_with_contract(adapter, request, &redactor, hints, &mut recorder)
+    let result = execute_with_contract(adapter, request, &redactor, &mut recorder)
         .await
         .map_err(|err| err.to_string())?;
+
+    assert_event_ordering(recorder.events())?;
+
+    let hints = request.redaction_hints();
+    let channels = [
+        result.output.gate_output.as_deref(),
+        result.output.tail_output.as_deref(),
+        result.output.stderr_tail.as_deref(),
+    ];
+
     for secret in &hints.secret_values {
         if secret.trim().is_empty() {
             continue;
         }
-        if result
-            .output
-            .gate_output
-            .as_deref()
-            .is_some_and(|value| value.contains(secret))
-            || result
-                .output
-                .tail_output
-                .as_deref()
-                .is_some_and(|value| value.contains(secret))
-            || result
-                .output
-                .stderr_tail
-                .as_deref()
-                .is_some_and(|value| value.contains(secret))
+        if channels
+            .iter()
+            .flatten()
+            .any(|text| text.contains(secret.as_str()))
         {
-            return Err("persistable output leaked secret value".into());
+            return Err("persistable output leaked explicit secret value".into());
         }
     }
-    if !recorder
-        .events()
-        .iter()
-        .any(|event| matches!(event, HarnessExecutionEvent::PersistableOutputReady))
-    {
-        return Err("persistable output event missing".into());
+
+    for key in &hints.required_secret_names {
+        if channels
+            .iter()
+            .flatten()
+            .any(|text| contains_unredacted_assignment(text, key))
+        {
+            return Err(format!(
+                "persistable output leaked unredacted key assignment for `{key}`"
+            ));
+        }
     }
+
+    if channels
+        .iter()
+        .flatten()
+        .any(|text| contains_unredacted_bearer_token(text, policy.min_token_len))
+    {
+        return Err("persistable output leaked bearer-style token".into());
+    }
+
+    for prefix in &policy.token_prefixes {
+        if channels
+            .iter()
+            .flatten()
+            .any(|text| contains_unredacted_prefixed_token(text, prefix, policy.min_token_len))
+        {
+            return Err(format!(
+                "persistable output leaked token with sensitive prefix `{prefix}`"
+            ));
+        }
+    }
+
+    for fragment in &expectations.required_absent_fragments {
+        if channels
+            .iter()
+            .flatten()
+            .any(|text| text.contains(fragment.as_str()))
+        {
+            return Err(format!(
+                "persistable output retained forbidden fragment `{fragment}`"
+            ));
+        }
+    }
+
+    for fragment in &expectations.required_present_fragments {
+        if !channels
+            .iter()
+            .flatten()
+            .any(|text| text.contains(fragment.as_str()))
+        {
+            return Err(format!(
+                "persistable output removed required benign fragment `{fragment}`"
+            ));
+        }
+    }
+
     Ok(ConformanceResult {
         events: recorder.events,
     })
@@ -126,158 +182,175 @@ pub fn assert_failure_classification(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+fn assert_event_ordering(events: &[HarnessExecutionEvent]) -> Result<(), String> {
+    let accepted = event_index(events, |event| {
+        matches!(event, HarnessExecutionEvent::PreflightAccepted)
+    })
+    .ok_or_else(|| "missing PreflightAccepted event".to_string())?;
 
-    use async_trait::async_trait;
-    use tanren_domain::{Cli, DispatchId, NonEmptyString, Outcome, Phase, StepId, TimeoutSecs};
+    let invoked = event_index(events, |event| {
+        matches!(event, HarnessExecutionEvent::AdapterInvoked)
+    })
+    .ok_or_else(|| "missing AdapterInvoked event".to_string())?;
 
-    use super::*;
-    use crate::adapter::ExecutionSignal;
-    use crate::capability::{
-        ApprovalMode, HarnessCapabilities, HarnessRequirements, OutputStreaming, PatchApplySupport,
-        SandboxMode, SessionResumeSupport,
-    };
-    use crate::execution::RawExecutionOutput;
+    let persistable = event_index(events, |event| {
+        matches!(event, HarnessExecutionEvent::PersistableOutputReady)
+    })
+    .ok_or_else(|| "missing PersistableOutputReady event".to_string())?;
 
-    #[derive(Debug, Clone)]
-    struct MockHarnessAdapter {
-        capabilities: HarnessCapabilities,
-        raw_output: RawExecutionOutput,
-        call_count: Arc<AtomicUsize>,
+    if !(accepted < invoked && invoked < persistable) {
+        return Err("execution events are out of required order".into());
     }
 
-    impl MockHarnessAdapter {
-        fn new(capabilities: HarnessCapabilities, raw_output: RawExecutionOutput) -> Self {
-            Self {
-                capabilities,
-                raw_output,
-                call_count: Arc::new(AtomicUsize::new(0)),
+    Ok(())
+}
+
+fn event_index(
+    events: &[HarnessExecutionEvent],
+    predicate: impl Fn(&HarnessExecutionEvent) -> bool,
+) -> Option<usize> {
+    events.iter().position(predicate)
+}
+
+fn contains_unredacted_assignment(text: &str, key: &str) -> bool {
+    let key_lower = key.to_ascii_lowercase();
+    for line in text.lines() {
+        let line_lower = line.to_ascii_lowercase();
+        let mut search_from = 0;
+
+        while let Some(offset) = line_lower[search_from..].find(&key_lower) {
+            let key_start = search_from + offset;
+            let key_end = key_start + key_lower.len();
+
+            let mut cursor = key_end;
+            while cursor < line.len() && line.as_bytes()[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            if cursor >= line.len() || !matches!(line.as_bytes()[cursor], b'=' | b':') {
+                search_from = key_end;
+                continue;
+            }
+            cursor += 1;
+            while cursor < line.len() && line.as_bytes()[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            if cursor >= line.len() {
+                return false;
+            }
+
+            let (value_start, value_end) = if matches!(line.as_bytes()[cursor], b'"' | b'\'') {
+                let quoted_end = find_quoted_end(line, cursor).unwrap_or(line.len());
+                (cursor.saturating_add(1), quoted_end)
+            } else {
+                (cursor, find_unquoted_end(line, cursor))
+            };
+
+            let value = &line[value_start..value_end];
+            if !value.starts_with("[REDACTED]") {
+                return true;
+            }
+
+            search_from = value_end.saturating_add(1);
+        }
+    }
+    false
+}
+
+fn contains_unredacted_bearer_token(text: &str, min_token_len: usize) -> bool {
+    let mut search_from = 0;
+    while let Some(index) = find_ascii_case_insensitive(text, "bearer ", search_from) {
+        let token_start = index + "bearer ".len();
+        let token_end = find_unquoted_end(text, token_start);
+        if token_end.saturating_sub(token_start) >= min_token_len {
+            let token = &text[token_start..token_end];
+            if token != "[REDACTED]" {
+                return true;
             }
         }
-
-        fn calls(&self) -> usize {
-            self.call_count.load(Ordering::SeqCst)
-        }
+        search_from = token_end.saturating_add(1);
     }
-
-    #[async_trait]
-    impl HarnessAdapter for MockHarnessAdapter {
-        fn adapter_name(&self) -> &'static str {
-            "mock"
-        }
-
-        fn capabilities(&self) -> HarnessCapabilities {
-            self.capabilities.clone()
-        }
-
-        async fn execute(
-            &self,
-            _request: &HarnessExecutionRequest,
-            _observer: &mut dyn HarnessObserver,
-        ) -> Result<ExecutionSignal, crate::failure::HarnessFailure> {
-            self.call_count.fetch_add(1, Ordering::SeqCst);
-            Ok(ExecutionSignal {
-                output: self.raw_output.clone(),
-                provider_run_id: Some("mock-run".into()),
-                session_resumed: false,
-            })
-        }
-    }
-
-    fn default_capabilities() -> HarnessCapabilities {
-        HarnessCapabilities {
-            output_streaming: OutputStreaming::TextAndToolEvents,
-            can_use_tools: true,
-            patch_apply: PatchApplySupport::ApplyPatchAndUnifiedDiff,
-            session_resume: SessionResumeSupport::CrossProcess,
-            sandbox_mode: SandboxMode::WorkspaceWrite,
-            approval_mode: ApprovalMode::OnDemand,
-        }
-    }
-
-    fn request(requirements: HarnessRequirements) -> HarnessExecutionRequest {
-        HarnessExecutionRequest {
-            dispatch_id: DispatchId::new(),
-            step_id: StepId::new(),
-            cli: Cli::Codex,
-            phase: Phase::DoTask,
-            timeout_secs: TimeoutSecs::try_new(60).expect("timeout"),
-            working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
-            prompt: "perform work".into(),
-            requirements,
-            required_secret_names: vec!["API_TOKEN".into()],
-            secret_values_for_redaction: vec!["line1-secret\nline2-secret".into()],
-        }
-    }
-
-    fn raw_output_with_secret() -> RawExecutionOutput {
-        RawExecutionOutput {
-            outcome: Outcome::Success,
-            signal: None,
-            exit_code: Some(0),
-            duration_secs: 1.2,
-            gate_output: Some("API_TOKEN=abc line1-secret".into()),
-            tail_output: Some("Bearer sk-live-secret line2-secret".into()),
-            stderr_tail: Some("aws_secret_access_key=def".into()),
-            pushed: false,
-            plan_hash: None,
-            unchecked_tasks: 0,
-            spec_modified: false,
-            findings: vec![],
-            token_usage: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn conformance_denies_before_adapter_side_effects() {
-        let capabilities = HarnessCapabilities {
-            can_use_tools: false,
-            ..default_capabilities()
-        };
-        let adapter = MockHarnessAdapter::new(capabilities, raw_output_with_secret());
-        let req = request(HarnessRequirements {
-            tool_use: crate::capability::RequirementLevel::Required,
-            ..HarnessRequirements::default()
-        });
-        let result = assert_capability_denial_is_preflight(&adapter, &req).await;
-        assert!(
-            result.is_ok(),
-            "{}",
-            result
-                .err()
-                .unwrap_or_else(|| "expected conformance success".to_string())
-        );
-        assert_eq!(adapter.calls(), 0);
-    }
-
-    #[tokio::test]
-    async fn conformance_enforces_redaction_before_persistence() {
-        let adapter = MockHarnessAdapter::new(default_capabilities(), raw_output_with_secret());
-        let req = request(HarnessRequirements::default());
-        let hints = RedactionHints {
-            required_secret_names: vec!["API_TOKEN".into()],
-            secret_values: vec!["line1-secret\nline2-secret".into()],
-        };
-        let result = assert_redaction_before_persistence(&adapter, &req, &hints).await;
-        assert!(
-            result.is_ok(),
-            "{}",
-            result
-                .err()
-                .unwrap_or_else(|| "expected conformance success".to_string())
-        );
-        assert_eq!(adapter.calls(), 1);
-    }
-
-    #[test]
-    fn conformance_classifies_failures() {
-        let ctx = ProviderFailureContext {
-            stderr_tail: Some("429 too many requests".into()),
-            ..ProviderFailureContext::default()
-        };
-        assert!(assert_failure_classification(&ctx, HarnessFailureClass::RateLimited).is_ok());
-    }
+    false
 }
+
+fn contains_unredacted_prefixed_token(text: &str, prefix: &str, min_token_len: usize) -> bool {
+    let mut search_from = 0;
+    while let Some(offset) = text[search_from..].find(prefix) {
+        let start = search_from + offset;
+        let mut end = start + prefix.len();
+        while end < text.len() {
+            let ch = text.as_bytes()[end];
+            if !(ch.is_ascii_alphanumeric() || matches!(ch, b'-' | b'_' | b'/' | b'+' | b'=')) {
+                break;
+            }
+            end += 1;
+        }
+
+        if end.saturating_sub(start) >= min_token_len && &text[start..end] != "[REDACTED]" {
+            return true;
+        }
+
+        search_from = end.saturating_add(1);
+    }
+    false
+}
+
+fn find_ascii_case_insensitive(haystack: &str, needle: &str, start: usize) -> Option<usize> {
+    if needle.is_empty() || start >= haystack.len() {
+        return None;
+    }
+
+    let haystack_bytes = haystack.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    if haystack_bytes.len() < needle_bytes.len() {
+        return None;
+    }
+
+    let mut idx = start;
+    while idx + needle_bytes.len() <= haystack_bytes.len() {
+        let mut match_all = true;
+        for offset in 0..needle_bytes.len() {
+            if !haystack_bytes[idx + offset].eq_ignore_ascii_case(&needle_bytes[offset]) {
+                match_all = false;
+                break;
+            }
+        }
+        if match_all {
+            return Some(idx);
+        }
+        idx += 1;
+    }
+
+    None
+}
+
+fn find_quoted_end(value: &str, start: usize) -> Option<usize> {
+    let bytes = value.as_bytes();
+    if start >= bytes.len() {
+        return None;
+    }
+    let quote = bytes[start];
+    let mut cursor = start + 1;
+    while cursor < bytes.len() {
+        if bytes[cursor] == quote && bytes[cursor.saturating_sub(1)] != b'\\' {
+            return Some(cursor);
+        }
+        cursor += 1;
+    }
+    Some(value.len())
+}
+
+fn find_unquoted_end(value: &str, start: usize) -> usize {
+    let bytes = value.as_bytes();
+    let mut cursor = start;
+    while cursor < bytes.len() {
+        let ch = bytes[cursor];
+        if ch.is_ascii_whitespace() || ch == b',' || ch == b';' {
+            break;
+        }
+        cursor += 1;
+    }
+    cursor
+}
+
+#[cfg(test)]
+mod tests;

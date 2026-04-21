@@ -1,5 +1,6 @@
 use std::fmt;
 
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use tanren_domain::{
     Cli, DispatchId, ExecuteResult, Finding, FiniteF64, NonEmptyString, Outcome, Phase, StepId,
@@ -7,6 +8,49 @@ use tanren_domain::{
 };
 
 use crate::capability::HarnessRequirements;
+use crate::redaction::RedactionHints;
+
+/// In-memory secret material used only for redaction.
+#[derive(Clone)]
+pub struct RedactionSecret(SecretString);
+
+impl RedactionSecret {
+    #[must_use]
+    pub fn new(value: String) -> Self {
+        Self(SecretString::from(value))
+    }
+
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        self.0.expose_secret()
+    }
+}
+
+impl fmt::Debug for RedactionSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RedactionSecret([REDACTED])")
+    }
+}
+
+impl PartialEq for RedactionSecret {
+    fn eq(&self, other: &Self) -> bool {
+        self.expose() == other.expose()
+    }
+}
+
+impl Eq for RedactionSecret {}
+
+impl From<String> for RedactionSecret {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&str> for RedactionSecret {
+    fn from(value: &str) -> Self {
+        Self::new(value.to_owned())
+    }
+}
 
 /// Normalized harness execution request.
 ///
@@ -25,8 +69,31 @@ pub struct HarnessExecutionRequest {
     pub requirements: HarnessRequirements,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_secret_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub secret_values_for_redaction: Vec<String>,
+    #[serde(default, skip_serializing, skip_deserializing)]
+    pub secret_values_for_redaction: Vec<RedactionSecret>,
+}
+
+impl HarnessExecutionRequest {
+    #[must_use]
+    pub fn redaction_hints(&self) -> RedactionHints {
+        RedactionHints {
+            required_secret_names: self
+                .required_secret_names
+                .iter()
+                .map(|key| key.trim())
+                .filter(|key| !key.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            secret_values: self
+                .secret_values_for_redaction
+                .iter()
+                .map(RedactionSecret::expose)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        }
+    }
 }
 
 impl fmt::Debug for HarnessExecutionRequest {
@@ -154,11 +221,33 @@ mod tests {
             prompt: "ship it".into(),
             requirements: HarnessRequirements::default(),
             required_secret_names: vec!["API_TOKEN".into()],
-            secret_values_for_redaction: vec!["sk-super-secret".into()],
+            secret_values_for_redaction: vec![RedactionSecret::from("sk-super-secret")],
         };
         let debug = format!("{request:?}");
         assert!(debug.contains("secret_values_for_redaction_count"));
         assert!(!debug.contains("sk-super-secret"));
+    }
+
+    #[test]
+    fn redaction_hints_are_derived_from_request_secrets() {
+        let request = HarnessExecutionRequest {
+            dispatch_id: DispatchId::new(),
+            step_id: StepId::new(),
+            cli: Cli::Codex,
+            phase: Phase::DoTask,
+            timeout_secs: TimeoutSecs::try_new(60).expect("timeout"),
+            working_directory: NonEmptyString::try_new("/tmp/work").expect("dir"),
+            prompt: "ship it".into(),
+            requirements: HarnessRequirements::default(),
+            required_secret_names: vec![" API_TOKEN ".into(), String::new()],
+            secret_values_for_redaction: vec![
+                RedactionSecret::from("sk-super-secret"),
+                RedactionSecret::from("  "),
+            ],
+        };
+        let hints = request.redaction_hints();
+        assert_eq!(hints.required_secret_names, vec!["API_TOKEN"]);
+        assert_eq!(hints.secret_values, vec!["sk-super-secret"]);
     }
 
     #[test]

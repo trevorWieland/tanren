@@ -22,17 +22,21 @@ pub use adapter::{
 pub use capability::{
     ApprovalMode, CapabilityAdmissibility, CompatibilityDenial, CompatibilityDenialKind,
     HarnessCapabilities, HarnessRequirements, OutputStreaming, OutputStreamingRequirement,
-    PatchApplySupport, RequirementLevel, SandboxMode, SessionResumeSupport,
+    PatchApplyRequirement, PatchApplySupport, RequirementLevel, SandboxMode,
+    SessionResumeRequirement, SessionResumeSupport,
 };
 pub use conformance::{
-    ConformanceEventRecorder, ConformanceResult, assert_capability_denial_is_preflight,
-    assert_failure_classification, assert_redaction_before_persistence,
+    ConformanceEventRecorder, ConformanceResult, RedactionConformanceExpectations,
+    assert_capability_denial_is_preflight, assert_failure_classification,
+    assert_redaction_before_persistence,
 };
 pub use execution::{
     HarnessExecutionRequest, HarnessExecutionResult, PersistableOutput, RawExecutionOutput,
+    RedactionSecret,
 };
 pub use failure::{
-    HarnessFailure, HarnessFailureClass, ProviderFailureContext, classify_provider_failure,
+    HarnessFailure, HarnessFailureClass, ProviderFailureCode, ProviderFailureContext,
+    classify_provider_failure,
 };
 pub use redaction::{
     DefaultOutputRedactor, OutputRedactor, RedactionError, RedactionHints, RedactionPolicy,

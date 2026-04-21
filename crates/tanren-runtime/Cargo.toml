@@ -12,9 +12,11 @@ workspace = true
 
 [dependencies]
 async-trait.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tanren-domain = { path = "../tanren-domain" }
 
 [dev-dependencies]
+proptest.workspace = true
 tokio.workspace = true

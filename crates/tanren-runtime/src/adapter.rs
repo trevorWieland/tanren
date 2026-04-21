@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
 use crate::failure::HarnessFailure;
-use crate::redaction::{OutputRedactor, RedactionError, RedactionHints};
+use crate::redaction::{OutputRedactor, RedactionError};
 
 /// Events emitted by the contract wrapper and adapters during execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +70,6 @@ pub async fn execute_with_contract(
     adapter: &dyn HarnessAdapter,
     request: &HarnessExecutionRequest,
     redactor: &dyn OutputRedactor,
-    hints: &RedactionHints,
     observer: &mut dyn HarnessObserver,
 ) -> Result<HarnessExecutionResult, HarnessContractError> {
     adapter
@@ -84,8 +83,9 @@ pub async fn execute_with_contract(
     observer.on_event(HarnessExecutionEvent::AdapterInvoked);
 
     let signal = adapter.execute(request, observer).await?;
-    let output = redactor.redact(signal.output, hints)?;
-    if redactor.has_known_secret_leak(&output, hints) {
+    let hints = request.redaction_hints();
+    let output = redactor.redact(signal.output, &hints)?;
+    if redactor.has_known_secret_leak(&output, &hints) {
         return Err(HarnessContractError::RedactionLeakDetected);
     }
     observer.on_event(HarnessExecutionEvent::PersistableOutputReady);

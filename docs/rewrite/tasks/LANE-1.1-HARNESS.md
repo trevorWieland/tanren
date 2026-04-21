@@ -12,6 +12,10 @@ across providers (Claude Code, Codex, OpenCode, future adapters).
 Behavioral baseline: [../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md)
 Feature 1, Feature 3, and Feature 6.
 
+Lane 1.1 establishes the canonical contract and executable conformance
+checks required to validate those features. Cross-harness semantic
+equivalence evidence is accepted in Lane 1.2, where concrete adapters exist.
+
 ## Scope
 
 This lane ships (in `crates/tanren-runtime`):
@@ -42,18 +46,22 @@ This lane does **not** ship concrete provider adapters.
 ### Execution Contract
 
 - `HarnessExecutionRequest` is the provider-agnostic input shape.
+- Secret material in `HarnessExecutionRequest` is carried as secrecy-backed
+  values and never serialized.
 - `HarnessAdapter::execute` returns `ExecutionSignal` with raw output.
 - `execute_with_contract` enforces:
   1. preflight capability check
   2. adapter execution
-  3. redaction to `PersistableOutput`
-  4. known-secret leak check before persistence
+  3. redaction hints derived from request data (not caller-provided)
+  4. redaction to `PersistableOutput`
+  5. known-secret leak check before persistence
 
 ### Failure Contract
 
 - `HarnessFailureClass` is the stable failure taxonomy.
 - `classify_provider_failure` maps provider-native context into
-  `HarnessFailureClass`.
+  `HarnessFailureClass`, preferring typed adapter codes and structured
+  context before text fallback heuristics.
 - `HarnessFailureClass::to_domain_error_class` maps to
   `tanren_domain::ErrorClass` for retry policy consistency.
 
@@ -61,7 +69,8 @@ This lane does **not** ship concrete provider adapters.
 
 - `OutputRedactor` is the contract adapters use.
 - `DefaultOutputRedactor` + `RedactionPolicy` provide the shared baseline.
-- `RedactionHints` carries required secret names and resolved secret values.
+- `RedactionHints` is an internal capture-time representation derived from
+  request secrets by the contract wrapper.
 - Redaction is applied to all persistable output channels:
   `gate_output`, `tail_output`, `stderr_tail`.
 
@@ -95,6 +104,10 @@ Each adapter must prove:
 1. capability denial happens before side effects
 2. redaction is complete before persistence
 3. provider-specific failures normalize to stable failure classes
+
+Lane 1.2 acceptance also requires parity scenarios for
+[../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md) Feature 1, Feature 3, and
+Feature 6 across all shipped harness adapters.
 
 ## Dependencies
 

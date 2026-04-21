@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use tanren_domain::FiniteF64;
 
@@ -6,11 +8,9 @@ use crate::execution::{PersistableOutput, RawExecutionOutput};
 const REDACTION_TOKEN: &str = "[REDACTED]";
 
 /// Inputs used by redaction policy at capture-time.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RedactionHints {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_secret_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_values: Vec<String>,
 }
 
@@ -89,20 +89,27 @@ pub trait OutputRedactor: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct DefaultOutputRedactor {
     policy: RedactionPolicy,
+    normalized_sensitive_key_names: HashSet<String>,
 }
 
 impl Default for DefaultOutputRedactor {
     fn default() -> Self {
-        Self {
-            policy: default_redaction_policy(),
-        }
+        Self::new(default_redaction_policy())
     }
 }
 
 impl DefaultOutputRedactor {
     #[must_use]
     pub fn new(policy: RedactionPolicy) -> Self {
-        Self { policy }
+        let normalized_sensitive_key_names = policy
+            .sensitive_key_names
+            .iter()
+            .map(|value| value.to_ascii_lowercase())
+            .collect();
+        Self {
+            policy,
+            normalized_sensitive_key_names,
+        }
     }
 
     fn redact_text(&self, input: Option<String>, hints: &RedactionHints) -> Option<String> {
@@ -117,18 +124,24 @@ impl DefaultOutputRedactor {
     }
 
     fn redact_structured_key_values(&self, input: String, hints: &RedactionHints) -> String {
-        let mut keys = self.policy.sensitive_key_names.clone();
-        for value in &hints.required_secret_names {
-            keys.push(value.to_ascii_lowercase());
-        }
+        let hint_key_names = hints
+            .required_secret_names
+            .iter()
+            .map(|name| name.trim())
+            .filter(|name| !name.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect::<HashSet<_>>();
+
         let mut out = String::with_capacity(input.len());
         for line in input.split_inclusive('\n') {
-            let mut redacted_line = line.to_string();
-            for key in &keys {
-                redacted_line = redact_assignment_for_key(&redacted_line, key);
-            }
+            let redacted_line = redact_assignments_for_keys(
+                line,
+                &self.normalized_sensitive_key_names,
+                &hint_key_names,
+            );
             out.push_str(&redacted_line);
         }
+
         if out.is_empty() { input } else { out }
     }
 
@@ -225,35 +238,81 @@ impl OutputRedactor for DefaultOutputRedactor {
     }
 }
 
-fn redact_assignment_for_key(line: &str, key: &str) -> String {
-    let mut out = line.to_string();
-    let key_lower = key.to_ascii_lowercase();
-    let lower = out.to_ascii_lowercase();
-    let Some(key_index) = lower.find(&key_lower) else {
-        return out;
-    };
-    let mut cursor = key_index + key_lower.len();
-    let bytes = out.as_bytes();
-    while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+fn redact_assignments_for_keys(
+    line: &str,
+    policy_keys: &HashSet<String>,
+    hint_keys: &HashSet<String>,
+) -> String {
+    let bytes = line.as_bytes();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    let mut cursor = 0;
+
+    while cursor < bytes.len() {
+        if !is_key_start(bytes[cursor]) {
+            cursor += 1;
+            continue;
+        }
+
+        let key_start = cursor;
         cursor += 1;
+        while cursor < bytes.len() && is_key_char(bytes[cursor]) {
+            cursor += 1;
+        }
+        let key_end = cursor;
+
+        let mut value_cursor = cursor;
+        while value_cursor < bytes.len() && bytes[value_cursor].is_ascii_whitespace() {
+            value_cursor += 1;
+        }
+        if value_cursor >= bytes.len() || !matches!(bytes[value_cursor], b'=' | b':') {
+            continue;
+        }
+
+        let key = line[key_start..key_end].to_ascii_lowercase();
+        let is_sensitive = policy_keys.contains(&key) || hint_keys.contains(&key);
+
+        value_cursor += 1;
+        while value_cursor < bytes.len() && bytes[value_cursor].is_ascii_whitespace() {
+            value_cursor += 1;
+        }
+        if value_cursor >= bytes.len() {
+            break;
+        }
+
+        let (value_start, value_end) = if matches!(bytes[value_cursor], b'"' | b'\'') {
+            let quoted_end = find_quoted_value_end(line, value_cursor).unwrap_or(line.len());
+            (value_cursor.saturating_add(1), quoted_end)
+        } else {
+            (value_cursor, find_unquoted_value_end(line, value_cursor))
+        };
+
+        if is_sensitive
+            && value_start < value_end
+            && &line[value_start..value_end] != REDACTION_TOKEN
+        {
+            ranges.push((value_start, value_end));
+        }
+
+        cursor = value_end.saturating_add(1);
     }
-    if cursor >= bytes.len() || (bytes[cursor] != b'=' && bytes[cursor] != b':') {
-        return out;
+
+    if ranges.is_empty() {
+        return line.to_owned();
     }
-    cursor += 1;
-    while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
-        cursor += 1;
+
+    let mut out = line.to_owned();
+    for (start, end) in ranges.into_iter().rev() {
+        out.replace_range(start..end, REDACTION_TOKEN);
     }
-    if cursor >= bytes.len() {
-        return out;
-    }
-    let end = if bytes[cursor] == b'"' || bytes[cursor] == b'\'' {
-        find_quoted_value_end(&out, cursor).unwrap_or(out.len())
-    } else {
-        find_unquoted_value_end(&out, cursor)
-    };
-    out.replace_range(cursor..end, REDACTION_TOKEN);
     out
+}
+
+const fn is_key_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+const fn is_key_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
 }
 
 fn find_quoted_value_end(value: &str, start: usize) -> Option<usize> {
@@ -285,14 +344,42 @@ fn find_unquoted_value_end(value: &str, start: usize) -> usize {
     cursor
 }
 
+fn find_ascii_case_insensitive(haystack: &str, needle: &str, start: usize) -> Option<usize> {
+    if needle.is_empty() || start >= haystack.len() {
+        return None;
+    }
+
+    let haystack_bytes = haystack.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    if haystack_bytes.len() < needle_bytes.len() {
+        return None;
+    }
+
+    let mut idx = start;
+    while idx + needle_bytes.len() <= haystack_bytes.len() {
+        let mut match_all = true;
+        for offset in 0..needle_bytes.len() {
+            if !haystack_bytes[idx + offset].eq_ignore_ascii_case(&needle_bytes[offset]) {
+                match_all = false;
+                break;
+            }
+        }
+        if match_all {
+            return Some(idx);
+        }
+        idx += 1;
+    }
+
+    None
+}
+
 fn redact_keyword_token(mut value: String, keyword: &str, min_token_len: usize) -> String {
     let mut search_from = 0;
     loop {
-        let lower = value.to_ascii_lowercase();
-        let Some(offset) = lower[search_from..].find(keyword) else {
+        let Some(index) = find_ascii_case_insensitive(&value, keyword, search_from) else {
             return value;
         };
-        let index = search_from + offset;
+
         let token_start = index + keyword.len();
         let token_end = find_unquoted_value_end(&value, token_start);
         if token_end.saturating_sub(token_start) < min_token_len {
@@ -334,100 +421,4 @@ fn redact_prefixed_token(mut value: String, prefix: &str, min_token_len: usize) 
 }
 
 #[cfg(test)]
-mod tests {
-    use tanren_domain::Outcome;
-
-    use super::*;
-
-    fn raw_output(text: &str) -> RawExecutionOutput {
-        RawExecutionOutput {
-            outcome: Outcome::Success,
-            signal: None,
-            exit_code: Some(0),
-            duration_secs: 1.0,
-            gate_output: Some(text.into()),
-            tail_output: Some(text.into()),
-            stderr_tail: Some(text.into()),
-            pushed: false,
-            plan_hash: None,
-            unchecked_tasks: 0,
-            spec_modified: false,
-            findings: vec![],
-            token_usage: None,
-        }
-    }
-
-    #[test]
-    fn redacts_bearer_and_prefixed_tokens() {
-        let redactor = DefaultOutputRedactor::default();
-        let hints = RedactionHints::default();
-        let out = redactor
-            .redact(
-                raw_output("Authorization: Bearer sk-super-long-secret-123"),
-                &hints,
-            )
-            .expect("redact");
-        let value = out.gate_output.expect("output");
-        assert!(!value.contains("sk-super-long-secret-123"));
-        assert!(value.contains(REDACTION_TOKEN));
-    }
-
-    #[test]
-    fn redacts_explicit_secret_values_and_multiline_fragments() {
-        let redactor = DefaultOutputRedactor::default();
-        let hints = RedactionHints {
-            required_secret_names: vec!["MY_SECRET".into()],
-            secret_values: vec!["line1-secret\nline2-secret".into()],
-        };
-        let out = redactor
-            .redact(
-                raw_output("line1-secret / line2-secret / MY_SECRET=abc"),
-                &hints,
-            )
-            .expect("redact");
-        let gate = out.gate_output.expect("gate");
-        assert!(!gate.contains("line1-secret"));
-        assert!(!gate.contains("line2-secret"));
-        assert!(!gate.contains("abc"));
-    }
-
-    #[test]
-    fn leak_detection_flags_remaining_secret() {
-        let redactor = DefaultOutputRedactor::default();
-        let hints = RedactionHints {
-            required_secret_names: vec![],
-            secret_values: vec!["secret-value".into()],
-        };
-        let output = PersistableOutput {
-            outcome: Outcome::Success,
-            signal: None,
-            exit_code: None,
-            duration_secs: FiniteF64::try_new(1.0).expect("finite"),
-            gate_output: Some("still has secret-value".into()),
-            tail_output: None,
-            stderr_tail: None,
-            pushed: false,
-            plan_hash: None,
-            unchecked_tasks: 0,
-            spec_modified: false,
-            findings: vec![],
-            token_usage: None,
-        };
-        assert!(redactor.has_known_secret_leak(&output, &hints));
-    }
-
-    #[test]
-    fn rejects_non_finite_duration() {
-        let redactor = DefaultOutputRedactor::default();
-        let err = redactor
-            .redact(
-                RawExecutionOutput {
-                    duration_secs: f64::NAN,
-                    ..raw_output("ok")
-                },
-                &RedactionHints::default(),
-            )
-            .expect_err("must fail");
-        assert_eq!(err, RedactionError::InvalidDuration);
-    }
-}
+mod tests;
