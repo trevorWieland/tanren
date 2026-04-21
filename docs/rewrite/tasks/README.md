@@ -73,15 +73,57 @@ Phase 0 proof closure is now tracked and reproducible via:
 - [../PHASE0_PROOF_RUNBOOK.md](../PHASE0_PROOF_RUNBOOK.md)
 - `scripts/proof/phase0/run.sh` and `scripts/proof/phase0/verify.sh`
 
-## Future Phases
+## Phase 1: Runtime Substrate (Planned)
 
-Stubs below carry forward requirements from earlier audits so the
-follow-up work is not lost. Full briefs will be fleshed out at the
-start of each phase.
+Behavioral source of truth:
 
-- **Phase 1**: Runtime substrate (harness traits, environment leases, worker)
-  - [LANE-1.1-HARNESS.md](LANE-1.1-HARNESS.md) — harness contract + output redaction requirement
-  - [LANE-1.2-RUNTIME.md](LANE-1.2-RUNTIME.md) — runtime substrate + `runtime_type` typing decision
+- [../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md)
+
+### Lane Plan
+
+| Lane | Area | Depends On | Status | Spec | Brief |
+|------|------|------------|--------|------|-------|
+| 1.1 | Harness contract | 0.5 | ✅ implemented on `rewrite/lane-1-1` (pending merge); contract-level guarantees only | [LANE-1.1-HARNESS.md](LANE-1.1-HARNESS.md) | [LANE-1.1-BRIEF.md](LANE-1.1-BRIEF.md) |
+| 1.2 | Initial harness adapters (Claude Code, Codex, OpenCode) | 1.1 | ⏳ planned | [LANE-1.2-HARNESS-ADAPTERS.md](LANE-1.2-HARNESS-ADAPTERS.md) | [LANE-1.2-BRIEF.md](LANE-1.2-BRIEF.md) |
+| 1.3 | Environment lease contract | 1.1, 1.2 | ⏳ planned | [LANE-1.3-ENV-CONTRACT.md](LANE-1.3-ENV-CONTRACT.md) | [LANE-1.3-BRIEF.md](LANE-1.3-BRIEF.md) |
+| 1.4 | Initial environment adapters (local worktree + local-daemon containerized, DooD-ready constraints) | 1.3 | ⏳ planned | [LANE-1.4-ENV-ADAPTERS.md](LANE-1.4-ENV-ADAPTERS.md) | [LANE-1.4-BRIEF.md](LANE-1.4-BRIEF.md) |
+| 1.5 | Worker runtime + proof closure | 1.2, 1.4 | ⏳ planned | [LANE-1.5-WORKER-RUNTIME.md](LANE-1.5-WORKER-RUNTIME.md) | [LANE-1.5-BRIEF.md](LANE-1.5-BRIEF.md) |
+
+Legacy pointer retained for compatibility:
+
+- [LANE-1.2-RUNTIME.md](LANE-1.2-RUNTIME.md)
+
+### Execution Order
+
+```
+Lane 1.1 (Harness Contract)
+         │
+         ▼
+Lane 1.2 (Harness Adapters)
+         │
+         ▼
+Lane 1.3 (Environment Contract)
+         │
+         ▼
+Lane 1.4 (Environment Adapters)
+         │
+         ▼
+Lane 1.5 (Worker Runtime + Proof Closure)
+```
+
+### Phase 1 Exit Theme
+
+By Phase 1 close, the same dispatch contract must run across multiple
+harnesses and environments with normalized lifecycle/error semantics and
+reproducible proof artifacts.
+
+Lane boundary note: Lane 1.1 defines and hardens the harness contract and
+conformance helpers; cross-harness semantic equivalence evidence for Feature 1,
+Feature 3, and Feature 6 is accepted in Lane 1.2 when concrete adapters are
+implemented.
+
+## Future Phases (Beyond Phase 1)
+
 - **Phase 2**: Planner-native orchestration (task graphs, scheduler, replanning)
   - [LANE-2.1-PLANNING-GRAPH.md](LANE-2.1-PLANNING-GRAPH.md) — graph revision enforcement + non-dispatch events
 - **Phase 3**: Policy and governance (auth, budgets, placement)

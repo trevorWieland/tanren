@@ -64,13 +64,19 @@ implementation. Lane 0.5 is also merged; Phase 0 proof packaging now lives in:
 - `docs/rewrite/PHASE0_PROOF_RUNBOOK.md`
 - `scripts/proof/phase0/run.sh` + `scripts/proof/phase0/verify.sh`
 
-**Phase 1+ is sketched, not planned in depth.** Stubs exist at:
-- `docs/rewrite/tasks/LANE-1.1-HARNESS.md` — harness contract + output redaction
-- `docs/rewrite/tasks/LANE-1.2-RUNTIME.md` — runtime substrate + `runtime_type` typing
-- `docs/rewrite/tasks/LANE-2.1-PLANNING-GRAPH.md` — graph revision enforcement + non-dispatch events
+**Phase 1 execution is framed from a behavioral proof baseline.**
+Lane 1.1 contract implementation now lives in `crates/tanren-runtime`
+on `rewrite/lane-1-1` (pending merge).
+Reference docs:
+- `docs/rewrite/PHASE1_PROOF_BDD.md`
+- `docs/rewrite/tasks/LANE-1.1-HARNESS.md` + `LANE-1.1-BRIEF.md`
+- `docs/rewrite/tasks/LANE-1.2-HARNESS-ADAPTERS.md` + `LANE-1.2-BRIEF.md`
+- `docs/rewrite/tasks/LANE-1.3-ENV-CONTRACT.md` + `LANE-1.3-BRIEF.md`
+- `docs/rewrite/tasks/LANE-1.4-ENV-ADAPTERS.md` + `LANE-1.4-BRIEF.md`
+- `docs/rewrite/tasks/LANE-1.5-WORKER-RUNTIME.md` + `LANE-1.5-BRIEF.md`
 
-These stubs carry forward unresolved items from earlier audits — they
-are notes for when those phases begin, not ready-to-dispatch briefs.
+Phase 2+ remains stubbed:
+- `docs/rewrite/tasks/LANE-2.1-PLANNING-GRAPH.md`
 
 ---
 
@@ -85,7 +91,7 @@ Organized by purpose. Read lazily — fetch a file when a task needs it.
 
 ### Lane briefs (`docs/rewrite/tasks/`)
 
-Each lane has three files:
+Lanes typically have three files:
 
 | Suffix | Audience | Purpose |
 |--------|----------|---------|
@@ -93,11 +99,19 @@ Each lane has three files:
 | `-BRIEF.md` | Implementation agent | Concise handoff: scope, deliverables, "done when" |
 | `-AUDIT.md` | Audit agent | Audit dimensions, process, output format |
 
+Some planned lanes may be staged with spec + brief first, then gain
+`-AUDIT.md` as they become audit-ready.
+
 Current lane briefs:
 - `LANE-0.2-DOMAIN.md` + `LANE-0.2-BRIEF.md` + `LANE-0.2-AUDIT.md` + `LANE-0.2-AUDIT-FINAL.md`
 - `LANE-0.3-STORE.md` + `LANE-0.3-BRIEF.md` + `LANE-0.3-AUDIT.md`
 - `LANE-0.4-CLI-WIRING.md` + `LANE-0.4-BRIEF.md` + `LANE-0.4-AUDIT.md`
 - `LANE-0.5-METHODOLOGY.md` + `LANE-0.5-BRIEF.md` + `LANE-0.5-AUDIT.md` + `LANE-0.5-DESIGN-NOTES.md`
+- `LANE-1.1-HARNESS.md` + `LANE-1.1-BRIEF.md`
+- `LANE-1.2-HARNESS-ADAPTERS.md` + `LANE-1.2-BRIEF.md`
+- `LANE-1.3-ENV-CONTRACT.md` + `LANE-1.3-BRIEF.md`
+- `LANE-1.4-ENV-ADAPTERS.md` + `LANE-1.4-BRIEF.md`
+- `LANE-1.5-WORKER-RUNTIME.md` + `LANE-1.5-BRIEF.md`
 - `ADDON-SEAORM.md` — delta brief explaining the sqlx→SeaORM shift
 - `README.md` — lane execution order and parallelization strategy
 
@@ -243,9 +257,10 @@ You are responsible for:
 - **Dispatching the right agent with the right brief.** Implementation
   gets `*-BRIEF.md`. Audit gets `*-AUDIT.md`. Neither gets Python code.
 - **Tracking unresolved items from past audits.** Carry them forward
-  into later lane briefs. The Phase 1+ stubs (`LANE-1.1-HARNESS.md`,
-  `LANE-1.2-RUNTIME.md`, `LANE-2.1-PLANNING-GRAPH.md`) are where
-  audit follow-ups live until their phase begins.
+  into later lane briefs. For runtime-substrate work, use the Phase 1
+  BDD and lane set (`LANE-1.1` through `LANE-1.5`) as the active
+  follow-up sink; keep Phase 2+ items in `LANE-2.1-PLANNING-GRAPH.md`
+  until that phase begins.
 - **Keeping `docs/rewrite/tasks/README.md` in sync** with lane status
   (✅ merged, 🔵 in progress, ⏳ blocked).
 - **Surfacing blockers to the user.** If `just ci` stays red for more

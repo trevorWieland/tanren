@@ -1,70 +1,170 @@
-# Lane 1.1 — Harness Contract
+# Lane 1.1 — Harness Adapter Contract
 
-> **Status:** Stub. Full brief to be written at the start of Phase 1.
-> This file captures requirements carried forward from earlier lane
-> audits so they are not lost.
+## Status
+
+Implemented on `rewrite/lane-1-1` (pending merge to foundation).
+
+## Purpose
+
+Define one canonical harness contract so dispatch semantics stay stable
+across providers (Claude Code, Codex, OpenCode, future adapters).
+
+Behavioral baseline: [../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md)
+Feature 1, Feature 3, and Feature 6.
+
+Lane 1.1 establishes the canonical contract and executable conformance
+checks required to validate those features. Cross-harness semantic
+equivalence evidence is accepted in Lane 1.2, where concrete adapters exist.
+Lane 1.1 acceptance explicitly excludes shipping concrete harness adapter
+implementations; those are mandatory Lane 1.2 deliverables.
 
 ## Scope
 
-Defines the contract that harness adapters (`tanren-harness-claude`,
-`tanren-harness-codex`, `tanren-harness-opencode`, `tanren-harness-bash`)
-must satisfy when producing an `ExecuteResult` from a CLI invocation.
+This lane ships (in `crates/tanren-runtime`):
 
-## Carried-Forward Requirements
+- typed capability model and preflight compatibility checks
+- normalized execution request/result surfaces
+- normalized typed harness failure taxonomy + mapping to domain retry class
+- redaction-before-persistence runtime contract
+- reusable adapter conformance test helpers for Lane 1.2
 
-### Output redaction (from Lane 0.2 audit)
+This lane does **not** ship concrete provider adapters.
+This lane also does **not** claim cross-harness parity proof based on adapter
+execution; parity proof is accepted only in Lane 1.2.
 
-`ExecuteResult::tail_output`, `ExecuteResult::stderr_tail`, and
-`ExecuteResult::gate_output` are captured verbatim and serialized into
-`StepCompleted` events, which are persisted to the event log
-indefinitely. A secret that leaks into an event log is effectively
-unrecoverable.
+## Contract Surfaces
 
-**Harness adapters MUST redact known secret patterns before producing
-an `ExecuteResult`.** At minimum:
+### Capability Contract
 
-1. **API keys, bearer tokens, cookies, and session identifiers.**
-   Match the common patterns (`sk-…`, `Bearer …`, `xoxb-…`,
-   `AKIA…`, `ghp_…`, `AIza…`) before capturing stdout/stderr.
-2. **Values of environment variables listed in
-   `dispatch.required_secrets`.** The harness has access to the
-   dispatch snapshot and the resolved secret values; any occurrence of
-   those values in captured output must be replaced before the tail
-   strings are populated.
-3. **Contents of known credential files.** If the harness tails logs
-   that may include file content (`~/.aws/credentials`, `~/.netrc`,
-   `~/.config/gcloud/*`, `id_rsa`), those files must be filtered.
-4. **Multi-line secrets.** Redaction must operate on the full captured
-   output, not only line-by-line, so multi-line PEM keys cannot slip
-   through.
+- `HarnessCapabilities` advertises adapter support for:
+  - output streaming class
+  - tool-use support
+  - patch-apply support
+  - session-resume support
+  - sandbox mode
+  - approval mode
+- `HarnessAdapter` is object-safe and exposes capabilities via
+  `HarnessAdapter::capabilities()`.
+- `HarnessAdapterRegistry` supports runtime trait-object registration and
+  lookup by adapter name.
+- `HarnessRequirements` describes what a dispatch needs and is constructed via
+  validated builder APIs.
+- Sandbox and approval requirements use validated bound types
+  (`SandboxModeBounds`, `ApprovalModeBounds`) for minimum capability and maximum
+  privilege constraints.
+- Approval bounds are dual-axis:
+  - minimum approval uses strictness (`never < on_escalation < on_demand`)
+  - maximum approval uses privilege risk (`on_demand < on_escalation < never`)
+- Approval denials are modeled with reachable states only:
+  `approval_mode_below_minimum` and `approval_mode_exceeds_maximum`.
+- `ensure_admissible` performs preflight checks and returns typed
+  `CompatibilityDenial` when unsupported.
 
-The domain crate cannot enforce this contract — it has no harness
-context — so this lane MUST implement redaction at the capture site
-and add unit tests exercising each redaction pattern.
+### Execution Contract
 
-### Runtime type tagging (from Lane 0.2 audit)
+- `HarnessExecutionRequest` is the provider-agnostic input shape.
+- Secret material in `HarnessExecutionRequest` is carried as secrecy-backed
+  values and never serialized.
+- Explicit redaction hints are hard-bounded at contract entry:
+  max count `256`, max per-secret bytes `4096`, max total bytes `65536`.
+- `HarnessAdapter::execute` returns `ExecutionSignal` with raw output and
+  provider-native failure payloads (`ProviderFailure`).
+- `execute_with_contract` enforces:
+  1. preflight capability check
+  2. sealed adapter execution (contract-only call token)
+  3. redaction hints derived from request data (not caller-provided)
+  4. contract-owned redaction + single-pass leak audit to `PersistableOutput`
+  5. fail-closed typed metadata sanitization for `provider_run_id`,
+     `provider_code`, and `provider_kind`
+  6. source-tagged event emission (`contract` vs `adapter`) for conformance-safe
+     ordering assertions
 
-`LeaseCapabilities.runtime_type` is currently `NonEmptyString`
-(e.g. `"local"`, `"docker"`, `"dood"`, `"remote"`). A string tag keeps
-third-party runtime adapters extensible without touching the domain
-crate but trades compile-time safety.
+### Failure Contract
 
-**Action for this lane:** Once the built-in runtime set is stable,
-re-evaluate whether to introduce a `RuntimeKind::{Local, Docker, DooD,
-Remote, Custom(String)}` enum. The `Custom(String)` variant preserves
-third-party extensibility while giving the built-ins compile-time
-coverage.
+- `HarnessFailureClass` is the stable failure taxonomy.
+- `HarnessFailure` normalization is contract-owned and constructor-sealed from
+  external callers; conflicting class/typed-code combinations are rejected at
+  deserialization boundaries.
+- `ProviderFailureContext.typed_code` is mandatory for terminal adapter
+  failures and uses terminal-only `ProviderFailureCode` (no `unknown` variant).
+- `classify_provider_failure` maps terminal provider failures deterministically
+  from typed adapter code only.
+- `classify_provider_failure_for_audit` remains available via
+  `AuditProviderFailureContext`/`AuditProviderFailureCode` as an explicit
+  telemetry utility for bounded fallback heuristics.
+- `HarnessFailureClass::to_domain_error_class` maps to
+  `tanren_domain::ErrorClass` for retry policy consistency.
+- Failure-payload sanitization leaks are surfaced via dedicated contract error
+  `FailurePathRedactionLeakDetected`.
+
+### Redaction Contract
+
+- `OutputRedactor` defines redaction behavior; persistence-bound execution uses
+  the contract-owned default redactor.
+- `DefaultOutputRedactor` + `RedactionPolicy` provide the shared baseline.
+- Default redaction policy data is sourced from a versioned dataset.
+- `RedactionPolicy` is immutable and validated (`try_new`/builder) to reject
+  unsafe threshold or duplicate-pattern configurations.
+- `RedactionHints` is an internal capture-time representation derived from
+  request secrets by the contract wrapper.
+- Redaction matcher coverage includes context-aware short multiline fragments
+  and encoded secret variants (URL/base64 forms) derived from known hints.
+- Prefix matching uses a precompiled trie cached on the redactor instance and
+  secret matching uses a compiled multi-pattern automaton (Aho-Corasick style)
+  for scalable cardinality.
+- Redaction is applied to all persistable output channels:
+  `gate_output`, `tail_output`, `stderr_tail`.
+
+## Behavioral Requirements
+
+1. Harness choice must not change domain-level terminal semantics.
+2. Unsupported capability requirements are denied before adapter side effects.
+3. Raw provider failures map to typed contract classes.
+4. Persisted output is redacted before durable storage.
+5. Conformance is executable through reusable tests, not prose-only.
+6. Verification for this lane is executed with `just ci` from repo root (`make`-based checks are legacy and non-authoritative for acceptance).
+7. Lane 1.1 audits must score adapter implementation completeness as out-of-scope and defer that criterion to Lane 1.2.
+8. Redaction perf gate enforces both relative regression budget and absolute SLO ceilings.
+
+## Redaction Minimum Coverage
+
+The default policy must cover, at minimum:
+
+1. common credential/token patterns
+2. explicit secret values resolved for runtime injection
+3. credential-file content style patterns (key/value forms)
+4. multiline secret fragments
+
+## Conformance Expectations
+
+Lane 1.2 adapter crates must reuse `tanren-runtime` conformance helpers:
+
+- `assert_capability_denial_is_preflight`
+- `assert_redaction_before_persistence`
+- `assert_failure_classification`
+- `assert_failure_path_leak_detected`
+- `assert_provider_metadata_fail_closed`
+- `assert_terminal_typed_code_mapping`
+
+Each adapter must prove:
+
+1. capability denial happens before side effects
+2. redaction is complete before persistence
+3. provider-specific failures normalize to stable failure classes
+4. unsafe provider metadata is rejected fail-closed
+5. typed terminal failure code mappings remain stable
+6. contract lifecycle events satisfy strict cardinality + ordering invariants
+
+Lane 1.2 acceptance also requires parity scenarios for
+[../PHASE1_PROOF_BDD.md](../PHASE1_PROOF_BDD.md) Feature 1, Feature 3, and
+Feature 6 across all shipped harness adapters.
 
 ## Dependencies
 
-- Lane 0.2 (domain model) — requires `ExecuteResult`, `DispatchSnapshot`,
-  `EnvironmentHandle`, `LeaseCapabilities`
-- Lane 0.3 (store) — harness outputs end up in the event log via the
-  store
+- Phase 0 foundation complete (`0.1` through `0.5`)
 
-## Open Questions
+## Out of Scope
 
-- Does redaction happen in the harness adapter or in a separate
-  `output-redactor` crate that every harness depends on?
-- Do we want a policy-driven allowlist/denylist of redaction patterns
-  per org?
+- provider CLI command wiring
+- environment lease contract/implementations
+- worker retry orchestration and crash recovery runtime

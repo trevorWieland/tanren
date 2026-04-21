@@ -38,6 +38,8 @@ WORKFLOW_REQUIRED = [
     "cargo build -p tanren-mcp --locked --quiet",
     "Build tanren-mcp for CLI parity integration tests",
     "TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp",
+    "Check redaction perf regression thresholds",
+    "run: just check-redaction-perf",
     "Check pinned Rust toolchain sync",
 ]
 
@@ -48,13 +50,17 @@ JUST_REQUIRED = [
     "@just check-rust-toolchain-sync",
     (
         'RUSTFLAGS="-D warnings" {{ cargo }} clippy --workspace --all-targets '
-        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet -- -D warnings"
+        "--features tanren-store/test-hooks,tanren-orchestrator/test-hooks "
+        "--locked --quiet -- -D warnings"
     ),
-    '{{ cargo }} build -p tanren-mcp --locked --quiet',
+    "{{ cargo }} build -p tanren-mcp --locked --quiet",
     'RUSTFLAGS="-D warnings" TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace',
     'TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace',
     "./scripts/run_postgres_integration.sh",
     "check-ci-parity:",
+    "bench-redaction:",
+    "check-redaction-perf:",
+    'UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/.uv-cache}" uv run python scripts/check_redaction_perf.py',
 ]
 
 WRAPPER_REQUIRED = [

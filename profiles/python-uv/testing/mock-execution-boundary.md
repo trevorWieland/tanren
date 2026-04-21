@@ -1,38 +1,35 @@
 # Mock at the Execution Boundary
 
-Mock where execution actually happens, not where you think it happens. Verify the mock was invoked.
+In BDD suites, mocks are allowed only where a scenario crosses an external execution boundary.
 
-## Rule
-
-Before writing a mock, trace the call path from your test entry point to the real side-effect. Patch at the last internal boundary before the external call.
-
-## Per-Tier Boundaries
-
-- **Unit tests** — Mock direct dependencies (e.g., function args, injected services). Can mock low-level internals.
-- **Integration tests** — Mock at `Agent.run()` for agent execution. Never mock pydantic-ai internals or CLI factory functions (`_build_llm_runtime`). Return schema-valid output matching the agent's `_output_type`.
-- **Quality tests** — No mocks. Real LLMs only (see `no-mocks-for-quality-tests`).
-
-## Agent Mock Pattern
-
-```python
-async def mock_agent_run(self: Agent, payload: object) -> object:
-    call_count["count"] += 1
-    output_type = self._output_type
-    if output_type == ItemSummary:
-        return ItemSummary(item_id="item_001", summary="...", characters=[])
-    # ... per-agent-type returns
+```gherkin
+@behavior(BEH-PIPE-011) @tier(integration)
+Scenario: Pipeline retries failed model call
+  Given the model boundary returns a transient failure once
+  When the pipeline executes
+  Then the second attempt succeeds
 ```
 
-## Verification
-
-Always assert the mock was called:
-
 ```python
-call_count = {"count": 0}
-# ... run test ...
-assert call_count["count"] > 0, "Mock was never invoked"
+# Step binding patches the boundary that executes the side effect.
+@given("the model boundary returns a transient failure once")
+def model_boundary_retry(monkeypatch):
+    calls = {"count": 0}
+
+    async def boundary_call(*_args, **_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("transient")
+        return {"ok": True}
+
+    monkeypatch.setattr("myproj.adapters.model_client.ModelClient.generate", boundary_call)
+    return calls
 ```
 
-## Why
+**Rules:**
+- Patch at the last internal boundary before the external side effect
+- Do not mock internal helpers to make scenarios pass
+- Verify boundary mocks were exercised
+- Quality tier scenarios use no model mocks
 
-Patching the wrong boundary (e.g., a factory function) leaves the real execution path untouched. Tests pass on setup but fail on execution, creating confusing audit loops.
+**Why:** Scenario truth depends on realistic execution flow, not internal stubbing.

@@ -23,24 +23,33 @@ template: |2
     phase — `adhere-task`).
   - `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` — the effective pillar set (task scope).
   - Relevant signposts.
+  - `behavior-map.md` and linked scenarios.
 
   ## Responsibilities
 
   1. Read the diff in full. Understand what changed and why.
-  2. For each finding: call `add_finding` with severity
+  2. Audit behavior traceability:
+     - behavior changes are mapped in `behavior-map.md`
+     - mapped scenarios exist and reflect implemented behavior
+     - scenario quality is adequate for claimed behavior
+  3. Audit mutation quality evidence for touched behavior scope:
+     surviving mutants, if any, are explained or addressed.
+  4. Audit coverage interpretation quality:
+     uncovered code is discussed as missing scenario vs dead/non-scenario code.
+  5. For each finding: call `add_finding` with severity
      `fix_now` / `defer` / `note` / `question`, a descriptive title,
      affected files and line numbers, and the pillar it relates to.
      Cross-reference signposts: do not re-surface issues an existing
      signpost records as `deferred` or `architectural_constraint`.
-  3. For each applicable pillar: call `record_rubric_score(pillar,
+  6. For each applicable pillar: call `record_rubric_score(pillar,
      score, rationale, supporting_finding_ids)`.
      - Score 1–10 (target 10, passing 7).
      - `score < target` requires at least one linked finding.
      - `score < passing` requires at least one linked `fix_now`
        finding. Tool will reject invalid linkage.
-  4. Write narrative reasoning into the body of `audit.md`
+  7. Write narrative reasoning into the body of `audit.md`
      (task-scope section).
-  5. Call `report_phase_outcome`:
+  8. Call `report_phase_outcome`:
      - `complete` if all scores ≥ passing and zero `fix_now` findings
        remain. The `TaskAudited` guard will be recorded.
      - `blocked` if any `fix_now` findings are produced. The orchestrator

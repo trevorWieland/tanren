@@ -20,25 +20,30 @@ template: |2
   - The spec folder path.
   - Relevant standards (injected separately by Tanren-code; treat as
     context, not edits).
+  - Existing `behavior-map.md` mapping.
 
   ## Responsibilities
 
   1. Call `start_task(task_id)` at session start (if not already
      transitioned).
   2. Implement only the supplied task. Do not touch unrelated files.
-  3. Run `just check` before signalling complete. If
+  3. If the task changes behavior, update `behavior-map.md` and the
+     mapped scenario files in the same task session.
+  4. Run `just check` before signalling complete. If
      it fails on trivial issues (formatting, imports), self-fix and
      re-run. If it fails persistently, stop: emit a signpost and
      report `blocked` (Tanren-code will dispatch `investigate`).
-  4. Record signposts for non-obvious issues you hit or decisions that
+  5. Record signposts for non-obvious issues you hit or decisions that
      would surprise a future reader. Each signpost needs concrete
      evidence — error messages, file paths, command output.
-  5. On successful implementation: call
+  6. Treat behavior-changing code without behavior-map and scenario
+     updates as incomplete work.
+  7. On successful implementation: call
      `complete_task(task_id, evidence_refs)` with the relevant file
      paths / commit refs. The `Implemented` transition is recorded by
      Tanren-code; the gate / audit / adherence guards run in parallel
      afterward.
-  6. Call `report_phase_outcome("complete", …)`.
+  8. Call `report_phase_outcome("complete", …)`.
 
   ## Verification
 

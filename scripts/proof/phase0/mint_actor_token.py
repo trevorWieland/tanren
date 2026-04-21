@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 @dataclass(frozen=True)
-class Claims:
+class _Claims:
     iss: str
     aud: str
     exp: int
@@ -32,19 +32,19 @@ class Claims:
     user_id: str
 
 
-def b64url(data: bytes) -> str:
+def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def load_private_key(path: Path) -> Ed25519PrivateKey:
+def _load_private_key(path: Path) -> Ed25519PrivateKey:
     key_bytes = path.read_bytes()
     key = serialization.load_pem_private_key(key_bytes, password=None)
     if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError("private key is not Ed25519")
+        raise TypeError("private key is not Ed25519")
     return key
 
 
-def sign_jwt(private_key: Ed25519PrivateKey, claims: Claims, kid: str) -> str:
+def _sign_jwt(private_key: Ed25519PrivateKey, claims: _Claims, kid: str) -> str:
     header = {"alg": "EdDSA", "typ": "JWT", "kid": kid}
     payload = {
         "iss": claims.iss,
@@ -57,15 +57,15 @@ def sign_jwt(private_key: Ed25519PrivateKey, claims: Claims, kid: str) -> str:
         "user_id": claims.user_id,
     }
 
-    header_segment = b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
-    payload_segment = b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    signing_input = f"{header_segment}.{payload_segment}".encode("utf-8")
+    header_segment = _b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_segment = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header_segment}.{payload_segment}".encode()
     signature = private_key.sign(signing_input)
-    signature_segment = b64url(signature)
+    signature_segment = _b64url(signature)
     return f"{header_segment}.{payload_segment}.{signature_segment}"
 
 
-def parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Mint proof actor tokens")
     parser.add_argument("--private-key-pem", type=Path, required=True)
     parser.add_argument("--issuer", required=True)
@@ -93,8 +93,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
+def _main() -> int:
+    args = _parse_args()
 
     now = int(time.time())
     iat = args.iat if args.iat is not None else now
@@ -143,7 +143,7 @@ def main() -> int:
         )
         return 2
 
-    claims = Claims(
+    claims = _Claims(
         iss=iss,
         aud=aud,
         exp=exp,
@@ -154,8 +154,8 @@ def main() -> int:
         user_id=args.user_id,
     )
 
-    private_key = load_private_key(args.private_key_pem)
-    token = sign_jwt(private_key, claims, args.kid)
+    private_key = _load_private_key(args.private_key_pem)
+    token = _sign_jwt(private_key, claims, args.kid)
 
     if args.token_only:
         print(token)
@@ -178,4 +178,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_main())

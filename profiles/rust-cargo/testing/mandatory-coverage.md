@@ -1,51 +1,19 @@
-# Mandatory Coverage
+# Coverage from Behavior Scenarios
 
-Coverage is mandatory. Use `cargo-llvm-cov` for measurement. Tests must exercise behavior, not just construction.
+Coverage must be interpreted through behavior scenarios, not isolated line-count targets.
 
 ```bash
-# ✓ Good: Generate coverage report
-just coverage   # Runs: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
-```
-
-```rust
-// ✓ Good: Test that validates behavior
-#[test]
-fn rejects_expired_token() {
-    let token = Token::new(Utc::now() - Duration::hours(1));
-    let result = validate_token(&token);
-    assert!(matches!(result, Err(AuthError::TokenExpired { .. })));
-}
-```
-
-```rust
-// ✗ Bad: Test that only checks construction
-#[test]
-fn creates_config() {
-    let config = Config::default();
-    assert!(config.is_ok());  // Doesn't test any behavior
-}
+# Example: collect coverage from scenario-driven execution
+cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
 ```
 
 **Rules:**
-- `cargo llvm-cov nextest` for coverage measurement (combines nextest with LLVM instrumentation)
-- Output as lcov for CI integration: `--lcov --output-path lcov.info`
-- Upload to Codecov (or equivalent) in CI for tracking trends
-- Tests must exercise:
-  - Happy path with expected output validation
-  - Error cases with specific error variant checks
-  - Edge cases (empty input, boundary values, concurrent access)
-- Coverage is a signal, not a target — 100% line coverage with shallow assertions is worse than 80% with deep behavioral tests
+- Coverage discussion is behavior-first: which behavior scenarios are missing?
+- Uncovered code must be classified as:
+  - missing behavior scenario
+  - dead/removable code
+  - non-scenario support code with explicit rationale
+- Coverage thresholds remain required, but they are secondary to scenario completeness
+- Do not claim behavior support without scenario evidence
 
-**CI pipeline:**
-
-```yaml
-# GitHub Actions coverage job
-- name: Coverage
-  run: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
-- name: Upload
-  uses: codecov/codecov-action@v4
-  with:
-    files: lcov.info
-```
-
-**Why:** Coverage measurement identifies untested code paths before they become production bugs. Behavioral testing (vs construction testing) ensures tests catch regressions in actual logic, not just compilation.
+**Why:** Coverage is useful when it highlights unproven behavior, not when treated as a vanity metric.

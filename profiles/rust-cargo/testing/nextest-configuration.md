@@ -1,54 +1,19 @@
 # Nextest Configuration
 
-Use `cargo-nextest` for all test execution. Never use `cargo test`. Configure default and CI profiles with timeouts and retry policies.
+`cucumber-rs` scenarios are the authoritative behavior tests. `cargo-nextest` remains the required Rust test runner for applicable test binaries and support checks in the CI gate.
 
 ```bash
-# ✓ Good: Run tests with nextest
-cargo nextest run              # Or: cargo t (alias)
-just test                      # Wrapper that uses nextest
-just test -p myapp-core        # Single crate
+# Behavior scenarios (authoritative)
+cargo cucumber
 
-# ✗ Bad: Using cargo test
-cargo test                     # Missing: parallel control, timeouts, output filtering
-```
-
-**Required `.config/nextest.toml`:**
-
-```toml
-[profile.default]
-slow-timeout = { period = "60s", terminate-after = 2 }
-failure-output = "immediate"
-success-output = "never"
-status-level = "slow"
-
-[profile.ci]
-fail-fast = false
-failure-output = "immediate-final"
-status-level = "all"
-retries = 2
-slow-timeout = { period = "120s", terminate-after = 3 }
-```
-
-**Test groups for serialized database tests:**
-
-```toml
-[test-groups]
-postgres-integration = { max-threads = 1 }
-
-[[profile.default.overrides]]
-filter = "binary(postgres_integration)"
-test-group = "postgres-integration"
-
-[[profile.ci.overrides]]
-filter = "binary(postgres_integration)"
-test-group = "postgres-integration"
+# Fast Rust test gate execution where applicable
+cargo nextest run --workspace --profile ci
 ```
 
 **Rules:**
-- Default profile: 60s slow-timeout, immediate failure output, hide success output
-- CI profile: 120s slow-timeout, 2 retries, no fail-fast (run all tests even after failure)
-- Database integration tests: serialize with `max-threads = 1` to prevent schema race conditions
-- SQLite tests remain parallel (separate database files per test)
-- CI runs with `cargo nextest run --profile ci`
+- Behavior proof comes from `.feature` scenarios executed via `cucumber-rs`
+- Nextest remains mandatory for workspace Rust test execution where applicable
+- CI must run both behavior scenarios and nextest gate checks
+- Do not replace scenario execution with direct non-BDD-only suites
 
-**Why:** Nextest provides parallel execution, structured output, timeout enforcement, and retry policies that `cargo test` lacks. Slow-timeout catches tests that hang or regress in performance. CI retries handle transient failures without masking real bugs.
+**Why:** BDD scenarios prove behavior, while nextest preserves fast, structured Rust test execution discipline.

@@ -39,7 +39,6 @@ alembic-check:
 	cd packages/tanren-core && uv run alembic upgrade head && uv run alembic check
 
 arch-check: import-check alembic-check
-	cargo clippy --workspace --all-targets --features tanren-store/test-hooks -- -D warnings
 
 check:
 	$(MAKE) format-check

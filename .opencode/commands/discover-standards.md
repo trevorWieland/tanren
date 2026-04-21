@@ -11,7 +11,8 @@ template: |2
 
   Interactively extract tribal knowledge from the codebase and codify
   it as standards files under `tanren/standards`. Each standard is
-  one rule with clear applicability metadata.
+  one rule with clear applicability metadata. Prefer behavior-first
+  standards where testing strategy is in scope.
 
   ## Inputs (from your dispatch)
 
@@ -24,15 +25,20 @@ template: |2
      none is supplied.
   2. Read representative files. Identify unusual, opinionated, or
      tribal patterns.
-  3. For each candidate pattern the user selects, hold a full loop:
+  3. If testing standards are in scope, explicitly probe for BDD
+     requirements:
+     - behavior inventory expectations
+     - scenario traceability expectations
+     - mutation and coverage interpretation policies
+  4. For each candidate pattern the user selects, hold a full loop:
      ask clarifying questions one at a time (no batching), draft the
      standard, confirm, write the file. Filename:
      `tanren/standards/{category}/{kebab-slug}.md`.
-  4. Frontmatter required on every standard: `name`, `category`,
+  5. Frontmatter required on every standard: `name`, `category`,
      `applies_to` (globs), `applies_to_languages`,
      `applies_to_domains`, `importance` (low/medium/high/critical).
-  5. Update `tanren/standards/index.yml` to include the new entry.
-  6. `report_phase_outcome("complete", <N standards authored>)`.
+  6. Update `tanren/standards/index.yml` to include the new entry.
+  7. `report_phase_outcome("complete", <N standards authored>)`.
 
   ## Out of scope
 

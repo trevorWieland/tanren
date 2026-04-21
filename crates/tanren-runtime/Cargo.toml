@@ -11,5 +11,18 @@ description = "Runtime trait contracts — harness and environment lease abstrac
 workspace = true
 
 [dependencies]
+async-trait.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tanren-domain = { path = "../tanren-domain" }
 
 [dev-dependencies]
+criterion = "0.5"
+proptest.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[[bench]]
+name = "redaction"
+harness = false

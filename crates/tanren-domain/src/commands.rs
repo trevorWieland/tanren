@@ -107,9 +107,10 @@ pub struct LeaseCapabilities {
     /// `"remote"`). This is deliberately a string rather than a typed
     /// enum so third-party runtime adapters can introduce new tags
     /// without changing the domain crate. TODO(phase-1): re-evaluate
-    /// in `LANE-1.2-RUNTIME.md` once the built-in runtime set is
-    /// stable — a `RuntimeKind::{Local, Docker, DooD, Remote,
-    /// Custom(String)}` enum may be worth the coupling.
+    /// after `LANE-1.3-ENV-CONTRACT.md` and `LANE-1.4-ENV-ADAPTERS.md`
+    /// settle the built-in runtime taxonomy — a
+    /// `RuntimeKind::{Local, Docker, DooD, Remote, Custom(String)}`
+    /// enum may be worth the coupling.
     pub runtime_type: NonEmptyString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_limits: Option<ResourceLimits>,
