@@ -19,4 +19,5 @@ tanren-domain = { path = "../tanren-domain" }
 
 [dev-dependencies]
 proptest.workspace = true
+serde_json.workspace = true
 tokio.workspace = true

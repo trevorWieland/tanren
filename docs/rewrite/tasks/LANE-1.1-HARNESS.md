@@ -49,6 +49,8 @@ execution; parity proof is accepted only in Lane 1.2.
 - Approval bounds are dual-axis:
   - minimum approval uses strictness (`never < on_escalation < on_demand`)
   - maximum approval uses privilege risk (`on_demand < on_escalation < never`)
+- Approval denials are modeled with reachable states only:
+  `approval_mode_below_minimum` and `approval_mode_exceeds_maximum`.
 - `ensure_admissible` performs preflight checks and returns typed
   `CompatibilityDenial` when unsupported.
 
@@ -61,10 +63,10 @@ execution; parity proof is accepted only in Lane 1.2.
   provider-native failure payloads (`ProviderFailure`).
 - `execute_with_contract` enforces:
   1. preflight capability check
-  2. adapter execution
+  2. sealed adapter execution (contract-only call token)
   3. redaction hints derived from request data (not caller-provided)
-  4. contract-owned redaction to `PersistableOutput`
-  5. known-secret + policy residual leak checks before persistence
+  4. contract-owned redaction + single-pass leak audit to `PersistableOutput`
+  5. fail-closed metadata sanitization for `provider_run_id`
   6. source-tagged event emission (`contract` vs `adapter`) for conformance-safe
      ordering assertions
 
@@ -74,9 +76,12 @@ execution; parity proof is accepted only in Lane 1.2.
 - `HarnessFailure` is constructor-normalized with invariant-safe class/code
   states; conflicting class/typed-code combinations are rejected at
   deserialization boundaries.
-- `classify_provider_failure` maps provider-native context into
-  `HarnessFailureClass`, preferring typed adapter codes and structured
-  context before bounded text fallback heuristics.
+- `ProviderFailureContext.typed_code` is mandatory for terminal adapter failures;
+  `typed_code=unknown` is rejected at the contract boundary.
+- `classify_provider_failure` maps terminal provider failures deterministically
+  from typed adapter code only.
+- `classify_provider_failure_for_audit` remains available as an explicit
+  telemetry utility for bounded fallback heuristics.
 - `HarnessFailureClass::to_domain_error_class` maps to
   `tanren_domain::ErrorClass` for retry policy consistency.
 
@@ -88,6 +93,8 @@ execution; parity proof is accepted only in Lane 1.2.
 - Default redaction policy data is sourced from a versioned dataset.
 - `RedactionHints` is an internal capture-time representation derived from
   request secrets by the contract wrapper.
+- Redaction matcher coverage includes context-aware short multiline fragments
+  and encoded secret variants (URL/base64 forms) derived from known hints.
 - Redaction is applied to all persistable output channels:
   `gate_output`, `tail_output`, `stderr_tail`.
 

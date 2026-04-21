@@ -35,6 +35,9 @@ least-privilege bounds:
 `ensure_admissible` performs preflight checks and returns typed
 `CompatibilityDenialKind` before side effects.
 
+Approval denials are now represented only by reachable states:
+`approval_mode_below_minimum` and `approval_mode_exceeds_maximum`.
+
 ### Execution Contract
 
 `HarnessExecutionRequest` is the normalized request shape.
@@ -47,10 +50,11 @@ least-privilege bounds:
 execution:
 
 1. capability preflight
-2. adapter invocation
+2. sealed adapter invocation (contract-only call token)
 3. contract-owned redaction (not caller-injected)
-4. known-secret + policy residual leak checks
-5. persistable output release
+4. single-pass redaction audit verdict (known-secret + residual policy)
+5. metadata sanitization and allowlist validation (`provider_run_id`, fail-closed)
+6. persistable output release
 
 Adapters must not bypass this wrapper when producing persistable output.
 
@@ -64,10 +68,10 @@ contract wrapper is the only normalization boundary to `HarnessFailure`.
 
 `ProviderFailureContext` supports typed/normalized classification:
 
-- typed adapter code first (`ProviderFailureCode`)
-- normalized provider identifiers (`ProviderIdentifier`)
-- deterministic signal/exit-code mapping
-- bounded boundary-aware text fallback last
+- mandatory typed adapter code (`ProviderFailureCode`) for terminal failures
+- `typed_code=unknown` is forbidden for terminal failures
+- deterministic typed mapping only for semantic normalization
+- optional audit-only fallback utility (`classify_provider_failure_for_audit`)
 
 ### Redaction Contract
 
@@ -84,6 +88,8 @@ Policy behavior:
 - bearer token redaction
 - case-insensitive prefixed token redaction
 - explicit secret value redaction (including multiline fragments)
+- context-aware short multiline-fragment redaction (bounded rules)
+- encoded secret variant redaction (URL/base64 forms derived from known hints)
 - bounded per-channel persistence with deterministic truncation marker
 
 `RedactionHints` is secret-safe:
@@ -109,6 +115,10 @@ Required adapter evidence:
 
 - `OutputRedactor` remains a runtime abstraction, but persistence-bound policy
   enforcement is sealed inside `execute_with_contract`.
+- `HarnessAdapter::execute` requires an unconstructable contract token so
+  callers cannot directly invoke adapter execution from outside the contract.
+- provider metadata is sanitized and validated under a strict fail-closed policy
+  before exposure/persistence.
 - default redaction policy/patterns are sourced from a versioned dataset.
 - test-only customization for contract internals is crate-scoped.
 - `HarnessExecutionEvent` is source-tagged (`contract` vs `adapter`) and adapter

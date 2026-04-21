@@ -54,6 +54,7 @@ impl HarnessAdapter for FullHarnessAdapter {
         &self,
         _request: &HarnessExecutionRequest,
         _observer: &mut dyn HarnessObserver,
+        _token: crate::adapter::ContractCallToken,
     ) -> Result<ExecutionSignal, ProviderFailure> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionSignal {
@@ -81,6 +82,7 @@ impl HarnessAdapter for PollutingHarnessAdapter {
         &self,
         _request: &HarnessExecutionRequest,
         observer: &mut dyn HarnessObserver,
+        _token: crate::adapter::ContractCallToken,
     ) -> Result<ExecutionSignal, ProviderFailure> {
         observer.on_event(HarnessExecutionEvent::contract(
             HarnessExecutionEventKind::PersistableOutputReady,
@@ -131,6 +133,7 @@ impl HarnessAdapter for ToolDeniedHarnessAdapter {
         &self,
         _request: &HarnessExecutionRequest,
         _observer: &mut dyn HarnessObserver,
+        _token: crate::adapter::ContractCallToken,
     ) -> Result<ExecutionSignal, ProviderFailure> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionSignal {
@@ -179,6 +182,7 @@ impl HarnessAdapter for LimitedLevelsHarnessAdapter {
         &self,
         _request: &HarnessExecutionRequest,
         _observer: &mut dyn HarnessObserver,
+        _token: crate::adapter::ContractCallToken,
     ) -> Result<ExecutionSignal, ProviderFailure> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionSignal {
@@ -303,6 +307,7 @@ async fn conformance_enforces_capability_levels() {
 #[test]
 fn conformance_classifies_failures() {
     let ctx = ProviderFailureContext {
+        typed_code: crate::failure::ProviderFailureCode::RateLimited,
         provider_code: Some(ProviderIdentifier::try_new("429").expect("provider code")),
         ..ProviderFailureContext::default()
     };

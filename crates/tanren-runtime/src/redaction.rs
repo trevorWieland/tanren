@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,9 @@ use crate::execution::{PersistableOutput, RawExecutionOutput, RedactionSecret, S
 
 pub(crate) mod policy_dataset;
 pub(crate) mod scanner;
+pub(crate) mod secret_matcher;
+
+use self::secret_matcher::CompiledSecretMatcher;
 
 const REDACTION_TOKEN: &str = "[REDACTED]";
 const TRUNCATION_MARKER: &str = "[TRUNCATED_FOR_PERSISTENCE]";
@@ -73,6 +76,25 @@ pub enum RedactionError {
     PolicyViolation,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedactionAudit {
+    pub known_secret_leak: bool,
+    pub policy_residual_leak: bool,
+}
+
+impl RedactionAudit {
+    #[must_use]
+    pub const fn has_any_leak(&self) -> bool {
+        self.known_secret_leak || self.policy_residual_leak
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RedactionOutcome {
+    pub output: PersistableOutput,
+    pub audit: RedactionAudit,
+}
+
 /// Redacts raw harness output into persistable output.
 pub trait OutputRedactor: Send + Sync {
     /// Apply redaction and normalize the output for durable persistence.
@@ -92,6 +114,26 @@ pub trait OutputRedactor: Send + Sync {
     /// Detect whether normalized output still contains policy-defined secret patterns.
     #[must_use]
     fn has_policy_residual_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool;
+
+    /// Apply redaction and return an audit verdict in one call.
+    ///
+    /// Default implementation preserves compatibility for custom redactors that
+    /// only implement `redact` and leak-detection hooks.
+    ///
+    /// # Errors
+    /// Returns [`RedactionError`] if output cannot be normalized safely.
+    fn redact_with_audit(
+        &self,
+        output: RawExecutionOutput,
+        hints: &RedactionHints,
+    ) -> Result<RedactionOutcome, RedactionError> {
+        let output = self.redact(output, hints)?;
+        let audit = RedactionAudit {
+            known_secret_leak: self.has_known_secret_leak(&output, hints),
+            policy_residual_leak: self.has_policy_residual_leak(&output, hints),
+        };
+        Ok(RedactionOutcome { output, audit })
+    }
 }
 
 /// Default policy-driven output redactor.
@@ -121,36 +163,30 @@ impl DefaultOutputRedactor {
         }
     }
 
-    fn redact_text(
+    fn redact_channel(
         &self,
         input: Option<String>,
         channel_matcher: &CompiledChannelMatcher<'_>,
         explicit_secret_matcher: &CompiledSecretMatcher,
-    ) -> Option<String> {
-        input.map(|value| {
-            let artifacts = channel_matcher.scan(&value);
-            let mut ranges = artifacts.assignment_value_ranges;
-            ranges.extend(artifacts.bearer_token_ranges);
-            ranges.extend(artifacts.prefixed_token_ranges);
-            ranges.extend(explicit_secret_matcher.collect_ranges(&value));
-            let redacted = apply_redaction_ranges(value, ranges);
-            truncate_for_persistence(redacted, self.policy.max_persistable_channel_bytes)
-        })
-    }
+    ) -> ChannelRedactionResult {
+        let Some(value) = input else {
+            return ChannelRedactionResult::default();
+        };
+        let artifacts = channel_matcher.scan(&value);
+        let mut ranges = artifacts.assignment_value_ranges.clone();
+        ranges.extend_from_slice(&artifacts.bearer_token_ranges);
+        ranges.extend_from_slice(&artifacts.prefixed_token_ranges);
+        ranges.extend(explicit_secret_matcher.collect_ranges(&value));
+        let redacted = apply_redaction_ranges(value, ranges);
+        let redacted =
+            truncate_for_persistence(redacted, self.policy.max_persistable_channel_bytes);
+        let known_secret_leak = !explicit_secret_matcher.collect_ranges(&redacted).is_empty();
 
-    fn any_field_contains_secret(output: &PersistableOutput, secret: &str) -> bool {
-        output
-            .gate_output
-            .as_deref()
-            .is_some_and(|v| v.contains(secret))
-            || output
-                .tail_output
-                .as_deref()
-                .is_some_and(|v| v.contains(secret))
-            || output
-                .stderr_tail
-                .as_deref()
-                .is_some_and(|v| v.contains(secret))
+        ChannelRedactionResult {
+            value: Some(redacted),
+            known_secret_leak,
+            policy_residual_leak: false,
+        }
     }
 
     fn channels(output: &PersistableOutput) -> [Option<&str>; 3] {
@@ -162,76 +198,29 @@ impl DefaultOutputRedactor {
     }
 }
 
+#[derive(Debug, Default)]
+struct ChannelRedactionResult {
+    value: Option<String>,
+    known_secret_leak: bool,
+    policy_residual_leak: bool,
+}
+
 impl OutputRedactor for DefaultOutputRedactor {
     fn redact(
         &self,
         output: RawExecutionOutput,
         hints: &RedactionHints,
     ) -> Result<PersistableOutput, RedactionError> {
-        let hint_keys = hints
-            .required_secret_names
-            .iter()
-            .map(SecretName::as_str)
-            .map(str::to_owned)
-            .collect::<HashSet<_>>();
-        let channel_matcher = CompiledChannelMatcher::new(
-            &self.normalized_sensitive_key_names,
-            &hint_keys,
-            &self.policy.token_prefixes,
-            self.policy.min_token_len,
-            REDACTION_TOKEN,
-        );
-        let explicit_secret_matcher =
-            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len);
-        Ok(PersistableOutput {
-            outcome: output.outcome,
-            signal: output.signal,
-            exit_code: output.exit_code,
-            duration_secs: output.duration_secs,
-            gate_output: self.redact_text(
-                output.gate_output,
-                &channel_matcher,
-                &explicit_secret_matcher,
-            ),
-            tail_output: self.redact_text(
-                output.tail_output,
-                &channel_matcher,
-                &explicit_secret_matcher,
-            ),
-            stderr_tail: self.redact_text(
-                output.stderr_tail,
-                &channel_matcher,
-                &explicit_secret_matcher,
-            ),
-            pushed: output.pushed,
-            plan_hash: output.plan_hash,
-            unchecked_tasks: output.unchecked_tasks,
-            spec_modified: output.spec_modified,
-            findings: output.findings,
-            token_usage: output.token_usage,
-        })
+        self.redact_with_audit(output, hints)
+            .map(|result| result.output)
     }
 
     fn has_known_secret_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
-        for secret in &hints.secret_values {
-            let secret = secret.expose();
-            if secret.trim().is_empty() {
-                continue;
-            }
-            if Self::any_field_contains_secret(output, secret) {
-                return true;
-            }
-            if secret.contains('\n') {
-                for fragment in secret.lines() {
-                    if fragment.trim().len() >= self.policy.min_secret_fragment_len
-                        && Self::any_field_contains_secret(output, fragment.trim())
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+        let matcher = CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len);
+        Self::channels(output)
+            .iter()
+            .flatten()
+            .any(|channel| !matcher.collect_ranges(channel).is_empty())
     }
 
     fn has_policy_residual_leak(&self, output: &PersistableOutput, hints: &RedactionHints) -> bool {
@@ -255,6 +244,72 @@ impl OutputRedactor for DefaultOutputRedactor {
             }
         }
         false
+    }
+
+    fn redact_with_audit(
+        &self,
+        output: RawExecutionOutput,
+        hints: &RedactionHints,
+    ) -> Result<RedactionOutcome, RedactionError> {
+        let hint_keys = hints
+            .required_secret_names
+            .iter()
+            .map(SecretName::as_str)
+            .map(str::to_owned)
+            .collect::<HashSet<_>>();
+        let channel_matcher = CompiledChannelMatcher::new(
+            &self.normalized_sensitive_key_names,
+            &hint_keys,
+            &self.policy.token_prefixes,
+            self.policy.min_token_len,
+            REDACTION_TOKEN,
+        );
+        let explicit_secret_matcher =
+            CompiledSecretMatcher::from_hints(hints, self.policy.min_secret_fragment_len);
+
+        let gate = self.redact_channel(
+            output.gate_output,
+            &channel_matcher,
+            &explicit_secret_matcher,
+        );
+        let tail = self.redact_channel(
+            output.tail_output,
+            &channel_matcher,
+            &explicit_secret_matcher,
+        );
+        let stderr = self.redact_channel(
+            output.stderr_tail,
+            &channel_matcher,
+            &explicit_secret_matcher,
+        );
+
+        let audit = RedactionAudit {
+            known_secret_leak: gate.known_secret_leak
+                || tail.known_secret_leak
+                || stderr.known_secret_leak,
+            policy_residual_leak: gate.policy_residual_leak
+                || tail.policy_residual_leak
+                || stderr.policy_residual_leak,
+        };
+
+        Ok(RedactionOutcome {
+            output: PersistableOutput {
+                outcome: output.outcome,
+                signal: output.signal,
+                exit_code: output.exit_code,
+                duration_secs: output.duration_secs,
+                gate_output: gate.value,
+                tail_output: tail.value,
+                stderr_tail: stderr.value,
+                pushed: output.pushed,
+                plan_hash: output.plan_hash,
+                unchecked_tasks: output.unchecked_tasks,
+                spec_modified: output.spec_modified,
+                findings: output.findings,
+                token_usage: output.token_usage,
+            },
+            audit,
+        })
     }
 }
 
@@ -294,76 +349,6 @@ impl<'a> CompiledChannelMatcher<'a> {
                 redaction_token: self.redaction_token,
             },
         )
-    }
-}
-
-#[derive(Default)]
-struct CompiledSecretMatcher {
-    by_first_byte: HashMap<u8, Vec<Vec<u8>>>,
-}
-
-impl CompiledSecretMatcher {
-    fn from_hints(hints: &RedactionHints, min_secret_fragment_len: usize) -> Self {
-        let mut literals = HashSet::new();
-        for secret in &hints.secret_values {
-            let value = secret.expose().trim();
-            if value.is_empty() {
-                continue;
-            }
-            literals.insert(value.to_owned());
-            if value.contains('\n') {
-                for fragment in value.lines() {
-                    let trimmed = fragment.trim();
-                    if trimmed.len() >= min_secret_fragment_len {
-                        literals.insert(trimmed.to_owned());
-                    }
-                }
-            }
-        }
-
-        let mut by_first_byte: HashMap<u8, Vec<Vec<u8>>> = HashMap::new();
-        for literal in literals {
-            let bytes = literal.into_bytes();
-            if let Some(first) = bytes.first().copied() {
-                by_first_byte.entry(first).or_default().push(bytes);
-            }
-        }
-        for candidates in by_first_byte.values_mut() {
-            candidates.sort_by_key(|value| std::cmp::Reverse(value.len()));
-        }
-        Self { by_first_byte }
-    }
-
-    fn collect_ranges(&self, text: &str) -> Vec<(usize, usize)> {
-        let mut ranges = Vec::new();
-        let bytes = text.as_bytes();
-        let mut cursor = 0;
-
-        while cursor < bytes.len() {
-            let Some(candidates) = self.by_first_byte.get(&bytes[cursor]) else {
-                cursor += 1;
-                continue;
-            };
-
-            let mut matched = false;
-            for candidate in candidates {
-                let end = cursor.saturating_add(candidate.len());
-                if end <= bytes.len()
-                    && &bytes[cursor..end] == candidate.as_slice()
-                    && text.is_char_boundary(cursor)
-                    && text.is_char_boundary(end)
-                {
-                    ranges.push((cursor, end));
-                    cursor = end;
-                    matched = true;
-                    break;
-                }
-            }
-            if !matched {
-                cursor += 1;
-            }
-        }
-        ranges
     }
 }
 

@@ -3,8 +3,11 @@ use std::sync::OnceLock;
 
 use crate::capability::{CompatibilityDenial, CompatibilityDenialKind, HarnessCapabilities};
 use crate::execution::{HarnessExecutionRequest, HarnessExecutionResult, RawExecutionOutput};
-use crate::failure::{HarnessFailure, ProviderFailure, classify_provider_failure};
-use crate::redaction::{DefaultOutputRedactor, OutputRedactor, RedactionError};
+use crate::failure::{
+    HarnessFailure, ProviderFailure, TerminalFailureCodeError, classify_provider_failure,
+    ensure_terminal_failure_code,
+};
+use crate::redaction::{DefaultOutputRedactor, OutputRedactor, RedactionError, RedactionHints};
 
 /// Events emitted by the contract wrapper and adapters during execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +52,33 @@ pub trait HarnessObserver: Send {
     fn on_event(&mut self, event: HarnessExecutionEvent);
 }
 
+mod call_token {
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct Seal;
+}
+
+/// Contract-owned proof token required to invoke adapter execution.
+///
+/// This type is intentionally unconstructable outside crate internals.
+///
+/// ```compile_fail
+/// use tanren_runtime::ContractCallToken;
+///
+/// let _token = ContractCallToken { };
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct ContractCallToken {
+    _seal: call_token::Seal,
+}
+
+impl ContractCallToken {
+    pub(crate) const fn new() -> Self {
+        Self {
+            _seal: call_token::Seal,
+        }
+    }
+}
+
 /// Result returned by concrete adapter implementations before redaction.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecutionSignal {
@@ -72,7 +102,18 @@ pub trait HarnessAdapter: Send + Sync {
         &self,
         request: &HarnessExecutionRequest,
         observer: &mut dyn HarnessObserver,
+        token: ContractCallToken,
     ) -> Result<ExecutionSignal, ProviderFailure>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ProviderMetadataViolation {
+    #[error("metadata value was redacted or mutated during sanitization")]
+    RedactedOrMutated,
+    #[error("metadata value violates the allowed format")]
+    InvalidFormat,
+    #[error("metadata value triggered redaction leak detection")]
+    LeakDetected,
 }
 
 /// Contract-level failures surfaced to orchestrator/worker layers.
@@ -82,6 +123,13 @@ pub enum HarnessContractError {
     CompatibilityDenied(#[from] CompatibilityDenial),
     #[error(transparent)]
     AdapterFailure(#[from] HarnessFailure),
+    #[error(transparent)]
+    InvalidTerminalFailureCode(#[from] TerminalFailureCodeError),
+    #[error("unsafe provider metadata in `{field}`: {violation}")]
+    UnsafeProviderMetadata {
+        field: &'static str,
+        violation: ProviderMetadataViolation,
+    },
     #[error(transparent)]
     Redaction(#[from] RedactionError),
     #[error("redaction leak detected in persistable output")]
@@ -126,27 +174,30 @@ async fn execute_with_contract_internal<A: HarnessAdapter>(
     emit_contract_event(observer, HarnessExecutionEventKind::AdapterInvoked);
 
     let mut adapter_observer = AdapterObserverProxy { inner: observer };
-    let signal = match adapter.execute(request, &mut adapter_observer).await {
+    let signal = match adapter
+        .execute(request, &mut adapter_observer, ContractCallToken::new())
+        .await
+    {
         Ok(signal) => signal,
         Err(provider_failure) => {
-            let class = classify_provider_failure(&provider_failure.context);
             let sanitized = sanitize_provider_failure(provider_failure, redactor, &hints)
                 .map_err(HarnessContractError::Redaction)?;
+            ensure_terminal_failure_code(sanitized.context.typed_code)?;
+            let class = classify_provider_failure(&sanitized.context);
             return Err(HarnessContractError::AdapterFailure(
                 HarnessFailure::from_provider_failure_with_class(sanitized, class),
             ));
         }
     };
-    let output = redactor.redact(signal.output, &hints)?;
-    if redactor.has_known_secret_leak(&output, &hints)
-        || redactor.has_policy_residual_leak(&output, &hints)
-    {
+    let redaction = redactor.redact_with_audit(signal.output, &hints)?;
+    if redaction.audit.has_any_leak() {
         return Err(HarnessContractError::RedactionLeakDetected);
     }
+    let provider_run_id = sanitize_provider_run_id(signal.provider_run_id, redactor, &hints)?;
     emit_contract_event(observer, HarnessExecutionEventKind::PersistableOutputReady);
     Ok(HarnessExecutionResult {
-        output,
-        provider_run_id: signal.provider_run_id,
+        output: redaction.output,
+        provider_run_id,
         session_resumed: signal.session_resumed,
     })
 }
@@ -169,18 +220,84 @@ impl HarnessObserver for AdapterObserverProxy<'_> {
 fn sanitize_provider_failure(
     mut failure: ProviderFailure,
     redactor: &dyn OutputRedactor,
-    hints: &crate::redaction::RedactionHints,
+    hints: &RedactionHints,
 ) -> Result<ProviderFailure, RedactionError> {
+    let context = failure.context.clone();
+    let sanitized = sanitize_failure_payload(
+        redactor,
+        hints,
+        &failure.message,
+        context.exit_code,
+        context.stdout_tail.as_deref(),
+        context.stderr_tail.as_deref(),
+    )?;
+    if sanitized.audit.has_any_leak() {
+        return Err(RedactionError::PolicyViolation);
+    }
+    failure.message = sanitized
+        .output
+        .gate_output
+        .unwrap_or_else(|| "[REDACTED]".to_owned());
+    failure.context.stdout_tail = sanitized.output.tail_output;
+    failure.context.stderr_tail = sanitized.output.stderr_tail;
+    Ok(failure)
+}
+
+fn sanitize_provider_run_id(
+    provider_run_id: Option<String>,
+    redactor: &dyn OutputRedactor,
+    hints: &RedactionHints,
+) -> Result<Option<String>, HarnessContractError> {
+    let Some(raw_value) = provider_run_id else {
+        return Ok(None);
+    };
+    let sanitized = sanitize_failure_payload(redactor, hints, &raw_value, None, None, None)
+        .map_err(HarnessContractError::Redaction)?;
+    if sanitized.audit.has_any_leak() {
+        return Err(HarnessContractError::UnsafeProviderMetadata {
+            field: "provider_run_id",
+            violation: ProviderMetadataViolation::LeakDetected,
+        });
+    }
+    let Some(candidate) = sanitized.output.gate_output else {
+        return Err(HarnessContractError::UnsafeProviderMetadata {
+            field: "provider_run_id",
+            violation: ProviderMetadataViolation::RedactedOrMutated,
+        });
+    };
+    if candidate != raw_value {
+        return Err(HarnessContractError::UnsafeProviderMetadata {
+            field: "provider_run_id",
+            violation: ProviderMetadataViolation::RedactedOrMutated,
+        });
+    }
+    if !is_valid_provider_run_id(&candidate) {
+        return Err(HarnessContractError::UnsafeProviderMetadata {
+            field: "provider_run_id",
+            violation: ProviderMetadataViolation::InvalidFormat,
+        });
+    }
+    Ok(Some(candidate))
+}
+
+fn sanitize_failure_payload(
+    redactor: &dyn OutputRedactor,
+    hints: &RedactionHints,
+    gate_output: &str,
+    exit_code: Option<i32>,
+    tail_output: Option<&str>,
+    stderr_tail: Option<&str>,
+) -> Result<crate::redaction::RedactionOutcome, RedactionError> {
     let zero_duration =
         tanren_domain::FiniteF64::try_new(0.0).map_err(|_| RedactionError::PolicyViolation)?;
     let output = RawExecutionOutput {
         outcome: tanren_domain::Outcome::Error,
         signal: None,
-        exit_code: failure.context.exit_code,
+        exit_code,
         duration_secs: zero_duration,
-        gate_output: Some(failure.message),
-        tail_output: failure.context.stdout_tail.take(),
-        stderr_tail: failure.context.stderr_tail.take(),
+        gate_output: Some(gate_output.to_owned()),
+        tail_output: tail_output.map(str::to_owned),
+        stderr_tail: stderr_tail.map(str::to_owned),
         pushed: false,
         plan_hash: None,
         unchecked_tasks: 0,
@@ -188,13 +305,16 @@ fn sanitize_provider_failure(
         findings: Vec::new(),
         token_usage: None,
     };
-    let sanitized = redactor.redact(output, hints)?;
-    failure.message = sanitized
-        .gate_output
-        .unwrap_or_else(|| "[REDACTED]".to_owned());
-    failure.context.stdout_tail = sanitized.tail_output;
-    failure.context.stderr_tail = sanitized.stderr_tail;
-    Ok(failure)
+    redactor.redact_with_audit(output, hints)
+}
+
+fn is_valid_provider_run_id(value: &str) -> bool {
+    const MAX_PROVIDER_RUN_ID_LEN: usize = 128;
+    !value.is_empty()
+        && value.len() <= MAX_PROVIDER_RUN_ID_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
 }
 
 #[cfg(test)]

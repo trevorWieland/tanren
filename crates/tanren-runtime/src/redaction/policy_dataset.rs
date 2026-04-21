@@ -1,9 +1,9 @@
-pub(crate) const DEFAULT_REDACTION_POLICY_DATASET_VERSION: &str = "2026-04-21.v1";
+pub(crate) const DEFAULT_REDACTION_POLICY_DATASET_VERSION: &str = "2026-04-21.v2";
 #[cfg(test)]
 pub(crate) const DEFAULT_REDACTION_POLICY_DATASET_PROVENANCE: &str =
     "owner=tanren-runtime;source=curated_phase1_minimum;change_control=version_bump_required";
 #[cfg(test)]
-pub(crate) const DEFAULT_REDACTION_POLICY_DATASET_CHECKSUM_FNV64: u64 = 7_801_268_768_407_722_057;
+pub(crate) const DEFAULT_REDACTION_POLICY_DATASET_CHECKSUM_FNV64: u64 = 5_592_519_109_534_153_128;
 
 pub(crate) struct RedactionPolicyDatasetV1 {
     pub(crate) min_token_len: usize,

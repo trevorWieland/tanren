@@ -380,7 +380,7 @@ fn scanner_does_not_reenter_nested_assignment_like_value_body() {
 #[test]
 fn policy_dataset_snapshot_and_checksum_are_guarded() {
     let snapshot = policy_dataset::canonical_policy_dataset_snapshot_v1();
-    let expected_snapshot = r"version=2026-04-21.v1
+    let expected_snapshot = r"version=2026-04-21.v2
 provenance=owner=tanren-runtime;source=curated_phase1_minimum;change_control=version_bump_required
 min_token_len=10
 min_secret_fragment_len=4
@@ -437,3 +437,5 @@ token_prefix=ya29.";
         "dataset version must include explicit revision suffix"
     );
 }
+
+mod hardening_tests;

@@ -161,7 +161,6 @@ pub enum CompatibilityDenialKind {
     SandboxModeInvalidRange,
     ApprovalModeBelowMinimum,
     ApprovalModeExceedsMaximum,
-    ApprovalModeInvalidRange,
 }
 
 /// Typed denial returned when requirements do not match adapter capabilities.
@@ -240,15 +239,6 @@ impl HarnessCapabilities {
             );
         }
 
-        if let (Some(minimum), Some(maximum)) = (
-            requirements.minimum_approval_mode,
-            requirements.maximum_approval_mode,
-        ) && !approval_mode_range_has_solution(minimum, maximum)
-        {
-            return CapabilityAdmissibility::Denied(
-                CompatibilityDenialKind::ApprovalModeInvalidRange,
-            );
-        }
         if let Some(minimum) = requirements.minimum_approval_mode
             && !approval_mode_satisfies_minimum(self.approval_mode, minimum)
         {
@@ -360,15 +350,6 @@ const fn approval_mode_satisfies_minimum(actual: ApprovalMode, minimum: Approval
 
 const fn approval_mode_within_maximum(actual: ApprovalMode, maximum: ApprovalMode) -> bool {
     approval_privilege_rank(actual) <= approval_privilege_rank(maximum)
-}
-
-const fn approval_mode_range_has_solution(minimum: ApprovalMode, maximum: ApprovalMode) -> bool {
-    approval_mode_satisfies_minimum(ApprovalMode::Never, minimum)
-        && approval_mode_within_maximum(ApprovalMode::Never, maximum)
-        || approval_mode_satisfies_minimum(ApprovalMode::OnEscalation, minimum)
-            && approval_mode_within_maximum(ApprovalMode::OnEscalation, maximum)
-        || approval_mode_satisfies_minimum(ApprovalMode::OnDemand, minimum)
-            && approval_mode_within_maximum(ApprovalMode::OnDemand, maximum)
 }
 
 #[cfg(test)]
