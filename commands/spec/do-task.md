@@ -25,7 +25,6 @@ required_capabilities:
   - phase.outcome
 produces_evidence:
   - signposts.md (narrative body)
-  - behavior-map.md
 ---
 
 # do-task
@@ -43,15 +42,17 @@ workflow progression are Tanren-code's job.
 - The spec folder path.
 - Relevant standards (injected separately by Tanren-code; treat as
   context, not edits).
-- Existing `behavior-map.md` mapping.
+- Projected artifacts (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
+  `demo.md`, `progress.json`) for current state context.
 
 ## Responsibilities
 
 1. Call `start_task(task_id)` at session start (if not already
    transitioned).
 2. Implement only the supplied task. Do not touch unrelated files.
-3. If the task changes behavior, update `behavior-map.md` and the
-   mapped scenario files in the same task session.
+3. If the task changes behavior, update the implementation and test
+   scenarios so evidence remains coherent with projected planned
+   behaviors and expectations.
 4. Run `{{TASK_VERIFICATION_HOOK}}` before signalling complete. If
    it fails on trivial issues (formatting, imports), self-fix and
    re-run. If it fails persistently, stop: emit a signpost and
@@ -59,7 +60,7 @@ workflow progression are Tanren-code's job.
 5. Record signposts for non-obvious issues you hit or decisions that
    would surprise a future reader. Each signpost needs concrete
    evidence — error messages, file paths, command output.
-6. Treat behavior-changing code without behavior-map and scenario
+6. Treat behavior-changing code without matching verification/scenario
    updates as incomplete work.
 7. On successful implementation: call
    `complete_task(task_id, evidence_refs)` with the relevant file

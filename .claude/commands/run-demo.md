@@ -21,8 +21,7 @@ required_capabilities:
 - task.read
 - phase.outcome
 produces_evidence:
-- demo.md (narrative body)
-- behavior-map.md
+- demo.md (projected frontmatter + narrative body)
 ---
 
 # run-demo
@@ -38,14 +37,15 @@ Record typed results per step and emit findings for failed observables.
 - The spec folder and its `demo.md` frontmatter (steps with
   `RUN` / `SKIP` modes, descriptions, expected observables).
 - The supplied demo environment (already probed by shape-spec).
-- `behavior-map.md` for step-to-behavior references.
+- Projected spec/task artifacts for expectations and task state
+  context.
 
 ## Responsibilities
 
 1. Execute every `RUN` step. `SKIP` steps are not executed; they do
    not contribute to pass/fail.
-2. Each executed step must reference behavior IDs and expected
-   observables from the behavior map.
+2. Each executed step must validate expected observables from shaped
+   spec/demos and reflect current projected task/spec context.
 3. For each executed step: call `append_demo_result(step_id,
    status, observed)` with `pass` or `fail` and the observed
    outcome.
@@ -68,10 +68,12 @@ additional gate check, `just ci` is available.
 
 ## Emitting results
 
-mcp
+Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
+`tanren methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --json '<payload>'`.
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-plan.md and progress.json are generated from the typed task store.
+spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json
+are generated from the typed event stream.
 Postflight reverts unauthorized edits and emits an
 UnauthorizedArtifactEdit event. Use the typed tool surface
 (MCP or CLI) to record progress.

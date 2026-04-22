@@ -20,6 +20,16 @@ use super::task::AcceptanceCriterion;
 pub struct Spec {
     pub id: SpecId,
     pub title: NonEmptyString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem_statement: Option<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub motivations: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expectations: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planned_behaviors: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_plan: Vec<NonEmptyString>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub non_negotiables: Vec<NonEmptyString>,
     pub acceptance_criteria: Vec<AcceptanceCriterion>,

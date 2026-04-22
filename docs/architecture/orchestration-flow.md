@@ -294,8 +294,10 @@ the investigate session.
 
 ## 7. Artifact edit enforcement
 
-Orchestrator-owned files (`plan.md`, `progress.json`, generated
-indexes, `phase-events.jsonl`) cannot be edited by agents.
+Orchestrator-owned files (`spec.md`, `plan.md`, `tasks.md`,
+`tasks.json`, `demo.md`, `progress.json`,
+`.tanren-generated-artifacts.json`, `phase-events.jsonl`) cannot be
+edited by agents.
 `phase-events.jsonl` is append-only via typed tools, and appended lines
 must exactly match projected outbox rows for the active session.
 Three-layer
@@ -305,20 +307,23 @@ enforcement:
    into every agent prompt:
    > ⚠️ The following files are orchestrator-owned. Any edits will
    > be reverted and recorded as an `UnauthorizedArtifactEdit` event:
-   > plan.md, progress.json. `phase-events.jsonl` appends are only
+   > spec.md, plan.md, tasks.md, tasks.json, demo.md, progress.json,
+   > and the generated-artifacts manifest. `phase-events.jsonl`
+   > appends are only
    > accepted when they match service-projected outbox events.
 2. **Filesystem `chmod 0444`** — set on agent session start for
-   read-only artifacts (`plan.md`, `progress.json`, generated
-   indexes); append-only artifacts keep write mode so orchestrator
+   read-only artifacts (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
+   `demo.md`, `progress.json`, generated indexes, generated-artifacts
+   manifest); append-only artifacts keep write mode so orchestrator
    outbox projection can append.
 3. **Postflight diff + auto-revert** — diff each file against its
    pre-phase snapshot; mismatches are reverted and emit
    `UnauthorizedArtifactEdit { file, diff_preview, phase, agent_session }`.
 
-Agent-authored evidence files (`spec.md`, `demo.md`, `audit.md`,
-`signposts.md`, `investigation-report.json`) have writable markdown
-bodies. Structured frontmatter is managed by tools only; the
-enforcement layer reverts raw frontmatter edits.
+Agent-authored narrative files (`audit.md`, `signposts.md`,
+`investigation-report.json`) have writable bodies. Generated
+orchestrator-owned artifacts are fully projected and overwritten
+deterministically from events.
 
 ---
 

@@ -18,7 +18,7 @@ required_capabilities:
   - task.read
   - phase.outcome
 produces_evidence:
-  - behavior-map.md
+  - none (reads projected artifacts and emits typed outcome/tasks only)
 ---
 
 # walk-spec
@@ -35,8 +35,8 @@ signal complete.
 
 - The fully-implemented spec (all tasks Complete, audits passed,
   demo passed).
-- The spec's `spec.md`, `plan.md`, `demo.md`, `audit.md`, and
-  `behavior-map.md`.
+- The spec's projected artifacts: `spec.md`, `plan.md`, `tasks.md`,
+  `tasks.json`, `demo.md`, `progress.json`, and `audit.md`.
 
 ## Responsibilities
 
@@ -45,8 +45,8 @@ signal complete.
    `report_phase_outcome("error", …)` immediately — walk-spec is
    not the place to fix unfinished work.
 2. Run `{{SPEC_VERIFICATION_HOOK}}` and confirm green.
-3. Present an implementation summary in behavior terms:
-   behavior IDs, mapped scenarios, and demo evidence.
+3. Present an implementation summary in shaped-behavior terms:
+   planned behaviors, implemented tasks, and demo evidence.
 4. Walk through the demo step-by-step. For each step: explain,
    execute, show result, confirm before next.
 5. If a demo step fails during the walkthrough: STOP. Call

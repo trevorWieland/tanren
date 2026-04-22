@@ -306,13 +306,85 @@ fn cli_set_spec_relevance_context(url: &str, spec_folder: &Path, spec_id: SpecId
     );
 }
 
-fn cli_spec_updates(url: &str, spec_folder: &Path, spec_id: SpecId) {
+fn cli_spec_updates_primary(url: &str, spec_folder: &Path, spec_id: SpecId) {
     let _ = run_cli_tool(url, spec_folder, "do-task", "spec", "set-title", &c::SetSpecTitleParams {
         schema_version: schema(),
         spec_id,
         title: "Spec Title".into(),
         idempotency_key: Some("parity-spec-title".into()),
     });
+    let _ = run_cli_tool(
+        url,
+        spec_folder,
+        "do-task",
+        "spec",
+        "set-problem-statement",
+        &c::SetSpecProblemStatementParams {
+            schema_version: schema(),
+            spec_id,
+            problem_statement: "Current orchestration is non-deterministic.".into(),
+            idempotency_key: Some("parity-spec-problem".into()),
+        },
+    );
+    let _ = run_cli_tool(
+        url,
+        spec_folder,
+        "do-task",
+        "spec",
+        "set-motivations",
+        &c::SetSpecMotivationsParams {
+            schema_version: schema(),
+            spec_id,
+            motivations: vec![ne("determinism"), ne("auditability")],
+            idempotency_key: Some("parity-spec-motivations".into()),
+        },
+    );
+    let _ = run_cli_tool(
+        url,
+        spec_folder,
+        "do-task",
+        "spec",
+        "set-expectations",
+        &c::SetSpecExpectationsParams {
+            schema_version: schema(),
+            spec_id,
+            expectations: vec![ne("plan is always generated"), ne("status is event-derived")],
+            idempotency_key: Some("parity-spec-expectations".into()),
+        },
+    );
+    let _ = run_cli_tool(
+        url,
+        spec_folder,
+        "do-task",
+        "spec",
+        "set-planned-behaviors",
+        &c::SetSpecPlannedBehaviorsParams {
+            schema_version: schema(),
+            spec_id,
+            planned_behaviors: vec![ne("typed events only"), ne("projection-owned artifacts")],
+            idempotency_key: Some("parity-spec-behaviors".into()),
+        },
+    );
+    let _ = run_cli_tool(
+        url,
+        spec_folder,
+        "do-task",
+        "spec",
+        "set-implementation-plan",
+        &c::SetSpecImplementationPlanParams {
+            schema_version: schema(),
+            spec_id,
+            implementation_plan: vec![
+                ne("define schemas"),
+                ne("wire projector"),
+                ne("verify end-to-end"),
+            ],
+            idempotency_key: Some("parity-spec-impl-plan".into()),
+        },
+    );
+}
+
+fn cli_spec_updates_secondary(url: &str, spec_folder: &Path, spec_id: SpecId) {
     let _ = run_cli_tool(
         url,
         spec_folder,
@@ -391,6 +463,11 @@ fn cli_spec_updates(url: &str, spec_folder: &Path, spec_id: SpecId) {
             idempotency_key: Some("parity-spec-branch".into()),
         },
     );
+}
+
+fn cli_spec_updates(url: &str, spec_folder: &Path, spec_id: SpecId) {
+    cli_spec_updates_primary(url, spec_folder, spec_id);
+    cli_spec_updates_secondary(url, spec_folder, spec_id);
     cli_set_spec_relevance_context(url, spec_folder, spec_id);
 }
 
@@ -829,13 +906,65 @@ fn mcp_task_lifecycle(
     });
 }
 
-fn mcp_spec_updates(do_task: &mut McpSession, spec_id: SpecId) {
+fn mcp_spec_updates_primary(do_task: &mut McpSession, spec_id: SpecId) {
     let _ = do_task.call("set_spec_title", &c::SetSpecTitleParams {
         schema_version: schema(),
         spec_id,
         title: "Spec Title".into(),
         idempotency_key: Some("parity-spec-title".into()),
     });
+    let _ = do_task.call(
+        "set_spec_problem_statement",
+        &c::SetSpecProblemStatementParams {
+            schema_version: schema(),
+            spec_id,
+            problem_statement: "Current orchestration is non-deterministic.".into(),
+            idempotency_key: Some("parity-spec-problem".into()),
+        },
+    );
+    let _ = do_task.call(
+        "set_spec_motivations",
+        &c::SetSpecMotivationsParams {
+            schema_version: schema(),
+            spec_id,
+            motivations: vec![ne("determinism"), ne("auditability")],
+            idempotency_key: Some("parity-spec-motivations".into()),
+        },
+    );
+    let _ = do_task.call(
+        "set_spec_expectations",
+        &c::SetSpecExpectationsParams {
+            schema_version: schema(),
+            spec_id,
+            expectations: vec![ne("plan is always generated"), ne("status is event-derived")],
+            idempotency_key: Some("parity-spec-expectations".into()),
+        },
+    );
+    let _ = do_task.call(
+        "set_spec_planned_behaviors",
+        &c::SetSpecPlannedBehaviorsParams {
+            schema_version: schema(),
+            spec_id,
+            planned_behaviors: vec![ne("typed events only"), ne("projection-owned artifacts")],
+            idempotency_key: Some("parity-spec-behaviors".into()),
+        },
+    );
+    let _ = do_task.call(
+        "set_spec_implementation_plan",
+        &c::SetSpecImplementationPlanParams {
+            schema_version: schema(),
+            spec_id,
+            implementation_plan: vec![
+                ne("define schemas"),
+                ne("wire projector"),
+                ne("verify end-to-end"),
+            ],
+            idempotency_key: Some("parity-spec-impl-plan".into()),
+        },
+    );
+}
+
+fn mcp_spec_updates_secondary(do_task: &mut McpSession, spec_id: SpecId) {
     let _ = do_task.call(
         "set_spec_non_negotiables",
         &c::SetSpecNonNegotiablesParams {
@@ -900,6 +1029,11 @@ fn mcp_spec_updates(do_task: &mut McpSession, spec_id: SpecId) {
             idempotency_key: Some("parity-spec-relevance".into()),
         },
     );
+}
+
+fn mcp_spec_updates(do_task: &mut McpSession, spec_id: SpecId) {
+    mcp_spec_updates_primary(do_task, spec_id);
+    mcp_spec_updates_secondary(do_task, spec_id);
 }
 
 fn mcp_demo_updates(do_task: &mut McpSession, spec_id: SpecId) {

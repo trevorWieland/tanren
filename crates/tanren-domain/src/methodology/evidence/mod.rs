@@ -27,7 +27,10 @@ pub use audit::{AuditFrontmatter, AuditKind, AuditStatus};
 pub use demo::{
     DemoEnvironmentProbe, DemoFrontmatter, DemoKind, DemoResult, DemoStatus, DemoStep, DemoStepMode,
 };
-pub use frontmatter::{FrontmatterError, join, parse_typed, split};
+pub use frontmatter::{
+    EVIDENCE_SCHEMA_VERSION, EvidenceSchemaVersion, FrontmatterError, default_schema_version, join,
+    parse_typed, split,
+};
 pub use investigation::{
     Confidence, InvestigationKind, InvestigationReport, InvestigationTrigger, RootCause,
     RootCauseCategory, SuggestedAction,

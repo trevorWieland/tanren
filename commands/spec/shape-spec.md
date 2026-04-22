@@ -9,6 +9,11 @@ declared_variables:
   - TASK_TOOL_BINDING
 declared_tools:
   - set_spec_title
+  - set_spec_problem_statement
+  - set_spec_motivations
+  - set_spec_expectations
+  - set_spec_planned_behaviors
+  - set_spec_implementation_plan
   - set_spec_non_negotiables
   - add_spec_acceptance_criterion
   - set_spec_demo_environment
@@ -25,9 +30,12 @@ required_capabilities:
   - task.read
   - phase.outcome
 produces_evidence:
-  - spec.md (narrative body)
-  - demo.md (narrative body)
-  - behavior-map.md
+  - spec.md (generated projection)
+  - plan.md (generated projection)
+  - tasks.md (generated projection)
+  - tasks.json (generated projection)
+  - demo.md (generated projection)
+  - progress.json (generated projection)
 ---
 
 # shape-spec
@@ -35,10 +43,9 @@ produces_evidence:
 ## Purpose
 
 Shape a new spec interactively with the user. Establish scope,
-non-negotiables, acceptance criteria, a runnable demo plan, and an
-initial task breakdown. Behavior inventory is mandatory: define new,
-modified, and deprecated behaviors with stable behavior IDs and map
-them to scenarios and demo steps.
+problem framing, motivations, expectations, planned behaviors,
+ordered implementation plan, non-negotiables, acceptance criteria,
+a runnable demo plan, and an initial task breakdown.
 
 ## Inputs (from your dispatch)
 
@@ -51,29 +58,41 @@ them to scenarios and demo steps.
 1. Work with the user to articulate the problem, scope, and
    acceptance criteria. Ask clarifying questions until there is zero
    ambiguity.
-2. Derive non-negotiables (hard constraints that must always hold).
-3. Build a behavior inventory with stable IDs for every new,
-   modified, and deprecated behavior in scope.
-4. Design a runnable demo plan: concrete steps, each tagged `RUN`
-   or `SKIP`, with explicit expected observables and linked behavior
-   IDs. Probe the demo environment *before* committing `RUN` tags —
-   if a connection is unavailable, mark `SKIP` with the reason.
-5. Create `behavior-map.md` in the spec folder, mapping each
-   behavior ID to planned feature/scenario IDs and demo step IDs.
+2. Before calling any mutation tool, present a draft bundle
+   (title, problem statement, motivations, expectations, planned
+   behaviors, ordered implementation plan, non-negotiables,
+   acceptance criteria, demo plan, ordered tasks) and get explicit
+   user confirmation to proceed.
+3. Derive non-negotiables (hard constraints that must always hold).
+4. Capture planned behaviors as typed list entries tied to the shaped
+   scope.
+5. Design a runnable demo plan: concrete steps, each tagged `RUN`
+   or `SKIP`, with explicit expected observables. Probe the demo
+   environment *before* committing `RUN` tags —
+   if a connection is unavailable, mark `SKIP` with the reason. Demo
+   steps are proof of completed behavior only; do not put
+   implementation actions (for example "delete files") in demo steps.
+   Use verification observables instead (for example grep/assert
+   checks showing the final state).
 6. Break the work into ordered tasks with clear acceptance criteria.
-   Tasks should be independently verifiable and traceable to behavior
-   IDs.
-7. Emit every structured fact via tools (see below). Author the
-   narrative body of `spec.md`, `demo.md`, and `behavior-map.md` as
-   supporting prose.
+   Tasks should be independently verifiable and traceable to planned
+   behaviors and expectations.
+7. Emit every structured fact via tools (see below). Do not hand-edit
+   orchestrator-owned artifacts.
 
 ## Emitting results
 
 {{TASK_TOOL_BINDING}}
 
+Do not emit mutation calls until the user has confirmed the shaped
+draft.
+
 Call in this order:
 
-1. `set_spec_title`, `set_spec_non_negotiables`
+1. `set_spec_title`, `set_spec_problem_statement`,
+   `set_spec_motivations`, `set_spec_expectations`,
+   `set_spec_planned_behaviors`, `set_spec_implementation_plan`,
+   `set_spec_non_negotiables`
 2. `add_spec_acceptance_criterion` per criterion (stable id, clear
    description, verifiable measurable)
 3. `set_spec_demo_environment` with probed connection defs
@@ -87,7 +106,22 @@ Call in this order:
    coverage intent
 8. `report_phase_outcome("complete", <short summary>)`
 
+Successful completion must leave the full generated artifact set
+present and current: `spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
+`demo.md`, `progress.json`, `phase-events.jsonl`.
+
 {{READONLY_ARTIFACT_BANNER}}
+
+## Handoff expectation
+
+Shape-spec ends at artifact/task creation plus
+`report_phase_outcome("complete", …)`. The expected execution handoff
+is:
+
+1. `do-task` on the first pending task (or orchestrator auto-selection
+   when available)
+2. Task loop execution until all tasks are complete
+3. Spec gate + `run-demo` + `audit-spec` after implementation is done
 
 ## Out of scope
 

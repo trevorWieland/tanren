@@ -183,8 +183,8 @@ fn plan_install_applies_task_tool_binding_per_target() {
     for w in plan.writes {
         let body = String::from_utf8(w.bytes).expect("utf8");
         let is_task_file = w.dest.ends_with("do-task.md");
-        let has_mcp = body.contains("binding=mcp");
-        let has_cli = body.contains("binding=cli");
+        let has_mcp = body.contains("Use Tanren MCP tools for all structured mutations");
+        let has_cli = body.contains("Use the Tanren CLI for all structured mutations");
         if is_task_file && has_mcp {
             claude = Some(body.clone());
         }

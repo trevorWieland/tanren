@@ -212,6 +212,7 @@ fn default_scope_for_known_phase(phase: Option<KnownPhase>) -> Option<Capability
         Some(KnownPhase::ShapeSpec) => &[
             TaskCreate,
             TaskRevise,
+            TaskRead,
             SpecFrontmatter,
             DemoFrontmatter,
             SignpostAdd,
@@ -319,6 +320,14 @@ mod tests {
         assert!(scope.allows(ToolCapability::TaskComplete));
         assert!(!scope.allows(ToolCapability::TaskCreate));
         assert!(!scope.allows(ToolCapability::PhaseEscalate));
+    }
+
+    #[test]
+    fn shape_spec_scope_includes_task_read_for_traceability() {
+        let scope = default_scope_for_phase(&phase_id("shape-spec")).expect("shape-spec exists");
+        assert!(scope.allows(ToolCapability::TaskRead));
+        assert!(scope.allows(ToolCapability::TaskCreate));
+        assert!(scope.allows(ToolCapability::SpecFrontmatter));
     }
 
     #[test]

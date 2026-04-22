@@ -49,6 +49,8 @@ pub enum MethodologyError {
     CapabilityDenied {
         capability: ToolCapability,
         phase: String,
+        granted_capabilities: Vec<ToolCapability>,
+        remediation: String,
     },
 
     #[error("illegal task transition: task {task_id} {from} → {attempted}")]
@@ -248,6 +250,10 @@ pub enum ToolError {
     CapabilityDenied {
         capability: String,
         phase: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        granted_capabilities: Vec<String>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        remediation: String,
     },
     IllegalTaskTransition {
         task_id: tanren_domain::TaskId,
@@ -301,9 +307,19 @@ impl From<&MethodologyError> for ToolError {
                 score: *score,
                 reason: reason.clone(),
             },
-            MethodologyError::CapabilityDenied { capability, phase } => Self::CapabilityDenied {
+            MethodologyError::CapabilityDenied {
+                capability,
+                phase,
+                granted_capabilities,
+                remediation,
+            } => Self::CapabilityDenied {
                 capability: capability.tag().into(),
                 phase: phase.clone(),
+                granted_capabilities: granted_capabilities
+                    .iter()
+                    .map(|cap| cap.tag().to_owned())
+                    .collect(),
+                remediation: remediation.clone(),
             },
             MethodologyError::IllegalTaskTransition {
                 task_id,
@@ -380,11 +396,21 @@ impl From<ToolError> for MethodologyError {
                 actual,
                 remediation,
             },
-            ToolError::CapabilityDenied { capability, phase } => {
+            ToolError::CapabilityDenied {
+                capability,
+                phase,
+                granted_capabilities,
+                remediation,
+            } => {
                 if let Some(parsed) = parse_tool_capability(&capability) {
                     Self::CapabilityDenied {
                         capability: parsed,
                         phase,
+                        granted_capabilities: granted_capabilities
+                            .iter()
+                            .filter_map(|tag| parse_tool_capability(tag))
+                            .collect(),
+                        remediation,
                     }
                 } else {
                     Self::Internal(format!(

@@ -15,7 +15,57 @@
 //! `BTreeMap<String, Value>` on render), and strict on malformed input
 //! (no silent recovery, typed errors).
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+/// Required schema version for orchestrator-owned markdown frontmatter.
+pub const EVIDENCE_SCHEMA_VERSION: &str = "v1";
+
+/// Schema version tag embedded in markdown frontmatter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct EvidenceSchemaVersion(String);
+
+impl Default for EvidenceSchemaVersion {
+    fn default() -> Self {
+        Self::current()
+    }
+}
+
+impl EvidenceSchemaVersion {
+    /// Current evidence schema version.
+    #[must_use]
+    pub fn current() -> Self {
+        Self(EVIDENCE_SCHEMA_VERSION.to_owned())
+    }
+
+    /// Access as `&str`.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+/// Serde default helper for `schema_version` fields.
+#[must_use]
+pub fn default_schema_version() -> EvidenceSchemaVersion {
+    EvidenceSchemaVersion::current()
+}
+
+impl<'de> Deserialize<'de> for EvidenceSchemaVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        if raw == EVIDENCE_SCHEMA_VERSION {
+            Ok(Self(raw))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "unsupported schema_version `{raw}` (expected `{EVIDENCE_SCHEMA_VERSION}`)"
+            )))
+        }
+    }
+}
 
 /// Error returned by [`split`] / [`join`] when input is malformed.
 ///
@@ -52,6 +102,12 @@ pub enum FrontmatterError {
 /// # Errors
 /// See [`FrontmatterError`].
 pub fn split(input: &str) -> Result<(serde_yaml::Value, String), FrontmatterError> {
+    let (yaml, body) = split_yaml_and_body(input)?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&yaml)?;
+    Ok((value, body))
+}
+
+fn split_yaml_and_body(input: &str) -> Result<(String, String), FrontmatterError> {
     let normalized = input.replace("\r\n", "\n");
     let mut lines = normalized.lines();
     let first = lines.next().ok_or(FrontmatterError::MissingOpener)?;
@@ -74,7 +130,6 @@ pub fn split(input: &str) -> Result<(serde_yaml::Value, String), FrontmatterErro
         return Err(FrontmatterError::MissingCloser);
     }
     let yaml = yaml_lines.join("\n");
-    let value: serde_yaml::Value = serde_yaml::from_str(&yaml)?;
     // Trailing newline on body is lossy under line-splitting; rebuild
     // with a final \n to match canonical rendering.
     let body = if body_lines.is_empty() {
@@ -84,7 +139,7 @@ pub fn split(input: &str) -> Result<(serde_yaml::Value, String), FrontmatterErro
         s.push('\n');
         s
     };
-    Ok((value, body))
+    Ok((yaml, body))
 }
 
 /// Render a typed frontmatter struct plus a markdown body into a
@@ -127,12 +182,57 @@ pub fn join<T: Serialize>(frontmatter: &T, body: &str) -> Result<String, Frontma
 pub fn parse_typed<T: for<'de> Deserialize<'de>>(
     input: &str,
 ) -> Result<(T, String), FrontmatterError> {
-    let (value, body) = split(input)?;
-    let parsed: T =
-        serde_yaml::from_value(value).map_err(|source| FrontmatterError::SchemaError {
-            reason: source.to_string(),
-        })?;
+    let (yaml, body) = split_yaml_and_body(input)?;
+    let de = serde_yaml::Deserializer::from_str(&yaml);
+    let parsed: T = serde_path_to_error::deserialize(de).map_err(|source| {
+        let path = serde_path_to_json_pointer(&source.path().to_string());
+        let reason = format!("{path}: {}", source.inner());
+        FrontmatterError::SchemaError { reason }
+    })?;
     Ok((parsed, body))
+}
+
+fn serde_path_to_json_pointer(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        return "/".into();
+    }
+    let mut out = String::new();
+    let mut token = String::new();
+    let mut in_brackets = false;
+    for ch in trimmed.chars() {
+        match ch {
+            '.' if !in_brackets => {
+                if !token.is_empty() {
+                    out.push('/');
+                    out.push_str(&token);
+                    token.clear();
+                }
+            }
+            '[' => {
+                if !token.is_empty() {
+                    out.push('/');
+                    out.push_str(&token);
+                    token.clear();
+                }
+                in_brackets = true;
+            }
+            ']' => {
+                if !token.is_empty() {
+                    out.push('/');
+                    out.push_str(&token);
+                    token.clear();
+                }
+                in_brackets = false;
+            }
+            _ => token.push(ch),
+        }
+    }
+    if !token.is_empty() {
+        out.push('/');
+        out.push_str(&token);
+    }
+    if out.is_empty() { "/".into() } else { out }
 }
 
 #[cfg(test)]
@@ -200,6 +300,31 @@ mod tests {
         let input = "---\nkind: demo\nn: not-a-number\n---\nbody\n";
         let err = parse_typed::<Sample>(input).expect_err("must fail");
         assert!(matches!(err, FrontmatterError::SchemaError { .. }));
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct Nested {
+        label: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct Root {
+        nested: Nested,
+    }
+
+    #[test]
+    fn schema_error_reports_actionable_field_path() {
+        let input = "---\nnested:\n  label:\n    bad: map\n---\nbody\n";
+        let err = parse_typed::<Root>(input).expect_err("must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("/nested/label"),
+            "schema errors should include field path, got: {msg}"
+        );
+        assert!(
+            msg.contains("expected a string"),
+            "schema errors should preserve type mismatch reason, got: {msg}"
+        );
     }
 
     #[test]

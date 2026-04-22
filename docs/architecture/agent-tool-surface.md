@@ -142,6 +142,11 @@ types are canonical syntax.
 | Tool | Capability |
 |---|---|
 | `set_spec_title(title)` | `spec.frontmatter` |
+| `set_spec_problem_statement(problem_statement)` | `spec.frontmatter` |
+| `set_spec_motivations(motivations[])` | `spec.frontmatter` |
+| `set_spec_expectations(expectations[])` | `spec.frontmatter` |
+| `set_spec_planned_behaviors(planned_behaviors[])` | `spec.frontmatter` |
+| `set_spec_implementation_plan(implementation_plan[])` | `spec.frontmatter` |
 | `set_spec_non_negotiables(items[])` | `spec.frontmatter` |
 | `add_spec_acceptance_criterion(id, description, measurable)` | `spec.frontmatter` |
 | `set_spec_demo_environment(connections[])` | `spec.frontmatter` |
@@ -200,7 +205,7 @@ are validation failures (hard error), not silently ignored.
 
 | Phase | Capabilities |
 |---|---|
-| `shape-spec` | task.create, task.revise, spec.frontmatter, demo.frontmatter, signpost.add, phase.outcome |
+| `shape-spec` | task.create, task.revise, task.read, spec.frontmatter, demo.frontmatter, signpost.add, phase.outcome |
 | `do-task` | task.start, task.complete, signpost.add, signpost.update, task.read, phase.outcome |
 | `audit-task` | finding.add, rubric.record, compliance.record, task.read, phase.outcome |
 | `adhere-task` | standard.read, adherence.record, task.read, phase.outcome |
@@ -259,6 +264,7 @@ event per line.
 
 ```jsonc
 {
+  "schema_version": "1.0.0",
   "event_id": "<uuid-v7>",
   "spec_id": "<uuid-v7>",
   "phase": "do-task",
@@ -345,9 +351,11 @@ duplicate events from network-level retries.
 
 The service translates tool-input → validated domain event + store
 mutation atomically, then projects `phase-events.jsonl` via a durable
-outbox worker. Processed-row projection I/O failures return typed
-errors, while backlog draining remains best-effort and is recovered by
-reconciliation without losing canonical events.
+outbox worker and materializes the generated artifact set
+(`spec.md`, `plan.md`, `tasks.md`, `tasks.json`, `demo.md`,
+`progress.json`, manifest). Processed-row projection I/O failures
+return typed errors, while backlog draining remains best-effort and is
+recovered by reconciliation without losing canonical events.
 
 ---
 

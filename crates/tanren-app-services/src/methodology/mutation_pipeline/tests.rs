@@ -4,9 +4,16 @@ use std::sync::Arc;
 use chrono::Utc;
 use tanren_domain::events::{DomainEvent, EventEnvelope};
 use tanren_domain::methodology::events::MethodologyEvent;
+use tanren_domain::methodology::evidence::PlanFrontmatter;
 use tanren_domain::{EntityRef, EventId, TaskId};
 use tanren_store::methodology::AppendPhaseEventOutboxParams;
 use tanren_store::{EventFilter, EventStore, Store};
+
+#[path = "tests_append.rs"]
+mod tests_append;
+#[path = "tests_support.rs"]
+mod tests_support;
+use tests_support::seed_phase_events_file;
 
 async fn mk_service() -> (MethodologyService, SpecId) {
     let store = Store::open_and_migrate("sqlite::memory:")
@@ -36,6 +43,7 @@ async fn finalize_emits_unauthorized_edit_and_reverts_file() {
     let root = tempfile::tempdir().expect("tempdir");
     let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
     std::fs::create_dir_all(&spec_folder).expect("mkdir");
+    seed_phase_events_file(&spec_folder, spec_id);
     let plan = spec_folder.join("plan.md");
     std::fs::write(&plan, "original\n").expect("seed");
 
@@ -51,7 +59,11 @@ async fn finalize_emits_unauthorized_edit_and_reverts_file() {
         .expect("finalize");
 
     let on_disk = std::fs::read_to_string(&plan).expect("read");
-    assert_eq!(on_disk, "original\n", "postflight must revert edits");
+    assert!(
+        on_disk.contains("kind: plan"),
+        "plan.md must be regenerated from projections"
+    );
+    let _ = PlanFrontmatter::parse_from_markdown(&on_disk).expect("typed plan frontmatter");
 
     let events = service
         .store()
@@ -76,6 +88,7 @@ async fn finalize_reverts_newly_created_protected_artifact() {
     let root = tempfile::tempdir().expect("tempdir");
     let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
     std::fs::create_dir_all(&spec_folder).expect("mkdir");
+    seed_phase_events_file(&spec_folder, spec_id);
 
     let guard = enter_mutation_session(&spec_folder).expect("enter");
     let created = spec_folder.join("plan.md");
@@ -87,9 +100,11 @@ async fn finalize_reverts_newly_created_protected_artifact() {
         .expect("finalize");
 
     assert!(
-        !created.exists(),
-        "postflight must remove newly created protected artifacts"
+        created.exists(),
+        "plan.md must be projected even after unauthorized manual creation"
     );
+    let on_disk = std::fs::read_to_string(&created).expect("read generated plan");
+    let _ = PlanFrontmatter::parse_from_markdown(&on_disk).expect("typed plan frontmatter");
 
     let events = service
         .store()
@@ -401,6 +416,19 @@ async fn finalize_allows_projected_phase_events_appends() {
         on_disk.contains(&projected_json),
         "projected append should be preserved"
     );
+    for required in [
+        "spec.md",
+        "plan.md",
+        "tasks.md",
+        "tasks.json",
+        "demo.md",
+        "progress.json",
+    ] {
+        assert!(
+            spec_folder.join(required).exists(),
+            "projected artifact `{required}` should exist after finalize",
+        );
+    }
 
     let events = service
         .store()
@@ -420,44 +448,6 @@ async fn finalize_allows_projected_phase_events_appends() {
         )),
         "authorized append should not emit unauthorized-artifact events"
     );
-}
-
-#[tokio::test]
-async fn finalize_reverts_non_append_only_phase_events_edits() {
-    let (service, spec_id) = mk_service().await;
-    let root = tempfile::tempdir().expect("tempdir");
-    let spec_folder = root.path().join(format!("2026-01-01-0101-{spec_id}-demo"));
-    std::fs::create_dir_all(&spec_folder).expect("mkdir");
-    let phase_events = spec_folder.join("phase-events.jsonl");
-    std::fs::write(&phase_events, "{\"seed\":1}\n{\"next\":2}\n").expect("seed");
-
-    let guard = enter_mutation_session(&spec_folder).expect("enter");
-    std::fs::write(&phase_events, "{\"seed\":9}\n{\"next\":2}\n").expect("mutate");
-    let phase = PhaseId::try_new("do-task").expect("phase");
-
-    finalize_mutation_session(&service, &phase, spec_id, &spec_folder, "session-6", guard)
-        .await
-        .expect("finalize");
-    let on_disk = std::fs::read_to_string(&phase_events).expect("read phase-events");
-    assert_eq!(
-        on_disk, "{\"seed\":1}\n{\"next\":2}\n",
-        "non-append edits should be reverted"
-    );
-    let events = service
-        .store()
-        .query_events(&EventFilter {
-            event_type: Some("methodology".into()),
-            limit: 100,
-            ..EventFilter::new()
-        })
-        .await
-        .expect("query");
-    assert!(events.events.into_iter().any(|env| matches!(
-        env.payload,
-        DomainEvent::Methodology {
-            event: MethodologyEvent::UnauthorizedArtifactEdit(_)
-        }
-    )));
 }
 
 #[tokio::test]

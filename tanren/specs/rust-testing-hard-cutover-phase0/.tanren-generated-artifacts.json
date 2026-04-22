@@ -1,0 +1,13 @@
+{
+  "schema_version": "v1",
+  "contract_version": "v1",
+  "generated_artifacts": [
+    "spec.md",
+    "plan.md",
+    "tasks.md",
+    "tasks.json",
+    "demo.md",
+    "progress.json",
+    "phase-events.jsonl"
+  ]
+}

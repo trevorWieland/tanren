@@ -66,6 +66,7 @@ pub(super) fn write_phase_events_file(folder: &Path, spec_id: SpecId) -> PathBuf
         idempotency_key: None,
     });
     let line = serde_json::json!({
+        "schema_version": "1.0.0",
         "event_id": uuid::Uuid::now_v7(),
         "spec_id": spec_id,
         "phase": "do-task",
@@ -104,6 +105,7 @@ pub(super) fn write_legacy_phase_events_file(folder: &Path, spec_id: SpecId) -> 
         idempotency_key: None,
     });
     let line = serde_json::json!({
+        "schema_version": "1.0.0",
         "event_id": uuid::Uuid::now_v7(),
         "spec_id": spec_id,
         "phase": "do-task",

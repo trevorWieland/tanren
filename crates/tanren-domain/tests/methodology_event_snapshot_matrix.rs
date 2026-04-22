@@ -167,6 +167,11 @@ fn fixture_spec(ids: &FixtureIds) -> Spec {
     Spec {
         id: ids.spec,
         title: ne("spec"),
+        problem_statement: Some(ne("problem statement")),
+        motivations: vec![ne("motivation")],
+        expectations: vec![ne("expectation")],
+        planned_behaviors: vec![ne("planned behavior")],
+        implementation_plan: vec![ne("implementation step")],
         non_negotiables: vec![ne("non-negotiable")],
         acceptance_criteria: vec![AcceptanceCriterion {
             id: ne("spec-ac"),

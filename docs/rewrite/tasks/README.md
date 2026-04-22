@@ -37,7 +37,7 @@ Lane 0.3 (Store Core) ✅ merged   Lane 0.4 (Contract + CLI Wiring) ✅ merged  
 | 0.2 | `tanren-domain` | 0.1 | ✅ merged, audit-certified | [LANE-0.2-DOMAIN.md](LANE-0.2-DOMAIN.md) |
 | 0.3 | `tanren-store` | 0.2 | ✅ merged | [LANE-0.3-STORE.md](LANE-0.3-STORE.md) |
 | 0.4 | `tanren-contract`, `tanren-policy`, `tanren-orchestrator`, `tanren-app-services`, `tanren-observability`, `tanren-cli` | 0.2 | ✅ merged | [LANE-0.4-CLI-WIRING.md](LANE-0.4-CLI-WIRING.md) |
-| 0.5 | methodology boundary, typed task state, agent tool surface, multi-agent install, self-hosting (`tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/`) | 0.2, 0.3, 0.4 | ✅ merged | [LANE-0.5-BRIEF.md](LANE-0.5-BRIEF.md) · [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md) |
+| 0.5 | methodology boundary, typed task state, agent tool surface, multi-agent install, self-hosting (`tanren-domain::methodology`, `tanren-contract::methodology`, `tanren-store::methodology`, `tanren-app-services::methodology`, `tanren-mcp`, `commands/`) | 0.2, 0.3, 0.4 | ✅ merged + hardening follow-up scoped | [LANE-0.5-BRIEF.md](LANE-0.5-BRIEF.md) · [LANE-0.5-DESIGN-NOTES.md](LANE-0.5-DESIGN-NOTES.md) · [LANE-0.5-PHASE0-ENHANCEMENT-BRIEF.md](LANE-0.5-PHASE0-ENHANCEMENT-BRIEF.md) |
 
 ### First Milestone Exit Criteria
 
@@ -58,8 +58,8 @@ parallel worktrees and are now merged into foundation.
 
 Dispatch rules:
 
-- Implementation agents for the current lane get `LANE-0.5-BRIEF.md` plus `LANE-0.5-DESIGN-NOTES.md`
-- Audit agents for the current lane get `LANE-0.5-AUDIT.md` plus `LANE-0.5-DESIGN-NOTES.md`
+- Implementation agents for the current lane get `LANE-0.5-BRIEF.md` plus `LANE-0.5-DESIGN-NOTES.md`; Phase 0 hardening work uses `LANE-0.5-PHASE0-ENHANCEMENT-BRIEF.md`
+- Audit agents for the current lane get `LANE-0.5-AUDIT.md` plus `LANE-0.5-DESIGN-NOTES.md`; Phase 0 hardening audit uses `LANE-0.5-PHASE0-ENHANCEMENT-AUDIT.md`
 - Lane 0.5 scope is Phase-0 completion (methodology + typed task state + tool surface + install + self-hosting); it does not widen into Phase 1 harness/environment runtime work
 
 Integration happened at the Phase 0 boundary: the CLI binary connects to the real store and the methodology/tool-surface lane is merged.

@@ -29,6 +29,21 @@ pub enum SpecFrontmatterPatch {
     SetTitle {
         title: NonEmptyString,
     },
+    SetProblemStatement {
+        problem_statement: NonEmptyString,
+    },
+    SetMotivations {
+        motivations: Vec<NonEmptyString>,
+    },
+    SetExpectations {
+        expectations: Vec<NonEmptyString>,
+    },
+    SetPlannedBehaviors {
+        planned_behaviors: Vec<NonEmptyString>,
+    },
+    SetImplementationPlan {
+        implementation_plan: Vec<NonEmptyString>,
+    },
     SetNonNegotiables {
         items: Vec<NonEmptyString>,
     },

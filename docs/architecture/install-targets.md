@@ -184,7 +184,7 @@ and collects results for dry-run output.
 | `{{SPEC_ROOT}}`, `{{PRODUCT_ROOT}}`, `{{STANDARDS_ROOT}}` | optional; defaults `tanren/specs`, `tanren/product`, `tanren/standards` |
 | `{{PROJECT_LANGUAGE}}` | `methodology.variables.project_language` (required) |
 | `{{AGENT_CLI_NOUN}}` | `the agent CLI` by default |
-| `{{TASK_TOOL_BINDING}}` | install-target `binding` (`mcp` | `cli`) |
+| `{{TASK_TOOL_BINDING}}` | install-target binding-specific invocation prose (MCP-primary instructions with canonical CLI fallback examples) |
 | `{{PHASE_EVENTS_FILE}}` | `{spec_folder}/phase-events.jsonl` |
 | `{{READONLY_ARTIFACT_BANNER}}` | fixed prose |
 | `{{PILLAR_LIST}}` | effective rubric pillar ids: `tanren/rubric.yml` (preferred) → `tanren.yml methodology.rubric` (canonical) → built-in pillar ids |

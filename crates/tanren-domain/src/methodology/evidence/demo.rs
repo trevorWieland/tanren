@@ -7,12 +7,16 @@ use serde::{Deserialize, Serialize};
 use crate::ids::SpecId;
 use crate::validated::NonEmptyString;
 
-use super::frontmatter::{FrontmatterError, join, parse_typed};
+use super::frontmatter::{
+    EvidenceSchemaVersion, FrontmatterError, default_schema_version, join, parse_typed,
+};
 
 /// Typed `demo.md` frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DemoFrontmatter {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: EvidenceSchemaVersion,
     pub kind: DemoKind,
     pub spec_id: SpecId,
     pub environment: DemoEnvironmentProbe,
@@ -112,6 +116,7 @@ mod tests {
     #[test]
     fn roundtrip_stable() {
         let d = DemoFrontmatter {
+            schema_version: EvidenceSchemaVersion::current(),
             kind: DemoKind::Demo,
             spec_id: SpecId::new(),
             environment: DemoEnvironmentProbe {

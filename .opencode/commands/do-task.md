@@ -20,15 +20,17 @@ template: |2
   - The spec folder path.
   - Relevant standards (injected separately by Tanren-code; treat as
     context, not edits).
-  - Existing `behavior-map.md` mapping.
+  - Projected artifacts (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
+    `demo.md`, `progress.json`) for current state context.
 
   ## Responsibilities
 
   1. Call `start_task(task_id)` at session start (if not already
      transitioned).
   2. Implement only the supplied task. Do not touch unrelated files.
-  3. If the task changes behavior, update `behavior-map.md` and the
-     mapped scenario files in the same task session.
+  3. If the task changes behavior, update the implementation and test
+     scenarios so evidence remains coherent with projected planned
+     behaviors and expectations.
   4. Run `just check` before signalling complete. If
      it fails on trivial issues (formatting, imports), self-fix and
      re-run. If it fails persistently, stop: emit a signpost and
@@ -36,7 +38,7 @@ template: |2
   5. Record signposts for non-obvious issues you hit or decisions that
      would surprise a future reader. Each signpost needs concrete
      evidence — error messages, file paths, command output.
-  6. Treat behavior-changing code without behavior-map and scenario
+  6. Treat behavior-changing code without matching verification/scenario
      updates as incomplete work.
   7. On successful implementation: call
      `complete_task(task_id, evidence_refs)` with the relevant file
@@ -53,14 +55,16 @@ template: |2
 
   ## Emitting results
 
-  mcp
+  Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
+  `tanren methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --json '<payload>'`.
 
   Signposts carry typed status: `unresolved`, `resolved`, `deferred`,
   `architectural_constraint`. Use them honestly — they feed future
   audits and investigations.
 
   ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-  plan.md and progress.json are generated from the typed task store.
+  spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json
+  are generated from the typed event stream.
   Postflight reverts unauthorized edits and emits an
   UnauthorizedArtifactEdit event. Use the typed tool surface
   (MCP or CLI) to record progress.

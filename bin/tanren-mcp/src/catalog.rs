@@ -17,13 +17,16 @@ mod tests {
     use tanren_domain::methodology::all_tool_descriptors;
 
     #[test]
-    fn catalog_has_all_28_tools() {
+    fn catalog_has_all_domain_tools() {
         let tools = all_tools();
-        // §3.1(7) + §3.2(3) + §3.3(7) + §3.4(3) + §3.5(2) + §3.6(3)
-        // + §3.7(1) + §3.8(2) = 28 tool surface entries.
-        // (Ingest/replay are §6 CLI-only transports, not registered
-        // here.)
-        assert_eq!(tools.len(), 28, "expected 28 methodology tools");
+        let expected = all_tool_descriptors().len();
+        // Ingest/replay are CLI-only transports and are intentionally
+        // absent from the MCP registry.
+        assert_eq!(
+            tools.len(),
+            expected,
+            "expected MCP registry to mirror tanren-domain tool catalog"
+        );
     }
 
     #[test]

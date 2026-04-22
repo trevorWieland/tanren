@@ -1,0 +1,18 @@
+{
+  "schema_version": "v1",
+  "contract_version": "v1",
+  "spec_id": "00000000-0000-0000-0000-000000000c01",
+  "generated_at": "2026-04-22T14:52:08.657329Z",
+  "task_counts": {
+    "pending": 12,
+    "in_progress": 0,
+    "implemented": 1,
+    "complete": 0,
+    "abandoned": 0,
+    "total": 13
+  },
+  "first_event_at": "2026-04-22T14:14:08.137432Z",
+  "last_event_at": "2026-04-22T14:52:08.657329Z",
+  "latest_event_id": "019db5ad-5451-76b3-a607-4226e1f2b17c",
+  "latest_phase": "audit-task"
+}

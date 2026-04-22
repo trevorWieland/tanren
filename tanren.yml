@@ -81,7 +81,8 @@ methodology:
     phase_events_file: phase-events.jsonl
     readonly_artifact_banner: |
       ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-      plan.md and progress.json are generated from the typed task store.
+      spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json
+      are generated from the typed event stream.
       Postflight reverts unauthorized edits and emits an
       UnauthorizedArtifactEdit event. Use the typed tool surface
       (MCP or CLI) to record progress.

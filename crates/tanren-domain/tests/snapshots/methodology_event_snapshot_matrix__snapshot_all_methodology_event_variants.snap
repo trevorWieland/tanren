@@ -1,6 +1,6 @@
 ---
 source: crates/tanren-domain/tests/methodology_event_snapshot_matrix.rs
-assertion_line: 372
+assertion_line: 377
 expression: json
 ---
 [
@@ -9,6 +9,19 @@ expression: json
     "spec": {
       "id": "00000000-0000-0000-0000-0000000000a1",
       "title": "spec",
+      "problem_statement": "problem statement",
+      "motivations": [
+        "motivation"
+      ],
+      "expectations": [
+        "expectation"
+      ],
+      "planned_behaviors": [
+        "planned behavior"
+      ],
+      "implementation_plan": [
+        "implementation step"
+      ],
       "non_negotiables": [
         "non-negotiable"
       ],

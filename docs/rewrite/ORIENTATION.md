@@ -107,6 +107,7 @@ Current lane briefs:
 - `LANE-0.3-STORE.md` + `LANE-0.3-BRIEF.md` + `LANE-0.3-AUDIT.md`
 - `LANE-0.4-CLI-WIRING.md` + `LANE-0.4-BRIEF.md` + `LANE-0.4-AUDIT.md`
 - `LANE-0.5-METHODOLOGY.md` + `LANE-0.5-BRIEF.md` + `LANE-0.5-AUDIT.md` + `LANE-0.5-DESIGN-NOTES.md`
+- `LANE-0.5-PHASE0-ENHANCEMENT-BRIEF.md` + `LANE-0.5-PHASE0-ENHANCEMENT-AUDIT.md` — post-lane Phase 0 hardening packet
 - `LANE-1.1-HARNESS.md` + `LANE-1.1-BRIEF.md`
 - `LANE-1.2-HARNESS-ADAPTERS.md` + `LANE-1.2-BRIEF.md`
 - `LANE-1.3-ENV-CONTRACT.md` + `LANE-1.3-BRIEF.md`

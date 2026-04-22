@@ -15,11 +15,23 @@ use crate::methodology::projections;
 use super::replay::{IngestState, PhaseEventLine, ReplayError};
 use super::replay_task_state::validate_task_transition;
 
+const PHASE_EVENT_LINE_SCHEMA_VERSION: &str = "1.0.0";
+
 pub(super) fn validate_envelope_metadata(
     path: &Path,
     line_no: usize,
     parsed: &PhaseEventLine,
 ) -> Result<(), ReplayError> {
+    if parsed.schema_version != PHASE_EVENT_LINE_SCHEMA_VERSION {
+        return Err(ReplayError::field_validation(
+            path.to_path_buf(),
+            line_no,
+            "/schema_version".into(),
+            PHASE_EVENT_LINE_SCHEMA_VERSION.into(),
+            parsed.schema_version.clone(),
+            "upgrade or regenerate phase-events.jsonl to the current line schema".into(),
+        ));
+    }
     let payload_spec_id =
         parsed
             .payload

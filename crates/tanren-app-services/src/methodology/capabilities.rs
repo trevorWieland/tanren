@@ -25,9 +25,30 @@ pub fn enforce(
     if scope.allows(capability) {
         Ok(())
     } else {
+        let granted_capabilities: Vec<ToolCapability> = scope.0.iter().copied().collect();
+        let granted_tags = granted_capabilities
+            .iter()
+            .map(|cap| cap.tag())
+            .collect::<Vec<_>>();
+        let remediation = if granted_tags.is_empty() {
+            format!(
+                "phase `{}` currently has no granted capabilities; set TANREN_PHASE_CAPABILITIES with at least `{}` or use a phase whose default scope grants it",
+                phase.as_str(),
+                capability.tag()
+            )
+        } else {
+            format!(
+                "phase `{}` grants [{}]; use a phase/signed capability envelope that includes `{}`",
+                phase.as_str(),
+                granted_tags.join(", "),
+                capability.tag()
+            )
+        };
         Err(MethodologyError::CapabilityDenied {
             capability,
             phase: phase.as_str().to_owned(),
+            granted_capabilities,
+            remediation,
         })
     }
 }

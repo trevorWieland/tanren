@@ -15,6 +15,9 @@
 //! Waves 8 and 9 extend this module with the remaining tool methods
 //! plus the renderer / installer / format drivers.
 
+mod artifact_projection;
+mod artifact_projection_fold;
+mod artifact_projection_helpers;
 pub mod capabilities;
 pub mod config;
 pub mod enforcement;
@@ -36,6 +39,8 @@ mod service_findings;
 mod service_idempotency;
 mod service_phase;
 mod service_projection_reconcile;
+mod service_spec_shape;
+mod service_spec_status;
 mod service_standards;
 mod service_task_spec;
 mod service_tasks;

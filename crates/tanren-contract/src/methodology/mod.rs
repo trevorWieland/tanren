@@ -109,8 +109,10 @@ pub use rubric::{RecordNonNegotiableComplianceParams, RecordRubricScoreParams};
 pub use signpost::{AddSignpostParams, AddSignpostResponse, UpdateSignpostStatusParams};
 pub use spec::{
     AddSpecAcceptanceCriterionParams, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
-    SetSpecDependenciesParams, SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams,
-    SetSpecTitleParams,
+    SetSpecDependenciesParams, SetSpecExpectationsParams, SetSpecImplementationPlanParams,
+    SetSpecMotivationsParams, SetSpecNonNegotiablesParams, SetSpecPlannedBehaviorsParams,
+    SetSpecProblemStatementParams, SetSpecRelevanceContextParams, SetSpecTitleParams,
+    SpecStatusNextAction, SpecStatusParams, SpecStatusResponse,
 };
 pub use standard::{ListRelevantStandardsParams, ListRelevantStandardsResponse, RelevantStandard};
 pub use task::{

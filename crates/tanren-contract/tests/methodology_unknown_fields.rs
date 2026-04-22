@@ -114,9 +114,50 @@ fn task_and_scoring_params_reject_unknown_fields() {
 
 #[test]
 fn spec_and_demo_params_reject_unknown_fields() {
+    spec_params_reject_unknown_fields();
+    demo_params_reject_unknown_fields();
+}
+
+fn spec_params_reject_unknown_fields() {
     assert_unknown_field_rejected::<c::SetSpecTitleParams>(
         "set_spec_title",
         json!({"schema_version": "1.0.0", "spec_id": SPEC_A, "title": "New title"}),
+    );
+    assert_unknown_field_rejected::<c::SetSpecProblemStatementParams>(
+        "set_spec_problem_statement",
+        json!({
+            "schema_version": "1.0.0",
+            "spec_id": SPEC_A,
+            "problem_statement": "Current behavior is inconsistent."
+        }),
+    );
+    assert_unknown_field_rejected::<c::SetSpecMotivationsParams>(
+        "set_spec_motivations",
+        json!({"schema_version": "1.0.0", "spec_id": SPEC_A, "motivations": ["determinism"]}),
+    );
+    assert_unknown_field_rejected::<c::SetSpecExpectationsParams>(
+        "set_spec_expectations",
+        json!({
+            "schema_version": "1.0.0",
+            "spec_id": SPEC_A,
+            "expectations": ["always generate plan.md"]
+        }),
+    );
+    assert_unknown_field_rejected::<c::SetSpecPlannedBehaviorsParams>(
+        "set_spec_planned_behaviors",
+        json!({
+            "schema_version": "1.0.0",
+            "spec_id": SPEC_A,
+            "planned_behaviors": ["emit typed events only"]
+        }),
+    );
+    assert_unknown_field_rejected::<c::SetSpecImplementationPlanParams>(
+        "set_spec_implementation_plan",
+        json!({
+            "schema_version": "1.0.0",
+            "spec_id": SPEC_A,
+            "implementation_plan": ["wire projector", "update docs"]
+        }),
     );
     assert_unknown_field_rejected::<c::SetSpecNonNegotiablesParams>(
         "set_spec_non_negotiables",
@@ -165,6 +206,16 @@ fn spec_and_demo_params_reject_unknown_fields() {
             }
         }),
     );
+    assert_unknown_field_rejected::<c::SpecStatusParams>(
+        "spec_status",
+        json!({
+            "schema_version": "1.0.0",
+            "spec_id": SPEC_A
+        }),
+    );
+}
+
+fn demo_params_reject_unknown_fields() {
     assert_unknown_field_rejected::<c::AddDemoStepParams>(
         "add_demo_step",
         json!({

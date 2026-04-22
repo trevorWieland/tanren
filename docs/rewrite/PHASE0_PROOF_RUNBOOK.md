@@ -63,6 +63,35 @@ scripts/proof/phase0/verify.sh artifacts/phase0-proof/<timestamp>
 
 ---
 
+## Phase 0 Orchestration Entry Point
+
+Phase 0 now ships a reusable, non-Python orchestration entrypoint:
+
+```bash
+scripts/orchestration/phase0.sh --spec-id <spec-uuid> --spec-folder <spec-folder>
+```
+
+Behavior contract:
+
+- Resumes from store truth via `tanren methodology spec status`.
+- Autonomous loop runs Phase 0 task/spec gates and agentic phases through
+  Codex harness invocation.
+- Breaks out only at required human checkpoints:
+  - missing spec -> prompt `shape-spec`
+  - blocker halt -> prompt `resolve-blockers`
+  - walk-ready -> prompt `walk-spec`
+- Uses hook commands resolved from `tanren.yml` (task/spec/per-phase hooks)
+  and records resolved config in run artifacts under:
+  `<spec-folder>/orchestration/phase0/<timestamp>/`.
+
+Recommended operator flow:
+
+1. Manually shape the spec (`shape-spec`).
+2. Run `scripts/orchestration/phase0.sh ...`.
+3. When prompted for walk readiness, manually run `walk-spec`.
+
+---
+
 ## Artifact Layout
 
 ```text

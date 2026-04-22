@@ -18,6 +18,7 @@ chrono = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
 # YAML frontmatter parse/render for typed evidence files (spec.md,
 # plan.md, demo.md, audit.md, signposts.md). Pure serialization —
 # consistent with serde/serde_json already present here; no runtime

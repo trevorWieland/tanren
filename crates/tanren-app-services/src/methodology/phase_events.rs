@@ -18,10 +18,14 @@ use tanren_domain::{EventId, SpecId};
 
 use super::errors::MethodologyError;
 
+/// Schema version for `phase-events.jsonl` line envelopes.
+pub const PHASE_EVENT_LINE_SCHEMA_VERSION: &str = "1.0.0";
+
 /// Canonical `phase-events.jsonl` line envelope per
 /// `docs/architecture/agent-tool-surface.md` §6.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhaseEventLine {
+    pub schema_version: String,
     pub event_id: EventId,
     pub spec_id: SpecId,
     pub phase: String,
@@ -69,6 +73,7 @@ pub fn project_phase_events(
                 return None;
             }
             Some(PhaseEventLine {
+                schema_version: PHASE_EVENT_LINE_SCHEMA_VERSION.to_owned(),
                 event_id: env.event_id,
                 spec_id,
                 phase: phase.to_owned(),
@@ -137,6 +142,7 @@ pub fn line_for_envelope_with_attribution(
     }
     let default_origin = PhaseEventOriginKind::default_for_event(event);
     Some(PhaseEventLine {
+        schema_version: PHASE_EVENT_LINE_SCHEMA_VERSION.to_owned(),
         event_id: envelope.event_id,
         spec_id,
         phase: phase.to_owned(),
@@ -369,6 +375,7 @@ mod tests {
     fn render_jsonl_is_lf_terminated() {
         let spec = SpecId::new();
         let line = PhaseEventLine {
+            schema_version: PHASE_EVENT_LINE_SCHEMA_VERSION.to_owned(),
             event_id: EventId::new(),
             spec_id: spec,
             phase: "do-task".into(),

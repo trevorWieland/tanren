@@ -15,15 +15,29 @@ use crate::methodology::spec::{
 use crate::methodology::task::AcceptanceCriterion;
 use crate::validated::NonEmptyString;
 
-use super::frontmatter::{FrontmatterError, join, parse_typed};
+use super::frontmatter::{
+    EvidenceSchemaVersion, FrontmatterError, default_schema_version, join, parse_typed,
+};
 
 /// Typed `spec.md` frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SpecFrontmatter {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: EvidenceSchemaVersion,
     pub kind: SpecKind,
     pub spec_id: SpecId,
     pub title: NonEmptyString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem_statement: Option<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub motivations: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expectations: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planned_behaviors: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_plan: Vec<NonEmptyString>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub non_negotiables: Vec<NonEmptyString>,
     #[serde(default)]
@@ -71,9 +85,15 @@ mod tests {
 
     fn sample() -> SpecFrontmatter {
         SpecFrontmatter {
+            schema_version: EvidenceSchemaVersion::current(),
             kind: SpecKind::Spec,
             spec_id: SpecId::new(),
             title: NonEmptyString::try_new("Example spec").expect("non-empty"),
+            problem_statement: None,
+            motivations: vec![],
+            expectations: vec![],
+            planned_behaviors: vec![],
+            implementation_plan: vec![],
             non_negotiables: vec![],
             acceptance_criteria: vec![],
             demo_environment: DemoEnvironment::default(),

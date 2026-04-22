@@ -23,7 +23,6 @@ required_capabilities:
   - phase.outcome
 produces_evidence:
   - audit.md (spec-scope narrative body)
-  - behavior-map.md
 ---
 
 # audit-spec
@@ -41,7 +40,7 @@ spec) or `defer` (backlog for future specs via `triage-audits`).
 - Relevant standards (for context; compliance is `adhere-spec`).
 - `{{PILLAR_LIST}}` — effective pillar set for spec scope.
 - The spec's non-negotiables (from spec frontmatter).
-- `behavior-map.md`, linked scenarios, and demo outcomes.
+- Projected spec/task artifacts, linked scenarios, and demo outcomes.
 
 ## Responsibilities
 

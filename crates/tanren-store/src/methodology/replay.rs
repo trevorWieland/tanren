@@ -163,6 +163,7 @@ impl ReplayError {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct PhaseEventLine {
+    pub(super) schema_version: String,
     pub(super) event_id: EventId,
     pub(super) spec_id: SpecId,
     pub(super) phase: PhaseId,

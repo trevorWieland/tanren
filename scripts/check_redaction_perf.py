@@ -10,38 +10,51 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class ScenarioBudget:
+    """Budget for a single benchmark scenario."""
+
     baseline_mean_ns: float
     max_mean_ns: float
 
 
 @dataclass(frozen=True)
 class PerfBudget:
+    """Aggregate benchmark budget configuration."""
+
     max_regression_pct: float
     scenarios: dict[str, ScenarioBudget]
 
 
 def load_budget(path: Path) -> PerfBudget:
+    """Load and validate the benchmark budget JSON document.
+
+    Returns:
+        Parsed performance budget.
+
+    Raises:
+        TypeError: Threshold payload contains invalid types.
+        ValueError: Threshold payload contains invalid numeric constraints.
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
     raw_max_regression_pct = payload.get("max_regression_pct")
     if not isinstance(raw_max_regression_pct, (int, float)):
-        raise ValueError("threshold file must contain numeric 'max_regression_pct'")
+        raise TypeError("threshold file must contain numeric 'max_regression_pct'")
     max_regression_pct = float(raw_max_regression_pct)
     if max_regression_pct < 0:
         raise ValueError("'max_regression_pct' must be >= 0")
 
     scenarios = payload.get("scenarios")
     if not isinstance(scenarios, dict):
-        raise ValueError("threshold file must contain a 'scenarios' object")
+        raise TypeError("threshold file must contain a 'scenarios' object")
 
     parsed: dict[str, ScenarioBudget] = {}
     for scenario, spec in scenarios.items():
         if not isinstance(scenario, str) or not isinstance(spec, dict):
-            raise ValueError("scenario budget must be string -> object")
+            raise TypeError("scenario budget must be string -> object")
 
         baseline = spec.get("baseline_mean_ns")
         absolute = spec.get("max_mean_ns")
         if not isinstance(baseline, (int, float)) or not isinstance(absolute, (int, float)):
-            raise ValueError(
+            raise TypeError(
                 f"scenario '{scenario}' must define numeric baseline_mean_ns and max_mean_ns"
             )
         baseline_ns = float(baseline)
@@ -49,9 +62,7 @@ def load_budget(path: Path) -> PerfBudget:
         if baseline_ns <= 0 or max_mean_ns <= 0:
             raise ValueError(f"scenario '{scenario}' budgets must be > 0")
         if max_mean_ns < baseline_ns:
-            raise ValueError(
-                f"scenario '{scenario}' max_mean_ns must be >= baseline_mean_ns"
-            )
+            raise ValueError(f"scenario '{scenario}' max_mean_ns must be >= baseline_mean_ns")
         parsed[scenario] = ScenarioBudget(
             baseline_mean_ns=baseline_ns,
             max_mean_ns=max_mean_ns,
@@ -61,6 +72,15 @@ def load_budget(path: Path) -> PerfBudget:
 
 
 def read_benchmark_mean_ns(criterion_dir: Path, scenario: str) -> float:
+    """Read one scenario mean estimate from Criterion output.
+
+    Returns:
+        Mean point estimate in nanoseconds.
+
+    Raises:
+        FileNotFoundError: No estimate file exists for the scenario.
+        TypeError: Estimate payload is not in expected Criterion shape.
+    """
     parts = scenario.split("/")
     candidate_paths = [
         criterion_dir.joinpath(*parts, "new", "estimates.json"),
@@ -81,11 +101,16 @@ def read_benchmark_mean_ns(criterion_dir: Path, scenario: str) -> float:
     payload = json.loads(estimate_path.read_text(encoding="utf-8"))
     mean = payload.get("mean")
     if not isinstance(mean, dict) or not isinstance(mean.get("point_estimate"), (int, float)):
-        raise ValueError(f"invalid estimate payload in {estimate_path}")
+        raise TypeError(f"invalid estimate payload in {estimate_path}")
     return float(mean["point_estimate"])
 
 
 def main() -> int:
+    """Run the perf-gate comparison and return shell exit status.
+
+    Returns:
+        Exit status code (0 when budgets pass, 1 when violations exist).
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--thresholds",
@@ -130,11 +155,14 @@ def main() -> int:
             reasons = []
             if not relative_ok:
                 reasons.append(
-                    f"relative regression {regression_pct:+.1f}% exceeds +{budget.max_regression_pct:.1f}%"
+                    "relative regression "
+                    f"{regression_pct:+.1f}% exceeds "
+                    f"+{budget.max_regression_pct:.1f}%"
                 )
             if not absolute_ok:
                 reasons.append(
-                    f"absolute mean {observed_mean_ns:.0f}ns exceeds {scenario_budget.max_mean_ns:.0f}ns"
+                    f"absolute mean {observed_mean_ns:.0f}ns exceeds "
+                    f"{scenario_budget.max_mean_ns:.0f}ns"
                 )
             failures.append(f"{scenario}: " + "; ".join(reasons))
 

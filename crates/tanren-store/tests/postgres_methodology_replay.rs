@@ -55,6 +55,7 @@ fn line_json_with_attribution(
     caused_by_tool_call_id: Option<&str>,
 ) -> String {
     let mut obj = serde_json::Map::new();
+    obj.insert("schema_version".into(), json!("1.0.0"));
     obj.insert("event_id".into(), json!(event_id));
     obj.insert("spec_id".into(), json!(spec_id));
     obj.insert("phase".into(), json!("do-task"));

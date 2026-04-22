@@ -38,7 +38,7 @@ final column.
 | Task state transitions | tanren-code | owns the typed state machine and guard evaluation |
 | Finding → new-task materialization | tanren-code | owns remediation dispatch; `Complete` is terminal, so every remediation is a fresh task |
 | Evidence frontmatter management | tanren-code (via tools) | owns schema validation at the tool boundary; agents only call typed tools |
-| `plan.md` / `progress.json` rendering | tanren-code | owns the orchestrator-maintained artifacts with three-layer read-only enforcement |
+| generated artifact rendering (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`, `demo.md`, `progress.json`) | tanren-code | owns the event-projected artifact suite with three-layer read-only enforcement |
 | Template variable rendering | tanren-code | owns install-time rendering per target |
 | Install-target format driver dispatch | tanren-code | owns the Claude Code / Codex Skills / OpenCode / standards-baseline drivers |
 | MCP server registration | tanren-code | owns the typed tool catalog and stdio transport |
@@ -71,7 +71,8 @@ Shared command markdown **must not** hardcode:
 - branch creation or checkout steps
 - commit / push / PR steps
 - workflow-target selection logic ("find the next task")
-- direct writes to `plan.md`, `progress.json`, or any
+- direct writes to orchestrator-owned artifacts (`spec.md`, `plan.md`,
+  `tasks.md`, `tasks.json`, `demo.md`, `progress.json`) or any
   orchestrator-owned artifact
 
 Shared command markdown **must not** construct structured state
@@ -93,8 +94,9 @@ Key ones:
 - `{{ISSUE_PROVIDER}}`, `{{ISSUE_REF_NOUN}}`, `{{PR_NOUN}}`
 - `{{SPEC_ROOT}}`, `{{PRODUCT_ROOT}}`, `{{STANDARDS_ROOT}}`
 - `{{PROJECT_LANGUAGE}}`
-- `{{TASK_TOOL_BINDING}}` (MCP or CLI; controls whether the command
-  prose says "call the MCP tool …" or "run `tanren task …`")
+- `{{TASK_TOOL_BINDING}}` (binding-specific actionable invocation prose:
+  MCP-primary instructions plus canonical `tanren methodology ...` fallback
+  with required globals)
 - `{{READONLY_ARTIFACT_BANNER}}` (three-layer read-only warning)
 - `{{PILLAR_LIST}}`, `{{REQUIRED_GUARDS}}` (for audit command prose)
 
@@ -133,8 +135,9 @@ Tools are phase-capability-scoped; out-of-scope calls return
 
 - `Complete` is terminal.
 - Every remediation is a new task with typed `TaskOrigin`.
-- `plan.md` is a generated view over the task store; agents never
-  edit it.
+- `plan.md`, `tasks.md`, `tasks.json`, and `progress.json` are
+  generated views over typed event projections; agents never edit
+  them.
 - `Abandoned` requires replacement tasks or explicit user discard.
 
 Multi-guard completion: a task transitions to `Complete` only when
@@ -167,7 +170,8 @@ and can run in parallel.
 
 - **Owns:** applying the 10-pillar rubric to the supplied task/diff;
   producing typed findings; emitting rubric scores.
-- **Does not own:** fix-item insertion into plan.md, task
+- **Does not own:** fix-item insertion into projected plan/tasks
+  artifacts, task
   creation/un-checking. Fix_now findings materialize new tasks via
   orchestrator.
 
@@ -238,7 +242,7 @@ Fixed Tanren structure:
 - `tanren/specs`, `tanren/product`, `tanren/standards`
 
 Agent-authored narrative (markdown body):
-- `spec.md`, `demo.md`, `audit.md`, `signposts.md`
+- `audit.md`, `signposts.md`
 
 Tool-authored structured frontmatter (same files):
 - `SpecFrontmatter`, `DemoFrontmatter`, `AuditFrontmatter`,
@@ -246,8 +250,9 @@ Tool-authored structured frontmatter (same files):
   [evidence-schemas.md](../architecture/evidence-schemas.md)
 
 Orchestrator-owned (read-only to agents, three-layer enforced):
-- `plan.md`, `progress.json`, `phase-events.jsonl` (append-only via
-  tools)
+- `spec.md`, `plan.md`, `tasks.md`, `tasks.json`, `demo.md`,
+  `progress.json`, `.tanren-generated-artifacts.json`,
+  `phase-events.jsonl` (append-only via tools)
 
 Committed audit trail:
 - `phase-events.jsonl` per spec folder — one typed event per tool
@@ -270,8 +275,8 @@ the methodology end-to-end:
 
 Every step's structured output flows through typed tools. The
 orchestrator maintains task state, materializes new tasks from
-findings, and surfaces progress via `plan.md` (read-only generated
-view).
+findings, and surfaces progress via generated projections (`plan.md`,
+`tasks.md`, `tasks.json`, `progress.json`).
 
 ---
 

@@ -92,6 +92,7 @@ async fn replay_rejects_explicit_discard_without_provenance() {
         canonical_tool_for_event(&created),
     );
     let abandon_line = serde_json::to_string(&json!({
+        "schema_version": "1.0.0",
         "event_id": uuid::Uuid::now_v7(),
         "spec_id": spec_id,
         "phase": "resolve-blockers",

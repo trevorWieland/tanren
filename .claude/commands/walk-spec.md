@@ -18,7 +18,7 @@ required_capabilities:
 - task.read
 - phase.outcome
 produces_evidence:
-- behavior-map.md
+- none (reads projected artifacts and emits typed outcome/tasks only)
 ---
 
 # walk-spec
@@ -35,8 +35,8 @@ signal complete.
 
 - The fully-implemented spec (all tasks Complete, audits passed,
   demo passed).
-- The spec's `spec.md`, `plan.md`, `demo.md`, `audit.md`, and
-  `behavior-map.md`.
+- The spec's projected artifacts: `spec.md`, `plan.md`, `tasks.md`,
+  `tasks.json`, `demo.md`, `progress.json`, and `audit.md`.
 
 ## Responsibilities
 
@@ -45,8 +45,8 @@ signal complete.
    `report_phase_outcome("error", …)` immediately — walk-spec is
    not the place to fix unfinished work.
 2. Run `just ci` and confirm green.
-3. Present an implementation summary in behavior terms:
-   behavior IDs, mapped scenarios, and demo evidence.
+3. Present an implementation summary in shaped-behavior terms:
+   planned behaviors, implemented tasks, and demo evidence.
 4. Walk through the demo step-by-step. For each step: explain,
    execute, show result, confirm before next.
 5. If a demo step fails during the walkthrough: STOP. Call
@@ -65,10 +65,12 @@ signal complete.
 
 ## Emitting results
 
-mcp
+Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
+`tanren methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --json '<payload>'`.
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-plan.md and progress.json are generated from the typed task store.
+spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json
+are generated from the typed event stream.
 Postflight reverts unauthorized edits and emits an
 UnauthorizedArtifactEdit event. Use the typed tool surface
 (MCP or CLI) to record progress.

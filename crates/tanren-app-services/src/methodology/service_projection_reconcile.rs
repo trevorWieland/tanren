@@ -44,6 +44,12 @@ impl MethodologyService {
             signpost_spec_rows_repaired = signpost_spec_rows_repaired.saturating_add(1);
         }
 
+        if let Some(runtime) = self.phase_events_runtime()
+            && runtime.spec_id == spec_id
+        {
+            self.materialize_projected_artifacts(spec_id, &runtime.spec_folder)?;
+        }
+
         Ok(ProjectionReconcileReport {
             tasks_rebuilt: tasks.len().try_into().unwrap_or(u64::MAX),
             task_spec_rows_repaired,

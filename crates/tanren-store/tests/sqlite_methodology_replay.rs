@@ -66,6 +66,7 @@ async fn replay_rejects_missing_origin_kind_by_default() {
         format!(
             "{}\n",
             serde_json::to_string(&json!({
+                "schema_version": "1.0.0",
                 "event_id": uuid::Uuid::now_v7(),
                 "spec_id": spec_id,
                 "phase": "do-task",

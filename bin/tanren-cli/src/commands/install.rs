@@ -374,8 +374,9 @@ fn build_context(
     ctx.entry("READONLY_ARTIFACT_BANNER".into())
         .or_insert_with(|| {
             "⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT: \
-             plan.md and progress.json are generated from the typed task \
-             store. phase-events.jsonl is append-only via typed tools. \
+             spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json \
+             are generated from the typed event stream. phase-events.jsonl \
+             is append-only via typed tools. \
              Postflight reverts unauthorized edits and emits an \
              UnauthorizedArtifactEdit event."
                 .into()

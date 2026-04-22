@@ -21,7 +21,6 @@ required_capabilities:
   - phase.outcome
 produces_evidence:
   - audit.md (task-scope narrative body)
-  - behavior-map.md
 ---
 
 # audit-task
@@ -42,13 +41,13 @@ the orchestrator materializes new tasks from your `fix_now` findings.
   phase — `adhere-task`).
 - `{{PILLAR_LIST}}` — the effective pillar set (task scope).
 - Relevant signposts.
-- `behavior-map.md` and linked scenarios.
+- Projected spec/task artifacts and linked scenarios.
 
 ## Responsibilities
 
 1. Read the diff in full. Understand what changed and why.
 2. Audit behavior traceability:
-   - behavior changes are mapped in `behavior-map.md`
+   - behavior changes are reflected in projected spec/task artifacts
    - mapped scenarios exist and reflect implemented behavior
    - scenario quality is adequate for claimed behavior
 3. Audit mutation quality evidence for touched behavior scope:

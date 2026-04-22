@@ -11,12 +11,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::SpecId;
 
-use super::frontmatter::{FrontmatterError, join, parse_typed};
+use super::frontmatter::{
+    EvidenceSchemaVersion, FrontmatterError, default_schema_version, join, parse_typed,
+};
 
 /// Typed `plan.md` frontmatter. Body is always orchestrator-generated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlanFrontmatter {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: EvidenceSchemaVersion,
     pub kind: PlanKind,
     pub spec_id: SpecId,
     pub generated_at: DateTime<Utc>,
@@ -54,6 +58,7 @@ mod tests {
     #[test]
     fn roundtrip_stable() {
         let p = PlanFrontmatter {
+            schema_version: EvidenceSchemaVersion::current(),
             kind: PlanKind::Plan,
             spec_id: SpecId::new(),
             generated_at: Utc::now(),

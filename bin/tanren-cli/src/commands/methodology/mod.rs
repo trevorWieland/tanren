@@ -389,6 +389,7 @@ fn is_mutation_command(command: &MethodologyCommand) -> bool {
         command,
         MethodologyCommand::Standard(standard::StandardCommand::List(_))
             | MethodologyCommand::Task(task::TaskCommand::List(_))
+            | MethodologyCommand::Spec(spec::SpecCommand::Status(_))
             | MethodologyCommand::IngestPhaseEvents(_)
             | MethodologyCommand::Replay(_)
             | MethodologyCommand::ReconcilePhaseEvents(_)

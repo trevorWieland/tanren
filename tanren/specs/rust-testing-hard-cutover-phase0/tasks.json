@@ -1,0 +1,504 @@
+{
+  "schema_version": "v1",
+  "contract_version": "v1",
+  "spec_id": "00000000-0000-0000-0000-000000000c01",
+  "generated_at": "2026-04-22T14:52:08.657329Z",
+  "tasks": [
+    {
+      "task": {
+        "id": "019db58b-b051-70e1-9190-c4f9cd09b5e7",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T01 Standards Sync For Rust Testing",
+        "description": "Import/sync Rust testing standards (BDD, mutation, coverage interpretation, no-skip, traceability) into active standards and bind relevance context for this spec.",
+        "acceptance_criteria": [
+          {
+            "id": "t01-ac1",
+            "description": "Testing standards exist in active standards set.",
+            "measurable": "Relevant standards are discoverable for this spec via standard.list/list_relevant_standards."
+          },
+          {
+            "id": "t01-ac2",
+            "description": "Task closes with demonstrable function and just check green.",
+            "measurable": "Evidence includes standards diff plus successful just check."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "implemented",
+          "guards": {
+            "gate_checked": false,
+            "audited": true,
+            "adherent": false
+          }
+        },
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:23.985039Z",
+        "updated_at": "2026-04-22T14:52:08.657329Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "guard `audited` satisfied",
+      "status_event_id": "019db5ad-5451-76b3-a607-4226e1f2b17c",
+      "status_event_timestamp": "2026-04-22T14:52:08.657329Z",
+      "status_event_phase": "audit-task",
+      "status_event_tool": "mark_task_guard_satisfied"
+    },
+    {
+      "task": {
+        "id": "019db58b-b0b7-7541-bceb-beefc3b8876c",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T02 Phase 0 Behavior Inventory And Traceability",
+        "description": "Define stable BEH-* IDs and map Phase 0 Feature 1.1-8.1 behaviors to executable scenario obligations (positive and falsification).",
+        "acceptance_criteria": [
+          {
+            "id": "t02-ac1",
+            "description": "Behavior map covers all in-scope Phase 0 behaviors.",
+            "measurable": "Traceability artifact lists behavior ID -> scenario ownership."
+          },
+          {
+            "id": "t02-ac2",
+            "description": "Task closes with just check green and artifact validation.",
+            "measurable": "Artifact is linted/validated and just check succeeds."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b051-70e1-9190-c4f9cd09b5e7"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.087277Z",
+        "updated_at": "2026-04-22T14:15:24.087277Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b0b7-7541-bceb-bef4f5409975",
+      "status_event_timestamp": "2026-04-22T14:15:24.087286Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b10e-7a21-94fa-3699f795228b",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T03 Early Gate Scaffolding (Non-Blocking)",
+        "description": "Introduce staged justfile/CI scaffolding commands for BDD, mutation, and coverage without turning final enforcement on yet, so iterative tasks remain demonstrable.",
+        "acceptance_criteria": [
+          {
+            "id": "t03-ac1",
+            "description": "New staged commands run and are documented.",
+            "measurable": "just targets for scenario/mutation/coverage scaffolding execute successfully."
+          },
+          {
+            "id": "t03-ac2",
+            "description": "Existing just check contract remains green at task end.",
+            "measurable": "just check passes after scaffolding changes."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b0b7-7541-bceb-beefc3b8876c"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.174167Z",
+        "updated_at": "2026-04-22T14:15:24.174167Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b10e-7a21-94fa-36ab5b85be54",
+      "status_event_timestamp": "2026-04-22T14:15:24.174175Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b165-7f51-b581-6b2a0b9e77f8",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T04 BDD Harness Scaffold",
+        "description": "Add cucumber-rs harness, feature directory conventions, tagging rules, and one smoke scenario path to prove harness viability.",
+        "acceptance_criteria": [
+          {
+            "id": "t04-ac1",
+            "description": "BDD harness executes at least one tagged scenario path.",
+            "measurable": "Scenario command exits successfully and emits tag evidence."
+          },
+          {
+            "id": "t04-ac2",
+            "description": "Task ends with just check green.",
+            "measurable": "just check passes with harness scaffold in place."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b10e-7a21-94fa-3699f795228b"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.261271Z",
+        "updated_at": "2026-04-22T14:15:24.261271Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b165-7f51-b581-6b31850db183",
+      "status_event_timestamp": "2026-04-22T14:15:24.261281Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b1bd-7fe3-8db6-83d7fa10e2d8",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T05 Wave A Scenario Migration (Features 1-3)",
+        "description": "Implement behavior scenarios for Phase 0 Features 1-3 (typed lifecycle, replay durability, contract-derived interface/auth/replay protections).",
+        "acceptance_criteria": [
+          {
+            "id": "t05-ac1",
+            "description": "Mapped Wave A behaviors have positive and falsification scenarios.",
+            "measurable": "Behavior map entries for Features 1-3 point to passing scenarios."
+          },
+          {
+            "id": "t05-ac2",
+            "description": "Task ends with just check green and stage run evidence.",
+            "measurable": "just check passes and wave scenario run output is captured."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b165-7f51-b581-6b2a0b9e77f8"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.349311Z",
+        "updated_at": "2026-04-22T14:15:24.349311Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b1bd-7fe3-8db6-83e4eaad7747",
+      "status_event_timestamp": "2026-04-22T14:15:24.349320Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b215-7fe3-ba25-45ffbdb973b3",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T06 Hard Cutover Delete Legacy Rust Tests",
+        "description": "Delete legacy Rust behavior-test suite paths that are superseded by the new framework and document allowed post-cutover test forms.",
+        "acceptance_criteria": [
+          {
+            "id": "t06-ac1",
+            "description": "Legacy Rust test paths are removed per cutover policy.",
+            "measurable": "Repository no longer contains deprecated Rust behavior-test files in scoped paths."
+          },
+          {
+            "id": "t06-ac2",
+            "description": "Task ends with just check green after deletion.",
+            "measurable": "just check passes immediately after cutover deletion."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b1bd-7fe3-8db6-83d7fa10e2d8"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.437398Z",
+        "updated_at": "2026-04-22T14:15:24.437398Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b215-7fe3-ba25-460e153860b3",
+      "status_event_timestamp": "2026-04-22T14:15:24.437406Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b272-7452-bec2-acef1fa93a24",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T07 Wave B Scenario Migration (Features 4-6)",
+        "description": "Implement behavior scenarios for methodology boundary, task guard monotonicity, and typed tool-surface capability/transport parity behaviors.",
+        "acceptance_criteria": [
+          {
+            "id": "t07-ac1",
+            "description": "Mapped Wave B behaviors have passing positive/falsification scenarios.",
+            "measurable": "Feature 4-6 mappings resolve to passing scenario evidence."
+          },
+          {
+            "id": "t07-ac2",
+            "description": "Task ends with just check green.",
+            "measurable": "just check passes with Wave B migration complete."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b215-7fe3-ba25-45ffbdb973b3"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.530189Z",
+        "updated_at": "2026-04-22T14:15:24.530189Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b272-7452-bec2-acf3879bcf90",
+      "status_event_timestamp": "2026-04-22T14:15:24.530199Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b2cb-7413-b146-fd88721c2784",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T08 Wave C Scenario Migration (Features 7-8)",
+        "description": "Implement behavior scenarios for installer/self-host determinism and manual methodology walkthrough coherence.",
+        "acceptance_criteria": [
+          {
+            "id": "t08-ac1",
+            "description": "Mapped Wave C behaviors are scenario-backed.",
+            "measurable": "Feature 7-8 mappings resolve to passing scenario evidence."
+          },
+          {
+            "id": "t08-ac2",
+            "description": "Task ends with just check green.",
+            "measurable": "just check passes with Wave C migration complete."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b272-7452-bec2-acef1fa93a24"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.619864Z",
+        "updated_at": "2026-04-22T14:15:24.619864Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b2cb-7413-b146-fd950174f05a",
+      "status_event_timestamp": "2026-04-22T14:15:24.619874Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b327-7dd2-8c8b-9ec0947e6684",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T09 Mutation Gate Integration",
+        "description": "Integrate cargo-mutants mutation-strength gate, survivor triage policy, and behavior-ID linkage in artifacts/CI surfaces.",
+        "acceptance_criteria": [
+          {
+            "id": "t09-ac1",
+            "description": "Mutation gate runs in staged local and CI pathways.",
+            "measurable": "Mutation command executes and output is machine-consumable for triage."
+          },
+          {
+            "id": "t09-ac2",
+            "description": "Task ends with just check green.",
+            "measurable": "just check passes after mutation integration."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b2cb-7413-b146-fd88721c2784"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.711527Z",
+        "updated_at": "2026-04-22T14:15:24.711527Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b327-7dd2-8c8b-9edb28d7f93f",
+      "status_event_timestamp": "2026-04-22T14:15:24.711537Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b382-7060-afcd-73b9d68cd740",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T10 Coverage Classification Integration",
+        "description": "Integrate behavior-first coverage workflow and classification outputs (missing-behavior vs dead/support code).",
+        "acceptance_criteria": [
+          {
+            "id": "t10-ac1",
+            "description": "Coverage run emits classification artifact tied to behavior inventory.",
+            "measurable": "Report clearly separates missing scenarios from non-behavior code."
+          },
+          {
+            "id": "t10-ac2",
+            "description": "Task ends with just check green.",
+            "measurable": "just check passes after coverage integration."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b327-7dd2-8c8b-9ec0947e6684"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.802087Z",
+        "updated_at": "2026-04-22T14:15:24.802087Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b382-7060-afcd-73cf10776801",
+      "status_event_timestamp": "2026-04-22T14:15:24.802097Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b3db-76f2-90aa-9bd6fda1feef",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T11 Final Gate Enforcement And Parity",
+        "description": "Flip strict enforcement in justfile, lefthook, GitHub workflows, and check-ci-parity so behavior/mutation/coverage gates are mandatory in final flow.",
+        "acceptance_criteria": [
+          {
+            "id": "t11-ac1",
+            "description": "Strict enforcement is active and parity checks are updated.",
+            "measurable": "Workflow and local command parity checks pass with enforced gates."
+          },
+          {
+            "id": "t11-ac2",
+            "description": "Task ends with just check green.",
+            "measurable": "just check passes under final enforcement configuration."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b382-7060-afcd-73b9d68cd740"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.891703Z",
+        "updated_at": "2026-04-22T14:15:24.891703Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b3db-76f2-90aa-9be07cd31c63",
+      "status_event_timestamp": "2026-04-22T14:15:24.891712Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b438-7733-8513-5ef68730d647",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T12 Proof Docs And Scripts Refresh",
+        "description": "Update Phase 0 proof runbook/scripts/evidence index to reflect the new Rust testing framework and reproducible execution path.",
+        "acceptance_criteria": [
+          {
+            "id": "t12-ac1",
+            "description": "Proof docs/scripts reference the new behavior-first test flow.",
+            "measurable": "Runbook commands and evidence mapping are updated and coherent."
+          },
+          {
+            "id": "t12-ac2",
+            "description": "Task ends with just check green.",
+            "measurable": "just check passes after docs/script updates."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b3db-76f2-90aa-9bd6fda1feef"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:24.984840Z",
+        "updated_at": "2026-04-22T14:15:24.984840Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b438-7733-8513-5f0e92b3ba72",
+      "status_event_timestamp": "2026-04-22T14:15:24.984850Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019db58b-b492-7423-925a-80190e82b708",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T13 Orchestration Trial Meta-Readiness Report",
+        "description": "Produce a trial report evaluating shape-spec/task orchestration effectiveness, friction, and recommendations for using Tanren orchestration within Tanren itself.",
+        "acceptance_criteria": [
+          {
+            "id": "t13-ac1",
+            "description": "Meta report captures strengths, frictions, and proposed mitigations.",
+            "measurable": "Report includes explicit go/no-go readiness recommendation."
+          },
+          {
+            "id": "t13-ac2",
+            "description": "Spec closure criteria include final just ci success.",
+            "measurable": "Report references final just ci result as the terminal gate outcome."
+          }
+        ],
+        "origin": {
+          "kind": "shape_spec"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "depends_on": [
+          "019db58b-b438-7733-8513-5ef68730d647"
+        ],
+        "parent_task_id": null,
+        "created_at": "2026-04-22T14:15:25.074515Z",
+        "updated_at": "2026-04-22T14:15:25.074515Z"
+      },
+      "owner_phase": "shape-spec",
+      "status_rationale": "task created",
+      "status_event_id": "019db58b-b492-7423-925a-802c5ffde3c5",
+      "status_event_timestamp": "2026-04-22T14:15:25.074525Z",
+      "status_event_phase": "shape-spec",
+      "status_event_tool": "create_task"
+    }
+  ]
+}

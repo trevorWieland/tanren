@@ -18,14 +18,17 @@ use tanren_domain::methodology::evidence::{
 use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::{EventId, NonEmptyString, SpecId};
 
+use super::artifact_projection::GENERATED_ARTIFACT_MANIFEST_FILE;
 use super::enforcement::{EnforcementGuard, ProtectedPath, ProtectionMode};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::service::MethodologyService;
 
-const GENERATED_ARTIFACT_MANIFEST_FILE: &str = ".tanren-generated-artifacts.json";
-
 #[derive(Debug, Deserialize)]
 struct GeneratedArtifactManifest {
+    #[serde(default)]
+    _schema_version: Option<String>,
+    #[serde(default)]
+    _contract_version: Option<String>,
     #[serde(default)]
     generated_artifacts: Vec<String>,
 }
@@ -81,6 +84,11 @@ pub async fn finalize_mutation_session(
                 .await?;
         }
     }
+
+    let _ = service
+        .reconcile_phase_events_outbox_for_folder(spec_folder)
+        .await?;
+    service.materialize_projected_artifacts(spec_id, spec_folder)?;
 
     validate_evidence_files(service, phase, spec_id, spec_folder).await
 }
@@ -163,7 +171,23 @@ fn parse_event_id_from_line_json(line_json: &str) -> Option<EventId> {
 fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
     let mut out = vec![
         ProtectedPath {
+            path: spec_folder.join("spec.md"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
+            path: spec_folder.join("demo.md"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
             path: spec_folder.join("plan.md"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
+            path: spec_folder.join("tasks.md"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
+            path: spec_folder.join("tasks.json"),
             mode: ProtectionMode::ReadOnly,
         },
         ProtectedPath {
@@ -174,23 +198,35 @@ fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
             path: spec_folder.join("phase-events.jsonl"),
             mode: ProtectionMode::AppendOnly,
         },
+        ProtectedPath {
+            path: spec_folder.join(GENERATED_ARTIFACT_MANIFEST_FILE),
+            mode: ProtectionMode::ReadOnly,
+        },
     ];
     let manifest_path = spec_folder.join(GENERATED_ARTIFACT_MANIFEST_FILE);
-    if manifest_path.exists() {
-        out.push(ProtectedPath {
-            path: manifest_path.clone(),
-            mode: ProtectionMode::ReadOnly,
-        });
-        if let Some(manifest) = load_generated_artifact_manifest(&manifest_path) {
-            for basename in manifest.generated_artifacts {
-                let Some(basename) = normalized_basename(&basename) else {
-                    continue;
-                };
-                out.push(ProtectedPath {
-                    path: spec_folder.join(basename),
-                    mode: ProtectionMode::ReadOnly,
-                });
+    if manifest_path.exists()
+        && let Some(manifest) = load_generated_artifact_manifest(&manifest_path)
+    {
+        for basename in manifest.generated_artifacts {
+            let Some(basename) = normalized_basename(&basename) else {
+                continue;
+            };
+            if matches!(
+                basename,
+                "spec.md"
+                    | "demo.md"
+                    | "plan.md"
+                    | "tasks.md"
+                    | "tasks.json"
+                    | "progress.json"
+                    | "phase-events.jsonl"
+            ) {
+                continue;
             }
+            out.push(ProtectedPath {
+                path: spec_folder.join(basename),
+                mode: ProtectionMode::ReadOnly,
+            });
         }
     }
     out.sort_by(|a, b| a.path.cmp(&b.path).then(a.mode.cmp(&b.mode)));

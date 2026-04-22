@@ -3,11 +3,57 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_domain::SpecId;
+use tanren_domain::TaskId;
 use tanren_domain::methodology::spec::{DemoEnvironment, SpecDependencies, SpecRelevanceContext};
-use tanren_domain::methodology::task::AcceptanceCriterion;
+use tanren_domain::methodology::task::{AcceptanceCriterion, RequiredGuard};
 use tanren_domain::validated::NonEmptyString;
 
 use super::SchemaVersion;
+
+/// `spec_status` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpecStatusParams {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+}
+
+/// Orchestrator next-step hint for one spec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SpecStatusNextAction {
+    ShapeSpecRequired,
+    RunLoop,
+    ResolveBlockersRequired,
+    WalkSpecRequired,
+    Complete,
+}
+
+/// `spec_status` response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpecStatusResponse {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+    pub spec_exists: bool,
+    pub blockers_active: bool,
+    pub ready_for_walk_spec: bool,
+    pub next_action: SpecStatusNextAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_task_id: Option<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_blocker_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_blocker_summary: Option<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_guards: Vec<RequiredGuard>,
+    pub total_tasks: u64,
+    pub completed_tasks: u64,
+    pub abandoned_tasks: u64,
+    pub implemented_tasks: u64,
+    pub in_progress_tasks: u64,
+    pub pending_tasks: u64,
+}
 
 /// `set_spec_title` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -16,6 +62,61 @@ pub struct SetSpecTitleParams {
     pub schema_version: SchemaVersion,
     pub spec_id: SpecId,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `set_spec_problem_statement` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSpecProblemStatementParams {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+    pub problem_statement: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `set_spec_motivations` params (full replacement).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSpecMotivationsParams {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+    pub motivations: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `set_spec_expectations` params (full replacement).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSpecExpectationsParams {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+    pub expectations: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `set_spec_planned_behaviors` params (full replacement).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSpecPlannedBehaviorsParams {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+    pub planned_behaviors: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `set_spec_implementation_plan` params (full replacement).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetSpecImplementationPlanParams {
+    pub schema_version: SchemaVersion,
+    pub spec_id: SpecId,
+    pub implementation_plan: Vec<NonEmptyString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
 }

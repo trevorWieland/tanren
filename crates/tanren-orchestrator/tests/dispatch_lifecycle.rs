@@ -6,11 +6,15 @@ mod dispatch_fixtures;
 use dispatch_fixtures::{sample_actor, sample_command, sample_replay_guard};
 use tanren_domain::{
     CancelDispatch, Cli, DispatchId, DispatchMode, DispatchStatus, DomainError, EntityRef,
-    FiniteF64, NonEmptyString, Outcome, Phase, StepReadyState, StepStatus, StepType,
+    FiniteF64, NonEmptyString, Outcome, Phase,
 };
+#[cfg(feature = "test-hooks")]
+use tanren_domain::{StepReadyState, StepStatus, StepType};
 use tanren_orchestrator::{Orchestrator, OrchestratorError};
 use tanren_policy::PolicyEngine;
-use tanren_store::{DispatchFilter, EventFilter, StateStore, Store, StoreError};
+#[cfg(feature = "test-hooks")]
+use tanren_store::StateStore;
+use tanren_store::{DispatchFilter, EventFilter, Store, StoreError};
 
 async fn setup() -> Orchestrator<Store> {
     let store = Store::open_and_migrate("sqlite::memory:")

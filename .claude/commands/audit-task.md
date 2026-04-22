@@ -21,7 +21,6 @@ required_capabilities:
 - phase.outcome
 produces_evidence:
 - audit.md (task-scope narrative body)
-- behavior-map.md
 ---
 
 # audit-task
@@ -42,13 +41,13 @@ the orchestrator materializes new tasks from your `fix_now` findings.
   phase — `adhere-task`).
 - `completeness, performance, scalability, strictness, security, stability, maintainability, extensibility, elegance, style, relevance, modularity, documentation_complete` — the effective pillar set (task scope).
 - Relevant signposts.
-- `behavior-map.md` and linked scenarios.
+- Projected spec/task artifacts and linked scenarios.
 
 ## Responsibilities
 
 1. Read the diff in full. Understand what changed and why.
 2. Audit behavior traceability:
-   - behavior changes are mapped in `behavior-map.md`
+   - behavior changes are reflected in projected spec/task artifacts
    - mapped scenarios exist and reflect implemented behavior
    - scenario quality is adequate for claimed behavior
 3. Audit mutation quality evidence for touched behavior scope:
@@ -83,10 +82,12 @@ If you need to run anything to ground a score, use
 
 ## Emitting results
 
-mcp
+Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
+`tanren methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --json '<payload>'`.
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-plan.md and progress.json are generated from the typed task store.
+spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json
+are generated from the typed event stream.
 Postflight reverts unauthorized edits and emits an
 UnauthorizedArtifactEdit event. Use the typed tool surface
 (MCP or CLI) to record progress.

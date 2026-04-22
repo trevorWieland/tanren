@@ -401,6 +401,7 @@ impl MethodologyService {
         &self,
         spec_folder: &std::path::Path,
     ) -> MethodologyResult<u64> {
+        let spec_folder_path = spec_folder.to_path_buf();
         let spec_folder = spec_folder.to_string_lossy().to_string();
         let runtime_spec_filter = self.phase_events.as_ref().and_then(|runtime| {
             (runtime.spec_folder.to_string_lossy() == spec_folder).then_some(runtime.spec_id)
@@ -427,6 +428,11 @@ impl MethodologyService {
                 }
             }
         }
+        if let Some(spec_id) =
+            runtime_spec_filter.or_else(|| infer_spec_id_from_phase_events(&spec_folder_path))
+        {
+            self.materialize_projected_artifacts(spec_id, &spec_folder_path)?;
+        }
         Ok(projected)
     }
 }
@@ -436,4 +442,13 @@ fn cursor_for_row(row: &PhaseEventOutboxEntry) -> PhaseEventOutboxCursor {
         created_at: row.created_at,
         event_id: row.event_id,
     }
+}
+
+fn infer_spec_id_from_phase_events(spec_folder: &std::path::Path) -> Option<SpecId> {
+    let path = spec_folder.join("phase-events.jsonl");
+    let raw = std::fs::read_to_string(path).ok()?;
+    raw.lines()
+        .find(|line| !line.trim().is_empty())
+        .and_then(|line| serde_json::from_str::<super::phase_events::PhaseEventLine>(line).ok())
+        .map(|line| line.spec_id)
 }

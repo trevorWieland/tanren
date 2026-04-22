@@ -43,6 +43,11 @@ pub fn canonical_tool_for_event(event: &MethodologyEvent) -> &'static str {
         | MethodologyEvent::TaskCompleted(_) => "mark_task_guard_satisfied",
         MethodologyEvent::SpecFrontmatterUpdated(e) => match &e.patch {
             SpecFrontmatterPatch::SetTitle { .. } => "set_spec_title",
+            SpecFrontmatterPatch::SetProblemStatement { .. } => "set_spec_problem_statement",
+            SpecFrontmatterPatch::SetMotivations { .. } => "set_spec_motivations",
+            SpecFrontmatterPatch::SetExpectations { .. } => "set_spec_expectations",
+            SpecFrontmatterPatch::SetPlannedBehaviors { .. } => "set_spec_planned_behaviors",
+            SpecFrontmatterPatch::SetImplementationPlan { .. } => "set_spec_implementation_plan",
             SpecFrontmatterPatch::SetNonNegotiables { .. } => "set_spec_non_negotiables",
             SpecFrontmatterPatch::AddAcceptanceCriterion { .. } => "add_spec_acceptance_criterion",
             SpecFrontmatterPatch::SetDemoEnvironment { .. } => "set_spec_demo_environment",
@@ -91,6 +96,11 @@ pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static s
         MethodologyEvent::ReplyDirectiveRecorded(_) => &["post_reply_directive"],
         MethodologyEvent::SpecFrontmatterUpdated(e) => match &e.patch {
             SpecFrontmatterPatch::SetTitle { .. } => &["set_spec_title"],
+            SpecFrontmatterPatch::SetProblemStatement { .. } => &["set_spec_problem_statement"],
+            SpecFrontmatterPatch::SetMotivations { .. } => &["set_spec_motivations"],
+            SpecFrontmatterPatch::SetExpectations { .. } => &["set_spec_expectations"],
+            SpecFrontmatterPatch::SetPlannedBehaviors { .. } => &["set_spec_planned_behaviors"],
+            SpecFrontmatterPatch::SetImplementationPlan { .. } => &["set_spec_implementation_plan"],
             SpecFrontmatterPatch::SetNonNegotiables { .. } => &["set_spec_non_negotiables"],
             SpecFrontmatterPatch::AddAcceptanceCriterion { .. } => {
                 &["add_spec_acceptance_criterion"]

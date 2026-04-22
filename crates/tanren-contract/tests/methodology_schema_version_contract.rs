@@ -12,7 +12,9 @@ use tanren_contract::methodology::{
     RecordAdherenceFindingParams, RecordNonNegotiableComplianceParams, RecordRubricScoreParams,
     RelevantStandard, ReportPhaseOutcomeParams, ReviseTaskParams, SchemaVersion,
     SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams, SetSpecDependenciesParams,
-    SetSpecNonNegotiablesParams, SetSpecRelevanceContextParams, SetSpecTitleParams,
+    SetSpecExpectationsParams, SetSpecImplementationPlanParams, SetSpecMotivationsParams,
+    SetSpecNonNegotiablesParams, SetSpecPlannedBehaviorsParams, SetSpecProblemStatementParams,
+    SetSpecRelevanceContextParams, SetSpecTitleParams, SpecStatusParams, SpecStatusResponse,
     StartTaskParams, UpdateSignpostStatusParams,
 };
 
@@ -62,12 +64,18 @@ fn every_methodology_request_schema_requires_schema_version() {
     assert_schema_version_required::<RecordRubricScoreParams>();
     assert_schema_version_required::<RecordNonNegotiableComplianceParams>();
     assert_schema_version_required::<SetSpecTitleParams>();
+    assert_schema_version_required::<SetSpecProblemStatementParams>();
+    assert_schema_version_required::<SetSpecMotivationsParams>();
+    assert_schema_version_required::<SetSpecExpectationsParams>();
+    assert_schema_version_required::<SetSpecPlannedBehaviorsParams>();
+    assert_schema_version_required::<SetSpecImplementationPlanParams>();
     assert_schema_version_required::<SetSpecNonNegotiablesParams>();
     assert_schema_version_required::<AddSpecAcceptanceCriterionParams>();
     assert_schema_version_required::<SetSpecDemoEnvironmentParams>();
     assert_schema_version_required::<SetSpecDependenciesParams>();
     assert_schema_version_required::<SetSpecBaseBranchParams>();
     assert_schema_version_required::<SetSpecRelevanceContextParams>();
+    assert_schema_version_required::<SpecStatusParams>();
     assert_schema_version_required::<AddDemoStepParams>();
     assert_schema_version_required::<MarkDemoStepSkipParams>();
     assert_schema_version_required::<AppendDemoResultParams>();
@@ -91,6 +99,7 @@ fn every_methodology_response_schema_requires_schema_version() {
     assert_schema_version_required::<CreateIssueResponse>();
     assert_schema_version_required::<RelevantStandard>();
     assert_schema_version_required::<ListRelevantStandardsResponse>();
+    assert_schema_version_required::<SpecStatusResponse>();
 }
 
 #[test]
@@ -175,10 +184,41 @@ fn assert_task_and_quality_request_payload_schema_versions(schema_version: &Sche
 }
 
 fn assert_spec_and_demo_request_payload_schema_versions(schema_version: &SchemaVersion) {
+    assert_spec_frontmatter_request_payload_schema_versions(schema_version);
+    assert_demo_request_payload_schema_versions(schema_version);
+    assert_signpost_request_payload_schema_versions(schema_version);
+}
+
+fn assert_spec_frontmatter_request_payload_schema_versions(schema_version: &SchemaVersion) {
     assert_serialized_schema_version(parse_fixture::<SetSpecTitleParams>(json!({
         "schema_version": schema_version.as_str(),
         "spec_id": "00000000-0000-0000-0000-000000000001",
         "title": "New title"
+    })));
+    assert_serialized_schema_version(parse_fixture::<SetSpecProblemStatementParams>(json!({
+        "schema_version": schema_version.as_str(),
+        "spec_id": "00000000-0000-0000-0000-000000000001",
+        "problem_statement": "Current behavior is inconsistent."
+    })));
+    assert_serialized_schema_version(parse_fixture::<SetSpecMotivationsParams>(json!({
+        "schema_version": schema_version.as_str(),
+        "spec_id": "00000000-0000-0000-0000-000000000001",
+        "motivations": ["determinism", "auditability"]
+    })));
+    assert_serialized_schema_version(parse_fixture::<SetSpecExpectationsParams>(json!({
+        "schema_version": schema_version.as_str(),
+        "spec_id": "00000000-0000-0000-0000-000000000001",
+        "expectations": ["plan stays current", "status is event-derived"]
+    })));
+    assert_serialized_schema_version(parse_fixture::<SetSpecPlannedBehaviorsParams>(json!({
+        "schema_version": schema_version.as_str(),
+        "spec_id": "00000000-0000-0000-0000-000000000001",
+        "planned_behaviors": ["emit typed events", "materialize projections"]
+    })));
+    assert_serialized_schema_version(parse_fixture::<SetSpecImplementationPlanParams>(json!({
+        "schema_version": schema_version.as_str(),
+        "spec_id": "00000000-0000-0000-0000-000000000001",
+        "implementation_plan": ["add schema", "wire projection", "verify ci"]
     })));
     assert_serialized_schema_version(parse_fixture::<SetSpecNonNegotiablesParams>(json!({
         "schema_version": schema_version.as_str(),
@@ -220,6 +260,13 @@ fn assert_spec_and_demo_request_payload_schema_versions(schema_version: &SchemaV
             "category": "backend"
         }
     })));
+    assert_serialized_schema_version(parse_fixture::<SpecStatusParams>(json!({
+        "schema_version": schema_version.as_str(),
+        "spec_id": "00000000-0000-0000-0000-000000000001"
+    })));
+}
+
+fn assert_demo_request_payload_schema_versions(schema_version: &SchemaVersion) {
     assert_serialized_schema_version(parse_fixture::<AddDemoStepParams>(json!({
         "schema_version": schema_version.as_str(),
         "spec_id": "00000000-0000-0000-0000-000000000001",
@@ -241,6 +288,9 @@ fn assert_spec_and_demo_request_payload_schema_versions(schema_version: &SchemaV
         "status": "pass",
         "observed": "ok"
     })));
+}
+
+fn assert_signpost_request_payload_schema_versions(schema_version: &SchemaVersion) {
     assert_serialized_schema_version(parse_fixture::<AddSignpostParams>(json!({
         "schema_version": schema_version.as_str(),
         "spec_id": "00000000-0000-0000-0000-000000000001",
