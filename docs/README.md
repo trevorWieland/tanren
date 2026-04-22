@@ -6,10 +6,14 @@ workflow, operations, and roadmap material.
 
 ## Sections
 
+- `methodology/commands-install.md` - canonical install/runtime contract (`tanren-cli`, `tanren-mcp`).
+- `architecture/install-targets.md` - install render targets, merge policy, and MCP env contract.
+- `architecture/agent-tool-surface.md` - typed tool surface and canonical CLI fallback shape.
+- `rewrite/PHASE0_PROOF_RUNBOOK.md` - Phase 0 proof run/verify acceptance flow.
+- `rewrite/PHASE1_PROOF_BDD.md` - Phase 1 behavioral invariants and witnesses.
 - `architecture/overview.md` - product philosophy, three-layer model, and pluggability boundaries.
 - `methodology/system.md` - command files, standards profiles, templates, and role usage.
-- `workflow/spec-lifecycle.md` - opinionated lifecycle, orchestration loop, and scope controls.
-- `getting-started/bootstrap.md` - installation and first-run bootstrap sequence.
+- `workflow/spec-lifecycle.md` - lifecycle, orchestration loop, and scope controls.
 - `operations/security-secrets.md` - secret tiers, configuration scopes, and security controls.
 - `operations/observability.md` - event model, metrics, and operational queries.
 - `interfaces.md` - CLI, library, and store interaction surfaces.
@@ -18,9 +22,8 @@ workflow, operations, and roadmap material.
 - `hld-migration-map.md` - source-to-destination mapping for the retired HLD.
 - `worker-README.md` - worker architecture and operations reference.
 - `ADAPTERS.md` - adapter architecture, decomposition, and extension points.
-- `rewrite/README.md` - clean-room rewrite planning docs (motivations, HLD, roadmap, principles).
-  Includes container/execution-system planning and Rust stack recommendations.
-  Also includes proposed crate/workspace orchestration guidance.
+- `getting-started/bootstrap.md` - legacy Python-era bootstrap notes (archived; not Phase 0 acceptance path).
+- `rewrite/README.md` - clean-room rewrite planning docs and history.
 
 ## Source of Truth Policy
 

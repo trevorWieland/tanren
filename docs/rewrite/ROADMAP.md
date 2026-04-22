@@ -31,7 +31,7 @@ developed in parallel. Integration happens at phase boundaries.
   Rust control-plane code; command markdown remains an agent-behavior layer;
   tasks, findings, rubric scores, and evidence frontmatter are strictly
   typed domain entities.
-- `tanren install` renders the shared command source into three agent-
+- `tanren-cli install` renders the shared command source into three agent-
   framework targets (Claude Code, Codex Skills, OpenCode) with
   deterministic, idempotent output; the tanren repo is self-hosting.
 - Multi-guard task completion is modeled

@@ -13,13 +13,15 @@ Canonical BDD source: `docs/rewrite/PHASE0_PROOF_BDD.md`.
 
 - Repo is checked out at the desired commit.
 - Rust toolchain and `cargo-nextest` are installed (same requirements as `just ci`).
-- `tanren-cli` is buildable locally.
+- `tanren-cli` and `tanren-mcp` are installed and PATH-callable.
 - Python runtime is available through `uv` (for proof helper scripts).
 
 Recommended bootstrap from repo root:
 
 ```bash
 uv sync
+scripts/runtime/install-runtime.sh
+scripts/runtime/verify-installed-runtime.sh
 ```
 
 ---
@@ -56,6 +58,7 @@ scripts/proof/phase0/verify.sh artifacts/phase0-proof/<timestamp>
 `verify.sh` fails non-zero when any of these are missing or invalid:
 
 - `summary.json` / `summary.md`
+- `runtime/installed-runtime.json` with `runtime_ok=true`
 - positive/falsification `PASS` markers for every scenario `1.1` through `8.1`
 - auth/replay supplemental reports
 - replay parity + rollback verdicts
@@ -73,7 +76,7 @@ scripts/orchestration/phase0.sh --spec-id <spec-uuid> --spec-folder <spec-folder
 
 Behavior contract:
 
-- Resumes from store truth via `tanren methodology spec status`.
+- Resumes from store truth via `tanren-cli methodology spec status`.
 - Autonomous loop runs Phase 0 task/spec gates and agentic phases through
   Codex harness invocation.
 - Breaks out only at required human checkpoints:

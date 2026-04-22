@@ -16,8 +16,10 @@
 //! plus the renderer / installer / format drivers.
 
 mod artifact_projection;
+mod artifact_projection_artifacts;
 mod artifact_projection_fold;
 mod artifact_projection_helpers;
+mod artifact_projection_render;
 pub mod capabilities;
 pub mod config;
 pub mod enforcement;

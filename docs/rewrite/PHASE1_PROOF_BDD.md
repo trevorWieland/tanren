@@ -35,6 +35,61 @@ Each Phase 1 promise is accepted only when both witnesses exist:
 
 ---
 
+## Explicit Phase 1 Invariants
+
+These are hard acceptance invariants (not interpretation notes). Each one must
+be backed by both positive and falsification witnesses.
+
+### Invariant I1: Shared authoritative DB truth across isolated runtimes
+
+- Definition:
+  - CLI, MCP, harness workers, and replay readers observe one authoritative
+    event/store truth for the same dispatch/spec scope.
+  - Terminal state and lifecycle evidence queried from different runtime
+    surfaces must converge to the same domain truth.
+- Positive witnesses:
+  - Feature 1 Scenario 1.1
+  - Feature 1 Scenario 1.2
+  - Feature 6 Scenario 6.1
+- Falsification witnesses:
+  - Feature 1 Scenario 1.3
+  - Feature 2 Scenario 2.3
+  - Feature 4 Scenario 4.3
+
+### Invariant I2: Typed event parity across CLI/MCP/runtime boundaries
+
+- Definition:
+  - Equivalent operations emitted through different runtime boundaries map to
+    equivalent typed lifecycle semantics and queryable evidence classes.
+  - Adapter/provider payload details may vary, but primary event contract
+    remains stable and typed.
+- Positive witnesses:
+  - Feature 3 Scenario 3.1
+  - Feature 3 Scenario 3.2
+  - Feature 6 Scenario 6.1
+- Falsification witnesses:
+  - Feature 1 Scenario 1.3
+  - Feature 3 Scenario 3.3
+  - Feature 6 Scenario 6.2
+
+### Invariant I3: Credential compatibility across isolated runtimes
+
+- Definition:
+  - Runtime identity/credential contracts required for execution are compatible
+    across harness and environment isolation boundaries.
+  - Missing, incompatible, or unsafe credential posture must fail closed before
+    partial execution side effects.
+- Positive witnesses:
+  - Feature 2 Scenario 2.1
+  - Feature 2 Scenario 2.2
+  - Feature 5 Scenario 5.1
+- Falsification witnesses:
+  - Feature 2 Scenario 2.3
+  - Feature 4 Scenario 4.2
+  - Feature 5 Scenario 5.3
+
+---
+
 ## BDD Proof Scenarios
 
 ## Feature 1: Harness choice does not change dispatch semantics
@@ -171,3 +226,12 @@ Move to Phase 2 only when all are true:
 2. Cross-harness and cross-environment equivalence is demonstrably stable.
 3. Lease cleanup and crash recovery behavior are reproducible.
 4. Remaining gaps are explicitly classified as Phase 2+ scope.
+
+---
+
+## Witness Packaging Requirement
+
+For acceptance, each scenario and each invariant above must map to reproducible
+proof artifacts (command logs + verdict JSON) in a Phase 1 proof pack so a
+different engineer can re-run and falsify claims without relying on oral
+context.

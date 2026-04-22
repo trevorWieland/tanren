@@ -8,12 +8,16 @@ use tanren_domain::methodology::evidence::demo::{
     DemoFrontmatter, DemoResult, DemoStep, DemoStepMode,
 };
 use tanren_domain::methodology::evidence::spec::SpecFrontmatter;
+use tanren_domain::methodology::finding::{Finding, FindingSeverity};
+use tanren_domain::methodology::rubric::{ComplianceStatus, NonNegotiableCompliance, RubricScore};
+use tanren_domain::methodology::signpost::Signpost;
 use tanren_domain::methodology::task::{RequiredGuard, TaskOrigin, TaskStatus};
 
 use super::artifact_projection::{
-    GENERATED_ARTIFACT_MANIFEST_FILE, RenderedArtifacts, TaskCounts, TaskEvidence,
-    TaskProjectionRow, TasksFrontmatter,
+    GENERATED_ARTIFACT_MANIFEST_FILE, RenderedArtifacts, TaskEvidence, TaskProjectionRow,
+    TasksFrontmatter,
 };
+use super::artifact_projection_render::TaskCounts;
 use super::errors::{MethodologyError, MethodologyResult};
 use super::phase_events::PhaseEventLine;
 
@@ -179,6 +183,110 @@ pub(super) fn render_demo_body(frontmatter: &DemoFrontmatter) -> String {
     out
 }
 
+pub(super) fn render_audit_body(
+    findings: &[Finding],
+    rubric_scores: &[RubricScore],
+    non_negotiables: &[NonNegotiableCompliance],
+) -> String {
+    let mut out = String::from("# Audit\n\n## Findings\n");
+    if findings.is_empty() {
+        out.push_str("_No findings recorded._\n");
+    } else {
+        for finding in findings {
+            let severity = match finding.severity {
+                FindingSeverity::FixNow => "fix_now",
+                FindingSeverity::Defer => "defer",
+                FindingSeverity::Note => "note",
+                FindingSeverity::Question => "question",
+            };
+            let source = match &finding.source {
+                tanren_domain::methodology::finding::FindingSource::Audit { phase, .. } => {
+                    phase.as_str().to_owned()
+                }
+                tanren_domain::methodology::finding::FindingSource::Adherence { .. } => {
+                    "adherence".to_owned()
+                }
+                tanren_domain::methodology::finding::FindingSource::Demo { .. } => {
+                    "run-demo".to_owned()
+                }
+                tanren_domain::methodology::finding::FindingSource::Investigation { .. } => {
+                    "investigate".to_owned()
+                }
+                tanren_domain::methodology::finding::FindingSource::Triage => {
+                    "triage-audits".to_owned()
+                }
+                tanren_domain::methodology::finding::FindingSource::Feedback { .. } => {
+                    "feedback".to_owned()
+                }
+            };
+            let _ = writeln!(
+                out,
+                "- {} [{}] {} (`{}`)",
+                finding.id,
+                severity,
+                finding.title.as_str(),
+                source
+            );
+        }
+    }
+
+    out.push_str("\n## Rubric\n");
+    if rubric_scores.is_empty() {
+        out.push_str("_No rubric scores recorded._\n");
+    } else {
+        for score in rubric_scores {
+            let _ = writeln!(
+                out,
+                "- {}: {}/10 (target {}, passing {})",
+                score.pillar.as_str(),
+                score.score.get(),
+                score.target.get(),
+                score.passing.get()
+            );
+        }
+    }
+
+    out.push_str("\n## Non-Negotiables\n");
+    if non_negotiables.is_empty() {
+        out.push_str("_No non-negotiable checks recorded._\n");
+    } else {
+        for item in non_negotiables {
+            let status = match item.status {
+                ComplianceStatus::Pass => "pass",
+                ComplianceStatus::Fail => "fail",
+            };
+            let _ = writeln!(out, "- {}: {}", item.name.as_str(), status);
+        }
+    }
+
+    out
+}
+
+pub(super) fn render_signposts_body(signposts: &[Signpost]) -> String {
+    let mut out = String::from("# Signposts\n\n## Entries\n");
+    if signposts.is_empty() {
+        out.push_str("_No signposts recorded._\n");
+        return out;
+    }
+    for signpost in signposts {
+        let _ = writeln!(
+            out,
+            "- {} [{}] {}",
+            signpost.id,
+            match signpost.status {
+                tanren_domain::methodology::signpost::SignpostStatus::Unresolved => "unresolved",
+                tanren_domain::methodology::signpost::SignpostStatus::Resolved => "resolved",
+                tanren_domain::methodology::signpost::SignpostStatus::Deferred => "deferred",
+                tanren_domain::methodology::signpost::SignpostStatus::ArchitecturalConstraint => {
+                    "architectural_constraint"
+                }
+            },
+            signpost.problem.as_str()
+        );
+    }
+    out
+}
+
 pub(super) fn render_plan_body(spec: &SpecFrontmatter, tasks: &[TaskProjectionRow]) -> String {
     let mut out = String::new();
     out.push_str("# Plan\n\n");
@@ -298,12 +406,14 @@ pub(super) fn write_artifacts(
     spec_folder: &Path,
     rendered: RenderedArtifacts,
 ) -> MethodologyResult<()> {
-    let writes: [(&str, String); 7] = [
+    let writes: [(&str, String); 9] = [
         ("spec.md", rendered.spec_md),
         ("plan.md", rendered.plan_md),
         ("tasks.md", rendered.tasks_md),
         ("tasks.json", rendered.tasks_json),
         ("demo.md", rendered.demo_md),
+        ("audit.md", rendered.audit_md),
+        ("signposts.md", rendered.signposts_md),
         ("progress.json", rendered.progress_json),
         (GENERATED_ARTIFACT_MANIFEST_FILE, rendered.manifest_json),
     ];

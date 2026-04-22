@@ -1,4 +1,4 @@
-//! Integration coverage for `tanren methodology spec status`.
+//! Integration coverage for `tanren-cli methodology spec status`.
 
 use std::process::Command;
 

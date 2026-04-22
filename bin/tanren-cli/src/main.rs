@@ -27,7 +27,7 @@ use commands::methodology::{MethodologyCommand, MethodologyGlobal, dispatch as r
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
-#[command(name = "tanren", version, about)]
+#[command(name = "tanren-cli", version, about)]
 struct Cli {
     /// Database URL (`SQLite` or Postgres).
     #[arg(long, default_value = "sqlite:tanren.db", global = true)]
@@ -130,7 +130,7 @@ async fn main() -> std::process::ExitCode {
 }
 
 /// Internal error envelope that preserves typed CLI exit codes
-/// (`tanren install`: 0/1/2/3/4; methodology subcommands: 0/2/4 per
+/// (`tanren-cli install`: 0/1/2/3/4; methodology subcommands: 0/2/4 per
 /// `agent-tool-surface.md §5`). Other subcommands collapse into
 /// `Other` and exit with the generic `ExitCode::FAILURE` path.
 enum RunError {

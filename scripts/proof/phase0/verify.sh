@@ -27,6 +27,7 @@ fi
 required_files=(
     "summary.json"
     "summary.md"
+    "runtime/installed-runtime.json"
     "auth-replay/summary.json"
     "replay-pack/verdicts/equivalence.json"
     "replay-pack/verdicts/rollback.json"
@@ -90,6 +91,7 @@ for row in scenarios:
             )
 
 supplemental_checks = {
+    "runtime/installed-runtime.json": ["runtime_ok", True],
     "auth-replay/summary.json": ["status", "pass"],
     "replay-pack/verdicts/equivalence.json": ["status", "pass"],
     "replay-pack/verdicts/rollback.json": ["status", "pass"],

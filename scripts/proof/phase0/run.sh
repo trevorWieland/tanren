@@ -16,6 +16,8 @@ USAGE
 OUTPUT_ROOT="${PHASE0_PROOF_OUTPUT_ROOT:-${REPO_ROOT}/artifacts/phase0-proof}"
 TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
 SKIP_VERIFY=0
+TANREN_CLI_BIN="${TANREN_CLI_BIN:-tanren-cli}"
+TANREN_MCP_BIN="${TANREN_MCP_BIN:-tanren-mcp}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -45,6 +47,20 @@ done
 
 PACK_DIR="${OUTPUT_ROOT}/${TIMESTAMP}"
 mkdir -p "${PACK_DIR}/scenarios"
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || {
+        echo "Missing required command: $1" >&2
+        exit 1
+    }
+}
+
+need_cmd "${TANREN_CLI_BIN}"
+need_cmd "${TANREN_MCP_BIN}"
+need_cmd jq
+mkdir -p "${PACK_DIR}/runtime"
+"${REPO_ROOT}/scripts/runtime/verify-installed-runtime.sh" \
+    > "${PACK_DIR}/runtime/installed-runtime.json"
 
 RESULTS_TSV="${PACK_DIR}/_results.tsv"
 SCENARIO_INDEX="${PACK_DIR}/_scenarios.tsv"
@@ -84,7 +100,7 @@ quote_cmd() {
 }
 
 tanren_cli() {
-    cargo run --quiet -p tanren-cli -- "$@"
+    "${TANREN_CLI_BIN}" "$@"
 }
 
 record_result() {

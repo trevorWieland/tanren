@@ -1,4 +1,4 @@
-//! `tanren methodology reconcile-phase-events` — reconcile pending
+//! `tanren-cli methodology reconcile-phase-events` — reconcile pending
 //! outbox rows to `phase-events.jsonl`.
 
 use serde::Serialize;

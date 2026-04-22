@@ -126,7 +126,7 @@ The system distinguishes between:
   `commands/project/`, with `{{DOUBLE_BRACE_UPPER}}` variables filled at
   install time and opinionated agent-behavior prose.
 - **Installed command files** — per-repo, per-agent-framework renderings
-  produced by `tanren install` (Claude Code, Codex Skills, OpenCode; per-
+  produced by `tanren-cli install` (Claude Code, Codex Skills, OpenCode; per-
   target format drivers; destructive-on-reinstall for commands, preserving
   for standards).
 - **Typed orchestration state** — tasks, findings, rubric scores,

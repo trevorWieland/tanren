@@ -7,7 +7,9 @@ use tanren_domain::methodology::events::{
     MethodologyEvent, SpecDefined, TaskAdherent, TaskAudited, TaskCompleted, TaskCreated,
     TaskGateChecked, TaskImplemented, TaskStarted,
 };
-use tanren_domain::methodology::spec::{DemoEnvironment, Spec, SpecDependencies};
+use tanren_domain::methodology::spec::{
+    DemoEnvironment, Spec, SpecDependencies, SpecRelevanceContext,
+};
 use tanren_domain::methodology::task::{AcceptanceCriterion, TaskOrigin, TaskStatus};
 use uuid::Uuid;
 
@@ -314,3 +316,6 @@ fn read_phase_event_lines_rejects_schema_version_mismatch() {
     assert!(message.contains("/schema_version"));
     assert!(message.contains("1.0.0"));
 }
+
+#[path = "artifact_projection_tests_checkpoint.rs"]
+mod checkpoint_tests;

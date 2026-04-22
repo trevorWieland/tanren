@@ -72,7 +72,8 @@ Shared command markdown **must not** hardcode:
 - commit / push / PR steps
 - workflow-target selection logic ("find the next task")
 - direct writes to orchestrator-owned artifacts (`spec.md`, `plan.md`,
-  `tasks.md`, `tasks.json`, `demo.md`, `progress.json`) or any
+  `tasks.md`, `tasks.json`, `demo.md`, `audit.md`, `signposts.md`,
+  `progress.json`, `.tanren-projection-checkpoint.json`) or any
   orchestrator-owned artifact
 
 Shared command markdown **must not** construct structured state
@@ -95,7 +96,7 @@ Key ones:
 - `{{SPEC_ROOT}}`, `{{PRODUCT_ROOT}}`, `{{STANDARDS_ROOT}}`
 - `{{PROJECT_LANGUAGE}}`
 - `{{TASK_TOOL_BINDING}}` (binding-specific actionable invocation prose:
-  MCP-primary instructions plus canonical `tanren methodology ...` fallback
+  MCP-primary instructions plus canonical `tanren-cli methodology ...` fallback
   with required globals)
 - `{{READONLY_ARTIFACT_BANNER}}` (three-layer read-only warning)
 - `{{PILLAR_LIST}}`, `{{REQUIRED_GUARDS}}` (for audit command prose)

@@ -32,6 +32,9 @@ mod tool_registry;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    if let Some(code) = process_meta_flags() {
+        return code;
+    }
     if let Err(err) = init_tracing() {
         let _ = writeln_stderr(&format!("failed to initialize tracing: {err}"));
         return ExitCode::from(2);
@@ -42,6 +45,20 @@ async fn main() -> ExitCode {
             tracing::error!(?err, "tanren-mcp exited with error");
             ExitCode::from(1)
         }
+    }
+}
+
+fn process_meta_flags() -> Option<ExitCode> {
+    let mut args = std::env::args().skip(1);
+    match (args.next().as_deref(), args.next()) {
+        (Some("--version" | "-V"), None) => {
+            if write_stdout_line(&format!("tanren-mcp {}", env!("CARGO_PKG_VERSION"))).is_ok() {
+                Some(ExitCode::SUCCESS)
+            } else {
+                Some(ExitCode::from(2))
+            }
+        }
+        _ => None,
     }
 }
 
@@ -178,6 +195,11 @@ fn init_tracing() -> Result<()> {
 fn writeln_stderr(msg: &str) -> std::io::Result<()> {
     use std::io::Write as _;
     writeln!(std::io::stderr(), "{msg}")
+}
+
+fn write_stdout_line(msg: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    writeln!(std::io::stdout(), "{msg}")
 }
 
 struct MethodologyRuntimeSettings {

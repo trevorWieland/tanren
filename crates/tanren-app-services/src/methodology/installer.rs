@@ -89,10 +89,10 @@ pub fn plan_install(
 const fn binding_instructions(binding: InstallBinding) -> &'static str {
     match binding {
         InstallBinding::Mcp => {
-            "Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:\n`tanren methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --json '<payload>'`."
+            "Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:\n`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`."
         }
         InstallBinding::Cli => {
-            "Use the Tanren CLI for all structured mutations:\n`tanren methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --json '<payload>'`.\nIf MCP is available, call the equivalent typed tool (`create_task`, `add_finding`, `report_phase_outcome`)."
+            "Use the Tanren CLI for all structured mutations:\n`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.\nIf MCP is available, call the equivalent typed tool (`create_task`, `add_finding`, `report_phase_outcome`)."
         }
         InstallBinding::None => {
             "No tool binding is configured for this target; do not perform structured mutations from this command."
@@ -194,7 +194,7 @@ pub fn apply_install(plan: &InstallPlan) -> MethodologyResult<Vec<PathBuf>> {
 }
 
 /// Diff a plan against the current filesystem. Non-empty result
-/// indicates drift — `tanren install --strict --dry-run` exits with
+/// indicates drift — `tanren-cli install --strict --dry-run` exits with
 /// code 3 if this returns any entries.
 ///
 /// Scans in two passes:

@@ -1,12 +1,16 @@
 # Install Targets
 
-Authoritative spec for `tanren install`: how shared command sources,
+Authoritative spec for `tanren-cli install`: how shared command sources,
 MCP server configurations, and standards baselines are rendered and
 written to agent-framework-specific destinations.
 
 Companion docs:
 [agent-tool-surface.md](agent-tool-surface.md)
 (what MCP configs reference).
+
+Runtime install + discoverability witness:
+- `scripts/runtime/install-runtime.sh`
+- `scripts/runtime/verify-installed-runtime.sh`
 
 ---
 
@@ -21,7 +25,7 @@ Companion docs:
 4. **Destructive-on-reinstall for commands by design.** If a user
    wants to customize, they fork `commands/` and point the installer
    at their fork.
-5. **Idempotent.** Running `tanren install` twice produces no disk
+5. **Idempotent.** Running `tanren-cli install` twice produces no disk
    change when config and source haven't changed.
 6. **Dry-run friendly.** `--dry-run` shows every write without
    performing it; exit code 3 when drift exists (usable as a CI
@@ -42,7 +46,13 @@ Companion docs:
       "tanren": {
         "command": "tanren-mcp",
         "args": ["serve"],
-        "env": { "TANREN_CONFIG": "./tanren.yml" }
+        "env": {
+          "TANREN_CONFIG": "./tanren.yml",
+          "TANREN_MCP_CAPABILITY_ISSUER": "tanren-phase0",
+          "TANREN_MCP_CAPABILITY_AUDIENCE": "tanren-mcp",
+          "TANREN_MCP_CAPABILITY_PUBLIC_KEY_FILE": ".tanren/mcp-capability-public-key.pem",
+          "TANREN_MCP_CAPABILITY_MAX_TTL_SECS": "900"
+        }
       }
     }
   }
@@ -62,7 +72,7 @@ Companion docs:
   [mcp_servers.tanren]
   command = "tanren-mcp"
   args = ["serve"]
-  env = { TANREN_CONFIG = "./tanren.yml" }
+  env = { TANREN_CONFIG = "./tanren.yml", TANREN_MCP_CAPABILITY_ISSUER = "tanren-phase0", TANREN_MCP_CAPABILITY_AUDIENCE = "tanren-mcp", TANREN_MCP_CAPABILITY_PUBLIC_KEY_FILE = ".tanren/mcp-capability-public-key.pem", TANREN_MCP_CAPABILITY_MAX_TTL_SECS = "900" }
   startup_timeout_sec = 10
   tool_timeout_sec = 60
   enabled = true
@@ -72,7 +82,7 @@ Companion docs:
   `[mcp_servers.tanren]` section)
 - Codex command rendering targets `.codex/skills/*/SKILL.md`.
   `AGENTS.md` is a separate shared-instructions convention and is not
-  touched by `tanren install`.
+  touched by `tanren-cli install`.
 
 ### 2.3 OpenCode (`opencode`)
 
@@ -188,7 +198,7 @@ and collects results for dry-run output.
 | `{{PHASE_EVENTS_FILE}}` | `{spec_folder}/phase-events.jsonl` |
 | `{{READONLY_ARTIFACT_BANNER}}` | fixed prose |
 | `{{PILLAR_LIST}}` | effective rubric pillar ids: `tanren/rubric.yml` (preferred) → `tanren.yml methodology.rubric` (canonical) → built-in pillar ids |
-| `{{REQUIRED_GUARDS}}` | effective `methodology.task_complete_requires` after profile overrides (`tanren install --profile`) |
+| `{{REQUIRED_GUARDS}}` | effective `methodology.task_complete_requires` after profile overrides (`tanren-cli install --profile`) |
 
 The installer must resolve both variables at install time from the
 active config/rubric state; hardcoded literals are non-compliant.
@@ -239,6 +249,12 @@ methodology:
   mcp:
     transport: stdio
     enabled: true
+    security:
+      capability_issuer: tanren-phase0
+      capability_audience: tanren-mcp
+      capability_public_key_file: .tanren/mcp-capability-public-key.pem
+      capability_private_key_file: .tanren/mcp-capability-private-key.pem
+      capability_max_ttl_secs: 900
     also_write_configs:
       - path: .mcp.json
         format: claude-mcp-json
@@ -258,12 +274,19 @@ methodology:
     # spec_root, product_root, standards_root, agent_cli_noun: defaults
 ```
 
+Installer-rendered MCP config includes `TANREN_CONFIG` plus capability
+validation inputs (`TANREN_MCP_CAPABILITY_ISSUER`,
+`TANREN_MCP_CAPABILITY_AUDIENCE`,
+`TANREN_MCP_CAPABILITY_PUBLIC_KEY_FILE`,
+`TANREN_MCP_CAPABILITY_MAX_TTL_SECS`). Runtime orchestration injects
+`TANREN_MCP_CAPABILITY_ENVELOPE` per phase invocation.
+
 ---
 
 ## 6. CLI surface
 
 ```
-tanren install
+tanren-cli install
     [--profile <name>]              # tanren.yml profile (optional)
     [--config <path>]               # override tanren.yml location
     [--source <path>]               # override commands source dir
@@ -348,7 +371,7 @@ above. `just install-commands-check` (run in `just ci`) asserts no
 drift.
 
 **Downstream repos do not inherit the `just` recipes.** They run
-`tanren install` standalone and choose their own CI integration.
+`tanren-cli install` standalone and choose their own CI integration.
 
 ---
 

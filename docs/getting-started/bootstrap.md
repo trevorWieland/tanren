@@ -1,54 +1,24 @@
-# Bootstrap Guide
+# Bootstrap Guide (Legacy / Archived)
 
-Use this flow to install tanren into an existing project and prepare the first
-spec run.
+This page documents the pre-rewrite Python-era bootstrap path and is kept only
+for historical reference.
 
-## 1. Install Tanren Assets
+For Phase 0 acceptance and current operator workflow, use:
+- [../methodology/commands-install.md](../methodology/commands-install.md)
+- [../architecture/install-targets.md](../architecture/install-targets.md)
+- [../rewrite/PHASE0_PROOF_RUNBOOK.md](../rewrite/PHASE0_PROOF_RUNBOOK.md)
 
-```bash
-cd /path/to/project
-~/path/to/tanren/scripts/install.sh --profile python-uv
-```
+Canonical runtime contract is installed binaries:
+- `tanren-cli`
+- `tanren-mcp`
 
-Installation adds:
-
-- `.claude/commands/tanren/` and `.opencode/commands/tanren/`
-- `tanren/standards/`
-- `tanren/product/`
-- `tanren/scripts/`
-- `Makefile` gates (if missing)
-
-## 2. One-Time Knowledge Bootstrap
-
-Run once per project:
-
-1. `plan-product`
-2. `discover-standards`
-3. `inject-standards`
-4. `index-standards`
-
-These steps establish the product and coding context used by all future agent
-sessions.
-
-## 3. Configure Execution
-
-Define project/runtime config:
-
-- `tanren.yml`: env requirements, environment profiles, gate commands
-- `remote.yml` (optional): remote provider, SSH, workspace, secrets loading
-- `roles.yml` (optional): role to CLI/model mapping
-
-Verify with:
+Use:
 
 ```bash
-tanren env check
-tanren vm dry-run --project my-project --environment-profile default
+scripts/runtime/install-runtime.sh
+scripts/runtime/verify-installed-runtime.sh
+tanren-cli install
 ```
 
-## 4. Execute First Lifecycle
-
-```bash
-tanren run full --project my-project --spec-path tanren/specs/s0001 --phase do-task
-```
-
-For full state semantics and protocol details, see `protocol/README.md`.
+Do not treat the old `scripts/install.sh --profile python-uv` path on this page
+as an acceptance path for the rewrite lane.

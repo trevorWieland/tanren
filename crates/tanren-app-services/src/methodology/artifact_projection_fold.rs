@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use tanren_domain::methodology::events::MethodologyEvent;
+use tanren_domain::methodology::finding::Finding;
+use tanren_domain::methodology::pillar::PillarScope;
+use tanren_domain::methodology::rubric::{ComplianceStatus, NonNegotiableCompliance, RubricScore};
+use tanren_domain::methodology::signpost::Signpost;
 use tanren_domain::methodology::task::{
     RequiredGuard, TaskAbandonDisposition, TaskGuardFlags, TaskStatus,
 };
@@ -13,7 +18,7 @@ use super::artifact_projection_helpers::{
 };
 use super::phase_events::PhaseEventLine;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct FoldedProjectionState {
     pub(super) generated_at: DateTime<Utc>,
     pub(super) spec_state: SpecState,
@@ -25,6 +30,33 @@ pub(super) struct FoldedProjectionState {
     pub(super) last_event_at: Option<DateTime<Utc>>,
     pub(super) latest_event_id: Option<EventId>,
     pub(super) latest_phase: Option<String>,
+    pub(super) findings: Vec<Finding>,
+    pub(super) rubric_scores: Vec<RubricScore>,
+    pub(super) non_negotiables_compliance: Vec<NonNegotiableCompliance>,
+    pub(super) audit_scope: PillarScope,
+    pub(super) audit_scope_target_id: Option<String>,
+    pub(super) signposts: Vec<Signpost>,
+}
+
+pub(super) fn empty_folded_projection_state() -> FoldedProjectionState {
+    FoldedProjectionState {
+        generated_at: DateTime::from_timestamp(0, 0).expect("unix epoch"),
+        spec_state: SpecState::default(),
+        tasks: Vec::new(),
+        demo_steps: Vec::new(),
+        demo_results: Vec::new(),
+        last_demo_mutation: None,
+        first_event_at: None,
+        last_event_at: None,
+        latest_event_id: None,
+        latest_phase: None,
+        findings: Vec::new(),
+        rubric_scores: Vec::new(),
+        non_negotiables_compliance: Vec::new(),
+        audit_scope: PillarScope::Spec,
+        audit_scope_target_id: None,
+        signposts: Vec::new(),
+    }
 }
 
 pub(super) fn fold_projection_lines(
@@ -32,96 +64,199 @@ pub(super) fn fold_projection_lines(
     lines: &[PhaseEventLine],
     required_guards: &[RequiredGuard],
 ) -> FoldedProjectionState {
-    let scoped_lines = lines
-        .iter()
-        .filter(|line| line.spec_id == spec_id)
-        .collect::<Vec<_>>();
-    let generated_at = scoped_lines.last().map_or_else(
-        || DateTime::from_timestamp(0, 0).expect("unix epoch"),
-        |line| line.timestamp,
-    );
-    let mut spec_state = SpecState::default();
-    let mut task_rows: HashMap<TaskId, TaskProjectionRow> = HashMap::new();
-    let mut demo_steps = Vec::new();
-    let mut demo_results = Vec::new();
-    let mut last_demo_mutation = None;
-    for line in &scoped_lines {
-        if spec_state.created_at.is_none() {
-            spec_state.created_at = Some(line.timestamp);
+    fold_projection_lines_incremental(
+        empty_folded_projection_state(),
+        spec_id,
+        lines,
+        required_guards,
+    )
+}
+
+pub(super) fn fold_projection_lines_incremental(
+    mut state: FoldedProjectionState,
+    spec_id: SpecId,
+    lines: &[PhaseEventLine],
+    required_guards: &[RequiredGuard],
+) -> FoldedProjectionState {
+    let mut task_rows: HashMap<TaskId, TaskProjectionRow> = state
+        .tasks
+        .drain(..)
+        .map(|row| (row.task.id, row))
+        .collect();
+    let mut findings: HashMap<_, Finding> = state
+        .findings
+        .drain(..)
+        .map(|finding| (finding.id, finding))
+        .collect();
+    let mut rubric_scores: HashMap<String, RubricScore> = state
+        .rubric_scores
+        .drain(..)
+        .map(|score| (score.pillar.as_str().to_owned(), score))
+        .collect();
+    let mut non_negotiables: HashMap<String, NonNegotiableCompliance> = state
+        .non_negotiables_compliance
+        .drain(..)
+        .map(|record| (record.name.as_str().to_owned(), record))
+        .collect();
+    let mut signposts: HashMap<_, Signpost> = state
+        .signposts
+        .drain(..)
+        .map(|signpost| (signpost.id, signpost))
+        .collect();
+
+    let scoped_lines = lines.iter().filter(|line| line.spec_id == spec_id);
+    for line in scoped_lines {
+        if state.first_event_at.is_none() {
+            state.first_event_at = Some(line.timestamp);
         }
-        apply_projection_line(
-            line,
-            required_guards,
-            &mut spec_state,
-            &mut task_rows,
-            &mut demo_steps,
-            &mut demo_results,
-            &mut last_demo_mutation,
-        );
+        if state.spec_state.created_at.is_none() {
+            state.spec_state.created_at = Some(line.timestamp);
+        }
+        let mut maps = ProjectionMaps {
+            task_rows: &mut task_rows,
+            findings: &mut findings,
+            rubric_scores: &mut rubric_scores,
+            non_negotiables: &mut non_negotiables,
+            signposts: &mut signposts,
+        };
+        apply_projection_line(line, required_guards, &mut state, &mut maps);
+        state.generated_at = line.timestamp;
+        state.last_event_at = Some(line.timestamp);
+        state.latest_event_id = Some(line.event_id);
+        state.latest_phase = Some(line.phase.clone());
     }
-    let mut tasks = task_rows.into_values().collect::<Vec<_>>();
-    tasks.sort_by(|a, b| {
+
+    state.tasks = task_rows.into_values().collect::<Vec<_>>();
+    state.tasks.sort_by(|a, b| {
         a.task
             .created_at
             .cmp(&b.task.created_at)
             .then(a.task.id.into_uuid().cmp(&b.task.id.into_uuid()))
     });
-    FoldedProjectionState {
-        generated_at,
-        spec_state,
-        tasks,
-        demo_steps,
-        demo_results,
-        last_demo_mutation,
-        first_event_at: scoped_lines.first().map(|line| line.timestamp),
-        last_event_at: scoped_lines.last().map(|line| line.timestamp),
-        latest_event_id: scoped_lines.last().map(|line| line.event_id),
-        latest_phase: scoped_lines.last().map(|line| line.phase.clone()),
-    }
+
+    state.findings = findings.into_values().collect::<Vec<_>>();
+    state.findings.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then(a.id.to_string().cmp(&b.id.to_string()))
+    });
+
+    state.rubric_scores = rubric_scores.into_values().collect::<Vec<_>>();
+    state
+        .rubric_scores
+        .sort_by(|a, b| a.pillar.as_str().cmp(b.pillar.as_str()));
+
+    state.non_negotiables_compliance = non_negotiables.into_values().collect::<Vec<_>>();
+    state.non_negotiables_compliance.sort_by(|a, b| {
+        a.name
+            .as_str()
+            .cmp(b.name.as_str())
+            .then_with(|| match (a.status, b.status) {
+                (ComplianceStatus::Pass, ComplianceStatus::Fail) => std::cmp::Ordering::Less,
+                (ComplianceStatus::Fail, ComplianceStatus::Pass) => std::cmp::Ordering::Greater,
+                _ => std::cmp::Ordering::Equal,
+            })
+    });
+
+    state.signposts = signposts.into_values().collect::<Vec<_>>();
+    state.signposts.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then(a.id.to_string().cmp(&b.id.to_string()))
+    });
+
+    state
 }
 
 fn apply_projection_line(
     line: &PhaseEventLine,
     required_guards: &[RequiredGuard],
-    spec_state: &mut SpecState,
-    task_rows: &mut HashMap<TaskId, TaskProjectionRow>,
-    demo_steps: &mut Vec<tanren_domain::methodology::evidence::demo::DemoStep>,
-    demo_results: &mut Vec<tanren_domain::methodology::evidence::demo::DemoResult>,
-    last_demo_mutation: &mut Option<DateTime<Utc>>,
+    state: &mut FoldedProjectionState,
+    maps: &mut ProjectionMaps<'_>,
 ) {
     match &line.payload {
         MethodologyEvent::SpecDefined(e) => {
-            spec_state.title = Some(e.spec.title.clone());
-            spec_state
+            state.spec_state.title = Some(e.spec.title.clone());
+            state
+                .spec_state
                 .problem_statement
                 .clone_from(&e.spec.problem_statement);
-            spec_state.motivations.clone_from(&e.spec.motivations);
-            spec_state.expectations.clone_from(&e.spec.expectations);
-            spec_state
+            state.spec_state.motivations.clone_from(&e.spec.motivations);
+            state
+                .spec_state
+                .expectations
+                .clone_from(&e.spec.expectations);
+            state
+                .spec_state
                 .planned_behaviors
                 .clone_from(&e.spec.planned_behaviors);
-            spec_state
+            state
+                .spec_state
                 .implementation_plan
                 .clone_from(&e.spec.implementation_plan);
-            spec_state
+            state
+                .spec_state
                 .non_negotiables
                 .clone_from(&e.spec.non_negotiables);
-            spec_state
+            state
+                .spec_state
                 .acceptance_criteria
                 .clone_from(&e.spec.acceptance_criteria);
-            spec_state.demo_environment = e.spec.demo_environment.clone();
-            spec_state.dependencies = e.spec.dependencies.clone();
-            spec_state.base_branch = Some(e.spec.base_branch.clone());
-            spec_state.relevance_context = e.spec.relevance_context.clone();
-            spec_state.created_at = Some(e.spec.created_at);
+            state.spec_state.demo_environment = e.spec.demo_environment.clone();
+            state.spec_state.dependencies = e.spec.dependencies.clone();
+            state.spec_state.base_branch = Some(e.spec.base_branch.clone());
+            state.spec_state.relevance_context = e.spec.relevance_context.clone();
+            state.spec_state.created_at = Some(e.spec.created_at);
         }
-        MethodologyEvent::SpecFrontmatterUpdated(e) => apply_spec_patch(spec_state, &e.patch),
+        MethodologyEvent::SpecFrontmatterUpdated(e) => {
+            apply_spec_patch(&mut state.spec_state, &e.patch);
+        }
         MethodologyEvent::DemoFrontmatterUpdated(e) => {
-            *last_demo_mutation = Some(line.timestamp);
-            apply_demo_patch(demo_steps, demo_results, line, &e.patch);
+            state.last_demo_mutation = Some(line.timestamp);
+            apply_demo_patch(
+                &mut state.demo_steps,
+                &mut state.demo_results,
+                line,
+                &e.patch,
+            );
         }
-        _ => apply_task_event(line, required_guards, task_rows),
+        MethodologyEvent::FindingAdded(e) => {
+            maps.findings.insert(e.finding.id, (*e.finding).clone());
+        }
+        MethodologyEvent::AdherenceFindingAdded(e) => {
+            maps.findings.insert(e.finding.id, (*e.finding).clone());
+        }
+        MethodologyEvent::RubricScoreRecorded(e) => {
+            state.audit_scope = e.scope;
+            state.audit_scope_target_id.clone_from(&e.scope_target_id);
+            maps.rubric_scores
+                .insert(e.score.pillar.as_str().to_owned(), e.score.clone());
+        }
+        MethodologyEvent::NonNegotiableComplianceRecorded(e) => {
+            state.audit_scope = e.scope;
+            maps.non_negotiables
+                .insert(e.compliance.name.as_str().to_owned(), e.compliance.clone());
+        }
+        MethodologyEvent::SignpostAdded(e) => {
+            maps.signposts.insert(e.signpost.id, (*e.signpost).clone());
+        }
+        MethodologyEvent::SignpostStatusUpdated(e) => {
+            if let Some(signpost) = maps.signposts.get_mut(&e.signpost_id) {
+                signpost.status = e.status;
+                signpost.resolution.clone_from(&e.resolution);
+                signpost.updated_at = line.timestamp;
+            }
+        }
+        _ => apply_task_event(line, required_guards, maps.task_rows),
     }
+}
+
+struct ProjectionMaps<'a> {
+    task_rows: &'a mut HashMap<TaskId, TaskProjectionRow>,
+    findings: &'a mut HashMap<tanren_domain::FindingId, Finding>,
+    rubric_scores: &'a mut HashMap<String, RubricScore>,
+    non_negotiables: &'a mut HashMap<String, NonNegotiableCompliance>,
+    signposts: &'a mut HashMap<tanren_domain::SignpostId, Signpost>,
 }
 
 fn apply_task_event(

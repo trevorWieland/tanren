@@ -1,4 +1,4 @@
-//! CLI-level tests for the new `tanren install` flags: `--profile`,
+//! CLI-level tests for the new `tanren-cli install` flags: `--profile`,
 //! `--source`, `--target`. Audit finding #6.
 
 use std::io::Write as _;

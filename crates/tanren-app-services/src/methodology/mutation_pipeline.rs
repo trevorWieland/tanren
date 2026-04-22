@@ -18,7 +18,7 @@ use tanren_domain::methodology::evidence::{
 use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::{EventId, NonEmptyString, SpecId};
 
-use super::artifact_projection::GENERATED_ARTIFACT_MANIFEST_FILE;
+use super::artifact_projection::{GENERATED_ARTIFACT_MANIFEST_FILE, PROJECTION_CHECKPOINT_FILE};
 use super::enforcement::{EnforcementGuard, ProtectedPath, ProtectionMode};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::service::MethodologyService;
@@ -195,8 +195,20 @@ fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
             mode: ProtectionMode::ReadOnly,
         },
         ProtectedPath {
+            path: spec_folder.join("audit.md"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
+            path: spec_folder.join("signposts.md"),
+            mode: ProtectionMode::ReadOnly,
+        },
+        ProtectedPath {
             path: spec_folder.join("phase-events.jsonl"),
             mode: ProtectionMode::AppendOnly,
+        },
+        ProtectedPath {
+            path: spec_folder.join(PROJECTION_CHECKPOINT_FILE),
+            mode: ProtectionMode::ReadOnly,
         },
         ProtectedPath {
             path: spec_folder.join(GENERATED_ARTIFACT_MANIFEST_FILE),
@@ -219,6 +231,8 @@ fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
                     | "tasks.md"
                     | "tasks.json"
                     | "progress.json"
+                    | "audit.md"
+                    | "signposts.md"
                     | "phase-events.jsonl"
             ) {
                 continue;

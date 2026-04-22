@@ -25,7 +25,7 @@ Shared command sources live under `commands/` in two subdirectories:
   orchestration state machine. Each emits typed events via the tool
   surface and contributes to task / finding state.
 - **`commands/project/`** — project-management commands that operate
-  outside the spec loop. They still render via `tanren install` but
+  outside the spec loop. They still render via `tanren-cli install` but
   are not sequenced by the orchestrator's state machine.
 
 ### Spec-loop commands (`commands/spec/`)
@@ -108,7 +108,7 @@ invalid inputs return typed `ToolError`s with `remediation`.
 
 ## Installed Artifacts
 
-`tanren install` renders `commands/` into per-agent-framework
+`tanren-cli install` renders `commands/` into per-agent-framework
 destinations:
 - `.claude/commands/<name>.md` (Claude Code)
 - `.codex/skills/<name>/SKILL.md` (Codex Skills — directory per

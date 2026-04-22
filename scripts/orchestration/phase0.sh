@@ -4,7 +4,7 @@
 # Flow policy:
 # - interactive checkpoints: shape-spec, resolve-blockers, walk-spec
 # - autonomous loop: do-task -> task gates -> spec gates/checks
-# - resume source of truth: tanren methodology spec status
+# - resume source of truth: tanren-cli methodology spec status
 
 set -euo pipefail
 
@@ -90,6 +90,26 @@ yaml_default_hook() {
     ' "$config_path"
 }
 
+yaml_mcp_security() {
+    local config_path="$1"
+    local key="$2"
+    awk -v key="$key" '
+        /^methodology:[[:space:]]*$/ { in_methodology=1; next }
+        in_methodology && $0 !~ /^  / { in_methodology=0; in_mcp=0; in_security=0 }
+        in_methodology && /^  mcp:[[:space:]]*$/ { in_mcp=1; next }
+        in_mcp && $0 !~ /^    / { in_mcp=0; in_security=0 }
+        in_mcp && /^    security:[[:space:]]*$/ { in_security=1; next }
+        in_security && $0 !~ /^      / { in_security=0 }
+        in_security {
+            pattern = "^[[:space:]]{6}" key ":[[:space:]]*(.*)$"
+            if (match($0, pattern, m)) {
+                print m[1]
+                exit
+            }
+        }
+    ' "$config_path"
+}
+
 resolve_hook() {
     local var_key="$1"
     local phase_key="$2"
@@ -136,11 +156,64 @@ run_hook() {
 spec_status_json() {
     local payload
     payload="$(printf '{"schema_version":"1.0.0","spec_id":"%s"}' "$SPEC_ID")"
-    tanren --database-url "$DATABASE_URL" methodology \
+    tanren-cli --database-url "$DATABASE_URL" methodology \
         --methodology-config "$CONFIG_PATH" \
         --phase "$STATUS_PHASE" \
         spec status \
         --json "$payload"
+}
+
+phase_capabilities_csv() {
+    local phase="$1"
+    case "$phase" in
+        do-task)
+            printf '%s' "task.start,task.complete,signpost.add,signpost.update,task.read,phase.outcome"
+            ;;
+        audit-task)
+            printf '%s' "finding.add,rubric.record,compliance.record,task.read,phase.outcome"
+            ;;
+        adhere-task)
+            printf '%s' "standard.read,adherence.record,task.read,phase.outcome"
+            ;;
+        run-demo)
+            printf '%s' "demo.results,finding.add,signpost.add,task.read,phase.outcome"
+            ;;
+        audit-spec)
+            printf '%s' "finding.add,rubric.record,compliance.record,task.read,phase.outcome"
+            ;;
+        adhere-spec)
+            printf '%s' "standard.read,adherence.record,task.read,phase.outcome"
+            ;;
+        shape-spec)
+            printf '%s' "task.create,task.revise,task.read,spec.frontmatter,demo.frontmatter,signpost.add,phase.outcome"
+            ;;
+        resolve-blockers)
+            printf '%s' "task.create,task.revise,task.abandon,task.read,phase.outcome"
+            ;;
+        walk-spec)
+            printf '%s' "task.create,task.read,phase.outcome"
+            ;;
+        *)
+            printf '%s' "task.read,phase.outcome"
+            ;;
+    esac
+}
+
+mint_capability_envelope() {
+    local phase="$1"
+    local session_id="$2"
+    local capabilities_csv="$3"
+    uv run python "${REPO_ROOT}/scripts/proof/phase0/mint_mcp_capability_envelope.py" \
+        --private-key-pem "${MCP_CAPABILITY_PRIVATE_KEY_FILE}" \
+        --issuer "${MCP_CAPABILITY_ISSUER}" \
+        --audience "${MCP_CAPABILITY_AUDIENCE}" \
+        --phase "${phase}" \
+        --spec-id "${SPEC_ID}" \
+        --agent-session-id "${session_id}" \
+        --capabilities "${capabilities_csv}" \
+        --requested-ttl "${MCP_CAPABILITY_MAX_TTL_SECS}" \
+        --max-ttl "${MCP_CAPABILITY_MAX_TTL_SECS}" \
+        --token-only
 }
 
 run_harness_phase() {
@@ -163,7 +236,7 @@ ${task_line}
 Requirements:
 - Use Tanren MCP tools for all structured state changes.
 - If MCP is unavailable, use Tanren CLI with canonical globals:
-  tanren --database-url "${DATABASE_URL}" methodology --phase "${phase}" --spec-id "${SPEC_ID}" --spec-folder "${SPEC_FOLDER}" <noun> <verb> --json '<payload>'
+  tanren-cli --database-url "${DATABASE_URL}" methodology --phase "${phase}" --spec-id "${SPEC_ID}" --spec-folder "${SPEC_FOLDER}" <noun> <verb> --params-file '<payload.json>'
 - Complete this phase fully and emit \`report_phase_outcome\`.
 - If blocked, emit a typed blocked outcome (or investigate escalation path).
 - Never hand-edit orchestrator-owned artifacts.
@@ -174,7 +247,20 @@ EOF
         return 0
     fi
 
-    local cmd="$HARNESS_CMD"
+    local capabilities_csv
+    capabilities_csv="$(phase_capabilities_csv "$phase")"
+    local session_id="${RUN_STAMP}-${CYCLE}-${phase}"
+    local envelope
+    envelope="$(mint_capability_envelope "$phase" "$session_id" "$capabilities_csv")"
+
+    local cmd="TANREN_CONFIG=$(printf '%q' "$CONFIG_PATH") "
+    cmd+="TANREN_SPEC_FOLDER=$(printf '%q' "$SPEC_FOLDER") "
+    cmd+="TANREN_MCP_CAPABILITY_ENVELOPE=$(printf '%q' "$envelope") "
+    cmd+="TANREN_MCP_CAPABILITY_ISSUER=$(printf '%q' "$MCP_CAPABILITY_ISSUER") "
+    cmd+="TANREN_MCP_CAPABILITY_AUDIENCE=$(printf '%q' "$MCP_CAPABILITY_AUDIENCE") "
+    cmd+="TANREN_MCP_CAPABILITY_PUBLIC_KEY_FILE=$(printf '%q' "$MCP_CAPABILITY_PUBLIC_KEY_FILE") "
+    cmd+="TANREN_MCP_CAPABILITY_MAX_TTL_SECS=$(printf '%q' "$MCP_CAPABILITY_MAX_TTL_SECS") "
+    cmd+="$HARNESS_CMD"
     if [[ -n "$HARNESS_MODEL" ]]; then
         cmd+=" --model $(printf '%q' "$HARNESS_MODEL")"
     fi
@@ -248,10 +334,12 @@ done
 }
 [[ -f "$CONFIG_PATH" ]] || die "config not found: $CONFIG_PATH"
 
-need_cmd tanren
+need_cmd tanren-cli
+need_cmd tanren-mcp
 need_cmd jq
+need_cmd uv
 if [[ "$DRY_RUN" != "1" ]]; then
-    run_shell_command "config-parse-check" "tanren install --config $(printf '%q' "$CONFIG_PATH") --dry-run >/dev/null"
+    run_shell_command "config-parse-check" "tanren-cli install --config $(printf '%q' "$CONFIG_PATH") --dry-run >/dev/null"
 fi
 
 if [[ -z "$SPEC_FOLDER" ]]; then
@@ -267,6 +355,22 @@ ADHERE_TASK_HOOK="$(resolve_hook "adhere_task_hook" "adhere-task" "$TASK_HOOK")"
 RUN_DEMO_HOOK="$(resolve_hook "run_demo_hook" "run-demo" "$SPEC_HOOK")"
 AUDIT_SPEC_HOOK="$(resolve_hook "audit_spec_hook" "audit-spec" "$SPEC_HOOK")"
 ADHERE_SPEC_HOOK="$(resolve_hook "adhere_spec_hook" "adhere-spec" "$SPEC_HOOK")"
+
+MCP_CAPABILITY_ISSUER="${TANREN_MCP_CAPABILITY_ISSUER:-$(trim_scalar "$(yaml_mcp_security "$CONFIG_PATH" "capability_issuer")")}"
+MCP_CAPABILITY_AUDIENCE="${TANREN_MCP_CAPABILITY_AUDIENCE:-$(trim_scalar "$(yaml_mcp_security "$CONFIG_PATH" "capability_audience")")}"
+MCP_CAPABILITY_PUBLIC_KEY_FILE="${TANREN_MCP_CAPABILITY_PUBLIC_KEY_FILE:-$(trim_scalar "$(yaml_mcp_security "$CONFIG_PATH" "capability_public_key_file")")}"
+MCP_CAPABILITY_PRIVATE_KEY_FILE="${TANREN_MCP_CAPABILITY_PRIVATE_KEY_FILE:-$(trim_scalar "$(yaml_mcp_security "$CONFIG_PATH" "capability_private_key_file")")}"
+MCP_CAPABILITY_MAX_TTL_SECS="${TANREN_MCP_CAPABILITY_MAX_TTL_SECS:-$(trim_scalar "$(yaml_mcp_security "$CONFIG_PATH" "capability_max_ttl_secs")")}"
+[[ -n "$MCP_CAPABILITY_MAX_TTL_SECS" ]] || MCP_CAPABILITY_MAX_TTL_SECS="900"
+
+[[ -n "$MCP_CAPABILITY_ISSUER" ]] || die "missing methodology.mcp.security.capability_issuer"
+[[ -n "$MCP_CAPABILITY_AUDIENCE" ]] || die "missing methodology.mcp.security.capability_audience"
+[[ -n "$MCP_CAPABILITY_PUBLIC_KEY_FILE" ]] || die "missing methodology.mcp.security.capability_public_key_file"
+[[ -n "$MCP_CAPABILITY_PRIVATE_KEY_FILE" ]] || die "missing methodology.mcp.security.capability_private_key_file"
+if [[ "$DRY_RUN" != "1" ]]; then
+    [[ -f "$MCP_CAPABILITY_PUBLIC_KEY_FILE" ]] || die "missing capability public key file: $MCP_CAPABILITY_PUBLIC_KEY_FILE"
+    [[ -f "$MCP_CAPABILITY_PRIVATE_KEY_FILE" ]] || die "missing capability private key file: $MCP_CAPABILITY_PRIVATE_KEY_FILE"
+fi
 
 RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${SPEC_FOLDER}/orchestration/phase0/${RUN_STAMP}"
@@ -286,6 +390,11 @@ ADHERE_TASK_HOOK=${ADHERE_TASK_HOOK}
 RUN_DEMO_HOOK=${RUN_DEMO_HOOK}
 AUDIT_SPEC_HOOK=${AUDIT_SPEC_HOOK}
 ADHERE_SPEC_HOOK=${ADHERE_SPEC_HOOK}
+MCP_CAPABILITY_ISSUER=${MCP_CAPABILITY_ISSUER}
+MCP_CAPABILITY_AUDIENCE=${MCP_CAPABILITY_AUDIENCE}
+MCP_CAPABILITY_PUBLIC_KEY_FILE=${MCP_CAPABILITY_PUBLIC_KEY_FILE}
+MCP_CAPABILITY_PRIVATE_KEY_FILE=${MCP_CAPABILITY_PRIVATE_KEY_FILE}
+MCP_CAPABILITY_MAX_TTL_SECS=${MCP_CAPABILITY_MAX_TTL_SECS}
 EOF
 
 log "spec_id=${SPEC_ID}"
@@ -326,7 +435,7 @@ Suggested harness command:
   ${HARNESS_CMD} '/shape-spec for spec ${SPEC_ID} in ${SPEC_FOLDER}'
 
 CLI fallback for typed mutations:
-  tanren --database-url ${DATABASE_URL} methodology --phase shape-spec --spec-id ${SPEC_ID} --spec-folder ${SPEC_FOLDER} <noun> <verb> --json \"<payload>\""
+  tanren-cli --database-url ${DATABASE_URL} methodology --phase shape-spec --spec-id ${SPEC_ID} --spec-folder ${SPEC_FOLDER} <noun> <verb> --params-file \"<payload.json>\""
             exit 20
             ;;
         resolve_blockers_required)

@@ -2,7 +2,7 @@
 //!
 //! The CLI is the 1:1 fallback transport for the methodology tool
 //! surface. Every tool in `agent-tool-surface.md §3` is reachable via
-//! a `tanren <noun> <verb>` subcommand, accepting JSON-encoded
+//! a `tanren-cli <noun> <verb>` subcommand, accepting JSON-encoded
 //! parameters that exactly match the wire contract in
 //! `tanren-contract::methodology`. Both MCP and CLI call the same
 //! `MethodologyService` methods so event trails are byte-identical.

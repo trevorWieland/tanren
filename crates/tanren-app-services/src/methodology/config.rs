@@ -25,7 +25,7 @@ pub struct MethodologyConfig {
     pub rubric: MethodologyRubricConfig,
     #[serde(default)]
     pub variables: BTreeMap<String, String>,
-    /// Named profiles. `tanren install --profile NAME` applies the
+    /// Named profiles. `tanren-cli install --profile NAME` applies the
     /// matching entry's overrides on top of the top-level defaults.
     /// The top-level section itself acts as the implicit `default`
     /// profile when no `--profile` flag is supplied.
@@ -33,7 +33,7 @@ pub struct MethodologyConfig {
     pub profiles: BTreeMap<String, MethodologyProfile>,
 }
 
-/// A named override block that `tanren install --profile NAME`
+/// A named override block that `tanren-cli install --profile NAME`
 /// applies on top of the top-level `methodology` section. Every field
 /// is optional — omitted fields leave the base value untouched.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,6 +183,8 @@ pub struct McpConfig {
     pub transport: McpTransport,
     #[serde(default)]
     pub also_write_configs: Vec<InstallTarget>,
+    #[serde(default)]
+    pub security: McpSecurityConfig,
 }
 
 fn default_mcp_transport() -> McpTransport {
@@ -195,6 +197,21 @@ fn default_mcp_transport() -> McpTransport {
 pub enum McpTransport {
     #[default]
     Stdio,
+}
+
+/// MCP capability-envelope security defaults emitted into install-time config.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpSecurityConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_issuer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_audience: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_public_key_file: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_private_key_file: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_max_ttl_secs: Option<u64>,
 }
 
 /// Top-level `tanren.yml` shape. Only the `methodology` section is

@@ -1,4 +1,4 @@
-//! Integration tests for the `tanren methodology …` tool surface.
+//! Integration tests for the `tanren-cli methodology …` tool surface.
 
 #[path = "support/methodology_test_support.rs"]
 mod methodology_test_support;

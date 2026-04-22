@@ -1,6 +1,7 @@
-//! Baseline standards bundled with the tanren install.
+//! Baseline standards bundled with `tanren-cli install`.
 //!
-//! `tanren install` bootstraps a new repo's `tanren/standards/<category>/<name>.md`
+//! `tanren-cli install` bootstraps a new repo's
+//! `tanren/standards/<category>/<name>.md`
 //! tree from this baseline, under the `preserve_existing` merge policy
 //! — so adopters can extend or replace them without the installer
 //! stomping their edits on reinstall.

@@ -84,7 +84,7 @@ a runnable demo plan, and an initial task breakdown.
 ## Emitting results
 
 Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
-`tanren methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --json '<payload>'`.
+`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.
 
 Do not emit mutation calls until the user has confirmed the shaped
 draft.
@@ -113,7 +113,8 @@ present and current: `spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
 `demo.md`, `progress.json`, `phase-events.jsonl`.
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json
+spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,
+signposts.md, progress.json, and .tanren-projection-checkpoint.json
 are generated from the typed event stream.
 Postflight reverts unauthorized edits and emits an
 UnauthorizedArtifactEdit event. Use the typed tool surface

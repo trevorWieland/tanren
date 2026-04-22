@@ -214,6 +214,7 @@ pub fn claude_mcp_json(
     existing: Option<&str>,
     server_command: &str,
     server_args: &[String],
+    server_env: &BTreeMap<String, String>,
 ) -> MethodologyResult<Vec<u8>> {
     let mut root: serde_json::Value = match existing {
         Some(s) if !s.trim().is_empty() => serde_json::from_str(s)
@@ -233,7 +234,7 @@ pub fn claude_mcp_json(
             serde_json::json!({
                 "command": server_command,
                 "args": server_args,
-                "env": { "TANREN_CONFIG": "./tanren.yml" },
+                "env": server_env,
             }),
         );
     let mut out = serde_json::to_string_pretty(&root)
@@ -251,6 +252,7 @@ pub fn codex_config_toml(
     existing: Option<&str>,
     server_command: &str,
     server_args: &[String],
+    server_env: &BTreeMap<String, String>,
 ) -> MethodologyResult<Vec<u8>> {
     let mut doc: toml::Table = match existing {
         Some(s) if !s.trim().is_empty() => toml::from_str(s)
@@ -276,10 +278,9 @@ pub fn codex_config_toml(
         ),
     );
     let mut env = toml::Table::new();
-    env.insert(
-        "TANREN_CONFIG".into(),
-        toml::Value::String("./tanren.yml".into()),
-    );
+    for (k, v) in server_env {
+        env.insert(k.clone(), toml::Value::String(v.clone()));
+    }
     t.insert("env".into(), toml::Value::Table(env));
     t.insert("startup_timeout_sec".into(), toml::Value::Integer(10));
     t.insert("tool_timeout_sec".into(), toml::Value::Integer(60));
@@ -301,6 +302,7 @@ pub fn opencode_json(
     existing: Option<&str>,
     server_command: &str,
     server_args: &[String],
+    server_env: &BTreeMap<String, String>,
 ) -> MethodologyResult<Vec<u8>> {
     let mut root: serde_json::Value = match existing {
         Some(s) if !s.trim().is_empty() => serde_json::from_str(s)
@@ -319,7 +321,7 @@ pub fn opencode_json(
             serde_json::json!({
                 "command": server_command,
                 "args": server_args,
-                "env": { "TANREN_CONFIG": "./tanren.yml" },
+                "env": server_env,
             }),
         );
     let mut out = serde_json::to_string_pretty(&root)
@@ -390,7 +392,8 @@ mod tests {
     #[test]
     fn mcp_json_preserves_other_keys() {
         let existing = "{\n  \"other\": 42\n}";
-        let bytes = claude_mcp_json(Some(existing), "tanren-mcp", &[]).expect("ok");
+        let env = BTreeMap::from([("TANREN_CONFIG".to_owned(), "./tanren.yml".to_owned())]);
+        let bytes = claude_mcp_json(Some(existing), "tanren-mcp", &[], &env).expect("ok");
         let s = String::from_utf8(bytes).expect("utf8");
         assert!(s.contains("\"other\": 42"));
         assert!(s.contains("\"tanren\""));
@@ -407,7 +410,8 @@ mod tests {
 
     #[test]
     fn codex_config_writes_timeout_and_enabled_fields() {
-        let bytes = codex_config_toml(None, "tanren-mcp", &["serve".into()]).expect("ok");
+        let env = BTreeMap::from([("TANREN_CONFIG".to_owned(), "./tanren.yml".to_owned())]);
+        let bytes = codex_config_toml(None, "tanren-mcp", &["serve".into()], &env).expect("ok");
         let s = String::from_utf8(bytes).expect("utf8");
         assert!(s.contains("startup_timeout_sec = 10"));
         assert!(s.contains("tool_timeout_sec = 60"));

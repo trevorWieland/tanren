@@ -43,3 +43,24 @@ async fn finalize_reverts_non_append_only_phase_events_edits() {
         }
     )));
 }
+
+#[test]
+fn protected_artifacts_include_expanded_generated_set() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let spec_folder = root.path();
+    let protected = protected_artifacts(spec_folder);
+    let paths = protected
+        .iter()
+        .map(|entry| {
+            entry
+                .path
+                .file_name()
+                .expect("filename")
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert!(paths.contains(&"audit.md".to_owned()));
+    assert!(paths.contains(&"signposts.md".to_owned()));
+    assert!(paths.contains(&".tanren-projection-checkpoint.json".to_owned()));
+}

@@ -180,7 +180,7 @@ deps-upgrade-major:
 # Dogfoods the methodology installer: renders `commands/` + the
 # bundled baseline standards into the three agent targets and writes
 # the MCP server registration into each agent's config. Adopters need
-# not replicate these recipes — `tanren install` is the single
+# not replicate these recipes — `tanren-cli install` is the single
 # public-facing entry point; these are convenience wrappers over it
 # for local development and CI drift-detection on the tanren repo
 # itself.

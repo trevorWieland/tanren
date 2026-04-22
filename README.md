@@ -69,83 +69,30 @@ sit above tanren. Tanren manages workflow state, dispatch routing, and
 environment lifecycle. Agent runtimes (opencode, codex, claude, aider) sit
 below and handle role-specific execution.
 
-## Quick Start
+## Quick Start (Canonical Runtime Contract)
 
-### Run with Docker
-
-```bash
-docker run -d --name tanren-api \
-  -p 8000:8000 \
-  ghcr.io/trevorwieland/tanren-api:latest
-```
-
-Health check: `curl http://localhost:8000/api/v1/health`
-
-### Run API + Worker (Docker Compose)
-
-```bash
-cp api.env.example api.env && cp daemon.env.example daemon.env
-# Edit both env files — at minimum set TANREN_API_API_KEY
-docker compose up -d
-```
-
-With Postgres: `docker compose --profile postgres up -d`
-
-See `api.env.example` and `daemon.env.example` for the full env var reference.
-
-#### Adapter Requirements
-
-| Adapter | Python Package | Required Env Vars | When |
-|---------|---------------|-------------------|------|
-| Manual  | *(core)* | *(none)* | `provisioner.type: manual` in remote.yml |
-| Hetzner | `hcloud` | `HCLOUD_TOKEN` | `provisioner.type: hetzner` |
-| GCP     | `google-cloud-compute` | `GCP_SSH_PUBLIC_KEY` | `provisioner.type: gcp` |
-
-All adapters are included in the default Docker image (`EXTRAS="all"`).
-Build with `--build-arg EXTRAS="hetzner"` for a single-adapter image,
-or `EXTRAS=""` for no cloud adapters.
-
-### Run with the CLI
+The acceptance runtime contract is installed binaries only:
+`tanren-cli` and `tanren-mcp`.
 
 ```bash
 git clone https://github.com/trevorWieland/tanren.git
 cd tanren
-uv sync
+scripts/runtime/install-runtime.sh
+scripts/runtime/verify-installed-runtime.sh
+tanren-cli install --dry-run
 ```
 
-Validate your environment:
+Canonical install/operator docs:
+- [docs/methodology/commands-install.md](docs/methodology/commands-install.md)
+- [docs/architecture/install-targets.md](docs/architecture/install-targets.md)
+- [docs/rewrite/PHASE0_PROOF_RUNBOOK.md](docs/rewrite/PHASE0_PROOF_RUNBOOK.md)
 
-```bash
-tanren env check
-```
+Secure MCP startup is fail-closed and requires issuer/audience/key/ttl
+contract in `tanren.yml` (`methodology.mcp.security`) plus per-phase
+runtime envelope injection (`TANREN_MCP_CAPABILITY_ENVELOPE`).
 
-Run a full lifecycle:
-
-```bash
-tanren run full \
-  --project my-project \
-  --branch main \
-  --spec-path tanren/specs/s0001 \
-  --phase do-task
-```
-
-### Install methodology into a project
-
-```bash
-cd /path/to/your-project
-/path/to/tanren/scripts/install.sh --profile python-uv
-```
-
-This installs commands, standards, product templates, and helper scripts.
-Then bootstrap project knowledge (run once per project, via your agent):
-
-1. `plan-product`
-2. `discover-standards`
-3. `inject-standards`
-4. `index-standards`
-
-See [docs/getting-started/bootstrap.md](docs/getting-started/bootstrap.md)
-for the full bootstrap flow.
+Legacy Python-era bootstrap guidance is retained only as historical
+context and is not the Phase 0 acceptance path.
 
 ## Features
 
@@ -207,17 +154,12 @@ tanren/
 ## Documentation
 
 - [docs/README.md](docs/README.md) - documentation index
-- [docs/architecture/overview.md](docs/architecture/overview.md) - architecture and boundaries
-- [docs/workflow/spec-lifecycle.md](docs/workflow/spec-lifecycle.md) - lifecycle and orchestration rules
-- [docs/getting-started/bootstrap.md](docs/getting-started/bootstrap.md) - install/bootstrap flow
-- [docs/operations/security-secrets.md](docs/operations/security-secrets.md) - security and secret handling
-- [docs/operations/observability.md](docs/operations/observability.md) - events and metering
-- [docs/interfaces.md](docs/interfaces.md) - CLI, library, and store interaction surfaces
-- [docs/design-principles.md](docs/design-principles.md) - architectural principles
-- [docs/roadmap.md](docs/roadmap.md) - date-stamped roadmap
-- [protocol/README.md](protocol/README.md) - protocol overview
-- [docs/worker-README.md](docs/worker-README.md) - worker architecture and operations
-- [docs/ADAPTERS.md](docs/ADAPTERS.md) - adapter architecture and extension points
+- [docs/methodology/commands-install.md](docs/methodology/commands-install.md) - canonical install contract (`tanren-cli install`)
+- [docs/architecture/install-targets.md](docs/architecture/install-targets.md) - render targets, merge policy, MCP env contract
+- [docs/architecture/agent-tool-surface.md](docs/architecture/agent-tool-surface.md) - typed tool and CLI fallback contract
+- [docs/rewrite/PHASE0_PROOF_RUNBOOK.md](docs/rewrite/PHASE0_PROOF_RUNBOOK.md) - Phase 0 proof procedure
+- [docs/rewrite/PHASE1_PROOF_BDD.md](docs/rewrite/PHASE1_PROOF_BDD.md) - Phase 1 behavior/invariants
+- [docs/architecture/overview.md](docs/architecture/overview.md) - system architecture
 
 ## Contributing
 

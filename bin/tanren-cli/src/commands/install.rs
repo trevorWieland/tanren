@@ -1,4 +1,4 @@
-//! `tanren install` — bootstrap a repo from `tanren.yml`.
+//! `tanren-cli install` — bootstrap a repo from `tanren.yml`.
 //!
 //! Renders the command catalog + bundled standards per the
 //! `methodology` section of `tanren.yml` and writes them to each
@@ -13,25 +13,21 @@
 //! - 3: `--strict --dry-run` found drift
 //! - 4: validation error
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Args;
 use serde::Serialize;
 use tanren_app_services::methodology::RequiredGuard;
 use tanren_app_services::methodology::config::{EnvironmentProfile, InstallFormat, TanrenConfig};
-use tanren_app_services::methodology::formats::{
-    claude_mcp_json, codex_config_toml, opencode_json,
-};
 use tanren_app_services::methodology::installer::{
-    DriftEntry, DriftReason, InstallPlan, PlannedWrite, apply_install, drift,
-    plan_install_from_root,
+    DriftEntry, DriftReason, InstallPlan, apply_install, drift, plan_install_from_root,
 };
 
-const MCP_SERVER_COMMAND: &str = "tanren-mcp";
-const MCP_SERVER_ARGS: &[&str] = &["serve"];
+use super::install_mcp::{mcp_server_env, synth_mcp_write};
 
-/// CLI arguments for `tanren install`.
+/// CLI arguments for `tanren-cli install`.
 #[derive(Debug, Args)]
 pub(crate) struct InstallArgs {
     /// Path to `tanren.yml`. Defaults to `./tanren.yml`.
@@ -266,14 +262,15 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
     }
 
     // Append MCP config writes if configured.
+    let mcp_env = mcp_server_env(&methodology);
     for cfg_target in &methodology.mcp.also_write_configs {
         if !target_filter.is_empty() && !target_filter.contains(&cfg_target.format) {
             continue;
         }
-        match synth_mcp_write(&cfg_target.path, cfg_target.format) {
+        match synth_mcp_write(&cfg_target.path, cfg_target.format, &mcp_env) {
             Ok(Some(w)) => plan.writes.push(w),
             Ok(None) => {}
-            Err(code) => return code,
+            Err(err) => return fail_render(&err),
         }
     }
 
@@ -315,7 +312,7 @@ pub(crate) fn run(args: &InstallArgs) -> u8 {
 }
 
 fn build_context(
-    user_vars: &std::collections::BTreeMap<String, String>,
+    user_vars: &BTreeMap<String, String>,
     required_guards: &[RequiredGuard],
     pillar_list: &str,
     env: &EnvironmentProfile,
@@ -374,7 +371,8 @@ fn build_context(
     ctx.entry("READONLY_ARTIFACT_BANNER".into())
         .or_insert_with(|| {
             "⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT: \
-             spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json \
+             spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md, signposts.md, \
+             progress.json, and .tanren-projection-checkpoint.json \
              are generated from the typed event stream. phase-events.jsonl \
              is append-only via typed tools. \
              Postflight reverts unauthorized edits and emits an \
@@ -382,32 +380,6 @@ fn build_context(
                 .into()
         });
     ctx
-}
-
-fn synth_mcp_write(path: &Path, format: InstallFormat) -> Result<Option<PlannedWrite>, u8> {
-    let existing = std::fs::read_to_string(path).ok();
-    let server_args: Vec<String> = MCP_SERVER_ARGS.iter().map(|v| (*v).to_owned()).collect();
-    let bytes = match format {
-        InstallFormat::ClaudeMcpJson => {
-            claude_mcp_json(existing.as_deref(), MCP_SERVER_COMMAND, &server_args)
-        }
-        InstallFormat::CodexConfigToml => {
-            codex_config_toml(existing.as_deref(), MCP_SERVER_COMMAND, &server_args)
-        }
-        InstallFormat::OpencodeJson => {
-            opencode_json(existing.as_deref(), MCP_SERVER_COMMAND, &server_args)
-        }
-        _ => return Ok(None),
-    };
-    match bytes {
-        Ok(b) => Ok(Some(PlannedWrite {
-            dest: path.to_path_buf(),
-            bytes: b,
-            merge_policy: tanren_app_services::methodology::config::MergePolicy::PreserveOtherKeys,
-            format,
-        })),
-        Err(e) => Err(fail_render(&e.to_string())),
-    }
 }
 
 fn summarize_plan(plan: &InstallPlan) -> Vec<PlannedSummary> {

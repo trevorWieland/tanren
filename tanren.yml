@@ -1,6 +1,6 @@
 # tanren repo self-hosting configuration.
 #
-# Drives `tanren install`, which renders the command catalog in
+# Drives `tanren-cli install`, which renders the command catalog in
 # commands/{spec,project}/*.md to each configured agent target and
 # bootstraps tanren/standards/ from the bundled baseline. The
 # tanren-repo dogfoods the very pipeline it ships.
@@ -27,7 +27,7 @@
 #
 # - All variables referenced by the command templates must resolve at
 #   install time (non-negotiable #5). Built-in fallbacks exist in the
-#   CLI (`tanren install`); supplying them here lets adopters
+#   CLI (`tanren-cli install`); supplying them here lets adopters
 #   override per-repo.
 
 methodology:
@@ -57,6 +57,12 @@ methodology:
   mcp:
     enabled: true
     transport: stdio
+    security:
+      capability_issuer: tanren-phase0
+      capability_audience: tanren-mcp
+      capability_public_key_file: .tanren/mcp-capability-public-key.pem
+      capability_private_key_file: .tanren/mcp-capability-private-key.pem
+      capability_max_ttl_secs: 900
     also_write_configs:
       - path: .mcp.json
         format: claude-mcp-json
@@ -81,7 +87,8 @@ methodology:
     phase_events_file: phase-events.jsonl
     readonly_artifact_banner: |
       ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-      spec.md, plan.md, tasks.md, tasks.json, demo.md, and progress.json
+      spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,
+      signposts.md, progress.json, and .tanren-projection-checkpoint.json
       are generated from the typed event stream.
       Postflight reverts unauthorized edits and emits an
       UnauthorizedArtifactEdit event. Use the typed tool surface

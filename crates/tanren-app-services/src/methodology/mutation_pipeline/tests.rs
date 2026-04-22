@@ -422,6 +422,8 @@ async fn finalize_allows_projected_phase_events_appends() {
         "tasks.md",
         "tasks.json",
         "demo.md",
+        "audit.md",
+        "signposts.md",
         "progress.json",
     ] {
         assert!(
