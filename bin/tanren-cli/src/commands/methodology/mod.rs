@@ -47,8 +47,9 @@ use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 use tanren_app_services::methodology::{
-    CapabilityScope, MethodologyError, MethodologyService, PhaseId, SpecId, ToolError,
-    default_scope_for_phase, enter_mutation_session, finalize_mutation_session, parse_scope_env,
+    CapabilityScope, KnownPhase, MethodologyError, MethodologyService, PhaseId, SpecId, ToolError,
+    default_phase_capability_bindings, default_scope_for_phase, enter_mutation_session,
+    finalize_mutation_session, parse_scope_env_for_phase,
 };
 use uuid::Uuid;
 
@@ -152,6 +153,30 @@ pub(crate) enum MethodologyCommand {
     ReconcilePhaseEvents(reconcile::ReconcilePhaseEventsArgs),
     /// Rebuild methodology projections for one spec.
     ReconcileProjections(reconcile::ReconcileProjectionsArgs),
+    /// Compact and re-index one spec's phase-events.jsonl projection log.
+    CompactPhaseEvents(reconcile::CompactPhaseEventsArgs),
+    /// Print the canonical phase->capabilities map owned by Rust domain contracts.
+    PhaseCapabilities(PhaseCapabilitiesArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PhaseCapabilitiesArgs {
+    /// Optional phase filter (`do-task`, `audit-spec`, ...).
+    #[arg(long)]
+    pub phase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PhaseCapabilitiesResponse {
+    schema_version: &'static str,
+    phases: Vec<PhaseCapabilityRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PhaseCapabilityRow {
+    phase: String,
+    capabilities: Vec<String>,
+    capabilities_csv: String,
 }
 
 /// Load JSON params from the configured input source and deserialize
@@ -217,7 +242,7 @@ fn resolve_scope_from_inputs(
     has_removed_override: bool,
 ) -> Result<CapabilityScope, MethodologyError> {
     if let Some(scope) = env_scope.filter(|raw| !raw.trim().is_empty()) {
-        return parse_scope_env(scope);
+        return parse_scope_env_for_phase(scope, Some(phase));
     }
     if let Some(scope) = default_scope_for_phase(phase) {
         return Ok(scope);
@@ -297,6 +322,9 @@ pub(crate) async fn dispatch(
     global: &MethodologyGlobal,
     command: MethodologyCommand,
 ) -> u8 {
+    if let MethodologyCommand::PhaseCapabilities(args) = &command {
+        return emit_result(render_phase_capabilities(args.clone()));
+    }
     let phase = match PhaseId::try_new(global.phase.clone()) {
         Ok(phase) => phase,
         Err(err) => {
@@ -365,6 +393,10 @@ pub(crate) async fn dispatch(
         MethodologyCommand::ReconcileProjections(_a) => {
             reconcile::run_projection_reconcile(service, global).await
         }
+        MethodologyCommand::CompactPhaseEvents(_a) => {
+            reconcile::run_compact_phase_events(service, global)
+        }
+        MethodologyCommand::PhaseCapabilities(args) => emit_result(render_phase_capabilities(args)),
     };
 
     if code == 0
@@ -384,6 +416,68 @@ pub(crate) async fn dispatch(
     code
 }
 
+fn render_phase_capabilities(
+    args: PhaseCapabilitiesArgs,
+) -> Result<PhaseCapabilitiesResponse, MethodologyError> {
+    let requested = if let Some(raw) = args.phase {
+        if raw == "cli-admin" {
+            None
+        } else {
+            let phase =
+                PhaseId::try_new(raw.clone()).map_err(|err| MethodologyError::FieldValidation {
+                    field_path: "/phase".into(),
+                    expected: "non-empty phase identifier".into(),
+                    actual: raw,
+                    remediation: err.to_string(),
+                })?;
+            Some(phase)
+        }
+    } else {
+        None
+    };
+    let mut rows = Vec::new();
+    for binding in default_phase_capability_bindings() {
+        if let Some(phase) = requested.as_ref() {
+            let matches_known = phase.known().is_some_and(|known| known == binding.phase);
+            if !matches_known {
+                continue;
+            }
+        }
+        let capabilities = binding
+            .capabilities
+            .iter()
+            .map(|cap| cap.tag().to_owned())
+            .collect::<Vec<_>>();
+        let capabilities_csv = capabilities.join(",");
+        rows.push(PhaseCapabilityRow {
+            phase: binding.phase.tag().to_owned(),
+            capabilities,
+            capabilities_csv,
+        });
+    }
+    if let Some(phase) = requested
+        && phase.known().is_none()
+    {
+        return Err(MethodologyError::FieldValidation {
+            field_path: "/phase".into(),
+            expected: "known built-in phase".into(),
+            actual: phase.as_str().to_owned(),
+            remediation: format!(
+                "use one of: {}",
+                KnownPhase::all()
+                    .iter()
+                    .map(|item| item.tag())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+    }
+    Ok(PhaseCapabilitiesResponse {
+        schema_version: "1.0.0",
+        phases: rows,
+    })
+}
+
 fn is_mutation_command(command: &MethodologyCommand) -> bool {
     !matches!(
         command,
@@ -394,51 +488,11 @@ fn is_mutation_command(command: &MethodologyCommand) -> bool {
             | MethodologyCommand::Replay(_)
             | MethodologyCommand::ReconcilePhaseEvents(_)
             | MethodologyCommand::ReconcileProjections(_)
+            | MethodologyCommand::CompactPhaseEvents(_)
+            | MethodologyCommand::PhaseCapabilities(_)
     )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tanren_app_services::methodology::ToolCapability;
-
-    #[test]
-    fn exit_code_validation_is_four() {
-        let e = MethodologyError::FieldValidation {
-            field_path: "/title".into(),
-            expected: "non-empty".into(),
-            actual: "\"\"".into(),
-            remediation: "supply a title".into(),
-        };
-        assert_eq!(exit_code_for(&e), 4);
-    }
-
-    #[test]
-    fn exit_code_io_is_two() {
-        let e = MethodologyError::Io {
-            path: PathBuf::from("/tmp/x"),
-            source: std::io::Error::other("x"),
-        };
-        assert_eq!(exit_code_for(&e), 2);
-    }
-
-    #[test]
-    fn resolve_scope_unknown_phase_defaults_deny_without_override() {
-        let phase = PhaseId::try_new("cli-admin").expect("phase");
-        let scope = resolve_scope_from_inputs(&phase, None, false).expect("scope");
-        assert!(!scope.allows(ToolCapability::TaskCreate));
-        assert!(!scope.allows(ToolCapability::PhaseEscalate));
-    }
-
-    #[test]
-    fn resolve_scope_rejects_removed_admin_override_env() {
-        let phase = PhaseId::try_new("cli-admin").expect("phase");
-        let err = resolve_scope_from_inputs(&phase, None, true)
-            .expect_err("override env must be rejected");
-        assert!(matches!(
-            err,
-            MethodologyError::FieldValidation { ref field_path, .. }
-                if field_path == "/env/TANREN_CAPABILITY_OVERRIDE"
-        ));
-    }
-}
+#[path = "mod_tests.rs"]
+mod tests;

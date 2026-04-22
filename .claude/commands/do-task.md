@@ -77,8 +77,20 @@ commands; Tanren-code has chosen this hook specifically for the
 
 ## Emitting results
 
-Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
-`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.
+Use Tanren MCP tools for all structured mutations in this phase.
+MCP-first canonical invocation set for phase `do-task`:
+- MCP `start_task` payload: `{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000"}`
+- CLI `start_task` fallback: `tanren-cli methodology --phase do-task --spec-id <spec_uuid> --spec-folder <spec_dir> task start --json '{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000"}'`
+- MCP `complete_task` payload: `{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","evidence_refs":[]}`
+- CLI `complete_task` fallback: `tanren-cli methodology --phase do-task --spec-id <spec_uuid> --spec-folder <spec_dir> task complete --json '{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","evidence_refs":[]}'`
+- MCP `add_signpost` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","status":"unresolved","problem":"problem statement","evidence":"evidence summary","tried":[],"files_affected":[]}`
+- CLI `add_signpost` fallback: `tanren-cli methodology --phase do-task --spec-id <spec_uuid> --spec-folder <spec_dir> signpost add --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","status":"unresolved","problem":"problem statement","evidence":"evidence summary","tried":[],"files_affected":[]}'`
+- MCP `update_signpost_status` payload: `{"schema_version":"1.0.0","signpost_id":"00000000-0000-0000-0000-000000000000","status":"resolved","resolution":"resolved with deterministic projection"}`
+- CLI `update_signpost_status` fallback: `tanren-cli methodology --phase do-task --spec-id <spec_uuid> --spec-folder <spec_dir> signpost update-status --json '{"schema_version":"1.0.0","signpost_id":"00000000-0000-0000-0000-000000000000","status":"resolved","resolution":"resolved with deterministic projection"}'`
+- MCP `list_tasks` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}`
+- CLI `list_tasks` fallback: `tanren-cli methodology --phase do-task --spec-id <spec_uuid> --spec-folder <spec_dir> task list --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}'`
+- MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}`
+- CLI `report_phase_outcome` fallback: `tanren-cli methodology --phase do-task --spec-id <spec_uuid> --spec-folder <spec_dir> phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}'`
 
 Signposts carry typed status: `unresolved`, `resolved`, `deferred`,
 `architectural_constraint`. Use them honestly — they feed future

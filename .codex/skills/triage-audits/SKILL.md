@@ -58,8 +58,14 @@ nothing here affects the active spec.
 
 ## Emitting results
 
-Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
-`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.
+Use Tanren MCP tools for all structured mutations in this phase.
+MCP-first canonical invocation set for phase `triage-audits`:
+- MCP `add_finding` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","severity":"fix_now","title":"finding title","description":"finding details","source":{"kind":"audit","phase":"audit-spec","pillar":"security"}}`
+- CLI `add_finding` fallback: `tanren-cli methodology --phase triage-audits --spec-id <spec_uuid> --spec-folder <spec_dir> finding add --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","severity":"fix_now","title":"finding title","description":"finding details","source":{"kind":"audit","phase":"audit-spec","pillar":"security"}}'`
+- MCP `create_issue` payload: `{"schema_version":"1.0.0","origin_spec_id":"00000000-0000-0000-0000-000000000000","title":"Follow-up","description":"Track deferred work","suggested_spec_scope":"future-spec","priority":"medium"}`
+- CLI `create_issue` fallback: `tanren-cli methodology --phase triage-audits --spec-id <spec_uuid> --spec-folder <spec_dir> issue create --json '{"schema_version":"1.0.0","origin_spec_id":"00000000-0000-0000-0000-000000000000","title":"Follow-up","description":"Track deferred work","suggested_spec_scope":"future-spec","priority":"medium"}'`
+- MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}`
+- CLI `report_phase_outcome` fallback: `tanren-cli methodology --phase triage-audits --spec-id <spec_uuid> --spec-folder <spec_dir> phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}'`
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
 spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,

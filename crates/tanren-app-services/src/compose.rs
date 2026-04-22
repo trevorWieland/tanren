@@ -129,9 +129,10 @@ pub async fn build_methodology_service_with_config(
     standards: Vec<tanren_domain::methodology::standard::Standard>,
     pillars: Vec<tanren_domain::methodology::pillar::Pillar>,
     issue_provider: String,
+    runtime_tuning: crate::methodology::MethodologyRuntimeTuning,
 ) -> Result<crate::methodology::MethodologyService, StoreError> {
     let store = open_store_for_write(database_url).await?;
-    Ok(
+    let mut service =
         crate::methodology::MethodologyService::with_runtime_and_pillars_and_issue_provider(
             Arc::new(store),
             required_guards,
@@ -139,8 +140,9 @@ pub async fn build_methodology_service_with_config(
             standards,
             pillars,
             &issue_provider,
-        ),
-    )
+        );
+    service.set_runtime_tuning(runtime_tuning);
+    Ok(service)
 }
 
 /// Spawn a long-running replay-purge loop onto the current tokio

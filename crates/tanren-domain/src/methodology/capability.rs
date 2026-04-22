@@ -179,6 +179,13 @@ impl CapabilityScope {
     }
 }
 
+/// Canonical phase/capability mapping row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PhaseCapabilityBinding {
+    pub phase: KnownPhase,
+    pub capabilities: Vec<ToolCapability>,
+}
+
 /// Trait that resolves default capabilities for a phase.
 pub trait PhaseCapabilityResolver {
     /// Resolve the default capability scope for one phase.
@@ -202,14 +209,20 @@ pub fn default_scope_for_phase(phase: &PhaseId) -> Option<CapabilityScope> {
 }
 
 fn default_scope_for_known_phase(phase: Option<KnownPhase>) -> Option<CapabilityScope> {
+    let phase = phase?;
+    let caps = default_capabilities_for_known_phase(phase);
+    Some(CapabilityScope::from_iter_caps(caps.iter().copied()))
+}
+
+fn default_capabilities_for_known_phase(phase: KnownPhase) -> &'static [ToolCapability] {
     use ToolCapability::{
         AdherenceRecord, ComplianceRecord, DemoFrontmatter, DemoResults, FeedbackReply, FindingAdd,
         IssueCreate, PhaseEscalate, PhaseOutcome, RubricRecord, SignpostAdd, SignpostUpdate,
         SpecFrontmatter, StandardRead, TaskAbandon, TaskComplete, TaskCreate, TaskRead, TaskRevise,
         TaskStart,
     };
-    let caps: &[ToolCapability] = match phase {
-        Some(KnownPhase::ShapeSpec) => &[
+    match phase {
+        KnownPhase::ShapeSpec => &[
             TaskCreate,
             TaskRevise,
             TaskRead,
@@ -218,7 +231,7 @@ fn default_scope_for_known_phase(phase: Option<KnownPhase>) -> Option<Capability
             SignpostAdd,
             PhaseOutcome,
         ],
-        Some(KnownPhase::DoTask) => &[
+        KnownPhase::DoTask => &[
             TaskStart,
             TaskComplete,
             SignpostAdd,
@@ -226,28 +239,26 @@ fn default_scope_for_known_phase(phase: Option<KnownPhase>) -> Option<Capability
             TaskRead,
             PhaseOutcome,
         ],
-        Some(KnownPhase::AuditTask | KnownPhase::AuditSpec) => &[
+        KnownPhase::AuditTask | KnownPhase::AuditSpec => &[
             FindingAdd,
             RubricRecord,
             ComplianceRecord,
             TaskRead,
             PhaseOutcome,
         ],
-        Some(KnownPhase::AdhereTask | KnownPhase::AdhereSpec) => {
+        KnownPhase::AdhereTask | KnownPhase::AdhereSpec => {
             &[StandardRead, AdherenceRecord, TaskRead, PhaseOutcome]
         }
-        Some(KnownPhase::RunDemo) => {
-            &[DemoResults, FindingAdd, SignpostAdd, TaskRead, PhaseOutcome]
-        }
-        Some(KnownPhase::WalkSpec) => &[TaskCreate, TaskRead, PhaseOutcome],
-        Some(KnownPhase::HandleFeedback) => &[
+        KnownPhase::RunDemo => &[DemoResults, FindingAdd, SignpostAdd, TaskRead, PhaseOutcome],
+        KnownPhase::WalkSpec => &[TaskCreate, TaskRead, PhaseOutcome],
+        KnownPhase::HandleFeedback => &[
             TaskCreate,
             IssueCreate,
             FeedbackReply,
             TaskRead,
             PhaseOutcome,
         ],
-        Some(KnownPhase::Investigate) => &[
+        KnownPhase::Investigate => &[
             TaskCreate,
             TaskRevise,
             TaskAbandon,
@@ -256,20 +267,30 @@ fn default_scope_for_known_phase(phase: Option<KnownPhase>) -> Option<Capability
             TaskRead,
             PhaseOutcome,
         ],
-        Some(KnownPhase::ResolveBlockers) => {
+        KnownPhase::ResolveBlockers => {
             &[TaskCreate, TaskRevise, TaskAbandon, TaskRead, PhaseOutcome]
         }
-        Some(KnownPhase::TriageAudits) => &[IssueCreate, FindingAdd, PhaseOutcome],
-        Some(KnownPhase::SyncRoadmap) => &[FindingAdd, PhaseOutcome],
-        Some(
-            KnownPhase::DiscoverStandards
-            | KnownPhase::IndexStandards
-            | KnownPhase::InjectStandards,
-        ) => &[StandardRead, PhaseOutcome],
-        Some(KnownPhase::PlanProduct) => &[PhaseOutcome],
-        None => return None,
-    };
-    Some(CapabilityScope::from_iter_caps(caps.iter().copied()))
+        KnownPhase::TriageAudits => &[IssueCreate, FindingAdd, PhaseOutcome],
+        KnownPhase::SyncRoadmap => &[FindingAdd, PhaseOutcome],
+        KnownPhase::DiscoverStandards
+        | KnownPhase::IndexStandards
+        | KnownPhase::InjectStandards => &[StandardRead, PhaseOutcome],
+        KnownPhase::PlanProduct => &[PhaseOutcome],
+    }
+}
+
+/// Canonical ordered mapping of built-in phases to default capabilities.
+#[must_use]
+pub fn default_phase_capability_bindings() -> Vec<PhaseCapabilityBinding> {
+    let mut out = Vec::with_capacity(KnownPhase::all().len());
+    for phase in KnownPhase::all() {
+        let caps = default_capabilities_for_known_phase(*phase);
+        out.push(PhaseCapabilityBinding {
+            phase: *phase,
+            capabilities: caps.to_vec(),
+        });
+    }
+    out
 }
 
 #[cfg(test)]
@@ -432,5 +453,15 @@ mod tests {
         let json = serde_json::to_string(&scope).expect("serialize");
         let back: CapabilityScope = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(scope, back);
+    }
+
+    #[test]
+    fn canonical_bindings_match_default_scope_lookup() {
+        for binding in default_phase_capability_bindings() {
+            let phase_id = phase_id(binding.phase.tag());
+            let from_lookup = default_scope_for_phase(&phase_id).expect("known phase");
+            let expected = CapabilityScope::from_iter_caps(binding.capabilities.clone());
+            assert_eq!(from_lookup, expected, "phase={}", binding.phase.tag());
+        }
     }
 }

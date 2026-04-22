@@ -83,8 +83,38 @@ a runnable demo plan, and an initial task breakdown.
 
 ## Emitting results
 
-Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
-`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.
+Use Tanren MCP tools for all structured mutations in this phase.
+MCP-first canonical invocation set for phase `shape-spec`:
+- MCP `set_spec_title` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","title":"Spec title"}`
+- CLI `set_spec_title` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-title --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","title":"Spec title"}'`
+- MCP `set_spec_problem_statement` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","problem_statement":"Problem statement"}`
+- CLI `set_spec_problem_statement` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-problem-statement --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","problem_statement":"Problem statement"}'`
+- MCP `set_spec_motivations` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","motivations":["motivation"]}`
+- CLI `set_spec_motivations` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-motivations --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","motivations":["motivation"]}'`
+- MCP `set_spec_expectations` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","expectations":["expectation"]}`
+- CLI `set_spec_expectations` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-expectations --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","expectations":["expectation"]}'`
+- MCP `set_spec_planned_behaviors` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","planned_behaviors":["behavior"]}`
+- CLI `set_spec_planned_behaviors` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-planned-behaviors --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","planned_behaviors":["behavior"]}'`
+- MCP `set_spec_implementation_plan` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","implementation_plan":["step 1"]}`
+- CLI `set_spec_implementation_plan` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-implementation-plan --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","implementation_plan":["step 1"]}'`
+- MCP `set_spec_non_negotiables` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","items":["non-negotiable"]}`
+- CLI `set_spec_non_negotiables` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-non-negotiables --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","items":["non-negotiable"]}'`
+- MCP `add_spec_acceptance_criterion` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","criterion":{"id":"ac-1","description":"criterion","measurable":"observable evidence"}}`
+- CLI `add_spec_acceptance_criterion` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec add-acceptance-criterion --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","criterion":{"id":"ac-1","description":"criterion","measurable":"observable evidence"}}'`
+- MCP `set_spec_demo_environment` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","demo_environment":{"connections":[{"name":"api","kind":"http","probe":"GET /healthz"}]}}`
+- CLI `set_spec_demo_environment` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-demo-environment --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","demo_environment":{"connections":[{"name":"api","kind":"http","probe":"GET /healthz"}]}}'`
+- MCP `set_spec_dependencies` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","dependencies":{"depends_on_spec_ids":[],"external_issue_refs":[]}}`
+- CLI `set_spec_dependencies` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-dependencies --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","dependencies":{"depends_on_spec_ids":[],"external_issue_refs":[]}}'`
+- MCP `set_spec_base_branch` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","branch":"main"}`
+- CLI `set_spec_base_branch` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> spec set-base-branch --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","branch":"main"}'`
+- MCP `add_demo_step` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","id":"step-1","mode":"RUN","description":"Run smoke flow","expected_observable":"No errors"}`
+- CLI `add_demo_step` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> demo add-step --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","id":"step-1","mode":"RUN","description":"Run smoke flow","expected_observable":"No errors"}'`
+- MCP `mark_demo_step_skip` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","step_id":"step-1","reason":"not applicable"}`
+- CLI `mark_demo_step_skip` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> demo mark-step-skip --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","step_id":"step-1","reason":"not applicable"}'`
+- MCP `create_task` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","title":"task title","description":"task description","origin":{"kind":"user"},"acceptance_criteria":[]}`
+- CLI `create_task` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> task create --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","title":"task title","description":"task description","origin":{"kind":"user"},"acceptance_criteria":[]}'`
+- MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}`
+- CLI `report_phase_outcome` fallback: `tanren-cli methodology --phase shape-spec --spec-id <spec_uuid> --spec-folder <spec_dir> phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}'`
 
 Do not emit mutation calls until the user has confirmed the shaped
 draft.

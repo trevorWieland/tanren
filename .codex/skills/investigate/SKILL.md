@@ -84,8 +84,22 @@ the relevant hook: `just check` or
 
 ## Emitting results
 
-Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
-`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.
+Use Tanren MCP tools for all structured mutations in this phase.
+MCP-first canonical invocation set for phase `investigate`:
+- MCP `revise_task` payload: `{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","revised_description":"updated details","revised_acceptance":[],"reason":"clarify acceptance"}`
+- CLI `revise_task` fallback: `tanren-cli methodology --phase investigate --spec-id <spec_uuid> --spec-folder <spec_dir> task revise --json '{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","revised_description":"updated details","revised_acceptance":[],"reason":"clarify acceptance"}'`
+- MCP `create_task` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","title":"task title","description":"task description","origin":{"kind":"user"},"acceptance_criteria":[]}`
+- CLI `create_task` fallback: `tanren-cli methodology --phase investigate --spec-id <spec_uuid> --spec-folder <spec_dir> task create --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","title":"task title","description":"task description","origin":{"kind":"user"},"acceptance_criteria":[]}'`
+- MCP `abandon_task` payload: `{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","reason":"superseded","disposition":"replacement","replacements":[]}`
+- CLI `abandon_task` fallback: `tanren-cli methodology --phase investigate --spec-id <spec_uuid> --spec-folder <spec_dir> task abandon --json '{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","reason":"superseded","disposition":"replacement","replacements":[]}'`
+- MCP `add_finding` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","severity":"fix_now","title":"finding title","description":"finding details","source":{"kind":"audit","phase":"audit-spec","pillar":"security"}}`
+- CLI `add_finding` fallback: `tanren-cli methodology --phase investigate --spec-id <spec_uuid> --spec-folder <spec_dir> finding add --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","severity":"fix_now","title":"finding title","description":"finding details","source":{"kind":"audit","phase":"audit-spec","pillar":"security"}}'`
+- MCP `escalate_to_blocker` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","reason":"needs decision","options":["approve option A","approve option B"]}`
+- CLI `escalate_to_blocker` fallback: `tanren-cli methodology --phase investigate --spec-id <spec_uuid> --spec-folder <spec_dir> phase escalate --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","reason":"needs decision","options":["approve option A","approve option B"]}'`
+- MCP `list_tasks` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}`
+- CLI `list_tasks` fallback: `tanren-cli methodology --phase investigate --spec-id <spec_uuid> --spec-folder <spec_dir> task list --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}'`
+- MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}`
+- CLI `report_phase_outcome` fallback: `tanren-cli methodology --phase investigate --spec-id <spec_uuid> --spec-folder <spec_dir> phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}'`
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
 spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,

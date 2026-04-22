@@ -115,6 +115,47 @@ fn unknown_tool_json_returns_typed_validation() {
 }
 
 #[test]
+fn phase_capabilities_exports_canonical_scope_map() {
+    let (_d, url) = mkdb();
+    let out = cli(&url)
+        .args(["methodology", "phase-capabilities"])
+        .output()
+        .expect("cli");
+    assert!(
+        out.status.success(),
+        "phase-capabilities should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let body = parse_stdout(&out);
+    assert_eq!(body["schema_version"].as_str(), Some("1.0.0"));
+    let phases = body["phases"].as_array().expect("phases array");
+    assert!(
+        phases.iter().any(|row| row["phase"] == "do-task"
+            && row["capabilities_csv"]
+                == "task.start,task.complete,signpost.add,signpost.update,task.read,phase.outcome"),
+        "expected canonical do-task scope row"
+    );
+}
+
+#[test]
+fn phase_capabilities_rejects_unknown_phase_filter() {
+    let (_d, url) = mkdb();
+    let out = cli(&url)
+        .args([
+            "methodology",
+            "phase-capabilities",
+            "--phase",
+            "not-a-phase",
+        ])
+        .output()
+        .expect("cli");
+    assert_eq!(out.status.code(), Some(4));
+    let err = parse_stderr(&out);
+    assert_eq!(err["kind"].as_str(), Some("validation_failed"));
+    assert_eq!(err["field_path"].as_str(), Some("/phase"));
+}
+
+#[test]
 fn capability_enforcement_denies_when_env_scope_excludes_tool() {
     let (d, url) = mkdb();
     let spec = "00000000-0000-0000-0000-000000000013";

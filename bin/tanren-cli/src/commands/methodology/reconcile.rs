@@ -24,6 +24,18 @@ struct ReconcileProjectionsResponse {
     signpost_spec_rows_repaired: u64,
 }
 
+#[derive(Debug, clap::Args, Clone)]
+pub(crate) struct CompactPhaseEventsArgs {}
+
+#[derive(Debug, Serialize)]
+struct CompactPhaseEventsResponse {
+    total_lines_before: u64,
+    total_lines_after: u64,
+    duplicates_removed: u64,
+    empty_lines_removed: u64,
+    rewrote_file: bool,
+}
+
 pub(crate) async fn run(service: &MethodologyService, global: &MethodologyGlobal) -> u8 {
     let Some(spec_folder) = global.spec_folder.as_deref() else {
         return emit_result::<serde_json::Value>(Err(MethodologyError::FieldValidation {
@@ -39,6 +51,32 @@ pub(crate) async fn run(service: &MethodologyService, global: &MethodologyGlobal
             .reconcile_phase_events_outbox_for_folder(spec_folder)
             .await
             .map(|projected| ReconcilePhaseEventsResponse { projected }),
+    )
+}
+
+pub(crate) fn run_compact_phase_events(
+    service: &MethodologyService,
+    global: &MethodologyGlobal,
+) -> u8 {
+    let Some(spec_folder) = global.spec_folder.as_deref() else {
+        return emit_result::<serde_json::Value>(Err(MethodologyError::FieldValidation {
+            field_path: "/spec_folder".into(),
+            expected: "--spec-folder <PATH> for compact-phase-events".into(),
+            actual: "missing".into(),
+            remediation: "pass --spec-folder <spec_dir> to compact one phase-events projection log"
+                .into(),
+        }));
+    };
+    emit_result(
+        service
+            .compact_phase_events_for_folder(spec_folder)
+            .map(|report| CompactPhaseEventsResponse {
+                total_lines_before: report.total_lines_before,
+                total_lines_after: report.total_lines_after,
+                duplicates_removed: report.duplicates_removed,
+                empty_lines_removed: report.empty_lines_removed,
+                rewrote_file: report.rewrote_file,
+            }),
     )
 }
 

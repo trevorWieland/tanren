@@ -21,8 +21,8 @@ Companion docs:
 | `tasks.json` | `TasksJsonDocument` | generated | orchestrator projection from typed events | Regenerated on every mutating methodology event |
 | `demo.md` | `DemoFrontmatter` | generated | orchestrator projection from typed events | Regenerated on every mutating methodology event |
 | `progress.json` | `ProgressJsonDocument` | generated | orchestrator projection from typed events | Regenerated on every mutating methodology event |
-| `audit.md` | `AuditFrontmatter` | agent (narrative) | tools (`record_rubric_score`, `record_non_negotiable_compliance`) | Rewritten per audit cycle |
-| `signposts.md` | `SignpostsFrontmatter` | agent (narrative) | tools (`add_signpost`, `update_signpost_status`) | Append + update over spec lifetime |
+| `audit.md` | `AuditFrontmatter` | generated | orchestrator projection from typed events | Regenerated on every mutating methodology event |
+| `signposts.md` | `SignpostsFrontmatter` | generated | orchestrator projection from typed events | Regenerated on every mutating methodology event |
 | `investigation-report.json` | `InvestigationReport` (pure JSON) | generated from tools | tools | Rewritten per investigate cycle |
 | `.tanren-generated-artifacts.json` | `GeneratedArtifactManifest` | generated | orchestrator projection | Contract-enforced generated artifact set |
 | `phase-events.jsonl` | `PhaseEventLine` | none | tools (append-only) | Canonical event source-of-truth for projections |
@@ -266,7 +266,8 @@ Every mutating methodology tool:
 3. Projects `phase-events.jsonl` line envelopes (strict schema checks).
 4. Folds all events for the spec and atomically rewrites the generated
    artifact set (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
-   `demo.md`, `progress.json`, manifest).
+   `demo.md`, `audit.md`, `signposts.md`, `progress.json`,
+   `phase-events.jsonl`, manifest).
 
 Invalid input → `ToolError::ValidationFailed`; no file changes.
 

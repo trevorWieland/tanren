@@ -7,7 +7,9 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use chrono::Utc;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
-use tanren_app_services::methodology::{CapabilityScope, PhaseId, SpecId, parse_scope_env};
+use tanren_app_services::methodology::{
+    CapabilityScope, PhaseId, SpecId, parse_scope_env_for_phase,
+};
 use uuid::Uuid;
 
 const ENV_ENVELOPE_TOKEN: &str = "TANREN_MCP_CAPABILITY_ENVELOPE";
@@ -86,15 +88,15 @@ fn verify_signed_envelope(
         .claims;
     enforce_claim_sanity(&claims, max_ttl_secs)?;
 
+    let phase = PhaseId::try_new(claims.phase).context("parsing signed `phase` claim")?;
     let capabilities_csv = claims
         .capabilities
         .iter()
         .map(|cap| cap.trim())
         .collect::<Vec<_>>()
         .join(",");
-    let scope = parse_scope_env(&capabilities_csv)
+    let scope = parse_scope_env_for_phase(&capabilities_csv, Some(&phase))
         .map_err(|err| anyhow!("invalid capabilities claim: {err}"))?;
-    let phase = PhaseId::try_new(claims.phase).context("parsing signed `phase` claim")?;
     let spec_id = SpecId::from_uuid(claims.spec_id);
 
     Ok(VerifiedCapabilityEnvelope {

@@ -103,10 +103,10 @@ impl ServerHandler for TanrenHandler {
                     let outcome = dispatch::CallResult::Err(
                         tanren_app_services::methodology::ToolError::ValidationFailed {
                             field_path: "/env".into(),
-                            expected: "runtime configuration includes TANREN_SPEC_ID and TANREN_SPEC_FOLDER".into(),
-                            actual: "missing TANREN_SPEC_ID and/or TANREN_SPEC_FOLDER".into(),
+                            expected: "runtime configuration includes TANREN_SPEC_FOLDER (spec_id is derived from signed capability-envelope claims)".into(),
+                            actual: "missing TANREN_SPEC_FOLDER".into(),
                             remediation:
-                                "set TANREN_SPEC_ID and TANREN_SPEC_FOLDER before invoking mutating tools".into(),
+                                "set TANREN_SPEC_FOLDER before invoking mutating tools; TANREN_SPEC_ID is sourced from the signed capability envelope".into(),
                         },
                     );
                     result.content = vec![Content::text(outcome.to_json())];

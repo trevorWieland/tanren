@@ -56,8 +56,14 @@ performs all mutations.
 
 ## Emitting results
 
-Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:
-`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.
+Use Tanren MCP tools for all structured mutations in this phase.
+MCP-first canonical invocation set for phase `sync-roadmap`:
+- MCP `add_finding` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","severity":"fix_now","title":"finding title","description":"finding details","source":{"kind":"audit","phase":"audit-spec","pillar":"security"}}`
+- CLI `add_finding` fallback: `tanren-cli methodology --phase sync-roadmap --spec-id <spec_uuid> --spec-folder <spec_dir> finding add --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","severity":"fix_now","title":"finding title","description":"finding details","source":{"kind":"audit","phase":"audit-spec","pillar":"security"}}'`
+- MCP `post_reply_directive` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","thread_ref":"github:org/repo#123","body":"Thanks for the feedback.","disposition":"ack"}`
+- CLI `post_reply_directive` fallback: `tanren-cli methodology --phase sync-roadmap --spec-id <spec_uuid> --spec-folder <spec_dir> phase reply --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","thread_ref":"github:org/repo#123","body":"Thanks for the feedback.","disposition":"ack"}'`
+- MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}`
+- CLI `report_phase_outcome` fallback: `tanren-cli methodology --phase sync-roadmap --spec-id <spec_uuid> --spec-folder <spec_dir> phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}'`
 
 ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
 spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,

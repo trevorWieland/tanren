@@ -6,9 +6,10 @@
 mod actor_token;
 mod clap_error;
 mod commands;
+mod methodology_runtime;
 
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, error::ErrorKind};
@@ -24,6 +25,7 @@ use clap_error::clap_error_to_response;
 use commands::dispatch::{DispatchCommand, DispatchRequest};
 use commands::install::{InstallArgs, run as run_install};
 use commands::methodology::{MethodologyCommand, MethodologyGlobal, dispatch as run_methodology};
+use methodology_runtime::load_methodology_runtime_settings;
 
 /// Tanren — agent orchestration control plane.
 #[derive(Debug, Parser)]
@@ -194,7 +196,8 @@ async fn run_methodology_command(
     global: MethodologyGlobal,
     command: MethodologyCommand,
 ) -> std::result::Result<std::process::ExitCode, RunError> {
-    let runtime = load_methodology_runtime_settings(&global.methodology_config)?;
+    let runtime =
+        load_methodology_runtime_settings(&global.methodology_config).map_err(RunError::Other)?;
     let standards = tanren_app_services::methodology::standards::load_runtime_standards(
         &runtime.standards_root,
     )
@@ -221,6 +224,7 @@ async fn run_methodology_command(
         standards,
         runtime.pillars,
         runtime.issue_provider,
+        runtime.runtime_tuning,
     )
     .await
     .map_err(|err| {
@@ -274,83 +278,6 @@ async fn run() -> std::result::Result<std::process::ExitCode, RunError> {
         .await
         .map(|()| std::process::ExitCode::SUCCESS)
         .map_err(RunError::Other)
-}
-
-struct MethodologyRuntimeSettings {
-    required_guards: Vec<tanren_app_services::methodology::RequiredGuard>,
-    standards_root: PathBuf,
-    pillars: Vec<tanren_app_services::methodology::Pillar>,
-    issue_provider: String,
-}
-
-fn load_methodology_runtime_settings(
-    config_path: &PathBuf,
-) -> std::result::Result<MethodologyRuntimeSettings, RunError> {
-    let default_root = resolve_relative_to_config(config_path, Path::new("tanren/standards"));
-    if !config_path.exists() {
-        return Ok(MethodologyRuntimeSettings {
-            required_guards: vec![
-                tanren_app_services::methodology::RequiredGuard::GateChecked,
-                tanren_app_services::methodology::RequiredGuard::Audited,
-                tanren_app_services::methodology::RequiredGuard::Adherent,
-            ],
-            standards_root: default_root,
-            pillars: tanren_app_services::methodology::builtin_pillars(),
-            issue_provider: "GitHub".to_owned(),
-        });
-    }
-    let raw = std::fs::read_to_string(config_path).map_err(|e| {
-        RunError::Other(anyhow::anyhow!(
-            "reading methodology config {}: {e}",
-            config_path.display()
-        ))
-    })?;
-    let cfg =
-        tanren_app_services::methodology::config::TanrenConfig::from_yaml(&raw).map_err(|e| {
-            RunError::Other(anyhow::anyhow!(
-                "parsing methodology config {}: {e}",
-                config_path.display()
-            ))
-        })?;
-    let standards_raw = cfg
-        .methodology
-        .variables
-        .get("standards_root")
-        .or_else(|| cfg.methodology.variables.get("STANDARDS_ROOT"))
-        .map_or("tanren/standards", String::as_str);
-    let pillars = tanren_app_services::methodology::rubric_registry::effective_pillars_for_runtime(
-        config_path,
-        &cfg,
-    )
-    .map_err(|e| {
-        RunError::Other(anyhow::anyhow!(
-            "resolving rubric pillars from {}: {e}",
-            config_path.display()
-        ))
-    })?;
-    Ok(MethodologyRuntimeSettings {
-        required_guards: cfg.methodology.task_complete_requires,
-        standards_root: resolve_relative_to_config(config_path, Path::new(standards_raw)),
-        pillars,
-        issue_provider: cfg
-            .methodology
-            .variables
-            .get("issue_provider")
-            .or_else(|| cfg.methodology.variables.get("ISSUE_PROVIDER"))
-            .cloned()
-            .unwrap_or_else(|| "GitHub".to_owned()),
-    })
-}
-
-fn resolve_relative_to_config(config_path: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        return path.to_path_buf();
-    }
-    let base = config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    base.join(path)
 }
 
 /// Bundled actor-token inputs. Keeps `dispatch_non_install`'s arity

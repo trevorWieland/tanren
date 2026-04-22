@@ -684,7 +684,8 @@ collect_manual_walkthrough_pack
 
 # Feature 8
 run_and_track run_command_witness "8.1" "positive" "manual-walkthrough" "manual_walkthrough_pack_generated" test -f "${PACK_DIR}/manual-walkthrough/summary.json"
-run_and_track run_nextest_witness "8.1" "falsification" "cli-methodology" "tanren-cli" "ingest_phase_events_strict_provenance_rejects_legacy_lines"
+run_and_track run_command_witness "8.1" "falsification" "orchestration" "phase0_harness_override_rejected" \
+    bash -lc "set +e; out=\$(scripts/orchestration/phase0.sh --spec-id 00000000-0000-0000-0000-0000000008a1 --harness-cmd 'echo nope' --dry-run 2>&1 >/dev/null); code=\$?; test \"\$code\" -ne 0 && printf '%s' \"\$out\" | grep -q \"hard-locked to 'codex exec'\""
 
 uv run python - "${PACK_DIR}" <<'PY'
 from __future__ import annotations

@@ -85,6 +85,9 @@ methodology:
     agent_cli_noun: "the agent CLI"
     task_tool_binding: mcp
     phase_events_file: phase-events.jsonl
+    phase_events_fsync_every: "1"
+    phase_events_compaction_min_lines: "10000"
+    projection_checkpoint_compaction_append_threshold: "200"
     readonly_artifact_banner: |
       ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
       spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,

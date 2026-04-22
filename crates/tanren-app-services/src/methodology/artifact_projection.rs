@@ -1,13 +1,18 @@
 //! Deterministic spec-artifact projection from `phase-events.jsonl`.
 use std::path::Path;
 
+#[path = "artifact_projection_incremental.rs"]
+mod artifact_projection_incremental;
+
+use self::artifact_projection_incremental::fold_phase_events_file_with_optional_checkpoint;
+use super::artifact_contract;
 use super::artifact_projection_artifacts::{
     build_spec_frontmatter, render_audit_markdown, render_demo_markdown, render_signposts_markdown,
 };
-use super::artifact_projection_fold::{
-    FoldedProjectionState, fold_projection_lines, fold_projection_lines_incremental,
-};
-use super::artifact_projection_helpers::{render_spec_body, write_artifacts};
+use super::artifact_projection_fold::FoldedProjectionState;
+#[cfg(test)]
+use super::artifact_projection_fold::{fold_projection_lines, fold_projection_lines_incremental};
+use super::artifact_projection_helpers::{render_spec_body, write_artifacts, write_if_changed};
 use super::artifact_projection_render::{ProgressMetadata, render_task_projection_artifacts};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::phase_events::{PHASE_EVENT_LINE_SCHEMA_VERSION, PhaseEventLine};
@@ -19,23 +24,15 @@ use tanren_domain::methodology::spec::{DemoEnvironment, SpecDependencies, SpecRe
 use tanren_domain::methodology::task::{AcceptanceCriterion, RequiredGuard, Task, TaskGuardFlags};
 use tanren_domain::{EventId, NonEmptyString, SpecId};
 
-pub(super) const GENERATED_ARTIFACT_MANIFEST_FILE: &str = ".tanren-generated-artifacts.json";
-pub(super) const PROJECTION_CHECKPOINT_FILE: &str = ".tanren-projection-checkpoint.json";
+pub(super) const GENERATED_ARTIFACT_MANIFEST_FILE: &str =
+    artifact_contract::GENERATED_ARTIFACT_MANIFEST_FILE;
+pub(super) const PROJECTION_CHECKPOINT_FILE: &str = artifact_contract::PROJECTION_CHECKPOINT_FILE;
 const ARTIFACT_CONTRACT_VERSION: &str = "v1";
 const JSON_SCHEMA_VERSION: &str = "v1";
 const PROJECTION_CHECKPOINT_SCHEMA_VERSION: &str = "v1";
-const CHECKPOINT_COMPACTION_APPEND_THRESHOLD: usize = 200;
-const GENERATED_ARTIFACTS: [&str; 9] = [
-    "spec.md",
-    "plan.md",
-    "tasks.md",
-    "tasks.json",
-    "demo.md",
-    "audit.md",
-    "signposts.md",
-    "progress.json",
-    "phase-events.jsonl",
-];
+#[cfg(test)]
+const DEFAULT_CHECKPOINT_COMPACTION_APPEND_THRESHOLD: usize = 200;
+pub(super) const CHECKPOINT_ANCHOR_LOOKBACK_BYTES: u64 = 65_536;
 #[derive(Debug, Clone, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct GeneratedArtifactManifest {
@@ -46,14 +43,18 @@ pub(super) struct GeneratedArtifactManifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectionCheckpoint {
-    schema_version: String,
-    contract_version: String,
-    spec_id: SpecId,
-    processed_lines: usize,
-    last_event_id: Option<EventId>,
-    compacted_at: DateTime<Utc>,
-    state: FoldedProjectionState,
+pub(super) struct ProjectionCheckpoint {
+    pub(super) schema_version: String,
+    pub(super) contract_version: String,
+    pub(super) spec_id: SpecId,
+    pub(super) processed_lines: usize,
+    #[serde(default)]
+    pub(super) processed_bytes: u64,
+    pub(super) last_event_id: Option<EventId>,
+    pub(super) compacted_at: DateTime<Utc>,
+    #[serde(default)]
+    pub(super) compacted_line_count: usize,
+    pub(super) state: FoldedProjectionState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,24 +130,20 @@ impl MethodologyService {
             return Ok(());
         }
 
-        let raw =
-            std::fs::read_to_string(&phase_events).map_err(|source| MethodologyError::Io {
-                path: phase_events.clone(),
-                source,
-            })?;
-        let raw_lines = raw
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .collect::<Vec<_>>();
-
         let checkpoint_path = spec_folder.join(PROJECTION_CHECKPOINT_FILE);
         let prior_checkpoint = load_projection_checkpoint(&checkpoint_path);
-        let (folded, compacted_at) = fold_with_optional_checkpoint(
+        let append_threshold = self
+            .runtime_tuning()
+            .projection_checkpoint_compaction_append_threshold
+            .max(1);
+        let fold_result = fold_phase_events_file_with_optional_checkpoint(
             spec_id,
-            &raw_lines,
+            &phase_events,
             self.required_guards(),
             prior_checkpoint,
+            append_threshold,
         )?;
+        let folded = fold_result.folded;
 
         let rendered = render_from_folded(spec_id, &folded, self.required_guards())?;
         write_artifacts(spec_folder, rendered)?;
@@ -157,9 +154,11 @@ impl MethodologyService {
                 schema_version: PROJECTION_CHECKPOINT_SCHEMA_VERSION.into(),
                 contract_version: ARTIFACT_CONTRACT_VERSION.into(),
                 spec_id,
-                processed_lines: raw_lines.len(),
+                processed_lines: fold_result.processed_lines,
+                processed_bytes: fold_result.processed_bytes,
                 last_event_id: folded.latest_event_id,
-                compacted_at,
+                compacted_at: fold_result.compacted_at,
+                compacted_line_count: fold_result.compacted_line_count,
                 state: folded,
             },
         )
@@ -170,9 +169,9 @@ pub(super) fn generated_artifact_manifest() -> GeneratedArtifactManifest {
     GeneratedArtifactManifest {
         schema_version: JSON_SCHEMA_VERSION.into(),
         contract_version: ARTIFACT_CONTRACT_VERSION.into(),
-        generated_artifacts: GENERATED_ARTIFACTS
-            .iter()
-            .map(|v| (*v).to_owned())
+        generated_artifacts: artifact_contract::generated_manifest_artifacts()
+            .into_iter()
+            .map(str::to_owned)
             .collect(),
     }
 }
@@ -194,9 +193,11 @@ fn persist_projection_checkpoint(
 ) -> MethodologyResult<()> {
     let bytes = serde_json::to_vec_pretty(&checkpoint)
         .map_err(|err| MethodologyError::Validation(err.to_string()))?;
-    write_atomic(path, &bytes)
+    let _ = write_if_changed(path, &bytes)?;
+    Ok(())
 }
 
+#[cfg(test)]
 fn fold_with_optional_checkpoint(
     spec_id: SpecId,
     raw_lines: &[&str],
@@ -208,7 +209,10 @@ fn fold_with_optional_checkpoint(
             && checkpoint.processed_lines <= raw_lines.len()
             && checkpoint_anchor_matches(&checkpoint, raw_lines)
         {
-            let appended = parse_phase_event_lines(raw_lines, checkpoint.processed_lines)?;
+            let appended = parse_phase_event_lines(
+                &raw_lines[checkpoint.processed_lines..],
+                checkpoint.processed_lines,
+            )?;
             let append_count = appended.len();
             let folded = fold_projection_lines_incremental(
                 checkpoint.state,
@@ -216,7 +220,7 @@ fn fold_with_optional_checkpoint(
                 &appended,
                 required_guards,
             );
-            let compacted_at = if append_count >= CHECKPOINT_COMPACTION_APPEND_THRESHOLD {
+            let compacted_at = if append_count >= DEFAULT_CHECKPOINT_COMPACTION_APPEND_THRESHOLD {
                 folded.generated_at
             } else {
                 checkpoint.compacted_at
@@ -230,6 +234,7 @@ fn fold_with_optional_checkpoint(
     Ok((folded.clone(), folded.generated_at))
 }
 
+#[cfg(test)]
 fn checkpoint_anchor_matches(checkpoint: &ProjectionCheckpoint, raw_lines: &[&str]) -> bool {
     if checkpoint.processed_lines == 0 {
         return true;
@@ -244,7 +249,7 @@ fn checkpoint_anchor_matches(checkpoint: &ProjectionCheckpoint, raw_lines: &[&st
     parse_event_id_from_raw_line(observed_line).is_some_and(|event_id| event_id == expected)
 }
 
-fn parse_event_id_from_raw_line(raw: &str) -> Option<EventId> {
+pub(super) fn parse_event_id_from_raw_line(raw: &str) -> Option<EventId> {
     let value: serde_json::Value = serde_json::from_str(raw).ok()?;
     let id_raw = value.get("event_id")?.as_str()?;
     let id = uuid::Uuid::parse_str(id_raw).ok()?;
@@ -264,15 +269,16 @@ fn read_phase_event_lines(path: &Path) -> MethodologyResult<Vec<PhaseEventLine>>
     parse_phase_event_lines(&raw_lines, 0)
 }
 
-fn parse_phase_event_lines(
+pub(super) fn parse_phase_event_lines(
     raw_lines: &[&str],
-    start: usize,
+    line_offset: usize,
 ) -> MethodologyResult<Vec<PhaseEventLine>> {
     let mut lines = Vec::new();
-    for (idx, line) in raw_lines.iter().enumerate().skip(start) {
+    for (idx, line) in raw_lines.iter().enumerate() {
+        let line_number = line_offset + idx + 1;
         let parsed = serde_json::from_str::<PhaseEventLine>(line).map_err(|err| {
             MethodologyError::FieldValidation {
-                field_path: format!("/phase-events.jsonl:{}", idx + 1),
+                field_path: format!("/phase-events.jsonl:{line_number}"),
                 expected: "valid phase-event JSON envelope".into(),
                 actual: err.to_string(),
                 remediation:
@@ -282,7 +288,7 @@ fn parse_phase_event_lines(
         })?;
         if parsed.schema_version != PHASE_EVENT_LINE_SCHEMA_VERSION {
             return Err(MethodologyError::FieldValidation {
-                field_path: format!("/phase-events.jsonl:{}/schema_version", idx + 1),
+                field_path: format!("/phase-events.jsonl:{line_number}/schema_version"),
                 expected: PHASE_EVENT_LINE_SCHEMA_VERSION.into(),
                 actual: parsed.schema_version.clone(),
                 remediation:
@@ -351,42 +357,6 @@ fn render_from_folded(
         progress_json,
         manifest_json,
     })
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> MethodologyResult<()> {
-    use std::io::Write as _;
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| MethodologyError::Io {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-    let mut temp_path = path.to_path_buf();
-    let file_name = path
-        .file_name()
-        .and_then(std::ffi::OsStr::to_str)
-        .unwrap_or("artifact");
-    temp_path.set_file_name(format!(".{file_name}.{}.tmp", uuid::Uuid::now_v7()));
-
-    let mut file = std::fs::File::create(&temp_path).map_err(|source| MethodologyError::Io {
-        path: temp_path.clone(),
-        source,
-    })?;
-    file.write_all(bytes)
-        .map_err(|source| MethodologyError::Io {
-            path: temp_path.clone(),
-            source,
-        })?;
-    file.sync_all().map_err(|source| MethodologyError::Io {
-        path: temp_path.clone(),
-        source,
-    })?;
-    std::fs::rename(&temp_path, path).map_err(|source| MethodologyError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Ok(())
 }
 
 #[cfg(test)]

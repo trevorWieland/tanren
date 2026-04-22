@@ -20,17 +20,31 @@ use tanren_store::{
 };
 
 use super::errors::{MethodologyError, MethodologyResult};
-use super::phase_events::PhaseEventAttribution;
+use super::phase_events::{
+    PhaseEventAttribution, PhaseEventsAppendPolicy, PhaseEventsCompactionReport,
+};
 
 const OUTBOX_DRAIN_BATCH_SIZE: u64 = 256;
 const OUTBOX_DRAIN_ROW_BUDGET: u64 = OUTBOX_DRAIN_BATCH_SIZE * 8;
 const OUTBOX_DRAIN_TIME_BUDGET_MS: u64 = 200;
 
-/// Shared methodology service.
-///
-/// Both `tanren-cli` and `tanren-mcp` take `Arc<MethodologyService>`.
-/// The service is transport-agnostic; transports only supply the
-/// caller capability scope and phase name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MethodologyRuntimeTuning {
+    pub phase_events_append_policy: PhaseEventsAppendPolicy,
+    pub phase_events_compaction_min_lines: usize,
+    pub projection_checkpoint_compaction_append_threshold: usize,
+}
+
+impl Default for MethodologyRuntimeTuning {
+    fn default() -> Self {
+        Self {
+            phase_events_append_policy: PhaseEventsAppendPolicy::default(),
+            phase_events_compaction_min_lines: 10_000,
+            projection_checkpoint_compaction_append_threshold: 200,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MethodologyService {
     pub(crate) store: Arc<Store>,
@@ -39,9 +53,9 @@ pub struct MethodologyService {
     pillars: Arc<[Pillar]>,
     issue_provider: Arc<str>,
     phase_events: Option<PhaseEventsRuntime>,
+    runtime_tuning: MethodologyRuntimeTuning,
 }
 
-/// Runtime context for `phase-events.jsonl` writes.
 #[derive(Debug, Clone)]
 pub struct PhaseEventsRuntime {
     pub spec_id: SpecId,
@@ -49,12 +63,20 @@ pub struct PhaseEventsRuntime {
     pub agent_session_id: String,
 }
 
-/// Summary of explicit projection-reconcile work for one spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProjectionReconcileReport {
     pub tasks_rebuilt: u64,
     pub task_spec_rows_repaired: u64,
     pub signpost_spec_rows_repaired: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PhaseEventsMaintenanceReport {
+    pub total_lines_before: u64,
+    pub total_lines_after: u64,
+    pub duplicates_removed: u64,
+    pub empty_lines_removed: u64,
+    pub rewrote_file: bool,
 }
 
 fn default_required_guards() -> Arc<[RequiredGuard]> {
@@ -81,6 +103,7 @@ impl MethodologyService {
             pillars: Arc::from(builtin_pillars().into_boxed_slice()),
             issue_provider: default_issue_provider(),
             phase_events: None,
+            runtime_tuning: MethodologyRuntimeTuning::default(),
         }
     }
 
@@ -105,6 +128,7 @@ impl MethodologyService {
             pillars: Arc::from(builtin_pillars().into_boxed_slice()),
             issue_provider: default_issue_provider(),
             phase_events: None,
+            runtime_tuning: MethodologyRuntimeTuning::default(),
         }
     }
 
@@ -165,6 +189,15 @@ impl MethodologyService {
         svc
     }
 
+    pub fn set_runtime_tuning(&mut self, tuning: MethodologyRuntimeTuning) {
+        self.runtime_tuning = tuning;
+    }
+
+    #[must_use]
+    pub(crate) fn runtime_tuning(&self) -> MethodologyRuntimeTuning {
+        self.runtime_tuning
+    }
+
     /// Read the configured required-guard set. Used by projections and
     /// tests to assert config-driven behavior.
     #[must_use]
@@ -190,8 +223,6 @@ impl MethodologyService {
         &self.issue_provider
     }
 
-    /// Runtime context used for `phase-events.jsonl` and enforcement
-    /// postflight integration.
     #[must_use]
     pub fn phase_events_runtime(&self) -> Option<PhaseEventsRuntime> {
         self.phase_events.clone()
@@ -375,10 +406,11 @@ impl MethodologyService {
             return Ok(false);
         }
         let path = PathBuf::from(&row.spec_folder).join("phase-events.jsonl");
-        if let Err(err) = super::append_jsonl_encoded_line_if_missing_event_id(
+        if let Err(err) = super::append_jsonl_encoded_line_if_missing_event_id_with_policy(
             &path,
             &row.line_json,
             Some(row.event_id),
+            self.runtime_tuning.phase_events_append_policy,
         ) {
             let _ = self
                 .store
@@ -393,10 +425,6 @@ impl MethodologyService {
         Ok(projected)
     }
 
-    /// Reconcile pending `phase-events.jsonl` outbox rows for one spec folder.
-    ///
-    /// # Errors
-    /// Returns a typed error on query or filesystem failure.
     pub async fn reconcile_phase_events_outbox_for_folder(
         &self,
         spec_folder: &std::path::Path,
@@ -434,6 +462,21 @@ impl MethodologyService {
             self.materialize_projected_artifacts(spec_id, &spec_folder_path)?;
         }
         Ok(projected)
+    }
+
+    pub fn compact_phase_events_for_folder(
+        &self,
+        spec_folder: &std::path::Path,
+    ) -> MethodologyResult<PhaseEventsMaintenanceReport> {
+        let path = spec_folder.join("phase-events.jsonl");
+        let report: PhaseEventsCompactionReport = super::compact_jsonl_event_log(&path)?;
+        Ok(PhaseEventsMaintenanceReport {
+            total_lines_before: report.total_lines_before,
+            total_lines_after: report.total_lines_after,
+            duplicates_removed: report.duplicates_removed,
+            empty_lines_removed: report.empty_lines_removed,
+            rewrote_file: report.rewrote_file,
+        })
     }
 }
 

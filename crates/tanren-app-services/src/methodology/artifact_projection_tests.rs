@@ -1,6 +1,7 @@
 use super::*;
 
 use chrono::TimeZone as _;
+use sha2::{Digest as _, Sha256};
 use tanren_domain::TaskId;
 use tanren_domain::methodology::event_tool::PhaseEventOriginKind;
 use tanren_domain::methodology::events::{
@@ -315,6 +316,79 @@ fn read_phase_event_lines_rejects_schema_version_mismatch() {
     let message = err.to_string();
     assert!(message.contains("/schema_version"));
     assert!(message.contains("1.0.0"));
+}
+
+fn sha256_hex(input: &str) -> String {
+    use std::fmt::Write as _;
+
+    let digest = Sha256::digest(input.as_bytes());
+    digest.iter().fold(
+        String::with_capacity(digest.len().saturating_mul(2)),
+        |mut acc, byte| {
+            let _ = write!(&mut acc, "{byte:02x}");
+            acc
+        },
+    )
+}
+
+#[test]
+fn projected_markdown_full_document_snapshots_are_stable() {
+    let lines = sample_lines();
+    let rendered = render_from_lines(
+        spec_id(),
+        &lines,
+        &[
+            RequiredGuard::GateChecked,
+            RequiredGuard::Audited,
+            RequiredGuard::Adherent,
+        ],
+    )
+    .expect("render");
+
+    let snapshots = [
+        (
+            "spec.md",
+            sha256_hex(&rendered.spec_md),
+            "5c386a6e127642e97d1a88dd5a57cc915e6cc5a0d850bea366aa5c4823808ea8",
+        ),
+        (
+            "plan.md",
+            sha256_hex(&rendered.plan_md),
+            "91deed9a9c72910b42fd6f896665664c418b88e8ee204f5af85d7baf97d1b0f1",
+        ),
+        (
+            "tasks.md",
+            sha256_hex(&rendered.tasks_md),
+            "98b02d2e27105fc9ecf80a4962a914d38b3962fbde2a172cd8e33b798f24d17f",
+        ),
+        (
+            "demo.md",
+            sha256_hex(&rendered.demo_md),
+            "a929e3b22d01da44798c609fd96d55757eaf5a9ec4f9d7b4f72b18bc531dc7c3",
+        ),
+        (
+            "audit.md",
+            sha256_hex(&rendered.audit_md),
+            "4be59ca62063bbe6401836ee4dc8cacfc22b947f0b92942acaf6496e4e079871",
+        ),
+        (
+            "signposts.md",
+            sha256_hex(&rendered.signposts_md),
+            "4a45f46e3c987f8238cf12db3a11675ffd66ad8158cb1cce46aeec6ed3538cfe",
+        ),
+    ];
+
+    let mut mismatches = Vec::new();
+    for (artifact, actual, expected) in snapshots {
+        if actual != expected {
+            mismatches.push(format!("{artifact}={actual}"));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "snapshot mismatches: {}",
+        mismatches.join(", ")
+    );
 }
 
 #[path = "artifact_projection_tests_checkpoint.rs"]

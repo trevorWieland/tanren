@@ -6,6 +6,7 @@
 //! `tanren ingest-phase-events` is the inverse direction (JSONL → store).
 
 use std::io::Write as _;
+use std::num::NonZeroU32;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
@@ -17,9 +18,65 @@ use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::{EventId, SpecId};
 
 use super::errors::MethodologyError;
+#[path = "phase_events_storage.rs"]
+mod phase_events_storage;
+use self::phase_events_storage::{
+    compact_jsonl_event_log as compact_jsonl_event_log_impl, event_id_marker_exists,
+    jsonl_contains_event_id_locked, phase_events_lock_path, should_sync_after_append,
+    upsert_event_id_marker,
+};
 
 /// Schema version for `phase-events.jsonl` line envelopes.
 pub const PHASE_EVENT_LINE_SCHEMA_VERSION: &str = "1.0.0";
+const FSYNC_STATE_SCHEMA_VERSION: &str = "1.0.0";
+
+/// Append durability policy for `phase-events.jsonl`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhaseEventsAppendPolicy {
+    /// Force `sync_all` every N successful appends.
+    pub fsync_every: NonZeroU32,
+}
+
+impl Default for PhaseEventsAppendPolicy {
+    fn default() -> Self {
+        let parsed = std::env::var("TANREN_PHASE_EVENTS_FSYNC_EVERY")
+            .ok()
+            .and_then(|raw| raw.trim().parse::<u32>().ok())
+            .and_then(NonZeroU32::new)
+            .unwrap_or_else(|| NonZeroU32::new(1).expect("non-zero literal"));
+        Self {
+            fsync_every: parsed,
+        }
+    }
+}
+
+impl PhaseEventsAppendPolicy {
+    /// Build a policy from a configured sync interval.
+    ///
+    /// Returns `None` when `fsync_every` is zero.
+    #[must_use]
+    pub fn from_fsync_every(fsync_every: u32) -> Option<Self> {
+        NonZeroU32::new(fsync_every).map(|non_zero| Self {
+            fsync_every: non_zero,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PhaseEventsFsyncState {
+    schema_version: String,
+    pending_since_last_sync: u32,
+}
+
+/// Compaction result for `phase-events.jsonl`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhaseEventsCompactionReport {
+    pub total_lines_before: u64,
+    pub total_lines_after: u64,
+    pub duplicates_removed: u64,
+    pub empty_lines_removed: u64,
+    pub rewrote_file: bool,
+}
 
 /// Canonical `phase-events.jsonl` line envelope per
 /// `docs/architecture/agent-tool-surface.md` §6.
@@ -180,7 +237,12 @@ pub fn append_jsonl_line_atomic(
 /// # Errors
 /// Returns [`MethodologyError::Io`] on filesystem failures.
 pub fn append_jsonl_encoded_line(path: &Path, encoded: &str) -> Result<(), MethodologyError> {
-    let _ = append_jsonl_encoded_line_if_missing_event_id(path, encoded, None)?;
+    let _ = append_jsonl_encoded_line_if_missing_event_id_with_policy(
+        path,
+        encoded,
+        None,
+        PhaseEventsAppendPolicy::default(),
+    )?;
     Ok(())
 }
 
@@ -199,6 +261,26 @@ pub fn append_jsonl_encoded_line_if_missing_event_id(
     path: &Path,
     encoded: &str,
     event_id: Option<EventId>,
+) -> Result<bool, MethodologyError> {
+    append_jsonl_encoded_line_if_missing_event_id_with_policy(
+        path,
+        encoded,
+        event_id,
+        PhaseEventsAppendPolicy::default(),
+    )
+}
+
+/// Append one serialized JSON line unless `event_id` already exists.
+///
+/// This variant allows callers to configure append-fsync batching.
+///
+/// # Errors
+/// Returns [`MethodologyError::Io`] on filesystem failures.
+pub fn append_jsonl_encoded_line_if_missing_event_id_with_policy(
+    path: &Path,
+    encoded: &str,
+    event_id: Option<EventId>,
+    policy: PhaseEventsAppendPolicy,
 ) -> Result<bool, MethodologyError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| MethodologyError::Io {
@@ -221,11 +303,16 @@ pub fn append_jsonl_encoded_line_if_missing_event_id(
             path: lock_path,
             source,
         })?;
-    if let Some(event_id) = event_id
-        && jsonl_contains_event_id_locked(path, event_id)?
-    {
-        drop(lock_file);
-        return Ok(false);
+    if let Some(event_id) = event_id {
+        if event_id_marker_exists(path, event_id) {
+            drop(lock_file);
+            return Ok(false);
+        }
+        if jsonl_contains_event_id_locked(path, event_id)? {
+            upsert_event_id_marker(path, event_id)?;
+            drop(lock_file);
+            return Ok(false);
+        }
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -243,24 +330,38 @@ pub fn append_jsonl_encoded_line_if_missing_event_id(
             path: path.to_path_buf(),
             source,
         })?;
-    file.sync_all().map_err(|source| MethodologyError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    if let Some(parent) = path.parent()
-        && let Ok(dir) = std::fs::File::open(parent)
-    {
-        let _ = dir.sync_all();
+    if let Some(event_id) = event_id {
+        upsert_event_id_marker(path, event_id)?;
+    }
+    if should_sync_after_append(path, policy)? {
+        file.sync_all().map_err(|source| MethodologyError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        if let Some(parent) = path.parent()
+            && let Ok(dir) = std::fs::File::open(parent)
+        {
+            let _ = dir.sync_all();
+        }
     }
     drop(lock_file);
     Ok(true)
 }
 
-fn phase_events_lock_path(path: &Path) -> std::path::PathBuf {
-    let Some(file_name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
-        return path.with_extension("lock");
-    };
-    path.with_file_name(format!("{file_name}.lock"))
+/// Compact a `phase-events.jsonl` projection file.
+///
+/// Compaction is deterministic and preserves first-seen order:
+/// - removes blank lines
+/// - removes duplicate `event_id` entries (keeps first occurrence)
+/// - rewrites line terminators to canonical LF
+/// - rebuilds the event-id marker index sidecar
+///
+/// # Errors
+/// Returns [`MethodologyError::Io`] on filesystem failures.
+pub fn compact_jsonl_event_log(
+    path: &Path,
+) -> Result<PhaseEventsCompactionReport, MethodologyError> {
+    compact_jsonl_event_log_impl(path)
 }
 
 /// Check whether `phase-events.jsonl` already contains `event_id`.
@@ -268,175 +369,19 @@ fn phase_events_lock_path(path: &Path) -> std::path::PathBuf {
 /// # Errors
 /// Returns [`MethodologyError::Io`] when reading the file fails.
 pub fn jsonl_contains_event_id(path: &Path, event_id: EventId) -> Result<bool, MethodologyError> {
+    if event_id_marker_exists(path, event_id) {
+        return Ok(true);
+    }
     if !path.exists() {
         return Ok(false);
     }
-    jsonl_contains_event_id_locked(path, event_id)
-}
-
-fn jsonl_contains_event_id_locked(
-    path: &Path,
-    event_id: EventId,
-) -> Result<bool, MethodologyError> {
-    if !path.exists() {
-        return Ok(false);
+    let found = jsonl_contains_event_id_locked(path, event_id)?;
+    if found {
+        let _ = upsert_event_id_marker(path, event_id);
     }
-    let needle = event_id.to_string();
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(source) => {
-            return Err(MethodologyError::Io {
-                path: path.to_path_buf(),
-                source,
-            });
-        }
-    };
-    let reader = std::io::BufReader::new(file);
-    for line in std::io::BufRead::lines(reader) {
-        let line = line.map_err(|source| MethodologyError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line)
-            && value.get("event_id").and_then(serde_json::Value::as_str) == Some(needle.as_str())
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    Ok(found)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tanren_domain::NonEmptyString;
-    use tanren_domain::events::{DomainEvent, EventEnvelope};
-    use tanren_domain::methodology::events::{TaskCreated, TaskStarted};
-    use tanren_domain::methodology::task::{Task, TaskOrigin, TaskStatus};
-    use tanren_domain::{EntityRef, EventId, TaskId};
-
-    fn task(spec: SpecId) -> Task {
-        Task {
-            id: TaskId::new(),
-            spec_id: spec,
-            title: NonEmptyString::try_new("t").expect("non-empty"),
-            description: String::new(),
-            acceptance_criteria: vec![],
-            origin: TaskOrigin::ShapeSpec,
-            status: TaskStatus::Pending,
-            depends_on: vec![],
-            parent_task_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        }
-    }
-
-    #[test]
-    fn project_filters_by_spec_id() {
-        let spec_a = SpecId::new();
-        let spec_b = SpecId::new();
-        let task_a = task(spec_a);
-        let task_b = task(spec_b);
-        let env_a = EventEnvelope {
-            schema_version: tanren_domain::SCHEMA_VERSION,
-            event_id: EventId::new(),
-            timestamp: Utc::now(),
-            entity_ref: EntityRef::Task(task_a.id),
-            payload: DomainEvent::Methodology {
-                event: MethodologyEvent::TaskCreated(TaskCreated {
-                    task: Box::new(task_a),
-                    origin: TaskOrigin::ShapeSpec,
-                    idempotency_key: None,
-                }),
-            },
-        };
-        let env_b = EventEnvelope {
-            schema_version: tanren_domain::SCHEMA_VERSION,
-            event_id: EventId::new(),
-            timestamp: Utc::now(),
-            entity_ref: EntityRef::Task(task_b.id),
-            payload: DomainEvent::Methodology {
-                event: MethodologyEvent::TaskStarted(TaskStarted {
-                    task_id: task_b.id,
-                    spec_id: spec_b,
-                }),
-            },
-        };
-        let lines = project_phase_events(&[env_a, env_b], spec_a, "do-task", "session-1");
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].spec_id, spec_a);
-    }
-
-    #[test]
-    fn render_jsonl_is_lf_terminated() {
-        let spec = SpecId::new();
-        let line = PhaseEventLine {
-            schema_version: PHASE_EVENT_LINE_SCHEMA_VERSION.to_owned(),
-            event_id: EventId::new(),
-            spec_id: spec,
-            phase: "do-task".into(),
-            agent_session_id: "s1".into(),
-            timestamp: Utc::now(),
-            caused_by_tool_call_id: Some("call-1".into()),
-            origin_kind: PhaseEventOriginKind::ToolPrimary,
-            tool: "start_task".into(),
-            payload: MethodologyEvent::TaskStarted(TaskStarted {
-                task_id: TaskId::new(),
-                spec_id: spec,
-            }),
-        };
-        let text = render_jsonl(&[line.clone(), line]).expect("render");
-        assert_eq!(text.lines().count(), 2);
-        assert!(text.ends_with('\n'));
-    }
-
-    #[test]
-    fn append_jsonl_encoded_line_is_line_safe_under_concurrency() {
-        let root = tempfile::tempdir().expect("tempdir");
-        let path = root.path().join("phase-events.jsonl");
-        let workers = 8usize;
-        let per_worker = 100usize;
-        let mut handles = Vec::with_capacity(workers);
-        for worker in 0..workers {
-            let path = path.clone();
-            handles.push(std::thread::spawn(move || {
-                for i in 0..per_worker {
-                    let encoded = format!("{{\"worker\":{worker},\"seq\":{i}}}");
-                    append_jsonl_encoded_line(&path, &encoded).expect("append");
-                }
-            }));
-        }
-        for handle in handles {
-            handle.join().expect("join");
-        }
-        let text = std::fs::read_to_string(&path).expect("read");
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), workers * per_worker);
-        for line in lines {
-            let parsed: serde_json::Value = serde_json::from_str(line).expect("valid json");
-            assert!(parsed.get("worker").is_some());
-            assert!(parsed.get("seq").is_some());
-        }
-    }
-
-    #[test]
-    fn append_jsonl_encoded_line_dedup_skips_existing_event_id() {
-        let root = tempfile::tempdir().expect("tempdir");
-        let path = root.path().join("phase-events.jsonl");
-        let event_id = EventId::new();
-        let encoded = format!("{{\"event_id\":\"{event_id}\",\"value\":1}}");
-        let first = append_jsonl_encoded_line_if_missing_event_id(&path, &encoded, Some(event_id))
-            .expect("first append");
-        let second = append_jsonl_encoded_line_if_missing_event_id(&path, &encoded, Some(event_id))
-            .expect("second append");
-        assert!(first, "first append should write");
-        assert!(!second, "second append should be skipped as duplicate");
-        let raw = std::fs::read_to_string(path).expect("read");
-        let lines: Vec<&str> = raw.lines().filter(|line| !line.trim().is_empty()).collect();
-        assert_eq!(lines.len(), 1);
-    }
-}
+#[path = "phase_events_tests.rs"]
+mod tests;

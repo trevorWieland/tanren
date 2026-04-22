@@ -17,7 +17,6 @@ Options:
   --spec-folder <path>      Spec folder path (default: <spec_root>/<spec-id> from tanren.yml).
   --database-url <url>      Tanren DB URL (default: sqlite:tanren.db).
   --config <path>           tanren.yml path (default: tanren.yml).
-  --harness-cmd <command>   Harness command (default: "codex exec").
   --harness-model <model>   Optional harness model override.
   --max-cycles <n>          Max autonomous cycles before fail (default: 64).
   --dry-run                 Print intended actions without executing harness/hooks.
@@ -163,40 +162,18 @@ spec_status_json() {
         --json "$payload"
 }
 
+load_phase_capability_map() {
+    tanren-cli --database-url "$DATABASE_URL" methodology \
+        --methodology-config "$CONFIG_PATH" \
+        phase-capabilities
+}
+
 phase_capabilities_csv() {
     local phase="$1"
-    case "$phase" in
-        do-task)
-            printf '%s' "task.start,task.complete,signpost.add,signpost.update,task.read,phase.outcome"
-            ;;
-        audit-task)
-            printf '%s' "finding.add,rubric.record,compliance.record,task.read,phase.outcome"
-            ;;
-        adhere-task)
-            printf '%s' "standard.read,adherence.record,task.read,phase.outcome"
-            ;;
-        run-demo)
-            printf '%s' "demo.results,finding.add,signpost.add,task.read,phase.outcome"
-            ;;
-        audit-spec)
-            printf '%s' "finding.add,rubric.record,compliance.record,task.read,phase.outcome"
-            ;;
-        adhere-spec)
-            printf '%s' "standard.read,adherence.record,task.read,phase.outcome"
-            ;;
-        shape-spec)
-            printf '%s' "task.create,task.revise,task.read,spec.frontmatter,demo.frontmatter,signpost.add,phase.outcome"
-            ;;
-        resolve-blockers)
-            printf '%s' "task.create,task.revise,task.abandon,task.read,phase.outcome"
-            ;;
-        walk-spec)
-            printf '%s' "task.create,task.read,phase.outcome"
-            ;;
-        *)
-            printf '%s' "task.read,phase.outcome"
-            ;;
-    esac
+    local csv
+    csv="$(jq -r --arg phase "$phase" '.phases[] | select(.phase == $phase) | .capabilities_csv' <<<"$PHASE_CAPABILITY_MAP_JSON")"
+    [[ -n "$csv" ]] || die "phase ${phase} is not present in canonical phase-capability map"
+    printf '%s' "$csv"
 }
 
 mint_capability_envelope() {
@@ -278,7 +255,7 @@ SPEC_ID=""
 SPEC_FOLDER=""
 DATABASE_URL="sqlite:tanren.db"
 CONFIG_PATH="tanren.yml"
-HARNESS_CMD="${TANREN_PHASE0_HARNESS_CMD:-codex exec}"
+HARNESS_CMD="codex exec"
 HARNESS_MODEL="${TANREN_PHASE0_HARNESS_MODEL:-}"
 STATUS_PHASE="do-task"
 MAX_CYCLES=64
@@ -303,8 +280,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --harness-cmd)
-            HARNESS_CMD="${2:-}"
-            shift 2
+            die "--harness-cmd is no longer supported in Phase 0 acceptance mode; harness is hard-locked to 'codex exec'"
             ;;
         --harness-model)
             HARNESS_MODEL="${2:-}"
@@ -333,14 +309,20 @@ done
     die "--spec-id is required"
 }
 [[ -f "$CONFIG_PATH" ]] || die "config not found: $CONFIG_PATH"
+if [[ -n "${TANREN_PHASE0_HARNESS_CMD:-}" ]]; then
+    die "TANREN_PHASE0_HARNESS_CMD override is no longer supported in Phase 0 acceptance mode; remove it and use the hard-locked 'codex exec' harness"
+fi
 
 need_cmd tanren-cli
 need_cmd tanren-mcp
 need_cmd jq
 need_cmd uv
+need_cmd codex
 if [[ "$DRY_RUN" != "1" ]]; then
     run_shell_command "config-parse-check" "tanren-cli install --config $(printf '%q' "$CONFIG_PATH") --dry-run >/dev/null"
 fi
+
+PHASE_CAPABILITY_MAP_JSON="$(load_phase_capability_map)"
 
 if [[ -z "$SPEC_FOLDER" ]]; then
     spec_root="$(trim_scalar "$(yaml_methodology_var "$CONFIG_PATH" "spec_root")")"

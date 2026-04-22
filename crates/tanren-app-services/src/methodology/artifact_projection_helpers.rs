@@ -418,9 +418,19 @@ pub(super) fn write_artifacts(
         (GENERATED_ARTIFACT_MANIFEST_FILE, rendered.manifest_json),
     ];
     for (name, body) in writes {
-        write_atomic(&spec_folder.join(name), body.as_bytes())?;
+        let _ = write_if_changed(&spec_folder.join(name), body.as_bytes())?;
     }
     Ok(())
+}
+
+pub(super) fn write_if_changed(path: &Path, bytes: &[u8]) -> MethodologyResult<bool> {
+    if let Ok(current) = std::fs::read(path)
+        && current == bytes
+    {
+        return Ok(false);
+    }
+    write_atomic(path, bytes)?;
+    Ok(true)
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> MethodologyResult<()> {

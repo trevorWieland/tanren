@@ -11,12 +11,13 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use super::config::{InstallBinding, InstallFormat, InstallTarget, MergePolicy, MethodologyConfig};
+use super::config::{InstallFormat, InstallTarget, MergePolicy, MethodologyConfig};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::formats::render_commands;
+use super::installer_binding::binding_instructions;
 use super::installer_diff::{ContentDiff, exact_content_diff};
 use super::installer_walk::collect_walkable_files;
-use super::renderer::{RenderedCommand, render_catalog};
+use super::renderer::{RenderedCommand, render_command};
 use super::source::{CommandSource, load_catalog};
 
 /// A planned install — every file that would be written and under
@@ -62,12 +63,15 @@ pub fn plan_install(
 ) -> MethodologyResult<InstallPlan> {
     let mut writes = Vec::new();
     for target in &cfg.install_targets {
-        let mut target_context = context.clone();
-        target_context.insert(
-            "TASK_TOOL_BINDING".into(),
-            binding_instructions(target.binding).to_owned(),
-        );
-        let (rendered, _refs) = render_catalog(commands, &target_context)?;
+        let mut rendered = Vec::with_capacity(commands.len());
+        for command in commands {
+            let mut command_context = context.clone();
+            command_context.insert(
+                "TASK_TOOL_BINDING".into(),
+                binding_instructions(target.binding, command),
+            );
+            rendered.push(render_command(command, &command_context)?);
+        }
         match target.format {
             InstallFormat::ClaudeCode | InstallFormat::CodexSkills | InstallFormat::Opencode => {
                 plan_command_target(target, &rendered, &mut writes)?;
@@ -84,20 +88,6 @@ pub fn plan_install(
         }
     }
     Ok(InstallPlan { writes })
-}
-
-const fn binding_instructions(binding: InstallBinding) -> &'static str {
-    match binding {
-        InstallBinding::Mcp => {
-            "Use Tanren MCP tools for all structured mutations (for example `create_task`, `add_finding`, `report_phase_outcome`). CLI fallback uses the same contract:\n`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`."
-        }
-        InstallBinding::Cli => {
-            "Use the Tanren CLI for all structured mutations:\n`tanren-cli methodology --phase <phase> --spec-id <spec_uuid> --spec-folder <spec_dir> <noun> <verb> --params-file <payload.json>`.\nIf MCP is available, call the equivalent typed tool (`create_task`, `add_finding`, `report_phase_outcome`)."
-        }
-        InstallBinding::None => {
-            "No tool binding is configured for this target; do not perform structured mutations from this command."
-        }
-    }
 }
 
 fn plan_command_target(

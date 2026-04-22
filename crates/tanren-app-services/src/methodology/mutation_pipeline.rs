@@ -18,7 +18,9 @@ use tanren_domain::methodology::evidence::{
 use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::{EventId, NonEmptyString, SpecId};
 
-use super::artifact_projection::{GENERATED_ARTIFACT_MANIFEST_FILE, PROJECTION_CHECKPOINT_FILE};
+use super::artifact_contract::{
+    GENERATED_ARTIFACT_MANIFEST_FILE, append_only_protected_artifacts, readonly_protected_artifacts,
+};
 use super::enforcement::{EnforcementGuard, ProtectedPath, ProtectionMode};
 use super::errors::{MethodologyError, MethodologyResult};
 use super::service::MethodologyService;
@@ -169,52 +171,19 @@ fn parse_event_id_from_line_json(line_json: &str) -> Option<EventId> {
 }
 
 fn protected_artifacts(spec_folder: &Path) -> Vec<ProtectedPath> {
-    let mut out = vec![
-        ProtectedPath {
-            path: spec_folder.join("spec.md"),
+    let mut out = Vec::new();
+    for file in readonly_protected_artifacts() {
+        out.push(ProtectedPath {
+            path: spec_folder.join(file),
             mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("demo.md"),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("plan.md"),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("tasks.md"),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("tasks.json"),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("progress.json"),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("audit.md"),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("signposts.md"),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join("phase-events.jsonl"),
+        });
+    }
+    for file in append_only_protected_artifacts() {
+        out.push(ProtectedPath {
+            path: spec_folder.join(file),
             mode: ProtectionMode::AppendOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join(PROJECTION_CHECKPOINT_FILE),
-            mode: ProtectionMode::ReadOnly,
-        },
-        ProtectedPath {
-            path: spec_folder.join(GENERATED_ARTIFACT_MANIFEST_FILE),
-            mode: ProtectionMode::ReadOnly,
-        },
-    ];
+        });
+    }
     let manifest_path = spec_folder.join(GENERATED_ARTIFACT_MANIFEST_FILE);
     if manifest_path.exists()
         && let Some(manifest) = load_generated_artifact_manifest(&manifest_path)

@@ -15,6 +15,7 @@ Canonical BDD source: `docs/rewrite/PHASE0_PROOF_BDD.md`.
 - Rust toolchain and `cargo-nextest` are installed (same requirements as `just ci`).
 - `tanren-cli` and `tanren-mcp` are installed and PATH-callable.
 - Python runtime is available through `uv` (for proof helper scripts).
+- `jq` is installed and PATH-callable.
 
 Recommended bootstrap from repo root:
 
@@ -78,7 +79,9 @@ Behavior contract:
 
 - Resumes from store truth via `tanren-cli methodology spec status`.
 - Autonomous loop runs Phase 0 task/spec gates and agentic phases through
-  Codex harness invocation.
+  Codex harness invocation (`codex exec`) only.
+- Harness override mode is intentionally disabled in acceptance flow
+  (`--harness-cmd` and `TANREN_PHASE0_HARNESS_CMD` are rejected).
 - Breaks out only at required human checkpoints:
   - missing spec -> prompt `shape-spec`
   - blocker halt -> prompt `resolve-blockers`

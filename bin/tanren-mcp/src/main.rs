@@ -15,6 +15,7 @@
 //!   is reserved for MCP framing).
 #![deny(clippy::disallowed_types, clippy::disallowed_methods)]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -102,6 +103,7 @@ async fn run() -> Result<()> {
         standards,
         runtime.pillars,
         runtime.issue_provider,
+        runtime.runtime_tuning,
     )
     .await
     .context("building methodology service")?;
@@ -207,6 +209,7 @@ struct MethodologyRuntimeSettings {
     standards_root: PathBuf,
     pillars: Vec<tanren_app_services::methodology::Pillar>,
     issue_provider: String,
+    runtime_tuning: tanren_app_services::methodology::MethodologyRuntimeTuning,
 }
 
 fn load_methodology_runtime_settings(config_path: &Path) -> Result<MethodologyRuntimeSettings> {
@@ -221,6 +224,7 @@ fn load_methodology_runtime_settings(config_path: &Path) -> Result<MethodologyRu
             standards_root: default_root,
             pillars: tanren_app_services::methodology::builtin_pillars(),
             issue_provider: "GitHub".to_owned(),
+            runtime_tuning: tanren_app_services::methodology::MethodologyRuntimeTuning::default(),
         });
     }
     let raw = std::fs::read_to_string(config_path)
@@ -239,6 +243,27 @@ fn load_methodology_runtime_settings(config_path: &Path) -> Result<MethodologyRu
     )
     .map_err(anyhow::Error::msg)
     .with_context(|| format!("resolving rubric pillars from {}", config_path.display()))?;
+    let mut runtime_tuning = tanren_app_services::methodology::MethodologyRuntimeTuning::default();
+    if let Some(fsync_every) =
+        parse_u32_variable(&cfg.methodology.variables, "phase_events_fsync_every")
+        && let Some(policy) =
+            tanren_app_services::methodology::PhaseEventsAppendPolicy::from_fsync_every(fsync_every)
+    {
+        runtime_tuning.phase_events_append_policy = policy;
+    }
+    if let Some(min_lines) = parse_usize_variable(
+        &cfg.methodology.variables,
+        "phase_events_compaction_min_lines",
+    ) {
+        runtime_tuning.phase_events_compaction_min_lines = min_lines.max(1);
+    }
+    if let Some(threshold) = parse_usize_variable(
+        &cfg.methodology.variables,
+        "projection_checkpoint_compaction_append_threshold",
+    ) {
+        runtime_tuning.projection_checkpoint_compaction_append_threshold = threshold.max(1);
+    }
+
     Ok(MethodologyRuntimeSettings {
         required_guards: cfg.methodology.task_complete_requires,
         standards_root: resolve_relative_to_config(config_path, Path::new(standards_raw)),
@@ -250,7 +275,20 @@ fn load_methodology_runtime_settings(config_path: &Path) -> Result<MethodologyRu
             .or_else(|| cfg.methodology.variables.get("ISSUE_PROVIDER"))
             .cloned()
             .unwrap_or_else(|| "GitHub".to_owned()),
+        runtime_tuning,
     })
+}
+
+fn parse_u32_variable(vars: &BTreeMap<String, String>, key: &str) -> Option<u32> {
+    vars.get(key)
+        .or_else(|| vars.get(&key.to_ascii_uppercase()))
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+}
+
+fn parse_usize_variable(vars: &BTreeMap<String, String>, key: &str) -> Option<usize> {
+    vars.get(key)
+        .or_else(|| vars.get(&key.to_ascii_uppercase()))
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
 }
 
 fn resolve_relative_to_config(config_path: &Path, path: &Path) -> PathBuf {

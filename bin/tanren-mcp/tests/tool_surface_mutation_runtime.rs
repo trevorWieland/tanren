@@ -247,7 +247,8 @@ fn mutation_without_runtime_env_returns_env_scoped_validation_error() {
     assert_eq!(body["field_path"].as_str(), Some("/env"));
     assert!(
         body["expected"].as_str().is_some_and(|value| {
-            value.contains("TANREN_SPEC_ID") && value.contains("TANREN_SPEC_FOLDER")
+            value.contains("TANREN_SPEC_FOLDER")
+                && value.contains("spec_id is derived from signed capability-envelope claims")
         }),
         "expected runtime env guidance in validation payload"
     );

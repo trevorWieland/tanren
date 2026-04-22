@@ -295,9 +295,9 @@ the investigate session.
 ## 7. Artifact edit enforcement
 
 Orchestrator-owned files (`spec.md`, `plan.md`, `tasks.md`,
-`tasks.json`, `demo.md`, `progress.json`,
-`.tanren-generated-artifacts.json`, `phase-events.jsonl`) cannot be
-edited by agents.
+`tasks.json`, `demo.md`, `audit.md`, `signposts.md`, `progress.json`,
+`.tanren-generated-artifacts.json`, `.tanren-projection-checkpoint.json`,
+`phase-events.jsonl`) cannot be edited by agents.
 `phase-events.jsonl` is append-only via typed tools, and appended lines
 must exactly match projected outbox rows for the active session.
 Three-layer
@@ -313,17 +313,17 @@ enforcement:
    > accepted when they match service-projected outbox events.
 2. **Filesystem `chmod 0444`** — set on agent session start for
    read-only artifacts (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
-   `demo.md`, `progress.json`, generated indexes, generated-artifacts
-   manifest); append-only artifacts keep write mode so orchestrator
+   `demo.md`, `audit.md`, `signposts.md`, `progress.json`,
+   `.tanren-generated-artifacts.json`, `.tanren-projection-checkpoint.json`,
+   generated indexes); append-only artifacts keep write mode so orchestrator
    outbox projection can append.
 3. **Postflight diff + auto-revert** — diff each file against its
    pre-phase snapshot; mismatches are reverted and emit
    `UnauthorizedArtifactEdit { file, diff_preview, phase, agent_session }`.
 
-Agent-authored narrative files (`audit.md`, `signposts.md`,
-`investigation-report.json`) have writable bodies. Generated
-orchestrator-owned artifacts are fully projected and overwritten
-deterministically from events.
+`investigation-report.json` is tool-authored and session-writable.
+Generated orchestrator-owned artifacts are fully projected and
+overwritten deterministically from events.
 
 ---
 

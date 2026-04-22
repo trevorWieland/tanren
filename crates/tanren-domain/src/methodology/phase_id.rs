@@ -97,6 +97,30 @@ pub enum KnownPhase {
 }
 
 impl KnownPhase {
+    /// Ordered list of all built-in phases.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::ShapeSpec,
+            Self::DoTask,
+            Self::AuditTask,
+            Self::AdhereTask,
+            Self::RunDemo,
+            Self::AuditSpec,
+            Self::AdhereSpec,
+            Self::WalkSpec,
+            Self::HandleFeedback,
+            Self::Investigate,
+            Self::ResolveBlockers,
+            Self::TriageAudits,
+            Self::SyncRoadmap,
+            Self::DiscoverStandards,
+            Self::IndexStandards,
+            Self::InjectStandards,
+            Self::PlanProduct,
+        ]
+    }
+
     /// Stable kebab-case tag.
     #[must_use]
     pub const fn tag(self) -> &'static str {
@@ -165,30 +189,12 @@ mod tests {
 
     #[test]
     fn known_phase_roundtrip() {
-        for k in [
-            KnownPhase::ShapeSpec,
-            KnownPhase::DoTask,
-            KnownPhase::AuditTask,
-            KnownPhase::AdhereTask,
-            KnownPhase::RunDemo,
-            KnownPhase::AuditSpec,
-            KnownPhase::AdhereSpec,
-            KnownPhase::WalkSpec,
-            KnownPhase::HandleFeedback,
-            KnownPhase::Investigate,
-            KnownPhase::ResolveBlockers,
-            KnownPhase::TriageAudits,
-            KnownPhase::SyncRoadmap,
-            KnownPhase::DiscoverStandards,
-            KnownPhase::IndexStandards,
-            KnownPhase::InjectStandards,
-            KnownPhase::PlanProduct,
-        ] {
+        for k in KnownPhase::all() {
             let phase = PhaseId::try_new(k.tag()).expect("valid");
-            assert_eq!(phase.known(), Some(k));
+            assert_eq!(phase.known(), Some(*k));
             let json = serde_json::to_string(&phase).expect("serialize");
             let back: PhaseId = serde_json::from_str(&json).expect("deserialize");
-            assert_eq!(back.known(), Some(k));
+            assert_eq!(back.known(), Some(*k));
         }
     }
 }

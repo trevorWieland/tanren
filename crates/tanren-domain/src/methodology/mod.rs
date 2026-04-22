@@ -44,7 +44,10 @@ pub use events::{
     UnauthorizedArtifactEdit, fold_task_status,
 };
 
-pub use capability::{CapabilityScope, ToolCapability, default_scope_for_phase};
+pub use capability::{
+    CapabilityScope, PhaseCapabilityBinding, ToolCapability, default_phase_capability_bindings,
+    default_scope_for_phase,
+};
 pub use event_tool::{
     PhaseEventOriginKind, allowed_tools_for_event, canonical_tool_for_event,
     is_tool_allowed_for_event,

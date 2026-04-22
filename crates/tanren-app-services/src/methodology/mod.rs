@@ -15,6 +15,7 @@
 //! Waves 8 and 9 extend this module with the remaining tool methods
 //! plus the renderer / installer / format drivers.
 
+pub mod artifact_contract;
 mod artifact_projection;
 mod artifact_projection_artifacts;
 mod artifact_projection_fold;
@@ -26,6 +27,7 @@ pub mod enforcement;
 pub mod errors;
 pub mod formats;
 pub mod installer;
+mod installer_binding;
 mod installer_diff;
 mod installer_walk;
 pub mod mutation_pipeline;
@@ -49,17 +51,26 @@ mod service_tasks;
 pub mod source;
 pub mod standards;
 
-pub use capabilities::{enforce, parse_scope_env};
+pub use artifact_contract::{
+    ARTIFACT_CONTRACT, ArtifactContractEntry, ArtifactProtection, GENERATED_ARTIFACT_MANIFEST_FILE,
+    PROJECTION_CHECKPOINT_FILE, append_only_protected_artifacts, generated_manifest_artifacts,
+    readonly_artifact_banner, readonly_protected_artifacts,
+};
+pub use capabilities::{enforce, parse_scope_env, parse_scope_env_for_phase};
 pub use enforcement::{EnforcementGuard, FileSnapshot, UnauthorizedEdit};
 pub use errors::{MethodologyError, MethodologyResult, ToolError};
 pub use mutation_pipeline::{enter_mutation_session, finalize_mutation_session};
 pub use phase_events::{
-    PhaseEventAttribution, PhaseEventLine, append_jsonl_encoded_line,
-    append_jsonl_encoded_line_if_missing_event_id, append_jsonl_line_atomic,
-    jsonl_contains_event_id, line_for_envelope, line_for_envelope_with_attribution,
-    project_phase_events, render_jsonl,
+    PhaseEventAttribution, PhaseEventLine, PhaseEventsAppendPolicy, PhaseEventsCompactionReport,
+    append_jsonl_encoded_line, append_jsonl_encoded_line_if_missing_event_id,
+    append_jsonl_encoded_line_if_missing_event_id_with_policy, append_jsonl_line_atomic,
+    compact_jsonl_event_log, jsonl_contains_event_id, line_for_envelope,
+    line_for_envelope_with_attribution, project_phase_events, render_jsonl,
 };
-pub use service::{MethodologyService, ProjectionReconcileReport};
+pub use service::{
+    MethodologyRuntimeTuning, MethodologyService, PhaseEventsMaintenanceReport,
+    ProjectionReconcileReport,
+};
 
 // Re-export the domain-layer capability types so transport crates
 // (tanren-cli, tanren-mcp) can depend only on tanren-app-services +
@@ -67,7 +78,8 @@ pub use service::{MethodologyService, ProjectionReconcileReport};
 // rule 2).
 pub use tanren_domain::SpecId;
 pub use tanren_domain::methodology::capability::{
-    CapabilityScope, ToolCapability, default_scope_for_phase,
+    CapabilityScope, PhaseCapabilityBinding, ToolCapability, default_phase_capability_bindings,
+    default_scope_for_phase,
 };
 pub use tanren_domain::methodology::phase_id::{KnownPhase, PhaseId};
 pub use tanren_domain::methodology::pillar::{Pillar, builtin_pillars};

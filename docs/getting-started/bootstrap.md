@@ -20,5 +20,5 @@ scripts/runtime/verify-installed-runtime.sh
 tanren-cli install
 ```
 
-Do not treat the old `scripts/install.sh --profile python-uv` path on this page
-as an acceptance path for the rewrite lane.
+Legacy `scripts/install.sh` now fails fast by design and is not an
+acceptance path for the rewrite lane.

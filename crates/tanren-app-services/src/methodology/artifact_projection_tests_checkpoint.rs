@@ -84,6 +84,14 @@ fn raw_json_lines(lines: &[PhaseEventLine]) -> Vec<String> {
         .collect()
 }
 
+fn processed_bytes_for(lines: &[String], processed_lines: usize) -> u64 {
+    lines
+        .iter()
+        .take(processed_lines)
+        .map(|line| u64::try_from(line.len() + 1).expect("line bytes"))
+        .sum()
+}
+
 #[test]
 fn render_from_lines_projects_audit_and_signposts_markdown() {
     let sid = spec_id();
@@ -214,8 +222,10 @@ fn checkpoint_incremental_append_matches_full_replay() {
         contract_version: ARTIFACT_CONTRACT_VERSION.to_owned(),
         spec_id: sid,
         processed_lines: 2,
+        processed_bytes: processed_bytes_for(&raw_lines_owned, 2),
         last_event_id: Some(lines[1].event_id),
         compacted_at: lines[1].timestamp,
+        compacted_line_count: 2,
         state: checkpoint_state,
     };
 
@@ -247,8 +257,10 @@ fn checkpoint_anchor_mismatch_falls_back_to_full_replay() {
         contract_version: ARTIFACT_CONTRACT_VERSION.to_owned(),
         spec_id: sid,
         processed_lines: 2,
+        processed_bytes: processed_bytes_for(&raw_lines_owned, 2),
         last_event_id: Some(EventId::new()),
         compacted_at: lines[1].timestamp,
+        compacted_line_count: 2,
         state: checkpoint_state,
     };
 
@@ -291,7 +303,7 @@ fn checkpoint_compacts_after_large_append_window() {
     let t1 = ts(2026, 4, 21, 14, 1, 0);
     let mut lines = sample_setup_lines(sid, t0, t1);
 
-    for idx in 0..=CHECKPOINT_COMPACTION_APPEND_THRESHOLD {
+    for idx in 0..=DEFAULT_CHECKPOINT_COMPACTION_APPEND_THRESHOLD {
         let offset = i64::try_from(idx).expect("append index should fit i64");
         let event_ts = t1 + Duration::seconds(offset + 1);
         lines.push(mk_line(
@@ -318,8 +330,10 @@ fn checkpoint_compacts_after_large_append_window() {
         contract_version: ARTIFACT_CONTRACT_VERSION.to_owned(),
         spec_id: sid,
         processed_lines: 2,
+        processed_bytes: processed_bytes_for(&raw_lines_owned, 2),
         last_event_id: Some(lines[1].event_id),
         compacted_at: t1,
+        compacted_line_count: 2,
         state: checkpoint_state,
     };
 

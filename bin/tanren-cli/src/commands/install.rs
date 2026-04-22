@@ -19,11 +19,11 @@ use std::path::PathBuf;
 
 use clap::Args;
 use serde::Serialize;
-use tanren_app_services::methodology::RequiredGuard;
 use tanren_app_services::methodology::config::{EnvironmentProfile, InstallFormat, TanrenConfig};
 use tanren_app_services::methodology::installer::{
     DriftEntry, DriftReason, InstallPlan, apply_install, drift, plan_install_from_root,
 };
+use tanren_app_services::methodology::{RequiredGuard, readonly_artifact_banner};
 
 use super::install_mcp::{mcp_server_env, synth_mcp_write};
 
@@ -369,16 +369,7 @@ fn build_context(
     ctx.entry("PR_NOUN".into())
         .or_insert_with(|| pr_noun.into());
     ctx.entry("READONLY_ARTIFACT_BANNER".into())
-        .or_insert_with(|| {
-            "⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT: \
-             spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md, signposts.md, \
-             progress.json, and .tanren-projection-checkpoint.json \
-             are generated from the typed event stream. phase-events.jsonl \
-             is append-only via typed tools. \
-             Postflight reverts unauthorized edits and emits an \
-             UnauthorizedArtifactEdit event."
-                .into()
-        });
+        .or_insert_with(readonly_artifact_banner);
     ctx
 }
 

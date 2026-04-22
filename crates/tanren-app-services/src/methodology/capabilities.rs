@@ -62,6 +62,18 @@ pub fn enforce(
 /// # Errors
 /// Returns [`MethodologyError::FieldValidation`] for unknown tags.
 pub fn parse_scope_env(value: &str) -> Result<CapabilityScope, MethodologyError> {
+    parse_scope_env_for_phase(value, None)
+}
+
+/// Parse a `TANREN_PHASE_CAPABILITIES` env value into a [`CapabilityScope`]
+/// with optional active-phase context for diagnostics.
+///
+/// # Errors
+/// Returns [`MethodologyError::FieldValidation`] for unknown tags.
+pub fn parse_scope_env_for_phase(
+    value: &str,
+    phase: Option<&PhaseId>,
+) -> Result<CapabilityScope, MethodologyError> {
     let wanted: std::collections::HashSet<&str> = value
         .split(',')
         .map(str::trim)
@@ -77,13 +89,27 @@ pub fn parse_scope_env(value: &str) -> Result<CapabilityScope, MethodologyError>
     }
     if !unknown.is_empty() {
         unknown.sort_unstable();
+        let granted_tags = granted
+            .iter()
+            .map(|cap| cap.tag())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let phase_context = phase.map_or_else(
+            || "phase=<unknown>".to_owned(),
+            |phase| format!("phase={}", phase.as_str()),
+        );
         return Err(MethodologyError::FieldValidation {
             field_path: "/TANREN_PHASE_CAPABILITIES".into(),
             expected: "comma-separated known capability tags".into(),
-            actual: unknown.join(", "),
-            remediation:
-                "remove unknown tags or upgrade the orchestrator/capability schema in lock-step"
-                    .into(),
+            actual: format!(
+                "unknown_tags=[{}]; effective_granted=[{}]; {}",
+                unknown.join(", "),
+                granted_tags,
+                phase_context
+            ),
+            remediation: format!(
+                "remove unknown tags or upgrade orchestrator and capability schema in lock-step; active {phase_context}"
+            ),
         });
     }
     Ok(CapabilityScope::from_iter_caps(granted))
@@ -133,5 +159,15 @@ mod tests {
             MethodologyError::FieldValidation { field_path, .. }
                 if field_path == "/TANREN_PHASE_CAPABILITIES"
         ));
+    }
+
+    #[test]
+    fn parse_scope_env_unknown_tag_includes_phase_and_granted_context() {
+        let phase = PhaseId::try_new("do-task").expect("phase");
+        let err = parse_scope_env_for_phase("task.read,unknown.tag", Some(&phase))
+            .expect_err("must fail");
+        let message = err.to_string();
+        assert!(message.contains("phase=do-task"));
+        assert!(message.contains("effective_granted=[task.read]"));
     }
 }
