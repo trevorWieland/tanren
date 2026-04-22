@@ -145,6 +145,72 @@ fn report_phase_outcome(url: &str, spec: &str, spec_folder: &str, phase: &str, o
     );
 }
 
+fn assert_task_step_progression(url: &str, spec: &str, spec_folder: &str, task_id: &str) {
+    let active = spec_status(url, spec);
+    assert_eq!(active["next_action"].as_str(), Some("run_loop"));
+    assert_eq!(active["next_task_id"].as_str(), Some(task_id));
+    assert_eq!(active["next_step"].as_str(), Some("task_do_task"));
+
+    run_task_mutation(
+        url,
+        spec,
+        spec_folder,
+        "do-task",
+        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\"}}"),
+        "start",
+    );
+    run_task_mutation(
+        url,
+        spec,
+        spec_folder,
+        "do-task",
+        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"evidence_refs\":[]}}"),
+        "complete",
+    );
+
+    let implemented = spec_status(url, spec);
+    assert_eq!(implemented["next_step"].as_str(), Some("task_gate"));
+    assert_eq!(
+        implemented["pending_required_guards"]
+            .as_array()
+            .expect("guards")
+            .iter()
+            .map(|v| v.as_str().expect("str"))
+            .collect::<Vec<_>>(),
+        vec!["gate_checked", "audited", "adherent"]
+    );
+
+    run_task_mutation(
+        url,
+        spec,
+        spec_folder,
+        "do-task",
+        &format!(
+            "{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"guard\":\"gate_checked\"}}"
+        ),
+        "guard",
+    );
+    assert_eq!(
+        spec_status(url, spec)["next_step"].as_str(),
+        Some("task_audit")
+    );
+
+    run_task_mutation(
+        url,
+        spec,
+        spec_folder,
+        "audit-task",
+        &format!(
+            "{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"guard\":\"audited\"}}"
+        ),
+        "guard",
+    );
+    assert_eq!(
+        spec_status(url, spec)["next_step"].as_str(),
+        Some("task_adhere")
+    );
+}
+
 #[test]
 fn spec_status_routes_shape_blocker_walk_and_complete_states() {
     let (d, url) = mkdb();
@@ -154,48 +220,11 @@ fn spec_status_routes_shape_blocker_walk_and_complete_states() {
     let missing = spec_status(&url, spec);
     assert_eq!(missing["spec_exists"].as_bool(), Some(false));
     assert_eq!(missing["next_action"].as_str(), Some("shape_spec_required"));
+    assert!(missing.get("next_step").is_none());
 
     let task_id = create_user_task(&url, spec, &spec_folder);
-    let active = spec_status(&url, spec);
-    assert_eq!(active["next_action"].as_str(), Some("run_loop"));
-    assert_eq!(active["next_task_id"].as_str(), Some(task_id.as_str()));
+    assert_task_step_progression(&url, spec, &spec_folder, &task_id);
 
-    run_task_mutation(
-        &url,
-        spec,
-        &spec_folder,
-        "do-task",
-        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\"}}"),
-        "start",
-    );
-    run_task_mutation(
-        &url,
-        spec,
-        &spec_folder,
-        "do-task",
-        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"evidence_refs\":[]}}"),
-        "complete",
-    );
-    run_task_mutation(
-        &url,
-        spec,
-        &spec_folder,
-        "do-task",
-        &format!(
-            "{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"guard\":\"gate_checked\"}}"
-        ),
-        "guard",
-    );
-    run_task_mutation(
-        &url,
-        spec,
-        &spec_folder,
-        "audit-task",
-        &format!(
-            "{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"guard\":\"audited\"}}"
-        ),
-        "guard",
-    );
     run_task_mutation(
         &url,
         spec,

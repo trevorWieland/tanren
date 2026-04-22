@@ -29,6 +29,17 @@ pub enum SpecStatusNextAction {
     Complete,
 }
 
+/// Canonical orchestration step hint when `next_action = run_loop`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SpecStatusNextStep {
+    TaskDoTask,
+    TaskGate,
+    TaskAudit,
+    TaskAdhere,
+    SpecPipeline,
+}
+
 /// `spec_status` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -41,6 +52,12 @@ pub struct SpecStatusResponse {
     pub next_action: SpecStatusNextAction,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_task_id: Option<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_step: Option<SpecStatusNextStep>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_required_guards: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_step_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_blocker_phase: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

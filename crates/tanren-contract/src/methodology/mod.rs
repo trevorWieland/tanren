@@ -112,7 +112,7 @@ pub use spec::{
     SetSpecDependenciesParams, SetSpecExpectationsParams, SetSpecImplementationPlanParams,
     SetSpecMotivationsParams, SetSpecNonNegotiablesParams, SetSpecPlannedBehaviorsParams,
     SetSpecProblemStatementParams, SetSpecRelevanceContextParams, SetSpecTitleParams,
-    SpecStatusNextAction, SpecStatusParams, SpecStatusResponse,
+    SpecStatusNextAction, SpecStatusNextStep, SpecStatusParams, SpecStatusResponse,
 };
 pub use standard::{ListRelevantStandardsParams, ListRelevantStandardsResponse, RelevantStandard};
 pub use task::{

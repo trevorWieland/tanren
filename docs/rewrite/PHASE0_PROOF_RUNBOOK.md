@@ -89,6 +89,10 @@ Behavior contract:
 - Uses hook commands resolved from `tanren.yml` (task/spec/per-phase hooks)
   and records resolved config in run artifacts under:
   `<spec-folder>/orchestration/phase0/<timestamp>/`.
+- Supports output modes via `--output-mode` (or `TANREN_PHASE0_OUTPUT_MODE`):
+  - `silent` (default): single-line high-level progress (`task N/M - <verb>`).
+  - `quiet`: task definition + deliverable summary + high-level action/result.
+  - `verbose`: full command/harness logging.
 
 Recommended operator flow:
 

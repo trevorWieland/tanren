@@ -3,33 +3,51 @@
 #
 # Flow policy:
 # - interactive checkpoints: shape-spec, resolve-blockers, walk-spec
-# - autonomous loop: do-task -> task gates -> spec gates/checks
+# - autonomous loop is state-machine-driven one step per cycle
 # - resume source of truth: tanren-cli methodology spec status
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
 usage() {
-    cat <<'EOF'
+    cat <<'USAGE_EOF'
 Usage: scripts/orchestration/phase0.sh --spec-id <uuid> [options]
 
 Options:
-  --spec-id <uuid>          Required spec id.
-  --spec-folder <path>      Spec folder path (default: <spec_root>/<spec-id> from tanren.yml).
-  --database-url <url>      Tanren DB URL (default: sqlite:tanren.db).
-  --config <path>           tanren.yml path (default: tanren.yml).
-  --harness-model <model>   Optional harness model override.
-  --max-cycles <n>          Max autonomous cycles before fail (default: 64).
-  --dry-run                 Print intended actions without executing harness/hooks.
-  -h, --help                Show help.
-EOF
+  --spec-id <uuid>                  Required spec id.
+  --spec-folder <path>              Spec folder path (default: <spec_root>/<spec-id> from tanren.yml).
+  --database-url <url>              Tanren DB URL (default: sqlite:tanren.db; normalized to ?mode=rwc).
+  --config <path>                   tanren.yml path (default: tanren.yml).
+  --harness-model <model>           Optional harness model override.
+  --output-mode <mode>              Output verbosity: silent|quiet|verbose (default: silent).
+  --max-cycles <n>                  Max autonomous cycles before fail (default: 64).
+  --dry-run                         Simulate actions without mutating state.
+  -h, --help                        Show help.
+USAGE_EOF
 }
 
-log() {
+finish_silent_line() {
+    if [[ "${OUTPUT_MODE:-silent}" == "silent" && "${SILENT_LINE_ACTIVE:-0}" == "1" ]]; then
+        printf '\n'
+        SILENT_LINE_ACTIVE=0
+    fi
+}
+
+print_line() {
+    finish_silent_line
     printf '[phase0] %s\n' "$*"
 }
 
 die() {
-    printf '[phase0] ERROR: %s\n' "$*" >&2
+    print_line "ERROR: $*" >&2
+    if [[ -n "${LAST_COMMAND_LOG:-}" ]]; then
+        print_line "last command log: ${LAST_COMMAND_LOG}" >&2
+    fi
+    if [[ -n "${RUN_DIR:-}" ]]; then
+        print_line "run artifacts: ${RUN_DIR}" >&2
+    fi
     exit 1
 }
 
@@ -56,13 +74,15 @@ yaml_methodology_var() {
     local key="$2"
     awk -v key="$key" '
         /^methodology:[[:space:]]*$/ { in_methodology=1; next }
-        in_methodology && $0 !~ /^  / { in_methodology=0; in_variables=0 }
+        in_methodology && $0 !~ /^  / && $0 !~ /^[[:space:]]*$/ { in_methodology=0; in_variables=0 }
         in_methodology && /^  variables:[[:space:]]*$/ { in_variables=1; next }
-        in_variables && $0 !~ /^    / { in_variables=0 }
+        in_variables && $0 !~ /^    / && $0 !~ /^[[:space:]]*$/ { in_variables=0 }
         in_variables {
-            pattern = "^[[:space:]]{4}" key ":[[:space:]]*(.*)$"
-            if (match($0, pattern, m)) {
-                print m[1]
+            pattern = "^    " key ":[[:space:]]*"
+            if ($0 ~ pattern) {
+                value = $0
+                sub(pattern, "", value)
+                print value
                 exit
             }
         }
@@ -74,15 +94,17 @@ yaml_default_hook() {
     local phase_key="$2"
     awk -v phase_key="$phase_key" '
         /^environment:[[:space:]]*$/ { in_environment=1; next }
-        in_environment && $0 !~ /^  / { in_environment=0; in_default=0; in_hooks=0 }
+        in_environment && $0 !~ /^  / && $0 !~ /^[[:space:]]*$/ { in_environment=0; in_default=0; in_hooks=0 }
         in_environment && /^  default:[[:space:]]*$/ { in_default=1; next }
-        in_default && $0 !~ /^    / { in_default=0; in_hooks=0 }
+        in_default && $0 !~ /^    / && $0 !~ /^[[:space:]]*$/ { in_default=0; in_hooks=0 }
         in_default && /^    verification_hooks:[[:space:]]*$/ { in_hooks=1; next }
-        in_hooks && $0 !~ /^      / { in_hooks=0 }
+        in_hooks && $0 !~ /^      / && $0 !~ /^[[:space:]]*$/ { in_hooks=0 }
         in_hooks {
-            pattern = "^[[:space:]]{6}" phase_key ":[[:space:]]*(.*)$"
-            if (match($0, pattern, m)) {
-                print m[1]
+            pattern = "^      " phase_key ":[[:space:]]*"
+            if ($0 ~ pattern) {
+                value = $0
+                sub(pattern, "", value)
+                print value
                 exit
             }
         }
@@ -94,19 +116,30 @@ yaml_mcp_security() {
     local key="$2"
     awk -v key="$key" '
         /^methodology:[[:space:]]*$/ { in_methodology=1; next }
-        in_methodology && $0 !~ /^  / { in_methodology=0; in_mcp=0; in_security=0 }
+        in_methodology && $0 !~ /^  / && $0 !~ /^[[:space:]]*$/ { in_methodology=0; in_mcp=0; in_security=0 }
         in_methodology && /^  mcp:[[:space:]]*$/ { in_mcp=1; next }
-        in_mcp && $0 !~ /^    / { in_mcp=0; in_security=0 }
+        in_mcp && $0 !~ /^    / && $0 !~ /^[[:space:]]*$/ { in_mcp=0; in_security=0 }
         in_mcp && /^    security:[[:space:]]*$/ { in_security=1; next }
-        in_security && $0 !~ /^      / { in_security=0 }
+        in_security && $0 !~ /^      / && $0 !~ /^[[:space:]]*$/ { in_security=0 }
         in_security {
-            pattern = "^[[:space:]]{6}" key ":[[:space:]]*(.*)$"
-            if (match($0, pattern, m)) {
-                print m[1]
+            pattern = "^      " key ":[[:space:]]*"
+            if ($0 ~ pattern) {
+                value = $0
+                sub(pattern, "", value)
+                print value
                 exit
             }
         }
     ' "$config_path"
+}
+
+normalize_database_url() {
+    local url="$1"
+    if [[ "$url" == sqlite:* && "$url" != *"?"* && "$url" != sqlite::memory:* ]]; then
+        printf '%s?mode=rwc' "$url"
+        return
+    fi
+    printf '%s' "$url"
 }
 
 resolve_hook() {
@@ -134,15 +167,97 @@ resolve_hook() {
     printf '%s' "$fallback"
 }
 
+print_progress() {
+    local message="$1"
+    case "$OUTPUT_MODE" in
+        silent)
+            if [[ -t 1 ]]; then
+                printf '\r[phase0] %s' "$message"
+                SILENT_LINE_ACTIVE=1
+            else
+                print_line "$message"
+            fi
+            ;;
+        quiet)
+            print_line "$message"
+            ;;
+        verbose)
+            print_line "$message"
+            ;;
+        *)
+            die "unsupported output mode: ${OUTPUT_MODE}"
+            ;;
+    esac
+}
+
+log_quiet() {
+    if [[ "$OUTPUT_MODE" == "quiet" || "$OUTPUT_MODE" == "verbose" ]]; then
+        print_line "$*"
+    fi
+}
+
+log_verbose() {
+    if [[ "$OUTPUT_MODE" == "verbose" ]]; then
+        print_line "$*"
+    fi
+}
+
+sanitize_label() {
+    printf '%s' "$1" | tr -cs '[:alnum:]_.-' '_'
+}
+
 run_shell_command() {
     local label="$1"
     local command="$2"
+
     if [[ "$DRY_RUN" == "1" ]]; then
-        log "[dry-run] ${label}: ${command}"
+        case "$OUTPUT_MODE" in
+            verbose)
+                print_line "[dry-run] ${label}: ${command}"
+                ;;
+            quiet)
+                print_line "[dry-run] ${label}"
+                ;;
+            silent)
+                ;;
+        esac
         return 0
     fi
-    log "${label}: ${command}"
-    bash -lc "$command"
+
+    COMMAND_INDEX=$((COMMAND_INDEX + 1))
+    local safe_label
+    safe_label="$(sanitize_label "$label")"
+    local log_file="${RUN_DIR}/commands/$(printf '%03d' "$COMMAND_INDEX")-${safe_label}.log"
+    mkdir -p "$(dirname "$log_file")"
+    LAST_COMMAND_LOG="$log_file"
+
+    local status=0
+    if [[ "$OUTPUT_MODE" == "verbose" ]]; then
+        print_line "${label}: ${command}"
+        set +e
+        bash -lc "$command" 2>&1 | tee "$log_file"
+        status=${PIPESTATUS[0]}
+        set -e
+    else
+        set +e
+        bash -lc "$command" >"$log_file" 2>&1
+        status=$?
+        set -e
+    fi
+
+    if [[ $status -ne 0 ]]; then
+        if [[ "$OUTPUT_MODE" != "verbose" ]]; then
+            print_line "command failed: ${label} (exit ${status})"
+            while IFS= read -r line; do
+                print_line "  ${line}"
+            done < <(tail -n 20 "$log_file")
+        fi
+        die "${label} failed (exit ${status}); see ${log_file}"
+    fi
+
+    if [[ "$OUTPUT_MODE" == "quiet" ]]; then
+        print_line "${label}: ok"
+    fi
 }
 
 run_hook() {
@@ -159,6 +274,16 @@ spec_status_json() {
         --methodology-config "$CONFIG_PATH" \
         --phase "$STATUS_PHASE" \
         spec status \
+        --json "$payload"
+}
+
+list_tasks_json() {
+    local payload
+    payload="$(printf '{"schema_version":"1.0.0","spec_id":"%s"}' "$SPEC_ID")"
+    tanren-cli --database-url "$DATABASE_URL" methodology \
+        --methodology-config "$CONFIG_PATH" \
+        --phase "$STATUS_PHASE" \
+        task list \
         --json "$payload"
 }
 
@@ -204,7 +329,7 @@ run_harness_phase() {
         task_line="Target task_id: ${task_id}"
     fi
 
-    cat >"$prompt_file" <<EOF
+    cat >"$prompt_file" <<EOF2
 Run Tanren phase \`${phase}\` for spec \`${SPEC_ID}\`.
 Spec folder: \`${SPEC_FOLDER}\`
 Database URL: \`${DATABASE_URL}\`
@@ -217,10 +342,14 @@ Requirements:
 - Complete this phase fully and emit \`report_phase_outcome\`.
 - If blocked, emit a typed blocked outcome (or investigate escalation path).
 - Never hand-edit orchestrator-owned artifacts.
-EOF
+EOF2
 
     if [[ "$DRY_RUN" == "1" ]]; then
-        log "[dry-run] harness phase ${phase} (prompt: ${prompt_file})"
+        if [[ "$OUTPUT_MODE" == "verbose" ]]; then
+            print_line "[dry-run] harness phase ${phase} (prompt: ${prompt_file})"
+        elif [[ "$OUTPUT_MODE" == "quiet" ]]; then
+            print_line "[dry-run] harness phase ${phase}"
+        fi
         return 0
     fi
 
@@ -245,10 +374,106 @@ EOF
     run_shell_command "harness:${phase}" "$cmd"
 }
 
+mark_task_guard() {
+    local task_id="$1"
+    local guard="$2"
+    local payload
+    payload="$(printf '{"schema_version":"1.0.0","task_id":"%s","guard":"%s"}' "$task_id" "$guard")"
+    local cmd
+    cmd="tanren-cli --database-url $(printf '%q' "$DATABASE_URL") methodology"
+    cmd+=" --methodology-config $(printf '%q' "$CONFIG_PATH")"
+    cmd+=" --phase do-task"
+    cmd+=" --spec-id $(printf '%q' "$SPEC_ID")"
+    cmd+=" --spec-folder $(printf '%q' "$SPEC_FOLDER")"
+    cmd+=" task guard --json $(printf '%q' "$payload")"
+    run_shell_command "task_guard_${guard}" "$cmd"
+}
+
 prompt_checkpoint() {
     local headline="$1"
     local detail="$2"
+    finish_silent_line
     printf '\n[phase0] %s\n%s\n\n' "$headline" "$detail"
+}
+
+phase_step_verb() {
+    case "$1" in
+        task_do_task) printf 'implementing' ;;
+        task_gate) printf 'gate-checking' ;;
+        task_audit) printf 'auditing' ;;
+        task_adhere) printf 'adhering' ;;
+        spec_pipeline) printf 'spec-validating' ;;
+        *) printf 'working' ;;
+    esac
+}
+
+derive_next_step_fallback() {
+    local status_json="$1"
+    local tasks_json="$2"
+    local next_task_id="$3"
+
+    local from_status
+    from_status="$(jq -r '.next_step // empty' <<<"$status_json")"
+    if [[ -n "$from_status" ]]; then
+        printf '%s' "$from_status"
+        return
+    fi
+
+    if [[ -z "$next_task_id" ]]; then
+        printf 'spec_pipeline'
+        return
+    fi
+
+    local state
+    state="$(jq -r --arg tid "$next_task_id" '.tasks[] | select(.id == $tid) | .status.state' <<<"$tasks_json")"
+    case "$state" in
+        pending|in_progress)
+            printf 'task_do_task'
+            ;;
+        implemented)
+            local gate_checked audited adherent
+            gate_checked="$(jq -r --arg tid "$next_task_id" '.tasks[] | select(.id == $tid) | .status.guards.gate_checked // false' <<<"$tasks_json")"
+            audited="$(jq -r --arg tid "$next_task_id" '.tasks[] | select(.id == $tid) | .status.guards.audited // false' <<<"$tasks_json")"
+            adherent="$(jq -r --arg tid "$next_task_id" '.tasks[] | select(.id == $tid) | .status.guards.adherent // false' <<<"$tasks_json")"
+            if [[ "$gate_checked" != "true" ]]; then
+                printf 'task_gate'
+            elif [[ "$audited" != "true" ]]; then
+                printf 'task_audit'
+            elif [[ "$adherent" != "true" ]]; then
+                printf 'task_adhere'
+            else
+                printf 'spec_pipeline'
+            fi
+            ;;
+        *)
+            printf 'spec_pipeline'
+            ;;
+    esac
+}
+
+quiet_task_summary() {
+    local cycle="$1"
+    local task_idx="$2"
+    local total="$3"
+    local step="$4"
+    local task_id="$5"
+    local task_title="$6"
+    local task_description="$7"
+    local deliverable="$8"
+    local reason="$9"
+
+    print_line "cycle ${cycle}: task ${task_idx}/${total} - ${step}"
+    print_line "  id: ${task_id}"
+    print_line "  title: ${task_title}"
+    if [[ -n "$task_description" ]]; then
+        print_line "  definition: ${task_description}"
+    fi
+    if [[ -n "$deliverable" ]]; then
+        print_line "  deliverable: ${deliverable}"
+    fi
+    if [[ -n "$reason" ]]; then
+        print_line "  routing: ${reason}"
+    fi
 }
 
 SPEC_ID=""
@@ -257,9 +482,14 @@ DATABASE_URL="sqlite:tanren.db"
 CONFIG_PATH="tanren.yml"
 HARNESS_CMD="codex exec"
 HARNESS_MODEL="${TANREN_PHASE0_HARNESS_MODEL:-}"
+OUTPUT_MODE="${TANREN_PHASE0_OUTPUT_MODE:-silent}"
 STATUS_PHASE="do-task"
 MAX_CYCLES=64
 DRY_RUN=0
+SILENT_LINE_ACTIVE=0
+COMMAND_INDEX=0
+LAST_COMMAND_LOG=""
+RUN_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -286,6 +516,10 @@ while [[ $# -gt 0 ]]; do
             HARNESS_MODEL="${2:-}"
             shift 2
             ;;
+        --output-mode)
+            OUTPUT_MODE="${2:-}"
+            shift 2
+            ;;
         --max-cycles)
             MAX_CYCLES="${2:-}"
             shift 2
@@ -309,6 +543,16 @@ done
     die "--spec-id is required"
 }
 [[ -f "$CONFIG_PATH" ]] || die "config not found: $CONFIG_PATH"
+DATABASE_URL="$(normalize_database_url "$DATABASE_URL")"
+
+case "$OUTPUT_MODE" in
+    silent|quiet|verbose)
+        ;;
+    *)
+        die "invalid --output-mode '${OUTPUT_MODE}' (expected silent|quiet|verbose)"
+        ;;
+esac
+
 if [[ -n "${TANREN_PHASE0_HARNESS_CMD:-}" ]]; then
     die "TANREN_PHASE0_HARNESS_CMD override is no longer supported in Phase 0 acceptance mode; remove it and use the hard-locked 'codex exec' harness"
 fi
@@ -318,6 +562,7 @@ need_cmd tanren-mcp
 need_cmd jq
 need_cmd uv
 need_cmd codex
+
 if [[ "$DRY_RUN" != "1" ]]; then
     run_shell_command "config-parse-check" "tanren-cli install --config $(printf '%q' "$CONFIG_PATH") --dry-run >/dev/null"
 fi
@@ -358,13 +603,14 @@ RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${SPEC_FOLDER}/orchestration/phase0/${RUN_STAMP}"
 mkdir -p "$RUN_DIR"
 
-cat >"${RUN_DIR}/resolved-config.env" <<EOF
+cat >"${RUN_DIR}/resolved-config.env" <<EOF3
 SPEC_ID=${SPEC_ID}
 SPEC_FOLDER=${SPEC_FOLDER}
 DATABASE_URL=${DATABASE_URL}
 CONFIG_PATH=${CONFIG_PATH}
 HARNESS_CMD=${HARNESS_CMD}
 HARNESS_MODEL=${HARNESS_MODEL}
+OUTPUT_MODE=${OUTPUT_MODE}
 TASK_HOOK=${TASK_HOOK}
 SPEC_HOOK=${SPEC_HOOK}
 AUDIT_TASK_HOOK=${AUDIT_TASK_HOOK}
@@ -377,26 +623,27 @@ MCP_CAPABILITY_AUDIENCE=${MCP_CAPABILITY_AUDIENCE}
 MCP_CAPABILITY_PUBLIC_KEY_FILE=${MCP_CAPABILITY_PUBLIC_KEY_FILE}
 MCP_CAPABILITY_PRIVATE_KEY_FILE=${MCP_CAPABILITY_PRIVATE_KEY_FILE}
 MCP_CAPABILITY_MAX_TTL_SECS=${MCP_CAPABILITY_MAX_TTL_SECS}
-EOF
+EOF3
 
-log "spec_id=${SPEC_ID}"
-log "spec_folder=${SPEC_FOLDER}"
-log "harness=${HARNESS_CMD}${HARNESS_MODEL:+ (model=${HARNESS_MODEL})}"
-log "task_hook=${TASK_HOOK}"
-log "spec_hook=${SPEC_HOOK}"
-log "run_dir=${RUN_DIR}"
+log_quiet "spec_id=${SPEC_ID}"
+log_quiet "spec_folder=${SPEC_FOLDER}"
+log_quiet "output_mode=${OUTPUT_MODE}"
+log_quiet "run_dir=${RUN_DIR}"
+log_verbose "harness=${HARNESS_CMD}${HARNESS_MODEL:+ (model=${HARNESS_MODEL})}"
+log_verbose "task_hook=${TASK_HOOK}"
+log_verbose "spec_hook=${SPEC_HOOK}"
 
 last_signature=""
 stagnant=0
 
 for ((CYCLE = 1; CYCLE <= MAX_CYCLES; CYCLE++)); do
-    log "cycle ${CYCLE}: querying spec status"
+    log_verbose "cycle ${CYCLE}: querying spec status"
     status_json="$(spec_status_json)"
     printf '%s\n' "$status_json" >"${RUN_DIR}/last-status.json"
     printf '%s\n' "$status_json" >"${RUN_DIR}/status-cycle-${CYCLE}.json"
 
     next_action="$(jq -r '.next_action' <<<"$status_json")"
-    signature="$(jq -c '{next_action,next_task_id,total_tasks,pending_tasks,in_progress_tasks,implemented_tasks,completed_tasks,abandoned_tasks,blockers_active}' <<<"$status_json")"
+    signature="$(jq -c '{next_action,next_task_id,next_step,pending_required_guards,total_tasks,pending_tasks,in_progress_tasks,implemented_tasks,completed_tasks,abandoned_tasks,blockers_active}' <<<"$status_json")"
     if [[ "$signature" == "$last_signature" ]]; then
         stagnant=$((stagnant + 1))
     else
@@ -441,21 +688,72 @@ After walk-spec completes, rerun this script to confirm final status."
             exit 40
             ;;
         complete)
-            log "spec ${SPEC_ID} already completed walk-spec; nothing else to run"
+            print_line "spec ${SPEC_ID} already completed walk-spec; nothing else to run"
             exit 0
             ;;
         run_loop)
             next_task_id="$(jq -r '.next_task_id // empty' <<<"$status_json")"
+            next_step="$(jq -r '.next_step // empty' <<<"$status_json")"
+            next_step_reason="$(jq -r '.next_step_reason // empty' <<<"$status_json")"
+
             if [[ -n "$next_task_id" ]]; then
-                log "cycle ${CYCLE}: task pipeline for task_id=${next_task_id}"
-                run_harness_phase "do-task" "$next_task_id"
-                run_hook "task_verification_hook" "$TASK_HOOK"
-                run_harness_phase "audit-task" "$next_task_id"
-                run_hook "audit_task_hook" "$AUDIT_TASK_HOOK"
-                run_harness_phase "adhere-task" "$next_task_id"
-                run_hook "adhere_task_hook" "$ADHERE_TASK_HOOK"
+                tasks_json="$(list_tasks_json)"
+                next_step="$(derive_next_step_fallback "$status_json" "$tasks_json" "$next_task_id")"
+
+                task_total="$(jq -r '.total_tasks' <<<"$status_json")"
+                task_index="$(jq -r --arg tid "$next_task_id" '.tasks | to_entries[] | select(.value.id == $tid) | (.key + 1)' <<<"$tasks_json")"
+                task_title="$(jq -r --arg tid "$next_task_id" '.tasks[] | select(.id == $tid) | .title' <<<"$tasks_json")"
+                task_description="$(jq -r --arg tid "$next_task_id" '.tasks[] | select(.id == $tid) | .description // empty' <<<"$tasks_json")"
+                task_deliverable="$(jq -r --arg tid "$next_task_id" '.tasks[] | select(.id == $tid) | ((.acceptance_criteria[0].measurable // .acceptance_criteria[0].description) // empty)' <<<"$tasks_json")"
+                phase_verb="$(phase_step_verb "$next_step")"
+
+                if [[ "$OUTPUT_MODE" == "silent" ]]; then
+                    print_progress "task ${task_index}/${task_total} - ${phase_verb}"
+                elif [[ "$OUTPUT_MODE" == "quiet" ]]; then
+                    quiet_task_summary "$CYCLE" "$task_index" "$task_total" "$phase_verb" "$next_task_id" "$task_title" "$task_description" "$task_deliverable" "$next_step_reason"
+                else
+                    print_line "cycle ${CYCLE}: task ${task_index}/${task_total} step=${next_step} task_id=${next_task_id}"
+                    if [[ -n "$next_step_reason" ]]; then
+                        print_line "routing: ${next_step_reason}"
+                    fi
+                fi
+
+                case "$next_step" in
+                    task_do_task)
+                        run_harness_phase "do-task" "$next_task_id"
+                        ;;
+                    task_gate)
+                        run_hook "task_verification_hook" "$TASK_HOOK"
+                        mark_task_guard "$next_task_id" "gate_checked"
+                        ;;
+                    task_audit)
+                        run_harness_phase "audit-task" "$next_task_id"
+                        run_hook "audit_task_hook" "$AUDIT_TASK_HOOK"
+                        ;;
+                    task_adhere)
+                        run_harness_phase "adhere-task" "$next_task_id"
+                        run_hook "adhere_task_hook" "$ADHERE_TASK_HOOK"
+                        ;;
+                    spec_pipeline)
+                        run_hook "spec_verification_hook" "$SPEC_HOOK"
+                        run_harness_phase "run-demo"
+                        run_hook "run_demo_hook" "$RUN_DEMO_HOOK"
+                        run_harness_phase "audit-spec"
+                        run_hook "audit_spec_hook" "$AUDIT_SPEC_HOOK"
+                        run_harness_phase "adhere-spec"
+                        run_hook "adhere_spec_hook" "$ADHERE_SPEC_HOOK"
+                        ;;
+                    *)
+                        die "unknown next_step from spec status: ${next_step}"
+                        ;;
+                esac
             else
-                log "cycle ${CYCLE}: spec-level pipeline"
+                next_step="$(derive_next_step_fallback "$status_json" '{"tasks":[]}' '')"
+                phase_verb="$(phase_step_verb "$next_step")"
+                print_progress "spec - ${phase_verb}"
+                if [[ "$OUTPUT_MODE" == "verbose" ]]; then
+                    print_line "cycle ${CYCLE}: spec-level pipeline"
+                fi
                 run_hook "spec_verification_hook" "$SPEC_HOOK"
                 run_harness_phase "run-demo"
                 run_hook "run_demo_hook" "$RUN_DEMO_HOOK"
@@ -463,6 +761,11 @@ After walk-spec completes, rerun this script to confirm final status."
                 run_hook "audit_spec_hook" "$AUDIT_SPEC_HOOK"
                 run_harness_phase "adhere-spec"
                 run_hook "adhere_spec_hook" "$ADHERE_SPEC_HOOK"
+            fi
+            if [[ "$DRY_RUN" == "1" ]]; then
+                finish_silent_line
+                print_line "dry-run completed one simulated autonomous cycle; exiting without persistence"
+                exit 0
             fi
             ;;
         *)

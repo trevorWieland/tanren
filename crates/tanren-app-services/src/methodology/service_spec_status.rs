@@ -1,17 +1,17 @@
 //! Spec-status query surface used by Phase 0 orchestration.
 
 use tanren_contract::methodology::{
-    ListTasksParams, SchemaVersion, SpecStatusNextAction, SpecStatusParams, SpecStatusResponse,
+    ListTasksParams, SchemaVersion, SpecStatusNextAction, SpecStatusNextStep, SpecStatusParams,
+    SpecStatusResponse,
 };
 use tanren_domain::EntityKind;
-use tanren_domain::TaskId;
 use tanren_domain::events::DomainEvent;
 use tanren_domain::methodology::capability::{CapabilityScope, ToolCapability};
 use tanren_domain::methodology::events::MethodologyEvent;
 use tanren_domain::methodology::phase_id::KnownPhase;
 use tanren_domain::methodology::phase_id::PhaseId;
 use tanren_domain::methodology::phase_outcome::PhaseOutcome;
-use tanren_domain::methodology::task::{Task, TaskStatus};
+use tanren_domain::methodology::task::{RequiredGuard, Task, TaskStatus};
 use tanren_store::{EventFilter, EventStore};
 
 use super::capabilities::enforce;
@@ -43,11 +43,89 @@ fn fold_task_counts(tasks: &[Task]) -> TaskStatusCounts {
     counts
 }
 
-fn next_open_task_id(tasks: &[Task]) -> Option<TaskId> {
-    tasks
+fn next_open_task(tasks: &[Task]) -> Option<&Task> {
+    tasks.iter().find(|task| !task.status.is_terminal())
+}
+
+fn pending_required_guards(task: &Task, required_guards: &[RequiredGuard]) -> Vec<String> {
+    let TaskStatus::Implemented { guards } = &task.status else {
+        return Vec::new();
+    };
+    required_guards
         .iter()
-        .find(|task| !task.status.is_terminal())
-        .map(|task| task.id)
+        .filter(|guard| !guards.get(guard))
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn next_step_from_task(
+    task: Option<&Task>,
+    required_guards: &[RequiredGuard],
+) -> (SpecStatusNextStep, Vec<String>, Option<String>) {
+    let Some(task) = task else {
+        return (
+            SpecStatusNextStep::SpecPipeline,
+            Vec::new(),
+            Some("no open tasks; run spec-level checks".to_owned()),
+        );
+    };
+    match &task.status {
+        TaskStatus::Pending | TaskStatus::InProgress => (
+            SpecStatusNextStep::TaskDoTask,
+            Vec::new(),
+            Some(format!(
+                "task {} is {}; run do-task",
+                task.id,
+                task.status.tag()
+            )),
+        ),
+        TaskStatus::Implemented { guards } => {
+            let pending = pending_required_guards(task, required_guards);
+            for guard in required_guards {
+                if guards.get(guard) {
+                    continue;
+                }
+                let (step, reason) = match guard {
+                    RequiredGuard::GateChecked => (
+                        SpecStatusNextStep::TaskGate,
+                        format!("task {} missing guard gate_checked", task.id),
+                    ),
+                    RequiredGuard::Audited => (
+                        SpecStatusNextStep::TaskAudit,
+                        format!("task {} missing guard audited", task.id),
+                    ),
+                    RequiredGuard::Adherent => (
+                        SpecStatusNextStep::TaskAdhere,
+                        format!("task {} missing guard adherent", task.id),
+                    ),
+                    RequiredGuard::Extra(name) => (
+                        SpecStatusNextStep::TaskAdhere,
+                        format!(
+                            "task {} missing extra guard `{name}`; defaulting to adhere-task",
+                            task.id
+                        ),
+                    ),
+                };
+                return (step, pending, Some(reason));
+            }
+            (
+                SpecStatusNextStep::SpecPipeline,
+                Vec::new(),
+                Some(format!(
+                    "task {} has all required guards; waiting completion convergence",
+                    task.id
+                )),
+            )
+        }
+        TaskStatus::Complete | TaskStatus::Abandoned { .. } => (
+            SpecStatusNextStep::SpecPipeline,
+            Vec::new(),
+            Some(format!(
+                "task {} is terminal; run spec-level checks",
+                task.id
+            )),
+        ),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -147,7 +225,8 @@ impl MethodologyService {
             .await?
             .tasks;
         let counts = fold_task_counts(&tasks);
-        let mut next_task_id = next_open_task_id(&tasks);
+        let next_task = next_open_task(&tasks);
+        let mut next_task_id = next_task.map(|task| task.id);
 
         let mut outcomes = if has_any_event {
             self.spec_outcome_state(spec_id).await?
@@ -179,7 +258,15 @@ impl MethodologyService {
         } else {
             SpecStatusNextAction::RunLoop
         };
-        if !matches!(next_action, SpecStatusNextAction::RunLoop) {
+        let mut next_step = None;
+        let mut pending_required_guards = Vec::new();
+        let mut next_step_reason = None;
+        if matches!(next_action, SpecStatusNextAction::RunLoop) {
+            let (step, pending, reason) = next_step_from_task(next_task, self.required_guards());
+            next_step = Some(step);
+            pending_required_guards = pending;
+            next_step_reason = reason;
+        } else {
             next_task_id = None;
         }
 
@@ -191,6 +278,9 @@ impl MethodologyService {
             ready_for_walk_spec,
             next_action,
             next_task_id,
+            next_step,
+            pending_required_guards,
+            next_step_reason,
             last_blocker_phase: outcomes.last_blocker_phase,
             last_blocker_summary: outcomes.last_blocker_summary,
             required_guards: self.required_guards().to_vec(),
