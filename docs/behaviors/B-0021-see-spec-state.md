@@ -20,8 +20,8 @@ delivery pipeline without having to open the spec's loop.
 
 ## Observable outcomes
 
-- The user can see which state the spec is in: draft, ready, backlog, blocked,
-  in a loop, awaiting walk, done, or archived.
+- The user can see which spec lifecycle state the spec is in (see the Spec
+  lifecycle states section in concepts.md).
 - The user can see the problem description, acceptance criteria, and any
   recorded dependencies carried by the spec.
 - State is visible from any supported interface, including a phone.

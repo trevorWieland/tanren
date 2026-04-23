@@ -17,8 +17,10 @@ to its projects without having to delete the account itself.
 ## Preconditions
 
 - The user's active account belongs to the organization being left.
-- The user is not the last remaining admin of the organization. If so, an
-  admin transfer or deletion of the organization must happen first.
+- Leaving would not leave the organization without any member holding a
+  given administrative permission. If the user is the last holder of any
+  administrative permission, another holder must be appointed first or
+  the organization must be deleted.
 
 ## Observable outcomes
 

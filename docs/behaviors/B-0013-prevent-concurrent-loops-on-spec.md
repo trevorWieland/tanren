@@ -10,10 +10,10 @@ supersedes: []
 
 ## Intent
 
-A user who attempts to start a loop on a spec that already has an active loop
-is blocked from starting a second loop, and is directed to the existing loop
-so they can take appropriate action. Each spec has at most one active loop at
-a time.
+A `solo-dev` or `team-dev` who attempts to start a loop on a spec that
+already has an active loop can discover that the loop exists and decide
+what to do next, rather than being allowed to start a second concurrent
+loop on the same spec. Each spec has at most one active loop at a time.
 
 ## Preconditions
 

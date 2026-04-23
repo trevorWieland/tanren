@@ -10,9 +10,10 @@ supersedes: []
 
 ## Intent
 
-A user who attempts to start a loop on a spec whose declared dependencies are
-not yet complete is blocked from starting and is shown what is blocking them,
-so that foundation work is not raced ahead of.
+A `solo-dev` or `team-dev` who attempts to start a loop on a spec whose
+declared dependencies are not yet complete can discover which dependencies
+are unfinished and act on them, rather than being allowed to race ahead of
+foundation work.
 
 ## Preconditions
 

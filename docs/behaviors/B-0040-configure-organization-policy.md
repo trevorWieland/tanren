@@ -10,14 +10,14 @@ supersedes: []
 
 ## Intent
 
-A `team-dev` with organization-admin permission can see and configure
-policies that apply across every project in the organization, so that
-baseline rules are enforced consistently without relying on each project to
-configure them independently.
+A `team-dev` who holds the permission to manage organization policy can
+see and configure policies that apply across every project in the
+organization, so that baseline rules are enforced consistently without
+relying on each project to configure them independently.
 
 ## Preconditions
 
-- The user has organization-admin permission.
+- The user has permission to manage organization policy.
 - The context is organizational; this behavior does not apply to personal
   projects.
 
@@ -31,7 +31,7 @@ configure them independently.
   - Organization-level roles that are available to every project.
 - Organization policies override conflicting project-level configuration.
 - The active organization policy is visible to every member of the
-  organization, not only admins.
+  organization, not only those who can edit it.
 
 ## Out of scope
 

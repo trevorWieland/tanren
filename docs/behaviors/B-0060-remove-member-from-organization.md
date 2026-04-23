@@ -17,8 +17,10 @@ the organization's projects without needing their cooperation.
 ## Preconditions
 
 - The user has permission to remove members from the organization.
-- The member being removed is not the last remaining admin. If so, another
-  admin must be appointed first.
+- Removal would not leave the organization without any member holding a
+  given administrative permission. If the member being removed is the
+  last holder of any administrative permission, another holder must be
+  appointed first.
 
 ## Observable outcomes
 

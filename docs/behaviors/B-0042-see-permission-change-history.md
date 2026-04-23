@@ -1,6 +1,6 @@
 ---
 id: B-0042
-title: See the history of permission changes
+title: See the change history for a project or organization
 personas: [team-dev, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
@@ -10,9 +10,10 @@ supersedes: []
 
 ## Intent
 
-A `team-dev` or `observer` can see a chronological record of permission
-changes within a project or organization they have visibility of, so that
-changes to who can do what are attributable and auditable.
+A `team-dev` or `observer` can see a chronological record of changes
+within a project or organization they have visibility of — permission
+changes, access changes, and configuration changes — so that how the
+project or organization runs is attributable and auditable over time.
 
 ## Preconditions
 
@@ -20,17 +21,21 @@ changes to who can do what are attributable and auditable.
 
 ## Observable outcomes
 
-- The user can see an ordered list of permission changes, each attributed
-  to the user who made the change and stamped with when it happened.
-- Entries cover grants, revocations, role applications, role changes, and
-  organization-policy edits.
-- The history is available for both active and past members of the project
-  or organization.
+- The user can see an ordered list of changes, each attributed to the
+  user who made the change and stamped with when it happened.
+- Entries cover permission grants and revocations, role applications and
+  edits, access additions and removals, organization policy edits, and
+  configuration changes at any tier the user has visibility of.
+- The user can filter entries by change type so that a specific concern
+  (for example, only access changes or only configuration changes) can be
+  reviewed on its own.
+- The history is available for current members and for past members.
 
 ## Out of scope
 
 - Editing or redacting history entries.
-- Rolling a permission state back to an earlier point in the history.
+- Rolling a project or organization back to an earlier state from the
+  history.
 
 ## Related
 
@@ -38,3 +43,5 @@ changes to who can do what are attributable and auditable.
 - B-0031
 - B-0038
 - B-0040
+- B-0049
+- B-0050

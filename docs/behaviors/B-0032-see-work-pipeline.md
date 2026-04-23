@@ -22,8 +22,8 @@ whether work is moving and at what rate.
 
 ## Observable outcomes
 
-- The user can see a current snapshot of how many specs are in each state:
-  ready, running, blocked, awaiting walk, done, archived.
+- The user can see a current snapshot of how many specs are in each spec
+  lifecycle state (see concepts.md).
 - The user can see a completion rate (specs reaching done) over the selected
   time window.
 - Both views respect the scope selected via B-0037 (project, milestone,

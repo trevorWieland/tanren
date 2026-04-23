@@ -23,14 +23,17 @@ account to the organization.
 
 ## Observable outcomes
 
-- The user can send an invitation addressed to a specific person, with the
-  permissions or role the invitee will receive on acceptance.
+- The user can send an invitation addressed to a specific person, with
+  the organization-level permissions or role the invitee will hold on
+  acceptance.
 - The invitation is visible on the inviting user's side and can be revoked
   before it is accepted.
 - An invitation can be accepted by creating a new account (B-0043) or by
   attaching an existing account (B-0045).
 - After acceptance, the invitee is a member of the organization with the
-  permissions or role specified in the invitation.
+  organization-level permissions specified in the invitation. Project
+  access within the organization is granted separately via B-0031, not by
+  the invitation itself.
 
 ## Out of scope
 

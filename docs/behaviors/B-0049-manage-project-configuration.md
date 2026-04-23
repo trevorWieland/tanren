@@ -1,7 +1,7 @@
 ---
 id: B-0049
 title: Manage project-tier configuration
-personas: [team-dev]
+personas: [solo-dev, team-dev]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
 status: draft
@@ -10,10 +10,11 @@ supersedes: []
 
 ## Intent
 
-A `team-dev` with the required permission can manage configuration specific
-to a project — such as gate commands that loops must satisfy, standard
-folder conventions, and project-scoped secrets — so that the project's
-working rules are shared consistently with everyone who has access to it.
+A `solo-dev` or `team-dev` with the required permission can manage
+configuration specific to a project — such as gate commands that loops
+must satisfy, standard folder conventions, and project-scoped secrets —
+so that the project's working rules are shared consistently with everyone
+who has access to it.
 
 ## Preconditions
 
@@ -29,8 +30,8 @@ working rules are shared consistently with everyone who has access to it.
   and apply to every loop and action taken within the project.
 - Changes take effect for subsequent work; loops already in flight when a
   change is made continue under the settings they started with.
-- Every change is attributed and visible in the project's configuration
-  history.
+- Every change is attributed and visible in the project's change history
+  (B-0042).
 
 ## Out of scope
 

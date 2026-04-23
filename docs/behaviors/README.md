@@ -152,7 +152,7 @@ that delivery progress maps back to user-visible capability.
 
 ### Spec authoring and lifecycle
 
-- [B-0018](B-0018-shape-spec-from-ticket.md) — Shape a spec from an external ticket
+- [B-0018](B-0018-shape-spec-from-ticket.md) — Create a spec, optionally from an external ticket
 - [B-0019](B-0019-mark-spec-ready.md) — Mark a spec ready to run
 - [B-0020](B-0020-move-spec-backlog.md) — Move a spec to or from the backlog
 - [B-0021](B-0021-see-spec-state.md) — See a spec's current lifecycle state
@@ -175,7 +175,7 @@ that delivery progress maps back to user-visible capability.
 - [B-0038](B-0038-manage-role-templates.md) — Manage roles as permission templates
 - [B-0039](B-0039-see-my-permissions.md) — See my own permissions
 - [B-0040](B-0040-configure-organization-policy.md) — See and configure organization-level policy
-- [B-0042](B-0042-see-permission-change-history.md) — See the history of permission changes
+- [B-0042](B-0042-see-permission-change-history.md) — See the change history for a project or organization
 
 ### Configuration and credentials
 
@@ -193,6 +193,7 @@ that delivery progress maps back to user-visible capability.
 - [B-0062](B-0062-configure-notification-preferences.md) — Configure notification preferences and routing
 - [B-0063](B-0063-export-data.md) — Export account or project data for backup or migration
 - [B-0064](B-0064-restore-data.md) — Restore account or project data from a backup
+- [B-0065](B-0065-see-configure-organization-access.md) — See and configure who has access to an organization
 
 ### External tracker integration
 

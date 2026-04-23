@@ -35,7 +35,7 @@ can grant, revoke, or adjust another person's access.
   apply a role template (B-0038) that grants its bundled permissions at
   that moment.
 - Every change is attributed to the user who made it and visible in the
-  project's access history.
+  project's change history (B-0042).
 
 ## Out of scope
 

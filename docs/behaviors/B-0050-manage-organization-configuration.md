@@ -10,15 +10,16 @@ supersedes: []
 
 ## Intent
 
-A `team-dev` with organization-admin permission can manage configuration
-that applies across every project in an organization — typically
-deployment-related settings and shared infrastructure secrets — so that
-baseline operational config is maintained in one place rather than per
-project.
+A `team-dev` who holds the permission to manage organization
+configuration can manage settings that apply across every project in an
+organization — typically deployment-related settings and shared
+infrastructure secrets — so that baseline operational config is maintained
+in one place rather than per project.
 
 ## Preconditions
 
-- The user has organization-admin permission for the active organization.
+- The user has permission to manage organization configuration for the
+  active organization.
 - The context is organizational; this behavior does not apply to personal
   projects.
 
@@ -30,8 +31,8 @@ project.
   and apply across every project in the organization.
 - Changes take effect for subsequent work; loops already in flight when a
   change is made continue under the settings they started with.
-- Every change is attributed and visible in the organization's
-  configuration history.
+- Every change is attributed and visible in the organization's change
+  history (B-0042).
 
 ## Out of scope
 
