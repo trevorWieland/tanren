@@ -10,11 +10,9 @@ supersedes: []
 
 ## Intent
 
-A `solo-dev` or `team-dev` can create a new spec in a project. When the
-project has a connected external tracker, the creation flow can pull
-details from an external ticket to pre-fill the new spec, so that a
-problem description from the business, a customer, or an automated bug
-report becomes a Tanren-owned unit of work without re-typing.
+A `solo-dev` or `team-dev` can create a new spec in a project so that a
+problem description becomes a Tanren-owned unit of work ready to be
+prioritized and implemented.
 
 ## Preconditions
 

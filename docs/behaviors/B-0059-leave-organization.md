@@ -19,8 +19,8 @@ to its projects without having to delete the account itself.
 - The user's active account belongs to the organization being left.
 - Leaving would not leave the organization without any member holding a
   given administrative permission. If the user is the last holder of any
-  administrative permission, another holder must be appointed first or
-  the organization must be deleted.
+  administrative permission, another holder must be appointed first via
+  B-0065 or the organization must be deleted via B-0067.
 
 ## Observable outcomes
 

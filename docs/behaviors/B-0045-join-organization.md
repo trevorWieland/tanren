@@ -24,8 +24,9 @@ create a new account.
 ## Observable outcomes
 
 - After acceptance, the account is a member of the inviting organization
-  and can access the organization's projects according to the permissions
-  granted on the invitation.
+  with the organization-level permissions granted on the invitation.
+  Project access within the organization is not granted by acceptance; it
+  is assigned separately per project via B-0031.
 - The account's membership in any other organizations is unaffected.
 - The user can switch into the newly joined organization via B-0047.
 - The user can leave the organization later via B-0059, at which point

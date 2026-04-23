@@ -22,9 +22,13 @@ installation is possible.
 - For project-scope restore: the user has permission to restore the
   project. In organizational contexts this permission may be restricted by
   organization policy.
-- The target location for the restore is in a state where a restore is
-  valid (for example, an empty project, or a project explicitly being
-  rolled back).
+- The user has explicitly chosen a valid target for the restore. Valid
+  targets are:
+  - an empty project that contains no specs, milestones, or initiatives;
+  - an existing project the user explicitly chooses to overwrite in
+    place (all current data replaced);
+  - a new account being seeded from an account-scope backup.
+  Restores into projects with active loops are not valid targets.
 
 ## Observable outcomes
 

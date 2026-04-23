@@ -82,8 +82,9 @@ selected").
 
 ### Scope and permissions
 
-Scope (own / team / cross-team) and specific permissions (e.g. "act on another
-developer's in-flight work") are **preconditions**, not persona identity. A
+Scope (own / project / organization / account, as defined in concepts.md)
+and specific permissions (e.g. "act on another developer's in-flight
+work") are **preconditions**, not persona identity. A
 `team-dev` or `observer` may or may not have a given scope or permission
 depending on how their setup is configured. Behaviors that depend on scope or
 a permission must name it explicitly in **Preconditions**. Separate meta
@@ -193,7 +194,9 @@ that delivery progress maps back to user-visible capability.
 - [B-0062](B-0062-configure-notification-preferences.md) — Configure notification preferences and routing
 - [B-0063](B-0063-export-data.md) — Export account or project data for backup or migration
 - [B-0064](B-0064-restore-data.md) — Restore account or project data from a backup
-- [B-0065](B-0065-see-configure-organization-access.md) — See and configure who has access to an organization
+- [B-0065](B-0065-see-configure-organization-access.md) — See and manage existing members' access to an organization
+- [B-0066](B-0066-create-organization.md) — Create an organization
+- [B-0067](B-0067-delete-organization.md) — Delete an organization
 
 ### External tracker integration
 

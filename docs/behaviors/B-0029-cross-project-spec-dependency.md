@@ -17,8 +17,10 @@ boundaries is coordinated the same way work within a single project is.
 ## Preconditions
 
 - The depending spec is in a project connected to an account.
-- The dependency, as declared on the originating external ticket (see
-  B-0018), points to a spec or ticket owned by another project.
+- The depending spec has a declared dependency on a spec or ticket owned
+  by another project. Declared dependencies may originate from an
+  external ticket during spec creation (B-0018) or be recorded directly
+  on the spec; either source is supported.
 
 ## Observable outcomes
 

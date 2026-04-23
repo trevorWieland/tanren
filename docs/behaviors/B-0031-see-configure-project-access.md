@@ -23,10 +23,11 @@ can grant, revoke, or adjust another person's access.
 
 ## Observable outcomes
 
-- The user can see a list of every person with access to the project and, for
-  each person, their visibility scope (own / team / cross-team) and the
-  specific permissions they hold (for example, whether they may assist or
-  take over teammates' loops per B-0012, or manage project access).
+- The user can see a list of every person with access to the project and,
+  for each person, their visibility scope (concepts.md defines the scope
+  vocabulary) and the specific permissions they hold — for example,
+  whether they may assist or take over teammates' loops per B-0012, or
+  manage project access.
 - The access list is visible to every person who has visibility of the
   project — no one's access is hidden from other members.
 - A permitted user can add a person with a chosen visibility and permission

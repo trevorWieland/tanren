@@ -17,8 +17,8 @@ whether work is moving and at what rate.
 
 ## Preconditions
 
-- Has visibility scope over the projects, milestones, initiatives, or teams
-  being viewed.
+- Has visibility scope over the projects, milestones, initiatives, or
+  organizations being viewed.
 
 ## Observable outcomes
 

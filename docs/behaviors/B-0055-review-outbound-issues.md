@@ -19,8 +19,11 @@ tracker.
 ## Preconditions
 
 - The project has a connected external tracker (B-0052).
-- The user has permission to change project-tier configuration (B-0049) for
-  the project.
+- For setting the review mode: the user has permission to change
+  project-tier configuration (B-0049) for the project.
+- For approving or discarding queued items: the user holds the permission
+  to approve outbound issues for the project, granted per the project
+  access model (B-0031) or via a role template (B-0038).
 
 ## Observable outcomes
 

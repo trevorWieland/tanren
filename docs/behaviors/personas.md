@@ -5,7 +5,8 @@ behavior's `personas:` frontmatter field must use one or more IDs from this
 document (or the literal `any` when truly surface-agnostic).
 
 Personas describe **how a person relates to a project**, not their job title,
-their device, or their permission grants. Scope (own / team / cross-team),
+their device, or their permission grants. Scope (own / project /
+organization / account, as defined in concepts.md),
 permissions (can act on others' work, can set policy), and device class
 (phone, laptop) are orthogonal dimensions captured as preconditions on
 individual behaviors — not as persona identity.
