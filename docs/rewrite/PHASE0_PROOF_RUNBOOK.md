@@ -27,30 +27,33 @@ scripts/runtime/verify-installed-runtime.sh
 
 ---
 
-## One-Command Proof Collection
+## Hard Cutover Status
 
-From repo root:
+The legacy one-command proof collector (`scripts/proof/phase0/run.sh`) is
+retired during Rust testing hard cutover.
 
-```bash
-scripts/proof/phase0/run.sh
-```
-
-Default output location:
-
-- `artifacts/phase0-proof/<timestamp>/`
-
-Optional flags:
+Current behavior-proof commands are:
 
 ```bash
-scripts/proof/phase0/run.sh --output-root /tmp/phase0-proof --timestamp 20260420T120000Z
-scripts/proof/phase0/run.sh --skip-verify
+just check-phase0-scenario-stage
+just check-phase0-bdd-smoke
+just check-phase0-bdd-wave-a
+just check-phase0-bdd-wave-b
+just check-phase0-bdd-wave-c
+just check-phase0-mutation-stage
+just check-phase0-coverage-stage
+just check-phase0-stage-gates
 ```
+
+Policy and allowed post-cutover forms:
+
+- `docs/rewrite/PHASE0_RUST_TEST_CUTOVER_POLICY.md`
 
 ---
 
 ## Verification
 
-Run explicit verification against an existing pack:
+Run explicit verification against an existing pack generated before cutover:
 
 ```bash
 scripts/proof/phase0/verify.sh artifacts/phase0-proof/<timestamp>
@@ -99,6 +102,43 @@ Recommended operator flow:
 1. Manually shape the spec (`shape-spec`).
 2. Run `scripts/orchestration/phase0.sh ...`.
 3. When prompted for walk readiness, manually run `walk-spec`.
+
+---
+
+## Phase 0 Gate Contract
+
+Phase 0 proof commands are enforced and exercised in both local and CI flows:
+
+```bash
+just check-phase0-scenario-stage
+just check-phase0-bdd-smoke
+just check-phase0-bdd-wave-a
+just check-phase0-bdd-wave-b
+just check-phase0-bdd-wave-c
+just check-phase0-mutation-stage
+just check-phase0-coverage-stage
+just check-phase0-stage-gates
+```
+
+Current behavior:
+
+- commands are required proof gates for post-cutover verification,
+- `check-phase0-bdd-smoke` executes a cucumber-rs smoke scenario and emits the
+  feature tag line as traceability evidence,
+- `check-phase0-bdd-wave-a` executes Wave A feature files (`1.1` through `3.2`)
+  and emits BEH-tag evidence for each file,
+- `check-phase0-bdd-wave-b` executes Wave B feature files (`4.1` through `6.3`)
+  and emits BEH-tag evidence for each file,
+- `check-phase0-bdd-wave-c` executes Wave C feature files (`7.1` through `8.1`)
+  and emits BEH-tag evidence for each file,
+- `check-phase0-mutation-stage` executes a sampled `cargo-mutants` run (when
+  installed) and writes machine-readable survivor triage to
+  `artifacts/phase0-mutation/staged/latest/triage.json`,
+- `check-phase0-coverage-stage` executes `cargo llvm-cov` behavior runs
+  (when installed) and writes machine-readable behavior-gap classification to
+  `artifacts/phase0-coverage/staged/latest/classification.json`,
+- `check-phase0-stage-gates` aggregates stage gate outcomes and enforces
+  post-cutover pass/fail contract.
 
 ---
 

@@ -1,0 +1,403 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "phase0_behavior_traceability",
+  "bdd_source": "docs/rewrite/PHASE0_PROOF_BDD.md",
+  "behavior_inventory": [
+    {
+      "behavior_id": "BEH-P0-101",
+      "scenario_id": "1.1",
+      "scenario_title": "Valid lifecycle changes are accepted",
+      "feature": "Feature 1: Typed control-plane state is authoritative",
+      "wave": "A",
+      "owner": "orchestrator",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-101",
+          "scenario_ref": "1.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-1-typed-control-plane-state.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-101",
+          "scenario_ref": "1.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-1-typed-control-plane-state.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-102",
+      "scenario_id": "1.2",
+      "scenario_title": "Invalid lifecycle changes are rejected",
+      "feature": "Feature 1: Typed control-plane state is authoritative",
+      "wave": "A",
+      "owner": "orchestrator",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-102",
+          "scenario_ref": "1.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-1-typed-control-plane-state.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-102",
+          "scenario_ref": "1.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-1-typed-control-plane-state.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-201",
+      "scenario_id": "2.1",
+      "scenario_title": "Accepted changes emit durable events",
+      "feature": "Feature 2: Event history is durable, transactional, and replayable",
+      "wave": "A",
+      "owner": "store+orchestrator",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-201",
+          "scenario_ref": "2.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-2-event-history.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-201",
+          "scenario_ref": "2.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-2-event-history.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-202",
+      "scenario_id": "2.2",
+      "scenario_title": "Replay reconstructs equivalent state",
+      "feature": "Feature 2: Event history is durable, transactional, and replayable",
+      "wave": "A",
+      "owner": "cli+store",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-202",
+          "scenario_ref": "2.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-2-event-history.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-202",
+          "scenario_ref": "2.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-2-event-history.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-203",
+      "scenario_id": "2.3",
+      "scenario_title": "Corrupt/non-canonical history fails safely",
+      "feature": "Feature 2: Event history is durable, transactional, and replayable",
+      "wave": "A",
+      "owner": "store",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-203",
+          "scenario_ref": "2.3",
+          "planned_feature_file": "tests/bdd/phase0/feature-2-event-history.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-203",
+          "scenario_ref": "2.3",
+          "planned_feature_file": "tests/bdd/phase0/feature-2-event-history.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-301",
+      "scenario_id": "3.1",
+      "scenario_title": "Operator can run core dispatch flow end-to-end",
+      "feature": "Feature 3: At least one contract-derived interface is operational",
+      "wave": "A",
+      "owner": "cli",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-301",
+          "scenario_ref": "3.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-3-contract-derived-interface.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-301",
+          "scenario_ref": "3.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-3-contract-derived-interface.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-302",
+      "scenario_id": "3.2",
+      "scenario_title": "Authentication and replay protections are enforced",
+      "feature": "Feature 3: At least one contract-derived interface is operational",
+      "wave": "A",
+      "owner": "cli-auth",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-302",
+          "scenario_ref": "3.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-3-contract-derived-interface.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-302",
+          "scenario_ref": "3.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-3-contract-derived-interface.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-401",
+      "scenario_id": "4.1",
+      "scenario_title": "Structured workflow state is code-owned",
+      "feature": "Feature 4: Methodology boundary is explicit and enforced",
+      "wave": "B",
+      "owner": "app-services",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-401",
+          "scenario_ref": "4.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-4-methodology-boundary.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-401",
+          "scenario_ref": "4.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-4-methodology-boundary.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-402",
+      "scenario_id": "4.2",
+      "scenario_title": "Agent markdown remains behavior-only",
+      "feature": "Feature 4: Methodology boundary is explicit and enforced",
+      "wave": "B",
+      "owner": "app-services",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-402",
+          "scenario_ref": "4.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-4-methodology-boundary.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-402",
+          "scenario_ref": "4.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-4-methodology-boundary.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-501",
+      "scenario_id": "5.1",
+      "scenario_title": "Completion requires required guards",
+      "feature": "Feature 5: Task completion is monotonic and guard-based",
+      "wave": "B",
+      "owner": "app-services",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-501",
+          "scenario_ref": "5.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-5-task-completion-guards.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-501",
+          "scenario_ref": "5.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-5-task-completion-guards.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-502",
+      "scenario_id": "5.2",
+      "scenario_title": "Terminal tasks are not reopened",
+      "feature": "Feature 5: Task completion is monotonic and guard-based",
+      "wave": "B",
+      "owner": "domain",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-502",
+          "scenario_ref": "5.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-5-task-completion-guards.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-502",
+          "scenario_ref": "5.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-5-task-completion-guards.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-601",
+      "scenario_id": "6.1",
+      "scenario_title": "Inputs are validated at the boundary",
+      "feature": "Feature 6: Tool surface is typed, scoped, and transport-consistent",
+      "wave": "B",
+      "owner": "cli-methodology",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-601",
+          "scenario_ref": "6.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-6-tool-surface-contract.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-601",
+          "scenario_ref": "6.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-6-tool-surface-contract.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-602",
+      "scenario_id": "6.2",
+      "scenario_title": "Capability scoping prevents out-of-phase actions",
+      "feature": "Feature 6: Tool surface is typed, scoped, and transport-consistent",
+      "wave": "B",
+      "owner": "cli-methodology",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-602",
+          "scenario_ref": "6.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-6-tool-surface-contract.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-602",
+          "scenario_ref": "6.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-6-tool-surface-contract.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-603",
+      "scenario_id": "6.3",
+      "scenario_title": "MCP and CLI produce equivalent semantics",
+      "feature": "Feature 6: Tool surface is typed, scoped, and transport-consistent",
+      "wave": "B",
+      "owner": "cli+mcp",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-603",
+          "scenario_ref": "6.3",
+          "planned_feature_file": "tests/bdd/phase0/feature-6-tool-surface-contract.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-603",
+          "scenario_ref": "6.3",
+          "planned_feature_file": "tests/bdd/phase0/feature-6-tool-surface-contract.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-701",
+      "scenario_id": "7.1",
+      "scenario_title": "Install output is predictable and idempotent",
+      "feature": "Feature 7: Installer and self-hosting are deterministic",
+      "wave": "C",
+      "owner": "installer",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-701",
+          "scenario_ref": "7.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-7-installer-determinism.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-701",
+          "scenario_ref": "7.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-7-installer-determinism.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-702",
+      "scenario_id": "7.2",
+      "scenario_title": "Drift is detectable and explicit",
+      "feature": "Feature 7: Installer and self-hosting are deterministic",
+      "wave": "C",
+      "owner": "installer",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-702",
+          "scenario_ref": "7.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-7-installer-determinism.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-702",
+          "scenario_ref": "7.2",
+          "planned_feature_file": "tests/bdd/phase0/feature-7-installer-determinism.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-703",
+      "scenario_id": "7.3",
+      "scenario_title": "Multi-agent targets stay semantically aligned",
+      "feature": "Feature 7: Installer and self-hosting are deterministic",
+      "wave": "C",
+      "owner": "installer+command-contract",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-703",
+          "scenario_ref": "7.3",
+          "planned_feature_file": "tests/bdd/phase0/feature-7-installer-determinism.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-703",
+          "scenario_ref": "7.3",
+          "planned_feature_file": "tests/bdd/phase0/feature-7-installer-determinism.feature"
+        }
+      }
+    },
+    {
+      "behavior_id": "BEH-P0-801",
+      "scenario_id": "8.1",
+      "scenario_title": "Human-guided end-to-end spec loop runs in Phase 0",
+      "feature": "Feature 8: Manual methodology walkthrough is possible now",
+      "wave": "C",
+      "owner": "methodology-runtime",
+      "obligations": {
+        "positive": {
+          "witness": "positive",
+          "tag": "@BEH-P0-801",
+          "scenario_ref": "8.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-8-manual-methodology-walkthrough.feature"
+        },
+        "falsification": {
+          "witness": "falsification",
+          "tag": "@BEH-P0-801",
+          "scenario_ref": "8.1",
+          "planned_feature_file": "tests/bdd/phase0/feature-8-manual-methodology-walkthrough.feature"
+        }
+      }
+    }
+  ]
+}

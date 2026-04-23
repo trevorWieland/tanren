@@ -186,8 +186,8 @@ and collects results for dry-run output.
 
 | Variable | Source |
 |---|---|
-| `{{TASK_VERIFICATION_HOOK}}` | `methodology.variables.task_verification_hook` → `verification_hooks.do-task` → `task_gate_cmd` → `verification_hooks.default` → `gate_cmd` |
-| `{{SPEC_VERIFICATION_HOOK}}` | analogous |
+| `{{TASK_VERIFICATION_HOOK}}` | `methodology.variables.task_verification_hook` → `verification_hooks.do-task` → `task_gate_cmd` → `verification_hooks.default` → `gate_cmd` (task-scope fast static gate; no full test matrix) |
+| `{{SPEC_VERIFICATION_HOOK}}` | analogous (spec-scope full strict gate set) |
 | `{{AUDIT_TASK_HOOK}}`, `{{ADHERE_TASK_HOOK}}`, `{{RUN_DEMO_HOOK}}`, `{{ADHERE_SPEC_HOOK}}` | per-phase override → task/spec fallback |
 | `{{ISSUE_PROVIDER}}` | `methodology.variables.issue_provider` (required) |
 | `{{ISSUE_REF_NOUN}}`, `{{PR_NOUN}}` | derived from issue_provider |

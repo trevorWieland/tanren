@@ -110,7 +110,7 @@ impl TaskStatus {
             // Legal advances + idempotent no-ops.
             (Self::Pending, K::Start)
             | (Self::InProgress, K::Implement)
-            | (Self::Implemented { .. }, K::Guard | K::Complete)
+            | (Self::Implemented { .. }, K::Guard | K::ResetGuards | K::Complete)
             | (
                 Self::Pending | Self::InProgress | Self::Implemented { .. },
                 K::Revise | K::Abandon,
@@ -134,6 +134,7 @@ pub enum TaskTransitionKind {
     Start,
     Implement,
     Guard,
+    ResetGuards,
     Complete,
     Revise,
     Abandon,
@@ -147,6 +148,7 @@ impl TaskTransitionKind {
             Self::Start => "start",
             Self::Implement => "implement",
             Self::Guard => "guard",
+            Self::ResetGuards => "reset_guards",
             Self::Complete => "complete",
             Self::Revise => "revise",
             Self::Abandon => "abandon",

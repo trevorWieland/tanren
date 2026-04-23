@@ -71,8 +71,8 @@ spec) or `defer` (backlog for future specs via `triage-audits`).
 9. Call `report_phase_outcome`:
    - `complete` if every pillar ≥ passing, every non-negotiable
      `pass`, demo passed, zero unaddressed `fix_now`.
-   - `blocked` otherwise. Orchestrator materializes new tasks from
-     `fix_now` findings; `defer` findings feed backlog curation.
+   - `blocked` otherwise. Orchestrator dispatches `investigate` for
+     autonomous remediation and then resumes the loop.
 
 ## Verification
 

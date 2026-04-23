@@ -30,7 +30,8 @@ produces_evidence:
 Apply the opinionated 10-pillar rubric to the task identified in
 your dispatch. Emit typed findings per issue. Record a rubric score
 per applicable pillar. Do not edit `plan.md`, do not create tasks —
-the orchestrator materializes new tasks from your `fix_now` findings.
+the orchestrator routes failures through `investigate` for autonomous
+remediation.
 
 ## Inputs (from your dispatch)
 
@@ -71,7 +72,8 @@ the orchestrator materializes new tasks from your `fix_now` findings.
    - `complete` if all scores ≥ passing and zero `fix_now` findings
      remain. The `TaskAudited` guard will be recorded.
    - `blocked` if any `fix_now` findings are produced. The orchestrator
-     will materialize fix tasks.
+     will dispatch `investigate` to diagnose and apply remediation
+     (typically revise/create tasks), then return to the task loop.
    - `blocked` if you cannot complete an audit (unusual; document
      in a signpost).
 

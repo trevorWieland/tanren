@@ -13,3 +13,11 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         RUST_LOG=error taplo fmt --check Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml
+
+pre-push:
+  parallel: false
+  commands:
+    phase0-gates:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-phase0-gates

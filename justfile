@@ -79,6 +79,7 @@ bootstrap:
         "cargo-deny:cargo-deny"
         "cargo-llvm-cov:cargo-llvm-cov"
         "cargo-machete:cargo-machete"
+        "cargo-mutants:cargo-mutants"
         "cargo-upgrade:cargo-edit"
         "cargo-hack:cargo-hack"
         "cargo-insta:cargo-insta"
@@ -219,10 +220,15 @@ install-commands-check:
 build:
     @{{ cargo }} build --workspace --locked --quiet
 
-# Type-check all workspace crates
+# Run per-task quality gate checks (fast, deterministic, no test matrix)
 check:
     @just deps-locked-check
+    @just fmt
+    @just check-lines
+    @just check-suppression
+    @just check-deps
     @{{ cargo }} check --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet
+    @{{ cargo }} clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --quiet -- -D warnings
 
 # ============================================================================
 # Test
@@ -287,6 +293,203 @@ doc:
 # ============================================================================
 # Quality Gates
 # ============================================================================
+
+# Phase 0 staged scenario gate scaffold (compatibility mode).
+check-phase0-scenario-stage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    bdd_source="docs/rewrite/PHASE0_PROOF_BDD.md"
+    scenario_count=0
+    if [[ -f "$bdd_source" ]]; then
+        scenario_count="$(grep -Ec '^### Scenario [0-9]+\.[0-9]+:' "$bdd_source" || true)"
+        echo "Phase 0 scenario scaffold: found ${scenario_count} scenario headings in ${bdd_source}."
+    else
+        echo "Phase 0 scenario scaffold: ${bdd_source} not found (non-blocking in scaffold mode)."
+    fi
+
+    feature_count=0
+    if [[ -d tests/bdd/phase0 ]]; then
+        feature_count="$(find tests/bdd/phase0 -type f -name '*.feature' | wc -l | tr -d '[:space:]')"
+    fi
+    echo "Phase 0 scenario scaffold: detected ${feature_count} feature file(s) under tests/bdd/phase0."
+
+# Phase 0 strict scenario gate (enforced in final flow).
+check-phase0-scenario-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    bdd_source="docs/rewrite/PHASE0_PROOF_BDD.md"
+    if [[ ! -f "$bdd_source" ]]; then
+        echo "FAIL: missing Phase 0 scenario source at ${bdd_source}."
+        exit 1
+    fi
+
+    scenario_count="$(grep -Ec '^### Scenario [0-9]+\.[0-9]+:' "$bdd_source" || true)"
+    if [[ "${scenario_count}" -lt 1 ]]; then
+        echo "FAIL: expected at least one scenario heading in ${bdd_source}."
+        exit 1
+    fi
+    echo "Phase 0 strict scenario gate: found ${scenario_count} scenario heading(s) in ${bdd_source}."
+
+    if [[ ! -d tests/bdd/phase0 ]]; then
+        echo "FAIL: missing tests/bdd/phase0 directory."
+        exit 1
+    fi
+    feature_count="$(find tests/bdd/phase0 -type f -name '*.feature' | wc -l | tr -d '[:space:]')"
+    if [[ "${feature_count}" -lt 9 ]]; then
+        echo "FAIL: expected at least 9 feature files under tests/bdd/phase0; found ${feature_count}."
+        exit 1
+    fi
+    echo "Phase 0 strict scenario gate: detected ${feature_count} feature file(s) under tests/bdd/phase0."
+
+# Run a cucumber-rs smoke scenario for the Phase 0 BDD harness scaffold.
+check-phase0-bdd-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    feature_file="tests/bdd/phase0/smoke.feature"
+    if [[ ! -f "$feature_file" ]]; then
+        echo "FAIL: missing Phase 0 smoke feature at ${feature_file}."
+        exit 1
+    fi
+
+    {{ cargo }} run --quiet -p tanren-bdd-phase0 --locked
+
+    tag_line="$(grep -E '^@' "$feature_file" | head -n 1 || true)"
+    if [[ -z "$tag_line" ]]; then
+        echo "FAIL: no tag line found in ${feature_file}."
+        exit 1
+    fi
+    echo "Phase 0 BDD smoke tag evidence: ${tag_line}"
+
+# Run Wave A cucumber-rs scenarios (Features 1-3) for Phase 0.
+check-phase0-bdd-wave-a:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    feature_files=(
+        "tests/bdd/phase0/feature-1-typed-control-plane-state.feature"
+        "tests/bdd/phase0/feature-2-event-history.feature"
+        "tests/bdd/phase0/feature-3-contract-derived-interface.feature"
+    )
+
+    for feature_file in "${feature_files[@]}"; do
+        if [[ ! -f "$feature_file" ]]; then
+            echo "FAIL: missing Phase 0 Wave A feature at ${feature_file}."
+            exit 1
+        fi
+        TANREN_BDD_PHASE0_FEATURE_PATH="$feature_file" \
+            {{ cargo }} run --quiet -p tanren-bdd-phase0 --locked
+
+        tag_line="$(grep -E '^[[:space:]]*@.*@BEH-P0-(101|102|201|202|203|301|302)' "$feature_file" | head -n 1 || true)"
+        if [[ -z "$tag_line" ]]; then
+            echo "FAIL: no Wave A behavior tag line found in ${feature_file}."
+            exit 1
+        fi
+        echo "Phase 0 Wave A BDD tag evidence (${feature_file}): ${tag_line}"
+    done
+
+# Run Wave B cucumber-rs scenarios (Features 4-6) for Phase 0.
+check-phase0-bdd-wave-b:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    feature_files=(
+        "tests/bdd/phase0/feature-4-methodology-boundary.feature"
+        "tests/bdd/phase0/feature-5-task-completion-guards.feature"
+        "tests/bdd/phase0/feature-6-tool-surface-contract.feature"
+    )
+
+    for feature_file in "${feature_files[@]}"; do
+        if [[ ! -f "$feature_file" ]]; then
+            echo "FAIL: missing Phase 0 Wave B feature at ${feature_file}."
+            exit 1
+        fi
+        TANREN_BDD_PHASE0_FEATURE_PATH="$feature_file" \
+            {{ cargo }} run --quiet -p tanren-bdd-phase0 --locked
+
+        tag_line="$(grep -E '^[[:space:]]*@.*@BEH-P0-(401|402|501|502|601|602|603)' "$feature_file" | head -n 1 || true)"
+        if [[ -z "$tag_line" ]]; then
+            echo "FAIL: no Wave B behavior tag line found in ${feature_file}."
+            exit 1
+        fi
+        echo "Phase 0 Wave B BDD tag evidence (${feature_file}): ${tag_line}"
+    done
+
+# Run Wave C cucumber-rs scenarios (Features 7-8) for Phase 0.
+check-phase0-bdd-wave-c:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    feature_files=(
+        "tests/bdd/phase0/feature-7-installer-determinism.feature"
+        "tests/bdd/phase0/feature-8-manual-methodology-walkthrough.feature"
+    )
+
+    for feature_file in "${feature_files[@]}"; do
+        if [[ ! -f "$feature_file" ]]; then
+            echo "FAIL: missing Phase 0 Wave C feature at ${feature_file}."
+            exit 1
+        fi
+        TANREN_BDD_PHASE0_FEATURE_PATH="$feature_file" \
+            {{ cargo }} run --quiet -p tanren-bdd-phase0 --locked
+
+        tag_line="$(grep -E '^[[:space:]]*@.*@BEH-P0-(701|702|703|801)' "$feature_file" | head -n 1 || true)"
+        if [[ -z "$tag_line" ]]; then
+            echo "FAIL: no Wave C behavior tag line found in ${feature_file}."
+            exit 1
+        fi
+        echo "Phase 0 Wave C BDD tag evidence (${feature_file}): ${tag_line}"
+    done
+
+# Phase 0 staged mutation gate (compatibility mode).
+check-phase0-mutation-stage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    ./scripts/proof/phase0/run_mutation_stage.sh
+
+# Phase 0 strict mutation gate (enforced in final flow).
+check-phase0-mutation-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    PHASE0_MUTATION_ENFORCE=1 ./scripts/proof/phase0/run_mutation_stage.sh
+
+# Phase 0 staged coverage classification gate (compatibility mode).
+check-phase0-coverage-stage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    ./scripts/proof/phase0/run_coverage_stage.sh
+
+# Phase 0 strict coverage classification gate (enforced in final flow).
+check-phase0-coverage-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    PHASE0_COVERAGE_ENFORCE=1 ./scripts/proof/phase0/run_coverage_stage.sh
+
+# Run all staged Phase 0 behavior gate scaffolds.
+check-phase0-stage-gates:
+    @just check-phase0-scenario-stage
+    @just check-phase0-bdd-smoke
+    @just check-phase0-bdd-wave-a
+    @just check-phase0-bdd-wave-b
+    @just check-phase0-bdd-wave-c
+    @just check-phase0-mutation-stage
+    @just check-phase0-coverage-stage
+
+# Run all strict Phase 0 behavior gates (mandatory in final flow).
+check-phase0-gates:
+    @just check-phase0-scenario-gate
+    @just check-phase0-bdd-smoke
+    @just check-phase0-bdd-wave-a
+    @just check-phase0-bdd-wave-b
+    @just check-phase0-bdd-wave-c
+    @just check-phase0-mutation-gate
+    @just check-phase0-coverage-gate
 
 # Enforce max file line count (500 lines per .rs file)
 check-lines:
@@ -531,18 +734,12 @@ ci-rust-strict:
 
 # Run full CI check locally.
 ci:
-    @echo "==> Lockfile guard"
-    @just deps-locked-check
-    @echo "==> Format"
-    @just fmt
-    @echo "==> File length guard"
-    @just check-lines
-    @echo "==> Lint suppression guard"
-    @just check-suppression
-    @echo "==> Dependency layering guard"
-    @just check-deps
+    @echo "==> Task gate checks"
+    @just check
     @echo "==> CI parity guard"
     @just check-ci-parity
+    @echo "==> Phase 0 strict behavior gates"
+    @just check-phase0-gates
     @echo "==> Dependency audit"
     @just deny
     @echo "==> Docs"

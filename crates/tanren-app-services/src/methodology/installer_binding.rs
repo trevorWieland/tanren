@@ -55,6 +55,10 @@ fn build_phase_binding_instructions(
 }
 
 fn minimal_valid_payload_json(tool: &str) -> Option<&'static str> {
+    minimal_task_and_spec_payload_json(tool).or_else(|| minimal_demo_and_phase_payload_json(tool))
+}
+
+fn minimal_task_and_spec_payload_json(tool: &str) -> Option<&'static str> {
     Some(match tool {
         "create_task" => {
             r#"{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","title":"task title","description":"task description","origin":{"kind":"user"},"acceptance_criteria":[]}"#
@@ -64,6 +68,9 @@ fn minimal_valid_payload_json(tool: &str) -> Option<&'static str> {
         }
         "complete_task" => {
             r#"{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","evidence_refs":[]}"#
+        }
+        "reset_task_guards" => {
+            r#"{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","reason":"retry from investigate loop"}"#
         }
         "revise_task" => {
             r#"{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","revised_description":"updated details","revised_acceptance":[],"reason":"clarify acceptance"}"#
@@ -119,6 +126,12 @@ fn minimal_valid_payload_json(tool: &str) -> Option<&'static str> {
         "set_spec_relevance_context" => {
             r#"{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","relevance_context":{"touched_files":["src/lib.rs"],"project_language":"rust","tags":["safety"],"category":"backend"}}"#
         }
+        _ => return None,
+    })
+}
+
+fn minimal_demo_and_phase_payload_json(tool: &str) -> Option<&'static str> {
+    Some(match tool {
         "add_demo_step" => {
             r#"{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","id":"step-1","mode":"RUN","description":"Run smoke flow","expected_observable":"No errors"}"#
         }

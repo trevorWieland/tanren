@@ -249,7 +249,7 @@ fn phase0_script_output_modes_render_expected_verbosity() {
     );
     let silent = String::from_utf8_lossy(&out_silent.stdout);
     assert!(
-        silent.contains("task 1/1 - implementing"),
+        silent.contains("task 1/1 - task_do_task (implementing)"),
         "silent output: {silent}"
     );
     assert!(

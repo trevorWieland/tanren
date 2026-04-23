@@ -172,6 +172,7 @@ fn apply_task_transition(
                 &RequiredGuard::Extra(e.guard_name.as_str().to_owned()),
             );
         }
+        MethodologyEvent::TaskGuardsReset(_) => reset_guards(current),
         MethodologyEvent::TaskCompleted(_) => {
             if let TaskStatus::Implemented { guards } = current
                 && guards.satisfies(required)
@@ -198,6 +199,12 @@ fn set_guard(current: &mut TaskStatus, guard: &RequiredGuard) {
     }
 }
 
+fn reset_guards(current: &mut TaskStatus) {
+    if let TaskStatus::Implemented { guards } = current {
+        *guards = tanren_domain::methodology::task::TaskGuardFlags::default();
+    }
+}
+
 fn task_transition_kind(event: &MethodologyEvent) -> Option<(TaskId, TaskTransitionKind)> {
     match event {
         MethodologyEvent::TaskCreated(e) => Some((e.task.id, TaskTransitionKind::Start)),
@@ -207,6 +214,7 @@ fn task_transition_kind(event: &MethodologyEvent) -> Option<(TaskId, TaskTransit
         MethodologyEvent::TaskAudited(e) => Some((e.task_id, TaskTransitionKind::Guard)),
         MethodologyEvent::TaskAdherent(e) => Some((e.task_id, TaskTransitionKind::Guard)),
         MethodologyEvent::TaskXChecked(e) => Some((e.task_id, TaskTransitionKind::Guard)),
+        MethodologyEvent::TaskGuardsReset(e) => Some((e.task_id, TaskTransitionKind::ResetGuards)),
         MethodologyEvent::TaskCompleted(e) => Some((e.task_id, TaskTransitionKind::Complete)),
         MethodologyEvent::TaskRevised(e) => Some((e.task_id, TaskTransitionKind::Revise)),
         MethodologyEvent::TaskAbandoned(e) => Some((e.task_id, TaskTransitionKind::Abandon)),

@@ -49,6 +49,14 @@ fn task_and_scoring_params_reject_unknown_fields() {
         "mark_task_guard_satisfied",
         json!({"schema_version": "1.0.0", "task_id": TASK_A, "guard": "audited"}),
     );
+    assert_unknown_field_rejected::<c::ResetTaskGuardsParams>(
+        "reset_task_guards",
+        json!({
+            "schema_version": "1.0.0",
+            "task_id": TASK_A,
+            "reason": "retry loop reset"
+        }),
+    );
     assert_unknown_field_rejected::<c::ReviseTaskParams>(
         "revise_task",
         json!({

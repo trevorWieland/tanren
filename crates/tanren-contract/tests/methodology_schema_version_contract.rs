@@ -10,12 +10,12 @@ use tanren_contract::methodology::{
     ListRelevantStandardsResponse, ListTasksParams, ListTasksResponse, METHODOLOGY_SCHEMA_VERSION,
     MarkDemoStepSkipParams, MarkTaskGuardSatisfiedParams, PostReplyDirectiveParams,
     RecordAdherenceFindingParams, RecordNonNegotiableComplianceParams, RecordRubricScoreParams,
-    RelevantStandard, ReportPhaseOutcomeParams, ReviseTaskParams, SchemaVersion,
-    SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams, SetSpecDependenciesParams,
-    SetSpecExpectationsParams, SetSpecImplementationPlanParams, SetSpecMotivationsParams,
-    SetSpecNonNegotiablesParams, SetSpecPlannedBehaviorsParams, SetSpecProblemStatementParams,
-    SetSpecRelevanceContextParams, SetSpecTitleParams, SpecStatusParams, SpecStatusResponse,
-    StartTaskParams, UpdateSignpostStatusParams,
+    RelevantStandard, ReportPhaseOutcomeParams, ResetTaskGuardsParams, ReviseTaskParams,
+    SchemaVersion, SetSpecBaseBranchParams, SetSpecDemoEnvironmentParams,
+    SetSpecDependenciesParams, SetSpecExpectationsParams, SetSpecImplementationPlanParams,
+    SetSpecMotivationsParams, SetSpecNonNegotiablesParams, SetSpecPlannedBehaviorsParams,
+    SetSpecProblemStatementParams, SetSpecRelevanceContextParams, SetSpecTitleParams,
+    SpecStatusParams, SpecStatusResponse, StartTaskParams, UpdateSignpostStatusParams,
 };
 
 fn assert_schema_version_required<T: JsonSchema>() {
@@ -57,6 +57,7 @@ fn every_methodology_request_schema_requires_schema_version() {
     assert_schema_version_required::<StartTaskParams>();
     assert_schema_version_required::<CompleteTaskParams>();
     assert_schema_version_required::<MarkTaskGuardSatisfiedParams>();
+    assert_schema_version_required::<ResetTaskGuardsParams>();
     assert_schema_version_required::<ReviseTaskParams>();
     assert_schema_version_required::<AbandonTaskParams>();
     assert_schema_version_required::<ListTasksParams>();
@@ -132,6 +133,11 @@ fn assert_task_and_quality_request_payload_schema_versions(schema_version: &Sche
         "schema_version": schema_version.as_str(),
         "task_id": "00000000-0000-0000-0000-000000000011",
         "guard": "audited"
+    })));
+    assert_serialized_schema_version(parse_fixture::<ResetTaskGuardsParams>(json!({
+        "schema_version": schema_version.as_str(),
+        "task_id": "00000000-0000-0000-0000-000000000011",
+        "reason": "retry from investigate loop"
     })));
     assert_serialized_schema_version(parse_fixture::<ReviseTaskParams>(json!({
         "schema_version": schema_version.as_str(),

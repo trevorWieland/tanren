@@ -175,6 +175,20 @@ async fn spec_status_uses_spec_pipeline_when_no_open_task() {
     )
     .await
     .expect("phase outcome");
+    let blocked = spec_status(&svc, spec_id).await;
+    assert_eq!(blocked.next_action, SpecStatusNextAction::RunLoop);
+    assert_eq!(blocked.next_task_id, None);
+    assert_eq!(blocked.next_step, Some(SpecStatusNextStep::SpecInvestigate));
+    assert_eq!(
+        blocked.investigate_source_phase.as_deref(),
+        Some("run-demo")
+    );
+    assert_eq!(
+        blocked.investigate_source_outcome.as_deref(),
+        Some("blocked")
+    );
+    assert!(!blocked.blockers_active);
+
     svc.report_phase_outcome(
         &scope(&[ToolCapability::PhaseOutcome]),
         &phase("resolve-blockers"),
@@ -197,4 +211,206 @@ async fn spec_status_uses_spec_pipeline_when_no_open_task() {
     assert_eq!(status.next_task_id, None);
     assert_eq!(status.next_step, Some(SpecStatusNextStep::SpecPipeline));
     assert!(status.pending_required_guards.is_empty());
+}
+
+#[tokio::test]
+async fn spec_status_routes_task_blocked_outcomes_to_task_investigate() {
+    let spec_id = SpecId::new();
+    let svc = mk_service(
+        vec![
+            RequiredGuard::GateChecked,
+            RequiredGuard::Audited,
+            RequiredGuard::Adherent,
+        ],
+        spec_id,
+    )
+    .await;
+    let task_id = svc
+        .create_task(
+            &scope(&[ToolCapability::TaskCreate]),
+            &phase("shape-spec"),
+            CreateTaskParams {
+                schema_version: SchemaVersion::current(),
+                spec_id,
+                title: "Task investigate".into(),
+                description: String::new(),
+                parent_task_id: None,
+                depends_on: vec![],
+                origin: TaskOrigin::User,
+                acceptance_criteria: vec![],
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("create")
+        .task_id;
+
+    implement_task(&svc, task_id).await;
+
+    svc.report_phase_outcome(
+        &scope(&[ToolCapability::PhaseOutcome]),
+        &phase("audit-task"),
+        ReportPhaseOutcomeParams {
+            schema_version: SchemaVersion::current(),
+            spec_id,
+            task_id: Some(task_id),
+            outcome: PhaseOutcome::Blocked {
+                reason: BlockedReason::Other {
+                    detail: NonEmptyString::try_new("audit blocked").expect("detail"),
+                },
+                summary: NonEmptyString::try_new("audit blocked").expect("summary"),
+            },
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("phase outcome");
+
+    let status = spec_status(&svc, spec_id).await;
+    assert_eq!(status.next_action, SpecStatusNextAction::RunLoop);
+    assert_eq!(status.next_task_id, Some(task_id));
+    assert_eq!(status.next_step, Some(SpecStatusNextStep::TaskInvestigate));
+    assert_eq!(
+        status.investigate_source_phase.as_deref(),
+        Some("audit-task")
+    );
+    assert_eq!(
+        status.investigate_source_outcome.as_deref(),
+        Some("blocked")
+    );
+    assert_eq!(status.investigate_source_task_id, Some(task_id));
+    assert!(!status.blockers_active);
+}
+
+#[tokio::test]
+async fn spec_status_routes_task_investigate_completion_back_to_do_task() {
+    let spec_id = SpecId::new();
+    let svc = mk_service(
+        vec![
+            RequiredGuard::GateChecked,
+            RequiredGuard::Audited,
+            RequiredGuard::Adherent,
+        ],
+        spec_id,
+    )
+    .await;
+    let task_id = svc
+        .create_task(
+            &scope(&[ToolCapability::TaskCreate]),
+            &phase("shape-spec"),
+            CreateTaskParams {
+                schema_version: SchemaVersion::current(),
+                spec_id,
+                title: "Task investigate recovery".into(),
+                description: String::new(),
+                parent_task_id: None,
+                depends_on: vec![],
+                origin: TaskOrigin::User,
+                acceptance_criteria: vec![],
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("create")
+        .task_id;
+
+    implement_task(&svc, task_id).await;
+
+    svc.mark_task_guard_satisfied_with_params(
+        &scope(&[ToolCapability::TaskComplete]),
+        &phase("do-task"),
+        MarkTaskGuardSatisfiedParams {
+            schema_version: SchemaVersion::current(),
+            task_id,
+            guard: RequiredGuard::GateChecked,
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("mark gate");
+
+    svc.report_phase_outcome(
+        &scope(&[ToolCapability::PhaseOutcome]),
+        &phase("audit-task"),
+        ReportPhaseOutcomeParams {
+            schema_version: SchemaVersion::current(),
+            spec_id,
+            task_id: Some(task_id),
+            outcome: PhaseOutcome::Blocked {
+                reason: BlockedReason::Other {
+                    detail: NonEmptyString::try_new("audit blocked").expect("detail"),
+                },
+                summary: NonEmptyString::try_new("audit blocked").expect("summary"),
+            },
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("audit blocked");
+
+    svc.report_phase_outcome(
+        &scope(&[ToolCapability::PhaseOutcome]),
+        &phase("investigate"),
+        ReportPhaseOutcomeParams {
+            schema_version: SchemaVersion::current(),
+            spec_id,
+            task_id: Some(task_id),
+            outcome: PhaseOutcome::Complete {
+                summary: NonEmptyString::try_new("investigate complete").expect("summary"),
+                next_action_hint: None,
+            },
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("investigate complete");
+
+    let status = spec_status(&svc, spec_id).await;
+    assert_eq!(status.next_action, SpecStatusNextAction::RunLoop);
+    assert_eq!(status.next_task_id, Some(task_id));
+    assert_eq!(status.next_step, Some(SpecStatusNextStep::TaskDoTask));
+    assert_eq!(
+        status.next_step_reason.as_deref(),
+        Some("investigate completed for latest blocked outcome in audit-task; rerun do-task")
+    );
+}
+
+#[tokio::test]
+async fn spec_status_exposes_investigate_escalation_context_for_resolve_blockers() {
+    let spec_id = SpecId::new();
+    let svc = mk_service(vec![RequiredGuard::GateChecked], spec_id).await;
+    svc.report_phase_outcome(
+        &scope(&[ToolCapability::PhaseOutcome]),
+        &phase("investigate"),
+        ReportPhaseOutcomeParams {
+            schema_version: SchemaVersion::current(),
+            spec_id,
+            task_id: None,
+            outcome: PhaseOutcome::Blocked {
+                reason: BlockedReason::AwaitingHumanInput {
+                    prompt: NonEmptyString::try_new("reason: blocked\noptions:\n- retry\n- defer")
+                        .expect("prompt"),
+                },
+                summary: NonEmptyString::try_new("escalated").expect("summary"),
+            },
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("investigate blocked");
+
+    let status = spec_status(&svc, spec_id).await;
+    assert_eq!(
+        status.next_action,
+        SpecStatusNextAction::ResolveBlockersRequired
+    );
+    assert!(status.blockers_active);
+    assert_eq!(
+        status.last_blocker_reason_kind.as_deref(),
+        Some("awaiting_human_input")
+    );
+    assert_eq!(
+        status.last_blocker_options,
+        vec!["retry".to_owned(), "defer".to_owned()]
+    );
 }

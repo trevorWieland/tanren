@@ -172,6 +172,11 @@ impl TaskProjectionState {
             TaskProjectionOp::Guard(guard) => {
                 self.guards.set(&guard, true);
             }
+            TaskProjectionOp::ResetGuards => {
+                if self.tag == TaskStatusTag::Implemented {
+                    self.guards = TaskGuardFlags::default();
+                }
+            }
             TaskProjectionOp::Complete => {
                 if self.tag == TaskStatusTag::Implemented {
                     self.tag = TaskStatusTag::Complete;
@@ -220,6 +225,7 @@ enum TaskProjectionOp {
     Start,
     Implement,
     Guard(RequiredGuard),
+    ResetGuards,
     Complete,
     Abandon,
     Revise,
@@ -262,6 +268,9 @@ impl TaskProjectionMutation {
                 e.spec_id,
                 TaskProjectionOp::Guard(RequiredGuard::Extra(e.guard_name.as_str().to_owned())),
             ),
+            MethodologyEvent::TaskGuardsReset(e) => {
+                (e.task_id, e.spec_id, TaskProjectionOp::ResetGuards)
+            }
             MethodologyEvent::TaskCompleted(e) => {
                 (e.task_id, e.spec_id, TaskProjectionOp::Complete)
             }
@@ -474,10 +483,8 @@ pub(crate) async fn upsert_task_status_projection_txn(
             .await?;
         }
     }
-
     Ok(())
 }
-
 fn status_for_projection_update(
     state: &TaskProjectionState,
     event: &MethodologyEvent,

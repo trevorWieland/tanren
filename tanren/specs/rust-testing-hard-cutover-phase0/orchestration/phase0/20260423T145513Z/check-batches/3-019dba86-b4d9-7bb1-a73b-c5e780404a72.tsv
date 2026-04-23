@@ -1,0 +1,4 @@
+gate_checked	task_verification_hook	pass	task verification hook	tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T145513Z/commands/005-task_verification_hook.log
+gate_checked	mark_task_guard_gate_checked	pass	mark gate_checked guard	tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T145513Z/commands/006-task_guard_gate_checked.log
+audited	audit-task	pass	audit-task phase	tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T145513Z/commands/007-harness_audit-task.log
+audited	audit_task_hook	pass	audit_task_hook	tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T145513Z/commands/008-audit_task_hook.log

@@ -1,0 +1,80 @@
+{
+  "schema_version": "v1",
+  "contract_version": "v1",
+  "spec_id": "00000000-0000-0000-0000-000000000123",
+  "generated_at": "2026-04-23T14:59:56.765280Z",
+  "tasks": [
+    {
+      "task": {
+        "id": "019dbada-d171-7cd2-aa50-e2ecc332aa65",
+        "spec_id": "00000000-0000-0000-0000-000000000123",
+        "title": "task",
+        "description": "",
+        "acceptance_criteria": [],
+        "origin": {
+          "kind": "user"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "parent_task_id": null,
+        "created_at": "2026-04-23T14:59:55.889474Z",
+        "updated_at": "2026-04-23T14:59:55.889474Z"
+      },
+      "owner_phase": "user",
+      "status_rationale": "task created",
+      "status_event_id": "019dbada-d171-7cd2-aa50-e2f6d0118cb3",
+      "status_event_timestamp": "2026-04-23T14:59:55.889488Z",
+      "status_event_phase": "do-task",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019dbada-d2ea-7263-b4b1-340d2d07201b",
+        "spec_id": "00000000-0000-0000-0000-000000000123",
+        "title": "task",
+        "description": "",
+        "acceptance_criteria": [],
+        "origin": {
+          "kind": "user"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "parent_task_id": null,
+        "created_at": "2026-04-23T14:59:56.266429Z",
+        "updated_at": "2026-04-23T14:59:56.266429Z"
+      },
+      "owner_phase": "user",
+      "status_rationale": "task created",
+      "status_event_id": "019dbada-d2ea-7263-b4b1-34165060025a",
+      "status_event_timestamp": "2026-04-23T14:59:56.266438Z",
+      "status_event_phase": "do-task",
+      "status_event_tool": "create_task"
+    },
+    {
+      "task": {
+        "id": "019dbada-d4dd-7351-ac13-4b0bac30ad33",
+        "spec_id": "00000000-0000-0000-0000-000000000123",
+        "title": "task",
+        "description": "",
+        "acceptance_criteria": [],
+        "origin": {
+          "kind": "user"
+        },
+        "status": {
+          "state": "pending"
+        },
+        "parent_task_id": null,
+        "created_at": "2026-04-23T14:59:56.765271Z",
+        "updated_at": "2026-04-23T14:59:56.765271Z"
+      },
+      "owner_phase": "user",
+      "status_rationale": "task created",
+      "status_event_id": "019dbada-d4dd-7351-ac13-4b143a8b3b7e",
+      "status_event_timestamp": "2026-04-23T14:59:56.765280Z",
+      "status_event_phase": "do-task",
+      "status_event_tool": "create_task"
+    }
+  ]
+}

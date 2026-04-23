@@ -247,7 +247,7 @@ makes every gap concrete and actionable.
 | Result | Orchestrator action |
 |---|---|
 | Pass | Advance task (task-scope) or proceed to walk-spec (spec-scope). |
-| Fail with `fix_now` findings | Materialize new tasks (`origin: Audit` or `origin: SpecAudit`) from findings; loop. |
+| Fail with `fix_now` findings | Dispatch `investigate` for autonomous remediation (which may create/revise tasks), then loop. |
 | Fail with only `defer` findings | Impossible — fail requires at least one `fix_now` or a failed non-negotiable / failed demo. |
 | Pass with some pillars < target but ≥ passing | Accept; defer findings to backlog (`create_issue`). |
 

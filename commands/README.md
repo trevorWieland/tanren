@@ -11,10 +11,10 @@ and re-run `tanren install` (see
 
 ## Layout
 
-- **[spec/](spec/)** — commands that participate in the
+- **[spec commands](spec/shape-spec.md)** — commands that participate in the
   spec-orchestration state machine. Each emits typed events via the
   agent tool surface and contributes to task / finding state.
-- **[project/](project/)** — project-management commands that
+- **[project commands](project/plan-product.md)** — project-management commands that
   operate outside the spec loop. Still templated and installed, but
   not sequenced by the state machine.
 

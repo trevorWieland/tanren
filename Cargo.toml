@@ -15,6 +15,7 @@ members = [
   "crates/tanren-runtime-local",
   "crates/tanren-runtime-docker",
   "crates/tanren-runtime-remote",
+  "crates/tanren-bdd-phase0",
   "crates/tanren-harness-claude",
   "crates/tanren-harness-codex",
   "crates/tanren-harness-opencode",

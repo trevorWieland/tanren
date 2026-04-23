@@ -2,7 +2,7 @@
   "schema_version": "v1",
   "contract_version": "v1",
   "spec_id": "00000000-0000-0000-0000-000000000c01",
-  "generated_at": "2026-04-22T14:52:08.657329Z",
+  "generated_at": "2026-04-23T15:12:24.682435Z",
   "tasks": [
     {
       "task": {
@@ -26,22 +26,17 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "implemented",
-          "guards": {
-            "gate_checked": false,
-            "audited": true,
-            "adherent": false
-          }
+          "state": "complete"
         },
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:23.985039Z",
-        "updated_at": "2026-04-22T14:52:08.657329Z"
+        "updated_at": "2026-04-22T23:46:43.319937Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "guard `audited` satisfied",
-      "status_event_id": "019db5ad-5451-76b3-a607-4226e1f2b17c",
-      "status_event_timestamp": "2026-04-22T14:52:08.657329Z",
-      "status_event_phase": "audit-task",
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db796-bff7-73e0-8824-aa2715517326",
+      "status_event_timestamp": "2026-04-22T23:46:43.319937Z",
+      "status_event_phase": "adhere-task",
       "status_event_tool": "mark_task_guard_satisfied"
     },
     {
@@ -66,21 +61,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b051-70e1-9190-c4f9cd09b5e7"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.087277Z",
-        "updated_at": "2026-04-22T14:15:24.087277Z"
+        "updated_at": "2026-04-23T00:27:03.043590Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b0b7-7541-bceb-bef4f5409975",
-      "status_event_timestamp": "2026-04-22T14:15:24.087286Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db7bb-ac03-7691-9757-942c52063256",
+      "status_event_timestamp": "2026-04-23T00:27:03.043590Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -104,21 +99,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b0b7-7541-bceb-beefc3b8876c"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.174167Z",
-        "updated_at": "2026-04-22T14:15:24.174167Z"
+        "updated_at": "2026-04-23T00:38:34.841217Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b10e-7a21-94fa-36ab5b85be54",
-      "status_event_timestamp": "2026-04-22T14:15:24.174175Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db7c6-3a59-7b71-a21f-b332a65df89f",
+      "status_event_timestamp": "2026-04-23T00:38:34.841217Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -142,21 +137,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b10e-7a21-94fa-3699f795228b"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.261271Z",
-        "updated_at": "2026-04-22T14:15:24.261271Z"
+        "updated_at": "2026-04-23T00:56:28.472458Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b165-7f51-b581-6b31850db183",
-      "status_event_timestamp": "2026-04-22T14:15:24.261281Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db7d6-9c38-76a3-bab7-13e7c1754fc6",
+      "status_event_timestamp": "2026-04-23T00:56:28.472458Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -180,21 +175,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b165-7f51-b581-6b2a0b9e77f8"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.349311Z",
-        "updated_at": "2026-04-22T14:15:24.349311Z"
+        "updated_at": "2026-04-23T01:12:31.246361Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b1bd-7fe3-8db6-83e4eaad7747",
-      "status_event_timestamp": "2026-04-22T14:15:24.349320Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db7e5-4d0e-7e83-8e0b-ea4384da04e7",
+      "status_event_timestamp": "2026-04-23T01:12:31.246361Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -218,21 +213,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b1bd-7fe3-8db6-83d7fa10e2d8"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.437398Z",
-        "updated_at": "2026-04-22T14:15:24.437398Z"
+        "updated_at": "2026-04-23T01:30:22.094884Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b215-7fe3-ba25-460e153860b3",
-      "status_event_timestamp": "2026-04-22T14:15:24.437406Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db7f5-a40e-7221-a7b3-caa3881bfe1a",
+      "status_event_timestamp": "2026-04-23T01:30:22.094884Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -256,21 +251,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b215-7fe3-ba25-45ffbdb973b3"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.530189Z",
-        "updated_at": "2026-04-22T14:15:24.530189Z"
+        "updated_at": "2026-04-23T01:50:29.584587Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b272-7452-bec2-acf3879bcf90",
-      "status_event_timestamp": "2026-04-22T14:15:24.530199Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db808-10d0-7ad1-996e-2340ec0c554a",
+      "status_event_timestamp": "2026-04-23T01:50:29.584587Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -294,21 +289,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b272-7452-bec2-acef1fa93a24"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.619864Z",
-        "updated_at": "2026-04-22T14:15:24.619864Z"
+        "updated_at": "2026-04-23T02:05:48.333790Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b2cb-7413-b146-fd950174f05a",
-      "status_event_timestamp": "2026-04-22T14:15:24.619874Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db816-15ad-79a0-993f-6960017ebacd",
+      "status_event_timestamp": "2026-04-23T02:05:48.333790Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -332,21 +327,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b2cb-7413-b146-fd88721c2784"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.711527Z",
-        "updated_at": "2026-04-22T14:15:24.711527Z"
+        "updated_at": "2026-04-23T02:23:25.943108Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b327-7dd2-8c8b-9edb28d7f93f",
-      "status_event_timestamp": "2026-04-22T14:15:24.711537Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db826-38f7-7ba3-b1c8-2e94a6afd780",
+      "status_event_timestamp": "2026-04-23T02:23:25.943108Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -370,21 +365,21 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b327-7dd2-8c8b-9ec0947e6684"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.802087Z",
-        "updated_at": "2026-04-22T14:15:24.802087Z"
+        "updated_at": "2026-04-23T02:44:27.645765Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b382-7060-afcd-73cf10776801",
-      "status_event_timestamp": "2026-04-22T14:15:24.802097Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db839-797d-7e63-b16b-89da56a546a9",
+      "status_event_timestamp": "2026-04-23T02:44:27.645765Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
@@ -408,97 +403,160 @@
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b382-7060-afcd-73b9d68cd740"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.891703Z",
-        "updated_at": "2026-04-22T14:15:24.891703Z"
+        "updated_at": "2026-04-23T02:58:38.827333Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b3db-76f2-90aa-9be07cd31c63",
-      "status_event_timestamp": "2026-04-22T14:15:24.891712Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db846-766b-71a3-8af9-83b1f44e2cf5",
+      "status_event_timestamp": "2026-04-23T02:58:38.827333Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
         "id": "019db58b-b438-7733-8513-5ef68730d647",
         "spec_id": "00000000-0000-0000-0000-000000000c01",
         "title": "T12 Proof Docs And Scripts Refresh",
-        "description": "Update Phase 0 proof runbook/scripts/evidence index to reflect the new Rust testing framework and reproducible execution path.",
+        "description": "Refresh Phase 0 proof artifacts so they match the strict hard-cutover command contract by replacing stale staged/non-blocking language in docs/rewrite/PHASE0_PROOF_RUNBOOK.md, synchronizing docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md scenario statuses with implemented Wave B/C ownership, and updating scripts/proof/phase0/run.sh retired guidance to the complete canonical post-cutover command set.",
         "acceptance_criteria": [
           {
             "id": "t12-ac1",
-            "description": "Proof docs/scripts reference the new behavior-first test flow.",
-            "measurable": "Runbook commands and evidence mapping are updated and coherent."
+            "description": "Runbook strictness language reflects hard-cutover enforcement.",
+            "measurable": "docs/rewrite/PHASE0_PROOF_RUNBOOK.md removes staged/non-blocking/deferred-enforcement wording and no longer includes the section titled 'Staged Gate Scaffolding (Current Non-Blocking Contract)'."
           },
           {
             "id": "t12-ac2",
-            "description": "Task ends with just check green.",
-            "measurable": "just check passes after docs/script updates."
+            "description": "Runbook command contract lists the full enforced gate set.",
+            "measurable": "Runbook command guidance explicitly lists: check-phase0-scenario-stage, check-phase0-bdd-smoke, check-phase0-bdd-wave-a, check-phase0-bdd-wave-b, check-phase0-bdd-wave-c, check-phase0-mutation-stage, check-phase0-coverage-stage, and check-phase0-stage-gates."
+          },
+          {
+            "id": "t12-ac3",
+            "description": "Evidence index status matrix is synchronized with implemented Wave B/C ownership.",
+            "measurable": "docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md Scenario Matrix marks scenarios 4.1-8.1 as active and no row in the post-cutover matrix uses 'pending migration'."
+          },
+          {
+            "id": "t12-ac4",
+            "description": "Retired run.sh guidance mirrors the complete canonical post-cutover command path.",
+            "measurable": "scripts/proof/phase0/run.sh retired-entrypoint message includes bdd-smoke, bdd-wave-a, bdd-wave-b, bdd-wave-c, mutation-stage, coverage-stage, and stage-gates commands."
+          },
+          {
+            "id": "t12-ac5",
+            "description": "Task closure remains gated on repository health.",
+            "measurable": "just check passes after these documentation/script corrections."
           }
         ],
         "origin": {
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b3db-76f2-90aa-9bd6fda1feef"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:24.984840Z",
-        "updated_at": "2026-04-22T14:15:24.984840Z"
+        "updated_at": "2026-04-23T05:31:32.415388Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b438-7733-8513-5f0e92b3ba72",
-      "status_event_timestamp": "2026-04-22T14:15:24.984850Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019db8d2-70bf-71c3-a210-db03daecb76e",
+      "status_event_timestamp": "2026-04-23T05:31:32.415388Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     },
     {
       "task": {
         "id": "019db58b-b492-7423-925a-80190e82b708",
         "spec_id": "00000000-0000-0000-0000-000000000c01",
         "title": "T13 Orchestration Trial Meta-Readiness Report",
-        "description": "Produce a trial report evaluating shape-spec/task orchestration effectiveness, friction, and recommendations for using Tanren orchestration within Tanren itself.",
+        "description": "Produce the Phase 0 orchestration meta-readiness report and explicitly capture the terminal gate state from actual execution evidence. When final just ci is red, the report must still be delivered with blocker evidence and an explicit remediation handoff task reference.",
         "acceptance_criteria": [
           {
             "id": "t13-ac1",
             "description": "Meta report captures strengths, frictions, and proposed mitigations.",
-            "measurable": "Report includes explicit go/no-go readiness recommendation."
+            "measurable": "Report includes an explicit GO/NO-GO readiness recommendation with rationale."
           },
           {
             "id": "t13-ac2",
-            "description": "Spec closure criteria include final just ci success.",
-            "measurable": "Report references final just ci result as the terminal gate outcome."
+            "description": "Report records terminal gate status using concrete evidence.",
+            "measurable": "Report includes latest just check and just ci results, references supporting gate artifacts/logs, and states whether terminal closure rule is currently satisfied."
+          },
+          {
+            "id": "t13-ac3",
+            "description": "Terminal-gate failure path includes explicit remediation handoff.",
+            "measurable": "If just ci is failing, report references a dedicated remediation task and names the failing gate and affected file scope."
           }
         ],
         "origin": {
           "kind": "shape_spec"
         },
         "status": {
-          "state": "pending"
+          "state": "complete"
         },
         "depends_on": [
           "019db58b-b438-7733-8513-5ef68730d647"
         ],
         "parent_task_id": null,
         "created_at": "2026-04-22T14:15:25.074515Z",
-        "updated_at": "2026-04-22T14:15:25.074515Z"
+        "updated_at": "2026-04-23T14:57:04.214653Z"
       },
       "owner_phase": "shape-spec",
-      "status_rationale": "task created",
-      "status_event_id": "019db58b-b492-7423-925a-802c5ffde3c5",
-      "status_event_timestamp": "2026-04-22T14:15:25.074525Z",
-      "status_event_phase": "shape-spec",
-      "status_event_tool": "create_task"
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019dbad8-32d6-7963-834f-cd99727bc7b5",
+      "status_event_timestamp": "2026-04-23T14:57:04.214653Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
+    },
+    {
+      "task": {
+        "id": "019dba86-b4d9-7bb1-a73b-c5e780404a72",
+        "spec_id": "00000000-0000-0000-0000-000000000c01",
+        "title": "T14 Strict Mutation Gate Remediation For Phase 0 Final CI",
+        "description": "Resolve the strict mutation-gate misses observed in artifacts/phase0-mutation/enforced/20260423T053640Z for crates/tanren-bdd-phase0/src/main.rs (submit_lifecycle_transition mutants: delete ! and += to -=), by tightening behavior scenarios and/or implementation semantics so the final enforced mutation gate no longer reports unresolved misses and just ci can pass.",
+        "acceptance_criteria": [
+          {
+            "id": "t14-ac1",
+            "description": "Mutation misses in submit_lifecycle_transition are resolved.",
+            "measurable": "Mutation evidence no longer reports MISSED for crates/tanren-bdd-phase0/src/main.rs mutants at prior failing sites (delete ! and += -> -=), or includes explicit equivalent-justification triage linked to BEH-* IDs."
+          },
+          {
+            "id": "t14-ac2",
+            "description": "Strict mutation gate passes in the enforced path.",
+            "measurable": "just ci passes check-phase0-mutation-gate with no unresolved missed/timeout mutants."
+          },
+          {
+            "id": "t14-ac3",
+            "description": "Terminal repository health gate is restored.",
+            "measurable": "just ci exits 0 after remediation changes."
+          }
+        ],
+        "origin": {
+          "kind": "investigation",
+          "source_phase": "do-task",
+          "source_task": "019db58b-b492-7423-925a-80190e82b708",
+          "loop_index": 1
+        },
+        "status": {
+          "state": "complete"
+        },
+        "parent_task_id": null,
+        "created_at": "2026-04-23T13:28:03.545720Z",
+        "updated_at": "2026-04-23T15:12:24.682435Z"
+      },
+      "owner_phase": "do-task",
+      "status_rationale": "completion guards converged",
+      "status_event_id": "019dbae6-3e6a-7a52-8147-1e1f372daca8",
+      "status_event_timestamp": "2026-04-23T15:12:24.682435Z",
+      "status_event_phase": "adhere-task",
+      "status_event_tool": "mark_task_guard_satisfied"
     }
   ]
 }

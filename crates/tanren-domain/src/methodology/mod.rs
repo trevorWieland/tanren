@@ -40,8 +40,8 @@ pub use events::{
     AdherenceFindingAdded, EvidenceSchemaError, FindingAdded, IssueCreated, MethodologyEvent,
     NonNegotiableComplianceRecorded, PhaseOutcomeReported, RubricScoreRecorded, SignpostAdded,
     SignpostStatusUpdated, SpecDefined, TaskAbandoned, TaskAdherent, TaskAudited, TaskCompleted,
-    TaskCreated, TaskGateChecked, TaskImplemented, TaskRevised, TaskStarted, TaskXChecked,
-    UnauthorizedArtifactEdit, fold_task_status,
+    TaskCreated, TaskGateChecked, TaskGuardsReset, TaskImplemented, TaskRevised, TaskStarted,
+    TaskXChecked, UnauthorizedArtifactEdit, fold_task_status,
 };
 
 pub use capability::{

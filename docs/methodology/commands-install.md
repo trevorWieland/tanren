@@ -102,6 +102,11 @@ methodology:
     project_language: rust
 ```
 
+Hook contract for this repo:
+
+- `task_verification_hook` should run fast per-task static gates (format/lint/compile/size/policy), no workspace test matrix.
+- `spec_verification_hook` should run full strict-spec validation (all behavior gates + CI-only checks).
+
 Installer-generated MCP config always includes `TANREN_CONFIG` plus security
 inputs consumed by `tanren-mcp` startup (`TANREN_MCP_CAPABILITY_ISSUER`,
 `TANREN_MCP_CAPABILITY_AUDIENCE`, `TANREN_MCP_CAPABILITY_PUBLIC_KEY_FILE`,

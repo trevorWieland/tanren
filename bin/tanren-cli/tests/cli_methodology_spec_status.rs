@@ -248,12 +248,20 @@ fn spec_status_routes_shape_blocker_walk_and_complete_states() {
         spec,
         &spec_folder,
         "investigate",
-        "{\"outcome\":\"blocked\",\"reason\":{\"kind\":\"other\",\"detail\":\"needs user\"},\"summary\":\"blocked\"}",
+        "{\"outcome\":\"blocked\",\"reason\":{\"kind\":\"awaiting_human_input\",\"prompt\":\"reason: needs user\\noptions:\\n- retry\\n- defer\"},\"summary\":\"blocked\"}",
     );
     let blocked = spec_status(&url, spec);
     assert_eq!(
         blocked["next_action"].as_str(),
         Some("resolve_blockers_required")
+    );
+    assert_eq!(
+        blocked["last_blocker_reason_kind"].as_str(),
+        Some("awaiting_human_input")
+    );
+    assert_eq!(
+        blocked["last_blocker_options"].as_array().map(Vec::len),
+        Some(2)
     );
 
     report_phase_outcome(
@@ -273,4 +281,119 @@ fn spec_status_routes_shape_blocker_walk_and_complete_states() {
 
     let done = spec_status(&url, spec);
     assert_eq!(done["next_action"].as_str(), Some("complete"));
+}
+
+#[test]
+fn spec_status_routes_task_blocked_to_task_investigate() {
+    let (d, url) = mkdb();
+    let spec = "00000000-0000-0000-0000-0000000000ab";
+    let spec_folder = mk_spec_folder(&d, spec);
+    let task_id = create_user_task(&url, spec, &spec_folder);
+
+    run_task_mutation(
+        &url,
+        spec,
+        &spec_folder,
+        "do-task",
+        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\"}}"),
+        "start",
+    );
+    run_task_mutation(
+        &url,
+        spec,
+        &spec_folder,
+        "do-task",
+        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"evidence_refs\":[]}}"),
+        "complete",
+    );
+
+    report_phase_outcome(
+        &url,
+        spec,
+        &spec_folder,
+        "audit-task",
+        "{\"outcome\":\"blocked\",\"reason\":{\"kind\":\"other\",\"detail\":\"fix now\"},\"summary\":\"audit blocked\"}",
+    );
+
+    let blocked = spec_status(&url, spec);
+    assert_eq!(blocked["next_action"].as_str(), Some("run_loop"));
+    assert_eq!(blocked["next_task_id"].as_str(), Some(task_id.as_str()));
+    assert_eq!(blocked["next_step"].as_str(), Some("task_investigate"));
+    assert_eq!(
+        blocked["investigate_source_phase"].as_str(),
+        Some("audit-task")
+    );
+    assert_eq!(
+        blocked["investigate_source_outcome"].as_str(),
+        Some("blocked")
+    );
+    assert_eq!(
+        blocked["investigate_source_task_id"].as_str(),
+        Some(task_id.as_str())
+    );
+    assert_eq!(blocked["blockers_active"].as_bool(), Some(false));
+}
+
+#[test]
+fn spec_status_routes_task_investigate_completion_back_to_do_task() {
+    let (d, url) = mkdb();
+    let spec = "00000000-0000-0000-0000-0000000000ac";
+    let spec_folder = mk_spec_folder(&d, spec);
+    let task_id = create_user_task(&url, spec, &spec_folder);
+
+    run_task_mutation(
+        &url,
+        spec,
+        &spec_folder,
+        "do-task",
+        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\"}}"),
+        "start",
+    );
+    run_task_mutation(
+        &url,
+        spec,
+        &spec_folder,
+        "do-task",
+        &format!("{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"evidence_refs\":[]}}"),
+        "complete",
+    );
+    run_task_mutation(
+        &url,
+        spec,
+        &spec_folder,
+        "do-task",
+        &format!(
+            "{{\"schema_version\":\"1.0.0\",\"task_id\":\"{task_id}\",\"guard\":\"gate_checked\"}}"
+        ),
+        "guard",
+    );
+
+    report_phase_outcome(
+        &url,
+        spec,
+        &spec_folder,
+        "audit-task",
+        "{\"outcome\":\"blocked\",\"reason\":{\"kind\":\"other\",\"detail\":\"fix now\"},\"summary\":\"audit blocked\"}",
+    );
+    assert_eq!(
+        spec_status(&url, spec)["next_step"].as_str(),
+        Some("task_investigate")
+    );
+
+    report_phase_outcome(
+        &url,
+        spec,
+        &spec_folder,
+        "investigate",
+        "{\"outcome\":\"complete\",\"summary\":\"investigate complete\"}",
+    );
+
+    let recovered = spec_status(&url, spec);
+    assert_eq!(recovered["next_action"].as_str(), Some("run_loop"));
+    assert_eq!(recovered["next_task_id"].as_str(), Some(task_id.as_str()));
+    assert_eq!(recovered["next_step"].as_str(), Some("task_do_task"));
+    assert_eq!(
+        recovered["next_step_reason"].as_str(),
+        Some("investigate completed for latest blocked outcome in audit-task; rerun do-task")
+    );
 }

@@ -41,6 +41,7 @@ pub fn canonical_tool_for_event(event: &MethodologyEvent) -> &'static str {
         | MethodologyEvent::TaskAdherent(_)
         | MethodologyEvent::TaskXChecked(_)
         | MethodologyEvent::TaskCompleted(_) => "mark_task_guard_satisfied",
+        MethodologyEvent::TaskGuardsReset(_) => "reset_task_guards",
         MethodologyEvent::SpecFrontmatterUpdated(e) => match &e.patch {
             SpecFrontmatterPatch::SetTitle { .. } => "set_spec_title",
             SpecFrontmatterPatch::SetProblemStatement { .. } => "set_spec_problem_statement",
@@ -81,6 +82,7 @@ pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static s
         | MethodologyEvent::TaskAdherent(_)
         | MethodologyEvent::TaskXChecked(_)
         | MethodologyEvent::TaskCompleted(_) => &["mark_task_guard_satisfied"],
+        MethodologyEvent::TaskGuardsReset(_) => &["reset_task_guards"],
         MethodologyEvent::TaskAbandoned(_) => &["abandon_task"],
         MethodologyEvent::TaskRevised(_) => &["revise_task"],
         MethodologyEvent::FindingAdded(_) => &["add_finding"],

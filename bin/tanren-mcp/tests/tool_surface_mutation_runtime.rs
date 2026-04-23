@@ -148,6 +148,8 @@ fn spawn_without_runtime_spec_folder(
     let mut command = Command::new(&bin);
     command
         .env("TANREN_DATABASE_URL", db_url)
+        .env_remove("TANREN_SPEC_FOLDER")
+        .env_remove("TANREN_SPEC_ID")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

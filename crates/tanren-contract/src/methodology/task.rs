@@ -100,6 +100,17 @@ pub struct MarkTaskGuardSatisfiedParams {
     pub idempotency_key: Option<String>,
 }
 
+/// `reset_task_guards` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ResetTaskGuardsParams {
+    pub schema_version: SchemaVersion,
+    pub task_id: TaskId,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
 /// `list_tasks` filter.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

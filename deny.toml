@@ -41,6 +41,8 @@ allow = [
   # rustls-tls feature flags. CDLA-Permissive-2.0 is a permissive
   # data-sharing license comparable to MIT/Apache in intent.
   "CDLA-Permissive-2.0",
+  # Used by `cucumber` support crates in the Phase 0 BDD harness package.
+  "BlueOak-1.0.0",
 ]
 confidence-threshold = 0.8
 exceptions = []

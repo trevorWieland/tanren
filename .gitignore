@@ -28,3 +28,5 @@ lcov.info
 
 # Phase 0 proof harness runtime packs
 /artifacts/phase0-proof/
+/artifacts/phase0-mutation/
+/artifacts/phase0-coverage/

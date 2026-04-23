@@ -174,7 +174,8 @@ async fn validate_attached_task_for_finding(
     attached_task: TaskId,
     ingest_state: &mut IngestState,
 ) -> Result<(), ReplayError> {
-    let resolved_spec_id = resolve_task_spec_for_replay(store, attached_task, ingest_state).await?;
+    let resolved_spec_id =
+        resolve_task_spec_for_replay(store, attached_task, finding_spec_id, ingest_state).await?;
     let Some(resolved_spec_id) = resolved_spec_id else {
         return Err(ReplayError::field_validation(
             path.to_path_buf(),
@@ -192,8 +193,23 @@ async fn validate_attached_task_for_finding(
 async fn resolve_task_spec_for_replay(
     store: &Store,
     task_id: TaskId,
+    finding_spec_id: SpecId,
     ingest_state: &mut IngestState,
 ) -> Result<Option<SpecId>, ReplayError> {
+    // During fresh replay, task creations from earlier lines in the same ingest
+    // batch are not yet persisted to projections. Honor in-flight replay state.
+    if ingest_state
+        .task_state
+        .by_task
+        .get(&task_id)
+        .is_some_and(|state| state.has_created)
+    {
+        ingest_state
+            .task_spec_lookup
+            .entry(task_id)
+            .or_insert(Some(finding_spec_id));
+        return Ok(Some(finding_spec_id));
+    }
     if let Some(cached) = ingest_state.task_spec_lookup.get(&task_id) {
         return Ok(*cached);
     }

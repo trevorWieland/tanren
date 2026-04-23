@@ -1,0 +1,2087 @@
+OpenAI Codex v0.118.0 (research preview)
+--------
+workdir: /Users/trevor/Documents/GitHub/tanren
+model: gpt-5.3-codex
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, /Users/trevor/.codex/memories] (network access enabled)
+reasoning effort: high
+reasoning summaries: none
+session id: 019db8d0-1e25-7020-b356-a58af8f68170
+--------
+user
+Run Tanren phase `adhere-task` for spec `00000000-0000-0000-0000-000000000c01`.
+Spec folder: `tanren/specs/rust-testing-hard-cutover-phase0`
+Database URL: `sqlite:tanren.db?mode=rwc`
+Target task_id: 019db58b-b438-7733-8513-5ef68730d647
+
+Requirements:
+- Use Tanren MCP tools for all structured state changes.
+- If MCP is unavailable, use Tanren CLI with canonical globals:
+  tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" <noun> <verb> --params-file '<payload.json>'
+- Complete this phase fully and emit `report_phase_outcome`.
+- If blocked, emit a typed blocked outcome (or investigate escalation path).
+- Never hand-edit orchestrator-owned artifacts.
+codex
+I’m going to run the `adhere-task` skill workflow for your specified spec/task, first by checking the skill instructions and whether Tanren MCP tooling is available, then executing the phase and reporting the final `report_phase_outcome`.
+exec
+/bin/zsh -lc "pwd && ls -la .codex/skills/adhere-task && sed -n '1,220p' .codex/skills/adhere-task/SKILL.md" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+/Users/trevor/Documents/GitHub/tanren
+total 16
+drwxr-xr-x@  3 trevor  staff    96 Apr 22 17:05 .
+drwxr-xr-x@ 19 trevor  staff   608 Apr 20 15:38 ..
+-rw-r--r--@  1 trevor  staff  4263 Apr 22 17:05 SKILL.md
+---
+name: adhere-task
+description: Tanren methodology command `adhere-task`
+role: adherence
+orchestration_loop: true
+autonomy: autonomous
+declared_variables:
+- ADHERE_TASK_HOOK
+- READONLY_ARTIFACT_BANNER
+- TASK_TOOL_BINDING
+declared_tools:
+- list_relevant_standards
+- record_adherence_finding
+- list_tasks
+- report_phase_outcome
+required_capabilities:
+- standard.read
+- adherence.record
+- task.read
+- phase.outcome
+produces_evidence: []
+---
+
+# adhere-task
+
+## Purpose
+
+Check the task's diff against the repo's installed standards. Emit
+typed adherence findings (pass/fail per rule). No rubric scores.
+This phase is mechanical compliance, not opinionated judgment.
+
+## Inputs (from your dispatch)
+
+- `task_id` and its diff range.
+- The relevant-standards set via `list_relevant_standards(spec_id)`.
+
+## Responsibilities
+
+1. Fetch relevant standards. The filter already accounts for file
+   globs, language, and domain tags — do not reduce further.
+2. For each standard + each changed file, evaluate compliance.
+3. For each misalignment: call `record_adherence_finding(standard_id,
+   affected_files, line_numbers, severity, rationale)`.
+   - `fix_now` — violation must be addressed.
+   - `defer` — violation is real but acceptable to defer
+     (non-critical standards only). Standards with
+     `importance: critical` cannot be deferred; the tool enforces
+     this.
+4. Call `report_phase_outcome`:
+   - `complete` if zero `fix_now` adherence findings. The
+     `TaskAdherent` guard will be recorded.
+   - `blocked` if any `fix_now` findings. Orchestrator will materialize
+     fix tasks with `origin: Adherence`.
+
+## Verification
+
+If you need to run a static check to ground a finding, use
+`just check`.
+
+## Emitting results
+
+Use Tanren MCP tools for all structured mutations in this phase.
+MCP-first canonical invocation set for phase `adhere-task`:
+- MCP `list_relevant_standards` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","touched_files":[],"domains":[],"tags":[]}`
+- CLI `list_relevant_standards` fallback: `tanren-cli methodology --phase adhere-task --spec-id <spec_uuid> --spec-folder <spec_dir> standard list --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","touched_files":[],"domains":[],"tags":[]}'`
+- MCP `record_adherence_finding` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","standard":{"name":"input-validation","category":"security"},"severity":"fix_now","rationale":"missing validation on untrusted input"}`
+- CLI `record_adherence_finding` fallback: `tanren-cli methodology --phase adhere-task --spec-id <spec_uuid> --spec-folder <spec_dir> adherence add-finding --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","standard":{"name":"input-validation","category":"security"},"severity":"fix_now","rationale":"missing validation on untrusted input"}'`
+- MCP `list_tasks` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}`
+- CLI `list_tasks` fallback: `tanren-cli methodology --phase adhere-task --spec-id <spec_uuid> --spec-folder <spec_dir> task list --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}'`
+- MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}`
+- CLI `report_phase_outcome` fallback: `tanren-cli methodology --phase adhere-task --spec-id <spec_uuid> --spec-folder <spec_dir> phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}'`
+
+⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,
+signposts.md, progress.json, and .tanren-projection-checkpoint.json
+are generated from the typed event stream.
+Postflight reverts unauthorized edits and emits an
+UnauthorizedArtifactEdit event. Use the typed tool surface
+(MCP or CLI) to record progress.
+
+
+## Out of scope
+
+- Rubric scoring (that's `audit-task`)
+- Authoring new standards (that's `discover-standards` / project)
+- Editing `plan.md` or creating tasks
+- Choosing the next phase
+
+codex
+I’m using the `adhere-task` skill now. Tanren-specific MCP phase tools are not exposed in this session, so I’ll run the canonical `tanren-cli ... methodology --phase "adhere-task"` fallback and complete the required tool calls including `report_phase_outcome`.
+exec
+/bin/zsh -lc 'tanren-cli --help' in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+Tanren CLI — clap-based command-line interface for local operation
+
+Usage: tanren-cli [OPTIONS] <COMMAND>
+
+Commands:
+  dispatch     Dispatch lifecycle operations
+  db           Manage database schema
+  install      Render the methodology command catalog and bundled standards to their configured targets per `tanren.yml`
+  methodology  Methodology tool surface (CLI fallback for the MCP catalog). Each subcommand maps 1:1 to a tool in `docs/architecture/agent-tool-surface.md` §3
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres) [default: sqlite:tanren.db]
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug") [default: warn]
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds [default: 900]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
+
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --help' in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+Methodology tool surface (CLI fallback for the MCP catalog). Each subcommand maps 1:1 to a tool in `docs/architecture/agent-tool-surface.md` §3
+
+Usage: tanren-cli methodology task [OPTIONS] <COMMAND>
+       tanren-cli methodology finding [OPTIONS] <COMMAND>
+       tanren-cli methodology rubric [OPTIONS] <COMMAND>
+       tanren-cli methodology compliance [OPTIONS] <COMMAND>
+       tanren-cli methodology spec [OPTIONS] <COMMAND>
+       tanren-cli methodology demo [OPTIONS] <COMMAND>
+       tanren-cli methodology signpost [OPTIONS] <COMMAND>
+       tanren-cli methodology phase [OPTIONS] <COMMAND>
+       tanren-cli methodology issue [OPTIONS] <COMMAND>
+       tanren-cli methodology standard [OPTIONS] <COMMAND>
+       tanren-cli methodology adherence [OPTIONS] <COMMAND>
+       tanren-cli methodology ingest-phase-events [OPTIONS] <PATH>
+       tanren-cli methodology replay [OPTIONS] <SPEC_FOLDER>
+       tanren-cli methodology reconcile-phase-events [OPTIONS]
+       tanren-cli methodology reconcile-projections [OPTIONS]
+       tanren-cli methodology compact-phase-events [OPTIONS]
+       tanren-cli methodology phase-capabilities [OPTIONS]
+       tanren-cli methodology help [COMMAND]...
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology task:
+Task lifecycle
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology finding:
+Findings
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology rubric:
+Rubric scoring
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology compliance:
+Non-negotiable compliance
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology spec:
+Spec frontmatter
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology demo:
+Demo frontmatter
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology signpost:
+Signposts
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology phase:
+Phase lifecycle
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology issue:
+Backlog issues
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology standard:
+Standards read
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology adherence:
+Adherence findings
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology ingest-phase-events:
+Ingest a phase-events.jsonl file into the store
+  -h, --help
+          Print help (see a summary with '-h')
+
+  <PATH>
+          Path to a `phase-events.jsonl` file
+
+tanren-cli methodology replay:
+Replay a spec folder's recorded phase events into the store
+  -h, --help
+          Print help (see a summary with '-h')
+
+  <SPEC_FOLDER>
+          Path to a spec folder (expected to contain `phase-events.jsonl`)
+
+tanren-cli methodology reconcile-phase-events:
+Reconcile pending phase-event outbox rows into phase-events.jsonl
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology reconcile-projections:
+Rebuild methodology projections for one spec
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology compact-phase-events:
+Compact and re-index one spec's phase-events.jsonl projection log
+  -h, --help
+          Print help (see a summary with '-h')
+
+tanren-cli methodology phase-capabilities:
+Print the canonical phase->capabilities map owned by Rust domain contracts
+      --phase <PHASE>
+          Optional phase filter (`do-task`, `audit-spec`, ...)
+
+  -h, --help
+          Print help
+
+tanren-cli methodology help:
+Print this message or the help of the given subcommand(s)
+  [COMMAND]...
+          Print help for the subcommand(s)
+
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" standard --help' in /Users/trevor/Documents/GitHub/tanren
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" task --help' in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+Standards read
+
+Usage: tanren-cli methodology standard [OPTIONS] <COMMAND>
+
+Commands:
+  list  List the baseline standards relevant to a spec
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+ succeeded in 0ms:
+Task lifecycle
+
+Usage: tanren-cli methodology task [OPTIONS] <COMMAND>
+
+Commands:
+  create    Create a new task (emits `TaskCreated`)
+  start     Transition `Pending → InProgress` (emits `TaskStarted`)
+  complete  Transition `InProgress → Implemented` (emits `TaskImplemented`)
+  guard     Mark one required completion guard satisfied
+  revise    Non-transitional description/acceptance revision
+  abandon   Terminal abandonment with replacements or an explicit discard note
+  list      Read-only projection of tasks for a spec
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" phase --help' in /Users/trevor/Documents/GitHub/tanren
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" adherence --help' in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+Phase lifecycle
+
+Usage: tanren-cli methodology phase [OPTIONS] <COMMAND>
+
+Commands:
+  outcome   Report the typed phase outcome (complete | blocked | error)
+  escalate  Escalate to a blocker — capability-scoped to `investigate`
+  reply     Post a reply directive on a feedback thread — capability-scoped to `handle-feedback`
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+ succeeded in 0ms:
+Adherence findings
+
+Usage: tanren-cli methodology adherence [OPTIONS] <COMMAND>
+
+Commands:
+  add-finding  Record an adherence finding (enforces critical-cannot-defer)
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+codex
+I confirmed the CLI fallback surface is available for `standard list`, `task list`, `adherence add-finding`, and `phase outcome`. Next I’m checking each verb’s payload flag details so I can run the phase with `--params-file` exactly as requested.
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" task list --help' in /Users/trevor/Documents/GitHub/tanren
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" standard list --help' in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+Read-only projection of tasks for a spec
+
+Usage: tanren-cli methodology task list [OPTIONS]
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --json <JSON>
+          Inline JSON params string
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --params-file <PARAMS_FILE>
+          Read JSON params from a file path
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --params-stdin
+          Read JSON params from stdin
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+ succeeded in 0ms:
+List the baseline standards relevant to a spec
+
+Usage: tanren-cli methodology standard list [OPTIONS]
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --json <JSON>
+          Inline JSON params string
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --params-file <PARAMS_FILE>
+          Read JSON params from a file path
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --params-stdin
+          Read JSON params from stdin
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" phase outcome --help' in /Users/trevor/Documents/GitHub/tanren
+exec
+/bin/zsh -lc 'tanren-cli --database-url "sqlite:tanren.db?mode=rwc" methodology --phase "adhere-task" --spec-id "00000000-0000-0000-0000-000000000c01" --spec-folder "tanren/specs/rust-testing-hard-cutover-phase0" adherence add-finding --help' in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+Record an adherence finding (enforces critical-cannot-defer)
+
+Usage: tanren-cli methodology adherence add-finding [OPTIONS]
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --json <JSON>
+          Inline JSON params string
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --params-file <PARAMS_FILE>
+          Read JSON params from a file path
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --params-stdin
+          Read JSON params from stdin
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+ succeeded in 0ms:
+Report the typed phase outcome (complete | blocked | error)
+
+Usage: tanren-cli methodology phase outcome [OPTIONS]
+
+Options:
+      --database-url <DATABASE_URL>
+          Database URL (`SQLite` or Postgres)
+          
+          [default: sqlite:tanren.db]
+
+      --json <JSON>
+          Inline JSON params string
+
+      --phase <PHASE>
+          Phase name used for capability enforcement and audit trail.
+          
+          Defaults to `cli-admin`, which is not a registered phase and so resolves to default-deny unless `TANREN_PHASE_CAPABILITIES` is explicitly provided.
+          
+          [default: cli-admin]
+
+      --log-level <LOG_LEVEL>
+          Log level filter (e.g. "info", "debug")
+          
+          [default: warn]
+
+      --params-file <PARAMS_FILE>
+          Read JSON params from a file path
+
+      --spec-folder <SPEC_FOLDER>
+          Spec folder root used for runtime `phase-events.jsonl` appends. Required for mutating commands
+
+      --actor-token-stdin
+          Read actor JWT from stdin (preferred for secret-safe invocation)
+
+      --params-stdin
+          Read JSON params from stdin
+
+      --spec-id <SPEC_ID>
+          Canonical spec identity bound to this mutation session. Required for mutating commands
+
+      --actor-token-file <ACTOR_TOKEN_FILE>
+          Read actor JWT from this file path
+
+      --agent-session-id <AGENT_SESSION_ID>
+          Agent session id to stamp in `phase-events.jsonl` lines when `--spec-folder` is provided
+          
+          [default: cli-session]
+
+      --actor-public-key-file <ACTOR_PUBLIC_KEY_FILE>
+          Path to Ed25519 public key PEM for actor token verification
+
+      --methodology-config <METHODOLOGY_CONFIG>
+          Path to `tanren.yml` used to load `methodology.task_complete_requires`
+          
+          [default: tanren.yml]
+
+      --token-issuer <TOKEN_ISSUER>
+          Required JWT issuer claim
+
+      --token-audience <TOKEN_AUDIENCE>
+          Required JWT audience claim
+
+      --actor-token-max-ttl-secs <ACTOR_TOKEN_MAX_TTL_SECS>
+          Maximum allowed actor token lifetime (`exp - iat`) in seconds
+          
+          [default: 900]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+codex
+I’ve confirmed the exact CLI verbs and `--params-file` contract. Next I’m listing relevant standards and all tasks for this spec, then I’ll isolate the target task and assess its diff against each returned standard.
+exec
+/bin/zsh -lc "cat > /tmp/tanren_adherence_task_list.json <<'JSON'
+{\"schema_version\":\"1.0.0\",\"spec_id\":\"00000000-0000-0000-0000-000000000c01\"}
+JSON
+
+tanren-cli --database-url \"sqlite:tanren.db?mode=rwc\" methodology --phase \"adhere-task\" --spec-id \"00000000-0000-0000-0000-000000000c01\" --spec-folder \"tanren/specs/rust-testing-hard-cutover-phase0\" task list --params-file /tmp/tanren_adherence_task_list.json" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+{
+  "schema_version": "1.0.0",
+  "tasks": [
+    {
+      "id": "019db58b-b051-70e1-9190-c4f9cd09b5e7",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T01 Standards Sync For Rust Testing",
+      "description": "Import/sync Rust testing standards (BDD, mutation, coverage interpretation, no-skip, traceability) into active standards and bind relevance context for this spec.",
+      "acceptance_criteria": [
+        {
+          "id": "t01-ac1",
+          "description": "Testing standards exist in active standards set.",
+          "measurable": "Relevant standards are discoverable for this spec via standard.list/list_relevant_standards."
+        },
+        {
+          "id": "t01-ac2",
+          "description": "Task closes with demonstrable function and just check green.",
+          "measurable": "Evidence includes standards diff plus successful just check."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:23.985039Z",
+      "updated_at": "2026-04-22T14:15:23.985039Z"
+    },
+    {
+      "id": "019db58b-b0b7-7541-bceb-beefc3b8876c",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T02 Phase 0 Behavior Inventory And Traceability",
+      "description": "Define stable BEH-* IDs and map Phase 0 Feature 1.1-8.1 behaviors to executable scenario obligations (positive and falsification).",
+      "acceptance_criteria": [
+        {
+          "id": "t02-ac1",
+          "description": "Behavior map covers all in-scope Phase 0 behaviors.",
+          "measurable": "Traceability artifact lists behavior ID -> scenario ownership."
+        },
+        {
+          "id": "t02-ac2",
+          "description": "Task closes with just check green and artifact validation.",
+          "measurable": "Artifact is linted/validated and just check succeeds."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b051-70e1-9190-c4f9cd09b5e7"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.087277Z",
+      "updated_at": "2026-04-22T14:15:24.087277Z"
+    },
+    {
+      "id": "019db58b-b10e-7a21-94fa-3699f795228b",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T03 Early Gate Scaffolding (Non-Blocking)",
+      "description": "Introduce staged justfile/CI scaffolding commands for BDD, mutation, and coverage without turning final enforcement on yet, so iterative tasks remain demonstrable.",
+      "acceptance_criteria": [
+        {
+          "id": "t03-ac1",
+          "description": "New staged commands run and are documented.",
+          "measurable": "just targets for scenario/mutation/coverage scaffolding execute successfully."
+        },
+        {
+          "id": "t03-ac2",
+          "description": "Existing just check contract remains green at task end.",
+          "measurable": "just check passes after scaffolding changes."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b0b7-7541-bceb-beefc3b8876c"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.174167Z",
+      "updated_at": "2026-04-22T14:15:24.174167Z"
+    },
+    {
+      "id": "019db58b-b165-7f51-b581-6b2a0b9e77f8",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T04 BDD Harness Scaffold",
+      "description": "Add cucumber-rs harness, feature directory conventions, tagging rules, and one smoke scenario path to prove harness viability.",
+      "acceptance_criteria": [
+        {
+          "id": "t04-ac1",
+          "description": "BDD harness executes at least one tagged scenario path.",
+          "measurable": "Scenario command exits successfully and emits tag evidence."
+        },
+        {
+          "id": "t04-ac2",
+          "description": "Task ends with just check green.",
+          "measurable": "just check passes with harness scaffold in place."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b10e-7a21-94fa-3699f795228b"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.261271Z",
+      "updated_at": "2026-04-22T14:15:24.261271Z"
+    },
+    {
+      "id": "019db58b-b1bd-7fe3-8db6-83d7fa10e2d8",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T05 Wave A Scenario Migration (Features 1-3)",
+      "description": "Implement behavior scenarios for Phase 0 Features 1-3 (typed lifecycle, replay durability, contract-derived interface/auth/replay protections).",
+      "acceptance_criteria": [
+        {
+          "id": "t05-ac1",
+          "description": "Mapped Wave A behaviors have positive and falsification scenarios.",
+          "measurable": "Behavior map entries for Features 1-3 point to passing scenarios."
+        },
+        {
+          "id": "t05-ac2",
+          "description": "Task ends with just check green and stage run evidence.",
+          "measurable": "just check passes and wave scenario run output is captured."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b165-7f51-b581-6b2a0b9e77f8"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.349311Z",
+      "updated_at": "2026-04-22T14:15:24.349311Z"
+    },
+    {
+      "id": "019db58b-b215-7fe3-ba25-45ffbdb973b3",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T06 Hard Cutover Delete Legacy Rust Tests",
+      "description": "Delete legacy Rust behavior-test suite paths that are superseded by the new framework and document allowed post-cutover test forms.",
+      "acceptance_criteria": [
+        {
+          "id": "t06-ac1",
+          "description": "Legacy Rust test paths are removed per cutover policy.",
+          "measurable": "Repository no longer contains deprecated Rust behavior-test files in scoped paths."
+        },
+        {
+          "id": "t06-ac2",
+          "description": "Task ends with just check green after deletion.",
+          "measurable": "just check passes immediately after cutover deletion."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b1bd-7fe3-8db6-83d7fa10e2d8"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.437398Z",
+      "updated_at": "2026-04-22T14:15:24.437398Z"
+    },
+    {
+      "id": "019db58b-b272-7452-bec2-acef1fa93a24",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T07 Wave B Scenario Migration (Features 4-6)",
+      "description": "Implement behavior scenarios for methodology boundary, task guard monotonicity, and typed tool-surface capability/transport parity behaviors.",
+      "acceptance_criteria": [
+        {
+          "id": "t07-ac1",
+          "description": "Mapped Wave B behaviors have passing positive/falsification scenarios.",
+          "measurable": "Feature 4-6 mappings resolve to passing scenario evidence."
+        },
+        {
+          "id": "t07-ac2",
+          "description": "Task ends with just check green.",
+          "measurable": "just check passes with Wave B migration complete."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b215-7fe3-ba25-45ffbdb973b3"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.530189Z",
+      "updated_at": "2026-04-22T14:15:24.530189Z"
+    },
+    {
+      "id": "019db58b-b2cb-7413-b146-fd88721c2784",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T08 Wave C Scenario Migration (Features 7-8)",
+      "description": "Implement behavior scenarios for installer/self-host determinism and manual methodology walkthrough coherence.",
+      "acceptance_criteria": [
+        {
+          "id": "t08-ac1",
+          "description": "Mapped Wave C behaviors are scenario-backed.",
+          "measurable": "Feature 7-8 mappings resolve to passing scenario evidence."
+        },
+        {
+          "id": "t08-ac2",
+          "description": "Task ends with just check green.",
+          "measurable": "just check passes with Wave C migration complete."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b272-7452-bec2-acef1fa93a24"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.619864Z",
+      "updated_at": "2026-04-22T14:15:24.619864Z"
+    },
+    {
+      "id": "019db58b-b327-7dd2-8c8b-9ec0947e6684",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T09 Mutation Gate Integration",
+      "description": "Integrate cargo-mutants mutation-strength gate, survivor triage policy, and behavior-ID linkage in artifacts/CI surfaces.",
+      "acceptance_criteria": [
+        {
+          "id": "t09-ac1",
+          "description": "Mutation gate runs in staged local and CI pathways.",
+          "measurable": "Mutation command executes and output is machine-consumable for triage."
+        },
+        {
+          "id": "t09-ac2",
+          "description": "Task ends with just check green.",
+          "measurable": "just check passes after mutation integration."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b2cb-7413-b146-fd88721c2784"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.711527Z",
+      "updated_at": "2026-04-22T14:15:24.711527Z"
+    },
+    {
+      "id": "019db58b-b382-7060-afcd-73b9d68cd740",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T10 Coverage Classification Integration",
+      "description": "Integrate behavior-first coverage workflow and classification outputs (missing-behavior vs dead/support code).",
+      "acceptance_criteria": [
+        {
+          "id": "t10-ac1",
+          "description": "Coverage run emits classification artifact tied to behavior inventory.",
+          "measurable": "Report clearly separates missing scenarios from non-behavior code."
+        },
+        {
+          "id": "t10-ac2",
+          "description": "Task ends with just check green.",
+          "measurable": "just check passes after coverage integration."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b327-7dd2-8c8b-9ec0947e6684"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.802087Z",
+      "updated_at": "2026-04-22T14:15:24.802087Z"
+    },
+    {
+      "id": "019db58b-b3db-76f2-90aa-9bd6fda1feef",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T11 Final Gate Enforcement And Parity",
+      "description": "Flip strict enforcement in justfile, lefthook, GitHub workflows, and check-ci-parity so behavior/mutation/coverage gates are mandatory in final flow.",
+      "acceptance_criteria": [
+        {
+          "id": "t11-ac1",
+          "description": "Strict enforcement is active and parity checks are updated.",
+          "measurable": "Workflow and local command parity checks pass with enforced gates."
+        },
+        {
+          "id": "t11-ac2",
+          "description": "Task ends with just check green.",
+          "measurable": "just check passes under final enforcement configuration."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b382-7060-afcd-73b9d68cd740"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.891703Z",
+      "updated_at": "2026-04-22T14:15:24.891703Z"
+    },
+    {
+      "id": "019db58b-b438-7733-8513-5ef68730d647",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T12 Proof Docs And Scripts Refresh",
+      "description": "Refresh Phase 0 proof artifacts so they match the strict hard-cutover command contract by replacing stale staged/non-blocking language in docs/rewrite/PHASE0_PROOF_RUNBOOK.md, synchronizing docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md scenario statuses with implemented Wave B/C ownership, and updating scripts/proof/phase0/run.sh retired guidance to the complete canonical post-cutover command set.",
+      "acceptance_criteria": [
+        {
+          "id": "t12-ac1",
+          "description": "Runbook strictness language reflects hard-cutover enforcement.",
+          "measurable": "docs/rewrite/PHASE0_PROOF_RUNBOOK.md removes staged/non-blocking/deferred-enforcement wording and no longer includes the section titled 'Staged Gate Scaffolding (Current Non-Blocking Contract)'."
+        },
+        {
+          "id": "t12-ac2",
+          "description": "Runbook command contract lists the full enforced gate set.",
+          "measurable": "Runbook command guidance explicitly lists: check-phase0-scenario-stage, check-phase0-bdd-smoke, check-phase0-bdd-wave-a, check-phase0-bdd-wave-b, check-phase0-bdd-wave-c, check-phase0-mutation-stage, check-phase0-coverage-stage, and check-phase0-stage-gates."
+        },
+        {
+          "id": "t12-ac3",
+          "description": "Evidence index status matrix is synchronized with implemented Wave B/C ownership.",
+          "measurable": "docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md Scenario Matrix marks scenarios 4.1-8.1 as active and no row in the post-cutover matrix uses 'pending migration'."
+        },
+        {
+          "id": "t12-ac4",
+          "description": "Retired run.sh guidance mirrors the complete canonical post-cutover command path.",
+          "measurable": "scripts/proof/phase0/run.sh retired-entrypoint message includes bdd-smoke, bdd-wave-a, bdd-wave-b, bdd-wave-c, mutation-stage, coverage-stage, and stage-gates commands."
+        },
+        {
+          "id": "t12-ac5",
+          "description": "Task closure remains gated on repository health.",
+          "measurable": "just check passes after these documentation/script corrections."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "implemented",
+        "guards": {
+          "gate_checked": true,
+          "audited": true,
+          "adherent": false
+        }
+      },
+      "depends_on": [
+        "019db58b-b3db-76f2-90aa-9bd6fda1feef"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.984840Z",
+      "updated_at": "2026-04-22T14:15:24.984840Z"
+    },
+    {
+      "id": "019db58b-b492-7423-925a-80190e82b708",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T13 Orchestration Trial Meta-Readiness Report",
+      "description": "Produce a trial report evaluating shape-spec/task orchestration effectiveness, friction, and recommendations for using Tanren orchestration within Tanren itself.",
+      "acceptance_criteria": [
+        {
+          "id": "t13-ac1",
+          "description": "Meta report captures strengths, frictions, and proposed mitigations.",
+          "measurable": "Report includes explicit go/no-go readiness recommendation."
+        },
+        {
+          "id": "t13-ac2",
+          "description": "Spec closure criteria include final just ci success.",
+          "measurable": "Report references final just ci result as the terminal gate outcome."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "pending"
+      },
+      "depends_on": [
+        "019db58b-b438-7733-8513-5ef68730d647"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:25.074515Z",
+      "updated_at": "2026-04-22T14:15:25.074515Z"
+    }
+  ]
+}
+
+exec
+/bin/zsh -lc "cat > /tmp/tanren_adherence_standard_list.json <<'JSON'
+{\"schema_version\":\"1.0.0\",\"spec_id\":\"00000000-0000-0000-0000-000000000c01\",\"touched_files\":[],\"domains\":[],\"tags\":[]}
+JSON
+
+tanren-cli --database-url \"sqlite:tanren.db?mode=rwc\" methodology --phase \"adhere-task\" --spec-id \"00000000-0000-0000-0000-000000000c01\" --spec-folder \"tanren/specs/rust-testing-hard-cutover-phase0\" standard list --params-file /tmp/tanren_adherence_standard_list.json" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+{
+  "schema_version": "1.0.0",
+  "standards": [
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "no-unwrap-in-production",
+        "category": "rust-error-handling",
+        "applies_to": [
+          "**/*.rs"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "error-handling"
+        ],
+        "importance": "critical",
+        "body": "Library code must not panic. Workspace-level clippy denies `unwrap_used`, `panic`, `todo`, `unimplemented`, `dbg_macro`. Test code may use `expect` for invariants that are themselves tested."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "thiserror-for-libraries",
+        "category": "rust-error-handling",
+        "applies_to": [
+          "**/*.rs"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "error-handling"
+        ],
+        "importance": "high",
+        "body": "Libraries must return `thiserror`-derived enums; `anyhow` is permitted only in `bin/` crates."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "tracing-over-println",
+        "category": "rust-observability",
+        "applies_to": [
+          "**/*.rs"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "observability"
+        ],
+        "importance": "critical",
+        "body": "Emit via `tracing`; configure a stderr subscriber in binaries. Workspace-level clippy denies `print_stdout`, `print_stderr`, `dbg_macro`."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "secrecy-for-secrets",
+        "category": "rust-security",
+        "applies_to": [
+          "**/*.rs"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "security"
+        ],
+        "importance": "critical",
+        "body": "Any field carrying an API key, token, or password must be `Secret<String>` (or a `Secret<CustomType>`); downstream code uses `expose_secret()` at point-of-use and never in a log call."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "file-size-budget",
+        "category": "rust-style",
+        "applies_to": [
+          "**/*.rs"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "style"
+        ],
+        "importance": "medium",
+        "body": "Split files that grow past 500 lines by responsibility; extract helpers when functions exceed 100 lines."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "bdd-scenarios",
+        "category": "rust-testing",
+        "applies_to": [
+          "**/*.rs",
+          "**/*.feature"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "testing",
+          "behavior"
+        ],
+        "importance": "critical",
+        "body": "Behavior proof is expressed as executable `.feature` scenarios (cucumber-rs) tagged with a stable behavior ID (`@BEH-*`). Every in-scope behavior needs both a positive witness (scenario demonstrates the behavior) and a falsification witness (scenario demonstrates the inverse is rejected). Unit and integration tests via `nextest` remain in support of the scenario suite — they do not substitute for scenario ownership of a behavior ID."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "behavior-traceability",
+        "category": "rust-testing",
+        "applies_to": [
+          "**/*.rs",
+          "**/*.feature",
+          "tanren/specs/**/*.md"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "testing",
+          "traceability"
+        ],
+        "importance": "critical",
+        "body": "Every testable behavior has a stable `BEH-*` identifier that is referenced from: (1) the spec/plan behavior inventory, (2) the cucumber scenario via a `@BEH-*` tag, (3) mutation survivor triage records, and (4) coverage classification records. Behavior IDs are immutable once published; renames require an abandon+replace event pair in the orchestrator. A behavior claim without a resolvable `BEH-*` link in all four artifacts is treated as incomplete traceability and fails the final gate."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "coverage-behavior-first",
+        "category": "rust-testing",
+        "applies_to": [
+          "**/*.rs"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "testing",
+          "coverage"
+        ],
+        "importance": "high",
+        "body": "Coverage is interpreted as a behavior-gap signal, not a vanity percentage. The coverage artifact must classify uncovered paths into two buckets: (1) missing-behavior — code whose absence of coverage corresponds to a behavior without a scenario, which requires adding/extending a `.feature` scenario; and (2) dead/support code — code that is not itself a behavior claim, which requires removal or explicit support-classification. Raw line/branch totals are reported but never gate on their own."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "mutation-strength",
+        "category": "rust-testing",
+        "applies_to": [
+          "**/*.rs"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "testing",
+          "mutation"
+        ],
+        "importance": "high",
+        "body": "Test suites are gated on mutation strength via `cargo-mutants`. Surviving mutants are treated as evidence of weak scenarios: each survivor must be triaged and resolved against a behavior ID (`BEH-*`) — either by tightening an existing scenario, adding a falsification scenario, or explicitly recording the mutant as equivalent with a linked justification. Mutation regressions fail the final gate; the staged `just` recipes surface mutant output in a machine-consumable form for triage."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    },
+    {
+      "schema_version": "1.0.0",
+      "standard": {
+        "name": "no-skip-enforcement",
+        "category": "rust-testing",
+        "applies_to": [
+          "**/*.rs",
+          "**/*.feature"
+        ],
+        "applies_to_languages": [
+          "rust"
+        ],
+        "applies_to_domains": [
+          "testing",
+          "discipline"
+        ],
+        "importance": "critical",
+        "body": "Behavior scenarios may not be skipped, ignored, or conditionally disabled in the cutover suite. `#[ignore]`, `#[cfg(...)]`-gated behavior tests, cucumber `@wip`/`@ignore` tags that bypass CI, and `return Ok(())`-style early exits inside step functions are all prohibited on behavior-owning tests. A failing scenario either gets fixed, its owning behavior gets formally abandoned with an orchestrator event, or the blocker is escalated — it is not hidden. Skip suppression is enforced by the gate tooling, not by convention."
+      },
+      "inclusion_reason": "baseline upper bound (no filter inputs supplied)"
+    }
+  ]
+}
+
+exec
+/bin/zsh -lc "ls -la tanren/specs/rust-testing-hard-cutover-phase0 | sed -n '1,200p'" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+total 800
+drwxr-xr-x@  17 trevor  staff     544 Apr 23 00:28 .
+drwxr-xr-x@   4 trevor  staff     128 Apr 22 18:40 ..
+drwxr-xr-x@ 309 trevor  staff    9888 Apr 23 00:28 .phase-events.jsonl.event-id-index
+-rw-r--r--@   1 trevor  staff      54 Apr 23 00:28 .phase-events.jsonl.fsync-state.json
+-rw-r--r--@   1 trevor  staff     249 Apr 22 18:41 .tanren-generated-artifacts.json
+-rw-r--r--@   1 trevor  staff   50435 Apr 23 00:28 .tanren-projection-checkpoint.json
+-rw-r--r--@   1 trevor  staff    5289 Apr 23 00:28 audit.md
+-rw-r--r--@   1 trevor  staff    1956 Apr 22 09:52 demo.md
+drwxr-xr-x@   4 trevor  staff     128 Apr 22 23:03 orchestration
+-rw-r--r--@   1 trevor  staff  256607 Apr 23 00:28 phase-events.jsonl
+-rw-r--r--@   1 trevor  staff       0 Apr 22 09:14 phase-events.jsonl.lock
+-rw-r--r--@   1 trevor  staff    4181 Apr 23 00:28 plan.md
+-rw-r--r--@   1 trevor  staff     494 Apr 23 00:28 progress.json
+-rw-r--r--@   1 trevor  staff    1091 Apr 23 00:24 signposts.md
+-rw-r--r--@   1 trevor  staff    9871 Apr 22 09:52 spec.md
+-rw-r--r--@   1 trevor  staff   21607 Apr 23 00:28 tasks.json
+-rw-r--r--@   1 trevor  staff    2527 Apr 23 00:28 tasks.md
+
+codex
+I found the target task in `implemented` state with `adherent: false`. I’m now extracting that task’s event stream from `phase-events.jsonl` to recover the exact diff/touched files needed for standards evaluation.
+exec
+/bin/zsh -lc "rg -n \"019db58b-b438-7733-8513-5ef68730d647|TaskImplemented|TaskAdherence|AdherenceFinding|TaskGuardSatisfied\" tanren/specs/rust-testing-hard-cutover-phase0/phase-events.jsonl | sed -n '1,240p'" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+40:{"agent_session_id":"cli-session","event_id":"019db58b-b438-7733-8513-5f0e92b3ba72","origin_kind":"tool_primary","payload":{"event_type":"task_created","origin":{"kind":"shape_spec"},"task":{"acceptance_criteria":[{"description":"Proof docs/scripts reference the new behavior-first test flow.","id":"t12-ac1","measurable":"Runbook commands and evidence mapping are updated and coherent."},{"description":"Task ends with just check green.","id":"t12-ac2","measurable":"just check passes after docs/script updates."}],"created_at":"2026-04-22T14:15:24.984840Z","depends_on":["019db58b-b3db-76f2-90aa-9bd6fda1feef"],"description":"Update Phase 0 proof runbook/scripts/evidence index to reflect the new Rust testing framework and reproducible execution path.","id":"019db58b-b438-7733-8513-5ef68730d647","origin":{"kind":"shape_spec"},"parent_task_id":null,"spec_id":"00000000-0000-0000-0000-000000000c01","status":{"state":"pending"},"title":"T12 Proof Docs And Scripts Refresh","updated_at":"2026-04-22T14:15:24.984840Z"}},"phase":"shape-spec","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-22T14:15:24.984850Z","tool":"create_task"}
+41:{"agent_session_id":"cli-session","event_id":"019db58b-b492-7423-925a-802c5ffde3c5","origin_kind":"tool_primary","payload":{"event_type":"task_created","origin":{"kind":"shape_spec"},"task":{"acceptance_criteria":[{"description":"Meta report captures strengths, frictions, and proposed mitigations.","id":"t13-ac1","measurable":"Report includes explicit go/no-go readiness recommendation."},{"description":"Spec closure criteria include final just ci success.","id":"t13-ac2","measurable":"Report references final just ci result as the terminal gate outcome."}],"created_at":"2026-04-22T14:15:25.074515Z","depends_on":["019db58b-b438-7733-8513-5ef68730d647"],"description":"Produce a trial report evaluating shape-spec/task orchestration effectiveness, friction, and recommendations for using Tanren orchestration within Tanren itself.","id":"019db58b-b492-7423-925a-80190e82b708","origin":{"kind":"shape_spec"},"parent_task_id":null,"spec_id":"00000000-0000-0000-0000-000000000c01","status":{"state":"pending"},"title":"T13 Orchestration Trial Meta-Readiness Report","updated_at":"2026-04-22T14:15:25.074515Z"}},"phase":"shape-spec","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-22T14:15:25.074525Z","tool":"create_task"}
+287:{"agent_session_id":"cli-session","event_id":"019db847-739e-7da3-b6f7-caaf02f8fd5c","origin_kind":"tool_primary","payload":{"event_type":"task_started","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b438-7733-8513-5ef68730d647"},"phase":"do-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:59:43.646587Z","tool":"start_task"}
+288:{"agent_session_id":"cli-session","caused_by_tool_call_id":"complete_task:019db58b-b438-7733-8513-5ef68730d647","event_id":"019db848-3f01-7861-8f5d-34da83a83332","origin_kind":"tool_primary","payload":{"event_type":"task_implemented","evidence_refs":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md","docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md","docs/rewrite/PHASE0_RUST_TEST_CUTOVER_POLICY.md","scripts/proof/phase0/run.sh","scripts/proof/phase0/run_mutation_stage.sh","scripts/proof/phase0/run_coverage_stage.sh","scripts/proof/phase0/render_mutation_triage.py","scripts/proof/phase0/render_coverage_classification.py","scripts/proof/phase0/validate_behavior_traceability.py","just check"],"spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b438-7733-8513-5ef68730d647"},"phase":"do-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:00:35.713525Z","tool":"complete_task"}
+290:{"agent_session_id":"cli-session","caused_by_tool_call_id":"mark_task_guard_satisfied:019db58b-b438-7733-8513-5ef68730d647:GateChecked","event_id":"019db848-a8f0-74c0-a64a-69c99ef31670","origin_kind":"tool_primary","payload":{"event_type":"task_gate_checked","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b438-7733-8513-5ef68730d647"},"phase":"do-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:01:02.832305Z","tool":"mark_task_guard_satisfied"}
+291:{"agent_session_id":"cli-session","event_id":"019db84c-3571-71e1-93d5-47dbc125c02c","origin_kind":"tool_primary","payload":{"event_type":"finding_added","finding":{"affected_files":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md"],"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T03:04:55.409285Z","description":"docs/rewrite/PHASE0_PROOF_RUNBOOK.md still states the current contract is staged/non-blocking and that strict enforcement is a later task, but repo enforcement is already strict (just ci invokes check-phase0-gates). This is no longer a coherent reproducible operator path for Phase 0 proof execution.","id":"019db84c-3571-71e1-93d5-47c124f3f211","line_numbers":[105,107,108,121,133],"severity":"fix_now","source":{"kind":"audit","phase":"audit-task","pillar":"strictness"},"spec_id":"00000000-0000-0000-0000-000000000c01","title":"Runbook still describes Phase 0 gates as non-blocking despite strict enforcement"}},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:04:55.409287Z","tool":"add_finding"}
+292:{"agent_session_id":"cli-session","event_id":"019db84c-585f-7101-8d15-85c9400d4737","origin_kind":"tool_primary","payload":{"event_type":"finding_added","finding":{"affected_files":["docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md"],"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T03:05:04.351824Z","description":"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md marks scenarios 4.1 through 8.1 as pending migration, but Wave B/C feature files and traceability entries are already implemented and audited. This stale status matrix makes the proof index internally inconsistent with repository behavior ownership artifacts.","id":"019db84c-585f-7101-8d15-85bdc1b96c3a","line_numbers":[27,28,29,30,31,32,33,34,35,36,37],"severity":"fix_now","source":{"kind":"audit","phase":"audit-task","pillar":"documentation_complete"},"spec_id":"00000000-0000-0000-0000-000000000c01","title":"Evidence index marks Wave B/C scenarios as pending migration after implementation"}},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:05:04.351827Z","tool":"add_finding"}
+293:{"agent_session_id":"cli-session","event_id":"019db84d-2192-7250-9e9a-05a0beccd65e","origin_kind":"tool_primary","payload":{"event_type":"finding_added","finding":{"affected_files":["scripts/proof/phase0/run.sh"],"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T03:05:55.858608Z","description":"scripts/proof/phase0/run.sh points operators to a partial command set and omits mutation-stage and full wave coverage commands from its explicit guidance, so the retired entrypoint does not provide a complete reproducible post-cutover proof path.","id":"019db84d-2192-7250-9e9a-05953ab4aef9","line_numbers":[10,11,12,13,14],"severity":"fix_now","source":{"kind":"audit","phase":"audit-task","pillar":"completeness"},"spec_id":"00000000-0000-0000-0000-000000000c01","title":"Retired run.sh guidance is incomplete for full post-cutover proof execution"}},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:05:55.858611Z","tool":"add_finding"}
+294:{"agent_session_id":"cli-session","event_id":"019db84d-7670-7bd2-b401-639e0520775f","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"completeness","rationale":"Task scope is not yet complete because retired proof entrypoint guidance omits parts of the post-cutover command path.","score":6,"supporting_finding_ids":["019db84d-2192-7250-9e9a-05953ab4aef9"],"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.584815Z","tool":"record_rubric_score"}
+295:{"agent_session_id":"cli-session","event_id":"019db84d-76a4-7b93-80fa-8e7d4b88e58f","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"performance","rationale":"Changes are documentation and proof-script surfaces only; no runtime hot-path behavior was modified.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.636540Z","tool":"record_rubric_score"}
+296:{"agent_session_id":"cli-session","event_id":"019db84d-76d3-7982-85e4-91436e704afa","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"scalability","rationale":"Scripts and artifact formats remain inventory-driven and wave-partitioned, supporting incremental growth without coupling changes.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.683959Z","tool":"record_rubric_score"}
+297:{"agent_session_id":"cli-session","event_id":"019db84d-7704-7ad2-a77c-92102772f8b9","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"strictness","rationale":"Runbook guidance still states staged non-blocking behavior as current despite strict gate enforcement already being active in the repository.","score":6,"supporting_finding_ids":["019db84c-3571-71e1-93d5-47c124f3f211"],"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.732403Z","tool":"record_rubric_score"}
+298:{"agent_session_id":"cli-session","event_id":"019db84d-7733-7193-ad03-0e3cbef694fa","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"security","rationale":"No new trust-boundary, auth, or secret-handling surface was introduced by the audited changes.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.779314Z","tool":"record_rubric_score"}
+299:{"agent_session_id":"cli-session","event_id":"019db84d-7764-7e81-a3f5-5ed275e9d681","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"stability","rationale":"Task evidence includes a successful just check run and no runtime code-path regressions are introduced by these docs/script updates.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.828422Z","tool":"record_rubric_score"}
+300:{"agent_session_id":"cli-session","event_id":"019db84d-7795-76b3-b5a5-9200081cbd36","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"maintainability","rationale":"Proof helper logic is separated across focused scripts and dedicated artifacts, preserving maintainable boundaries.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.877766Z","tool":"record_rubric_score"}
+301:{"agent_session_id":"cli-session","event_id":"019db84d-77c3-7eb3-9da5-45f6a6b048f8","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"extensibility","rationale":"Mutation and coverage renderers accept explicit inputs and can absorb future behavior inventory expansion without schema churn.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.923590Z","tool":"record_rubric_score"}
+302:{"agent_session_id":"cli-session","event_id":"019db84d-77f3-7e71-9bec-b377dfa8cc81","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"elegance","rationale":"Implementation keeps the cutover refresh scoped to proof docs/scripts without unnecessary structural expansion.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:17.971207Z","tool":"record_rubric_score"}
+303:{"agent_session_id":"cli-session","event_id":"019db84d-7825-76e3-86e3-8fab7307ed85","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"style","rationale":"Shell and Python additions follow existing repository conventions and naming patterns.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:18.021388Z","tool":"record_rubric_score"}
+304:{"agent_session_id":"cli-session","event_id":"019db84d-7858-7821-9b98-f555f33b615a","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"relevance","rationale":"Touched files align directly to T12 intent: proof docs/scripts/evidence refresh for Phase 0 testing flow.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:18.072162Z","tool":"record_rubric_score"}
+305:{"agent_session_id":"cli-session","event_id":"019db84d-7888-7dd1-9e53-1e7abdbed803","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"modularity","rationale":"Runner scripts, renderers, and policy/docs are separated into clear modules with minimal overlap.","score":10,"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:18.120479Z","tool":"record_rubric_score"}
+306:{"agent_session_id":"cli-session","event_id":"019db84d-78bb-70a3-bf3f-7dee4ef58ca5","origin_kind":"tool_primary","payload":{"event_type":"rubric_score_recorded","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"passing":7,"pillar":"documentation_complete","rationale":"Proof documentation is not yet complete/coherent because the evidence index and runbook currently present stale migration/enforcement states.","score":5,"supporting_finding_ids":["019db84c-585f-7101-8d15-85bdc1b96c3a"],"target":10},"spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"audit-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:06:18.171111Z","tool":"record_rubric_score"}
+308:{"schema_version":"1.0.0","event_id":"019db88f-618a-77e3-bb3a-c71b4751bd29","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T04:18:17.611004Z","origin_kind":"tool_primary","tool":"revise_task","payload":{"event_type":"task_revised","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01","revised_description":"Update Phase 0 proof runbook/scripts/evidence index so they match the enforced post-cutover behavior-first flow, including strict gate semantics, current wave migration status, and a complete reproducible command path for scenario, mutation, and coverage proof execution.","revised_acceptance":[{"id":"t12-ac1","description":"Proof runbook and cutover guidance reflect current strict enforcement semantics.","measurable":"No runbook guidance describes Phase 0 gates as staged/non-blocking when repository enforcement is strict."},{"id":"t12-ac2","description":"Evidence index status is synchronized with implemented wave ownership.","measurable":"Scenario status rows for Features 4-8 align with current Wave B/C feature files and traceability artifacts."},{"id":"t12-ac3","description":"Retired entrypoint guidance is complete for post-cutover reproduction.","measurable":"Operator guidance for scripts/proof/phase0/run.sh points to the full canonical command path, including mutation and coverage stages."},{"id":"t12-ac4","description":"Task closes with just check green after proof docs/script updates.","measurable":"just check passes after documentation and script guidance updates."}],"reason":"audit-task fix_now findings showed acceptance criteria ambiguity around strict-gate wording, wave migration status freshness, and completeness of retired run.sh guidance"}}
+310:{"schema_version":"1.0.0","event_id":"019db892-8420-72f2-bbc0-6216110509b1","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:21:43.072544Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db892-8420-72f2-bbc0-620bd1e01c26","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"fix_now","title":"Runbook still claims staged/non-blocking gate contract after strict cutover","description":"docs/rewrite/PHASE0_PROOF_RUNBOOK.md still includes a 'Staged Gate Scaffolding (Current Non-Blocking Contract)' section that describes check-phase0-* commands as non-blocking and says strict enforcement is later. This conflicts with current hard-cutover strict enforcement expectations for T12 and leaves operator guidance inconsistent.","affected_files":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md"],"line_numbers":[105,107,121,133],"source":{"kind":"audit","phase":"audit-task","pillar":"strictness"},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T04:21:43.072542Z"}}}
+311:{"schema_version":"1.0.0","event_id":"019db892-afe4-7561-a02b-f599b3a17058","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:21:54.276616Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db892-afe4-7561-a02b-f58c19507cdd","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"fix_now","title":"Evidence index still marks Wave B/C scenarios as pending","description":"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md marks scenarios 4.1 through 8.1 as pending migration even though those wave feature files and behavior ownership artifacts exist in the repository. The index is therefore stale and inconsistent with current cutover status.","affected_files":["docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md"],"line_numbers":[27,28,29,30,31,32,33,34,35,36,37],"source":{"kind":"audit","phase":"audit-task","pillar":"documentation_complete"},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T04:21:54.276614Z"}}}
+312:{"schema_version":"1.0.0","event_id":"019db892-d3db-7f92-9eea-3bf9e1b81b96","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:03.483687Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db892-d3db-7f92-9eea-3be1461a0af5","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"fix_now","title":"Retired run.sh guidance omits mutation-stage canonical command","description":"scripts/proof/phase0/run.sh directs operators to post-cutover commands but omits just check-phase0-mutation-stage, so the retired-entrypoint message does not provide a complete reproducible scenario+mutation+coverage command path.","affected_files":["scripts/proof/phase0/run.sh"],"line_numbers":[10,11,12,13,14],"source":{"kind":"audit","phase":"audit-task","pillar":"completeness"},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T04:22:03.483684Z"}}}
+313:{"schema_version":"1.0.0","event_id":"019db893-2bf7-7093-a32a-9cd1d1d16e96","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.039410Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"completeness","score":6,"target":10,"passing":7,"rationale":"Task guidance remains incomplete because the retired run.sh message omits the mutation-stage command from the canonical post-cutover path.","supporting_finding_ids":["019db892-d3db-7f92-9eea-3be1461a0af5"]}}}
+314:{"schema_version":"1.0.0","event_id":"019db893-2c51-70c2-80a3-d33fc71844ce","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.129689Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"performance","score":10,"target":10,"passing":7,"rationale":"T12 touches documentation and guidance surfaces only and does not change runtime hot-path execution behavior."}}}
+315:{"schema_version":"1.0.0","event_id":"019db893-2ca3-7e72-873e-46ea5bb0ac92","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.211516Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"scalability","score":10,"target":10,"passing":7,"rationale":"The documented proof flow remains wave-partitioned and behavior-indexed, so task scope does not introduce scaling constraints."}}}
+316:{"schema_version":"1.0.0","event_id":"019db893-2cf8-7fc2-a35b-64fcea70c76c","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.296018Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"strictness","score":6,"target":10,"passing":7,"rationale":"Runbook guidance still states a non-blocking staged contract and deferred strict enforcement, which conflicts with current strict cutover semantics.","supporting_finding_ids":["019db892-8420-72f2-bbc0-620bd1e01c26"]}}}
+317:{"schema_version":"1.0.0","event_id":"019db893-2d4e-7f20-b4ec-0533dfaab94a","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.382021Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"security","score":10,"target":10,"passing":7,"rationale":"No trust-boundary, credential, or secret-handling changes are introduced by the audited documentation/script guidance updates."}}}
+318:{"schema_version":"1.0.0","event_id":"019db893-2da0-7fd3-8849-c4fdaf849435","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.464951Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"stability","score":10,"target":10,"passing":7,"rationale":"Findings are documentation-consistency defects; no runtime behavior regression was introduced in executable product code paths."}}}
+319:{"schema_version":"1.0.0","event_id":"019db893-2df3-77d1-859d-11efdc95303a","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.547792Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"maintainability","score":10,"target":10,"passing":7,"rationale":"Proof artifacts and helper scripts stay modular with clear ownership boundaries even though several guidance strings remain stale."}}}
+320:{"schema_version":"1.0.0","event_id":"019db893-2e4a-71f2-85bc-f3021a81cfed","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.634392Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"extensibility","score":10,"target":10,"passing":7,"rationale":"The Phase 0 evidence and command structure remains extensible for future behavior-wave growth without format changes."}}}
+321:{"schema_version":"1.0.0","event_id":"019db893-2e9d-7f13-b6a7-69f89b988ef4","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.717995Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"elegance","score":10,"target":10,"passing":7,"rationale":"Task scope remains narrowly focused on proof documentation and command-path messaging without unnecessary architectural churn."}}}
+322:{"schema_version":"1.0.0","event_id":"019db893-2eed-7ae0-805d-fe16f4d99280","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.797155Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"style","score":10,"target":10,"passing":7,"rationale":"Touched files continue to follow existing repository naming and formatting conventions."}}}
+323:{"schema_version":"1.0.0","event_id":"019db893-2f40-7a10-84d5-242f8c85fea6","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.880743Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"relevance","score":10,"target":10,"passing":7,"rationale":"All audited artifacts are directly in-scope for T12 proof docs/script refresh objectives."}}}
+324:{"schema_version":"1.0.0","event_id":"019db893-2f95-7e10-b51a-77516b8476fd","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:26.965179Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"modularity","score":10,"target":10,"passing":7,"rationale":"Responsibilities remain split across runbook, evidence index, and wrapper scripts, preserving modular boundaries."}}}
+325:{"schema_version":"1.0.0","event_id":"019db893-2fe8-7e81-b098-9fd3d9d1ab1b","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:22:27.048502Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"documentation_complete","score":5,"target":10,"passing":7,"rationale":"Evidence index status rows are stale for scenarios 4.1-8.1, so documentation completeness for current migration state is below passing.","supporting_finding_ids":["019db892-afe4-7561-a02b-f58c19507cdd"]}}}
+327:{"schema_version":"1.0.0","event_id":"019db8ab-ed3d-7041-a7f2-940a24284f94","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T04:49:28.381997Z","origin_kind":"tool_primary","tool":"revise_task","payload":{"event_type":"task_revised","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01","revised_description":"Refresh Phase 0 proof artifacts to remove stale staged-gate wording and stale migration status by updating docs/rewrite/PHASE0_PROOF_RUNBOOK.md, docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md, and scripts/proof/phase0/run.sh so they encode the strict post-cutover command path for Wave A/B/C scenarios, mutation stage, and coverage stage.","revised_acceptance":[{"id":"t12-ac1","description":"Runbook strictness language is aligned with hard cutover reality.","measurable":"docs/rewrite/PHASE0_PROOF_RUNBOOK.md contains no statements that Phase 0 gates are staged/non-blocking or that strict enforcement is deferred to a future task."},{"id":"t12-ac2","description":"Evidence index migration status is synchronized with implemented Wave B/C coverage.","measurable":"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md no longer marks scenarios 4.1-8.1 as pending migration and aligns those rows with current Wave B/C feature ownership artifacts."},{"id":"t12-ac3","description":"Retired run.sh guidance enumerates the complete post-cutover canonical proof path.","measurable":"scripts/proof/phase0/run.sh guidance explicitly includes scenario waves plus both just check-phase0-mutation-stage and just check-phase0-coverage-stage commands."},{"id":"t12-ac4","description":"Task closure remains gated on repository health.","measurable":"just check passes after the above documentation/script corrections."}],"reason":"Repeated audit-task failure shows prior revision remained too high-level; acceptance needed file-level concrete criteria to eliminate strictness-language drift, evidence-index drift, and incomplete canonical command guidance."}}
+328:{"schema_version":"1.0.0","event_id":"019db8ac-300d-7811-a7e5-9ce15bc6387f","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T04:49:45.485890Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db8ac-300d-7811-a7e5-9cdca197f335","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"note","title":"Repeated T12 audit failures are documentation-drift, not implementation-scope expansion","description":"Root cause classification: acceptance-criteria ambiguity and behavior-map drift. The same strictness/documentation/completeness findings repeated after the first investigate revision, indicating the implementation target remained in-scope but acceptance language was still not concrete enough at file/command level.","affected_files":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md","docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md","scripts/proof/phase0/run.sh"],"source":{"kind":"investigation","loop_index":2},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T04:49:45.485887Z"}}}
+330:{"schema_version":"1.0.0","event_id":"019db8af-ab61-7422-81a6-7e81a05a4efc","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:33.665262Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db8af-ab61-7422-81a6-7e74ed93754c","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"fix_now","title":"Runbook still claims staged/non-blocking gate contract after strict cutover","description":"docs/rewrite/PHASE0_PROOF_RUNBOOK.md still includes a staged/non-blocking gate section and deferred strict-enforcement wording, which conflicts with the current strict hard-cutover contract for Phase 0 proof execution.","affected_files":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md"],"line_numbers":[105,107,121,133],"source":{"kind":"audit","phase":"audit-task","pillar":"strictness"},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T04:53:33.665260Z"}}}
+331:{"schema_version":"1.0.0","event_id":"019db8af-ab96-74c3-a131-a876108db811","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:33.718574Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db8af-ab96-74c3-a131-a86d3f91f3b7","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"fix_now","title":"Evidence index still marks Wave B/C scenarios as pending","description":"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md still labels scenarios 4.1-8.1 as pending migration even though Wave B/C behavior ownership artifacts are implemented, leaving the index stale.","affected_files":["docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md"],"line_numbers":[27,28,29,30,31,32,33,34,35,36,37],"source":{"kind":"audit","phase":"audit-task","pillar":"documentation_complete"},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T04:53:33.718572Z"}}}
+332:{"schema_version":"1.0.0","event_id":"019db8af-abc8-7623-be74-c11f9cf448e3","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:33.768081Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db8af-abc8-7623-be74-c10a3bc8fa4a","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"fix_now","title":"Retired run.sh guidance still omits required post-cutover commands","description":"scripts/proof/phase0/run.sh does not list the complete canonical post-cutover command path (Wave B/C scenario runs and mutation stage), so the retired entrypoint guidance remains incomplete.","affected_files":["scripts/proof/phase0/run.sh"],"line_numbers":[10,11,12,13,14],"source":{"kind":"audit","phase":"audit-task","pillar":"completeness"},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T04:53:33.768079Z"}}}
+333:{"schema_version":"1.0.0","event_id":"019db8af-abf9-7193-9727-1319a2d26d5f","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:33.817830Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"completeness","score":6,"target":10,"passing":7,"rationale":"Task guidance remains incomplete because retired run.sh messaging does not enumerate the full post-cutover proof path.","supporting_finding_ids":["019db8af-abc8-7623-be74-c10a3bc8fa4a"]}}}
+334:{"schema_version":"1.0.0","event_id":"019db8af-ac27-7ca2-b6c7-543b8d70e884","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:33.863773Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"performance","score":10,"target":10,"passing":7,"rationale":"Audited scope is documentation/script guidance only; no runtime hot-path performance behavior changed."}}}
+335:{"schema_version":"1.0.0","event_id":"019db8af-ac59-74f3-9a1a-c09688bbe57d","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:33.913138Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"scalability","score":10,"target":10,"passing":7,"rationale":"Wave-partitioned proof structure remains intact and scalable for additional behavior coverage."}}}
+336:{"schema_version":"1.0.0","event_id":"019db8af-ac8e-7602-a039-1ad14de009b8","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:33.966055Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"strictness","score":6,"target":10,"passing":7,"rationale":"Runbook text still encodes staged/non-blocking semantics that conflict with strict cutover invariants.","supporting_finding_ids":["019db8af-ab61-7422-81a6-7e74ed93754c"]}}}
+337:{"schema_version":"1.0.0","event_id":"019db8af-acc2-74a1-87b3-1b9503cb23f5","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.018604Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"security","score":10,"target":10,"passing":7,"rationale":"No trust-boundary or secret-handling behavior changed in the audited docs/script surfaces."}}}
+338:{"schema_version":"1.0.0","event_id":"019db8af-acf1-7311-84c7-26786cd6e05b","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.065304Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"stability","score":10,"target":10,"passing":7,"rationale":"Findings are documentation consistency defects; no executable runtime behavior changed in product paths."}}}
+339:{"schema_version":"1.0.0","event_id":"019db8af-ad27-7572-81ff-9578ce454243","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.119508Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"maintainability","score":10,"target":10,"passing":7,"rationale":"Artifacts remain separated by role (runbook, evidence index, script wrappers) with clear boundaries."}}}
+340:{"schema_version":"1.0.0","event_id":"019db8af-ad58-7c22-a282-00e0566820e1","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.168683Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"extensibility","score":10,"target":10,"passing":7,"rationale":"Behavior-indexed proof artifacts stay extensible for additional scenario waves without schema churn."}}}
+341:{"schema_version":"1.0.0","event_id":"019db8af-ad8a-7800-8509-bba9ec0a2483","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.218329Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"elegance","score":10,"target":10,"passing":7,"rationale":"Scope remains narrowly focused on required proof documentation and command guidance updates."}}}
+342:{"schema_version":"1.0.0","event_id":"019db8af-adb9-7560-a2bc-dca9e55a2618","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.265124Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"style","score":10,"target":10,"passing":7,"rationale":"Touched files continue matching repository conventions and existing documentation/script patterns."}}}
+343:{"schema_version":"1.0.0","event_id":"019db8af-adea-7873-9640-efd749264431","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.314389Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"relevance","score":10,"target":10,"passing":7,"rationale":"All findings and scored artifacts are directly in-scope for T12 proof refresh acceptance."}}}
+344:{"schema_version":"1.0.0","event_id":"019db8af-ae16-75f0-baa7-1be1631ec897","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.358909Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"modularity","score":10,"target":10,"passing":7,"rationale":"Documentation and helper scripts preserve modular responsibility boundaries."}}}
+345:{"schema_version":"1.0.0","event_id":"019db8af-ae47-7931-b4d5-a7399151f123","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T04:53:34.407460Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"documentation_complete","score":5,"target":10,"passing":7,"rationale":"Evidence index and runbook still carry stale migration/enforcement claims, so documentation completeness is below passing.","supporting_finding_ids":["019db8af-ab96-74c3-a131-a86d3f91f3b7"]}}}
+347:{"schema_version":"1.0.0","event_id":"019db8c8-81b2-7e12-aff9-b74c886e6902","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T05:20:41.394811Z","origin_kind":"tool_primary","tool":"revise_task","payload":{"event_type":"task_revised","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01","revised_description":"Refresh Phase 0 proof artifacts so they match the strict hard-cutover command contract by replacing stale staged/non-blocking language in docs/rewrite/PHASE0_PROOF_RUNBOOK.md, synchronizing docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md scenario statuses with implemented Wave B/C ownership, and updating scripts/proof/phase0/run.sh retired guidance to the complete canonical post-cutover command set.","revised_acceptance":[{"id":"t12-ac1","description":"Runbook strictness language reflects hard-cutover enforcement.","measurable":"docs/rewrite/PHASE0_PROOF_RUNBOOK.md removes staged/non-blocking/deferred-enforcement wording and no longer includes the section titled 'Staged Gate Scaffolding (Current Non-Blocking Contract)'."},{"id":"t12-ac2","description":"Runbook command contract lists the full enforced gate set.","measurable":"Runbook command guidance explicitly lists: check-phase0-scenario-stage, check-phase0-bdd-smoke, check-phase0-bdd-wave-a, check-phase0-bdd-wave-b, check-phase0-bdd-wave-c, check-phase0-mutation-stage, check-phase0-coverage-stage, and check-phase0-stage-gates."},{"id":"t12-ac3","description":"Evidence index status matrix is synchronized with implemented Wave B/C ownership.","measurable":"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md Scenario Matrix marks scenarios 4.1-8.1 as active and no row in the post-cutover matrix uses 'pending migration'."},{"id":"t12-ac4","description":"Retired run.sh guidance mirrors the complete canonical post-cutover command path.","measurable":"scripts/proof/phase0/run.sh retired-entrypoint message includes bdd-smoke, bdd-wave-a, bdd-wave-b, bdd-wave-c, mutation-stage, coverage-stage, and stage-gates commands."},{"id":"t12-ac5","description":"Task closure remains gated on repository health.","measurable":"just check passes after these documentation/script corrections."}],"reason":"Latest audit blocked on the same three findings after the previous revision. Root cause is remaining acceptance ambiguity around exact command inventory and concrete status values; this revision makes the required text/state changes fully explicit at command and matrix-row level."}}
+348:{"schema_version":"1.0.0","event_id":"019db8c8-a628-7de3-8743-219a47149bd5","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T05:20:50.728364Z","origin_kind":"tool_primary","tool":"add_finding","payload":{"event_type":"finding_added","finding":{"id":"019db8c8-a628-7de3-8743-21817d72b5b3","spec_id":"00000000-0000-0000-0000-000000000c01","severity":"note","title":"T12 repeat audit blockers are execution drift against explicit docs contract","description":"Root-cause classification: behavior-map drift plus acceptance criteria ambiguity at command granularity. Evidence shows unresolved stale text in PHASE0_PROOF_RUNBOOK.md, stale 'pending migration' rows for scenarios 4.1-8.1 in PHASE0_PROOF_EVIDENCE_INDEX.md, and incomplete retired run.sh command inventory. Task scope remains correct; revision tightened exact command list and matrix status expectations to prevent partial updates from passing do-task interpretation.","affected_files":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md","docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md","scripts/proof/phase0/run.sh"],"source":{"kind":"investigation","loop_index":3},"attached_task":"019db58b-b438-7733-8513-5ef68730d647","created_at":"2026-04-23T05:20:50.728362Z"}}}
+353:{"schema_version":"1.0.0","event_id":"019db8cf-9181-75e2-a825-094ae5ec9b33","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.193372Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"completeness","score":10,"target":10,"passing":7,"rationale":"All revised T12 acceptance items are fully represented in current runbook, evidence index, and retired-entrypoint guidance."}}}
+354:{"schema_version":"1.0.0","event_id":"019db8cf-91bb-7ff0-978a-48792cf591f2","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.251261Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"performance","score":10,"target":10,"passing":7,"rationale":"Audited deltas are documentation and script guidance only; no runtime performance path changed."}}}
+355:{"schema_version":"1.0.0","event_id":"019db8cf-91ee-77e3-8c41-31fff1225e33","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.302808Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"scalability","score":10,"target":10,"passing":7,"rationale":"Wave-partitioned behavior ownership and command surfaces remain scalable for additional scenario growth."}}}
+356:{"schema_version":"1.0.0","event_id":"019db8cf-9221-7842-9916-305f757d9b62","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.353993Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"strictness","score":10,"target":10,"passing":7,"rationale":"Runbook and retired entrypoint now align with the enforced hard-cutover gate contract and command inventory."}}}
+357:{"schema_version":"1.0.0","event_id":"019db8cf-9250-7922-b052-84b3c6273585","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.400294Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"security","score":10,"target":10,"passing":7,"rationale":"No new trust boundary or secret-handling logic was introduced in the audited scope."}}}
+358:{"schema_version":"1.0.0","event_id":"019db8cf-9283-7d51-aa2b-f8b395842ce7","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.451010Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"stability","score":10,"target":10,"passing":7,"rationale":"Do-task evidence includes successful full just check after remediation, indicating stable integration."}}}
+359:{"schema_version":"1.0.0","event_id":"019db8cf-92b5-7491-a1f4-fd0dbf19a0d7","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.501826Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"maintainability","score":10,"target":10,"passing":7,"rationale":"Proof artifacts keep clear separation of responsibilities across runbook, evidence index, and scripts."}}}
+360:{"schema_version":"1.0.0","event_id":"019db8cf-92e9-7cf0-880a-4e5a46d8b25e","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.553490Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"extensibility","score":10,"target":10,"passing":7,"rationale":"Behavior-indexed artifacts and wave command partitioning support future expansion without schema churn."}}}
+361:{"schema_version":"1.0.0","event_id":"019db8cf-9319-77e1-b7eb-c9997c988ebe","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.601379Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"elegance","score":10,"target":10,"passing":7,"rationale":"The remediation is narrowly scoped to required proof-contract corrections without unnecessary structural change."}}}
+362:{"schema_version":"1.0.0","event_id":"019db8cf-9349-7f60-a726-5d76ffa1caed","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.649279Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"style","score":10,"target":10,"passing":7,"rationale":"Touched files follow established repository documentation and shell-script conventions."}}}
+363:{"schema_version":"1.0.0","event_id":"019db8cf-937c-7460-9a32-d5b51ace11d6","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.700227Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"relevance","score":10,"target":10,"passing":7,"rationale":"All audited changes are directly tied to T12 proof docs/scripts refresh objectives."}}}
+364:{"schema_version":"1.0.0","event_id":"019db8cf-93ae-7771-91b9-fa3c87abbb74","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.750872Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"modularity","score":10,"target":10,"passing":7,"rationale":"Cutover guidance remains modular across policy, runbook, evidence index, and wrapper scripts."}}}
+365:{"schema_version":"1.0.0","event_id":"019db8cf-93df-7181-bd3f-b3c0d2e003d1","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.799026Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"documentation_complete","score":10,"target":10,"passing":7,"rationale":"Scenario matrix statuses and command guidance are now coherent with implemented Wave B/C ownership and post-cutover flow."}}}
+367:{"schema_version":"1.0.0","event_id":"019db8cf-cc3b-7690-a84e-6508ae9a32ad","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:39.227620Z","caused_by_tool_call_id":"report_phase_outcome:019db58b-b438-7733-8513-5ef68730d647:Audited","origin_kind":"tool_derived","tool":"mark_task_guard_satisfied","payload":{"event_type":"task_audited","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01"}}
+
+exec
+/bin/zsh -lc "find tanren/specs/rust-testing-hard-cutover-phase0/orchestration -maxdepth 3 -type f | sed -n '1,200p'" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase-events-repair-backups/phase-events.20260423T040350Z.pre-repair.jsonl
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041226Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041226Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041226Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T233811Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T233811Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T233811Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234402Z/status-cycle-2.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234402Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234402Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234402Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225527Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225527Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225527Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T233815Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T233815Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T233815Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225501Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225501Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225501Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T042826Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T042826Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T042826Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T044728Z/status-cycle-2.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T044728Z/status-cycle-3.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T044728Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T044728Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T044728Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/status-cycle-4.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/status-cycle-2.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/status-cycle-3.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225153Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225153Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225153Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041433Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041433Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041433Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-10.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-8.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-26.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-30.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-4.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-5.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-31.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-27.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-9.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-11.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-20.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-36.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-2.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-16.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-41.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-40.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-17.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-3.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-37.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-21.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-18.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-34.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-22.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-43.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-14.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-38.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-39.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-15.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-42.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-23.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-35.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-19.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-45.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-12.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-28.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-6.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-32.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-24.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-25.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-33.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-7.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-29.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-13.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T001410Z/status-cycle-44.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224701Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224701Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224701Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041522Z/status-cycle-2.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041522Z/status-cycle-3.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041522Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041522Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T041522Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224342Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224342Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224342Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224641Z/status-cycle-4.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224641Z/status-cycle-2.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224641Z/status-cycle-3.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224641Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224641Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224641Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225103Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225103Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T225103Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T042539Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T042539Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T042539Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224354Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224354Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224354Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234746Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234746Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234746Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224942Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224942Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224942Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224729Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224729Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T224729Z/last-status.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234056Z/resolved-config.env
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234056Z/status-cycle-1.json
+tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260422T234056Z/last-status.json
+
+exec
+/bin/zsh -lc "sed -n '1,260p' tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/last-status.json" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+{
+  "schema_version": "1.0.0",
+  "spec_id": "00000000-0000-0000-0000-000000000c01",
+  "spec_exists": true,
+  "blockers_active": false,
+  "ready_for_walk_spec": false,
+  "next_action": "run_loop",
+  "next_task_id": "019db58b-b438-7733-8513-5ef68730d647",
+  "next_step": "task_adhere",
+  "pending_required_guards": [
+    "adherent"
+  ],
+  "next_step_reason": "task 019db58b-b438-7733-8513-5ef68730d647 missing guard adherent",
+  "last_blocker_phase": "audit-task",
+  "last_blocker_summary": "T12 audit blocked: fix_now strictness/completeness/documentation findings remain unresolved.",
+  "last_blocker_reason_kind": "other",
+  "last_blocker_reason_detail": "Task artifacts still contain stale strictness wording, stale Wave B/C migration status, and incomplete retired-entrypoint command guidance.",
+  "required_guards": [
+    "gate_checked",
+    "audited",
+    "adherent"
+  ],
+  "total_tasks": 13,
+  "completed_tasks": 11,
+  "abandoned_tasks": 0,
+  "implemented_tasks": 1,
+  "in_progress_tasks": 0,
+  "pending_tasks": 1
+}
+
+codex
+I’ve identified that the orchestrator is currently waiting specifically on `task_adhere` for this task. I’m now checking orchestration status artifacts for any explicit touched-file/diff metadata; if absent, I’ll use the task’s recorded evidence file set as the adherence evaluation scope.
+exec
+/bin/zsh -lc "sed -n '1,320p' tanren/specs/rust-testing-hard-cutover-phase0/orchestration/phase0/20260423T051843Z/status-cycle-4.json" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+{
+  "schema_version": "1.0.0",
+  "spec_id": "00000000-0000-0000-0000-000000000c01",
+  "spec_exists": true,
+  "blockers_active": false,
+  "ready_for_walk_spec": false,
+  "next_action": "run_loop",
+  "next_task_id": "019db58b-b438-7733-8513-5ef68730d647",
+  "next_step": "task_adhere",
+  "pending_required_guards": [
+    "adherent"
+  ],
+  "next_step_reason": "task 019db58b-b438-7733-8513-5ef68730d647 missing guard adherent",
+  "last_blocker_phase": "audit-task",
+  "last_blocker_summary": "T12 audit blocked: fix_now strictness/completeness/documentation findings remain unresolved.",
+  "last_blocker_reason_kind": "other",
+  "last_blocker_reason_detail": "Task artifacts still contain stale strictness wording, stale Wave B/C migration status, and incomplete retired-entrypoint command guidance.",
+  "required_guards": [
+    "gate_checked",
+    "audited",
+    "adherent"
+  ],
+  "total_tasks": 13,
+  "completed_tasks": 11,
+  "abandoned_tasks": 0,
+  "implemented_tasks": 1,
+  "in_progress_tasks": 0,
+  "pending_tasks": 1
+}
+
+exec
+/bin/zsh -lc "rg -n '\"phase\":\"adhere-task\"|\"tool\":\"add_adherence_finding\"|\"tool\":\"add-finding\".*\"phase\":\"adhere-task\"|\"task_adherent\"|\"task_blocked\"' tanren/specs/rust-testing-hard-cutover-phase0/phase-events.jsonl | sed -n '1,240p'" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+62:{"agent_session_id":"cli-session","event_id":"019db796-bfe9-73a3-8ebc-ab6dd186fbd4","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"schema probe"},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-22T23:46:43.305685Z","tool":"report_phase_outcome"}
+63:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b051-70e1-9190-c4f9cd09b5e7:Adherent","event_id":"019db796-bff2-7753-bfe1-db734af141da","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b051-70e1-9190-c4f9cd09b5e7"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-22T23:46:43.314435Z","tool":"mark_task_guard_satisfied"}
+64:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b051-70e1-9190-c4f9cd09b5e7:Adherent","event_id":"019db796-bff7-73e0-8824-aa2715517326","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b051-70e1-9190-c4f9cd09b5e7"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-22T23:46:43.319937Z","tool":"mark_task_guard_satisfied"}
+84:{"agent_session_id":"cli-session","event_id":"019db7bb-abf5-75b2-8947-702b56237df1","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"adherence complete: no relevant standards matched the task evidence files"},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:27:03.029901Z","tool":"report_phase_outcome"}
+85:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b0b7-7541-bceb-beefc3b8876c:Adherent","event_id":"019db7bb-abfe-7081-92b0-396869195182","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b0b7-7541-bceb-beefc3b8876c"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:27:03.038818Z","tool":"mark_task_guard_satisfied"}
+86:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b0b7-7541-bceb-beefc3b8876c:Adherent","event_id":"019db7bb-ac03-7691-9757-942c52063256","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b0b7-7541-bceb-beefc3b8876c"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:27:03.043590Z","tool":"mark_task_guard_satisfied"}
+106:{"agent_session_id":"cli-session","event_id":"019db7c6-3a4b-7721-9bde-a0585210f473","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T03 adherence complete: no relevant standards matched the task evidence files (justfile, .github/workflows/rust-ci.yml, scripts/check_ci_parity.py, docs/rewrite/PHASE0_PROOF_RUNBOOK.md); no fix_now findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:38:34.827281Z","tool":"report_phase_outcome"}
+107:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b10e-7a21-94fa-3699f795228b:Adherent","event_id":"019db7c6-3a53-7792-bc8d-b0509d4ea648","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b10e-7a21-94fa-3699f795228b"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:38:34.835216Z","tool":"mark_task_guard_satisfied"}
+108:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b10e-7a21-94fa-3699f795228b:Adherent","event_id":"019db7c6-3a59-7b71-a21f-b332a65df89f","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b10e-7a21-94fa-3699f795228b"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:38:34.841217Z","tool":"mark_task_guard_satisfied"}
+128:{"agent_session_id":"cli-session","event_id":"019db7d6-9c25-7d03-b3c9-76a7dc631d4f","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T04 adherence complete: evaluated relevant rust-error-handling, observability, security, style, and rust-testing standards against the implemented scaffold artifacts (main.rs, smoke.feature, README, justfile/runbook references); no fix_now adherence findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:56:28.453590Z","tool":"report_phase_outcome"}
+129:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b165-7f51-b581-6b2a0b9e77f8:Adherent","event_id":"019db7d6-9c33-7d12-b8e1-6c0d0a492478","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b165-7f51-b581-6b2a0b9e77f8"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:56:28.467431Z","tool":"mark_task_guard_satisfied"}
+130:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b165-7f51-b581-6b2a0b9e77f8:Adherent","event_id":"019db7d6-9c38-76a3-bab7-13e7c1754fc6","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b165-7f51-b581-6b2a0b9e77f8"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T00:56:28.472458Z","tool":"mark_task_guard_satisfied"}
+150:{"agent_session_id":"cli-session","event_id":"019db7e5-4d00-7c03-871a-02bdb6f1b37b","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T05 adherence complete: evaluated relevant rust-error-handling, observability, security, style, and rust-testing standards against Wave A evidence files (main.rs, feature-1/2/3, README, justfile, runbook references); no fix_now adherence findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:12:31.232313Z","tool":"report_phase_outcome"}
+151:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b1bd-7fe3-8db6-83d7fa10e2d8:Adherent","event_id":"019db7e5-4d07-7713-977f-200be7067624","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b1bd-7fe3-8db6-83d7fa10e2d8"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:12:31.239847Z","tool":"mark_task_guard_satisfied"}
+152:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b1bd-7fe3-8db6-83d7fa10e2d8:Adherent","event_id":"019db7e5-4d0e-7e83-8e0b-ea4384da04e7","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b1bd-7fe3-8db6-83d7fa10e2d8"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:12:31.246361Z","tool":"mark_task_guard_satisfied"}
+172:{"agent_session_id":"cli-session","event_id":"019db7f5-a3ff-71c3-9d2f-6af01af0c1d4","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T06 adherence complete: no relevant standards matched the task evidence files (docs/rewrite/PHASE0_RUST_TEST_CUTOVER_POLICY.md, docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md, docs/rewrite/PHASE0_PROOF_RUNBOOK.md, scripts/proof/phase0/run.sh, tests/bdd/phase0/README.md); no fix_now findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:30:22.079082Z","tool":"report_phase_outcome"}
+173:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b215-7fe3-ba25-45ffbdb973b3:Adherent","event_id":"019db7f5-a408-7433-bf66-8a1e5fd8a5a8","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b215-7fe3-ba25-45ffbdb973b3"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:30:22.088765Z","tool":"mark_task_guard_satisfied"}
+174:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b215-7fe3-ba25-45ffbdb973b3:Adherent","event_id":"019db7f5-a40e-7221-a7b3-caa3881bfe1a","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b215-7fe3-ba25-45ffbdb973b3"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:30:22.094884Z","tool":"mark_task_guard_satisfied"}
+195:{"agent_session_id":"cli-session","event_id":"019db808-10c3-7921-9a53-422cd012f704","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T07 adherence complete: evaluated relevant rust-error-handling, observability, security, style, and rust-testing standards against Wave B evidence files (main.rs, wave_b_steps.rs, feature-4/5/6, README, justfile); no fix_now adherence findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:50:29.571715Z","tool":"report_phase_outcome"}
+196:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b272-7452-bec2-acef1fa93a24:Adherent","event_id":"019db808-10ca-7370-bea9-53243b6545cd","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b272-7452-bec2-acef1fa93a24"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:50:29.578424Z","tool":"mark_task_guard_satisfied"}
+197:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b272-7452-bec2-acef1fa93a24:Adherent","event_id":"019db808-10d0-7ad1-996e-2340ec0c554a","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b272-7452-bec2-acef1fa93a24"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T01:50:29.584587Z","tool":"mark_task_guard_satisfied"}
+217:{"agent_session_id":"cli-session","event_id":"019db816-159d-7650-8049-39278eddcc04","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T08 adherence complete: evaluated relevant rust-error-handling, observability, security, style, and rust-testing standards against Wave C evidence files (main.rs, wave_c_steps.rs, feature-7/8, README, justfile); no fix_now adherence findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:05:48.317921Z","tool":"report_phase_outcome"}
+218:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b2cb-7413-b146-fd88721c2784:Adherent","event_id":"019db816-15a6-7513-84ca-1595eea39dab","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b2cb-7413-b146-fd88721c2784"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:05:48.326972Z","tool":"mark_task_guard_satisfied"}
+219:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b2cb-7413-b146-fd88721c2784:Adherent","event_id":"019db816-15ad-79a0-993f-6960017ebacd","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b2cb-7413-b146-fd88721c2784"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:05:48.333790Z","tool":"mark_task_guard_satisfied"}
+239:{"agent_session_id":"cli-session","event_id":"019db826-38de-78b1-b61f-e7714cb916a1","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T09 adherence complete: relevant standards query returned no matched standards for the implemented evidence files; no fix_now adherence findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:23:25.918694Z","tool":"report_phase_outcome"}
+240:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b327-7dd2-8c8b-9ec0947e6684:Adherent","event_id":"019db826-38ea-7363-abb7-259379cf6d87","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b327-7dd2-8c8b-9ec0947e6684"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:23:25.930185Z","tool":"mark_task_guard_satisfied"}
+241:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b327-7dd2-8c8b-9ec0947e6684:Adherent","event_id":"019db826-38f7-7ba3-b1c8-2e94a6afd780","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b327-7dd2-8c8b-9ec0947e6684"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:23:25.943108Z","tool":"mark_task_guard_satisfied"}
+262:{"agent_session_id":"cli-session","event_id":"019db839-796e-7872-9744-12108a318d28","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T10 adherence complete: relevant standards query returned no matched standards for the implemented evidence files; no fix_now adherence findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:44:27.630870Z","tool":"report_phase_outcome"}
+263:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b382-7060-afcd-73b9d68cd740:Adherent","event_id":"019db839-7977-7a52-81ac-5f913850e05a","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b382-7060-afcd-73b9d68cd740"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:44:27.639674Z","tool":"mark_task_guard_satisfied"}
+264:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b382-7060-afcd-73b9d68cd740:Adherent","event_id":"019db839-797d-7e63-b16b-89da56a546a9","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b382-7060-afcd-73b9d68cd740"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:44:27.645765Z","tool":"mark_task_guard_satisfied"}
+284:{"agent_session_id":"cli-session","event_id":"019db846-765c-7682-8dc6-26a6671d6a4c","origin_kind":"tool_primary","payload":{"agent_session_id":"cli-session","event_type":"phase_outcome_reported","outcome":{"outcome":"complete","summary":"T11 adherence complete: relevant standards query returned no matched standards for the implemented evidence files (justfile, lefthook.yml, .github/workflows/rust-ci.yml, scripts/check_ci_parity.py, scripts/proof/phase0/run_mutation_stage.sh, scripts/proof/phase0/run_coverage_stage.sh); no fix_now adherence findings recorded."},"phase":"adhere-task","spec_id":"00000000-0000-0000-0000-000000000c01"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:58:38.812376Z","tool":"report_phase_outcome"}
+285:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b3db-76f2-90aa-9bd6fda1feef:Adherent","event_id":"019db846-7665-70e2-b826-7fe029d81c02","origin_kind":"tool_derived","payload":{"event_type":"task_adherent","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b3db-76f2-90aa-9bd6fda1feef"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:58:38.821331Z","tool":"mark_task_guard_satisfied"}
+286:{"agent_session_id":"cli-session","caused_by_tool_call_id":"report_phase_outcome:019db58b-b3db-76f2-90aa-9bd6fda1feef:Adherent","event_id":"019db846-766b-71a3-8af9-83b1f44e2cf5","origin_kind":"tool_derived","payload":{"event_type":"task_completed","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b3db-76f2-90aa-9bd6fda1feef"},"phase":"adhere-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:58:38.827333Z","tool":"mark_task_guard_satisfied"}
+
+exec
+/bin/zsh -lc "rg -n '\"event_type\":\"task_implemented\".*\"task_id\":\"019db58b-b438-7733-8513-5ef68730d647\"' tanren/specs/rust-testing-hard-cutover-phase0/phase-events.jsonl | sed -n '1,120p'" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+288:{"agent_session_id":"cli-session","caused_by_tool_call_id":"complete_task:019db58b-b438-7733-8513-5ef68730d647","event_id":"019db848-3f01-7861-8f5d-34da83a83332","origin_kind":"tool_primary","payload":{"event_type":"task_implemented","evidence_refs":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md","docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md","docs/rewrite/PHASE0_RUST_TEST_CUTOVER_POLICY.md","scripts/proof/phase0/run.sh","scripts/proof/phase0/run_mutation_stage.sh","scripts/proof/phase0/run_coverage_stage.sh","scripts/proof/phase0/render_mutation_triage.py","scripts/proof/phase0/render_coverage_classification.py","scripts/proof/phase0/validate_behavior_traceability.py","just check"],"spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b438-7733-8513-5ef68730d647"},"phase":"do-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:00:35.713525Z","tool":"complete_task"}
+
+exec
+/bin/zsh -lc "rg -n '\"event_type\":\"task_started\".*\"task_id\":\"019db58b-b438-7733-8513-5ef68730d647\"|\"event_type\":\"task_implemented\".*\"task_id\":\"019db58b-b438-7733-8513-5ef68730d647\"|\"event_type\":\"task_revised\".*\"task_id\":\"019db58b-b438-7733-8513-5ef68730d647\"|\"event_type\":\"task_adherent\".*\"task_id\":\"019db58b-b438-7733-8513-5ef68730d647\"|\"event_type\":\"task_completed\".*\"task_id\":\"019db58b-b438-7733-8513-5ef68730d647\"' tanren/specs/rust-testing-hard-cutover-phase0/phase-events.jsonl" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+287:{"agent_session_id":"cli-session","event_id":"019db847-739e-7da3-b6f7-caaf02f8fd5c","origin_kind":"tool_primary","payload":{"event_type":"task_started","spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b438-7733-8513-5ef68730d647"},"phase":"do-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T02:59:43.646587Z","tool":"start_task"}
+288:{"agent_session_id":"cli-session","caused_by_tool_call_id":"complete_task:019db58b-b438-7733-8513-5ef68730d647","event_id":"019db848-3f01-7861-8f5d-34da83a83332","origin_kind":"tool_primary","payload":{"event_type":"task_implemented","evidence_refs":["docs/rewrite/PHASE0_PROOF_RUNBOOK.md","docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md","docs/rewrite/PHASE0_RUST_TEST_CUTOVER_POLICY.md","scripts/proof/phase0/run.sh","scripts/proof/phase0/run_mutation_stage.sh","scripts/proof/phase0/run_coverage_stage.sh","scripts/proof/phase0/render_mutation_triage.py","scripts/proof/phase0/render_coverage_classification.py","scripts/proof/phase0/validate_behavior_traceability.py","just check"],"spec_id":"00000000-0000-0000-0000-000000000c01","task_id":"019db58b-b438-7733-8513-5ef68730d647"},"phase":"do-task","schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000c01","timestamp":"2026-04-23T03:00:35.713525Z","tool":"complete_task"}
+308:{"schema_version":"1.0.0","event_id":"019db88f-618a-77e3-bb3a-c71b4751bd29","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T04:18:17.611004Z","origin_kind":"tool_primary","tool":"revise_task","payload":{"event_type":"task_revised","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01","revised_description":"Update Phase 0 proof runbook/scripts/evidence index so they match the enforced post-cutover behavior-first flow, including strict gate semantics, current wave migration status, and a complete reproducible command path for scenario, mutation, and coverage proof execution.","revised_acceptance":[{"id":"t12-ac1","description":"Proof runbook and cutover guidance reflect current strict enforcement semantics.","measurable":"No runbook guidance describes Phase 0 gates as staged/non-blocking when repository enforcement is strict."},{"id":"t12-ac2","description":"Evidence index status is synchronized with implemented wave ownership.","measurable":"Scenario status rows for Features 4-8 align with current Wave B/C feature files and traceability artifacts."},{"id":"t12-ac3","description":"Retired entrypoint guidance is complete for post-cutover reproduction.","measurable":"Operator guidance for scripts/proof/phase0/run.sh points to the full canonical command path, including mutation and coverage stages."},{"id":"t12-ac4","description":"Task closes with just check green after proof docs/script updates.","measurable":"just check passes after documentation and script guidance updates."}],"reason":"audit-task fix_now findings showed acceptance criteria ambiguity around strict-gate wording, wave migration status freshness, and completeness of retired run.sh guidance"}}
+327:{"schema_version":"1.0.0","event_id":"019db8ab-ed3d-7041-a7f2-940a24284f94","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T04:49:28.381997Z","origin_kind":"tool_primary","tool":"revise_task","payload":{"event_type":"task_revised","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01","revised_description":"Refresh Phase 0 proof artifacts to remove stale staged-gate wording and stale migration status by updating docs/rewrite/PHASE0_PROOF_RUNBOOK.md, docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md, and scripts/proof/phase0/run.sh so they encode the strict post-cutover command path for Wave A/B/C scenarios, mutation stage, and coverage stage.","revised_acceptance":[{"id":"t12-ac1","description":"Runbook strictness language is aligned with hard cutover reality.","measurable":"docs/rewrite/PHASE0_PROOF_RUNBOOK.md contains no statements that Phase 0 gates are staged/non-blocking or that strict enforcement is deferred to a future task."},{"id":"t12-ac2","description":"Evidence index migration status is synchronized with implemented Wave B/C coverage.","measurable":"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md no longer marks scenarios 4.1-8.1 as pending migration and aligns those rows with current Wave B/C feature ownership artifacts."},{"id":"t12-ac3","description":"Retired run.sh guidance enumerates the complete post-cutover canonical proof path.","measurable":"scripts/proof/phase0/run.sh guidance explicitly includes scenario waves plus both just check-phase0-mutation-stage and just check-phase0-coverage-stage commands."},{"id":"t12-ac4","description":"Task closure remains gated on repository health.","measurable":"just check passes after the above documentation/script corrections."}],"reason":"Repeated audit-task failure shows prior revision remained too high-level; acceptance needed file-level concrete criteria to eliminate strictness-language drift, evidence-index drift, and incomplete canonical command guidance."}}
+347:{"schema_version":"1.0.0","event_id":"019db8c8-81b2-7e12-aff9-b74c886e6902","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"investigate","agent_session_id":"cli-session","timestamp":"2026-04-23T05:20:41.394811Z","origin_kind":"tool_primary","tool":"revise_task","payload":{"event_type":"task_revised","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01","revised_description":"Refresh Phase 0 proof artifacts so they match the strict hard-cutover command contract by replacing stale staged/non-blocking language in docs/rewrite/PHASE0_PROOF_RUNBOOK.md, synchronizing docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md scenario statuses with implemented Wave B/C ownership, and updating scripts/proof/phase0/run.sh retired guidance to the complete canonical post-cutover command set.","revised_acceptance":[{"id":"t12-ac1","description":"Runbook strictness language reflects hard-cutover enforcement.","measurable":"docs/rewrite/PHASE0_PROOF_RUNBOOK.md removes staged/non-blocking/deferred-enforcement wording and no longer includes the section titled 'Staged Gate Scaffolding (Current Non-Blocking Contract)'."},{"id":"t12-ac2","description":"Runbook command contract lists the full enforced gate set.","measurable":"Runbook command guidance explicitly lists: check-phase0-scenario-stage, check-phase0-bdd-smoke, check-phase0-bdd-wave-a, check-phase0-bdd-wave-b, check-phase0-bdd-wave-c, check-phase0-mutation-stage, check-phase0-coverage-stage, and check-phase0-stage-gates."},{"id":"t12-ac3","description":"Evidence index status matrix is synchronized with implemented Wave B/C ownership.","measurable":"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md Scenario Matrix marks scenarios 4.1-8.1 as active and no row in the post-cutover matrix uses 'pending migration'."},{"id":"t12-ac4","description":"Retired run.sh guidance mirrors the complete canonical post-cutover command path.","measurable":"scripts/proof/phase0/run.sh retired-entrypoint message includes bdd-smoke, bdd-wave-a, bdd-wave-b, bdd-wave-c, mutation-stage, coverage-stage, and stage-gates commands."},{"id":"t12-ac5","description":"Task closure remains gated on repository health.","measurable":"just check passes after these documentation/script corrections."}],"reason":"Latest audit blocked on the same three findings after the previous revision. Root cause is remaining acceptance ambiguity around exact command inventory and concrete status values; this revision makes the required text/state changes fully explicit at command and matrix-row level."}}
+
+codex
+I confirmed there is a single `task_implemented` event for T12 with a concrete evidence file list. I’m using that evidence set as the touched-file scope for `list_relevant_standards` and then recording the phase outcome based on that standards/file evaluation.
+exec
+/bin/zsh -lc "cat > /tmp/tanren_t12_relevant_standards.json <<'JSON'
+{
+  \"schema_version\": \"1.0.0\",
+  \"spec_id\": \"00000000-0000-0000-0000-000000000c01\",
+  \"touched_files\": [
+    \"docs/rewrite/PHASE0_PROOF_RUNBOOK.md\",
+    \"docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md\",
+    \"docs/rewrite/PHASE0_RUST_TEST_CUTOVER_POLICY.md\",
+    \"scripts/proof/phase0/run.sh\",
+    \"scripts/proof/phase0/run_mutation_stage.sh\",
+    \"scripts/proof/phase0/run_coverage_stage.sh\",
+    \"scripts/proof/phase0/render_mutation_triage.py\",
+    \"scripts/proof/phase0/render_coverage_classification.py\",
+    \"scripts/proof/phase0/validate_behavior_traceability.py\"
+  ],
+  \"domains\": [],
+  \"tags\": []
+}
+JSON
+
+tanren-cli --database-url \"sqlite:tanren.db?mode=rwc\" methodology --phase \"adhere-task\" --spec-id \"00000000-0000-0000-0000-000000000c01\" --spec-folder \"tanren/specs/rust-testing-hard-cutover-phase0\" standard list --params-file /tmp/tanren_t12_relevant_standards.json" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+{
+  "schema_version": "1.0.0",
+  "standards": []
+}
+
+exec
+/bin/zsh -lc "cat > /tmp/tanren_t12_adhere_phase_outcome.json <<'JSON'
+{
+  \"schema_version\": \"1.0.0\",
+  \"spec_id\": \"00000000-0000-0000-0000-000000000c01\",
+  \"outcome\": {
+    \"outcome\": \"complete\",
+    \"summary\": \"T12 adherence complete: relevant standards query returned no matched standards for the implemented evidence files; no fix_now adherence findings recorded.\"
+  }
+}
+JSON
+
+tanren-cli --database-url \"sqlite:tanren.db?mode=rwc\" methodology --phase \"adhere-task\" --spec-id \"00000000-0000-0000-0000-000000000c01\" --spec-folder \"tanren/specs/rust-testing-hard-cutover-phase0\" phase outcome --params-file /tmp/tanren_t12_adhere_phase_outcome.json" in /Users/trevor/Documents/GitHub/tanren
+ exited 4 in 0ms:
+{
+  "kind": "validation_failed",
+  "field_path": "/task_id",
+  "expected": "task_id is required for task-scoped phase completion",
+  "actual": "missing",
+  "remediation": "provide the audited/adhered task_id on report_phase_outcome"
+}
+
+codex
+The phase outcome call failed validation because this tool now requires an explicit `task_id` for task-scoped completion. I’m re-emitting `report_phase_outcome` with the target task id now.
+exec
+/bin/zsh -lc "cat > /tmp/tanren_t12_adhere_phase_outcome.json <<'JSON'
+{
+  \"schema_version\": \"1.0.0\",
+  \"spec_id\": \"00000000-0000-0000-0000-000000000c01\",
+  \"task_id\": \"019db58b-b438-7733-8513-5ef68730d647\",
+  \"outcome\": {
+    \"outcome\": \"complete\",
+    \"summary\": \"T12 adherence complete: relevant standards query returned no matched standards for the implemented evidence files; no fix_now adherence findings recorded.\"
+  }
+}
+JSON
+
+tanren-cli --database-url \"sqlite:tanren.db?mode=rwc\" methodology --phase \"adhere-task\" --spec-id \"00000000-0000-0000-0000-000000000c01\" --spec-folder \"tanren/specs/rust-testing-hard-cutover-phase0\" phase outcome --params-file /tmp/tanren_t12_adhere_phase_outcome.json" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+{
+  "schema_version": "1.0.0"
+}
+
+exec
+/bin/zsh -lc "tanren-cli --database-url \"sqlite:tanren.db?mode=rwc\" methodology --phase \"adhere-task\" --spec-id \"00000000-0000-0000-0000-000000000c01\" --spec-folder \"tanren/specs/rust-testing-hard-cutover-phase0\" task list --params-file /tmp/tanren_adherence_task_list.json > /tmp/tanren_t12_tasks_after_adhere.json
+rg -n '\"id\": \"019db58b-b438-7733-8513-5ef68730d647\"|\"state\":|\"guards\"|\"next_step\"|\"019db58b-b492-7423-925a-80190e82b708\"' /tmp/tanren_t12_tasks_after_adhere.json | sed -n '1,220p'" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+25:        "state": "complete"
+52:        "state": "complete"
+82:        "state": "complete"
+112:        "state": "complete"
+142:        "state": "complete"
+172:        "state": "complete"
+202:        "state": "complete"
+232:        "state": "complete"
+262:        "state": "complete"
+292:        "state": "complete"
+322:        "state": "complete"
+332:      "id": "019db58b-b438-7733-8513-5ef68730d647",
+367:        "state": "complete"
+377:      "id": "019db58b-b492-7423-925a-80190e82b708",
+397:        "state": "pending"
+
+exec
+/bin/zsh -lc "sed -n '328,376p' /tmp/tanren_t12_tasks_after_adhere.json" in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+      "created_at": "2026-04-22T14:15:24.891703Z",
+      "updated_at": "2026-04-22T14:15:24.891703Z"
+    },
+    {
+      "id": "019db58b-b438-7733-8513-5ef68730d647",
+      "spec_id": "00000000-0000-0000-0000-000000000c01",
+      "title": "T12 Proof Docs And Scripts Refresh",
+      "description": "Refresh Phase 0 proof artifacts so they match the strict hard-cutover command contract by replacing stale staged/non-blocking language in docs/rewrite/PHASE0_PROOF_RUNBOOK.md, synchronizing docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md scenario statuses with implemented Wave B/C ownership, and updating scripts/proof/phase0/run.sh retired guidance to the complete canonical post-cutover command set.",
+      "acceptance_criteria": [
+        {
+          "id": "t12-ac1",
+          "description": "Runbook strictness language reflects hard-cutover enforcement.",
+          "measurable": "docs/rewrite/PHASE0_PROOF_RUNBOOK.md removes staged/non-blocking/deferred-enforcement wording and no longer includes the section titled 'Staged Gate Scaffolding (Current Non-Blocking Contract)'."
+        },
+        {
+          "id": "t12-ac2",
+          "description": "Runbook command contract lists the full enforced gate set.",
+          "measurable": "Runbook command guidance explicitly lists: check-phase0-scenario-stage, check-phase0-bdd-smoke, check-phase0-bdd-wave-a, check-phase0-bdd-wave-b, check-phase0-bdd-wave-c, check-phase0-mutation-stage, check-phase0-coverage-stage, and check-phase0-stage-gates."
+        },
+        {
+          "id": "t12-ac3",
+          "description": "Evidence index status matrix is synchronized with implemented Wave B/C ownership.",
+          "measurable": "docs/rewrite/PHASE0_PROOF_EVIDENCE_INDEX.md Scenario Matrix marks scenarios 4.1-8.1 as active and no row in the post-cutover matrix uses 'pending migration'."
+        },
+        {
+          "id": "t12-ac4",
+          "description": "Retired run.sh guidance mirrors the complete canonical post-cutover command path.",
+          "measurable": "scripts/proof/phase0/run.sh retired-entrypoint message includes bdd-smoke, bdd-wave-a, bdd-wave-b, bdd-wave-c, mutation-stage, coverage-stage, and stage-gates commands."
+        },
+        {
+          "id": "t12-ac5",
+          "description": "Task closure remains gated on repository health.",
+          "measurable": "just check passes after these documentation/script corrections."
+        }
+      ],
+      "origin": {
+        "kind": "shape_spec"
+      },
+      "status": {
+        "state": "complete"
+      },
+      "depends_on": [
+        "019db58b-b3db-76f2-90aa-9bd6fda1feef"
+      ],
+      "parent_task_id": null,
+      "created_at": "2026-04-22T14:15:24.984840Z",
+      "updated_at": "2026-04-22T14:15:24.984840Z"
+    },
+    {
+
+exec
+/bin/zsh -lc 'tail -n 8 tanren/specs/rust-testing-hard-cutover-phase0/phase-events.jsonl' in /Users/trevor/Documents/GitHub/tanren
+ succeeded in 0ms:
+{"schema_version":"1.0.0","event_id":"019db8cf-937c-7460-9a32-d5b51ace11d6","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.700227Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"relevance","score":10,"target":10,"passing":7,"rationale":"All audited changes are directly tied to T12 proof docs/scripts refresh objectives."}}}
+{"schema_version":"1.0.0","event_id":"019db8cf-93ae-7771-91b9-fa3c87abbb74","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.750872Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"modularity","score":10,"target":10,"passing":7,"rationale":"Cutover guidance remains modular across policy, runbook, evidence index, and wrapper scripts."}}}
+{"schema_version":"1.0.0","event_id":"019db8cf-93df-7181-bd3f-b3c0d2e003d1","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:24.799026Z","origin_kind":"tool_primary","tool":"record_rubric_score","payload":{"event_type":"rubric_score_recorded","spec_id":"00000000-0000-0000-0000-000000000c01","scope":"task","scope_target_id":"019db58b-b438-7733-8513-5ef68730d647","score":{"pillar":"documentation_complete","score":10,"target":10,"passing":7,"rationale":"Scenario matrix statuses and command guidance are now coherent with implemented Wave B/C ownership and post-cutover flow."}}}
+{"schema_version":"1.0.0","event_id":"019db8cf-cc31-7701-9481-0fcbfbd42b64","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:39.217053Z","origin_kind":"tool_primary","tool":"report_phase_outcome","payload":{"event_type":"phase_outcome_reported","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","outcome":{"outcome":"complete","summary":"T12 audit complete: previously blocked strictness/completeness/documentation issues are resolved in current proof artifacts; no new fix_now findings."}}}
+{"schema_version":"1.0.0","event_id":"019db8cf-cc3b-7690-a84e-6508ae9a32ad","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"audit-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:28:39.227620Z","caused_by_tool_call_id":"report_phase_outcome:019db58b-b438-7733-8513-5ef68730d647:Audited","origin_kind":"tool_derived","tool":"mark_task_guard_satisfied","payload":{"event_type":"task_audited","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01"}}
+{"schema_version":"1.0.0","event_id":"019db8d2-70b0-7bd0-891e-51094a53c6a3","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"adhere-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:31:32.400184Z","origin_kind":"tool_primary","tool":"report_phase_outcome","payload":{"event_type":"phase_outcome_reported","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"adhere-task","agent_session_id":"cli-session","outcome":{"outcome":"complete","summary":"T12 adherence complete: relevant standards query returned no matched standards for the implemented evidence files; no fix_now adherence findings recorded."}}}
+{"schema_version":"1.0.0","event_id":"019db8d2-70b9-72c3-8a72-f3530745cb1d","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"adhere-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:31:32.409182Z","caused_by_tool_call_id":"report_phase_outcome:019db58b-b438-7733-8513-5ef68730d647:Adherent","origin_kind":"tool_derived","tool":"mark_task_guard_satisfied","payload":{"event_type":"task_adherent","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01"}}
+{"schema_version":"1.0.0","event_id":"019db8d2-70bf-71c3-a210-db03daecb76e","spec_id":"00000000-0000-0000-0000-000000000c01","phase":"adhere-task","agent_session_id":"cli-session","timestamp":"2026-04-23T05:31:32.415388Z","caused_by_tool_call_id":"report_phase_outcome:019db58b-b438-7733-8513-5ef68730d647:Adherent","origin_kind":"tool_derived","tool":"mark_task_guard_satisfied","payload":{"event_type":"task_completed","task_id":"019db58b-b438-7733-8513-5ef68730d647","spec_id":"00000000-0000-0000-0000-000000000c01"}}
+
+codex
+`adhere-task` for spec `00000000-0000-0000-0000-000000000c01` and task `019db58b-b438-7733-8513-5ef68730d647` is complete.
+
+What I ran (CLI fallback, since Tanren MCP phase tools are not exposed in this session):
+- `standard list --params-file /tmp/tanren_t12_relevant_standards.json` with the T12 implemented evidence files as `touched_files`.
+- Result: `standards: []` (no matched standards), so no `record_adherence_finding` calls were required.
+- `phase outcome --params-file /tmp/tanren_t12_adhere_phase_outcome.json` with:
+  - `task_id: 019db58b-b438-7733-8513-5ef68730d647`
+  - `outcome.outcome: complete`
+
+Outcome emitted successfully:
+- `phase_outcome_reported` (`adhere-task`, complete)
+- Derived `task_adherent`
+- Derived `task_completed`
+
+Current task state is now `complete` for T12.
+tokens used
+59,343
+`adhere-task` for spec `00000000-0000-0000-0000-000000000c01` and task `019db58b-b438-7733-8513-5ef68730d647` is complete.
+
+What I ran (CLI fallback, since Tanren MCP phase tools are not exposed in this session):
+- `standard list --params-file /tmp/tanren_t12_relevant_standards.json` with the T12 implemented evidence files as `touched_files`.
+- Result: `standards: []` (no matched standards), so no `record_adherence_finding` calls were required.
+- `phase outcome --params-file /tmp/tanren_t12_adhere_phase_outcome.json` with:
+  - `task_id: 019db58b-b438-7733-8513-5ef68730d647`
+  - `outcome.outcome: complete`
+
+Outcome emitted successfully:
+- `phase_outcome_reported` (`adhere-task`, complete)
+- Derived `task_adherent`
+- Derived `task_completed`
+
+Current task state is now `complete` for T12.

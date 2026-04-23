@@ -1,4 +1,4 @@
-"""Assert local `just ci` and GitHub workflow rust checks stay aligned.
+"""Assert local `just ci`, lefthook, and GitHub workflow rust checks stay aligned.
 
 This is a lightweight drift guard: both files must include the strict
 Rust command paths we consider parity-critical.
@@ -11,6 +11,7 @@ from pathlib import Path
 WORKFLOW_PATH = Path(".github/workflows/rust-ci.yml")
 JUSTFILE_PATH = Path("justfile")
 WRAPPER_PATH = Path("scripts/run_postgres_integration.sh")
+LEFTHOOK_PATH = Path("lefthook.yml")
 
 WORKFLOW_REQUIRED = [
     'RUSTFLAGS: "-D warnings"',
@@ -40,6 +41,13 @@ WORKFLOW_REQUIRED = [
     "TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp",
     "Check redaction perf regression thresholds",
     "run: just check-redaction-perf",
+    "Check Phase 0 strict behavior gates",
+    "run: just check-phase0-gates",
+    "tool: cargo-mutants,cargo-llvm-cov",
+    "Upload Phase 0 enforced mutation triage artifact",
+    "path: artifacts/phase0-mutation/enforced/latest",
+    "Upload Phase 0 enforced coverage classification artifact",
+    "path: artifacts/phase0-coverage/enforced/latest",
     "Check pinned Rust toolchain sync",
 ]
 
@@ -58,9 +66,25 @@ JUST_REQUIRED = [
     'TANREN_MCP_BIN="$tanren_mcp_bin" {{ cargo }} nextest run --workspace',
     "./scripts/run_postgres_integration.sh",
     "check-ci-parity:",
+    "check-phase0-scenario-gate:",
+    "check-phase0-mutation-gate:",
+    "check-phase0-coverage-gate:",
+    "check-phase0-gates:",
+    "PHASE0_MUTATION_ENFORCE=1 ./scripts/proof/phase0/run_mutation_stage.sh",
+    "PHASE0_COVERAGE_ENFORCE=1 ./scripts/proof/phase0/run_coverage_stage.sh",
+    "./scripts/proof/phase0/run_mutation_stage.sh",
+    "./scripts/proof/phase0/run_coverage_stage.sh",
+    "@just check",
+    "@just check-phase0-gates",
     "bench-redaction:",
     "check-redaction-perf:",
     'UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/.uv-cache}" uv run python scripts/check_redaction_perf.py',
+]
+
+LEFTHOOK_REQUIRED = [
+    "pre-push:",
+    "phase0-gates:",
+    "just check-phase0-gates",
 ]
 
 WRAPPER_REQUIRED = [
@@ -94,7 +118,7 @@ def missing_snippets(content: str, snippets: list[str]) -> list[str]:
 
 
 def main() -> int:
-    """Validate parity-critical command snippets in CI, justfile, and wrapper.
+    """Validate parity-critical command snippets in CI, justfile, hook, and wrapper.
 
     Returns:
         Exit status code (0 on success, 1 when required snippets are missing).
@@ -102,12 +126,14 @@ def main() -> int:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     justfile = JUSTFILE_PATH.read_text(encoding="utf-8")
     wrapper = WRAPPER_PATH.read_text(encoding="utf-8")
+    lefthook = LEFTHOOK_PATH.read_text(encoding="utf-8")
 
     missing_workflow = missing_snippets(workflow, WORKFLOW_REQUIRED)
     missing_just = missing_snippets(justfile, JUST_REQUIRED)
     missing_wrapper = missing_snippets(wrapper, WRAPPER_REQUIRED)
+    missing_lefthook = missing_snippets(lefthook, LEFTHOOK_REQUIRED)
 
-    if missing_workflow or missing_just or missing_wrapper:
+    if missing_workflow or missing_just or missing_wrapper or missing_lefthook:
         print("ERROR: CI parity drift detected.")
         if missing_workflow:
             print("\nMissing from workflow:")
@@ -120,6 +146,10 @@ def main() -> int:
         if missing_wrapper:
             print("\nMissing from scripts/run_postgres_integration.sh:")
             for snippet in missing_wrapper:
+                print(f"  - {snippet}")
+        if missing_lefthook:
+            print("\nMissing from lefthook.yml:")
+            for snippet in missing_lefthook:
                 print(f"  - {snippet}")
         return 1
 

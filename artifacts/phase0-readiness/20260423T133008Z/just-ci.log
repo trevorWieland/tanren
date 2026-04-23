@@ -1,0 +1,253 @@
+==> Task gate checks
+Checking .rs files for line count > 500...
+All files within line limit.
+Checking for inline lint suppression...
+No inline lint suppression found.
+Checking crate dependency layering...
+Crate layering rules pass.
+==> CI parity guard
+CI parity check passed.
+==> Phase 0 strict behavior gates
+Phase 0 strict scenario gate: found 18 scenario heading(s) in docs/rewrite/PHASE0_PROOF_BDD.md.
+Phase 0 strict scenario gate: detected 9 feature file(s) under tests/bdd/phase0.
+Feature: Phase 0 BDD harness smoke path
+  Scenario: Cucumber harness executes one tagged smoke scenario
+   ✔  Given the phase0 BDD harness is initialized
+   ✔  When the smoke scenario executes
+   ✔  Then the scenario completes successfully
+[Summary]
+1 feature
+1 scenario (1 passed)
+3 steps (3 passed)
+Phase 0 BDD smoke tag evidence: @phase0 @smoke @positive @BEH-P0-401
+Feature: Feature 1 typed control-plane state is authoritative
+  Scenario: 1.1 positive witness - valid lifecycle changes are accepted
+   ✔  Given a new project state
+   ✔  When a valid sequence of lifecycle mutations is submitted
+   ✔  Then state advances predictably according to declared transition rules
+   ✔  And resulting status is consistent across query surfaces
+  Scenario: 1.1 falsification witness - invalid lifecycle mutation is rejected
+   ✔  Given an entity already in a terminal or incompatible state
+   ✔  When an illegal transition is attempted
+   ✔  Then the operation is rejected with a typed error
+   ✔  And no partial state mutation is persisted
+  Scenario: 1.2 positive witness - invalid lifecycle changes are rejected
+   ✔  Given an entity already in a terminal or incompatible state
+   ✔  When an illegal transition is attempted
+   ✔  Then the operation is rejected with a typed error
+   ✔  And no partial state mutation is persisted
+  Scenario: 1.2 falsification witness - valid lifecycle path remains allowed
+   ✔  Given a new project state
+   ✔  When a valid sequence of lifecycle mutations is submitted
+   ✔  Then state advances predictably according to declared transition rules
+   ✔  And resulting status is consistent across query surfaces
+[Summary]
+1 feature
+4 scenarios (4 passed)
+16 steps (16 passed)
+Phase 0 Wave A BDD tag evidence (tests/bdd/phase0/feature-1-typed-control-plane-state.feature):   @positive @BEH-P0-101
+Feature: Feature 2 event history is durable, transactional, and replayable
+  Scenario: 2.1 positive witness - accepted changes emit durable events
+   ✔  Given a successful mutation
+   ✔  When the mutation commits
+   ✔  Then its event(s) are appended durably
+   ✔  And projections/read-models reflect the same committed truth
+  Scenario: 2.1 falsification witness - malformed replay input is rejected safely
+   ✔  Given malformed or semantically invalid event input
+   ✔  When replay is attempted
+   ✔  Then replay fails with explicit diagnostics
+   ✔  And no partial replay is left behind
+  Scenario: 2.2 positive witness - replay reconstructs equivalent state
+   ✔  Given a committed event history
+   ✔  When state is rebuilt from replay into a clean store
+   ✔  Then reconstructed state matches the original operational state
+  Scenario: 2.2 falsification witness - replay does not accept invalid history
+   ✔  Given malformed or semantically invalid event input
+   ✔  When replay is attempted
+   ✔  Then replay fails with explicit diagnostics
+   ✔  And no partial replay is left behind
+  Scenario: 2.3 positive witness - corrupt history fails safely
+   ✔  Given malformed or semantically invalid event input
+   ✔  When replay is attempted
+   ✔  Then replay fails with explicit diagnostics
+   ✔  And no partial replay is left behind
+  Scenario: 2.3 falsification witness - canonical history remains replayable
+   ✔  Given a committed event history
+   ✔  When state is rebuilt from replay into a clean store
+   ✔  Then reconstructed state matches the original operational state
+[Summary]
+1 feature
+6 scenarios (6 passed)
+22 steps (22 passed)
+Phase 0 Wave A BDD tag evidence (tests/bdd/phase0/feature-2-event-history.feature):   @positive @BEH-P0-201
+Feature: Feature 3 contract-derived interface and auth protections
+  Scenario: 3.1 positive witness - operator can run core dispatch flow end-to-end
+   ✔  Given a configured environment and valid actor identity
+   ✔  When an operator performs create, inspect, list, and cancel flows
+   ✔  Then each action is accepted/rejected according to policy and lifecycle rules
+   ✔  And observed outcomes match the same domain contract semantics
+  Scenario: 3.1 falsification witness - invalid credentials cannot mutate state
+   ✔  Given invalid identity material or replayed mutation credentials
+   ✔  When a protected command is attempted
+   ✔  Then the command is rejected with typed auth/replay errors
+   ✔  And no unintended mutation occurs
+  Scenario: 3.2 positive witness - authentication and replay protections are enforced
+   ✔  Given invalid identity material or replayed mutation credentials
+   ✔  When a protected command is attempted
+   ✔  Then the command is rejected with typed auth/replay errors
+   ✔  And no unintended mutation occurs
+  Scenario: 3.2 falsification witness - valid credentials still allow policy-compliant flow
+   ✔  Given a configured environment and valid actor identity
+   ✔  When an operator performs create, inspect, list, and cancel flows
+   ✔  Then each action is accepted/rejected according to policy and lifecycle rules
+   ✔  And observed outcomes match the same domain contract semantics
+[Summary]
+1 feature
+4 scenarios (4 passed)
+16 steps (16 passed)
+Phase 0 Wave A BDD tag evidence (tests/bdd/phase0/feature-3-contract-derived-interface.feature):   @positive @BEH-P0-301
+Feature: Feature 4 methodology boundary is explicit and enforced
+  Scenario: 4.1 positive witness - structured workflow state is code-owned
+   ✔  Given an agent phase operating on a spec
+   ✔  When structured state must change through typed tools
+   ✔  Then mutation occurs only through typed tools
+   ✔  And orchestrator-owned artifacts are not directly agent-edited
+  Scenario: 4.1 falsification witness - direct structured-file edit is rejected
+   ✔  Given an agent attempts direct artifact editing for structured state
+   ✔  When the edit path is evaluated against methodology boundaries
+   ✔  Then the direct edit is denied before mutation occurs
+   ✔  And orchestrator-owned artifacts remain unchanged by the agent
+  Scenario: 4.2 positive witness - agent markdown remains behavior-only
+   ✔  Given installed command assets
+   ✔  When command content is inspected against boundary rules
+   ✔  Then commands describe behavior and required tool use
+   ✔  And they do not embed workflow-mechanics ownership responsibilities
+  Scenario: 4.2 falsification witness - mechanics ownership content is flagged
+   ✔  Given command content includes workflow-mechanics ownership instructions
+   ✔  When command content is inspected against boundary rules
+   ✔  Then mechanics ownership content is flagged as non-compliant
+   ✔  And behavior-only command guidance remains required
+[Summary]
+1 feature
+4 scenarios (4 passed)
+16 steps (16 passed)
+Phase 0 Wave B BDD tag evidence (tests/bdd/phase0/feature-4-methodology-boundary.feature):   @positive @BEH-P0-401
+Feature: Feature 5 task completion is monotonic and guard-based
+  Scenario: 5.1 positive witness - completion requires required guards
+   ✔  Given a task marked implemented
+   ✔  When required guards are satisfied in any order
+   ✔  Then completion occurs only after all required guards converge
+   ✔  And guard convergence is required for terminal completion
+  Scenario: 5.1 falsification witness - incomplete guard set does not complete
+   ✔  Given a task marked implemented with missing required guards
+   ✔  When completion is evaluated before guard convergence
+   ✔  Then completion remains blocked until all required guards converge
+   ✔  And guard convergence is required for terminal completion
+  Scenario: 5.2 positive witness - terminal tasks are not reopened
+   ✔  Given a completed task
+   ✔  When remediation is needed
+   ✔  Then remediation is represented as a new task not reopening the completed one
+   ✔  And the completed task remains terminal and reopen is denied
+  Scenario: 5.2 falsification witness - direct reopen attempt is rejected
+   ✔  Given a completed task with a reopen attempt
+   ✔  When reopen is attempted directly
+   ✔  Then the completed task remains terminal and reopen is denied
+   ✔  And remediation is tracked through a new task with explicit origin
+[Summary]
+1 feature
+4 scenarios (4 passed)
+16 steps (16 passed)
+Phase 0 Wave B BDD tag evidence (tests/bdd/phase0/feature-5-task-completion-guards.feature):   @positive @BEH-P0-501
+Feature: Feature 6 tool surface is typed, scoped, and transport-consistent
+  Scenario: 6.1 positive witness - inputs are validated at the boundary
+   ✔  Given malformed tool input
+   ✔  When the tool is invoked at the boundary
+   ✔  Then it returns a typed validation error
+   ✔  And no side effect occurs
+  Scenario: 6.1 falsification witness - valid input avoids validation failure
+   ✔  Given valid tool input
+   ✔  When the tool is invoked at the boundary
+   ✔  Then no validation error is returned
+   ✔  And side effects occur only for valid input
+  Scenario: 6.2 positive witness - capability scoping blocks out-of-phase actions
+   ✔  Given a phase with a bounded capability set
+   ✔  When it attempts an out-of-scope tool action
+   ✔  Then the call is denied with CapabilityDenied
+   ✔  And no unauthorized mutation is recorded
+  Scenario: 6.2 falsification witness - in-scope capability allows the action
+   ✔  Given a phase with the required capability
+   ✔  When it performs an in-scope tool action
+   ✔  Then the call is accepted as in scope
+   ✔  And exactly one authorized mutation is recorded
+  Scenario: 6.3 positive witness - MCP and CLI semantics are equivalent
+   ✔  Given the same valid request semantics
+   ✔  When executed through MCP and CLI transports
+   ✔  Then resulting domain effects are equivalent
+   ✔  And transport-specific wrappers may differ while semantics stay aligned
+  Scenario: 6.3 falsification witness - parity mismatch is reported
+   ✔  Given divergent transport responses for the same semantics
+   ✔  When parity is evaluated across transports
+   ✔  Then the mismatch is reported as transport parity drift
+   ✔  And parity validation does not mark the request equivalent
+[Summary]
+1 feature
+6 scenarios (6 passed)
+24 steps (24 passed)
+Phase 0 Wave B BDD tag evidence (tests/bdd/phase0/feature-6-tool-surface-contract.feature):   @positive @BEH-P0-601
+Feature: Feature 7 installer and self-hosting are deterministic
+  Scenario: 7.1 positive witness - install output is predictable and idempotent
+   ✔  Given a configured repository
+   ✔  When install is run repeatedly without source/config change
+   ✔  Then first run renders targets and later runs are no-op
+  Scenario: 7.1 falsification witness - changed source/config is not a no-op rerun
+   ✔  Given install source or configuration changed since last render
+   ✔  When install is run again after source/config change
+   ✔  Then rerun is not treated as a no-op
+   ✔  And rerun converges deterministically to updated outputs
+  Scenario: 7.2 positive witness - drift is detectable and explicit
+   ✔  Given rendered outputs diverge from source-of-truth templates
+   ✔  When strict dry-run install is executed
+   ✔  Then drift is reported and process fails explicitly
+   ✔  And strict dry-run performs no mutation
+  Scenario: 7.2 falsification witness - no drift means strict dry-run succeeds
+   ✔  Given rendered outputs match source-of-truth templates
+   ✔  When strict dry-run install is executed
+   ✔  Then no drift is reported and process succeeds
+   ✔  And strict dry-run performs no mutation
+  Scenario: 7.3 positive witness - multi-target render stays semantically aligned
+   ✔  Given shared command source
+   ✔  When artifacts are rendered for multiple frameworks
+   ✔  Then framework-specific wrappers may differ
+   ✔  And command intent and capability semantics remain equivalent
+  Scenario: 7.3 falsification witness - semantic drift is detected across targets
+   ✔  Given multi-target render with semantic capability drift
+   ✔  When cross-target parity is evaluated
+   ✔  Then semantic drift is reported
+   ✔  And targets are not considered aligned
+[Summary]
+1 feature
+6 scenarios (6 passed)
+23 steps (23 passed)
+Phase 0 Wave C BDD tag evidence (tests/bdd/phase0/feature-7-installer-determinism.feature):   @positive @BEH-P0-701
+Feature: Feature 8 manual methodology walkthrough is possible now
+  Scenario: 8.1 positive witness - human-guided end-to-end loop runs in phase 0
+   ✔  Given a new spec in manual self-hosting mode
+   ✔  When the 7-step sequence is performed
+   ✔  Then structured outputs flow through typed tools
+   ✔  And orchestrator progress/state remains coherent through the loop
+  Scenario: 8.1 falsification witness - missing typed transitions break loop coherence
+   ✔  Given a manual walkthrough with missing typed-tool transitions
+   ✔  When manual loop coherence is evaluated
+   ✔  Then inconsistency is detected in task/finding/progress trace
+   ✔  And walkthrough is not marked coherent
+[Summary]
+1 feature
+2 scenarios (2 passed)
+8 steps (8 passed)
+Phase 0 Wave C BDD tag evidence (tests/bdd/phase0/feature-8-manual-methodology-walkthrough.feature):   @positive @BEH-P0-801
+error: failed to open file `/Users/trevor/.cache/uv/sdists-v9/.git`: Operation not permitted (os error 1)
+error: Recipe `check-phase0-mutation-gate` failed with exit code 2
+error: Recipe `check-phase0-gates` failed on line 491 with exit code 2
+error: Recipe `ci` failed on line 742 with exit code 2
+
+EXIT_CODE=2

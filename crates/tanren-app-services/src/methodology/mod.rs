@@ -46,6 +46,7 @@ mod service_projection_reconcile;
 mod service_spec_shape;
 mod service_spec_status;
 mod service_standards;
+mod service_task_guard_reset;
 mod service_task_spec;
 mod service_tasks;
 pub mod source;

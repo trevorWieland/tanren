@@ -41,7 +41,7 @@ influences every decision.
    - [ROADMAP.md](../ROADMAP.md) Phase 0 exit criteria
    - [CRATE_GUIDE.md](../CRATE_GUIDE.md) linking rule §7
    - [CLAUDE.md](../../../CLAUDE.md) — Rust conventions and quality rules (**every implementation agent must read this**)
-8. **Command sources you will render**: [commands/](../../../commands/) — 11 under `spec/`, 6 under `project/`, plus `README.md`. Rendered artifacts must be semantically identical across Claude Code / Codex Skills / OpenCode targets.
+8. **Command sources you will render**: [commands/README.md](../../../commands/README.md) — 11 under `spec/`, 6 under `project/`, plus `README.md`. Rendered artifacts must be semantically identical across Claude Code / Codex Skills / OpenCode targets.
 
 ## 1. What's already done (don't redo)
 
@@ -74,7 +74,7 @@ and [orchestration-flow.md §2](../../architecture/orchestration-flow.md#2-task-
 are your spec.
 
 New module tree under
-[crates/tanren-domain/src/methodology/](../../../crates/tanren-domain/src/methodology/):
+[crates/tanren-domain/src/methodology/mod.rs](../../../crates/tanren-domain/src/methodology/mod.rs):
 
 - `task.rs` — `Task`, `TaskId` (uuid-v7 newtype), `TaskStatus`
   (`Pending | InProgress | Implemented | Complete | Abandoned` with
@@ -126,7 +126,7 @@ Derived from Rust types via `schemars`. Stable `tanren.methodology.v1`
 namespace. Backward-compatible additions = minor bump; breaking
 changes = major bump.
 
-New module [crates/tanren-contract/src/methodology/](../../../crates/tanren-contract/src/methodology/).
+New module [crates/tanren-contract/src/methodology/mod.rs](../../../crates/tanren-contract/src/methodology/mod.rs).
 
 Per `CRATE_GUIDE.md`: contract crate is serialization/schema only,
 no business logic.
@@ -158,7 +158,7 @@ This is the bulk of the Rust work. Per `CRATE_GUIDE.md`:
 methodology resolution is an app-services concern.
 
 New module tree under
-[crates/tanren-app-services/src/methodology/](../../../crates/tanren-app-services/src/methodology/):
+[crates/tanren-app-services/src/methodology/mod.rs](../../../crates/tanren-app-services/src/methodology/mod.rs):
 
 - `service.rs` — the orchestrator-owned API mirroring the tool
   catalog 1:1. Each method: validate inputs (typed `ToolError` on
@@ -220,7 +220,7 @@ Tests:
 
 #### A.5 `tanren-cli` subcommands
 
-New subcommands under [bin/tanren-cli/src/commands/](../../../bin/tanren-cli/src/commands/):
+New subcommands under [bin/tanren-cli/src/commands/mod.rs](../../../bin/tanren-cli/src/commands/mod.rs):
 
 - `install.rs` — `tanren install [--profile --config --source
   --target --dry-run --strict]`. Exit codes: `0` ok, `1`
@@ -246,7 +246,7 @@ compares via `insta` for install output.
 
 #### A.6 `tanren-mcp` binary
 
-New or significantly expanded [bin/tanren-mcp/](../../../bin/tanren-mcp/)
+New or significantly expanded [bin/tanren-mcp/src/main.rs](../../../bin/tanren-mcp/src/main.rs)
 using `rmcp` (`modelcontextprotocol/rust-sdk`, features `server`,
 `transport-io`, `macros`, tokio runtime).
 

@@ -128,6 +128,13 @@ define_tools! {
         method: mark_task_guard_satisfied_with_params,
     },
     {
+        id: dispatch_reset_task_guards,
+        tool_id: ToolId::ResetTaskGuards,
+        description: "Reset all completion guards on an implemented task before remediation.",
+        params: tanren_contract::methodology::ResetTaskGuardsParams,
+        method: reset_task_guards_with_params,
+    },
+    {
         id: dispatch_revise_task,
         tool_id: ToolId::ReviseTask,
         description: "Non-transitional revision of description or acceptance criteria.",

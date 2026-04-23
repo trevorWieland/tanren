@@ -363,7 +363,7 @@ impl MethodologyService {
         .await
     }
 
-    async fn current_task_status(
+    pub(crate) async fn current_task_status(
         &self,
         spec_id: SpecId,
         task_id: TaskId,

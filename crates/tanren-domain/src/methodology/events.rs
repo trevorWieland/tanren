@@ -4,7 +4,8 @@
 //! envelope shape and `SCHEMA_VERSION = 1` remain unchanged. Both
 //! CLI and MCP transports emit these via the shared service; the
 //! trail is byte-identical across transports. `Complete` is terminal;
-//! guard flags are monotonic under replay.
+//! guard flags remain append-only except when a typed reset event is
+//! emitted during investigate-driven remediation loops.
 
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +40,7 @@ pub enum MethodologyEvent {
     TaskAudited(TaskAudited),
     TaskAdherent(TaskAdherent),
     TaskXChecked(TaskXChecked),
+    TaskGuardsReset(TaskGuardsReset),
     TaskCompleted(TaskCompleted),
     TaskAbandoned(TaskAbandoned),
     TaskRevised(TaskRevised),
@@ -70,6 +72,7 @@ impl MethodologyEvent {
             Self::TaskAudited(e) => EntityRef::Task(e.task_id),
             Self::TaskAdherent(e) => EntityRef::Task(e.task_id),
             Self::TaskXChecked(e) => EntityRef::Task(e.task_id),
+            Self::TaskGuardsReset(e) => EntityRef::Task(e.task_id),
             Self::TaskCompleted(e) => EntityRef::Task(e.task_id),
             Self::TaskAbandoned(e) => EntityRef::Task(e.task_id),
             Self::TaskRevised(e) => EntityRef::Task(e.task_id),
@@ -102,6 +105,7 @@ impl MethodologyEvent {
             Self::TaskAudited(e) => Some(e.spec_id),
             Self::TaskAdherent(e) => Some(e.spec_id),
             Self::TaskXChecked(e) => Some(e.spec_id),
+            Self::TaskGuardsReset(e) => Some(e.spec_id),
             Self::TaskCompleted(e) => Some(e.spec_id),
             Self::TaskAbandoned(e) => Some(e.spec_id),
             Self::TaskRevised(e) => Some(e.spec_id),
@@ -188,6 +192,16 @@ pub struct TaskXChecked {
     pub task_id: TaskId,
     pub spec_id: SpecId,
     pub guard_name: NonEmptyString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+/// `Implemented` task guard state has been cleared for retry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskGuardsReset {
+    pub task_id: TaskId,
+    pub spec_id: SpecId,
+    pub reason: NonEmptyString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
 }
@@ -398,6 +412,14 @@ where
                     &RequiredGuard::Extra(e.guard_name.as_str().to_owned()),
                     true,
                 );
+                if matches!(status, Some(TaskStatus::Implemented { .. })) {
+                    status = Some(TaskStatus::Implemented {
+                        guards: guards.clone(),
+                    });
+                }
+            }
+            MethodologyEvent::TaskGuardsReset(e) if e.task_id == task_id => {
+                guards = TaskGuardFlags::default();
                 if matches!(status, Some(TaskStatus::Implemented { .. })) {
                     status = Some(TaskStatus::Implemented {
                         guards: guards.clone(),

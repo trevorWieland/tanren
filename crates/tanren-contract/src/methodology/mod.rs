@@ -117,5 +117,6 @@ pub use spec::{
 pub use standard::{ListRelevantStandardsParams, ListRelevantStandardsResponse, RelevantStandard};
 pub use task::{
     AbandonTaskParams, CompleteTaskParams, CreateTaskParams, CreateTaskResponse, ListTasksParams,
-    ListTasksResponse, MarkTaskGuardSatisfiedParams, ReviseTaskParams, StartTaskParams,
+    ListTasksResponse, MarkTaskGuardSatisfiedParams, ResetTaskGuardsParams, ReviseTaskParams,
+    StartTaskParams,
 };

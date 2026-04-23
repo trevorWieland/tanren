@@ -79,6 +79,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--iat", type=int, default=None)
     parser.add_argument("--kid", default="tanren-mcp-capability")
     parser.add_argument("--jti", default=None)
+    parser.add_argument("--diagnostics-stderr", action="store_true")
     parser.add_argument("--token-only", action="store_true")
     return parser.parse_args()
 
@@ -105,10 +106,11 @@ def _main() -> int:
         )
         return 2
 
-    print(
-        f"iat={iat} exp={exp} exp_minus_iat={ttl} max_ttl={args.max_ttl} phase={args.phase}",
-        file=sys.stderr,
-    )
+    if args.diagnostics_stderr:
+        print(
+            f"iat={iat} exp={exp} exp_minus_iat={ttl} max_ttl={args.max_ttl} phase={args.phase}",
+            file=sys.stderr,
+        )
 
     claims = _Claims(
         iss=args.issuer,

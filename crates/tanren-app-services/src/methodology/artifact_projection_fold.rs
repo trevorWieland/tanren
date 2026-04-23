@@ -297,6 +297,7 @@ fn apply_task_event(
             e.task_id,
             &RequiredGuard::Extra(e.guard_name.as_str().to_owned()),
         ),
+        MethodologyEvent::TaskGuardsReset(e) => handle_task_guard_reset(line, task_rows, e.task_id),
         MethodologyEvent::TaskCompleted(e) => {
             handle_task_completed(line, task_rows, required_guards, e.task_id);
         }
@@ -391,6 +392,23 @@ fn handle_task_completed(
         row.task.status = TaskStatus::Complete;
         row.task.updated_at = line.timestamp;
         row.evidence = task_evidence(line, "completion guards converged");
+    }
+}
+
+fn handle_task_guard_reset(
+    line: &PhaseEventLine,
+    task_rows: &mut HashMap<TaskId, TaskProjectionRow>,
+    task_id: TaskId,
+) {
+    if let Some(row) = task_rows.get_mut(&task_id)
+        && matches!(row.task.status, TaskStatus::Implemented { .. })
+    {
+        row.guards = TaskGuardFlags::default();
+        row.task.status = TaskStatus::Implemented {
+            guards: row.guards.clone(),
+        };
+        row.task.updated_at = line.timestamp;
+        row.evidence = task_evidence(line, "task guards reset for remediation");
     }
 }
 

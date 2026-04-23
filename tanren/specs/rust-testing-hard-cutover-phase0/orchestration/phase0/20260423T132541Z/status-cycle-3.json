@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "spec_id": "00000000-0000-0000-0000-000000000c01",
+  "spec_exists": true,
+  "blockers_active": false,
+  "ready_for_walk_spec": false,
+  "next_action": "run_loop",
+  "next_task_id": "019db58b-b492-7423-925a-80190e82b708",
+  "next_step": "task_gate",
+  "pending_required_guards": [
+    "gate_checked",
+    "audited",
+    "adherent"
+  ],
+  "next_step_reason": "task 019db58b-b492-7423-925a-80190e82b708 missing guard gate_checked",
+  "last_blocker_phase": "do-task",
+  "last_blocker_summary": "T13 meta-readiness report delivered, but terminal closure gate remains blocked because just ci fails strict mutation gate (check-phase0-mutation-gate).",
+  "last_blocker_reason_kind": "other",
+  "last_blocker_reason_detail": "just check passed, but just ci exits 2 due missed mutants reported by cargo-mutants in crates/tanren-bdd-phase0/src/main.rs; strict gate blocks closure until mutation misses are resolved.",
+  "required_guards": [
+    "gate_checked",
+    "audited",
+    "adherent"
+  ],
+  "total_tasks": 14,
+  "completed_tasks": 12,
+  "abandoned_tasks": 0,
+  "implemented_tasks": 1,
+  "in_progress_tasks": 0,
+  "pending_tasks": 1
+}

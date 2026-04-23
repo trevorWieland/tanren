@@ -57,10 +57,10 @@ cadence.
   - Phase outcome `complete` (passes the `Adherent` guard iff zero
     `fix_now` adherence findings).
 - **Guard emitted on success:** `TaskAdherent`
-- **Failure routing:** orchestrator creates new tasks from `fix_now`
-  findings (`origin: Adherence { source_standard, source_finding }`);
-  task's `Adherent` guard remains unsatisfied until a subsequent
-  adherence pass produces zero `fix_now`.
+- **Failure routing:** orchestrator dispatches `investigate` for
+  autonomous remediation when `fix_now` findings are present; task's
+  `Adherent` guard remains unsatisfied until a subsequent adherence
+  pass produces zero `fix_now`.
 
 ### 3.2 adhere-spec
 
@@ -70,8 +70,8 @@ cadence.
 - **Output:** spec-level adherence findings
 - **Guard:** `SpecAdherent` (spec-level analog; Lane 0.5 models the
   required spec-guard set analogously to tasks)
-- **Failure routing:** orchestrator creates new tasks (origin
-  `Adherence`) which loop the task state machine.
+- **Failure routing:** orchestrator dispatches `investigate` and loops
+  the task state machine after remediation.
 
 ---
 

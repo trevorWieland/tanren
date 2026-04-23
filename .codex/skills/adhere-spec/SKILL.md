@@ -42,7 +42,8 @@ Spec-scope standards compliance check. Same mechanics as
 3. Call `report_phase_outcome`:
    - `complete` if zero `fix_now` findings — spec-level `Adherent`
      guard satisfied.
-   - `blocked` if any `fix_now` — orchestrator materializes fix tasks.
+   - `blocked` if any `fix_now` — orchestrator dispatches
+     `investigate` for autonomous remediation before continuing.
 
 ## Verification
 

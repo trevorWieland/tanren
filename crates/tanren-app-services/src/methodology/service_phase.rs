@@ -152,6 +152,22 @@ impl MethodologyService {
                     });
                 }
                 let reason = super::errors::require_non_empty("/reason", &params.reason, Some(1000))?;
+                let options: Vec<String> = params
+                    .options
+                    .iter()
+                    .map(|option| option.trim())
+                    .filter(|option| !option.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect();
+                if options.is_empty() {
+                    return Err(MethodologyError::FieldValidation {
+                        field_path: "/options".into(),
+                        expected: "at least one non-empty option".into(),
+                        actual: format!("{:?}", params.options),
+                        remediation:
+                            "provide one or more actionable options for resolve-blockers".into(),
+                    });
+                }
                 let runtime =
                     self.phase_events_runtime()
                         .ok_or_else(|| MethodologyError::FieldValidation {
@@ -170,12 +186,20 @@ impl MethodologyService {
                             "use the canonical session spec_id for all mutation tool calls".into(),
                     });
                 }
+                let options_inline = options.join(" | ");
                 let summary = NonEmptyString::try_new(format!(
-                    "escalated: {} options={}",
+                    "investigate escalation: {} (options: {})",
                     reason.as_str(),
-                    params.options.len()
+                    options_inline
                 ))
                 .map_err(|e| MethodologyError::Internal(e.to_string()))?;
+                let mut prompt = format!("reason: {}\noptions:", reason.as_str());
+                for option in &options {
+                    prompt.push_str("\n- ");
+                    prompt.push_str(option);
+                }
+                let prompt = NonEmptyString::try_new(prompt)
+                    .map_err(|e| MethodologyError::Internal(e.to_string()))?;
                 self.emit_event(
                     phase,
                     MethodologyEvent::PhaseOutcomeReported(PhaseOutcomeReported {
@@ -187,7 +211,7 @@ impl MethodologyService {
                             Some(120),
                         )?,
                         outcome: PhaseOutcome::Blocked {
-                            reason: BlockedReason::Other { detail: reason },
+                            reason: BlockedReason::AwaitingHumanInput { prompt },
                             summary,
                         },
                     }),

@@ -230,6 +230,53 @@ async fn replay_ingests_canonical_phase_event_lines() {
 }
 
 #[tokio::test]
+async fn replay_accepts_attached_task_when_task_created_earlier_in_same_batch() {
+    let store = fresh_store().await;
+    let spec_id = SpecId::new();
+    let task_id = TaskId::new();
+    let finding_id = FindingId::new();
+    let created = MethodologyEvent::TaskCreated(TaskCreated {
+        task: Box::new(seed_task(spec_id, task_id)),
+        origin: TaskOrigin::User,
+        idempotency_key: None,
+    });
+    let finding = MethodologyEvent::FindingAdded(FindingAdded {
+        finding: Box::new(seed_finding(
+            spec_id,
+            task_id,
+            finding_id,
+            "attached finding",
+        )),
+        idempotency_key: None,
+    });
+    let path = temp_path("replay-attached-task-inflight");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n{}\n",
+            line_json(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &created,
+                canonical_tool_for_event(&created),
+            ),
+            line_json(
+                spec_id,
+                uuid::Uuid::now_v7(),
+                &finding,
+                canonical_tool_for_event(&finding),
+            ),
+        ),
+    )
+    .expect("write");
+
+    let stats = ingest_phase_events(&store, &path, &[RequiredGuard::GateChecked])
+        .await
+        .expect("ingest");
+    assert_eq!(stats.events_appended, 2);
+}
+
+#[tokio::test]
 async fn replay_rejects_tool_mismatch() {
     let store = fresh_store().await;
     let spec_id = SpecId::new();

@@ -5,7 +5,7 @@ use tanren_app_services::methodology::PhaseId;
 use tanren_app_services::methodology::{CapabilityScope, MethodologyService};
 use tanren_contract::methodology::{
     AbandonTaskParams, CompleteTaskParams, CreateTaskParams, ListTasksParams,
-    MarkTaskGuardSatisfiedParams, ReviseTaskParams, StartTaskParams,
+    MarkTaskGuardSatisfiedParams, ResetTaskGuardsParams, ReviseTaskParams, StartTaskParams,
 };
 
 use super::{ParamsInput, emit_result, load_params};
@@ -20,6 +20,8 @@ pub(crate) enum TaskCommand {
     Complete(ParamsInput),
     /// Mark one required completion guard satisfied.
     Guard(ParamsInput),
+    /// Clear all guard flags on an implemented task before retry.
+    ResetGuards(ParamsInput),
     /// Non-transitional description/acceptance revision.
     Revise(ParamsInput),
     /// Terminal abandonment with replacements or an explicit
@@ -58,6 +60,14 @@ pub(crate) async fn run(
                         params.guard,
                         params.idempotency_key,
                     )
+                    .await,
+            ),
+            Err(e) => emit_result::<()>(Err(e)),
+        },
+        TaskCommand::ResetGuards(i) => match load_params::<ResetTaskGuardsParams>(&i) {
+            Ok(params) => emit_result(
+                service
+                    .reset_task_guards_with_params(scope, phase, params)
                     .await,
             ),
             Err(e) => emit_result::<()>(Err(e)),

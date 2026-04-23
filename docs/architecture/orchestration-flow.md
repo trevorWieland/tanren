@@ -95,11 +95,15 @@ All other spec-loop phases are autonomous. The escalation ladder
   methodology:
     task_complete_requires: [gate_checked, audited, adherent]
   ```
-  Adding a new guard is a two-line change: new event variant + config
-  entry. Existing code paths are unchanged.
-- Guards are independent. The orchestrator enqueues each required
-  guard as a separate `Dispatch` when `Implemented` is reached;
-  guards can execute in parallel.
+  Extra guards resolve through
+  `methodology.variables.task_check_hook_<guard_name>`; missing hook
+  for a required extra guard is a hard configuration error.
+- Guards are evaluated as one **task-check batch** per attempt:
+  gate, audit, adherence, and any required extras all execute before
+  routing to `investigate`.
+- Any failed check in a batch emits `TaskGuardsReset` before
+  `investigate`, clearing `gate_checked`, `audited`, `adherent`, and
+  all extra guard flags for the task.
 - State mutations happen exclusively through
   `tanren-app-services::methodology::service`. Direct store writes
   are forbidden by the linking rule.
@@ -132,7 +136,8 @@ honest: every new task declares why it exists.
   description / acceptance criteria only; does not transition state.
 - Every spec-level failure (`RUN_DEMO` fail, `AUDIT_SPEC` fix_now,
   `ADHERE_SPEC` fix_now, `SPEC_GATE` fail, feedback-driven fix)
-  materializes a new task; completed tasks are never un-checked.
+  routes through `investigate`; remediation may materialize new tasks
+  and completed tasks are never un-checked.
 
 ---
 
@@ -147,8 +152,8 @@ flowchart TD
     E -->|pass| F1[AUDIT_TASK]
     E -->|pass| F2[ADHERE_TASK]
     E -->|persistent fail| G[INVESTIGATE_TASK]
-    F1 -->|fix_now| H[orchestrator: create_task origin=Audit]
-    F2 -->|fix_now| H2[orchestrator: create_task origin=Adherence]
+    F1 -->|fix_now| G
+    F2 -->|fix_now| G
     F1 -->|zero fix_now| I1[TaskAudited]
     F2 -->|zero fix_now| I2[TaskAdherent]
     E -->|pass| I3[TaskGateChecked]
@@ -157,8 +162,6 @@ flowchart TD
     I3 --> Z1
     Z1 -->|no| Z1
     Z1 -->|yes| I[TaskCompleted]
-    H --> C
-    H2 --> C
     I --> C
     G -->|revise_task| D
     G -->|create_task| C
@@ -172,11 +175,9 @@ flowchart TD
     K -->|pass| OK{All spec checks pass?}
     K -->|fail| M
     L1 -->|pass, all pillars ≥ 7, zero fix_now| OK
-    L1 -->|fix_now findings| P1[orchestrator: create_task origin=SpecAudit]
+    L1 -->|fix_now findings| M
     L2 -->|zero fix_now| OK
-    L2 -->|fix_now| P2[orchestrator: create_task origin=Adherence]
-    P1 --> C
-    P2 --> C
+    L2 -->|fix_now| M
     M -->|create_task only; never un-check| C
     M -->|loop cap| ZZ
     OK -->|yes| N[walk-spec INTERACTIVE]
@@ -284,6 +285,12 @@ Every agentic phase session ends with one of:
   human).
 - **Explicit `escalate_to_blocker`** (investigate-only) — halts
   orchestration pending `resolve-blockers`.
+
+**Task-check failure evidence contract:** when any task check in a
+batch fails, orchestrator writes an investigation bundle containing
+the full untruncated logs for every check attempt plus a failed-check
+index. The investigate prompt receives the bundle index path; the next
+`do-task` retry prompt receives the latest recovery-context pointer.
 
 **Retry semantics:** All retries are **fresh sessions**. No resume.
 Prompt caching keeps fresh-session cost low. Retry context includes

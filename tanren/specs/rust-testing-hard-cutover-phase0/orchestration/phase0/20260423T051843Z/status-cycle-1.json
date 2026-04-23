@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "spec_id": "00000000-0000-0000-0000-000000000c01",
+  "spec_exists": true,
+  "blockers_active": false,
+  "ready_for_walk_spec": false,
+  "next_action": "run_loop",
+  "next_task_id": "019db58b-b438-7733-8513-5ef68730d647",
+  "next_step": "task_investigate",
+  "next_step_reason": "latest blocked outcome in audit-task requires investigate",
+  "investigate_source_phase": "audit-task",
+  "investigate_source_outcome": "blocked",
+  "investigate_source_summary": "T12 audit blocked: fix_now strictness/completeness/documentation findings remain unresolved.",
+  "investigate_source_task_id": "019db58b-b438-7733-8513-5ef68730d647",
+  "last_blocker_phase": "audit-task",
+  "last_blocker_summary": "T12 audit blocked: fix_now strictness/completeness/documentation findings remain unresolved.",
+  "last_blocker_reason_kind": "other",
+  "last_blocker_reason_detail": "Task artifacts still contain stale strictness wording, stale Wave B/C migration status, and incomplete retired-entrypoint command guidance.",
+  "required_guards": [
+    "gate_checked",
+    "audited",
+    "adherent"
+  ],
+  "total_tasks": 13,
+  "completed_tasks": 11,
+  "abandoned_tasks": 0,
+  "implemented_tasks": 1,
+  "in_progress_tasks": 0,
+  "pending_tasks": 1
+}

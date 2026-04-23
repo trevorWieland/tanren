@@ -37,6 +37,8 @@ pub enum SpecStatusNextStep {
     TaskGate,
     TaskAudit,
     TaskAdhere,
+    TaskInvestigate,
+    SpecInvestigate,
     SpecPipeline,
 }
 
@@ -59,9 +61,23 @@ pub struct SpecStatusResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_step_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub investigate_source_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub investigate_source_outcome: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub investigate_source_summary: Option<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub investigate_source_task_id: Option<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_blocker_phase: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_blocker_summary: Option<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_blocker_reason_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_blocker_reason_detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub last_blocker_options: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_guards: Vec<RequiredGuard>,
     pub total_tasks: u64,

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "spec_id": "00000000-0000-0000-0000-000000000c01",
+  "spec_exists": true,
+  "blockers_active": false,
+  "ready_for_walk_spec": false,
+  "next_action": "run_loop",
+  "next_task_id": "019db58b-b272-7452-bec2-acef1fa93a24",
+  "required_guards": [
+    "gate_checked",
+    "audited",
+    "adherent"
+  ],
+  "total_tasks": 13,
+  "completed_tasks": 6,
+  "abandoned_tasks": 0,
+  "implemented_tasks": 1,
+  "in_progress_tasks": 0,
+  "pending_tasks": 6
+}

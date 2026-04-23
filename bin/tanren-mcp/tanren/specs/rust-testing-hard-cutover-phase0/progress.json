@@ -1,0 +1,18 @@
+{
+  "schema_version": "v1",
+  "contract_version": "v1",
+  "spec_id": "00000000-0000-0000-0000-000000000123",
+  "generated_at": "2026-04-23T14:59:56.765280Z",
+  "task_counts": {
+    "pending": 3,
+    "in_progress": 0,
+    "implemented": 0,
+    "complete": 0,
+    "abandoned": 0,
+    "total": 3
+  },
+  "first_event_at": "2026-04-23T14:59:55.889488Z",
+  "last_event_at": "2026-04-23T14:59:56.765280Z",
+  "latest_event_id": "019dbada-d4dd-7351-ac13-4b143a8b3b7e",
+  "latest_phase": "do-task"
+}

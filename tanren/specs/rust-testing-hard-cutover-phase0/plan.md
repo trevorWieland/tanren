@@ -2,7 +2,7 @@
 schema_version: v1
 kind: plan
 spec_id: 00000000-0000-0000-0000-000000000c01
-generated_at: 2026-04-22T14:52:08.657329Z
+generated_at: 2026-04-23T15:12:24.682435Z
 ---
 # Plan
 
@@ -40,16 +40,17 @@ The Rust refactor test suite is not compliant with the new behavior-first testin
 ## Tasks
 | Task ID | Owner/Phase | Status | Status Rationale / Event |
 | --- | --- | --- | --- |
-| 019db58b-b051-70e1-9190-c4f9cd09b5e7 | shape-spec | implemented | guard `audited` satisfied (`019db5ad-5451-76b3-a607-4226e1f2b17c`) |
-| 019db58b-b0b7-7541-bceb-beefc3b8876c | shape-spec | pending | task created (`019db58b-b0b7-7541-bceb-bef4f5409975`) |
-| 019db58b-b10e-7a21-94fa-3699f795228b | shape-spec | pending | task created (`019db58b-b10e-7a21-94fa-36ab5b85be54`) |
-| 019db58b-b165-7f51-b581-6b2a0b9e77f8 | shape-spec | pending | task created (`019db58b-b165-7f51-b581-6b31850db183`) |
-| 019db58b-b1bd-7fe3-8db6-83d7fa10e2d8 | shape-spec | pending | task created (`019db58b-b1bd-7fe3-8db6-83e4eaad7747`) |
-| 019db58b-b215-7fe3-ba25-45ffbdb973b3 | shape-spec | pending | task created (`019db58b-b215-7fe3-ba25-460e153860b3`) |
-| 019db58b-b272-7452-bec2-acef1fa93a24 | shape-spec | pending | task created (`019db58b-b272-7452-bec2-acf3879bcf90`) |
-| 019db58b-b2cb-7413-b146-fd88721c2784 | shape-spec | pending | task created (`019db58b-b2cb-7413-b146-fd950174f05a`) |
-| 019db58b-b327-7dd2-8c8b-9ec0947e6684 | shape-spec | pending | task created (`019db58b-b327-7dd2-8c8b-9edb28d7f93f`) |
-| 019db58b-b382-7060-afcd-73b9d68cd740 | shape-spec | pending | task created (`019db58b-b382-7060-afcd-73cf10776801`) |
-| 019db58b-b3db-76f2-90aa-9bd6fda1feef | shape-spec | pending | task created (`019db58b-b3db-76f2-90aa-9be07cd31c63`) |
-| 019db58b-b438-7733-8513-5ef68730d647 | shape-spec | pending | task created (`019db58b-b438-7733-8513-5f0e92b3ba72`) |
-| 019db58b-b492-7423-925a-80190e82b708 | shape-spec | pending | task created (`019db58b-b492-7423-925a-802c5ffde3c5`) |
+| 019db58b-b051-70e1-9190-c4f9cd09b5e7 | shape-spec | complete | completion guards converged (`019db796-bff7-73e0-8824-aa2715517326`) |
+| 019db58b-b0b7-7541-bceb-beefc3b8876c | shape-spec | complete | completion guards converged (`019db7bb-ac03-7691-9757-942c52063256`) |
+| 019db58b-b10e-7a21-94fa-3699f795228b | shape-spec | complete | completion guards converged (`019db7c6-3a59-7b71-a21f-b332a65df89f`) |
+| 019db58b-b165-7f51-b581-6b2a0b9e77f8 | shape-spec | complete | completion guards converged (`019db7d6-9c38-76a3-bab7-13e7c1754fc6`) |
+| 019db58b-b1bd-7fe3-8db6-83d7fa10e2d8 | shape-spec | complete | completion guards converged (`019db7e5-4d0e-7e83-8e0b-ea4384da04e7`) |
+| 019db58b-b215-7fe3-ba25-45ffbdb973b3 | shape-spec | complete | completion guards converged (`019db7f5-a40e-7221-a7b3-caa3881bfe1a`) |
+| 019db58b-b272-7452-bec2-acef1fa93a24 | shape-spec | complete | completion guards converged (`019db808-10d0-7ad1-996e-2340ec0c554a`) |
+| 019db58b-b2cb-7413-b146-fd88721c2784 | shape-spec | complete | completion guards converged (`019db816-15ad-79a0-993f-6960017ebacd`) |
+| 019db58b-b327-7dd2-8c8b-9ec0947e6684 | shape-spec | complete | completion guards converged (`019db826-38f7-7ba3-b1c8-2e94a6afd780`) |
+| 019db58b-b382-7060-afcd-73b9d68cd740 | shape-spec | complete | completion guards converged (`019db839-797d-7e63-b16b-89da56a546a9`) |
+| 019db58b-b3db-76f2-90aa-9bd6fda1feef | shape-spec | complete | completion guards converged (`019db846-766b-71a3-8af9-83b1f44e2cf5`) |
+| 019db58b-b438-7733-8513-5ef68730d647 | shape-spec | complete | completion guards converged (`019db8d2-70bf-71c3-a210-db03daecb76e`) |
+| 019db58b-b492-7423-925a-80190e82b708 | shape-spec | complete | completion guards converged (`019dbad8-32d6-7963-834f-cd99727bc7b5`) |
+| 019dba86-b4d9-7bb1-a73b-c5e780404a72 | do-task | complete | completion guards converged (`019dbae6-3e6a-7a52-8147-1e1f372daca8`) |

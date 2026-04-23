@@ -33,8 +33,9 @@ template: |2
   4. Call `report_phase_outcome`:
      - `complete` if zero `fix_now` adherence findings. The
        `TaskAdherent` guard will be recorded.
-     - `blocked` if any `fix_now` findings. Orchestrator will materialize
-       fix tasks with `origin: Adherence`.
+     - `blocked` if any `fix_now` findings. Orchestrator will dispatch
+       `investigate` for autonomous remediation before resuming the task
+       loop.
 
   ## Verification
 

@@ -221,6 +221,7 @@ fn task_event_task_id(event: &MethodologyEvent) -> Option<TaskId> {
         MethodologyEvent::TaskAudited(e) => Some(e.task_id),
         MethodologyEvent::TaskAdherent(e) => Some(e.task_id),
         MethodologyEvent::TaskXChecked(e) => Some(e.task_id),
+        MethodologyEvent::TaskGuardsReset(e) => Some(e.task_id),
         MethodologyEvent::TaskCompleted(e) => Some(e.task_id),
         MethodologyEvent::TaskAbandoned(e) => Some(e.task_id),
         MethodologyEvent::TaskRevised(e) => Some(e.task_id),

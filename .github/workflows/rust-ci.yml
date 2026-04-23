@@ -234,6 +234,10 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants,cargo-llvm-cov
+
       - name: Check file line counts
         run: just check-lines
 
@@ -245,6 +249,25 @@ jobs:
 
       - name: Check local/workflow CI parity rules
         run: just check-ci-parity
+
+      - name: Check Phase 0 strict behavior gates
+        run: just check-phase0-gates
+
+      - name: Upload Phase 0 enforced mutation triage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-mutation-enforced
+          path: artifacts/phase0-mutation/enforced/latest
+          if-no-files-found: warn
+
+      - name: Upload Phase 0 enforced coverage classification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-coverage-enforced
+          path: artifacts/phase0-coverage/enforced/latest
+          if-no-files-found: warn
 
       - name: Check redaction perf regression thresholds
         run: just check-redaction-perf
