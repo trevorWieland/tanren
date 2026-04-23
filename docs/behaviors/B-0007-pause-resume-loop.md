@@ -29,10 +29,12 @@ abandoning the progress it has made.
 
 ## Out of scope
 
-- Cancelling or aborting a loop (discarding progress) — not covered here.
+- Cancelling or aborting a loop (discarding progress) — covered by
+  B-0058.
 - Rolling back partial progress of a paused loop.
 
 ## Related
 
 - B-0003
 - B-0005
+- B-0058

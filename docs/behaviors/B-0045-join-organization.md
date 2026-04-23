@@ -28,8 +28,9 @@ create a new account.
   granted on the invitation.
 - The account's membership in any other organizations is unaffected.
 - The user can switch into the newly joined organization via B-0047.
-- The user can leave the organization later, at which point their access to
-  the organization's projects ends but their account remains.
+- The user can leave the organization later via B-0059, at which point
+  their access to the organization's projects ends but their account
+  remains.
 
 ## Out of scope
 

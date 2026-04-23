@@ -137,6 +137,7 @@ that delivery progress maps back to user-visible capability.
 - [B-0007](B-0007-pause-resume-loop.md) — Manually pause and resume an active loop
 - [B-0008](B-0008-inspect-live-activity.md) — Inspect detailed live activity of a running loop
 - [B-0017](B-0017-block-loop-on-unfinished-dependencies.md) — Block starting a loop on a spec with unfinished dependencies
+- [B-0058](B-0058-cancel-loop.md) — Cancel a loop
 
 ### Team coordination
 
@@ -158,6 +159,7 @@ that delivery progress maps back to user-visible capability.
 - [B-0022](B-0022-archive-spec.md) — Archive a spec without implementation
 - [B-0023](B-0023-group-specs-into-milestone.md) — Group specs into a milestone
 - [B-0024](B-0024-group-milestones-into-initiative.md) — Group milestones into an initiative
+- [B-0061](B-0061-bulk-actions-on-specs.md) — Perform bulk actions on multiple specs
 
 ### Observation and velocity
 
@@ -186,6 +188,11 @@ that delivery progress maps back to user-visible capability.
 - [B-0049](B-0049-manage-project-configuration.md) — Manage project-tier configuration
 - [B-0050](B-0050-manage-organization-configuration.md) — Manage organization-tier configuration
 - [B-0051](B-0051-configuration-syncs-across-devices.md) — Configuration follows the account across devices
+- [B-0059](B-0059-leave-organization.md) — Leave an organization
+- [B-0060](B-0060-remove-member-from-organization.md) — Remove a member from an organization
+- [B-0062](B-0062-configure-notification-preferences.md) — Configure notification preferences and routing
+- [B-0063](B-0063-export-data.md) — Export account or project data for backup or migration
+- [B-0064](B-0064-restore-data.md) — Restore account or project data from a backup
 
 ### External tracker integration
 
