@@ -1,0 +1,251 @@
+name: Rust CI
+
+on:
+  push:
+    branches: ["main", "rewrite/**"]
+  pull_request:
+    branches: ["main", "rewrite/**"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  RUST_TOOLCHAIN: "1.94.1"
+
+jobs:
+  # ============================================================
+  # Lint & Format
+  # ============================================================
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: taplo-cli
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Check TOML formatting
+        run: taplo fmt --check Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked -- -D warnings
+
+  # ============================================================
+  # Test
+  # ============================================================
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Build tanren-mcp for workspace parity tests
+        run: cargo build -p tanren-mcp --locked --quiet
+
+      - name: Run tests
+        env:
+          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
+        run: cargo nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --locked --no-tests=pass
+
+  # ============================================================
+  # Integration — Postgres
+  # ============================================================
+  integration-postgres:
+    name: Integration (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: tanren
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run Postgres integration tests (store)
+        env:
+          TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
+        run: cargo nextest run -j1 -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --locked --no-tests=pass
+
+      - name: Build tanren-mcp for CLI parity integration tests
+        run: cargo build -p tanren-mcp --locked --quiet
+
+      - name: Run Postgres integration tests (cli)
+        env:
+          TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
+          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
+        run: cargo nextest run -j1 -p tanren-cli --features tanren-cli/postgres-integration --locked --no-tests=pass
+
+  # ============================================================
+  # Coverage (Linux only)
+  # ============================================================
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+
+      - name: Build tanren-mcp for workspace parity tests
+        run: cargo build -p tanren-mcp --locked --quiet
+
+      - name: Verify tanren-mcp test binary path
+        run: test -x "${{ github.workspace }}/target/debug/tanren-mcp"
+
+      - name: Generate coverage
+        env:
+          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
+        run: cargo llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --lcov --output-path lcov.info --no-tests=pass
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+
+  # ============================================================
+  # Dependency audit
+  # ============================================================
+  deny:
+    name: Deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # ============================================================
+  # Documentation
+  # ============================================================
+  doc:
+    name: Doc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build docs
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  # ============================================================
+  # Unused dependencies
+  # ============================================================
+  machete:
+    name: Machete
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+
+      - name: Check for unused dependencies
+        run: cargo machete
+
+  # ============================================================
+  # Quality gates
+  # ============================================================
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants,cargo-llvm-cov
+
+      - name: Check file line counts
+        run: just check-lines
+
+      - name: Check inline lint suppression
+        run: just check-suppression
+
+      - name: Check crate dependency layering
+        run: just check-deps
+
+      - name: Check local/workflow CI parity rules
+        run: just check-ci-parity
+
+      - name: Check Phase 0 strict behavior gates
+        run: just check-phase0-gates
