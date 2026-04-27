@@ -1,3 +1,15 @@
+---
+kind: standard
+name: feature-folder-structure
+category: architecture
+importance: high
+applies_to: []
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - architecture
+---
+
 # Feature Folder Structure
 
 Organize application code by feature, not by file type. Shared UI belongs in a component library package, not app-local.

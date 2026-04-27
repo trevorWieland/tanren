@@ -1,3 +1,17 @@
+---
+kind: standard
+name: no-any-enforcement
+category: typescript
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - typescript
+---
+
 # No Any Enforcement
 
 Never use `any` in application code. Use `unknown` for genuinely unknown types and narrow with type guards.

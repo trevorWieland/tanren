@@ -1,0 +1,104 @@
+---
+agent: implementation
+description: Tanren methodology command `do-task`
+model: default
+subtask: false
+template: |2
+
+  # do-task
+
+  ## Purpose
+
+  Implement the single task identified in your dispatch context.
+  Nothing more. Task selection, gate execution, commits, pushes, and
+  workflow progression are Tanren-code's job.
+
+  ## Inputs (from your dispatch)
+
+  - The `task_id` to implement, with full typed description and
+    acceptance criteria. Use `list_tasks` to fetch the record.
+  - If dispatched with investigation or recovery context, repair this
+    same task using the source findings, failed checks, prior attempts,
+    and root-cause notes. Do this even if the task was previously
+    implemented; reset or incomplete guards mean the task is not done.
+  - The spec folder path.
+  - Relevant standards (injected separately by Tanren-code; treat as
+    context, not edits).
+  - Projected artifacts (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
+    `demo.md`, `progress.json`) for current state context.
+
+  ## Responsibilities
+
+  1. Call `start_task(task_id)` at session start (if not already
+     transitioned).
+  2. Implement or repair only the supplied task. Do not touch unrelated
+     files.
+  3. If the task changes behavior, update the implementation and test
+     scenarios so evidence remains coherent with projected planned
+     behaviors and expectations.
+  4. Run `just check` before signalling complete. If
+     it fails on trivial issues (formatting, imports), self-fix and
+     re-run. If it fails persistently, stop: emit a signpost and
+     report `blocked` (Tanren-code will dispatch `investigate`).
+  5. Record signposts for non-obvious issues you hit or decisions that
+     would surprise a future reader. Each signpost needs concrete
+     evidence — error messages, file paths, command output.
+  6. Treat behavior-changing code without matching verification/scenario
+     updates as incomplete work.
+  7. On successful implementation: call
+     `complete_task(task_id, evidence_refs)` with the relevant file
+     paths / commit refs. The `Implemented` transition is recorded by
+     Tanren-code; the gate / audit / adherence guards run in parallel
+     afterward.
+  8. Call `report_phase_outcome("complete", …)`.
+
+  ## Verification
+
+  Run `just check` locally. Do not substitute other
+  commands; Tanren-code has chosen this hook specifically for the
+  `do-task` phase.
+
+  ## Emitting results
+
+  Use Tanren MCP tools for all structured mutations in this phase.
+  MCP-first canonical invocation set for phase `do-task`:
+  The orchestrator exports `TANREN_CLI`, `TANREN_DATABASE_URL`, `TANREN_CONFIG`, and `TANREN_SPEC_FOLDER`; use those values directly for CLI tool calls.
+  - MCP `start_task` payload: `{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000"}`
+  - CLI `start_task` command: `"$TANREN_CLI" --database-url "$TANREN_DATABASE_URL" methodology --methodology-config "$TANREN_CONFIG" --phase do-task --spec-id <spec_uuid> --spec-folder "$TANREN_SPEC_FOLDER" task start --json '{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000"}'`
+  - MCP `complete_task` payload: `{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","evidence_refs":[]}`
+  - CLI `complete_task` command: `"$TANREN_CLI" --database-url "$TANREN_DATABASE_URL" methodology --methodology-config "$TANREN_CONFIG" --phase do-task --spec-id <spec_uuid> --spec-folder "$TANREN_SPEC_FOLDER" task complete --json '{"schema_version":"1.0.0","task_id":"00000000-0000-0000-0000-000000000000","evidence_refs":[]}'`
+  - MCP `add_signpost` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","status":"unresolved","problem":"problem statement","evidence":"evidence summary","tried":[],"files_affected":[]}`
+  - CLI `add_signpost` command: `"$TANREN_CLI" --database-url "$TANREN_DATABASE_URL" methodology --methodology-config "$TANREN_CONFIG" --phase do-task --spec-id <spec_uuid> --spec-folder "$TANREN_SPEC_FOLDER" signpost add --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","status":"unresolved","problem":"problem statement","evidence":"evidence summary","tried":[],"files_affected":[]}'`
+  - MCP `update_signpost_status` payload: `{"schema_version":"1.0.0","signpost_id":"00000000-0000-0000-0000-000000000000","status":"resolved","resolution":"resolved with deterministic projection"}`
+  - CLI `update_signpost_status` command: `"$TANREN_CLI" --database-url "$TANREN_DATABASE_URL" methodology --methodology-config "$TANREN_CONFIG" --phase do-task --spec-id <spec_uuid> --spec-folder "$TANREN_SPEC_FOLDER" signpost update-status --json '{"schema_version":"1.0.0","signpost_id":"00000000-0000-0000-0000-000000000000","status":"resolved","resolution":"resolved with deterministic projection"}'`
+  - MCP `list_tasks` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}`
+  - CLI `list_tasks` command: `"$TANREN_CLI" --database-url "$TANREN_DATABASE_URL" methodology --methodology-config "$TANREN_CONFIG" --phase do-task --spec-id <spec_uuid> --spec-folder "$TANREN_SPEC_FOLDER" task list --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000"}'`
+  - MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","task_id":"00000000-0000-0000-0000-000000000001","outcome":{"outcome":"complete","summary":"phase complete"}}`
+  - CLI `report_phase_outcome` command: `"$TANREN_CLI" --database-url "$TANREN_DATABASE_URL" methodology --methodology-config "$TANREN_CONFIG" --phase do-task --spec-id <spec_uuid> --spec-folder "$TANREN_SPEC_FOLDER" phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","task_id":"00000000-0000-0000-0000-000000000001","outcome":{"outcome":"complete","summary":"phase complete"}}'`
+
+  Signposts carry typed status: `unresolved`, `resolved`, `deferred`,
+  `architectural_constraint`. Use them honestly — they feed future
+  audits and investigations.
+
+  ⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
+  spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,
+  signposts.md, progress.json, and .tanren-projection-checkpoint.json
+  are generated from the typed event stream.
+  Postflight reverts unauthorized edits and emits an
+  UnauthorizedArtifactEdit event. Use the typed tool surface
+  (MCP or CLI) to record progress.
+
+
+  ## Out of scope
+
+  - Choosing the next task (Tanren-code will dispatch another
+    `do-task` if more tasks remain)
+  - Editing `plan.md`, `progress.json`, or any orchestrator-owned
+    artifact
+  - Creating, checking out, committing, pushing, or merging branches
+  - Opening or modifying `GitHub issues` or `pull requests`
+  - Recording rubric scores or findings (that's `audit-task`)
+  - Checking standards adherence (that's `adhere-task`)
+  - Resolving findings directly; only the relevant check phase closes
+    a finding after independent verification.
+---

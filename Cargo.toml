@@ -1,0 +1,195 @@
+[workspace]
+members = [
+  "bin/tanrend",
+  "bin/tanren-api",
+  "bin/tanren-cli",
+  "bin/tanren-mcp",
+  "bin/tanren-tui",
+  "crates/tanren-domain",
+  "crates/tanren-contract",
+  "crates/tanren-policy",
+  "crates/tanren-store",
+  "crates/tanren-planner",
+  "crates/tanren-scheduler",
+  "crates/tanren-runtime",
+  "crates/tanren-runtime-local",
+  "crates/tanren-runtime-docker",
+  "crates/tanren-runtime-remote",
+  "crates/tanren-bdd",
+  "crates/tanren-testkit",
+  "crates/tanren-harness-claude",
+  "crates/tanren-harness-codex",
+  "crates/tanren-harness-opencode",
+  "crates/tanren-orchestrator",
+  "crates/tanren-observability",
+  "crates/tanren-app-services",
+  "xtask",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trevorWieland/tanren"
+
+# ============================================================================
+# WORKSPACE LINTS — the quality gate
+# ============================================================================
+# All crates inherit these via `[lints] workspace = true` in their Cargo.toml.
+# To relax a lint for a specific crate, add it to that crate's [lints.clippy]
+# section — never use inline #[allow()] or #[expect()].
+
+[workspace.lints.rust]
+warnings = "deny"
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+# Strict lint groups
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Strict individual lints
+unwrap_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+unimplemented = "deny"
+
+# Inline suppression prohibition
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+# Pedantic overrides (too noisy for practical use)
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+# Guardrail lints are enabled selectively at crate roots where needed.
+disallowed_types = "allow"
+disallowed_methods = "allow"
+
+# ============================================================================
+# WORKSPACE DEPENDENCIES — centralized version pinning
+# ============================================================================
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "signal",
+  "sync",
+  "time",
+  "io-util",
+] }
+
+# Web framework
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
+
+# HTTP client
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls-tls",
+  "json",
+] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_path_to_error = "0.1"
+globset = "0.4"
+sha2 = "0.11"
+fs2 = "0.4"
+# Evidence frontmatter and install-config files.
+# serde_yaml is formally deprecated upstream but remains the de-facto
+# YAML crate in the Rust ecosystem; no drop-in maintained replacement
+# has stable-API parity as of 2026. Revisit if an audited successor
+# lands.
+serde_yaml = "0.9"
+# TOML config writer for Codex's `.codex/config.toml`.
+toml = "1"
+
+# JSON Schema generation for the tanren.methodology.v1 contract surface.
+# schemars is re-exported by rmcp's `server` feature; pinning it at the
+# workspace level keeps the contract crate's direct use independent of
+# rmcp's version bumps.
+schemars = { version = "1", features = ["chrono04", "uuid1"] }
+
+# Model Context Protocol SDK. License verified via `cargo info rmcp`
+# (Apache-2.0, in deny.toml allowlist) before this dep was added.
+# `server` enables `#[tool_router]`/`#[tool]` macros and the derive
+# path; `transport-io` wires the active stdio transport;
+# `macros` brings the attribute-macro surface; `schemars` re-export
+# ensures contract types produce the JSON Schemas rmcp registers.
+rmcp = { version = "1", features = [
+  "server",
+  "transport-io",
+  "macros",
+  "schemars",
+] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Async traits — needed for dyn-compatible trait objects that the store
+# and other workspace crates expose (Rust 2024's native async-fn-in-trait
+# is not yet dyn-compatible on stable).
+async-trait = "0.1"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Database — SeaORM replaces raw sqlx to get transparent JSON dialect
+# handling (TEXT on SQLite, JSONB on Postgres), backend-agnostic migrations,
+# and type-level query checking that works through DatabaseConnection.
+# sqlx is pulled in transitively via SeaORM's feature flags.
+sea-orm = { version = "1.1", features = [
+  "runtime-tokio-rustls",
+  "sqlx-sqlite",
+  "sqlx-postgres",
+  "with-chrono",
+  "with-uuid",
+  "with-json",
+  "macros",
+] }
+sea-orm-migration = { version = "1.1", features = [
+  "runtime-tokio-rustls",
+  "sqlx-sqlite",
+  "sqlx-postgres",
+] }
+
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.29"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# IDs
+uuid = { version = "1", features = ["v7", "serde"] }
+
+# JWT verification
+jsonwebtoken = { version = "10", default-features = false, features = [
+  "aws_lc_rs",
+  "use_pem",
+] }
+
+# Secrets
+secrecy = "0.10"

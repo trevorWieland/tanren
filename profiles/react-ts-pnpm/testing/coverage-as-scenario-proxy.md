@@ -1,0 +1,25 @@
+---
+kind: standard
+name: coverage-as-scenario-proxy
+category: testing
+importance: high
+applies_to:
+  - "**/*test*"
+  - "**/*spec*"
+  - "tests/**"
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - testing
+---
+
+# Coverage as Scenario Proxy
+
+Coverage signals missing behavior scenarios and dead code opportunities.
+
+**Rules:**
+- Treat uncovered lines as possible missing scenarios first
+- If behavior is complete, classify uncovered code as dead or non-scenario support
+- Coverage reports must be discussed with behavior mapping context
+
+**Why:** This prevents coverage targets from replacing behavior thinking.

@@ -1,3 +1,17 @@
+---
+kind: standard
+name: explicit-return-types
+category: typescript
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - typescript
+---
+
 # Explicit Return Types
 
 All exported functions and methods must have explicit return type annotations. Never rely on inference at public API boundaries.

@@ -1,3 +1,14 @@
+---
+kind: standard
+name: dependency-management
+category: global
+importance: high
+applies_to: []
+applies_to_languages:
+  - typescript
+applies_to_domains: []
+---
+
 # Dependency Management
 
 Use pnpm catalog for version alignment. No floating versions in individual package.json files.

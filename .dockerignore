@@ -3,13 +3,8 @@
 __pycache__
 *.pyc
 *.pyo
-*.egg-info
-.venv
 .env
 .env.*
-.ruff_cache
-.pytest_cache
-.coverage
 .claude
 .vscode
 .idea
@@ -25,7 +20,4 @@ templates
 AGENTS.md
 CONTRIBUTING.md
 README.md
-Makefile
 *.log
-services/tanren-cli/src
-services/tanren-api/openapi.json

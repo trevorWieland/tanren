@@ -26,7 +26,8 @@ Per task loop:
 1. `do-task`
 2. gate check
 3. `audit-task`
-4. remediation (if needed)
+4. `investigate` records root cause when needed
+5. `do-task` repairs the same task when needed
 
 After all tasks:
 
@@ -53,4 +54,5 @@ flows (UI/API/data behavior) and report evidence back to the workflow.
 ## Related Specs
 
 - Store protocols and dispatch lifecycle: `../protocol/README.md`
-- Runtime implementation: `../worker-README.md`
+- Orchestration state machine: `../architecture/orchestration-flow.md`
+- Runtime implementation: `../ADAPTERS.md`

@@ -2,130 +2,19 @@ name: Rust CI
 
 on:
   push:
-    branches: ["main", "rewrite/**"]
+    branches: ["main"]
   pull_request:
-    branches: ["main", "rewrite/**"]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
   RUSTFLAGS: "-D warnings"
   RUST_TOOLCHAIN: "1.94.1"
 
 jobs:
-  # ============================================================
-  # Lint & Format
-  # ============================================================
-  check:
-    name: Check (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-
-      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
-        with:
-          tool: taplo-cli
-
-      - name: Check Rust formatting
-        run: cargo fmt --check
-
-      - name: Check TOML formatting
-        run: taplo fmt --check Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml
-
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked -- -D warnings
-
-  # ============================================================
-  # Test
-  # ============================================================
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-
-      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
-        with:
-          tool: cargo-nextest
-
-      - name: Build tanren-mcp for workspace parity tests
-        run: cargo build -p tanren-mcp --locked --quiet
-
-      - name: Run tests
-        env:
-          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
-        run: cargo nextest run --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --profile ci --locked --no-tests=pass
-
-  # ============================================================
-  # Integration — Postgres
-  # ============================================================
-  integration-postgres:
-    name: Integration (Postgres)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: tanren
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-
-      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
-        with:
-          tool: cargo-nextest
-
-      - name: Run Postgres integration tests (store)
-        env:
-          TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-        run: cargo nextest run -j1 -p tanren-store --features tanren-store/test-hooks,tanren-store/postgres-integration --locked --no-tests=pass
-
-      - name: Build tanren-mcp for CLI parity integration tests
-        run: cargo build -p tanren-mcp --locked --quiet
-
-      - name: Run Postgres integration tests (cli)
-        env:
-          TANREN_TEST_POSTGRES_URL: postgres://postgres:tanren@localhost:5432/postgres
-          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
-        run: cargo nextest run -j1 -p tanren-cli --features tanren-cli/postgres-integration --locked --no-tests=pass
-
-  # ============================================================
-  # Coverage (Linux only)
-  # ============================================================
-  coverage:
-    name: Coverage
+  ci:
+    name: just ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -133,119 +22,37 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-          components: llvm-tools-preview
+          components: rustfmt, clippy, llvm-tools-preview
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
 
       - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          tool: just,taplo-cli,rumdl,lychee,cargo-llvm-cov,cargo-deny,cargo-machete
 
-      - name: Build tanren-mcp for workspace parity tests
-        run: cargo build -p tanren-mcp --locked --quiet
+      - name: Run PR gate
+        run: just ci
 
-      - name: Verify tanren-mcp test binary path
-        run: test -x "${{ github.workspace }}/target/debug/tanren-mcp"
-
-      - name: Generate coverage
-        env:
-          TANREN_MCP_BIN: ${{ github.workspace }}/target/debug/tanren-mcp
-        run: cargo llvm-cov nextest --workspace --features tanren-store/test-hooks,tanren-orchestrator/test-hooks --locked --lcov --output-path lcov.info --no-tests=pass
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2
+      - name: Upload behavior inventory artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          files: lcov.info
-          fail_ci_if_error: false
+          name: behavior-enforced
+          path: artifacts/behavior/enforced/latest
+          if-no-files-found: warn
 
-  # ============================================================
-  # Dependency audit
-  # ============================================================
-  deny:
-    name: Deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb
-
-  # ============================================================
-  # Documentation
-  # ============================================================
-  doc:
-    name: Doc
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+      - name: Upload BDD artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          name: bdd-enforced
+          path: artifacts/bdd/enforced/latest
+          if-no-files-found: warn
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-
-      - name: Build docs
-        run: cargo doc --workspace --no-deps --locked
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-
-  # ============================================================
-  # Unused dependencies
-  # ============================================================
-  machete:
-    name: Machete
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-
-      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
-        with:
-          tool: cargo-machete
-
-      - name: Check for unused dependencies
-        run: cargo machete
-
-  # ============================================================
-  # Quality gates
-  # ============================================================
-  quality-gates:
-    name: Quality Gates
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-
-      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
-        with:
-          tool: just
-
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
-
-      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
-        with:
-          tool: cargo-mutants,cargo-llvm-cov
-
-      - name: Check file line counts
-        run: just check-lines
-
-      - name: Check inline lint suppression
-        run: just check-suppression
-
-      - name: Check crate dependency layering
-        run: just check-deps
-
-      - name: Check local/workflow CI parity rules
-        run: just check-ci-parity
-
-      - name: Check Phase 0 strict behavior gates
-        run: just check-phase0-gates
+          name: coverage-enforced
+          path: artifacts/coverage/enforced/latest
+          if-no-files-found: warn

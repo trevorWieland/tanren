@@ -1,3 +1,14 @@
+---
+kind: standard
+name: i18n-enforcement
+category: global
+importance: high
+applies_to: []
+applies_to_languages:
+  - typescript
+applies_to_domains: []
+---
+
 # i18n Enforcement
 
 No literal strings in JSX. All user-facing text must go through the translation system.

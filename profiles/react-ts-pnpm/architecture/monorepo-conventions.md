@@ -1,3 +1,15 @@
+---
+kind: standard
+name: monorepo-conventions
+category: architecture
+importance: high
+applies_to: []
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - architecture
+---
+
 # Monorepo Conventions
 
 Use pnpm workspaces with Turborepo. All shared code lives in `packages/`, all deployable apps live in `apps/`.

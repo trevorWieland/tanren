@@ -1,0 +1,13 @@
+[package]
+name = "tanren-runtime-docker"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Docker execution runtime — local container and DooD (Docker-outside-of-Docker) support"
+
+[lints]
+workspace = true
+
+[dependencies]

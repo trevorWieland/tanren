@@ -1,3 +1,14 @@
+---
+kind: standard
+name: strict-linting-gate
+category: global
+importance: high
+applies_to: []
+applies_to_languages:
+  - typescript
+applies_to_domains: []
+---
+
 # Strict Linting Gate
 
 All four gates must pass before merge: format, lint, typecheck, and test. No exceptions, no overrides.

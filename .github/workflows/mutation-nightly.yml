@@ -1,0 +1,84 @@
+name: Mutation Nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "-D warnings"
+  RUST_TOOLCHAIN: "1.94.1"
+
+jobs:
+  mutation:
+    name: behavior mutation shard ${{ matrix.package-shard }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package-shard: ["0/4", "1/4", "2/4", "3/4"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+
+      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd
+        with:
+          tool: just,cargo-mutants
+
+      - name: Run behavior mutation
+        env:
+          TANREN_MUTATION_PACKAGE_SHARD: ${{ matrix.package-shard }}
+        run: just mutation
+
+      - name: Upload mutation artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mutation-enforced-${{ strategy.job-index }}
+          path: artifacts/mutation/enforced/latest
+          if-no-files-found: warn
+
+      - name: Open mutation failure issue
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const title = `Nightly mutation failure (${context.repo.owner}/${context.repo.repo})`;
+            const query = `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title "${title}"`;
+            const existing = await github.rest.search.issuesAndPullRequests({ q: query });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              "Nightly behavior mutation failed.",
+              "",
+              `Run: ${runUrl}`,
+              `Package shard: ${{ matrix.package-shard }}`,
+              "",
+              "Review the uploaded mutation artifact and triage missed, timed out, or unviable mutants before closing this issue."
+            ].join("\n");
+            if (existing.data.total_count > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data.items[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+              });
+            }

@@ -1,3 +1,17 @@
+---
+kind: standard
+name: strict-compiler-config
+category: typescript
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - typescript
+---
+
 # Strict Compiler Config
 
 Enable full strict mode with all additional safety flags. Never ship a tsconfig with `strict: true` alone.

@@ -1,0 +1,101 @@
+//! Read-side projection types — what queries return.
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::actor::ActorContext;
+use crate::events::EventEnvelope;
+use crate::graph::GraphRevision;
+use crate::ids::{DispatchId, StepId};
+use crate::payloads::{DispatchSnapshot, StepPayload, StepResult};
+use crate::status::{
+    DispatchMode, DispatchStatus, Lane, Outcome, StepReadyState, StepStatus, StepType,
+};
+use crate::validated::NonEmptyString;
+
+/// Lean read projection of a dispatch for list paths.
+///
+/// Intentionally **does not** carry the full [`DispatchSnapshot`] or
+/// [`ActorContext`] — list queries pay no JSON decode cost per row.
+/// Detail views (see [`DispatchView`]) continue to carry the full
+/// snapshot for single-entity reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchSummary {
+    pub dispatch_id: DispatchId,
+    pub mode: DispatchMode,
+    pub status: DispatchStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+    pub lane: Lane,
+    pub project: NonEmptyString,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Read projection of a dispatch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchView {
+    pub dispatch_id: DispatchId,
+    pub mode: DispatchMode,
+    pub status: DispatchStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+    pub lane: Lane,
+    pub dispatch: Box<DispatchSnapshot>,
+    /// Full actor attribution for policy / audit.
+    pub actor: ActorContext,
+    /// Current revision of the dispatch graph (incremented on replans).
+    pub graph_revision: GraphRevision,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Read projection of a step within a dispatch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StepView {
+    pub step_id: StepId,
+    pub dispatch_id: DispatchId,
+    pub step_type: StepType,
+    pub step_sequence: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane: Option<Lane>,
+    pub status: StepStatus,
+    /// Scheduler readiness — distinct from `status`. A step may be
+    /// `Pending` while still `Blocked` on graph dependencies.
+    pub ready_state: StepReadyState,
+    /// Ordered step IDs this step depends on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<StepId>,
+    /// Graph revision this step belongs to.
+    pub graph_revision: GraphRevision,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<StepPayload>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<StepResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub retry_count: u32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Paginated query result for events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventCursor {
+    pub timestamp: DateTime<Utc>,
+    pub id: i64,
+}
+
+/// Paginated query result for events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventQueryResult {
+    pub events: Vec<EventEnvelope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<u64>,
+    pub has_more: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<EventCursor>,
+}
