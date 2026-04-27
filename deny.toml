@@ -1,0 +1,66 @@
+[graph]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# Security advisories — deny known vulnerabilities
+[advisories]
+ignore = [
+  # RUSTSEC-2025-0134: `rustls-pemfile` is unmaintained. Pulled in
+  # transitively through SeaORM's rustls feature flags. The crate
+  # still functions correctly; this is an unmaintained notice, not
+  # a vulnerability. Remove when SeaORM upgrades to a successor.
+  "RUSTSEC-2025-0134",
+]
+
+# License policy — permissive licenses only
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+  "BSL-1.0",
+  "CC0-1.0",
+  "OpenSSL",
+  # Used by `webpki-roots`, pulled in transitively through SeaORM's
+  # rustls-tls feature flags. CDLA-Permissive-2.0 is a permissive
+  # data-sharing license comparable to MIT/Apache in intent.
+  "CDLA-Permissive-2.0",
+  # Used by `cucumber` support crates in the Phase 0 BDD harness package.
+  "BlueOak-1.0.0",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[licenses.private]
+ignore = true
+registries = []
+
+# Dependency bans
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace path deps parse as wildcard version requirements — this is expected
+allow-wildcard-paths = true
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+# Source restrictions — crates.io only
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

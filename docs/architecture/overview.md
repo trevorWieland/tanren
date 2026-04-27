@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Last updated: March 12, 2026
+Last updated: April 24, 2026
 
 ## What Tanren Is
 
@@ -42,7 +42,7 @@ systems are adapter-backed and replaceable:
 
 ## Where To Read Next
 
-- Lifecycle details: [spec-lifecycle](../workflow/spec-lifecycle.md)
-- Runtime implementation details: [worker-README](../worker-README.md)
-- Adapter interfaces: [ADAPTERS](../ADAPTERS.md)
-- HTTP API: [interfaces](../interfaces.md#http-api)
+- Orchestration state machine: [orchestration-flow](orchestration-flow.md)
+- Tool and CLI fallback contract: [agent-tool-surface](agent-tool-surface.md)
+- Runtime implementation details: [ADAPTERS](../ADAPTERS.md)
+- Evidence schemas: [evidence-schemas](evidence-schemas.md)

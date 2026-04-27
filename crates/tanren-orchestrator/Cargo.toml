@@ -1,0 +1,19 @@
+[package]
+name = "tanren-orchestrator"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Control-plane orchestration engine — planner/scheduler/policy/store/runtime coordination"
+
+[lints]
+workspace = true
+
+[dependencies]
+tanren-domain = { path = "../tanren-domain" }
+tanren-store = { path = "../tanren-store" }
+tanren-policy = { path = "../tanren-policy" }
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

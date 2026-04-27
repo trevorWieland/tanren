@@ -1,26 +1,30 @@
 # Documentation Index
 
-This directory is the canonical location for tanren deep-dive documentation.
-The root `README.md` stays concise and links here for detailed architecture,
-workflow, operations, and roadmap material.
+This directory is the canonical location for Tanren documentation. The root
+`README.md` stays concise and links here for detailed architecture, roadmap,
+methodology, and operations material.
 
 ## Sections
 
-- `architecture/overview.md` - product philosophy, three-layer model, and pluggability boundaries.
-- `methodology/system.md` - command files, standards profiles, templates, and role usage.
-- `workflow/spec-lifecycle.md` - opinionated lifecycle, orchestration loop, and scope controls.
-- `getting-started/bootstrap.md` - installation and first-run bootstrap sequence.
+- `roadmap/README.md` - product roadmap suite index.
+- `roadmap/ROADMAP.md` - phased product roadmap.
+- `behaviors/README.md` - product behavior catalog.
+- `../tests/bdd/README.md` - executable behavior evidence rules.
+- `architecture/overview.md` - system architecture and boundaries.
+- `architecture/install-targets.md` - install render targets, merge policy, and MCP env contract.
+- `architecture/agent-tool-surface.md` - typed tool surface and canonical CLI fallback shape.
+- `architecture/evidence-schemas.md` - generated evidence artifact contracts.
+- `methodology/commands-install.md` - canonical install/runtime contract.
+- `methodology/system.md` - command files, standards profiles, and role usage.
+- `workflow/spec-lifecycle.md` - lifecycle, orchestration loop, and scope controls.
 - `operations/security-secrets.md` - secret tiers, configuration scopes, and security controls.
-- `operations/observability.md` - event model, metrics, and operational queries.
-- `interfaces.md` - CLI, library, and store interaction surfaces.
-- `design-principles.md` - core design rules used for architectural decisions.
+- `design-principles.md` - core design rules used for architecture decisions.
 - `roadmap.md` - date-stamped delivery status and priorities.
-- `hld-migration-map.md` - source-to-destination mapping for the retired HLD.
-- `worker-README.md` - worker architecture and operations reference.
 - `ADAPTERS.md` - adapter architecture, decomposition, and extension points.
 
 ## Source of Truth Policy
 
 - Each topic has one canonical page.
 - Other docs should summarize and link, not duplicate full definitions.
-- Behavioral or interface changes must update the canonical page in the same PR.
+- Behavior, interface, lifecycle, or security changes must update the canonical
+  page in the same PR.

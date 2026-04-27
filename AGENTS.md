@@ -1,49 +1,60 @@
 # Repository Guidelines
 
-This is a uv python monorepo, and thus you should ONLY ever use uv for python execution.
-Never rely on running individual tests, targeted files for linting, etc. for validating your changes, use FULL suites.
+Tanren is a Rust workspace. Use Cargo and `just` for all local development and
+validation.
 
-## Project Structure & Module Organization
-- Root folders: `commands/`, `profiles/`, `templates/`, `protocol/`, `scripts/`, `packages/`, and `services/`.
-- Core library lives in `packages/tanren-core/src/tanren_core/`.
-- Services live in `services/tanren-{api,daemon,cli}/`.
-- Tests are under `tests/unit/` and `tests/integration/`.
-- Keep new core modules in `packages/tanren-core/src/tanren_core/` and mirror test placement (for example, `tanren_core/worker.py` -> `tests/unit/test_worker.py`).
+Never validate changes with targeted tests or targeted linting. Use the full
+repo gates.
+
+## Project Structure
+
+- `bin/`: Rust binaries (`tanren-cli`, `tanren-mcp`, `tanren-api`, `tanrend`, `tanren-tui`)
+- `crates/`: Rust libraries, organized by domain, contract, store, runtime, harness, and app-service boundaries
+- `xtask/`: repo maintenance and proof-support commands
+- `commands/`: source command markdown rendered by the installer
+- `profiles/`, `protocol/`, `scripts/`: standards, protocol docs, and shell entrypoints
+- `tests/bdd/`: behavior feature files used by the Rust BDD proof crate
+- `docs/roadmap/`: product roadmap and proof source documents
 
 ## Build, Test, and Development Commands
-Unless explicitly stated otherwise, run all build/test/dev commands from the repo root.
-- Clean slate setup:
-  1. `uv sync`
-  2. `make check`
-- Change validation flow:
-  1. `make format`
-  2. `make check`
-  3. `make ci`
-- Additional suites when relevant: `make integration-ssh` for SSH-path changes, `make integration-local` for local environment workflow changes.
-- From repo root: `scripts/install.sh --profile python-uv` installs tanren commands/standards into a project.
 
-## Coding Style & Naming Conventions
-- Python style is enforced by Ruff (`line-length = 100`, target `py314`) and Ty.
-- Use 4-space indentation and explicit type hints for public functions.
-- Naming rules: modules/functions/variables `snake_case`, classes `PascalCase`, CLI commands `kebab-case`, CLI flags `--snake-case`.
-- Prefer small adapter-oriented modules; place protocol boundaries in `adapters/protocols.py` patterns.
+Run commands from the repo root.
+
+- First-time setup: `just bootstrap`
+- Install binaries locally: `just install`
+- Format check: `just fmt`
+- Fast static gate: `just check`
+- Behavior proof suite: `just tests`
+- Full PR gate: `just ci`
+- Auto-fix formatting and Clippy suggestions: `just fix`
+
+## Rust Style
+
+- Rust edition and toolchain are pinned by the workspace.
+- Public APIs use explicit types and domain newtypes where appropriate.
+- Library crates use `thiserror`; binaries may use `anyhow`.
+- No `unsafe`, `unwrap`, `panic!`, `todo!`, `unimplemented!`, `println!`, `eprintln!`, or `dbg!` in production code.
+- No inline `#[allow]` or `#[expect]`; relax lints in the owning crate manifest with a reason.
+- Keep `.rs` files under the line-count budget enforced by `just check-lines`.
 
 ## Testing Guidelines
-- Framework: `pytest` with `pytest-asyncio`, `pytest-timeout`, and coverage reporting.
-- Coverage gate is enforced at `--cov-fail-under=80`; new behavior should include happy-path, error-path, and edge-case tests.
-- Name tests `test_*.py`; keep fast isolated checks in `tests/unit/` and environment-dependent flows in `tests/integration/`.
-- Use markers intentionally (`ssh`, `local_env`) and avoid enabling them in default CI runs.
+
+- `just tests` is the behavior proof path and runs BDD, mutation, and coverage classification stages.
+- New behavior should include positive and falsification coverage in BDD-owned scenarios.
+- `tests/bdd/phase0` remains the accepted Phase 0 behavior suite.
+- Do not add skipped or ignored behavior scenarios.
 
 ## Documentation Source of Truth
-- Deep-dive docs live under `docs/`; root `README.md` should summarize and link.
-- Store protocol changes are canonical in `packages/tanren-core/src/tanren_core/store/protocols.py` (not duplicated elsewhere).
-- Runtime implementation details are canonical in `docs/ADAPTERS.md`.
-- If behavior, interfaces, lifecycle, or security model changes, update the relevant canonical doc in the same PR.
-- Use `docs/hld-migration-map.md` as the topic coverage index; avoid creating disconnected duplicate explanations.
 
-## Commit & Pull Request Guidelines
-- Follow the observed commit style: Conventional Commit prefixes such as `feat(core): ...`, `feat(api): ...`, `fix: ...`, `chore: ...`.
+- Product planning and phase proof docs live under `docs/roadmap/`.
+- Architecture details live under `docs/architecture/`.
+- Methodology and command installation details live under `docs/methodology/`.
+- Runtime implementation details live in `docs/ADAPTERS.md`.
+- If behavior, interfaces, lifecycle, or security model changes, update the relevant doc in the same PR.
+
+## Commit and Pull Request Guidelines
+
+- Use Conventional Commit prefixes such as `feat(core): ...`, `feat(api): ...`, `fix: ...`, `chore: ...`.
 - Keep subjects imperative and scoped to one change set.
-- Acceptable PR gate: both `make check` and `make ci` must pass locally before requesting review.
-- PRs should include: concise problem statement, implementation summary, executed command results, and any config/secret implications.
-- Link related issue/spec IDs and include logs or terminal snippets when behavior changes are non-trivial.
+- `just check` and `just ci` must pass before review.
+- PRs should include the problem statement, implementation summary, executed command results, and config or secret implications.

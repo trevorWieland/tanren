@@ -1,0 +1,23 @@
+[package]
+name = "tanren-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Tanren CLI — clap-based command-line interface for local operation"
+
+[lints]
+workspace = true
+
+[dependencies]
+tanren-contract = { path = "../../crates/tanren-contract" }
+tanren-app-services = { path = "../../crates/tanren-app-services" }
+tanren-observability = { path = "../../crates/tanren-observability" }
+anyhow.workspace = true
+serde.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+tokio.workspace = true
+uuid.workspace = true

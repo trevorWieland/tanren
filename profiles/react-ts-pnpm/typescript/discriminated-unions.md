@@ -1,3 +1,17 @@
+---
+kind: standard
+name: discriminated-unions
+category: typescript
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - typescript
+---
+
 # Discriminated Unions
 
 Use discriminated unions for variant types. Never model variants with optional fields.

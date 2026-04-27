@@ -1,3 +1,15 @@
+---
+kind: standard
+name: naming-conventions
+category: architecture
+importance: high
+applies_to: []
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - architecture
+---
+
 # Naming Conventions
 
 Use consistent naming conventions across all code. Never mix styles.

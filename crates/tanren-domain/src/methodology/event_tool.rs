@@ -1,0 +1,139 @@
+//! Shared event ↔ tool attribution rules.
+//!
+//! Used by the projector, replay validator, and tests to keep tool-name
+//! attribution consistent in one source of truth.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::methodology::events::{DemoFrontmatterPatch, MethodologyEvent, SpecFrontmatterPatch};
+
+/// Event origin classification in `phase-events.jsonl`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PhaseEventOriginKind {
+    /// Directly emitted by the called tool.
+    ToolPrimary,
+    /// Secondary event emitted within the same tool call.
+    ToolDerived,
+    /// Emitted by system/session postflight code.
+    System,
+}
+
+impl PhaseEventOriginKind {
+    /// Default origin for an event when no explicit call context is present.
+    #[must_use]
+    pub const fn default_for_event(event: &MethodologyEvent) -> Self {
+        match event {
+            MethodologyEvent::UnauthorizedArtifactEdit(_)
+            | MethodologyEvent::EvidenceSchemaError(_) => Self::System,
+            _ => Self::ToolPrimary,
+        }
+    }
+}
+
+/// Canonical tool label for an event (new writes).
+#[must_use]
+pub fn canonical_tool_for_event(event: &MethodologyEvent) -> &'static str {
+    match event {
+        MethodologyEvent::TaskGateChecked(_)
+        | MethodologyEvent::TaskAudited(_)
+        | MethodologyEvent::TaskAdherent(_)
+        | MethodologyEvent::TaskXChecked(_)
+        | MethodologyEvent::TaskCompleted(_) => "mark_task_guard_satisfied",
+        MethodologyEvent::TaskGuardsReset(_) => "reset_task_guards",
+        MethodologyEvent::SpecFrontmatterUpdated(e) => match &e.patch {
+            SpecFrontmatterPatch::SetTitle { .. } => "set_spec_title",
+            SpecFrontmatterPatch::SetProblemStatement { .. } => "set_spec_problem_statement",
+            SpecFrontmatterPatch::SetMotivations { .. } => "set_spec_motivations",
+            SpecFrontmatterPatch::SetExpectations { .. } => "set_spec_expectations",
+            SpecFrontmatterPatch::SetPlannedBehaviors { .. } => "set_spec_planned_behaviors",
+            SpecFrontmatterPatch::SetImplementationPlan { .. } => "set_spec_implementation_plan",
+            SpecFrontmatterPatch::SetNonNegotiables { .. } => "set_spec_non_negotiables",
+            SpecFrontmatterPatch::AddAcceptanceCriterion { .. } => "add_spec_acceptance_criterion",
+            SpecFrontmatterPatch::SetDemoEnvironment { .. } => "set_spec_demo_environment",
+            SpecFrontmatterPatch::SetDependencies { .. } => "set_spec_dependencies",
+            SpecFrontmatterPatch::SetBaseBranch { .. } => "set_spec_base_branch",
+            SpecFrontmatterPatch::SetRelevanceContext { .. } => "set_spec_relevance_context",
+        },
+        MethodologyEvent::DemoFrontmatterUpdated(e) => match &e.patch {
+            DemoFrontmatterPatch::AddStep { .. } => "add_demo_step",
+            DemoFrontmatterPatch::MarkStepSkip { .. } => "mark_demo_step_skip",
+            DemoFrontmatterPatch::AppendResult { .. } => "append_demo_result",
+        },
+        MethodologyEvent::UnauthorizedArtifactEdit(_)
+        | MethodologyEvent::EvidenceSchemaError(_) => "finalize_mutation_session",
+        _ => allowed_tools_for_event(event)[0],
+    }
+}
+
+/// Allowed tool labels for one event variant.
+///
+/// Strict mode accepts canonical tool names only.
+#[must_use]
+pub fn allowed_tools_for_event(event: &MethodologyEvent) -> &'static [&'static str] {
+    match event {
+        MethodologyEvent::SpecDefined(_) => &["shape-spec"],
+        MethodologyEvent::TaskCreated(_) => &["create_task"],
+        MethodologyEvent::TaskStarted(_) => &["start_task"],
+        MethodologyEvent::TaskImplemented(_) => &["complete_task"],
+        MethodologyEvent::TaskGateChecked(_)
+        | MethodologyEvent::TaskAudited(_)
+        | MethodologyEvent::TaskAdherent(_)
+        | MethodologyEvent::TaskXChecked(_)
+        | MethodologyEvent::TaskCompleted(_) => &["mark_task_guard_satisfied"],
+        MethodologyEvent::TaskGuardsReset(_) => &["reset_task_guards"],
+        MethodologyEvent::TaskAbandoned(_) => &["abandon_task"],
+        MethodologyEvent::TaskRevised(_) => &["revise_task"],
+        MethodologyEvent::FindingAdded(_) => &["add_finding"],
+        MethodologyEvent::AdherenceFindingAdded(_) => &["record_adherence_finding"],
+        MethodologyEvent::FindingResolved(_) => &["resolve_finding"],
+        MethodologyEvent::FindingReopened(_) => &["reopen_finding"],
+        MethodologyEvent::FindingDeferred(_) => &["defer_finding"],
+        MethodologyEvent::FindingSuperseded(_) => &["supersede_finding"],
+        MethodologyEvent::FindingStillOpen(_) => &["record_finding_still_open"],
+        MethodologyEvent::CheckRunStarted(_) => &["start_check_run"],
+        MethodologyEvent::CheckResultRecorded(_) => &["record_check_result"],
+        MethodologyEvent::CheckFailureRecorded(_) => &["record_check_failure"],
+        MethodologyEvent::InvestigationAttemptRecorded(_) => &["record_investigation_attempt"],
+        MethodologyEvent::RootCauseLinkedToFinding(_) => &["link_root_cause_to_finding"],
+        MethodologyEvent::RubricScoreRecorded(_) => &["record_rubric_score"],
+        MethodologyEvent::NonNegotiableComplianceRecorded(_) => {
+            &["record_non_negotiable_compliance"]
+        }
+        MethodologyEvent::SignpostAdded(_) => &["add_signpost"],
+        MethodologyEvent::SignpostStatusUpdated(_) => &["update_signpost_status"],
+        MethodologyEvent::IssueCreated(_) => &["create_issue"],
+        MethodologyEvent::PhaseOutcomeReported(_) => &["report_phase_outcome"],
+        MethodologyEvent::ReplyDirectiveRecorded(_) => &["post_reply_directive"],
+        MethodologyEvent::SpecFrontmatterUpdated(e) => match &e.patch {
+            SpecFrontmatterPatch::SetTitle { .. } => &["set_spec_title"],
+            SpecFrontmatterPatch::SetProblemStatement { .. } => &["set_spec_problem_statement"],
+            SpecFrontmatterPatch::SetMotivations { .. } => &["set_spec_motivations"],
+            SpecFrontmatterPatch::SetExpectations { .. } => &["set_spec_expectations"],
+            SpecFrontmatterPatch::SetPlannedBehaviors { .. } => &["set_spec_planned_behaviors"],
+            SpecFrontmatterPatch::SetImplementationPlan { .. } => &["set_spec_implementation_plan"],
+            SpecFrontmatterPatch::SetNonNegotiables { .. } => &["set_spec_non_negotiables"],
+            SpecFrontmatterPatch::AddAcceptanceCriterion { .. } => {
+                &["add_spec_acceptance_criterion"]
+            }
+            SpecFrontmatterPatch::SetDemoEnvironment { .. } => &["set_spec_demo_environment"],
+            SpecFrontmatterPatch::SetDependencies { .. } => &["set_spec_dependencies"],
+            SpecFrontmatterPatch::SetBaseBranch { .. } => &["set_spec_base_branch"],
+            SpecFrontmatterPatch::SetRelevanceContext { .. } => &["set_spec_relevance_context"],
+        },
+        MethodologyEvent::DemoFrontmatterUpdated(e) => match &e.patch {
+            DemoFrontmatterPatch::AddStep { .. } => &["add_demo_step"],
+            DemoFrontmatterPatch::MarkStepSkip { .. } => &["mark_demo_step_skip"],
+            DemoFrontmatterPatch::AppendResult { .. } => &["append_demo_result"],
+        },
+        MethodologyEvent::UnauthorizedArtifactEdit(_)
+        | MethodologyEvent::EvidenceSchemaError(_) => &["finalize_mutation_session"],
+    }
+}
+
+/// True when `tool` is allowed for `event`.
+#[must_use]
+pub fn is_tool_allowed_for_event(event: &MethodologyEvent, tool: &str) -> bool {
+    allowed_tools_for_event(event).contains(&tool)
+}

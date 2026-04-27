@@ -1,3 +1,15 @@
+---
+kind: standard
+name: barrel-export-rules
+category: architecture
+importance: high
+applies_to: []
+applies_to_languages:
+  - typescript
+applies_to_domains:
+  - architecture
+---
+
 # Barrel Export Rules
 
 Barrel exports (`index.ts`) are allowed only at package boundaries. Never create barrel files inside feature directories.

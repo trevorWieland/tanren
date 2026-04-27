@@ -1,51 +1,47 @@
 # Contributing
 
-Thanks for contributing to tanren.
+All commands run from the repository root.
 
 ## Development Setup
 
-All commands run from the repository root.
-
 ```bash
-uv sync
-make check
+just bootstrap
+just install
+just check
 ```
 
-For full validation before PR:
+Run full validation before opening or updating a PR:
 
 ```bash
-make format
-make check
-make ci
+just fmt
+just check
+just ci
 ```
-
-If your changes touch SSH or local environment flows, also run the relevant
-integration target (`make integration-ssh` or `make integration-local`).
 
 ## Tooling
 
 | Tool | Purpose | Config |
 |------|---------|--------|
-| [ruff](https://docs.astral.sh/ruff/) | Formatting and linting | `pyproject.toml [tool.ruff]` |
-| [ty](https://docs.astral.sh/ty/) | Type checking | `pyproject.toml [tool.ty]` |
-| [pytest](https://docs.pytest.org/) | Testing | `pyproject.toml [tool.pytest.ini_options]` |
-| [uv](https://docs.astral.sh/uv/) | Package and environment management | `pyproject.toml [tool.uv]` |
-| make | Task runner | `Makefile` |
-
-Test markers: `ssh`, `local_env`, `api`, `hetzner`, `gcp`, `postgres`,
-`github`, `linear`. Run a specific marker with `uv run pytest -m <marker>`.
-
-Coverage thresholds: 80% for unit tests, 75% for integration tests.
+| Cargo | Build, check, docs, and dependency metadata | `Cargo.toml` |
+| rustfmt | Rust formatting | `rust-toolchain.toml` |
+| Clippy | Rust linting | workspace lints in `Cargo.toml` |
+| cargo-deny | License/advisory/source checks | `deny.toml` |
+| cargo-machete | Unused dependency checks | `Cargo.toml` files |
+| cargo-mutants | Mutation proof stage | `just tests` |
+| cargo-llvm-cov | Coverage classification stage | `just tests` |
+| taplo | TOML formatting | `taplo.toml` |
+| just | Task runner | `justfile` |
 
 ## Repository Areas
 
-- `packages/tanren-core/`: core library
-- `services/`: API, CLI, daemon services
-- `services/tanren-api/`: HTTP API (FastAPI)
-- `commands/`: workflow instructions used by agents
+- `bin/`: Rust binaries
+- `crates/`: Rust libraries
+- `xtask/`: repo automation and proof-support commands
+- `commands/`: workflow instructions rendered into agent targets
 - `profiles/`: coding standards by stack
 - `protocol/`: protocol overview
-- `docs/`: canonical deep-dive documentation
+- `docs/`: roadmap, architecture, methodology, and operations docs
+- `tests/bdd/`: behavior feature files used by the proof suite
 
 ## Commit Style
 
@@ -62,16 +58,21 @@ Each PR should include:
 
 - clear problem statement and implementation summary
 - validation commands run and outcomes
-- config/security impact notes (if applicable)
+- config/security impact notes, if applicable
 - linked issue/spec IDs
+
+## Contribution License
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this repository is licensed as `MIT OR Apache-2.0`, matching
+the workspace crate metadata and repository license files.
 
 ## Documentation Update Rule
 
-If behavior or interfaces change, update docs in the same PR.
+If behavior, interfaces, lifecycle, or security posture changes, update the
+canonical docs in the same PR.
 
-1. Update the canonical page in `docs/` (or `packages/tanren-core/src/tanren_core/store/protocols.py` for store contracts).
-2. Update summaries/links in `README.md`, `docs/worker-README.md`, or `AGENTS.md` only if needed.
-3. Avoid diverging duplicate explanations across files.
-
-For migration and source-of-truth context, see `docs/hld-migration-map.md` and
-`docs/README.md`.
+- Product planning and phase proof: `docs/roadmap/`
+- Architecture and boundaries: `docs/architecture/`
+- Command installation and methodology: `docs/methodology/`
+- Root summaries: `README.md` and `AGENTS.md`

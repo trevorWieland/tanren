@@ -1,0 +1,63 @@
+[package]
+name = "tanren-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Event-sourced persistence — event log, projections, migrations, and repository APIs"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+# SeaORM's `DeriveEntityModel` macro generates public entity types that
+# must remain `pub` to satisfy its trait surface, even though the module
+# path is crate-internal (`pub(crate) mod entity` in `lib.rs`).
+unreachable_pub = "allow"
+# SeaORM derive expansions trigger false-positive `unused_qualifications`
+# spans on enum-backed entity fields.
+unused_qualifications = "allow"
+
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+unimplemented = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[dependencies]
+tanren-domain = { version = "0.1", path = "../tanren-domain" }
+
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+
+serde_json = { workspace = true }
+
+thiserror = { workspace = true }
+
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+async-trait = { workspace = true }
+
+tracing = { workspace = true }
+
+# `token_replay_purge` uses tokio::spawn / tokio::time::timeout as
+# production surface; keep the same `workspace = true` constraint as
+# every other async-aware crate in the workspace.
+tokio = { workspace = true }
+
+# Purge stats are serialized to JSON by the CLI maintenance command.
+serde = { workspace = true }

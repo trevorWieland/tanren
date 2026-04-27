@@ -1,3 +1,18 @@
+---
+kind: standard
+name: hook-conventions
+category: react
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+  - react
+applies_to_domains:
+  - react
+---
+
 # Hook Conventions
 
 Custom hooks must start with `use`. Prefer derived state over syncing state with effects.

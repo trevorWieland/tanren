@@ -27,5 +27,6 @@ Each scope has different ownership and lifecycle constraints.
 
 ## Operational Reference
 
-For environment validation and secret CLI commands, see
-`../worker-README.md`.
+For runtime environment boundaries, see `../ADAPTERS.md`. For installed MCP
+configuration and capability envelopes, see
+`../architecture/install-targets.md`.

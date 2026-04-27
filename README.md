@@ -1,228 +1,209 @@
-<!-- Replace assets/logo.png with the real tanren logo -->
-![tanren](assets/logo.png)
-
 # tanren
 
-Opinionated orchestration engine for agentic software development.
+Rust code-orchestration framework for agentic software delivery.
 
-[![CI](https://github.com/trevorWieland/tanren/actions/workflows/ci.yml/badge.svg)](https://github.com/trevorWieland/tanren/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Python](https://img.shields.io/badge/python-%3E%3D3.14-blue)](https://python.org)
-[![Version](https://img.shields.io/badge/version-0.2.12-green)](https://github.com/trevorWieland/tanren/releases)
+[![Rust CI](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
-## What is tanren?
+Tanren decides what work happens, in what order, under which policy and
+runtime constraints. Agent runtimes decide how each role executes. This keeps
+workflow state, evidence, installation, and execution contracts in one typed
+Rust control plane while allowing harnesses and environments to vary.
 
-Tanren decides **what work happens and in what order** -- issue intake, spec
-lifecycle, orchestration, gates, feedback. Agent runtimes decide **how each
-role executes** -- CLI selection, model routing, authentication, tooling. This
-separation lets you swap agents, models, and coordinators without changing
-workflow logic.
+Tanren is not an agent runtime. It is the framework around agent runtimes:
+it shapes work into specs and tasks, dispatches the right phase, enforces
+state transitions through typed tools, records durable evidence, and loops
+until the configured gates are satisfied or a human decision is required.
+
+## Quick Start
+
+```bash
+git clone https://github.com/trevorWieland/tanren.git
+cd tanren
+just bootstrap
+just install
+just ci
+```
+
+The canonical installed binaries are `tanren-cli` and `tanren-mcp`.
+
+```bash
+scripts/runtime/install-runtime.sh
+scripts/runtime/verify-installed-runtime.sh
+tanren-cli install --dry-run
+```
+
+## How It Works
+
+Tanren's orchestration model has four layers:
+
+1. **Intent**: a human or coordinator starts a spec, task, dispatch, or
+   lifecycle action through CLI, MCP, API, or TUI.
+2. **Control plane**: application services validate the request, apply policy,
+   call the orchestrator, and persist typed events.
+3. **Execution**: scheduler/runtime crates lease an environment and hand one
+   phase to an agent harness.
+4. **Evidence**: every meaningful state change becomes a typed event and a
+   projected artifact, so the next phase has a coherent view of the work.
+
+```mermaid
+flowchart TD
+    U[User or coordinator] --> S[CLI / MCP / API / TUI]
+    S --> A[tanren-app-services]
+    A --> O[tanren-orchestrator]
+    O --> P[tanren-policy]
+    O --> G[tanren-planner]
+    O --> Q[tanren-scheduler]
+    Q --> R[tanren-runtime]
+    R --> H[Agent harness]
+    H --> T[Typed tool calls]
+    T --> A
+    A --> E[(Event store)]
+    E --> V[Projected views and artifacts]
+    V --> O
+```
+
+The core loop is intentionally narrow: agents write implementation and
+diagnostic evidence, while Tanren owns state. Agents do not directly edit
+orchestrator-owned artifacts such as `plan.md`, `tasks.json`,
+`progress.json`, or `phase-events.jsonl`; they call typed tools, and Tanren
+projects those files from durable events.
+
+## Orchestration State Machine
+
+The spec loop starts with interactive shaping, runs autonomous task phases
+until every task is complete, then validates the whole spec before review and
+merge.
+
+```mermaid
+flowchart TD
+    Shape[shape-spec] --> Setup[SETUP]
+    Setup --> Pending{Pending task?}
+    Pending -->|yes| Do[do-task]
+    Do --> Gate[TASK_GATE]
+    Gate --> Audit[audit-task]
+    Gate --> Adhere[adhere-task]
+    Audit --> Guards{All task guards pass?}
+    Adhere --> Guards
+    Gate --> Guards
+    Guards -->|no| Investigate[investigate]
+    Investigate --> Pending
+    Guards -->|yes| Complete[TaskCompleted]
+    Complete --> Pending
+    Pending -->|no| SpecGate[SPEC_GATE]
+    SpecGate --> Checks[run-demo + audit-spec + adhere-spec]
+    Checks -->|pass| Walk[walk-spec]
+    Checks -->|fix required| Investigate
+    Walk -->|accept| PR[Create PR]
+    Walk -->|reject| Pending
+    PR --> Feedback[handle-feedback]
+    Feedback -->|actionable| Pending
+    Feedback -->|resolved| Merge[Merge + CLEANUP]
+```
+
+Each task advances through a guarded lifecycle:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> InProgress: TaskStarted
+    InProgress --> Implemented: TaskImplemented
+    Implemented --> Implemented: TaskGateChecked
+    Implemented --> Implemented: TaskAudited
+    Implemented --> Implemented: TaskAdherent
+    Implemented --> Complete: all required guards
+    Pending --> Abandoned: typed disposition
+    InProgress --> Abandoned: typed disposition
+    Implemented --> Abandoned: typed disposition
+    Complete --> [*]
+```
+
+The full state-machine specification, including cross-spec flows and
+escalation rules, lives in
+[docs/architecture/orchestration-flow.md](docs/architecture/orchestration-flow.md).
 
 ## Architecture
 
 ```mermaid
 graph TD
-    subgraph Coordinator
-        DASH[Dashboard / Chat]
-        COORD[Coordinator CLI]
-    end
+    COORD[Coordinator UX] --> CLI[tanren-cli]
+    COORD --> MCP[tanren-mcp]
+    COORD --> API[tanren-api]
 
-    subgraph "Tanren &lpar;this repo&rpar;"
-        API[HTTP API]
-        MCP[MCP Server]
-        CLI[tanren CLI]
+    CLI --> APP[tanren-app-services]
+    MCP --> APP
+    API --> APP
 
-        STORE[(Store — SQLite / Postgres)]
+    APP --> STORE[(SQLite / Postgres)]
+    APP --> CONTRACT[tanren-contract]
+    APP --> DOMAIN[tanren-domain]
 
-        WORKER[Worker daemon]
-
-        LOCAL[Local Environment]
-        SSH[SSH Environment]
-    end
-
-    subgraph Agent Runtimes
-        AGENT_CLI[Agent CLIs]
-        GATES[Bash Gates]
-    end
-
-    DASH --> API
-    DASH --> MCP
-    COORD --> CLI
-
-    API --> STORE
-    MCP --> STORE
-    CLI --> STORE
-
-    WORKER --> STORE
-
-    WORKER --> LOCAL
-    WORKER --> SSH
-
-    LOCAL --> AGENT_CLI
-    LOCAL --> GATES
-    SSH --> AGENT_CLI
-    SSH --> GATES
+    WORKER[tanrend] --> RUNTIME[tanren-runtime]
+    RUNTIME --> HARNESS[Harness adapters]
+    RUNTIME --> ENV[Environment adapters]
 ```
 
-**Three-layer model**: Coordinators (identity, authorization, developer UX)
-sit above tanren. Tanren manages workflow state, dispatch routing, and
-environment lifecycle. Agent runtimes (opencode, codex, claude, aider) sit
-below and handle role-specific execution.
+Core crates:
 
-## Quick Start
+- `tanren-domain`: typed IDs, commands, events, views, policy-neutral state
+- `tanren-contract`: interface schemas and request/response contracts
+- `tanren-store`: database migrations, event store, projections, and queues
+- `tanren-app-services`: application workflows over domain/store/contract
+- `tanren-orchestrator`: state transition and dispatch orchestration
+- `tanren-planner`: task graph planning and replanning data model
+- `tanren-scheduler`: dependency, lane, and capability-aware scheduling
+- `tanren-runtime*`: execution contracts and environment substrates
+- `tanren-harness-*`: agent-runtime adapters
+- `bin/*`: CLI, MCP, API, daemon, and TUI entrypoints
 
-### Run with Docker
-
-```bash
-docker run -d --name tanren-api \
-  -p 8000:8000 \
-  ghcr.io/trevorwieland/tanren-api:latest
-```
-
-Health check: `curl http://localhost:8000/api/v1/health`
-
-### Run API + Worker (Docker Compose)
-
-```bash
-cp api.env.example api.env && cp daemon.env.example daemon.env
-# Edit both env files — at minimum set TANREN_API_API_KEY
-docker compose up -d
-```
-
-With Postgres: `docker compose --profile postgres up -d`
-
-See `api.env.example` and `daemon.env.example` for the full env var reference.
-
-#### Adapter Requirements
-
-| Adapter | Python Package | Required Env Vars | When |
-|---------|---------------|-------------------|------|
-| Manual  | *(core)* | *(none)* | `provisioner.type: manual` in remote.yml |
-| Hetzner | `hcloud` | `HCLOUD_TOKEN` | `provisioner.type: hetzner` |
-| GCP     | `google-cloud-compute` | `GCP_SSH_PUBLIC_KEY` | `provisioner.type: gcp` |
-
-All adapters are included in the default Docker image (`EXTRAS="all"`).
-Build with `--build-arg EXTRAS="hetzner"` for a single-adapter image,
-or `EXTRAS=""` for no cloud adapters.
-
-### Run with the CLI
-
-```bash
-git clone https://github.com/trevorWieland/tanren.git
-cd tanren
-uv sync
-```
-
-Validate your environment:
-
-```bash
-tanren env check
-```
-
-Run a full lifecycle:
-
-```bash
-tanren run full \
-  --project my-project \
-  --branch main \
-  --spec-path tanren/specs/s0001 \
-  --phase do-task
-```
-
-### Install methodology into a project
-
-```bash
-cd /path/to/your-project
-/path/to/tanren/scripts/install.sh --profile python-uv
-```
-
-This installs commands, standards, product templates, and helper scripts.
-Then bootstrap project knowledge (run once per project, via your agent):
-
-1. `plan-product`
-2. `discover-standards`
-3. `inject-standards`
-4. `index-standards`
-
-See [docs/getting-started/bootstrap.md](docs/getting-started/bootstrap.md)
-for the full bootstrap flow.
-
-## Features
-
-- **Spec lifecycle orchestration** -- shape, implement, audit, gate, and
-  feedback phases with automatic retries and dependency tracking
-- **Multi-agent dispatch** -- routes work to opencode, codex, claude, or
-  bash based on role configuration
-- **Local and remote execution** -- run agents locally via subprocess or on
-  remote VMs over SSH (Hetzner, GCP)
-- **Methodology system** -- reusable commands, coding standards profiles, and
-  product context templates installed into target projects
-- **Multiple entry points** -- HTTP API, MCP server, and CLI for flexible
-  coordinator integration
-- **Gate checks** -- automated validation between phases with configurable
-  per-phase gate commands
-- **Event tracking** -- structured event emission to SQLite or Postgres for
-  observability and metering
-
-## What Tanren Is
-
-Tanren has two coupled halves:
-
-1. **Execution framework** (`packages/tanren-core/`, `services/`): dispatch
-   routing, environment provisioning, retries, lifecycle handling, and result
-   emission.
-2. **Methodology system** (`commands/`, `profiles/`, `templates/`):
-   reusable agent instructions, standards, and product context.
-
-## What Tanren Is Not
-
-- Not a model router or model chooser
-- Not tied to one coordinator UX (dashboard/CLI/chat can all sit above tanren)
-- Not a vendor-locked hosted platform
+The linking rule is deliberate: transport binaries call application services;
+application services call the orchestrator; the orchestrator coordinates
+policy, store, planner, scheduler, and runtime boundaries. This keeps direct
+store mutation out of CLI/API/MCP handlers and makes state transitions
+auditable.
 
 ## Repository Structure
 
 ```text
 tanren/
-├── commands/        # 15 workflow command files
-├── profiles/        # standards profiles (default, python-uv)
-├── templates/       # product/audit/bootstrap templates
-├── packages/
-│   └── tanren-core/ # core orchestration library
-├── services/
-│   ├── tanren-api/  # HTTP API (FastAPI)
-│   ├── tanren-cli/  # CLI tool
-│   └── tanren-daemon/ # worker manager daemon
+├── bin/             # Rust binaries
+├── crates/          # Rust libraries
+├── xtask/           # repo automation and proof-support commands
+├── commands/        # source command markdown rendered by the installer
+├── profiles/        # standards profiles
 ├── protocol/        # protocol overview
-├── docs/            # architecture, workflow, ops, roadmap
-└── scripts/         # install and utility scripts
+├── docs/            # architecture, methodology, roadmap
+├── tests/bdd/       # behavior feature files
+└── scripts/         # shell entrypoints
 ```
 
-## Configuration
+## Development
 
-- **Developer-scoped**: local auth, secrets, preferences (never committed)
-- **Project-scoped**: `tanren.yml`, standards, product docs (committed per-repo)
-- **Organization-scoped**: runtime policy and infrastructure config
+- Setup: `just bootstrap`
+- Static gate: `just check`
+- Behavior proof: `just tests`
+- Full PR gate: `just ci`
+- Auto-fix: `just fix`
+
+Rust CI runs `just ci`. Protected development branches are governed by the
+`just ci` status check.
 
 ## Documentation
 
 - [docs/README.md](docs/README.md) - documentation index
-- [docs/architecture/overview.md](docs/architecture/overview.md) - architecture and boundaries
-- [docs/workflow/spec-lifecycle.md](docs/workflow/spec-lifecycle.md) - lifecycle and orchestration rules
-- [docs/getting-started/bootstrap.md](docs/getting-started/bootstrap.md) - install/bootstrap flow
-- [docs/operations/security-secrets.md](docs/operations/security-secrets.md) - security and secret handling
-- [docs/operations/observability.md](docs/operations/observability.md) - events and metering
-- [docs/interfaces.md](docs/interfaces.md) - CLI, library, and store interaction surfaces
-- [docs/design-principles.md](docs/design-principles.md) - architectural principles
-- [docs/roadmap.md](docs/roadmap.md) - date-stamped roadmap
-- [protocol/README.md](protocol/README.md) - protocol overview
-- [docs/worker-README.md](docs/worker-README.md) - worker architecture and operations
-- [docs/ADAPTERS.md](docs/ADAPTERS.md) - adapter architecture and extension points
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+- [docs/roadmap/README.md](docs/roadmap/README.md) - product roadmap suite
+- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - phase roadmap
+- [docs/behaviors/README.md](docs/behaviors/README.md) - product behavior catalog
+- [tests/bdd/README.md](tests/bdd/README.md) - executable behavior evidence rules
+- [docs/methodology/commands-install.md](docs/methodology/commands-install.md) - command installation contract
+- [docs/architecture/overview.md](docs/architecture/overview.md) - architecture overview
+- [docs/architecture/agent-tool-surface.md](docs/architecture/agent-tool-surface.md) - tool and CLI fallback contract
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for full text.
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.

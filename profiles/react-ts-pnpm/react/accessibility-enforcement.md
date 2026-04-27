@@ -1,3 +1,18 @@
+---
+kind: standard
+name: accessibility-enforcement
+category: react
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+  - react
+applies_to_domains:
+  - react
+---
+
 # Accessibility Enforcement
 
 Accessibility is not optional. All interactive elements must be keyboard-navigable and screen-reader-compatible.

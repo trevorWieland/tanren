@@ -1,0 +1,13 @@
+[package]
+name = "tanren-planner"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Task graph planning — issue decomposition, dependency graphs, and replanning logic"
+
+[lints]
+workspace = true
+
+[dependencies]

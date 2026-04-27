@@ -1,3 +1,18 @@
+---
+kind: standard
+name: functional-components-only
+category: react
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+  - react
+applies_to_domains:
+  - react
+---
+
 # Functional Components Only
 
 No class components. Use function declarations for all React components.

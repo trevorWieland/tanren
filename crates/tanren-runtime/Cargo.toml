@@ -1,0 +1,18 @@
+[package]
+name = "tanren-runtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Runtime trait contracts — harness and environment lease abstractions"
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tanren-domain = { path = "../tanren-domain" }

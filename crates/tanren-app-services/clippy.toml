@@ -1,0 +1,11 @@
+disallowed-methods = [
+  { path = "tanren_store::StateStore::create_dispatch_projection", reason = "Route store writes through tanren-orchestrator use-cases." },
+  { path = "tanren_store::StateStore::create_dispatch_with_initial_step", reason = "Route store writes through tanren-orchestrator use-cases." },
+  { path = "tanren_store::StateStore::update_dispatch_status", reason = "Route store writes through tanren-orchestrator use-cases." },
+  { path = "tanren_store::StateStore::cancel_dispatch", reason = "Route cancellation through tanren-orchestrator use-cases." },
+  { path = "tanren_store::JobQueue::enqueue_step", reason = "Route queue writes through tanren-orchestrator use-cases." },
+  { path = "tanren_store::JobQueue::ack", reason = "Route queue writes through tanren-orchestrator use-cases." },
+  { path = "tanren_store::JobQueue::ack_and_enqueue", reason = "Route queue writes through tanren-orchestrator use-cases." },
+  { path = "tanren_store::JobQueue::nack", reason = "Route queue writes through tanren-orchestrator use-cases." },
+  { path = "tanren_store::JobQueue::cancel_pending_steps", reason = "Route queue writes through tanren-orchestrator use-cases." },
+]

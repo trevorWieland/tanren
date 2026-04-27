@@ -1,3 +1,18 @@
+---
+kind: standard
+name: component-composition
+category: react
+importance: high
+applies_to:
+  - "**/*.ts"
+  - "**/*.tsx"
+applies_to_languages:
+  - typescript
+  - react
+applies_to_domains:
+  - react
+---
+
 # Component Composition
 
 Use headless primitives for behavior, CVA for variants, and Tailwind for styling. Never reinvent accessible interactive patterns.

@@ -9,15 +9,44 @@ __pycache__/
 *~
 .vscode/
 .idea/
-.coverage
-.venv/
-*.egg-info/
 
-# Docker deployment config (contains secrets)
-api.env
-daemon.env
+# Local deployment config (contains secrets)
 roles.yml
 remote.yml
 
-# Alembic check creates a temp SQLite DB
-packages/tanren-core/tanren.db
+# Rust build artifacts
+/target/
+lcov.info
+/default_*.profraw
+
+# Local cargo caches (keep .cargo/config.toml tracked)
+.cargo/advisory-dbs/
+.cargo/registry/
+.cargo/.global-cache
+.cargo/.package-cache
+.cargo/.package-cache-mutate
+
+# Local runtime DB
+/tanren.db
+
+# Local MCP capability keys
+.tanren/*.pem
+
+# Behavior verification runtime artifacts
+/artifacts/behavior/
+/artifacts/bdd/
+/artifacts/mutation/
+/artifacts/coverage/
+
+# Spec machine projections and replay state
+tanren/specs/*/.*
+tanren/specs/*/phase-events.jsonl
+tanren/specs/*/phase-events.jsonl.lock
+tanren/specs/*/tasks.json
+tanren/specs/*/progress.json
+tanren/specs/*/investigation-report.json
+
+# Phase/runtime orchestration artifacts; keep only curated markdown reports
+tanren/specs/*/orchestration/**
+!tanren/specs/*/orchestration/**/
+!tanren/specs/*/orchestration/**/*.md
