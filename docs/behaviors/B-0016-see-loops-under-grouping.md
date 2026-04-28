@@ -1,16 +1,18 @@
 ---
 id: B-0016
 title: See all active loops under a milestone or initiative
-personas: [team-dev, observer]
+area: team-coordination
+personas: [team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can view every active loop under a chosen milestone
+A `team-builder` or `observer` can view every active loop under a chosen milestone
 or initiative, so that they can see adjacent in-flight work and coordinate
 without being surprised by overlapping effort.
 

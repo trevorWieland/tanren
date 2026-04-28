@@ -72,7 +72,9 @@ the workspace crate metadata and repository license files.
 If behavior, interfaces, lifecycle, or security posture changes, update the
 canonical docs in the same PR.
 
-- Product planning and phase proof: `docs/roadmap/`
+- Product vision: `docs/vision.md`
+- Behavior canon: `docs/behaviors/`
+- Roadmap DAG guidance: `docs/roadmap/`
 - Architecture and boundaries: `docs/architecture/`
 - Command installation and methodology: `docs/methodology/`
 - Root summaries: `README.md` and `AGENTS.md`

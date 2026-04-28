@@ -1,10 +1,33 @@
 # Spec Lifecycle
 
-Tanren is intentionally opinionated about this lifecycle.
+Tanren is intentionally opinionated about this lifecycle. A spec is not an
+arbitrary task bundle; it is the executable slice of one roadmap DAG node, and
+that node must complete at least one accepted behavior.
+
+## Upstream Context
+
+A spec normally originates from one roadmap DAG node. That node must complete
+at least one accepted behavior and declare its expected behavior evidence.
+`shape-spec` operationalizes the node into acceptance criteria, demo steps,
+tasks, and dependencies; it should not invent product behavior from scratch
+unless it is explicitly handling an intake or planning-change flow.
+
+Roadmap nodes can be created from initial product planning, accepted external
+intake, or proactive project analysis such as scheduled standards sweeps,
+security audits, mutation-testing reports, and post-ship health checks. In all
+cases the spec still needs a behavior-backed demo story; work that completes
+no behavior is too thin to enter the executable roadmap.
 
 ## Core Lifecycle
 
 `draft -> shaped -> executing -> validating -> review -> merged`
+
+The lifecycle exists to preserve evidence and human judgment at the right
+points. Shaping is interactive because product meaning and scope need agreement.
+Task execution is autonomous because implementation work can be delegated.
+Walking is interactive because the result must be shown as behavior, not only as
+a diff. Review and merge connect the proven behavior back to the repository and
+roadmap.
 
 ## Ten Workflow Responsibilities
 

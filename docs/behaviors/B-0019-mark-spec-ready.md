@@ -1,16 +1,18 @@
 ---
 id: B-0019
 title: Mark a spec ready to run
-personas: [solo-dev, team-dev]
+area: spec-lifecycle
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can mark a shaped spec as ready to run, so that an
+A `solo-builder` or `team-builder` can mark a shaped spec as ready to run, so that an
 implementation loop may be started on it (manually via B-0001 or automatically
 via B-0002).
 

@@ -1,16 +1,18 @@
 ---
 id: B-0064
 title: Restore account or project data from a backup
-personas: [solo-dev, team-dev]
+area: operations
+personas: [solo-builder, team-builder, operator]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` with the required permission can restore an
+A `solo-builder` or `team-builder` with the required permission can restore an
 account's or a project's data from a previously created export (B-0063),
 so that recovery from accidental loss or migration from another Tanren
 installation is possible.

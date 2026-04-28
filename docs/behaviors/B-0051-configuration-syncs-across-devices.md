@@ -1,10 +1,12 @@
 ---
 id: B-0051
 title: Configuration follows the account across devices
-personas: [any]
+area: configuration
+personas: [solo-builder, team-builder, observer, operator]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 

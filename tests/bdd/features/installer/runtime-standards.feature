@@ -1,5 +1,5 @@
 @behavior @installer @cli
-Feature: Load runtime standards from the installed standards root
+Feature: Use the repository's installed standards
 
   @B-0071 @positive
   Scenario: Runtime standards load from a bootstrapped repository

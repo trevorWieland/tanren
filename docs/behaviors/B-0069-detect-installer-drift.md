@@ -1,16 +1,18 @@
 ---
 id: B-0069
 title: Detect installer drift without mutating files
-personas: [solo-dev, team-dev]
+area: project-setup
+personas: [solo-builder, team-builder]
 interfaces: [cli]
 contexts: [personal, organizational]
-status: accepted
+product_status: accepted
+verification_status: asserted
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can run install in strict dry-run mode so that
+A `solo-builder` or `team-builder` can run install in strict dry-run mode so that
 generated Tanren assets are checked for drift without changing the repository.
 
 ## Preconditions
@@ -31,4 +33,3 @@ generated Tanren assets are checked for drift without changing the repository.
 ## Related
 
 - B-0068
-

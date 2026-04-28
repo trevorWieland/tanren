@@ -1,16 +1,18 @@
 ---
 id: B-0061
 title: Perform bulk actions on multiple specs
-personas: [solo-dev, team-dev]
+area: spec-lifecycle
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can select multiple specs at once and apply a
+A `solo-builder` or `team-builder` can select multiple specs at once and apply a
 supported action to all of them — archive, move to or from the backlog,
 assign to a milestone, and similar lifecycle actions — so that managing a
 set of related specs does not require repeating the same action

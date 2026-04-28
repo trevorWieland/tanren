@@ -1,10 +1,10 @@
 //! Backlog issues.
 //!
-//! Issues are created by `triage-audits` (out-of-scope items from a
-//! spec audit) and by `handle-feedback` (PR-review comments that should
-//! not land in the current spec). They carry a provider-tagged reference
-//! so the same model can address GitHub today and Linear in a follow-up
-//! lane without a breaking schema change.
+//! Issues are created for out-of-scope follow-up work, including
+//! `handle-feedback` PR-review comments that should not land in the current
+//! spec. They carry a provider-tagged reference so the same model can address
+//! GitHub today and Linear in a follow-up lane without a breaking schema
+//! change.
 //!
 //! Typed URL parsing lives in `app-services` (where a `url` crate
 //! dependency is added at the boundary). The domain model keeps

@@ -1,45 +1,47 @@
 ---
 id: B-0050
-title: Manage organization-tier configuration
-personas: [team-dev]
+title: Manage shared configuration defaults across projects
+area: configuration
+personas: [solo-builder, team-builder, operator]
 interfaces: [cli, api, mcp, tui]
-contexts: [organizational]
-status: draft
+contexts: [personal, organizational]
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` who holds the permission to manage organization
-configuration can manage settings that apply across every project in an
-organization — typically deployment-related settings and shared
-infrastructure secrets — so that baseline operational config is maintained
-in one place rather than per project.
+A `solo-builder`, `team-builder`, or `operator` with the required permission can
+manage shared defaults that apply across multiple projects, so repeated
+deployment, runtime, and development settings do not have to be configured one
+project at a time.
 
 ## Preconditions
 
-- The user has permission to manage organization configuration for the
-  active organization.
-- The context is organizational; this behavior does not apply to personal
-  projects.
+- The user has permission to manage shared defaults for the active account or
+  organization.
+- More than one project can use the shared defaults.
 
 ## Observable outcomes
 
-- The user can view and edit organization-tier configuration values,
-  including deployment-related settings and organization-shared secrets.
-- Organization-tier values are visible to every member of the organization
-  and apply across every project in the organization.
+- The user can view and edit shared default values such as deployment posture,
+  runtime preferences, linked provider defaults, and project-creation defaults.
+- Shared defaults are visible to users with access to the affected scope and can
+  apply across every project in that account or organization.
+- A one-person multi-project setup can use shared defaults without adopting
+  team-specific concepts such as member roles or team tracking.
 - Changes take effect for subsequent work; loops already in flight when a
   change is made continue under the settings they started with.
-- Every change is attributed and visible in the organization's change
-  history (B-0042).
+- Every change is attributed and visible in the relevant change history
+  (B-0042).
 
 ## Out of scope
 
 - Cross-organization defaults.
-- Per-project overrides of organization-tier values (projects can layer
-  their own settings at the project tier, but cannot override the
-  organization's tier).
+- Shared secret storage.
+- Role, permission, or team-member tracking.
+- Per-project overrides when policy forbids them.
 
 ## Related
 
@@ -47,3 +49,4 @@ in one place rather than per project.
 - B-0048
 - B-0049
 - B-0051
+- B-0269

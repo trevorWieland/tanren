@@ -1,16 +1,18 @@
 ---
 id: B-0024
 title: Group milestones into an initiative
-personas: [solo-dev, team-dev]
+area: spec-lifecycle
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can create an initiative and assign milestones to
+A `solo-builder` or `team-builder` can create an initiative and assign milestones to
 it, so that a broader program of work spanning multiple milestones can be
 tracked and viewed together.
 

@@ -1,16 +1,18 @@
 ---
 id: B-0068
 title: Bootstrap Tanren assets into an existing repository
-personas: [solo-dev, team-dev]
+area: project-setup
+personas: [solo-builder, team-builder]
 interfaces: [cli]
 contexts: [personal, organizational]
-status: accepted
+product_status: accepted
+verification_status: asserted
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can bootstrap Tanren support files into an
+A `solo-builder` or `team-builder` can bootstrap Tanren support files into an
 existing repository so that methodology commands, standards, and agent
 integrations are installed from the bundled distribution.
 
@@ -21,7 +23,8 @@ integrations are installed from the bundled distribution.
 
 ## Observable outcomes
 
-- `tanren.yml` is created when no compatible config exists.
+- A compatible Tanren project configuration exists or is created when none is
+  present.
 - Methodology command assets, MCP config targets, and standards files are
   written for the selected profile and agent integrations.
 - Re-running install replaces generated command files, removes stale generated
@@ -39,4 +42,3 @@ integrations are installed from the bundled distribution.
 - B-0049
 - B-0069
 - B-0070
-

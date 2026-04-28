@@ -1,19 +1,37 @@
 # tanren
 
-Rust code-orchestration framework for agentic software delivery.
+Product-to-proof control plane for agentic software delivery.
 
 [![Rust CI](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
-Tanren decides what work happens, in what order, under which policy and
-runtime constraints. Agent runtimes decide how each role executes. This keeps
-workflow state, evidence, installation, and execution contracts in one typed
-Rust control plane while allowing harnesses and environments to vary.
+Tanren is the framework around coding agents that decides what work should
+exist, why it matters, what order it should run in, and which evidence proves it
+complete. Agent runtimes such as Codex, Claude Code, or OpenCode decide how an
+individual role reasons and edits. Tanren owns the product memory and workflow
+truth around those agents.
 
-Tanren is not an agent runtime. It is the framework around agent runtimes:
-it shapes work into specs and tasks, dispatches the right phase, enforces
-state transitions through typed tools, records durable evidence, and loops
-until the configured gates are satisfied or a human decision is required.
+The long-term goal is a continuous chain from product intent to shipped,
+evidenced behavior:
+
+```text
+product brief
+-> accepted behavior catalog
+-> roadmap DAG
+-> shaped specs
+-> orchestrated implementation
+-> BDD evidence and human walk
+-> PR, review, merge, ship
+-> feedback and proactive analysis
+-> updated product plan
+```
+
+This makes autonomous coding governable. Every increment should be traceable to
+accepted product behavior, every asserted behavior should have executable
+evidence, and every roadmap milestone should explain what user, operator,
+client, or runtime-actor outcomes are now complete.
+
+For the full product vision, read [docs/vision.md](docs/vision.md).
 
 ## Quick Start
 
@@ -33,9 +51,89 @@ scripts/runtime/verify-installed-runtime.sh
 tanren-cli install --dry-run
 ```
 
+## Why Tanren Exists
+
+Coding agents can produce changes quickly, but speed without durable product
+context creates drift. Tanren exists to prevent common failures:
+
+- work starts from vague tickets rather than agreed product intent;
+- roadmaps become stale prose instead of dependency-aware executable plans;
+- specs complete implementation tasks without completing user-visible behavior;
+- tests prove implementation details but not accepted product outcomes;
+- demos and reviews lack a clear behavior story;
+- bugs, client requests, and audit findings become scattered interruptions;
+- autonomous loops either stop too often or run without typed evidence.
+
+Tanren's answer is opinionated: product behavior is the unit of meaning,
+roadmap nodes must complete behavior, specs are shaped before execution, BDD
+evidence is the proof path, and agents mutate workflow state only through typed
+tools.
+
+## What Tanren Is Not
+
+Tanren is not an agent runtime, model provider, editor, ticket tracker, CI
+system, or generic task runner. It integrates with those systems through
+adapters. The core responsibility stays the same across integrations: decide
+what work happens, preserve why it exists, enforce how it progresses, and keep
+evidence for what was proven.
+
+Tanren is pluggable at the edges but not methodology-neutral. It should not
+care whether a team uses GitHub or another source-control provider, local
+subprocesses or remote VMs, one agent harness or another. It should care that
+work is behavior-backed, roadmap-ordered, spec-shaped, audited, walked, and
+evidenced.
+
+## What Tanren Empowers
+
+In its complete form, Tanren should let a team answer, from durable state:
+
+- what product is being built and for whom;
+- which behaviors are accepted, implemented, asserted, deprecated, or missing;
+- what spec-sized work remains and why that order is correct;
+- what is currently in flight, blocked, reviewed, or shipped;
+- which evidence proves that a behavior exists;
+- how bugs, client requests, post-ship outcomes, and proactive analyses changed
+  the plan.
+
+That is the difference between "agents can write code" and "agents can help
+deliver a product whose intended behaviors are planned, implemented, validated,
+reviewed, shipped, and continuously improved."
+
+## Tanren Method
+
+Tanren's method has four product-to-proof layers:
+
+1. **Plan product**: establish the product brief, motivations, target users,
+   constraints, success signals, and open product decisions.
+2. **Identify behaviors**: turn product intent into a parsable catalog of
+   accepted user, operator, client, and runtime-actor behaviors.
+3. **Craft roadmap**: synthesize a machine-readable DAG of spec-sized nodes
+   that complete accepted behaviors in dependency order. Human-readable
+   roadmap documents are rendered views of that graph.
+4. **Execute specs**: shape one roadmap node into a spec, orchestrate the task
+   loop, run behavior evidence, walk the result with a human, review, merge,
+   and update behavior verification state.
+
+Tanren also treats proactive project analysis as a first-class source of
+planning input. Scheduled standards sweeps, security audits, mutation-testing
+runs, post-ship health checks, and similar non-interactive analyses should
+produce findings or proposed planning changes that flow back into behaviors,
+roadmap nodes, and shaped specs rather than bypassing the product method.
+
+The spec-orchestration loop is the execution layer, not the whole method.
+Without product intent there is no meaningful behavior catalog; without
+accepted behaviors there is no reliable roadmap; without a roadmap DAG there is
+no principled spec queue; without BDD evidence and walks, completed specs do
+not prove product progress.
+
+This repo currently has the real spec-loop commands installed. Product-method
+commands such as `plan-product`, `identify-behaviors`, and `craft-roadmap` are
+planned but intentionally absent until their typed artifacts and proof of
+function exist.
+
 ## How It Works
 
-Tanren's orchestration model has four layers:
+Tanren's runtime orchestration model has four layers:
 
 1. **Intent**: a human or coordinator starts a spec, task, dispatch, or
    lifecycle action through CLI, MCP, API, or TUI.
@@ -191,8 +289,9 @@ Rust CI runs `just ci`. Protected development branches are governed by the
 ## Documentation
 
 - [docs/README.md](docs/README.md) - documentation index
-- [docs/roadmap/README.md](docs/roadmap/README.md) - product roadmap suite
-- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - phase roadmap
+- [docs/vision.md](docs/vision.md) - product-to-proof vision
+- [docs/roadmap/README.md](docs/roadmap/README.md) - roadmap DAG source-of-truth model
+- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - current human-readable roadmap view
 - [docs/behaviors/README.md](docs/behaviors/README.md) - product behavior catalog
 - [tests/bdd/README.md](tests/bdd/README.md) - executable behavior evidence rules
 - [docs/methodology/commands-install.md](docs/methodology/commands-install.md) - command installation contract

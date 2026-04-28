@@ -102,6 +102,24 @@ Runtime install + discoverability witness:
   ```
   The markdown body below the frontmatter is empty or ignored.
 - **MCP config:** `opencode.json` (JSON, top-level `mcp` object)
+  ```jsonc
+  {
+    "mcp": {
+      "tanren": {
+        "type": "local",
+        "command": ["tanren-mcp", "serve"],
+        "enabled": true,
+        "environment": {
+          "TANREN_CONFIG": "./tanren.yml",
+          "TANREN_MCP_CAPABILITY_ISSUER": "tanren-phase0",
+          "TANREN_MCP_CAPABILITY_AUDIENCE": "tanren-mcp",
+          "TANREN_MCP_CAPABILITY_PUBLIC_KEY_FILE": ".tanren/mcp-capability-public-key.pem",
+          "TANREN_MCP_CAPABILITY_MAX_TTL_SECS": "900"
+        }
+      }
+    }
+  }
+  ```
 - **Merge (commands):** `destructive`
 - **Merge (config):** `preserve_other_keys`
 

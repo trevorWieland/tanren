@@ -2,7 +2,7 @@
 
 Active behavior proof lives under `tests/bdd/features`.
 
-Every active scenario must reference exactly one accepted `B-XXXX` behavior ID
+Every active scenario must reference exactly one asserted `B-XXXX` behavior ID
 from `docs/behaviors` and exactly one witness tag: `@positive` or
 `@falsification`.
 

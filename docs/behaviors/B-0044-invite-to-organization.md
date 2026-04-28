@@ -1,16 +1,18 @@
 ---
 id: B-0044
 title: Invite a person to an organization
-personas: [team-dev]
+area: governance
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` with the required permission can invite a person into an
+A `team-builder` with the required permission can invite a person into an
 organization, so that new members can be brought in either by creating a
 fresh account through the invitation or by attaching an existing standalone
 account to the organization.

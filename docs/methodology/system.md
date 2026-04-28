@@ -16,16 +16,26 @@ Canon pointers:
 
 ## Command Organization
 
-Shared command sources live under `commands/` in two subdirectories:
+Tanren's method is layered:
+
+```text
+plan-product -> identify-behaviors -> craft-roadmap -> shape-spec -> orchestrate -> walk-spec
+```
+
+Project-planning commands maintain product intent, behavior canon, and roadmap
+state. Spec-loop commands execute one roadmap DAG node at a time. The
+orchestration state machine is therefore the execution layer of the method,
+not the source of product direction.
+
+Shared command sources live under `commands/`. The active command surface is
+currently the spec loop:
 
 - **`commands/spec/`** — commands that participate in the spec-
   orchestration state machine. Each emits typed events via the tool
   surface and contributes to task / finding state.
-- **`commands/project/`** — project-management commands that operate
-  outside the spec loop. They still render via `tanren-cli install` but
-  are not sequenced by the orchestrator's state machine. They may
-  record typed project-governance state and backlog issues, but they
-  do not mutate the active spec task list.
+- **Project commands** — reserved for future commands that operate outside the
+  spec loop. When added, they will still render via `tanren-cli install`, but
+  they will not be sequenced by the orchestrator's task/spec state machine.
 
 ### Spec-loop commands (`commands/spec/`)
 
@@ -43,16 +53,58 @@ Shared command sources live under `commands/` in two subdirectories:
 | `investigate` | triage | autonomous | — (task-scope root cause; spec-scope tasks / escalation) |
 | `resolve-blockers` | conversation | interactive | — |
 
-### Project-management commands (`commands/project/`)
+### Project-management commands
 
-| Command | Role | Autonomy | Notes |
-|---|---|---|---|
-| `sync-roadmap` | reconciliation | autonomous (once consuming real spec state) | reads store + issue source; emits diff directives |
-| `triage-audits` | audit curation | interactive | consumes batch standards report; emits `create_issue` (backlog), never `create_task` |
-| `discover-standards` | standards authoring | interactive | authors new standards in `STANDARDS_ROOT` |
-| `index-standards` | standards index | interactive | maintains standards index |
-| `inject-standards` | standards context | interactive | injects relevant standards into context |
-| `plan-product` | product authoring | interactive | authors product docs in `PRODUCT_ROOT` |
+There are currently no active project command sources. Future project commands
+must define typed artifacts and proof of function before being installed.
+
+Previously scaffolded commands that lack proof of function have been removed.
+Fresh product-method and project-analysis commands should be added
+deliberately rather than carrying forward prior scaffolding-oriented command
+contracts. The intended product-method command family is:
+
+- `plan-product` — interactive product brief, motivations, personas,
+  constraints, success signals, and open decisions.
+- `identify-behaviors` — interactive behavior catalog authoring and revision.
+- `craft-roadmap` — synthesis of accepted behaviors, implementation readiness,
+  existing progress, and in-flight work into a validated roadmap DAG.
+
+Future project-analysis commands should cover non-interactive scheduled or
+manual sweeps such as standards audits, security analysis, mutation-testing
+classification, and post-ship health review. Their outputs should be typed
+findings or proposed planning changes, not direct mutation of active spec task
+lists.
+
+## Command Inventory
+
+Current source commands are intentionally narrow:
+
+| Command | Source | Enacted status |
+|---|---|---|
+| `shape-spec` | `commands/spec/shape-spec.md` | active spec-loop command |
+| `do-task` | `commands/spec/do-task.md` | active spec-loop command |
+| `audit-task` | `commands/spec/audit-task.md` | active spec-loop command |
+| `adhere-task` | `commands/spec/adhere-task.md` | active spec-loop command |
+| `run-demo` | `commands/spec/run-demo.md` | active spec-loop command |
+| `audit-spec` | `commands/spec/audit-spec.md` | active spec-loop command |
+| `adhere-spec` | `commands/spec/adhere-spec.md` | active spec-loop command |
+| `walk-spec` | `commands/spec/walk-spec.md` | active spec-loop command |
+| `handle-feedback` | `commands/spec/handle-feedback.md` | active spec-loop command |
+| `investigate` | `commands/spec/investigate.md` | active spec-loop command |
+| `resolve-blockers` | `commands/spec/resolve-blockers.md` | active spec-loop command |
+
+Automated phases such as `setup`, `task-gate`, `spec-gate`, and `cleanup` are
+runtime phases, not shared command markdown.
+
+Reserved or planned commands are not installed until their artifacts and proof
+of function exist:
+
+| Command family | Status |
+|---|---|
+| `plan-product` | planned fresh product-method command |
+| `identify-behaviors` | planned fresh product-method command |
+| `craft-roadmap` | planned fresh product-method command |
+| project-analysis sweeps | planned future command family for scheduled/static audits |
 
 ## Ownership Boundary
 
@@ -158,8 +210,17 @@ Profiles in `profiles/` package standards by stack. Install-time
 the appropriate profile is copied into `STANDARDS_ROOT` with
 `preserve_existing` policy so repo-specific customization persists.
 
-## Product Context
+## Product Method Context
 
-`plan-product` owns initial product-context authoring. It creates
-`PRODUCT_ROOT` documents directly from user input and installed
-standards rather than from separate repository templates.
+Product context is not one-shot scaffolding. Tanren must support both fresh
+projects and existing codebases by maintaining a product brief, accepted
+behavior catalog, and roadmap DAG over time. New client requests, bug reports,
+post-ship outcomes, and business changes should route through this product
+method layer before becoming shaped specs.
+
+The same rule applies to proactive analysis. A scheduled standards sweep,
+security audit, mutation-testing run, or health check may discover important
+work, but it should enter Tanren as typed evidence and proposed behavior,
+roadmap, or spec changes. Automated analysis can reduce discovery latency; it
+does not replace behavior canon, roadmap DAG ordering, or human approval where
+the project policy requires it.

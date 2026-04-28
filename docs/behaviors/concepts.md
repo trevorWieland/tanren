@@ -90,12 +90,16 @@ managed lives in the configuration and credentials area.
 
 ## Configuration tiers
 
-Tanren's configuration is split into three tiers, each with different
+Tanren's configuration is split into four tiers, each with different
 ownership and visibility:
 
-- **User-tier** — configuration and credentials tied to a specific developer,
+- **User-tier** — configuration and credentials tied to a specific user,
   such as personal authentication tokens for agent providers. Never shared
   across users.
+- **Account-tier** — shared defaults tied to an account, such as default
+  runtime preferences, provider mappings, and project setup choices for
+  multiple projects the account owns or can administer. Useful for personal
+  multi-project use as well as organization-backed accounts.
 - **Project-tier** — configuration specific to a single project, such as
   gate commands, standard folder conventions, and project-scoped secrets.
   Shared with everyone who has access to the project.
@@ -104,6 +108,30 @@ ownership and visibility:
   infrastructure secrets or organization-wide defaults. Shared with everyone
   in the organization; set by users who hold the permission to manage
   organization configuration.
+
+## Credential and integration ownership
+
+Credentials and external provider connections have ownership independent of
+the persona using Tanren:
+
+- **User-owned credential** — access material tied to one user, such as a
+  personal source-control token or individual coding harness credential. It is
+  not shared with other users.
+- **Project-owned secret** — access material scoped to one project, such as a
+  project webhook secret, deployment key, or repository-specific integration
+  credential.
+- **Organization-owned secret** — access material governed at organization
+  scope, such as a shared cloud provider credential or organization-owned app
+  installation.
+- **Service account credential** — access material for a non-human actor such
+  as an automation client, webhook sender, or API integration.
+- **Worker-scoped temporary access** — short-lived access granted to a worker
+  or task for a specific execution scope.
+- **External provider connection** — a connection to a system such as source
+  control, an issue tracker, CI, a cloud provider, or a VM provider. A provider
+  connection may be backed by any of the credential ownership modes above, but
+  routine views expose provider, scope, capability, health, and usage metadata
+  rather than secret values.
 
 ## Scopes
 

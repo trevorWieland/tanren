@@ -1,16 +1,18 @@
 ---
 id: B-0009
 title: See teammates' active work alongside my own
-personas: [team-dev]
+area: team-coordination
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` can see a default view of Tanren that highlights their own active
+A `team-builder` can see a default view of Tanren that highlights their own active
 loops while also showing their teammates' active loops alongside them, so that
 they have a clear picture of who is working on what without having to switch
 views.

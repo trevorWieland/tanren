@@ -80,6 +80,6 @@ If you need to run a static check to ground a finding, use
 ## Out of scope
 
 - Rubric scoring (that's `audit-task`)
-- Authoring new standards (that's `discover-standards` / project)
+- Authoring new standards (that belongs to a future project-planning flow)
 - Editing `plan.md` or creating tasks
 - Choosing the next phase

@@ -1,69 +1,117 @@
 # Personas
 
-Canonical list of actor identities referenced by every behavior file. Every
-behavior's `personas:` frontmatter field must use one or more IDs from this
-document (or the literal `any` when truly surface-agnostic).
+Canonical list of product personas and external client identities referenced by
+behavior files. Every behavior's `personas:` frontmatter field must use one or
+more IDs from this document.
 
-Personas describe **how a person relates to a project**, not their job title,
-their device, or their permission grants. Scope (own / project /
-organization / account, as defined in concepts.md),
-permissions (can act on others' work, can set policy), and device class
-(phone, laptop) are orthogonal dimensions captured as preconditions on
-individual behaviors — not as persona identity.
+Personas describe **how an actor relates to Tanren work**, not their job title,
+device, permission grants, or technical skill. Scope (own / project /
+organization / account, as defined in concepts.md), permissions, and device
+class are orthogonal dimensions captured as preconditions on individual
+behaviors.
+
+One human may occupy more than one persona depending on project and scope. A
+solo founder may be a `solo-builder`, `operator`, and `observer` at the same
+time. A platform engineer may be an `operator` for one organization and a
+`team-builder` on a project they actively shape.
+
+Technical depth is not a persona. A technical and non-technical builder should
+be able to drive the same product-planning, shaping, walking, and acceptance
+flows. Their language, guidance needs, and desire to inspect code or runtime
+evidence may differ, but the durable behavior contract is the same.
 
 To add a new persona, add a section below with a stable ID slug, a one-sentence
 definition, and a short list of what they care about. Do not rename IDs once
-they are in use.
+they are in use after behavior canon is locked. System/runtime components are
+not personas; define them in `runtime-actors.md`.
 
 ---
 
-## `solo-dev`
+## `solo-builder`
 
-The only Tanren user on a given project. No other Tanren user's activity
-touches the same project. Covers:
+The only person actively driving product or implementation work for a project
+through Tanren. No other Tanren user's activity touches the same project.
+Covers:
 
-- A developer on a personal side project, alone
-- A solo developer at a company, on their own service or repository
+- A founder building a product alone
+- A product manager creating and walking work for a prototype
+- A developer or maintainer working alone on a repository
 - A Tanren maintainer working on Tanren itself
-- An OSS maintainer working alone on their own project
 
 Cares about:
-- Low setup friction, fast local iteration
-- Owning their own credentials
-- Not being forced into collaboration or governance concepts they do not need
 
-## `team-dev`
+- Low setup friction and clear guidance
+- Being able to plan, shape, run, walk, and accept work without coordinating
+  with other users
+- Owning their own credentials and project direction
+- Avoiding forced collaboration or governance concepts they do not need
 
-One of several Tanren users working against a shared project. Their activity
-can intersect with a teammate's. What they can do on another teammate's work
-(or on another team's work) depends on configured permissions — not on their
-persona. Covers:
+## `team-builder`
+
+One of several people actively driving shared product or implementation work
+through Tanren. Their activity can intersect with teammates' work. Covers:
 
 - A developer on a team at a company
-- A group of developers on a shared side project or shared OSS repository
+- A product manager shaping and walking work with a technical team
+- A technical lead coordinating implementation across multiple specs
+- A group of maintainers working on a shared project or OSS repository
 
 Cares about:
-- Shared, reviewable configuration
+
+- Shared, reviewable product and project context
 - Per-user credentials that do not leak across teammates
-- Not stepping on an in-flight workflow a teammate started
+- Clear ownership, handoff, assist, review, and approval behavior
 - Repeatable workflows that live alongside the project
 
 ## `observer`
 
-A user who watches Tanren activity but does not develop. Coverage and action
+A person who watches Tanren progress, evidence, health, risk, or outcomes but
+does not normally intervene in execution or configuration. Coverage and action
 scope depend on configured permissions. Covers:
 
-- A CTO or director tracking velocity across projects and teams
-- An engineering manager monitoring throughput on their team
-- A stakeholder (technical program manager, product owner) watching a project's
-  health
+- A CTO, director, engineering manager, or program lead tracking progress
+- A stakeholder watching whether product work is moving safely
+- A security, compliance, or quality reviewer with read-only audit visibility
 
 Cares about:
+
 - Read-only visibility at the scope they are granted
-- Velocity, throughput, and health signals
-- Not being asked to configure anything to get value
+- Velocity, throughput, quality, health, and risk signals
+- Evidence that work is aligned with product and governance expectations
+- Not being asked to configure or operate Tanren to get value
 
-## `any`
+## `operator`
 
-Special value, not a persona. Use in behavior frontmatter only when the
-capability is genuinely identical for every persona above.
+A person responsible for keeping Tanren usable, governed, secure, and healthy
+for a project, organization, or installation. Operators may or may not be
+developers. Covers:
+
+- A solo self-hosted user responsible for their own Tanren installation
+- A platform or DevOps owner managing workers, queues, and execution targets
+- A security or governance owner managing policy, credentials, and approvals
+- An administrator responsible for upgrades, recovery, and operational safety
+
+Cares about:
+
+- Worker, queue, daemon, and execution-target health
+- Safe credential, secret, policy, and permission management
+- The ability to pause, resume, drain, recover, audit, upgrade, and restore
+  Tanren-controlled work
+- Clear evidence for operational and governance decisions
+
+## `integration-client`
+
+An external system, script, webhook, CI job, or automation that uses Tanren's
+public contracts to create, update, or observe Tanren state. Covers:
+
+- Source-control or CI integrations reporting review and build state
+- External tracker integrations contributing intake or outbound issue state
+- Organization automation provisioning projects, accounts, or configuration
+- Scripts using Tanren's API, CLI, or MCP surface as a stable contract
+
+Cares about:
+
+- Stable machine-readable contracts
+- Idempotent, attributable state changes
+- Clear validation errors and permission boundaries
+- No dependency on internal crate, table, or struct shapes

@@ -157,7 +157,7 @@ types are canonical syntax.
 
 | Tool | Capability | Users |
 |---|---|---|
-| `create_issue(title, description, suggested_spec_scope, priority)` → `IssueRef` | `issue.create` | `triage-audits`, `handle-feedback(out-of-scope)` |
+| `create_issue(title, description, suggested_spec_scope, priority)` → `IssueRef` | `issue.create` | `handle-feedback(out-of-scope)` |
 
 ### 3.8 Standards and adherence
 
@@ -192,12 +192,6 @@ are validation failures (hard error), not silently ignored.
 | `handle-feedback` | task.create, issue.create, feedback.reply, task.read, phase.outcome |
 | `investigate` | task.create (spec-scoped only), task.revise, finding.add, finding.read, investigation.record, phase.escalate, task.read, phase.outcome |
 | `resolve-blockers` | task.create, task.revise, task.abandon, task.read, phase.outcome |
-| `triage-audits` | issue.create, finding.add, phase.outcome |
-| `sync-roadmap` | finding.add, phase.outcome |
-| `discover-standards` | standard.read, phase.outcome |
-| `index-standards` | standard.read, phase.outcome |
-| `inject-standards` | standard.read, phase.outcome |
-| `plan-product` | phase.outcome |
 
 Other combinations denied.
 

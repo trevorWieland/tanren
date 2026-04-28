@@ -1,16 +1,18 @@
 ---
 id: B-0026
 title: Create a new project from scratch
-personas: [solo-dev, team-dev]
+area: project-setup
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can create a new project from scratch, so that a
+A `solo-builder` or `team-builder` can create a new project from scratch, so that a
 brand new repository comes into being at the same time the project is
 registered with Tanren, without requiring the user to set up the repository
 externally first.

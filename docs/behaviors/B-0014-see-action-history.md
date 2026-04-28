@@ -1,16 +1,18 @@
 ---
 id: B-0014
 title: See the history of human actions on a loop
-personas: [team-dev, observer]
+area: team-coordination
+personas: [team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can see a chronological record of the human actions
+A `team-builder` or `observer` can see a chronological record of the human actions
 taken on a loop — starts, pauses, resumes, blocker responses, assists,
 transfers — so that they can tell who did what and when, especially on loops
 shared across teammates.

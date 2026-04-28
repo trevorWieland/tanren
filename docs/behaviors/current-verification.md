@@ -1,45 +1,54 @@
 # Behavior Verification Classification
 
-This file records the BDD revamp cutover classification for the existing
-behavior catalog. It prevents the retained installer proof from duplicating
-broader draft product behaviors.
+This file records the current verification state for the behavior catalog. The
+behavior files themselves own product intent through `product_status`; this file
+summarizes where code and executable BDD evidence stand right now.
 
-## Already proven by active BDD
+## Asserted by Active BDD
 
-None of `B-0001` through `B-0067` is already proven by the retained BDD suite.
-The removed Phase 0 suite used `BEH-P0-*` proof IDs and mostly exercised
-synthetic models rather than product-facing catalog behaviors.
+These behaviors have active BDD coverage with positive and falsification
+witnesses and therefore use `verification_status: asserted`.
 
-## Testable now, not included in this cutover
+- `B-0068` Bootstrap Tanren assets into an existing repository
+- `B-0069` Detect installer drift without mutating files
+- `B-0070` Generate selected agent integrations deterministically
+- `B-0071` Use the repository's installed standards
+- `B-0080` See unresolved check findings that block readiness
+
+## Implemented, Not Yet Asserted
+
+These behaviors have public code paths or enough current implementation surface
+to justify `verification_status: implemented`, but they still need dedicated
+product-level BDD before they can become asserted.
 
 - `B-0001` Start an implementation loop manually on a spec
 - `B-0003` See the current state of an implementation loop
 - `B-0021` See a spec's current lifecycle state
 - `B-0058` Cancel a loop
 
-These have public code paths, but they need dedicated product-level scenarios
-after the behavior framework is stable.
+## Accepted But Unimplemented
 
-## Partially implemented, not accepted
+All other accepted behaviors currently use `verification_status:
+unimplemented`. Some have adjacent support code, but not enough end-to-end
+product behavior to claim implementation for the accepted behavior contract.
+
+Notable adjacent-but-unimplemented areas:
 
 - `B-0005` Respond to a question when a loop pauses on a blocker
-- `B-0006` Trigger a walk to review a completed loop
+- `B-0006` Start a walk for implementation-ready work
 - `B-0014` See the history of human actions on a loop
-- `B-0018` Create a spec, optionally from an external ticket
-- `B-0049` Manage project-tier configuration
+- `B-0018` Create a draft spec manually
+- `B-0049` Manage project methodology settings
 - `B-0054` See outbound issues Tanren has pushed to external trackers
 
-These remain draft because current code has supporting pieces but not enough
-end-to-end product behavior to claim acceptance.
+## Next Assertion Candidates
 
-## Planned or aspirational
+The next BDD additions should focus on the implemented-but-unasserted set:
 
-All remaining `B-0001` through `B-0067` behaviors remain draft.
+- `B-0001`
+- `B-0003`
+- `B-0021`
+- `B-0058`
 
-`B-0025` remains draft even though installer behavior is adjacent: connecting a
-repository as an account project is not the same capability as bootstrapping
-local Tanren assets.
-
-`B-0049` remains draft even though `tanren.yml` exists: installer-managed local
-config is not the full project-tier configuration management behavior.
-
+Each needs at least one positive witness and one falsification witness before
+its behavior doc can move to `verification_status: asserted`.

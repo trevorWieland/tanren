@@ -1,16 +1,18 @@
 ---
 id: B-0005
 title: Respond to a question when a loop pauses on a blocker
-personas: [solo-dev, team-dev]
+area: implementation-loop
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can respond to a question surfaced by a paused
+A `solo-builder` or `team-builder` can respond to a question surfaced by a paused
 implementation loop so that the loop can resume with the answer.
 
 ## Preconditions

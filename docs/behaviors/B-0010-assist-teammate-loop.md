@@ -1,16 +1,18 @@
 ---
 id: B-0010
 title: Temporarily assist a teammate's in-flight loop
-personas: [team-dev]
+area: team-coordination
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` can act on a teammate's in-flight loop without taking ownership,
+A `team-builder` can act on a teammate's in-flight loop without taking ownership,
 so that progress continues while the teammate is unavailable and the work
 still belongs to its original owner when they return.
 

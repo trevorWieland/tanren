@@ -24,8 +24,7 @@ use super::service::MethodologyService;
 impl MethodologyService {
     // -- §3.7 create_issue ----------------------------------------------------
 
-    /// `create_issue` — records a backlog item for `triage-audits` or
-    /// `handle-feedback`.
+    /// `create_issue` — records a backlog item from `handle-feedback`.
     ///
     /// # Errors
     /// See [`MethodologyError`].
@@ -36,11 +35,7 @@ impl MethodologyService {
         params: CreateIssueParams,
     ) -> MethodologyResult<CreateIssueResponse> {
         enforce(scope, ToolCapability::IssueCreate, phase)?;
-        require_phase_in(
-            "create_issue",
-            phase,
-            &[KnownPhase::TriageAudits, KnownPhase::HandleFeedback],
-        )?;
+        require_phase_in("create_issue", phase, &[KnownPhase::HandleFeedback])?;
         let spec_id = params.origin_spec_id;
         let explicit_key = params.idempotency_key.clone();
         let idempotency_payload = params.clone();

@@ -1,10 +1,12 @@
 ---
 id: B-0045
 title: Join an organization with an existing account
-personas: [any]
+area: governance
+personas: [solo-builder, team-builder, observer, operator]
 interfaces: [cli, api, mcp, tui]
 contexts: [organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 

@@ -1,19 +1,20 @@
 ---
 id: B-0034
 title: See health signals of active work
-personas: [team-dev, observer]
+area: observation
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can see health signals about currently active
-work — loops erroring, loops stalled on a stage too long, slow human
-response to blockers — so that they can identify trouble spots without
-inspecting each loop individually.
+A user can see health signals about currently active work — loops erroring,
+loops stalled on a stage too long, slow human response to blockers — so that
+they can identify trouble spots without inspecting each loop individually.
 
 ## Preconditions
 

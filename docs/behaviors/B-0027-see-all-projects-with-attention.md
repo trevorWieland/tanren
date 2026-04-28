@@ -1,16 +1,18 @@
 ---
 id: B-0027
 title: See all projects in an account with attention indicators
-personas: [solo-dev, team-dev, observer]
+area: project-setup
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can see every project in their
+A `solo-builder`, `team-builder`, or `observer` can see every project in their
 currently active account at a glance, together with clear indicators of which
 projects and which specs need their attention, so that nothing slips while
 they are juggling several projects.

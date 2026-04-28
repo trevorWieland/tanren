@@ -307,12 +307,6 @@ fn default_capabilities_for_known_phase(phase: KnownPhase) -> &'static [ToolCapa
         KnownPhase::ResolveBlockers => {
             &[TaskCreate, TaskRevise, TaskAbandon, TaskRead, PhaseOutcome]
         }
-        KnownPhase::TriageAudits => &[IssueCreate, FindingAdd, PhaseOutcome],
-        KnownPhase::SyncRoadmap => &[FindingAdd, PhaseOutcome],
-        KnownPhase::DiscoverStandards
-        | KnownPhase::IndexStandards
-        | KnownPhase::InjectStandards => &[StandardRead, PhaseOutcome],
-        KnownPhase::PlanProduct => &[PhaseOutcome],
     }
 }
 

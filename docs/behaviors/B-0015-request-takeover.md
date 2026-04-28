@@ -1,22 +1,24 @@
 ---
 id: B-0015
 title: Request a takeover from the current owner
-personas: [team-dev]
+area: team-coordination
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` who lacks ad-hoc takeover permission can request takeover of a
+A `team-builder` who lacks ad-hoc takeover permission can request takeover of a
 teammate's loop from the current owner, so that ownership can transfer with
 explicit consent.
 
 ## Preconditions
 
-- An active loop exists and is owned by another `team-dev`.
+- An active loop exists and is owned by another `team-builder`.
 - The project's coordination rules (B-0012) require consent for takeover, or
   the user otherwise lacks permission to take over ad-hoc.
 

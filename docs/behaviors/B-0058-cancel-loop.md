@@ -1,16 +1,18 @@
 ---
 id: B-0058
 title: Cancel a loop
-personas: [solo-dev, team-dev]
+area: implementation-loop
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: implemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can cancel a running or paused implementation
+A `solo-builder` or `team-builder` can cancel a running or paused implementation
 loop so that Tanren stops working on the spec and the spec becomes
 available for a fresh start.
 

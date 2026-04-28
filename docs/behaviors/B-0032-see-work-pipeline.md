@@ -1,19 +1,21 @@
 ---
 id: B-0032
 title: See the work pipeline — velocity and throughput
-personas: [team-dev, observer]
+area: observation
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can see the flow of specs through the system —
-how many specs are in each lifecycle state right now (throughput) and how
-many are being completed over time (velocity) — so that they can tell
-whether work is moving and at what rate.
+A user can see the flow of specs through the system — how many specs are in
+each lifecycle state right now (throughput) and how many are being completed
+over time (velocity) — so that they can tell whether work is moving and at what
+rate.
 
 ## Preconditions
 

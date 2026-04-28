@@ -63,7 +63,11 @@ type WaveBehaviorIds = BTreeMap<String, Vec<String>>;
 struct BehaviorDoc {
     id: String,
     title: String,
-    status: String,
+    area: String,
+    personas: Vec<String>,
+    runtime_actors: Vec<String>,
+    product_status: String,
+    verification_status: String,
     path: String,
 }
 
@@ -468,8 +472,9 @@ fn behavior_validate() -> Result<()> {
         bail!("behavior validation failed");
     }
     println!(
-        "behavior: accepted={} scenarios={} artifact={}",
+        "behavior: accepted={} asserted={} scenarios={} artifact={}",
         accepted_behavior_count(&inventory),
+        asserted_behavior_count(&inventory),
         inventory.scenarios.len(),
         run_dir.display()
     );
@@ -838,11 +843,19 @@ fn load_behavior_docs(root: &Path) -> Result<BTreeMap<String, BehaviorDoc>> {
             .with_context(|| format!("parse frontmatter {}", path.display()))?;
         let id = yaml_string(&metadata, "id").unwrap_or_default();
         let title = yaml_string(&metadata, "title").unwrap_or_default();
-        let status = yaml_string(&metadata, "status").unwrap_or_default();
+        let area = yaml_string(&metadata, "area").unwrap_or_default();
+        let personas = yaml_strings(&metadata, "personas");
+        let runtime_actors = yaml_strings(&metadata, "runtime_actors");
+        let product_status = yaml_string(&metadata, "product_status").unwrap_or_default();
+        let verification_status = yaml_string(&metadata, "verification_status").unwrap_or_default();
         let doc = BehaviorDoc {
             id: id.clone(),
             title,
-            status,
+            area,
+            personas,
+            runtime_actors,
+            product_status,
+            verification_status,
             path: repo_path(&path),
         };
         if docs.insert(id.clone(), doc).is_some() {
@@ -861,8 +874,57 @@ fn validate_behavior_docs(docs: &BTreeMap<String, BehaviorDoc>) -> Vec<String> {
         if doc.title.trim().is_empty() {
             errors.push(format!("{}: missing title", doc.path));
         }
-        if !matches!(doc.status.as_str(), "draft" | "accepted" | "deprecated") {
-            errors.push(format!("{}: invalid status {}", doc.path, doc.status));
+        if doc.area.trim().is_empty() {
+            errors.push(format!("{}: missing area", doc.path));
+        }
+        if doc.personas.is_empty() {
+            errors.push(format!("{}: missing personas", doc.path));
+        }
+        for persona in &doc.personas {
+            if !matches!(
+                persona.as_str(),
+                "solo-builder" | "team-builder" | "observer" | "operator" | "integration-client"
+            ) {
+                errors.push(format!("{}: invalid persona {}", doc.path, persona));
+            }
+        }
+        if doc.personas.iter().any(|persona| persona == "any") {
+            errors.push(format!("{}: personas must not use any", doc.path));
+        }
+        if doc.personas.iter().any(|persona| persona == "agent-worker") {
+            errors.push(format!(
+                "{}: agent-worker belongs in runtime_actors, not personas",
+                doc.path
+            ));
+        }
+        for actor in &doc.runtime_actors {
+            if actor != "agent-worker" {
+                errors.push(format!("{}: invalid runtime actor {}", doc.path, actor));
+            }
+        }
+        if !matches!(
+            doc.product_status.as_str(),
+            "draft" | "accepted" | "deprecated" | "removed"
+        ) {
+            errors.push(format!(
+                "{}: invalid product_status {}",
+                doc.path, doc.product_status
+            ));
+        }
+        if !matches!(
+            doc.verification_status.as_str(),
+            "unimplemented" | "implemented" | "asserted" | "retired"
+        ) {
+            errors.push(format!(
+                "{}: invalid verification_status {}",
+                doc.path, doc.verification_status
+            ));
+        }
+        if doc.product_status == "removed" && doc.verification_status != "retired" {
+            errors.push(format!(
+                "{}: removed behavior must have verification_status retired",
+                doc.path
+            ));
         }
         let Some(file_id) = Path::new(&doc.path)
             .file_name()
@@ -1005,9 +1067,15 @@ fn validate_scenario_tags(
         ));
         return;
     };
-    if doc.status == "deprecated" && !has_deprecated_coverage_tag(tags) {
+    if doc.product_status == "deprecated" && !has_deprecated_coverage_tag(tags) {
         errors.push(format!(
             "{file}:{line}: deprecated behavior {behavior_id} requires compatibility, migration, or deprecation coverage tag"
+        ));
+    }
+    if doc.verification_status != "asserted" {
+        errors.push(format!(
+            "{file}:{line}: behavior {behavior_id} has verification_status {}; active BDD scenarios require asserted behavior docs",
+            doc.verification_status
         ));
     }
     let witness_count = tags
@@ -1026,7 +1094,10 @@ fn validate_witness_obligations(
     scenarios: &[FeatureScenario],
     errors: &mut Vec<String>,
 ) {
-    for doc in docs.values().filter(|doc| doc.status == "accepted") {
+    for doc in docs
+        .values()
+        .filter(|doc| doc.verification_status == "asserted")
+    {
         let has_positive = scenarios
             .iter()
             .any(|scenario| scenario.behavior_id == doc.id && scenario.witness == "positive");
@@ -1035,13 +1106,13 @@ fn validate_witness_obligations(
             .any(|scenario| scenario.behavior_id == doc.id && scenario.witness == "falsification");
         if !has_positive {
             errors.push(format!(
-                "{}: accepted behavior missing positive witness",
+                "{}: asserted behavior missing positive witness",
                 doc.id
             ));
         }
         if !has_falsification {
             errors.push(format!(
-                "{}: accepted behavior missing falsification witness",
+                "{}: asserted behavior missing falsification witness",
                 doc.id
             ));
         }
@@ -1057,7 +1128,11 @@ fn behavior_inventory_json(inventory: &BehaviorInventory) -> Value {
             json!({
                 "id": doc.id,
                 "title": doc.title,
-                "status": doc.status,
+                "area": doc.area,
+                "personas": doc.personas,
+                "runtime_actors": doc.runtime_actors,
+                "product_status": doc.product_status,
+                "verification_status": doc.verification_status,
                 "path": doc.path,
             })
         }).collect::<Vec<_>>(),
@@ -1080,7 +1155,7 @@ fn behavior_witness_summary(inventory: &BehaviorInventory) -> Vec<Value> {
     inventory
         .docs
         .values()
-        .filter(|doc| doc.status == "accepted")
+        .filter(|doc| doc.verification_status == "asserted")
         .map(|doc| {
             let positive = inventory
                 .scenarios
@@ -1115,7 +1190,15 @@ fn accepted_behavior_count(inventory: &BehaviorInventory) -> usize {
     inventory
         .docs
         .values()
-        .filter(|doc| doc.status == "accepted")
+        .filter(|doc| doc.product_status == "accepted")
+        .count()
+}
+
+fn asserted_behavior_count(inventory: &BehaviorInventory) -> usize {
+    inventory
+        .docs
+        .values()
+        .filter(|doc| doc.verification_status == "asserted")
         .count()
 }
 
@@ -1147,6 +1230,20 @@ fn yaml_string(value: &serde_yaml::Value, key: &str) -> Option<String> {
         .get(key)
         .and_then(serde_yaml::Value::as_str)
         .map(ToOwned::to_owned)
+}
+
+fn yaml_strings(value: &serde_yaml::Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_yaml::Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn collect_markdown_files(path: &Path, out: &mut Vec<PathBuf>) -> Result<()> {

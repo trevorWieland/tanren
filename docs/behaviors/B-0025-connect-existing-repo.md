@@ -1,16 +1,18 @@
 ---
 id: B-0025
 title: Connect Tanren to an existing repository
-personas: [solo-dev, team-dev]
+area: project-setup
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can connect Tanren to a repository that already
+A `solo-builder` or `team-builder` can connect Tanren to a repository that already
 exists, so that the repository becomes a project the user can shape specs
 against and run implementation loops on.
 

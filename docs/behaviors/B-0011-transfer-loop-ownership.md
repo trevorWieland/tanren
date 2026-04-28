@@ -1,22 +1,24 @@
 ---
 id: B-0011
-title: Transfer ownership of a loop to another team-dev
-personas: [team-dev]
+title: Transfer ownership of a loop to another team-builder
+area: team-coordination
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` can transfer ownership of an in-flight loop to another `team-dev`,
+A `team-builder` can transfer ownership of an in-flight loop to another `team-builder`,
 so that the new owner becomes responsible for the work going forward.
 
 ## Preconditions
 
 - The loop is not already closed.
-- Either the current owner is initiating a handoff, or another `team-dev` is
+- Either the current owner is initiating a handoff, or another `team-builder` is
   taking over under permission to do so (see B-0012).
 
 ## Observable outcomes

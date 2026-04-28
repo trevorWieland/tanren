@@ -214,7 +214,7 @@ pub(super) fn render_audit_body(
                     "investigate".to_owned()
                 }
                 tanren_domain::methodology::finding::FindingSource::Triage => {
-                    "triage-audits".to_owned()
+                    "project-intake".to_owned()
                 }
                 tanren_domain::methodology::finding::FindingSource::Feedback { .. } => {
                     "feedback".to_owned()

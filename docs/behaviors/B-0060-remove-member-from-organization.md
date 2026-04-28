@@ -1,16 +1,18 @@
 ---
 id: B-0060
 title: Remove a member from an organization
-personas: [team-dev]
+area: governance
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` with the required permission can remove another member from
+A `team-builder` with the required permission can remove another member from
 an organization so that the departing or unwanted member loses access to
 the organization's projects without needing their cooperation.
 

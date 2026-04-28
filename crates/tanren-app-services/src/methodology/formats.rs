@@ -321,9 +321,12 @@ pub fn opencode_json(
         .insert(
             "tanren".into(),
             serde_json::json!({
-                "command": server_command,
-                "args": server_args,
-                "env": server_env,
+                "type": "local",
+                "command": std::iter::once(server_command.to_owned())
+                    .chain(server_args.iter().cloned())
+                    .collect::<Vec<_>>(),
+                "enabled": true,
+                "environment": server_env,
             }),
         );
     let mut out = serde_json::to_string_pretty(&root)

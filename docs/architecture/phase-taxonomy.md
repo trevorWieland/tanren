@@ -11,7 +11,7 @@ How the phase runs.
 
 | Mode | Description | Phases |
 |---|---|---|
-| **AGENTIC** | Prompt + CLI harness (Claude Code, Codex, OpenCode) | shape-spec, do-task, audit-task, adhere-task, run-demo, audit-spec, adhere-spec, walk-spec, handle-feedback, investigate, resolve-blockers, project commands |
+| **AGENTIC** | Prompt + CLI harness (Claude Code, Codex, OpenCode) | shape-spec, do-task, audit-task, adhere-task, run-demo, audit-spec, adhere-spec, walk-spec, handle-feedback, investigate, resolve-blockers |
 | **AUTOMATED** | Raw shell command, pass/fail | task-gate, spec-gate, setup, cleanup |
 
 ## Axis: Intent
@@ -29,7 +29,7 @@ What the phase does to the codebase.
 | **FEEDBACK** | Post-PR review triage | handle-feedback |
 | **TRIAGING** | Autonomous failure diagnosis | investigate |
 | **RESOLVING** | Interactive blocker resolution | resolve-blockers |
-| **GOVERNING** | Project-wide standards governance outside active specs | triage-audits, standards/product maintenance commands |
+| **GOVERNING** | Project-wide standards governance outside active specs | standards/product maintenance commands |
 | **INFRA** | Manages execution environment | setup, cleanup |
 
 ## Axis: Scope
@@ -41,7 +41,7 @@ What slice of the work the phase operates on.
 | **TASK** | Single task slice | do-task, task-gate, audit-task, adhere-task |
 | **SPEC** | Whole-spec completeness | shape-spec, run-demo, audit-spec, adhere-spec, walk-spec, spec-gate |
 | **CROSS-PHASE** | Operates on feedback across a whole PR / review | handle-feedback |
-| **PROJECT** | Whole-project governance outside the active spec loop | triage-audits, sync-roadmap, discover-standards, index-standards, inject-standards, plan-product |
+| **PROJECT** | Whole-project governance outside the active spec loop | future project commands |
 | **CONTEXT-DEPENDENT** | Dispatch-keyed: scope is derived from the triggering orchestration path (task pipeline -> TASK, spec pipeline -> SPEC) | investigate, resolve-blockers |
 | **INFRA** | Not scoped to tasks or spec | setup, cleanup |
 
@@ -57,14 +57,14 @@ Whether a human is in the loop during execution.
 
 | Autonomy | Phases |
 |---|---|
-| **INTERACTIVE** | shape-spec, walk-spec, resolve-blockers, project commands that require human approval or authoring |
+| **INTERACTIVE** | shape-spec, walk-spec, resolve-blockers |
 | **AUTONOMOUS** | every other agentic + automated phase |
 
-Exactly three spec-loop phases are interactive. Project-management
-commands may also be interactive because they sit outside the
-orchestrator's task/spec state machine. Investigate is the autonomous
-escalation mechanism; it promotes to a blocker (triggering
-resolve-blockers) only after its loop cap is hit.
+Exactly three spec-loop phases are interactive. Future project-management
+commands may also be interactive because they sit outside the orchestrator's
+task/spec state machine. Investigate is the autonomous escalation mechanism; it
+promotes to a blocker (triggering resolve-blockers) only after its loop cap is
+hit.
 
 ## Combined View
 
@@ -86,17 +86,14 @@ resolve-blockers) only after its loop cap is hit.
 | resolve-blockers | AGENTIC | RESOLVING | CONTEXT-DEPENDENT | INTERACTIVE | — |
 | cleanup | AUTOMATED | INFRA | INFRA | AUTONOMOUS | — |
 
-Project-management command phases are also known phase keys, but they
-do not emit task guards or participate in task completion:
+There are currently no project-management command phases registered as known
+phase keys.
 
-| Phase | Mode | Intent | Scope | Autonomy | Emits Guard? |
-|---|---|---|---|---|---|
-| triage-audits | AGENTIC | GOVERNING | PROJECT | INTERACTIVE | — |
-| sync-roadmap | AGENTIC | GOVERNING | PROJECT | AUTONOMOUS | — |
-| discover-standards | AGENTIC | GOVERNING | PROJECT | INTERACTIVE | — |
-| index-standards | AGENTIC | GOVERNING | PROJECT | INTERACTIVE | — |
-| inject-standards | AGENTIC | GOVERNING | PROJECT | INTERACTIVE | — |
-| plan-product | AGENTIC | GOVERNING | PROJECT | INTERACTIVE | — |
+Future product-method phases such as `plan-product`, `identify-behaviors`, and
+`craft-roadmap` should be added here only after their command contracts and
+typed artifacts are defined.
+Future project-analysis phases for scheduled sweeps or security/mutation
+analysis should follow the same rule.
 
 ## Guards and Task Completion
 

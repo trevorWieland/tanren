@@ -1,16 +1,18 @@
 ---
 id: B-0007
 title: Manually pause and resume an active loop
-personas: [solo-dev, team-dev]
+area: implementation-loop
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can manually pause an active implementation loop
+A `solo-builder` or `team-builder` can manually pause an active implementation loop
 and later resume it, so that they can halt Tanren's work on a spec without
 abandoning the progress it has made.
 

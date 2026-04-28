@@ -1,51 +1,45 @@
 ---
 id: B-0018
-title: Create a spec, optionally from an external ticket
-personas: [solo-dev, team-dev]
+title: Create a draft spec manually
+area: intake
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can create a new spec in a project so that a
-problem description becomes a Tanren-owned unit of work ready to be
-prioritized and implemented.
+A `solo-builder` or `team-builder` can create a draft spec directly in a project so
+that a problem becomes a Tanren-owned unit of work before it is prioritized or
+implemented.
 
 ## Preconditions
 
 - An active project is selected.
-- For ticket-based creation: the project has a connected external tracker
-  (B-0052) and the user can reference an accessible ticket within it.
 
 ## Observable outcomes
 
-- Tanren walks the user through an interactive creation process that
-  produces a new spec in the project.
-- When an external ticket is referenced, the spec is pre-populated with
-  the ticket's problem description, acceptance criteria, and any declared
-  dependencies; the user confirms or adjusts each item before the spec is
-  saved.
-- When no ticket is referenced, the user authors the problem description
-  and acceptance criteria directly; creation does not require a tracker.
-- The spec captures the problem description and acceptance criteria
-  without adding implementation detail.
-- Declared dependencies, whether pulled from a ticket or entered by the
-  user, are recorded on the new spec so B-0017 can honor them.
-- A spec created from a ticket carries a link back to the originating
-  external ticket; a spec created directly does not.
+- The user can create a new draft spec without an external tracker.
+- The draft spec captures a user-authored problem description.
+- The draft spec is visible in the project as draft work.
+- Creation does not require implementation approach or technical design.
 
 ## Out of scope
 
-- Round-trip sync between a Tanren spec and an external ticket.
-- Defining implementation approach or technical design — that is the job
-  of the implementation loop.
+- Prefilling a spec from an external ticket.
+- Defining acceptance criteria.
+- Declaring dependencies.
+- Marking the spec ready to run.
 
 ## Related
 
 - B-0017
 - B-0019
 - B-0021
-- B-0052
+- B-0075
+- B-0076
+- B-0077
+- B-0078

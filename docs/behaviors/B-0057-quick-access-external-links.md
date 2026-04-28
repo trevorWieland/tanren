@@ -1,16 +1,18 @@
 ---
 id: B-0057
 title: Quick-access external links from a spec to its ticket and pull request
-personas: [solo-dev, team-dev, observer]
+area: external-tracker
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can open a spec and jump directly
+A `solo-builder`, `team-builder`, or `observer` can open a spec and jump directly
 from that view to the originating ticket in the connected external tracker
 and to the pull request in the connected git service, so that moving
 between Tanren and the external systems takes one action rather than a
