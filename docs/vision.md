@@ -157,7 +157,7 @@ shipped, and continuously improved."
 
 ## Current Repository Status
 
-The currently enacted command surface is the spec-orchestration loop:
+The enacted native command surface is the spec-orchestration loop:
 
 - `shape-spec`
 - `do-task`
@@ -171,6 +171,7 @@ The currently enacted command surface is the spec-orchestration loop:
 - `investigate`
 - `resolve-blockers`
 
-Product-method commands such as `plan-product`, `identify-behaviors`, and
-`craft-roadmap` are planned but intentionally absent until their typed
-artifacts and proof of function are defined.
+Temporary project-method bootstrap commands also exist for `plan-product`,
+`identify-behaviors`, and `craft-roadmap`. They directly edit planning
+artifacts for now and should be replaced by Tanren-native commands once typed
+project-method schemas, validators, tools, and events are defined.

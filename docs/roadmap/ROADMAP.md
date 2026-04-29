@@ -35,6 +35,6 @@ The currently enacted command surface is the spec-orchestration loop:
 - `investigate`
 - `resolve-blockers`
 
-Product-method commands such as `plan-product`, `identify-behaviors`, and
-`craft-roadmap` are intentionally reserved until their typed artifacts and proof
-of function are defined.
+Temporary project-method bootstrap commands exist for `plan-product`,
+`identify-behaviors`, and `craft-roadmap`. They directly edit planning
+artifacts for now and should be replaced by native typed commands over time.

@@ -38,12 +38,15 @@ Companion docs: [agent-tool-surface.md](agent-tool-surface.md),
 ### 1.2 Project-management (out-of-loop)
 
 Commands under `commands/project/` do NOT participate in the typed state
-machine. There are currently no active project command sources.
+machine. Current project-method commands are temporary bootstrap prompts:
 
-Product-method commands such as `plan-product`, `identify-behaviors`, and
-`craft-roadmap` are intentionally not listed here until fresh command contracts
-exist. They belong above the spec-orchestration loop and should feed shaped
-specs through a roadmap DAG rather than mutate active task lists directly.
+- `plan-product`
+- `identify-behaviors`
+- `craft-roadmap`
+
+They belong above the spec-orchestration loop and should feed shaped specs
+through a roadmap DAG rather than mutate active task lists directly. They are
+not registered as native typed phase keys yet.
 Future project-analysis commands for scheduled standards sweeps, security
 audits, mutation-testing review, and health checks should likewise enter through
 typed findings or planning-change proposals before producing spec work.

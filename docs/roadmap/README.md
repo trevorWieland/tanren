@@ -67,6 +67,7 @@ Those inputs usually become one of:
 
 ## Status
 
-The roadmap DAG command and `roadmap-dag.json` format are planned, not yet
-implemented. Until then, this directory documents the target shape of roadmap
-work and `ROADMAP.md` remains a human-readable planning view.
+A temporary `craft-roadmap` command exists to create or revise
+`roadmap-dag.json` and `ROADMAP.md` directly. It is a bootstrap prompt, not a
+native typed Tanren phase. The long-term command should validate the DAG
+through Tanren code and persist project-method events.

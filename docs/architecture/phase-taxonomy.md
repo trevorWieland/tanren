@@ -11,7 +11,7 @@ How the phase runs.
 
 | Mode | Description | Phases |
 |---|---|---|
-| **AGENTIC** | Prompt + CLI harness (Claude Code, Codex, OpenCode) | shape-spec, do-task, audit-task, adhere-task, run-demo, audit-spec, adhere-spec, walk-spec, handle-feedback, investigate, resolve-blockers |
+| **AGENTIC** | Prompt + CLI harness (Claude Code, Codex, OpenCode) | shape-spec, do-task, audit-task, adhere-task, run-demo, audit-spec, adhere-spec, walk-spec, handle-feedback, investigate, resolve-blockers, temporary project commands |
 | **AUTOMATED** | Raw shell command, pass/fail | task-gate, spec-gate, setup, cleanup |
 
 ## Axis: Intent
@@ -41,7 +41,7 @@ What slice of the work the phase operates on.
 | **TASK** | Single task slice | do-task, task-gate, audit-task, adhere-task |
 | **SPEC** | Whole-spec completeness | shape-spec, run-demo, audit-spec, adhere-spec, walk-spec, spec-gate |
 | **CROSS-PHASE** | Operates on feedback across a whole PR / review | handle-feedback |
-| **PROJECT** | Whole-project governance outside the active spec loop | future project commands |
+| **PROJECT** | Whole-project governance outside the active spec loop | temporary project commands |
 | **CONTEXT-DEPENDENT** | Dispatch-keyed: scope is derived from the triggering orchestration path (task pipeline -> TASK, spec pipeline -> SPEC) | investigate, resolve-blockers |
 | **INFRA** | Not scoped to tasks or spec | setup, cleanup |
 
@@ -57,14 +57,13 @@ Whether a human is in the loop during execution.
 
 | Autonomy | Phases |
 |---|---|
-| **INTERACTIVE** | shape-spec, walk-spec, resolve-blockers |
+| **INTERACTIVE** | shape-spec, walk-spec, resolve-blockers, temporary project commands |
 | **AUTONOMOUS** | every other agentic + automated phase |
 
-Exactly three spec-loop phases are interactive. Future project-management
-commands may also be interactive because they sit outside the orchestrator's
-task/spec state machine. Investigate is the autonomous escalation mechanism; it
-promotes to a blocker (triggering resolve-blockers) only after its loop cap is
-hit.
+Exactly three spec-loop phases are interactive. Temporary project commands are
+also interactive because they sit outside the orchestrator's task/spec state
+machine. Investigate is the autonomous escalation mechanism; it promotes to a
+blocker (triggering resolve-blockers) only after its loop cap is hit.
 
 ## Combined View
 
@@ -86,10 +85,10 @@ hit.
 | resolve-blockers | AGENTIC | RESOLVING | CONTEXT-DEPENDENT | INTERACTIVE | — |
 | cleanup | AUTOMATED | INFRA | INFRA | AUTONOMOUS | — |
 
-There are currently no project-management command phases registered as known
-phase keys.
+Temporary project commands are installed as shared command markdown but are not
+registered as known typed phase keys.
 
-Future product-method phases such as `plan-product`, `identify-behaviors`, and
+Native product-method phases such as `plan-product`, `identify-behaviors`, and
 `craft-roadmap` should be added here only after their command contracts and
 typed artifacts are defined.
 Future project-analysis phases for scheduled sweeps or security/mutation

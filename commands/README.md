@@ -14,14 +14,14 @@ and re-run `tanren install` (see
 - **[spec commands](spec/shape-spec.md)** — commands that participate in the
   spec-orchestration state machine. Each emits typed events via the
   agent tool surface and contributes to task / finding state.
-- **Project commands** — reserved for future project-management commands that
-  operate outside the spec loop. These are still templated and installed when
-  present, but are not sequenced by the state machine.
+- **[project commands](project/plan-product.md)** — temporary project-method
+  bootstrap commands that operate outside the spec loop. They are templated and
+  installed, but are not sequenced by the state machine.
 
-There are currently no active project command sources. Product-method commands
-(`plan-product`, `identify-behaviors`, `craft-roadmap`) and proactive analysis
-commands are planned but intentionally absent until their artifacts and proof of
-function exist.
+Current project commands are `plan-product`, `identify-behaviors`, and
+`craft-roadmap`. They directly edit planning artifacts for now and should later
+be replaced by Tanren-native commands backed by typed project-method schemas,
+tools, and events.
 
 ## Authoring contract
 

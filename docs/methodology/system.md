@@ -33,9 +33,9 @@ currently the spec loop:
 - **`commands/spec/`** — commands that participate in the spec-
   orchestration state machine. Each emits typed events via the tool
   surface and contributes to task / finding state.
-- **Project commands** — reserved for future commands that operate outside the
-  spec loop. When added, they will still render via `tanren-cli install`, but
-  they will not be sequenced by the orchestrator's task/spec state machine.
+- **`commands/project/`** — temporary project-method bootstrap commands that
+  operate outside the spec loop. They render via `tanren-cli install`, but are
+  not sequenced by the orchestrator's task/spec state machine.
 
 ### Spec-loop commands (`commands/spec/`)
 
@@ -55,19 +55,20 @@ currently the spec loop:
 
 ### Project-management commands
 
-There are currently no active project command sources. Future project commands
-must define typed artifacts and proof of function before being installed.
+Current project commands are temporary bootstrap commands. They directly edit
+planning artifacts and must not be treated as native typed Tanren phases.
+
+| Command | Role | Autonomy | Notes |
+|---|---|---|---|
+| `plan-product` | product planning | interactive | maintains product brief, personas, concepts, and README framing |
+| `identify-behaviors` | behavior planning | interactive | creates behavior files and updates behavior status |
+| `craft-roadmap` | roadmap synthesis | interactive | creates or revises temporary roadmap DAG and human roadmap |
 
 Previously scaffolded commands that lack proof of function have been removed.
 Fresh product-method and project-analysis commands should be added
-deliberately rather than carrying forward prior scaffolding-oriented command
-contracts. The intended product-method command family is:
-
-- `plan-product` — interactive product brief, motivations, personas,
-  constraints, success signals, and open decisions.
-- `identify-behaviors` — interactive behavior catalog authoring and revision.
-- `craft-roadmap` — synthesis of accepted behaviors, implementation readiness,
-  existing progress, and in-flight work into a validated roadmap DAG.
+deliberately. The current product-method commands are intentionally temporary
+and should be replaced once typed artifacts, validators, tools, and
+project-method events exist.
 
 Future project-analysis commands should cover non-interactive scheduled or
 manual sweeps such as standards audits, security analysis, mutation-testing
@@ -92,18 +93,20 @@ Current source commands are intentionally narrow:
 | `handle-feedback` | `commands/spec/handle-feedback.md` | active spec-loop command |
 | `investigate` | `commands/spec/investigate.md` | active spec-loop command |
 | `resolve-blockers` | `commands/spec/resolve-blockers.md` | active spec-loop command |
+| `plan-product` | `commands/project/plan-product.md` | temporary project-method command |
+| `identify-behaviors` | `commands/project/identify-behaviors.md` | temporary project-method command |
+| `craft-roadmap` | `commands/project/craft-roadmap.md` | temporary project-method command |
 
 Automated phases such as `setup`, `task-gate`, `spec-gate`, and `cleanup` are
 runtime phases, not shared command markdown.
 
-Reserved or planned commands are not installed until their artifacts and proof
-of function exist:
+Native project-method commands are not implemented yet:
 
 | Command family | Status |
 |---|---|
-| `plan-product` | planned fresh product-method command |
-| `identify-behaviors` | planned fresh product-method command |
-| `craft-roadmap` | planned fresh product-method command |
+| `plan-product` | temporary markdown command; native typed command planned |
+| `identify-behaviors` | temporary markdown command; native typed command planned |
+| `craft-roadmap` | temporary markdown command; native typed command planned |
 | project-analysis sweeps | planned future command family for scheduled/static audits |
 
 ## Ownership Boundary

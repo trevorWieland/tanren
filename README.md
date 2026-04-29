@@ -126,10 +126,10 @@ accepted behaviors there is no reliable roadmap; without a roadmap DAG there is
 no principled spec queue; without BDD evidence and walks, completed specs do
 not prove product progress.
 
-This repo currently has the real spec-loop commands installed. Product-method
-commands such as `plan-product`, `identify-behaviors`, and `craft-roadmap` are
-planned but intentionally absent until their typed artifacts and proof of
-function exist.
+This repo currently has the real spec-loop commands installed and temporary
+project-method bootstrap commands for `plan-product`, `identify-behaviors`, and
+`craft-roadmap`. The project-method commands write direct planning artifacts for
+now; they are not yet native typed Tanren phases.
 
 ## How It Works
 
