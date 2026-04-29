@@ -20,6 +20,17 @@ be able to drive the same product-planning, shaping, walking, and acceptance
 flows. Their language, guidance needs, and desire to inspect code or runtime
 evidence may differ, but the durable behavior contract is the same.
 
+The strategic builder archetype for Tanren is a technical product builder: a
+person who thinks in long-term vision, user problems, and product outcomes,
+while having enough technical judgment to shape real solutions. This archetype
+is represented through `solo-builder` or `team-builder` depending on whether
+the work is individual or shared; it is not a separate persona ID.
+
+Tanren's strategic default is team building. Solo building is still first-class
+because it is the smallest useful case of the same method: product planning,
+behavior identification, roadmap sequencing, spec execution, evidence, and
+walks should scale from one builder to a governed team.
+
 To add a new persona, add a section below with a stable ID slug, a one-sentence
 definition, and a short list of what they care about. Do not rename IDs once
 they are in use after behavior canon is locked. System/runtime components are
@@ -37,6 +48,7 @@ Covers:
 - A product manager creating and walking work for a prototype
 - A developer or maintainer working alone on a repository
 - A Tanren maintainer working on Tanren itself
+- A technical product builder using Tanren's team method alone
 
 Cares about:
 
@@ -53,6 +65,7 @@ through Tanren. Their activity can intersect with teammates' work. Covers:
 
 - A developer on a team at a company
 - A product manager shaping and walking work with a technical team
+- A technical product builder coordinating agent-assisted delivery
 - A technical lead coordinating implementation across multiple specs
 - A group of maintainers working on a shared project or OSS repository
 

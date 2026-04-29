@@ -16,8 +16,34 @@ Tanren is being shaped around the full product-to-proof method:
 3. Craft a dependency-aware roadmap DAG of spec-sized behavior increments.
 4. Execute each node through the shape, orchestrate, walk, review, and merge
    loop.
-5. Feed bugs, client requests, review feedback, post-ship outcomes, and
-   proactive analyses back into behaviors and the roadmap.
+5. Feed bugs, review feedback, post-ship outcomes, mutation testing, security
+   audits, performance findings, and other proactive analyses back into
+   behaviors and the roadmap.
+
+## Self-Hosting Milestone
+
+The first major product milestone is Tanren-in-Tanren: using Tanren to develop
+Tanren itself.
+
+Minimum self-hosting requires the full product-method loop:
+
+1. Plan Tanren's accepted product brief.
+2. Identify accepted behaviors with product and verification status.
+3. Craft a dependency-aware roadmap node.
+4. Shape and execute a spec through the orchestration loop.
+5. Produce BDD evidence and walk accepted work with a human.
+6. Feed outcomes, bug triage, and proactive analysis findings back into
+   planning.
+
+It also requires enough harness and environment management for parallel local
+execution:
+
+- harnesses: Codex, Claude Code, and OpenCode;
+- environments: local worktrees and Docker containers.
+
+Near-follow expansion targets are Hetzner VMs and GCP VMs. Initial external
+tracker targets are Linear and GitHub Issues. Initial source-control support is
+GitHub.
 
 ## Current Implementation Focus
 

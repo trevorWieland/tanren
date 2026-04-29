@@ -1,15 +1,66 @@
-# Tanren Vision
+---
+schema: tanren.product_brief.v0
+status: accepted
+updated_at: 2026-04-29
+---
 
-Tanren is a product-to-proof control plane for agentic software delivery.
+# Product Brief
 
-Its purpose is to connect product intent to shipped, evidenced behavior. Coding
-agents can write code quickly, but Tanren decides what work should exist, why it
-matters, what order it should run in, which phase may act next, and what proof
-is required before the work counts as complete.
+## Product Identity
 
-## The Core Chain
+Tanren turns a product idea into enterprise-ready software, with proof at
+every step.
 
-Tanren is designed around one continuous chain:
+Tanren is a product-to-proof control plane for agentic software delivery. It
+is the framework around coding agents that preserves product intent, accepted
+behaviors, roadmap order, workflow state, execution boundaries, and evidence.
+Agent runtimes decide how an assigned role reasons and edits. Tanren decides
+what work exists, why it exists, what may run next, and what proof is required
+before the work counts as complete.
+
+Enterprise-ready primarily means production-grade engineering discipline:
+accepted behavior contracts, executable evidence, standards, CI, auditability,
+typed workflow state, isolated execution, and repeatable delivery. Governance,
+permissions, secrets, collaboration, feedback intake, and roadmap discipline
+support that core.
+
+## Target Users
+
+Tanren is for technical product builders: people who think in long-term
+vision, user problems, and product outcomes, while having enough technical
+judgment to shape real solutions from those problems.
+
+The initial audience is technical founders, product-minded maintainers, lead
+engineers, and small technical teams using coding agents to build real software
+without losing quality or product coherence.
+
+The strategic default is team building. Solo use remains first-class because a
+solo builder is the smallest useful case of the same product method: the same
+planning, behavior, roadmap, evidence, and walk loop should scale from one
+builder to a governed team.
+
+## Problems
+
+Coding agents make implementation faster, but fast implementation without
+durable product method creates predictable failures:
+
+- vague ideas become plausible code without accepted product intent;
+- tickets and roadmaps drift away from user problems;
+- tests prove implementation details instead of product behavior;
+- demos and reviews lack a clear behavior story;
+- bugs, audits, performance findings, and feedback become interruptions rather
+  than planned inputs;
+- parallel agent work collides without explicit execution boundaries;
+- teams cannot explain why work was chosen, what it completed, or what proved
+  it.
+
+## Motivations
+
+Tanren exists to make autonomous and semi-autonomous software delivery
+legible, governable, cumulative, and product-led.
+
+The product bet is that agentic delivery becomes trustworthy only when it is
+embedded in an opinionated method:
 
 ```text
 product brief
@@ -19,81 +70,80 @@ product brief
 -> orchestrated implementation
 -> BDD evidence and human walk
 -> PR, review, merge, ship
--> feedback and proactive analysis
+-> feedback, bug triage, and proactive analysis
 -> updated product plan
 ```
 
 Each layer preserves meaning for the next layer. The product brief explains why
-the product exists. Behaviors define what users, operators, clients, and runtime
-actors can do. The roadmap DAG chooses dependency order. Specs turn one roadmap
-node into tasks, acceptance criteria, demos, and evidence obligations. The
-orchestration loop executes and audits the work. Walks and BDD evidence prove
-that the delivered behavior exists.
+the product exists. Behaviors define what users, operators, clients, and
+runtime actors can do. The roadmap DAG chooses dependency order. Specs turn one
+roadmap node into acceptance criteria, tasks, demos, and evidence obligations.
+The orchestration loop executes and audits work. Walks and BDD evidence prove
+that delivered behavior exists.
 
-## What Tanren Is
-
-Tanren is the framework around agent runtimes. It owns product memory,
-behavior contracts, roadmap state, workflow state, evidence, policy,
-installation, and execution contracts.
-
-Tanren is also an opinionated method. It insists that:
-
-- product behavior is the unit of meaning;
-- accepted behaviors and verification status are tracked separately;
-- every executable roadmap node completes at least one accepted behavior;
-- specs are shaped before implementation;
-- product behavior is proven through BDD-style evidence;
-- demos show agreed behavior, not just implementation detail;
-- agents mutate workflow state through typed tools;
-- feedback and analysis update the plan without erasing history.
-
-## What Tanren Is Not
+## Non-Goals
 
 Tanren is not an agent runtime, model provider, editor, ticket tracker, CI
-system, or generic task runner. Those systems are replaceable integrations.
-Tanren's durable role is deciding what work happens, preserving why it happens,
-enforcing how it progresses, and recording what proved completion.
+system, generic task runner, or SaaS-first product.
 
-Tanren should be pluggable at integration boundaries and strict about method.
-It should not require one issue tracker, source-control provider, model, or
-execution substrate. It should require behavior-backed work, shaped specs,
-typed state transitions, evidence, audits, and human validation where judgment
-matters.
+Tanren should not be methodology-neutral. It should be pluggable at the edges,
+but strict about behavior-backed work, shaped specs, typed state transitions,
+evidence, audits, and human judgment where product direction matters.
 
-## Why Build It
+Tanren should not replace technical product judgment. It should preserve,
+challenge, route, and execute from that judgment without pretending uncertain
+product direction is proven fact.
 
-Autonomous coding fails when it is fast but ungrounded. Tanren is built to
-prevent common failures:
+## Constraints
 
-- agents implement plausible work that was never tied to product intent;
-- tickets are too vague to prove whether completion matters;
-- roadmaps are prose lists that go stale instead of executable DAGs;
-- tests assert internals but not user-visible behavior;
-- reviews inspect diffs without a clear behavior demo story;
-- bugs, client requests, and audit findings scatter across tools;
-- autonomous loops either interrupt humans constantly or run without guardrails.
+- Product behavior is the unit of meaning.
+- Accepted behavior and verification status remain separate facts.
+- Every executable roadmap node completes at least one accepted behavior.
+- Specs are shaped before implementation.
+- Product behavior is proven through BDD-style evidence, including positive and
+  falsification witnesses where applicable.
+- Agents mutate workflow state through typed tools, not ad hoc edits to
+  orchestrator-owned artifacts.
+- Execution work must run in explicit, inspectable environments.
+- Secrets, credentials, provider access, and execution permissions must remain
+  scoped and auditable.
+- Integrations are adapter-backed and replaceable.
 
-Tanren makes autonomous delivery legible, governable, and cumulative.
+## Success Signals
 
-## Product Method
+Tanren is succeeding when a team can answer from durable state:
 
-The intended product method has four layers:
+- what product is being built and for whom;
+- which user problems and success signals justify the current roadmap;
+- which behaviors are accepted, implemented, asserted, deprecated, or missing;
+- why a roadmap node is next and what it depends on;
+- which specs are shaped, running, blocked, awaiting walk, reviewed, or
+  shipped;
+- which evidence proves each asserted behavior;
+- which bugs, audit findings, benchmarks, and post-ship outcomes changed the
+  plan;
+- where active agent work is running and which harness, credentials, and
+  environment boundaries apply.
 
-1. **Plan product**: maintain the product brief, users, motivations,
-   constraints, success signals, non-goals, assumptions, and open decisions.
-2. **Identify behaviors**: maintain a parsable catalog of accepted behaviors
-   with product status and verification status.
+The early product success bar is self-hosting: Tanren can minimally run its
+own full product-to-proof method for Tanren development.
+
+## Core Method
+
+Tanren's product method has four primary layers:
+
+1. **Plan product**: maintain product identity, target users, problems,
+   motivations, constraints, non-goals, success signals, assumptions, and open
+   decisions.
+2. **Identify behaviors**: turn product intent into a parsable catalog of
+   accepted user, operator, client, and runtime-actor behaviors with separate
+   product and verification status.
 3. **Craft roadmap**: synthesize accepted behaviors, implementation readiness,
-   current progress, dependencies, in-flight work, feedback, and proactive
-   analysis into a roadmap DAG.
-4. **Execute specs**: shape, orchestrate, audit, adhere, demo, walk, review,
-   merge, and update evidence.
-
-The method must work for blank-slate projects and existing codebases. Planning
-a new product may start with questions. Adopting Tanren in an existing repo may
-start with analysis of current docs, tests, architecture, behaviors, and gaps.
-
-## Execution Loop
+   current progress, dependencies, findings, and feedback into a
+   machine-readable roadmap DAG of spec-sized work.
+4. **Execute specs**: shape one roadmap node into a spec, orchestrate tasks,
+   run gates and audits, produce behavior evidence, walk the result with a
+   human, review, merge, and feed outcomes back into planning.
 
 The spec loop is the execution layer of the method:
 
@@ -113,65 +163,104 @@ shape-spec
 -> merge
 ```
 
-Agents perform role-specific work inside a phase. Tanren owns the state
-machine, phase capabilities, event log, projected artifacts, task guards,
-evidence schemas, and escalation rules.
+## Feedback And Analysis Funnels
 
-## Feedback and Proactive Analysis
+Tanren treats planning, bugs, and automated analysis as first-class funnels
+into the same product method.
 
-Tanren treats bugs, client requests, review feedback, support issues,
-post-ship outcomes, and scheduled analyses as planning inputs. A report usually
-means one of:
+The central funnel is product planning:
 
-- a behavior is missing;
-- an existing behavior is misaligned with user intent;
-- implementation is incomplete;
-- implementation exists but evidence is insufficient;
-- the report is false or out of scope.
+```text
+plan-product -> identify-behaviors -> craft-roadmap -> execute specs
+```
 
-Scheduled standards sweeps, security audits, dependency audits,
-mutation-testing reports, and health checks should produce typed findings or
-planning-change proposals. They should not directly mutate active spec tasks.
+Bug handling should classify reports into one of the product-method outcomes:
 
-## Long-Term Empowerment
+- false alarm or out of scope;
+- missing accepted behavior;
+- accepted behavior misaligned with user intent;
+- behavior implemented but lacking proper executable assertion;
+- behavior asserted but currently regressed.
 
-In its complete state, Tanren should let a team answer:
+Automated analysis should produce findings or proposed planning changes rather
+than directly bypassing the roadmap. Early analysis sources include scheduled
+mutation testing, agentic security audits, performance profiling, and
+benchmarks.
 
-- What are we building?
-- Who is it for?
-- Which behaviors are accepted?
-- Which behaviors are implemented or asserted?
-- What work remains?
-- Why is this next?
-- What depends on what?
-- What is in flight?
-- What proved completion?
-- What changed after feedback?
-- What should we do next?
+Feature-request handling is intentionally deferred. Bug handling exercises the
+same routing muscles needed for future on-the-fly feature requests: clarify
+intent, relate it to behavior, decide whether planning changes, and route
+follow-up work with evidence.
 
-The core bet is that autonomous coding becomes trustworthy only when it is
-embedded in an opinionated product method and a typed evidence-producing
-workflow. Tanren turns "agents can write code" into "agents can help deliver a
-product whose intended behaviors are planned, implemented, validated, reviewed,
-shipped, and continuously improved."
+## Integrations And Execution Substrates
 
-## Current Repository Status
+Initial harness targets are Codex, Claude Code, and OpenCode.
 
-The enacted native command surface is the spec-orchestration loop:
+Initial execution substrates are local worktrees and Docker containers, so
+parallel specs can run in isolated local environments. Near-follow expansion
+targets include Hetzner VMs and GCP VMs.
 
-- `shape-spec`
-- `do-task`
-- `audit-task`
-- `adhere-task`
-- `run-demo`
-- `audit-spec`
-- `adhere-spec`
-- `walk-spec`
-- `handle-feedback`
-- `investigate`
-- `resolve-blockers`
+Initial issue-tracker integrations are Linear and GitHub Issues. Initial source
+control integration is GitHub.
 
-Temporary project-method bootstrap commands also exist for `plan-product`,
-`identify-behaviors`, and `craft-roadmap`. They directly edit planning
-artifacts for now and should be replaced by Tanren-native commands once typed
-project-method schemas, validators, tools, and events are defined.
+These choices are strategic starting points, not core lock-in. Tanren should
+keep provider-specific details behind adapters while preserving stable product
+method and evidence contracts.
+
+## Tanren-In-Tanren Milestone
+
+The first major product milestone is developing Tanren with Tanren.
+
+Minimum self-hosting means Tanren can use its own method to:
+
+- plan Tanren's product brief;
+- identify accepted behaviors;
+- craft a roadmap node;
+- shape and run a spec through the orchestration loop;
+- manage Codex, Claude Code, and OpenCode harness choices;
+- manage local worktree and Docker execution environments;
+- run parallel specs in isolated environments;
+- produce BDD evidence;
+- walk accepted work with a human;
+- feed bugs, audit findings, performance findings, and shipped outcomes back
+  into the behavior catalog and roadmap.
+
+Until this milestone works, the enacted command surface is only a partial
+implementation of the product.
+
+## Human Judgment Model
+
+Tanren is built around human product accountability. The ideal human input is
+the kind of judgment a strong technical product manager provides: long-term
+vision, user-problem framing, product tradeoffs, acceptance judgment, and
+enough technical understanding to shape real solution boundaries.
+
+Humans provide primary judgment where product direction matters:
+
+- product identity, target users, problems, and success signals;
+- behavior acceptance and rejection;
+- roadmap tradeoffs and sequencing;
+- spec shaping and non-negotiables;
+- walk acceptance;
+- sensitive policy, credential, security, and governance decisions;
+- resolution of conflicting product direction.
+
+Tanren should automate bounded execution, evidence production, routing,
+analysis, and state projection without silently replacing those decisions.
+
+## Open Questions
+
+- What is the smallest useful native project-method schema set for replacing
+  the current bootstrap `plan-product`, `identify-behaviors`, and
+  `craft-roadmap` commands?
+- Which harness and environment capabilities are required before parallel local
+  self-hosting is practical rather than only demonstrable?
+- What is the first minimal bug-triage artifact shape that can later support
+  feature requests without being overfit to bug reports?
+
+## Change Log
+
+- 2026-04-29: Replaced the earlier narrative vision with an accepted
+  structured product brief centered on idea-to-enterprise-ready software,
+  technical product builders, Tanren-in-Tanren self-hosting, initial
+  integrations, and product-method funnels.

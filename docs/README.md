@@ -1,8 +1,8 @@
 # Documentation Index
 
 This directory is the canonical location for Tanren documentation. Start with
-the root [README](../README.md) for the product-to-proof vision, then use this
-index for the durable source pages.
+the root [README](../README.md) for public framing, then use this index for the
+durable source pages.
 
 Tanren is documented as a method, not only as code. A new reader should be able
 to follow the full chain:
@@ -17,7 +17,7 @@ Methodology docs explain how agent commands fit into the workflow.
 
 ## Sections
 
-- `vision.md` - full product-to-proof vision and boundaries.
+- `vision.md` - accepted product brief, product-to-proof method, and boundaries.
 - `behaviors/README.md` - product behavior catalog.
 - `roadmap/README.md` - roadmap DAG source-of-truth model.
 - `roadmap/ROADMAP.md` - current human-readable roadmap view.

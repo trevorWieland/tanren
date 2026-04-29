@@ -1,18 +1,23 @@
 # tanren
 
-Product-to-proof control plane for agentic software delivery.
+Turn a product idea into enterprise-ready software, with proof at every step.
 
 [![Rust CI](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
-Tanren is the framework around coding agents that decides what work should
-exist, why it matters, what order it should run in, and which evidence proves it
-complete. Agent runtimes such as Codex, Claude Code, or OpenCode decide how an
-individual role reasons and edits. Tanren owns the product memory and workflow
-truth around those agents.
+Tanren is a product-to-proof control plane for agentic software delivery. It is
+the framework around coding agents that preserves product intent, accepted
+behaviors, roadmap order, workflow state, execution boundaries, and evidence.
+Agent runtimes such as Codex, Claude Code, or OpenCode decide how an assigned
+role reasons and edits. Tanren decides what work exists, why it exists, what may
+run next, and what proof is required before the work counts as complete.
 
-The long-term goal is a continuous chain from product intent to shipped,
-evidenced behavior:
+Enterprise-ready primarily means production-grade engineering discipline:
+accepted behavior contracts, executable evidence, standards, CI, auditability,
+typed workflow state, isolated execution, and repeatable delivery.
+
+The long-term goal is a continuous chain from product idea to shipped, evidenced
+behavior:
 
 ```text
 product brief
@@ -22,7 +27,7 @@ product brief
 -> orchestrated implementation
 -> BDD evidence and human walk
 -> PR, review, merge, ship
--> feedback and proactive analysis
+-> feedback, bug triage, and proactive analysis
 -> updated product plan
 ```
 
@@ -31,7 +36,7 @@ accepted product behavior, every asserted behavior should have executable
 evidence, and every roadmap milestone should explain what user, operator,
 client, or runtime-actor outcomes are now complete.
 
-For the full product vision, read [docs/vision.md](docs/vision.md).
+For the accepted product brief, read [docs/vision.md](docs/vision.md).
 
 ## Quick Start
 
@@ -54,14 +59,16 @@ tanren-cli install --dry-run
 ## Why Tanren Exists
 
 Coding agents can produce changes quickly, but speed without durable product
-context creates drift. Tanren exists to prevent common failures:
+method creates drift. Tanren exists to prevent common failures:
 
-- work starts from vague tickets rather than agreed product intent;
+- vague ideas become plausible code without accepted product intent;
 - roadmaps become stale prose instead of dependency-aware executable plans;
 - specs complete implementation tasks without completing user-visible behavior;
 - tests prove implementation details but not accepted product outcomes;
 - demos and reviews lack a clear behavior story;
-- bugs, client requests, and audit findings become scattered interruptions;
+- bugs, audit findings, benchmarks, and feedback become scattered
+  interruptions;
+- parallel agent work collides without explicit execution boundaries;
 - autonomous loops either stop too often or run without typed evidence.
 
 Tanren's answer is opinionated: product behavior is the unit of meaning,
@@ -85,19 +92,23 @@ evidenced.
 
 ## What Tanren Empowers
 
-In its complete form, Tanren should let a team answer, from durable state:
+In its complete form, Tanren should let a technical product builder or team
+answer, from durable state:
 
 - what product is being built and for whom;
+- which user problems and success signals justify the current roadmap;
 - which behaviors are accepted, implemented, asserted, deprecated, or missing;
 - what spec-sized work remains and why that order is correct;
 - what is currently in flight, blocked, reviewed, or shipped;
 - which evidence proves that a behavior exists;
-- how bugs, client requests, post-ship outcomes, and proactive analyses changed
-  the plan.
+- how bugs, audit findings, benchmarks, post-ship outcomes, and proactive
+  analyses changed the plan;
+- where active agent work is running and which harness, credentials, and
+  environment boundaries apply.
 
 That is the difference between "agents can write code" and "agents can help
-deliver a product whose intended behaviors are planned, implemented, validated,
-reviewed, shipped, and continuously improved."
+deliver enterprise-ready software whose intended behaviors are planned,
+implemented, validated, reviewed, shipped, and continuously improved."
 
 ## Tanren Method
 
@@ -120,6 +131,11 @@ runs, post-ship health checks, and similar non-interactive analyses should
 produce findings or proposed planning changes that flow back into behaviors,
 roadmap nodes, and shaped specs rather than bypassing the product method.
 
+Tanren also treats bug handling as a product-method funnel. A bug report should
+be triaged as a false alarm, missing behavior, misaligned behavior, insufficient
+behavior assertion, or regression against asserted behavior before follow-up
+work is planned.
+
 The spec-orchestration loop is the execution layer, not the whole method.
 Without product intent there is no meaningful behavior catalog; without
 accepted behaviors there is no reliable roadmap; without a roadmap DAG there is
@@ -130,6 +146,11 @@ This repo currently has the real spec-loop commands installed and temporary
 project-method bootstrap commands for `plan-product`, `identify-behaviors`, and
 `craft-roadmap`. The project-method commands write direct planning artifacts for
 now; they are not yet native typed Tanren phases.
+
+The first major product milestone is Tanren-in-Tanren: using Tanren to plan,
+shape, execute, prove, walk, and update Tanren itself, including harness and
+environment management for Codex, Claude Code, OpenCode, local worktrees, and
+Docker containers.
 
 ## How It Works
 
@@ -289,7 +310,7 @@ Rust CI runs `just ci`. Protected development branches are governed by the
 ## Documentation
 
 - [docs/README.md](docs/README.md) - documentation index
-- [docs/vision.md](docs/vision.md) - product-to-proof vision
+- [docs/vision.md](docs/vision.md) - accepted product brief
 - [docs/roadmap/README.md](docs/roadmap/README.md) - roadmap DAG source-of-truth model
 - [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - current human-readable roadmap view
 - [docs/behaviors/README.md](docs/behaviors/README.md) - product behavior catalog
