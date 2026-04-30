@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0061
 title: Perform bulk actions on multiple specs
 area: spec-lifecycle

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0274
 title: Rotate or revoke API keys
 area: governance

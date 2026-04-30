@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0108
 title: Manage VM or remote execution targets
 area: runtime-substrate

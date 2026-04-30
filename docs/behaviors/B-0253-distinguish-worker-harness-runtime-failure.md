@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0253
 title: Distinguish worker, harness, provider, and runtime failures
 area: runtime-actor-contract
@@ -21,14 +22,14 @@ An `agent-worker` can report failure categories distinctly so users can tell whe
 
 ## Observable outcomes
 
-- Failure evidence uses Tanren-level categories before provider-specific details.
+- Failure source signals uses Tanren-level categories before provider-specific details.
 - Retryability, required human action, and affected work are clear where known.
-- Provider-specific details remain supporting evidence and do not leak secrets.
+- Provider-specific details remain supporting source references and do not leak secrets.
 
 ## Out of scope
 
 - Collapsing every failure into a generic worker error.
-- Claiming root cause certainty when evidence is incomplete.
+- Claiming root cause certainty when source signals are incomplete.
 
 ## Related
 

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0101
 title: See whether a harness is ready to run work
 area: runtime-substrate

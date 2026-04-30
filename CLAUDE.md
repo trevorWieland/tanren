@@ -79,10 +79,10 @@ just ci
 
 ## Planning Docs
 
-- `docs/vision.md` - product-to-proof vision and boundaries
-- `docs/roadmap/README.md` - roadmap DAG source-of-truth model
-- `docs/roadmap/ROADMAP.md` - current human-readable roadmap view
-- `docs/behaviors/README.md` - product behavior catalog
+- `docs/product/vision.md` - product-to-proof vision and boundaries
+- `docs/roadmap/dag.json` - roadmap DAG source-of-truth
+- `docs/roadmap/roadmap.md` - current human-readable roadmap view
+- `docs/behaviors/index.md` - product behavior catalog
 - `tests/bdd/README.md` - executable behavior evidence rules
 - `docs/architecture/` - durable architecture and interface boundaries
-- `docs/methodology/` - command installation and methodology system
+- `docs/architecture/delivery.md` - command installation and delivery system

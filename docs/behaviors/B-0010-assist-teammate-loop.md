@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0010
 title: Temporarily assist a teammate's in-flight loop
 area: team-coordination

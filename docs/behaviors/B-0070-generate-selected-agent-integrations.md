@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0070
 title: Generate selected agent integrations deterministically
 area: project-setup
@@ -31,6 +32,7 @@ targets the user requested.
 
 - Configuring agents after installation through account or organization
   settings.
+- Performing local repository installation from phone-only interfaces.
 
 ## Related
 

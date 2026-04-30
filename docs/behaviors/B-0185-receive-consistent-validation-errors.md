@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0185
 title: Receive consistent validation errors across public interfaces
 area: cross-interface

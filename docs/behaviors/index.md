@@ -1,10 +1,10 @@
-# Tanren User Behaviors
+# Behavior Catalog
 
 This directory is the **what-the-user-can-do** layer of Tanren documentation.
 It sits between product intent and executable work:
 
 ```text
-product brief -> behavior catalog -> roadmap DAG -> shaped specs -> BDD evidence
+product vision -> behavior catalog -> architecture -> implementation assessment -> roadmap DAG -> shaped specs -> behavior proof
 ```
 
 A "behavior" is a high-level capability expressed in user-visible terms. It
@@ -18,16 +18,26 @@ is meaningful because it shows the accepted behaviors that now exist. A BDD
 scenario is valuable because it asserts a behavior rather than an incidental
 implementation detail.
 
+Behavior files are portable product contracts. Behavior proof, implementation
+source references, roadmap nodes, specs, verification reports, and code should
+cite behavior IDs; behavior files should not cite implementation-specific
+artifacts.
+
 ## What is in this directory
 
 | File | Purpose |
 |------|---------|
-| `README.md` | Authoring rules and index of all behaviors (this file) |
-| `personas.md` | Canonical product persona and external client definitions |
-| `runtime-actors.md` | Canonical system/runtime actor definitions |
-| `interfaces.md` | Canonical interface IDs referenced by every behavior |
-| `concepts.md` | Canonical domain terminology (project, spec, milestone, etc.) |
+| `index.md` | Authoring rules and index of all behaviors (this file) |
 | `B-XXXX-<slug>.md` | One behavior per file, stable ID |
+
+Supporting owned projections:
+
+- `docs/product/personas.md` defines persona IDs.
+- `docs/product/concepts.md` defines product concepts and scopes.
+- Runtime actor IDs are defined by runtime and related subsystem architecture
+  records.
+- `docs/architecture/subsystems/interfaces.md` defines interface IDs.
+- `docs/implementation/verification.md` summarizes current verification state.
 
 ## Behavior file format
 
@@ -35,12 +45,13 @@ Each behavior file uses YAML frontmatter followed by short prose sections.
 
 ```yaml
 ---
+schema: tanren.behavior.v0
 id: B-0001
 title: <imperative phrase, user-visible>
 area: implementation-loop                  # stable product area slug
-personas: [solo-builder, team-builder]              # IDs from personas.md
-runtime_actors: []                         # optional IDs from runtime-actors.md
-interfaces: [cli, api, mcp]                 # IDs from interfaces.md, or [any]
+personas: [solo-builder, team-builder]      # IDs from docs/product/personas.md
+runtime_actors: []                          # optional IDs from architecture
+interfaces: [cli, api, mcp]                 # interface IDs, or [any]
 contexts: [personal, organizational]        # one or both
 product_status: draft | accepted | deprecated | removed
 verification_status: unimplemented | implemented | asserted | retired
@@ -51,7 +62,7 @@ supersedes: []                              # behavior IDs this replaces
 `product_status` and `verification_status` track different facts:
 
 - `product_status` says whether the behavior is part of Tanren's product canon.
-- `verification_status` says whether working code and executable evidence exist.
+- `verification_status` says whether working code and executable behavior proof exist.
 
 A behavior may be product-accepted but not implemented, or product-deprecated
 while still asserted by compatibility tests. Do not collapse these concepts into
@@ -68,9 +79,9 @@ Product status values:
 Verification status values:
 
 - `unimplemented` — no accepted code path exists.
-- `implemented` — code appears to support the behavior, but active BDD evidence
+- `implemented` — code appears to support the behavior, but active behavior proof
   is missing.
-- `asserted` — active executable behavior evidence exists.
+- `asserted` — active executable behavior proof exists.
 - `retired` — no active implementation or assertion is expected.
 
 `asserted` always requires active BDD coverage with both a positive witness and
@@ -97,7 +108,7 @@ These are hard rules. Violations should fail review.
 
 1. **User-visible vocabulary only.** No crate names, trait names, SQL tables,
    state-machine state names, or internal type names. Use the terms defined in
-   `concepts.md`.
+   `docs/product/concepts.md`.
 2. **Phrasing is capability, not specification.** Use *"the user can"* or
    *"a `<persona>` can"*. Never *"the system shall"* or *"the service MUST"*.
 3. **Describe outcomes, not flows.** If a behavior needs numbered steps, it is
@@ -105,13 +116,15 @@ These are hard rules. Violations should fail review.
 4. **Every behavior names at least one persona, one interface, and one
    context.** Do not use `any` for personas; list the specific product personas
    or external clients that care about the behavior. `runtime_actors` may be
-   added only for internal runtime subjects defined in `runtime-actors.md`.
+   added only for internal runtime subjects defined in runtime and related
+   subsystem architecture records.
 5. **Every behavior declares one `area`.** Areas are stable roadmap groupings,
    not implementation modules. Examples: `project-setup`,
    `implementation-loop`, `runtime-substrate`, `planner-orchestration`,
    `governance`, `configuration`, `external-tracker`, `observation`,
    `integration-management`, `integration-contract`, `runtime-actor-contract`,
-   `product-discovery`, `spec-quality`.
+   `product-discovery`, `architecture-planning`, `implementation-assessment`,
+   `behavior-proof`, `proactive-analysis`, `spec-quality`.
 6. **IDs are immutable once accepted or asserted.** Draft IDs may be reorganized
    during catalog-polish work, but accepted or asserted IDs must be deprecated
    or removed rather than silently repurposed. Name replacements in the
@@ -125,6 +138,9 @@ These are hard rules. Violations should fail review.
    for people, API clients, CLI users, administrators, agents, or workers. They
    must not depend on crate names, table shapes, internal structs, or current
    code organization.
+10. **Proof and source links point toward behavior IDs.** Keep behavior files portable.
+    Repository-local proof, source references, and implementation artifacts
+    should cite behavior IDs rather than being cited from behavior frontmatter.
 
 ## Cross-cutting concerns
 
@@ -141,8 +157,8 @@ selected").
 
 ### Scope and permissions
 
-Scope (own / project / organization / account, as defined in concepts.md)
-and specific permissions (e.g. "act on another user's in-flight
+Scope (own / project / organization / account, as defined in
+`docs/product/concepts.md`) and specific permissions (e.g. "act on another user's in-flight
 work") are **preconditions**, not persona identity. A
 `team-builder` or `observer` may or may not have a given scope or permission
 depending on how their setup is configured. Behaviors that depend on scope or
@@ -159,7 +175,7 @@ rather than a fixed code-level enum.
 
 Runtime actors are not personas. They describe Tanren-controlled components
 whose durable protocol obligations are user-relevant, such as an `agent-worker`
-honoring scoped access or reporting evidence. Runtime actors belong in
+honoring scoped access or reporting progress. Runtime actors belong in
 `runtime_actors`, not in `personas`.
 
 ### Device reach
@@ -173,24 +189,26 @@ must state this in **Out of scope**.
 ### External issue trackers
 
 Tanren is the system of record for specs. External tracker integration is
-one-way outbound. See `concepts.md` for the details that behaviors should
-assume.
+one-way outbound. See `docs/product/concepts.md` for the details that behaviors
+should assume.
 
 ## Relationship to other planning layers
 
-- Product brief — **why** the product exists, who it serves, and what outcomes
+- Product vision — **why** the product exists, who it serves, and what outcomes
   matter.
 - `docs/behaviors/` — **what** users, operators, clients, or runtime actors
   can do.
+- Architecture — **how** the product is intended to be implemented.
+- Implementation assessment — **what** appears true in the current repo.
 - Roadmap DAG — **when** and in what dependency order spec-sized behavior
   increments should be built.
 - Shaped specs — **how** one roadmap node becomes acceptance criteria, demo
-  steps, tasks, and evidence obligations.
+  steps, tasks, and proof obligations.
 - BDD features — **whether** accepted behaviors are asserted through positive
   and falsification witnesses.
 
 Every executable roadmap node must complete at least one accepted behavior.
-Every asserted behavior must have active BDD evidence with both a positive
+Every asserted behavior must have active behavior proof with both a positive
 witness and a falsification witness.
 
 ## Index
@@ -212,7 +230,7 @@ witness and a falsification witness.
 - [B-0135](B-0135-uninstall-tanren-assets-without-deleting-user-work.md) — Uninstall Tanren assets without deleting user work
 - [B-0136](B-0136-complete-first-run-setup.md) — Complete first-run setup
 - [B-0137](B-0137-choose-deployment-posture.md) — Choose a deployment posture
-- [B-0138](B-0138-connect-identity-source-control-provider.md) — Connect identity and source-control providers
+- [B-0138](B-0138-connect-identity-source-control-provider.md) — Select first-run identity and source-control providers
 - [B-0139](B-0139-reach-ready-first-project.md) — Reach a ready first project
 - [B-0186](B-0186-join-existing-project-with-context.md) — Join an existing project with current context
 
@@ -231,13 +249,26 @@ witness and a falsification witness.
 - [B-0098](B-0098-keep-work-aligned-with-product-mission.md) — Keep work aligned with product mission
 - [B-0189](B-0189-propose-planning-change.md) — Propose a planning change without accepting it
 - [B-0190](B-0190-review-proposed-planning-change.md) — Review a proposed planning change
+- [B-0276](B-0276-maintain-accepted-behavior-catalog.md) — Maintain the accepted behavior catalog
+- [B-0277](B-0277-see-behavior-coverage-verification-status.md) — See behavior coverage and verification status
+- [B-0288](B-0288-review-behavior-catalog-coherence.md) — Review behavior catalog coherence
+
+### Architecture Planning
+
+- [B-0281](B-0281-maintain-system-architecture-record.md) — Maintain the system architecture record
+- [B-0282](B-0282-review-architecture-tradeoffs.md) — Review architecture tradeoffs
+
+### Implementation Assessment
+
+- [B-0283](B-0283-assess-implementation-against-behaviors.md) — Assess implementation against accepted behaviors
+- [B-0284](B-0284-review-implementation-assessment-uncertainty.md) — Review implementation assessment uncertainty
 
 ### Prioritization
 
 - [B-0158](B-0158-compare-candidate-work.md) — Compare candidate work before prioritization
 - [B-0159](B-0159-recommend-roadmap-sequencing.md) — Recommend roadmap sequencing with tradeoffs
 - [B-0160](B-0160-defer-work-with-rationale.md) — Defer work with an explicit rationale
-- [B-0161](B-0161-rebalance-roadmap-after-new-evidence.md) — Rebalance the roadmap after new evidence
+- [B-0161](B-0161-rebalance-roadmap-after-new-source-signals.md) — Rebalance the roadmap after new source signals
 
 ### Intake
 
@@ -247,17 +278,18 @@ witness and a falsification witness.
 - [B-0094](B-0094-ingest-customer-feedback.md) — Ingest customer feedback into candidate work
 - [B-0095](B-0095-ingest-meeting-notes.md) — Ingest meeting notes into candidate work
 - [B-0097](B-0097-turn-audit-findings-into-work.md) — Turn audit findings into specs or backlog items
+- [B-0278](B-0278-classify-bug-reports-against-behavior-status.md) — Classify bug reports against behavior status
 
 ### Repo Understanding
 
 - [B-0145](B-0145-analyze-imported-repository.md) — Analyze an imported repository before planning work
 - [B-0146](B-0146-detect-project-commands.md) — Detect build, test, lint, and release commands
 - [B-0147](B-0147-summarize-architecture-and-risks.md) — Summarize architecture and major risk areas
-- [B-0148](B-0148-propose-initial-project-configuration.md) — Review initial project configuration proposals from repo evidence
+- [B-0148](B-0148-propose-initial-project-configuration.md) — Review initial project configuration proposals from repo source signals
 
 ### Standards Evolution
 
-- [B-0149](B-0149-discover-project-standards-from-evidence.md) — Discover project standards from repo evidence
+- [B-0149](B-0149-discover-project-standards-from-source-signals.md) — Discover project standards from repo source signals
 - [B-0150](B-0150-propose-standards-updates-from-findings.md) — Propose standards updates from repeated findings
 - [B-0151](B-0151-explain-standards-influence.md) — Explain which standards influenced a decision
 - [B-0152](B-0152-detect-conflicting-standards.md) — Detect conflicting standards before work starts
@@ -307,7 +339,7 @@ witness and a falsification witness.
 - [B-0103](B-0103-see-where-active-work-runs.md) — See where active work is running
 - [B-0104](B-0104-see-execution-environment-access.md) — See what access an execution environment has
 - [B-0105](B-0105-stop-or-recover-interrupted-execution.md) — Stop or recover interrupted execution
-- [B-0106](B-0106-see-harness-neutral-runtime-failure.md) — See runtime failure evidence in a harness-neutral form
+- [B-0106](B-0106-see-harness-neutral-runtime-failure.md) — See runtime failure source signals in a harness-neutral form
 - [B-0107](B-0107-retry-transient-runtime-failures.md) — Retry transient runtime failures without duplicating visible work
 - [B-0108](B-0108-manage-vm-remote-execution-targets.md) — Manage VM or remote execution targets
 - [B-0109](B-0109-retire-or-drain-execution-target.md) — Retire or drain an execution target
@@ -320,7 +352,7 @@ witness and a falsification witness.
 - [B-0243](B-0243-receive-scoped-worker-assignment.md) — Receive a scoped worker assignment
 - [B-0244](B-0244-refuse-invalid-worker-assignment.md) — Refuse invalid or unauthorized worker assignments
 - [B-0245](B-0245-report-worker-progress.md) — Report worker progress durably
-- [B-0246](B-0246-submit-worker-evidence-artifacts.md) — Submit evidence artifacts for assigned work
+- [B-0246](B-0246-submit-worker-result-artifacts.md) — Submit worker result artifacts for assigned work
 - [B-0247](B-0247-report-worker-blockers.md) — Report blockers with actionable options
 - [B-0248](B-0248-report-worker-terminal-outcome.md) — Report terminal worker outcomes
 - [B-0249](B-0249-honor-worker-cancellation.md) — Honor cancellation and access revocation
@@ -345,8 +377,9 @@ witness and a falsification witness.
 - [B-0113](B-0113-see-replan-changes.md) — See when Tanren replans and what changed
 - [B-0114](B-0114-compare-graph-revisions.md) — Compare graph revisions
 - [B-0115](B-0115-approve-generated-plan-when-required.md) — Approve a generated plan when policy requires approval
-- [B-0116](B-0116-link-evidence-artifacts-to-graph-nodes.md) — Link evidence artifacts to graph nodes
+- [B-0116](B-0116-link-proof-source-signals-to-graph-nodes.md) — Link proof and source signals to graph nodes
 - [B-0266](B-0266-run-stacked-diff-dependent-spec.md) — Run a stacked-diff dependent spec against an available base
+- [B-0280](B-0280-see-roadmap-behavior-coverage.md) — See roadmap behavior coverage
 
 ### Review, Merge, And Cleanup
 
@@ -362,12 +395,16 @@ witness and a falsification witness.
 - [B-0123](B-0123-recover-from-merge-conflicts.md) — Recover from merge conflicts after parallel work lands
 - [B-0124](B-0124-detect-intent-conflicts.md) — Detect intent conflicts after related work lands
 
-### Walk Evidence
+### Walk Acceptance
 
 - [B-0166](B-0166-present-walk-demo-summary.md) — Present a walk or demo summary before acceptance
 - [B-0167](B-0167-show-expected-vs-actual-behavior.md) — Show expected versus actual behavior
 - [B-0168](B-0168-show-changed-surfaces-and-residual-risks.md) — Show changed surfaces and residual risks
-- [B-0169](B-0169-preserve-acceptance-evidence.md) — Preserve acceptance evidence after the walk
+- [B-0169](B-0169-preserve-walk-acceptance-record.md) — Preserve the walk acceptance record
+
+### Behavior Proof
+
+- [B-0285](B-0285-produce-executable-behavior-proof.md) — Produce executable behavior proof
 
 ### Decision Memory
 
@@ -523,7 +560,7 @@ witness and a falsification witness.
 - [B-0206](B-0206-see-blocked-work-overview.md) — See what is blocked and why
 - [B-0207](B-0207-see-delivery-forecast-and-risk.md) — See delivery forecast and risk
 - [B-0208](B-0208-see-quality-risk-trends.md) — See quality and risk trends over time
-- [B-0209](B-0209-see-evidence-behind-status-summary.md) — See evidence behind a status summary
+- [B-0209](B-0209-see-source-signals-behind-status-summary.md) — See source signals behind a status summary
 - [B-0210](B-0210-see-recently-shipped-outcomes.md) — See recently shipped outcomes
 - [B-0211](B-0211-see-post-release-health-and-feedback.md) — See post-release health and feedback
 - [B-0212](B-0212-see-open-decisions-and-disagreements.md) — See open decisions and unresolved disagreements
@@ -532,7 +569,7 @@ witness and a falsification witness.
 - [B-0215](B-0215-export-read-only-status-report.md) — Export a read-only status report
 - [B-0216](B-0216-subscribe-to-observer-digest.md) — Subscribe to an observer digest
 - [B-0217](B-0217-compare-planned-vs-actual-delivery.md) — Compare planned versus actual delivery
-- [B-0218](B-0218-see-confidence-behind-summaries.md) — See confidence behind summaries
+- [B-0218](B-0218-see-provenance-behind-summaries.md) — See provenance behind summaries
 - [B-0219](B-0219-see-what-changed-since-last-report.md) — See what changed since the last report
 
 ### Cross-Interface Continuity
@@ -554,3 +591,9 @@ witness and a falsification witness.
 - [B-0236](B-0236-enter-maintenance-or-incident-mode.md) — Enter maintenance or incident mode
 - [B-0237](B-0237-run-disaster-recovery-validation.md) — Run disaster recovery validation
 - [B-0242](B-0242-export-operational-audit-logs.md) — Export operational audit logs
+
+### Proactive Analysis
+
+- [B-0279](B-0279-route-proactive-analysis-into-planning.md) — Route proactive analysis into planning
+- [B-0286](B-0286-schedule-or-run-proactive-analysis.md) — Schedule or run proactive analysis
+- [B-0287](B-0287-review-proactive-analysis-recommendations.md) — Review proactive analysis recommendations

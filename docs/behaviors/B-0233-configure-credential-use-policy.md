@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0233
 title: Configure credential use policy by scope
 area: governance

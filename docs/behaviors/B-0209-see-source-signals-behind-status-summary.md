@@ -1,6 +1,7 @@
 ---
+schema: tanren.behavior.v0
 id: B-0209
-title: See evidence behind a status summary
+title: See source signals behind a status summary
 area: observation
 personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
@@ -12,18 +13,18 @@ supersedes: []
 
 ## Intent
 
-A user can see evidence behind a status summary so dashboards and reports are reviewable rather than opaque.
+A user can see source signals behind a status summary so dashboards and reports are reviewable rather than opaque.
 
 ## Preconditions
 
 - A visible dashboard, digest, forecast, or report includes a status summary.
-- The user has visibility into at least some supporting evidence.
+- The user has visibility into at least some supporting source references.
 
 ## Observable outcomes
 
 - Summary claims link to the specs, graph nodes, checks, reviews, findings, decisions, or outcomes behind them.
-- Hidden evidence is redacted without removing the fact that redaction affected the summary.
-- The user can distinguish direct evidence from inferred summary text.
+- Hidden source signals are redacted without removing the fact that redaction affected the summary.
+- The user can distinguish direct source signals from inferred summary text.
 
 ## Out of scope
 

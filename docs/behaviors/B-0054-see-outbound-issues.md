@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0054
 title: See outbound issues Tanren has pushed to external trackers
 area: external-tracker

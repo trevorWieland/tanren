@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0271
 title: Review queued outbound issues
 area: external-tracker

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0071
 title: Use the repository's installed standards
 area: project-setup
@@ -34,6 +35,7 @@ chosen way of working.
 
 - Remote standards registries.
 - Organization-level standards sync.
+- Performing local repository standards checks from phone-only interfaces.
 
 ## Related
 

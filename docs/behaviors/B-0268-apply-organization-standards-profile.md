@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0268
 title: Apply organization standards profiles to projects
 area: governance

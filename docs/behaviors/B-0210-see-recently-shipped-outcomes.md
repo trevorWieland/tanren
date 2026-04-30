@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0210
 title: See recently shipped outcomes
 area: observation
@@ -21,7 +22,7 @@ A user can see recently shipped outcomes so completed work is visible as product
 
 ## Observable outcomes
 
-- Tanren summarizes shipped outcomes with links to roadmap items, specs, evidence, and release context.
+- Tanren summarizes shipped outcomes with links to roadmap items, specs, source signals, and release context.
 - Outcomes distinguish user-visible change, internal improvement, fix, risk reduction, and follow-up work.
 - The view makes clear when shipped work still has post-release follow-up pending.
 

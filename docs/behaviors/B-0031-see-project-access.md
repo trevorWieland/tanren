@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0031
 title: See who has access to a project
 area: governance

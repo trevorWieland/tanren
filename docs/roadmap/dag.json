@@ -1,0 +1,10 @@
+{
+  "schema": "tanren.roadmap_dag.v0",
+  "generated_at": "2026-04-29",
+  "product_ref": "docs/product/vision.md",
+  "behavior_root": "docs/behaviors",
+  "architecture_root": "docs/architecture",
+  "implementation_ref": "docs/implementation/readiness.json",
+  "milestones": [],
+  "nodes": []
+}

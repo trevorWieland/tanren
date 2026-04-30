@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0160
 title: Defer work with an explicit rationale
 area: prioritization

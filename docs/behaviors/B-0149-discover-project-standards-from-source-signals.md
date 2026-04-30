@@ -1,6 +1,7 @@
 ---
+schema: tanren.behavior.v0
 id: B-0149
-title: Discover project standards from repo evidence
+title: Discover project standards from repo source signals
 area: standards-evolution
 personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
@@ -12,12 +13,12 @@ supersedes: []
 
 ## Intent
 
-A `solo-builder` or `team-builder` can discover project standards from repository evidence so Tanren guidance reflects the project's actual conventions.
+A `solo-builder` or `team-builder` can discover project standards from repository source signals so Tanren guidance reflects the project's actual conventions.
 
 ## Preconditions
 
 - An active project is connected to a repository.
-- The user has permission to inspect repository evidence.
+- The user has permission to inspect repository source signals.
 
 ## Observable outcomes
 

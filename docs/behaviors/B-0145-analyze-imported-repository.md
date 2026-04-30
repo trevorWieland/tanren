@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0145
 title: Analyze an imported repository before planning work
 area: repo-understanding
@@ -28,7 +29,7 @@ A `solo-builder` or `team-builder` can analyze an imported repository before pla
 ## Out of scope
 
 - Changing repository files during analysis.
-- Claiming architectural certainty where evidence is missing.
+- Claiming architectural certainty where source signals are missing.
 
 ## Related
 

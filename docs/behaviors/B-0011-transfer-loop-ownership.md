@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0011
 title: Transfer ownership of a loop to another team-builder
 area: team-coordination

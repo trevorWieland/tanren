@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0048
 title: Manage user-tier configuration and credentials
 area: configuration

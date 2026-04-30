@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0065
 title: See existing members' access to an organization
 area: governance

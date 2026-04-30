@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0058
 title: Cancel a loop
 area: implementation-loop

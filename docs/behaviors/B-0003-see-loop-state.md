@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0003
 title: See the current state of an implementation loop
 area: implementation-loop

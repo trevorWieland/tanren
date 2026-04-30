@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0017
 title: Block starting a loop when declared dependencies are not usable
 area: implementation-loop

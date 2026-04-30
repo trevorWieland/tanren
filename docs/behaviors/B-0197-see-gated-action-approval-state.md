@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0197
 title: See approval state for a gated action
 area: governance
@@ -23,7 +24,7 @@ A user can see approval state for a gated action so they know why work is waitin
 
 - Tanren shows whether the action is pending, approved, rejected, expired, or blocked.
 - The approval state explains required approval conditions without exposing hidden approver details.
-- The state links back to the work, policy, and evidence visible to the user.
+- The state links back to the work, policy, and source signals visible to the user.
 
 ## Out of scope
 

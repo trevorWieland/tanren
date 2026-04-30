@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0241
 title: Manage cloud or VM provider accounts
 area: runtime-substrate

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0201
 title: See team attention load without performance surveillance
 area: team-coordination

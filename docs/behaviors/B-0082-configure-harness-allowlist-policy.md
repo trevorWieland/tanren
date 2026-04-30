@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0082
 title: Configure organization harness allowlist policy
 area: governance

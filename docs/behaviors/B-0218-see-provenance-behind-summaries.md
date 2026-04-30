@@ -1,6 +1,7 @@
 ---
+schema: tanren.behavior.v0
 id: B-0218
-title: See confidence behind summaries
+title: See provenance behind summaries
 area: observation
 personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
@@ -12,23 +13,23 @@ supersedes: []
 
 ## Intent
 
-A user can see confidence behind summaries so Tanren distinguishes evidence-backed status from uncertain interpretation.
+A user can see provenance behind summaries so Tanren distinguishes source-backed status from uncertain interpretation.
 
 ## Preconditions
 
 - A visible summary, forecast, recommendation, or report includes interpreted status.
-- Tanren has evidence, missing evidence, or uncertainty that affects the interpretation.
+- Tanren has source signals, missing source signals, or uncertainty that affects the interpretation.
 
 ## Observable outcomes
 
-- Tanren shows confidence, uncertainty, and evidence limits in user-visible terms.
-- Low-confidence summaries identify what evidence is missing or stale.
-- Users can navigate from confidence statements to supporting evidence where visible.
+- Tanren shows provenance, uncertainty, and source signal limits in user-visible terms.
+- Insufficiently supported summaries identify what source signals are missing or stale.
+- Users can navigate from provenance statements to supporting source references where visible.
 
 ## Out of scope
 
-- Pretending confidence is a mathematically precise guarantee.
-- Hiding low confidence to make reports look cleaner.
+- Pretending provenance is a mathematically precise guarantee.
+- Hiding low provenance to make reports look cleaner.
 
 ## Related
 

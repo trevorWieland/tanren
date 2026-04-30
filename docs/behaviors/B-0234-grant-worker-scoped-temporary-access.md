@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0234
 title: Grant worker-scoped temporary access
 area: runtime-substrate

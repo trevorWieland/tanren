@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0022
 title: Archive a spec without implementation
 area: spec-lifecycle

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0187
 title: See shared work that needs my attention
 area: team-coordination

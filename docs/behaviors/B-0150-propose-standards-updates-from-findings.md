@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0150
 title: Propose standards updates from repeated findings
 area: standards-evolution
@@ -23,7 +24,7 @@ A `solo-builder` or `team-builder` can receive proposed standards updates from r
 
 - Tanren proposes a standards change with links to supporting findings.
 - The user can accept, revise, or reject the proposed change.
-- Accepted changes are traceable to the evidence that motivated them.
+- Accepted changes are traceable to the source signals that motivated them.
 
 ## Out of scope
 

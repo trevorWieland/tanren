@@ -73,7 +73,7 @@ template: |2
   ## Out of scope
 
   - Creating `pull requests`
-  - Updating `ROADMAP.md`, issue comments, or any external state
+  - Updating `docs/roadmap/roadmap.md`, issue comments, or any external state
   - Running `audit-spec` or any other automated check
   - Implementing code (if something breaks, emit a task; do not fix)
 ---

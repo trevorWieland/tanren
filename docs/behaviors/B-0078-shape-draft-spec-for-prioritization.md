@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0078
 title: Shape a draft spec for prioritization
 area: spec-lifecycle

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0103
 title: See where active work is running
 area: runtime-substrate

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0007
 title: Manually pause and resume an active loop
 area: implementation-loop

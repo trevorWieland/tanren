@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0191
 title: Resolve conflicting product direction
 area: decision-memory
@@ -21,7 +22,7 @@ A user can resolve conflicting product direction so Tanren has one accepted plan
 
 ## Observable outcomes
 
-- Tanren shows the conflict, affected work, alternatives, and supporting evidence.
+- Tanren shows the conflict, affected work, alternatives, and supporting source references.
 - The accepted resolution is recorded with rationale and attribution.
 - Superseded direction remains available as historical context.
 

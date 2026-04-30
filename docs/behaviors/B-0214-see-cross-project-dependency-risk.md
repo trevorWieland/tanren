@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0214
 title: See cross-project dependency risk
 area: observation

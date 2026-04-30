@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0052
 title: Connect external tracker capabilities for a project
 area: external-tracker

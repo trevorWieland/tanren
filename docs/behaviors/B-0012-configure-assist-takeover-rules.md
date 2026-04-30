@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0012
 title: Configure when teammates can assist or take over each other's loops
 area: team-coordination

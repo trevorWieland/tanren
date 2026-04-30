@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0186
 title: Join an existing project with current context
 area: project-setup

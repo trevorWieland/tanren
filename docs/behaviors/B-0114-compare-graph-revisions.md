@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0114
 title: Compare graph revisions
 area: planner-orchestration

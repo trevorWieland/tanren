@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0212
 title: See open decisions and unresolved disagreements
 area: observation
@@ -23,7 +24,7 @@ A user can see open decisions and unresolved disagreements so shared direction d
 
 - Tanren lists open decisions, disputed alternatives, affected work, and needed next action.
 - Resolved decisions are distinguishable from still-open disagreements.
-- The view links to proposals, evidence, and accepted resolutions where visible.
+- The view links to proposals, source signals, and accepted resolutions where visible.
 
 ## Out of scope
 

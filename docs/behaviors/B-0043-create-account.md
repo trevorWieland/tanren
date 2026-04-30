@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0043
 title: Create an account
 area: governance

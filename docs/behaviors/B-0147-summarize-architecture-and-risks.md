@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0147
 title: Summarize architecture and major risk areas
 area: repo-understanding
@@ -17,12 +18,12 @@ A user can see a repository architecture and risk summary so planning starts wit
 ## Preconditions
 
 - An active project is connected to a repository.
-- The user has permission to inspect repository evidence.
+- The user has permission to inspect repository source signals.
 
 ## Observable outcomes
 
 - Tanren identifies major components, boundaries, and dependencies at a user level.
-- Risk areas are presented with evidence and uncertainty.
+- Risk areas are presented with source signals and uncertainty.
 - The summary can be refreshed as the repository changes.
 
 ## Out of scope

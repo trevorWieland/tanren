@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0087
 title: Manage project verification gates
 area: configuration

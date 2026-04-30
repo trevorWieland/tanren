@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0267
 title: Manage organization standards profiles
 area: governance

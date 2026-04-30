@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0248
 title: Report terminal worker outcomes
 area: runtime-actor-contract
@@ -22,14 +23,14 @@ An `agent-worker` can report terminal outcomes so assigned work finishes with a 
 
 ## Observable outcomes
 
-- The terminal outcome is linked to the assignment, attempt, evidence, and affected work.
+- The terminal outcome is linked to the assignment, attempt, source signals, and affected work.
 - Users can distinguish success, failure, cancellation, timeout, and blocked outcomes.
 - A terminal outcome triggers the next configured planning, review, retry, or recovery behavior.
 
 ## Out of scope
 
 - Marking product work accepted solely because a worker reports success.
-- Hiding partial evidence after terminal failure.
+- Hiding partial source signals after terminal failure.
 
 ## Related
 

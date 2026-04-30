@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0265
 title: Coordinate candidate implementations for one spec
 area: implementation-loop
@@ -25,8 +26,8 @@ is selected as the accepted path.
 ## Observable outcomes
 
 - Each candidate implementation is visibly tied to the same spec and has its
-  own owner, evidence, and terminal outcome.
-- Users can compare candidate evidence, changed surfaces, risks, and acceptance
+  own owner, source signals, and terminal outcome.
+- Users can compare candidate source signals, changed surfaces, risks, and acceptance
   results before choosing a candidate.
 - The selected candidate becomes the continuation path for review and merge.
 - Rejected candidates remain traceable without becoming active product work.
@@ -34,7 +35,7 @@ is selected as the accepted path.
 ## Out of scope
 
 - Starting accidental parallel loops outside a coordinated comparison.
-- Automatically choosing a winner without evidence or required approval.
+- Automatically choosing a winner without source signals or required approval.
 - Merging multiple candidate branches into one result without explicit follow-up.
 
 ## Related

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0238
 title: Test policy changes before applying them
 area: governance

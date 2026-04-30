@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0259
 title: Attribute external automation actions
 area: integration-contract

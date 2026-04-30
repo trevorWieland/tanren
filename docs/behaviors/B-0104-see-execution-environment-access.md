@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0104
 title: See what access an execution environment has
 area: runtime-substrate

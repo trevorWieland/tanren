@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0018
 title: Create a draft spec manually
 area: intake

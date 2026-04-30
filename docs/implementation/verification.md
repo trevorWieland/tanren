@@ -1,8 +1,15 @@
+---
+schema: tanren.implementation_verification.v0
+status: current
+owner_command: assess-implementation
+updated_at: 2026-04-29
+---
+
 # Behavior Verification Classification
 
 This file records the current verification state for the behavior catalog. The
 behavior files themselves own product intent through `product_status`; this file
-summarizes where code and executable BDD evidence stand right now.
+summarizes where code and executable behavior proof stand right now.
 
 ## Asserted by Active BDD
 

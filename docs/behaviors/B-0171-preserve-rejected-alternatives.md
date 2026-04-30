@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0171
 title: Preserve rejected alternatives
 area: decision-memory
@@ -12,7 +13,7 @@ supersedes: []
 
 ## Intent
 
-A user can preserve rejected alternatives so Tanren does not repeatedly reopen decisions without new evidence.
+A user can preserve rejected alternatives so Tanren does not repeatedly reopen decisions without new source signals.
 
 ## Preconditions
 
@@ -23,7 +24,7 @@ A user can preserve rejected alternatives so Tanren does not repeatedly reopen d
 
 - Rejected alternatives are recorded with the reason for rejection.
 - Future recommendations can reference rejected alternatives when relevant.
-- New evidence can reopen a rejected alternative without erasing the prior decision.
+- New source signals can reopen a rejected alternative without erasing the prior decision.
 
 ## Out of scope
 

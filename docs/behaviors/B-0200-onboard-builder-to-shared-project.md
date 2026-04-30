@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0200
 title: Onboard a builder to shared project context
 area: team-coordination

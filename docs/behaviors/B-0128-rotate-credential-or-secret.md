@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0128
 title: Rotate a credential or secret
 area: configuration

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0109
 title: Retire or drain an execution target
 area: runtime-substrate
@@ -28,7 +29,7 @@ A `solo-builder` or `team-builder` with permission can retire or drain an execut
 ## Out of scope
 
 - Killing in-flight work without explicit cancellation.
-- Deleting historical execution evidence.
+- Deleting historical execution source signals.
 
 ## Related
 

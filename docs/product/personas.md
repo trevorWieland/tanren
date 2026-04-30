@@ -6,7 +6,7 @@ more IDs from this document.
 
 Personas describe **how an actor relates to Tanren work**, not their job title,
 device, permission grants, or technical skill. Scope (own / project /
-organization / account, as defined in concepts.md), permissions, and device
+organization / account, as defined in `concepts.md`), permissions, and device
 class are orthogonal dimensions captured as preconditions on individual
 behaviors.
 
@@ -18,7 +18,7 @@ time. A platform engineer may be an `operator` for one organization and a
 Technical depth is not a persona. A technical and non-technical builder should
 be able to drive the same product-planning, shaping, walking, and acceptance
 flows. Their language, guidance needs, and desire to inspect code or runtime
-evidence may differ, but the durable behavior contract is the same.
+runtime details may differ, but the durable behavior contract is the same.
 
 The strategic builder archetype for Tanren is a technical product builder: a
 person who thinks in long-term vision, user problems, and product outcomes,
@@ -28,13 +28,14 @@ the work is individual or shared; it is not a separate persona ID.
 
 Tanren's strategic default is team building. Solo building is still first-class
 because it is the smallest useful case of the same method: product planning,
-behavior identification, roadmap sequencing, spec execution, evidence, and
-walks should scale from one builder to a governed team.
+behavior identification, roadmap sequencing, spec execution, behavior proof,
+source references, and walks should scale from one builder to a governed team.
 
 To add a new persona, add a section below with a stable ID slug, a one-sentence
 definition, and a short list of what they care about. Do not rename IDs once
 they are in use after behavior canon is locked. System/runtime components are
-not personas; define them in `runtime-actors.md`.
+not personas; define them in the runtime and related subsystem architecture
+records.
 
 ---
 
@@ -78,7 +79,7 @@ Cares about:
 
 ## `observer`
 
-A person who watches Tanren progress, evidence, health, risk, or outcomes but
+A person who watches Tanren progress, proof status, health, risk, or outcomes but
 does not normally intervene in execution or configuration. Coverage and action
 scope depend on configured permissions. Covers:
 
@@ -90,7 +91,7 @@ Cares about:
 
 - Read-only visibility at the scope they are granted
 - Velocity, throughput, quality, health, and risk signals
-- Evidence that work is aligned with product and governance expectations
+- Source references showing that work is aligned with product and governance expectations
 - Not being asked to configure or operate Tanren to get value
 
 ## `operator`
@@ -110,7 +111,7 @@ Cares about:
 - Safe credential, secret, policy, and permission management
 - The ability to pause, resume, drain, recover, audit, upgrade, and restore
   Tanren-controlled work
-- Clear evidence for operational and governance decisions
+- Clear source references for operational and governance decisions
 
 ## `integration-client`
 

@@ -1,7 +1,8 @@
-# Domain Concepts
+# Product Concepts
 
-Canonical terminology for behavior files. Use these exact terms consistently.
-Behaviors may freely reference these concepts without re-defining them.
+Canonical product terminology for behavior files, roadmap work, and specs. Use
+these exact terms consistently. Behaviors may freely reference these concepts
+without re-defining them.
 
 ## Hierarchy
 

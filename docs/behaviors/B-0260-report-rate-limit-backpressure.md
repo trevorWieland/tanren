@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0260
 title: Report rate limit and backpressure state
 area: integration-contract

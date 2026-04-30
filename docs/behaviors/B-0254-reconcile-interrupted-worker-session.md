@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0254
 title: Resume or reconcile interrupted worker sessions
 area: runtime-actor-contract
@@ -22,12 +23,12 @@ An `agent-worker` can resume or reconcile an interrupted session so Tanren under
 ## Observable outcomes
 
 - Tanren records whether the session resumed, reconciled to terminal state, or requires recovery.
-- Work state, evidence, access grants, and retries remain linked to the original assignment.
+- Work state, source signals, access grants, and retries remain linked to the original assignment.
 - Users can see what was recovered and what remains uncertain.
 
 ## Out of scope
 
-- Pretending interrupted work completed without evidence.
+- Pretending interrupted work completed without source signals.
 - Creating a fresh visible work item when reconciliation can link to the original assignment.
 
 ## Related

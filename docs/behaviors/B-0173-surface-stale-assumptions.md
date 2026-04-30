@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0173
 title: Surface stale assumptions when context changes
 area: decision-memory
@@ -16,7 +17,7 @@ A user can see stale assumptions when context changes so Tanren does not keep pl
 
 ## Preconditions
 
-- Product, repository, roadmap, feedback, or execution evidence has changed.
+- Product, repository, roadmap, feedback, or execution source signals have changed.
 - Recorded assumptions or decisions depend on the changed context.
 
 ## Observable outcomes

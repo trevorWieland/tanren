@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0080
 title: See unresolved check findings that block readiness
 area: findings
@@ -13,7 +14,7 @@ supersedes: []
 ## Intent
 
 A `solo-builder` or `team-builder` can see which check findings are still unresolved
-so that readiness decisions are based on current evidence instead of stale
+so that readiness decisions are based on current source signals instead of stale
 artifacts.
 
 ## Preconditions
@@ -28,8 +29,8 @@ artifacts.
 - Findings that require immediate remediation block readiness and check
   completion while they remain unresolved.
 - Remediation work preserves links to the check, finding, investigation, and
-  root-cause evidence that led to it.
-- Implementation work can record repair evidence but cannot mark findings
+  root-cause source signals that led to it.
+- Implementation work can record repair source signals but cannot mark findings
   resolved by itself.
 - Historical findings remain visible while readiness counts only unresolved
   blockers.

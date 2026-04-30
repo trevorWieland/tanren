@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0096
 title: Run a codebase-wide audit
 area: operations
@@ -21,7 +22,7 @@ A `solo-builder` or `team-builder` can run an audit across a codebase so broad r
 
 ## Observable outcomes
 
-- The audit records scope, evidence, and findings.
+- The audit records scope, source signals, and findings.
 - Findings are visible after the audit completes.
 - The audit does not silently mutate product work without user approval.
 

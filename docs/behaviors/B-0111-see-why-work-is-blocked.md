@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0111
 title: See why work is blocked by another graph node
 area: planner-orchestration

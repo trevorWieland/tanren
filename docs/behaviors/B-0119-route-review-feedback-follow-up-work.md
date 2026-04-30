@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0119
 title: Route review feedback into follow-up work
 area: review-merge

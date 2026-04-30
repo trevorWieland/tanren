@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0081
 title: Configure organization runtime placement policy
 area: governance

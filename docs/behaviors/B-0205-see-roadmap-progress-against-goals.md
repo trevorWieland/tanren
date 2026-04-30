@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0205
 title: See roadmap progress against product goals
 area: observation

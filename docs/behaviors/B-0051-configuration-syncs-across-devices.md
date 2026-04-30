@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0051
 title: Configuration follows the account across devices
 area: configuration

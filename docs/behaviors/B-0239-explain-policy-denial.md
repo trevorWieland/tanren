@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0239
 title: Explain why policy denied an operation
 area: governance

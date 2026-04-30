@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0229
 title: Audit external actions performed through an integration
 area: integration-management

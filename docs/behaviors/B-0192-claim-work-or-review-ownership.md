@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0192
 title: Claim ownership of work or review
 area: team-coordination

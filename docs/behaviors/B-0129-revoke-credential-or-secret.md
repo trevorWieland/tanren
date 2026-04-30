@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0129
 title: Revoke a credential or secret
 area: configuration

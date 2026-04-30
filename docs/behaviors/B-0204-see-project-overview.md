@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0204
 title: See a project overview
 area: observation
@@ -21,7 +22,7 @@ A user can see a project overview so current progress, risk, health, and attenti
 ## Observable outcomes
 
 - The overview summarizes mission, roadmap progress, active work, blockers, quality, health, and recent outcomes.
-- Each summary links to supporting detail or evidence where visible.
+- Each summary links to supporting detail or source signals where visible.
 - Hidden or unavailable information is marked rather than treated as healthy.
 
 ## Out of scope

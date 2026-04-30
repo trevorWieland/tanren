@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0134
 title: Upgrade installed Tanren assets
 area: project-setup

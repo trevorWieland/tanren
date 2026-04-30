@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0162
 title: Configure Tanren's autonomy level
 area: autonomy-controls

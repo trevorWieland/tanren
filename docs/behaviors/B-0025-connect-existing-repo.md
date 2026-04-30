@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0025
 title: Connect Tanren to an existing repository
 area: project-setup

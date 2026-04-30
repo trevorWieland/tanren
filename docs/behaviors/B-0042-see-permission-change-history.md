@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0042
 title: See the change history for a project or organization
 area: governance

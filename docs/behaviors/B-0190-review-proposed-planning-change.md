@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0190
 title: Review a proposed planning change
 area: product-planning
@@ -21,7 +22,7 @@ A user can review a proposed planning change so shared product direction changes
 
 ## Observable outcomes
 
-- The user can see the proposed change, rationale, affected work, and supporting evidence.
+- The user can see the proposed change, rationale, affected work, and supporting source references.
 - The proposal can be accepted, rejected, revised, or left open according to configured permissions.
 - The review outcome is attributed and remains linked to the proposal.
 

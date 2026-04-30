@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0053
 title: See external tickets that are not yet shaped into specs
 area: external-tracker

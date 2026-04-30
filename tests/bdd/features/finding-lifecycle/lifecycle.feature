@@ -2,10 +2,10 @@
 Feature: Finding lifecycle and generic check state
 
   @B-0080 @integration @positive
-  Scenario: Task-edit investigation evidence lets audit resolve a blocker and reach walk readiness
+  Scenario: Task-edit investigation source signals let audit resolve a blocker and reach walk readiness
     Given an initialized finding lifecycle command repository
     When a task-scoped audit finding is investigated
-    And do-task records repair evidence for the same task
+    And do-task records repair source references for the same task
     And audit resolves the finding and completes the task check
     And all spec checks report complete
     Then finding list shows no open fix_now findings

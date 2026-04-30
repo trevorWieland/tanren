@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0182
 title: Update roadmap and specs from post-ship outcomes
 area: release-learning
@@ -16,12 +17,12 @@ A `solo-builder` or `team-builder` can update roadmap and specs from post-ship o
 
 ## Preconditions
 
-- Post-ship outcome evidence or feedback exists.
+- Post-ship outcome source signals or feedback exists.
 - The user has permission to edit roadmap or spec planning context.
 
 ## Observable outcomes
 
-- Tanren proposes roadmap, spec, or candidate-work changes linked to outcome evidence.
+- Tanren proposes roadmap, spec, or candidate-work changes linked to outcome source signals.
 - The user can accept, revise, reject, or defer each proposed change.
 - Accepted changes preserve the connection between shipped work and new planning direction.
 

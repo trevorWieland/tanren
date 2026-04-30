@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0216
 title: Subscribe to an observer digest
 area: observation

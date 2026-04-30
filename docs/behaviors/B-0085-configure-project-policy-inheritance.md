@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0085
 title: Configure project policy inheritance and overrides
 area: governance

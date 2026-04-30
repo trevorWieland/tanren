@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0030
 title: Disconnect a project from Tanren
 area: project-setup

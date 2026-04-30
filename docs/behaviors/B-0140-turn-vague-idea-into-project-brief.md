@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0140
 title: Turn a vague idea into a project brief
 area: product-discovery

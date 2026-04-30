@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0064
 title: Restore account or project data from a backup
 area: operations

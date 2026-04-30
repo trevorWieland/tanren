@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0062
 title: Configure notification preferences and routing
 area: configuration

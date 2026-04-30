@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0020
 title: Move a spec to or from the backlog
 area: spec-lifecycle

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0179
 title: Verify post-release state
 area: release-learning
@@ -23,12 +24,12 @@ A user can verify post-release state so Tanren can show whether shipped work app
 
 - Tanren shows post-release checks, signals, or observations tied to the shipped work.
 - Failures or missing signals are visible as follow-up candidates.
-- Verification evidence links back to the release, roadmap, and specs where applicable.
+- Verification source references back to the release, roadmap, and specs where applicable.
 
 ## Out of scope
 
 - Requiring every project to have the same deployment model.
-- Inferring external production health without configured evidence.
+- Inferring external production health without configured source signals.
 
 ## Related
 

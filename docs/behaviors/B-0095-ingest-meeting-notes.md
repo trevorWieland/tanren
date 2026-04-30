@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0095
 title: Ingest meeting notes into candidate work
 area: intake

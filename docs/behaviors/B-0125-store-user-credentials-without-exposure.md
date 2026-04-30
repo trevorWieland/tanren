@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0125
 title: Store user credentials without exposing secret values
 area: configuration

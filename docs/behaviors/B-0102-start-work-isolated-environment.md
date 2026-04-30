@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0102
 title: Start work in an isolated execution environment
 area: runtime-substrate

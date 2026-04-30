@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0227
 title: See provider permissions and reachable resources
 area: integration-management

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0245
 title: Report worker progress durably
 area: runtime-actor-contract
@@ -29,7 +30,7 @@ An `agent-worker` can report progress durably so users can see what active execu
 ## Out of scope
 
 - Streaming every low-level log line as product progress.
-- Treating progress text as acceptance evidence by itself.
+- Treating progress text as walk acceptance record by itself.
 
 ## Related
 

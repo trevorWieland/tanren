@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0056
 title: See the current state of external issues referenced by a spec
 area: external-tracker

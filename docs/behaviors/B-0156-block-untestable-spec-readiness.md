@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0156
 title: Block readiness for untestable behavior
 area: spec-quality
@@ -23,7 +24,7 @@ A `solo-builder` or `team-builder` can be prevented from marking untestable beha
 
 - Tanren identifies the readiness concern in user-visible terms.
 - The spec remains not ready until the concern is resolved or explicitly overridden when policy allows.
-- The user can see what evidence or acceptance criteria would make the behavior testable.
+- The user can see what source signals or acceptance criteria would make the behavior testable.
 
 ## Out of scope
 

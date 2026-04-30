@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0263
 title: Report external CI or source-control status
 area: integration-contract
@@ -23,7 +24,7 @@ An `integration-client` can report external CI or source-control status so Tanre
 
 - Reported status links to the relevant Tanren work and external resource.
 - Users can distinguish pending, passing, failing, cancelled, and unavailable external status.
-- Conflicting or stale status reports are visible rather than silently replacing newer evidence.
+- Conflicting or stale status reports are visible rather than silently replacing newer source signals.
 
 ## Out of scope
 

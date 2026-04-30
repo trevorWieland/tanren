@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0006
 title: Start a walk for implementation-ready work
 area: implementation-loop

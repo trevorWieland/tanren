@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0207
 title: See delivery forecast and risk
 area: observation
@@ -12,23 +13,23 @@ supersedes: []
 
 ## Intent
 
-A user can see delivery forecast and risk so expectations are grounded in current evidence rather than optimism.
+A user can see delivery forecast and risk so expectations are grounded in current source signals rather than optimism.
 
 ## Preconditions
 
-- The selected scope has planned work and enough evidence to support a forecast or risk statement.
+- The selected scope has planned work and enough source signals to support a forecast or risk statement.
 - The user has visibility into the relevant planning and delivery context.
 
 ## Observable outcomes
 
-- Tanren presents forecast confidence and major risk drivers.
-- The forecast distinguishes evidence-backed projection from missing or uncertain data.
+- Tanren presents forecast provenance and major risk drivers.
+- The forecast distinguishes source-backed projection from missing or uncertain data.
 - Changes to risk or forecast can be traced to recent work, blockers, replans, or outcomes.
 
 ## Out of scope
 
 - Guaranteeing delivery dates.
-- Producing forecasts from hidden or unavailable evidence without disclosure.
+- Producing forecasts from hidden or unavailable source signals without disclosure.
 
 ## Related
 

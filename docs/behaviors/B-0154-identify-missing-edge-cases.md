@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0154
 title: Identify missing edge cases in a spec
 area: spec-quality

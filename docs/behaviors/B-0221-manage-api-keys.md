@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0221
 title: Create and scope API keys
 area: governance
@@ -23,8 +24,8 @@ explicit ownership, permissions, and boundaries.
 ## Observable outcomes
 
 - API keys are created with explicit scope, permissions, expiration, and owner.
-- Key secret values are shown only at creation or rotation time.
-- Rotation and revocation affect future use and remain visible in audit history.
+- Key secret values are shown only at creation time.
+- The created key is visible later through non-secret metadata, usage state, and audit history.
 
 ## Out of scope
 

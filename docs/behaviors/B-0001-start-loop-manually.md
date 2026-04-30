@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0001
 title: Start an implementation loop manually on a spec
 area: implementation-loop

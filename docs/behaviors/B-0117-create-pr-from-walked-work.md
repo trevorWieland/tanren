@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0117
 title: Create a pull request from walked work
 area: review-merge
@@ -23,7 +24,7 @@ A `solo-builder` or `team-builder` can create a pull request from accepted walke
 
 ## Observable outcomes
 
-- A pull request is created with links back to the spec and evidence.
+- A pull request is created with links back to the spec and source signals.
 - The spec shows the pull request link and state.
 - Failure to create the pull request leaves the accepted walk state intact with an actionable error.
 

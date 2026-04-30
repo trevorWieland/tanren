@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0132
 title: Resume new work for a project or organization
 area: operations

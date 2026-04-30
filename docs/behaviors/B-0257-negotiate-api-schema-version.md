@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0257
 title: Negotiate API and schema versions
 area: integration-contract

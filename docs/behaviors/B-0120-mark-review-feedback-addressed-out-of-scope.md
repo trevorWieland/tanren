@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0120
 title: Mark review feedback as addressed or out of scope
 area: review-merge
@@ -22,7 +23,7 @@ A `solo-builder` or `team-builder` can mark review feedback as addressed or out 
 ## Observable outcomes
 
 - Each feedback item has a visible disposition.
-- Addressed feedback links to the work or evidence that resolved it.
+- Addressed feedback links to the work or source signals that resolved it.
 - Out-of-scope feedback can be routed to backlog or ignored with a reason.
 
 ## Out of scope

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0251
 title: Use only granted credentials and environment access
 area: runtime-actor-contract

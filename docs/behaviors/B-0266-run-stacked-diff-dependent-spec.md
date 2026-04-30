@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0266
 title: Run a stacked-diff dependent spec against an available base
 area: planner-orchestration
@@ -19,7 +20,7 @@ merged to the primary branch.
 ## Preconditions
 
 - The dependent spec declares the base spec as a dependency.
-- The base spec has an available branch, artifact, or accepted evidence that
+- The base spec has an available branch, artifact, or accepted source signals that
   project policy treats as usable.
 - The user has visibility into the dependency relationship.
 
@@ -36,7 +37,7 @@ merged to the primary branch.
 
 - Treating every unfinished dependency as usable.
 - Hiding unresolved dependency risk because a stacked base exists.
-- Resolving merge or intent conflicts without evidence.
+- Resolving merge or intent conflicts without source signals.
 
 ## Related
 

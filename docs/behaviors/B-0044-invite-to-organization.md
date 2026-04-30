@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0044
 title: Invite a person to an organization
 area: governance

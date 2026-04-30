@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0113
 title: See when Tanren replans and what changed
 area: planner-orchestration
@@ -12,7 +13,7 @@ supersedes: []
 
 ## Intent
 
-A user can see when Tanren replans work and what changed so failures, conflicts, or new evidence do not silently alter the plan.
+A user can see when Tanren replans work and what changed so failures, conflicts, or new source signals do not silently alter the plan.
 
 ## Preconditions
 

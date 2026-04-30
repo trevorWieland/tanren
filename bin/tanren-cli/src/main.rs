@@ -84,7 +84,7 @@ enum Commands {
     Install(InstallArgs),
     /// Methodology tool surface (CLI fallback for the MCP catalog).
     /// Each subcommand maps 1:1 to a tool in
-    /// `docs/architecture/agent-tool-surface.md` §3.
+    /// `docs/architecture/subsystems/tools.md` §3.
     #[command(flatten_help = true)]
     Methodology {
         #[command(flatten)]
@@ -133,7 +133,7 @@ async fn main() -> std::process::ExitCode {
 
 /// Internal error envelope that preserves typed CLI exit codes
 /// (`tanren-cli install`: 0/1/2/3/4; methodology subcommands: 0/2/4 per
-/// `agent-tool-surface.md §5`). Other subcommands collapse into
+/// `tools.md §5`). Other subcommands collapse into
 /// `Other` and exit with the generic `ExitCode::FAILURE` path.
 enum RunError {
     TypedExit(u8),

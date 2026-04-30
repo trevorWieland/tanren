@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0049
 title: Manage project methodology settings
 area: configuration

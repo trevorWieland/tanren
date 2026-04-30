@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0225
 title: Distinguish personal provider access from shared provider access
 area: integration-management

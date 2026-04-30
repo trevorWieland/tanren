@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0247
 title: Report blockers with actionable options
 area: runtime-actor-contract
@@ -22,7 +23,7 @@ An `agent-worker` can report blockers with actionable options so paused executio
 
 ## Observable outcomes
 
-- The blocker records summary, affected work, blocker category, evidence, and proposed options.
+- The blocker records summary, affected work, blocker category, source signals, and proposed options.
 - Users can see what response would unblock the work where they have visibility.
 - Blockers can route to the configured responder, approval flow, or follow-up work.
 

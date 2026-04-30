@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0005
 title: Respond to a question when a loop pauses on a blocker
 area: implementation-loop

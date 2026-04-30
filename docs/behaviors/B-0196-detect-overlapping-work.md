@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0196
 title: Detect duplicate or overlapping work across builders
 area: team-coordination
@@ -17,7 +18,7 @@ A user can detect duplicate or overlapping work across builders so effort does n
 ## Preconditions
 
 - Multiple visible work items, specs, graph nodes, or active loops exist.
-- Tanren has enough evidence to compare their intent or affected surfaces.
+- Tanren has enough source signals to compare their intent or affected surfaces.
 
 ## Observable outcomes
 

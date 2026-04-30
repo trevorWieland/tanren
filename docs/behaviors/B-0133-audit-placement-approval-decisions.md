@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0133
 title: Audit placement and approval decisions
 area: operations

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0098
 title: Keep work aligned with product mission
 area: product-planning

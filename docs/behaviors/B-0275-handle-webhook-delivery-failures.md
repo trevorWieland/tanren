@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0275
 title: Handle webhook delivery failures
 area: integration-management

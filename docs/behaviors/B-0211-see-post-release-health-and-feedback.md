@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0211
 title: See post-release health and feedback
 area: observation
@@ -23,11 +24,11 @@ A user can see post-release health and feedback so delivered work can be evaluat
 
 - Tanren links post-release signals to the shipped work they concern.
 - Signals distinguish healthy, degraded, missing, mixed, and needs-follow-up states.
-- Follow-up candidates can be traced back to their post-release evidence.
+- Follow-up candidates can be traced back to their post-release source signals.
 
 ## Out of scope
 
-- Inferring production health without evidence.
+- Inferring production health without source signals.
 - Importing private user data without configured consent and scope.
 
 ## Related

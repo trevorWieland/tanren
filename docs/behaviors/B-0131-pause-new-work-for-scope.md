@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0131
 title: Pause new work for a project or organization
 area: operations

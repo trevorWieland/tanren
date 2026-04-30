@@ -85,6 +85,11 @@ bootstrap:
         fi
     done
 
+    echo "==> Installing actionlint..."
+    if ! command -v actionlint &>/dev/null; then
+        bash scripts/install-actionlint.sh || failed="$failed actionlint"
+    fi
+
     echo "==> Platform-specific setup..."
     if [[ "$(uname -s)" == "Linux" ]]; then
         if command -v apt-get &>/dev/null; then
@@ -244,6 +249,7 @@ check:
     total_start="$(now_ms)"
     run_stage "deps locked" just deps-locked-check
     run_stage "format" just fmt
+    run_stage "workflow lint" just workflow-lint
     run_stage "docs" just docs-check
     run_stage "line budget" just check-lines
     run_stage "suppression guard" just check-suppression
@@ -364,6 +370,16 @@ markdown-links:
 docs-check:
     @just markdown-lint
     @just markdown-links
+
+# Lint GitHub Actions workflow syntax and expressions.
+workflow-lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v actionlint &>/dev/null; then
+        echo "FAIL: actionlint is unavailable. Run 'just bootstrap'." >&2
+        exit 127
+    fi
+    actionlint
 
 # Build documentation (warnings are errors).
 doc:

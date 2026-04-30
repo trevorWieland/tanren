@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0203
 title: Manage organization member access
 area: governance

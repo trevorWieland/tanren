@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0194
 title: Leave handoff notes for another builder
 area: team-coordination
@@ -27,7 +28,7 @@ A `team-builder` can leave handoff notes for another builder so interrupted or t
 
 ## Out of scope
 
-- Replacing structured evidence with free-form notes.
+- Replacing structured source signals with free-form notes.
 - Exposing private notes outside their configured visibility.
 
 ## Related

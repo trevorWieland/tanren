@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0159
 title: Recommend roadmap sequencing with tradeoffs
 area: prioritization

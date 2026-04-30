@@ -5,7 +5,7 @@
 //! returned to agent tool calls (via MCP + CLI). The two forms are
 //! orthogonal: `MethodologyError` carries rich context for logs +
 //! tracing; `ToolError` carries the actionable remediation shape per
-//! `docs/architecture/agent-tool-surface.md` §5.
+//! `docs/architecture/subsystems/tools.md` §5.
 
 use serde::{Deserialize, Serialize};
 use tanren_domain::methodology::capability::ToolCapability;
@@ -29,7 +29,7 @@ pub enum MethodologyError {
     /// Structured validation failure with a JSON-pointer field path.
     /// Prefer this over [`Self::Validation`] when you know the offending
     /// field, so the ToolError surface carries real precision per
-    /// `agent-tool-surface.md` §5.
+    /// `tools.md` §5.
     #[error("validation failed at {field_path}: expected {expected}, got {actual}")]
     FieldValidation {
         field_path: String,
@@ -235,7 +235,7 @@ impl From<ValidationIssue> for MethodologyError {
 /// Agent-facing typed error shape.
 ///
 /// Serde-serialized into the MCP tool-error result and the CLI's
-/// structured error output. Field names match `agent-tool-surface.md`
+/// structured error output. Field names match `tools.md`
 /// §5 verbatim so the shape is cross-interface stable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]

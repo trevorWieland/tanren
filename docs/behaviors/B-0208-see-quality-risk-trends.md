@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0208
 title: See quality and risk trends over time
 area: observation
@@ -22,7 +23,7 @@ A user can see quality and risk trends over time so project health can be judged
 ## Observable outcomes
 
 - Tanren shows whether quality and risk signals are improving, degrading, or stable.
-- Trend summaries link to representative evidence and time windows.
+- Trend summaries link to representative source signals and time windows.
 - Missing or low-volume data is called out before drawing conclusions.
 
 ## Out of scope

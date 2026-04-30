@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0068
 title: Bootstrap Tanren assets into an existing repository
 area: project-setup
@@ -35,6 +36,7 @@ integrations are installed from the bundled distribution.
 
 - Registering the repository as an account-level Tanren project.
 - Importing repository history or project membership.
+- Performing local repository bootstrap from phone-only interfaces.
 
 ## Related
 

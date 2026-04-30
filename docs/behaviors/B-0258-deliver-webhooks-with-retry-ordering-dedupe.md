@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0258
 title: Deliver webhooks with retry, ordering, and dedupe
 area: integration-contract

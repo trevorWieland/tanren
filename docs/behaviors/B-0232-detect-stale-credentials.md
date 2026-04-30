@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0232
 title: Detect expiring, unused, or stale credentials
 area: configuration

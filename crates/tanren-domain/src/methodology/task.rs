@@ -12,7 +12,7 @@
 //! spec). Only when every *required* guard is satisfied does the task
 //! transition to `Complete`.
 //!
-//! See `docs/architecture/orchestration-flow.md` §2.
+//! See `docs/architecture/subsystems/orchestration.md` §2.
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -262,7 +262,7 @@ impl std::fmt::Display for RequiredGuard {
 
 /// Provenance of a task — what caused it to be created.
 ///
-/// Matches `orchestration-flow.md` §2.3. Used to preserve traceability
+/// Matches `orchestration.md` §2.3. Used to preserve traceability
 /// across the spec-loop (a task created from an audit finding remembers
 /// *which finding* created it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

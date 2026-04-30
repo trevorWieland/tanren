@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0151
 title: Explain which standards influenced a decision
 area: standards-evolution
@@ -23,7 +24,7 @@ A user can see which standards influenced a planning or execution decision so Ta
 
 - The decision links to the standards that affected it.
 - The explanation names the user-visible reasoning, not internal implementation details.
-- Missing or outdated standards are called out when they affect confidence.
+- Missing or outdated standards are called out when they affect provenance.
 
 ## Out of scope
 

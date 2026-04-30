@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0142
 title: Define product non-goals and constraints
 area: product-discovery

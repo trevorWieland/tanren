@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0026
 title: Create a new project from scratch
 area: project-setup

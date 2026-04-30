@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0189
 title: Propose a planning change without accepting it
 area: product-planning

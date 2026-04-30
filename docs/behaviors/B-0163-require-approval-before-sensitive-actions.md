@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0163
 title: Require approval before sensitive actions
 area: autonomy-controls
@@ -22,7 +23,7 @@ A user can require approval before sensitive actions so Tanren does not cross im
 ## Observable outcomes
 
 - Approval-gated actions pause before execution.
-- The approval request explains the action, risk, scope, and evidence.
+- The approval request explains the action, risk, scope, and source signals.
 - Approval or rejection is attributed and recorded.
 
 ## Out of scope

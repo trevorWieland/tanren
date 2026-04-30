@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0035
 title: Compare metrics across time windows
 area: observation

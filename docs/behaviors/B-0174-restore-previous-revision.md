@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0174
 title: Restore a previous revision without deleting history
 area: undo-recovery

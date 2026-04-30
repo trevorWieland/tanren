@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0039
 title: See my own permissions
 area: governance

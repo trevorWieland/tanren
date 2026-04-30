@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0220
 title: Create and manage service accounts
 area: governance

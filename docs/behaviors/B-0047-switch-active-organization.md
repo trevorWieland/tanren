@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0047
 title: Switch the active organization within an account
 area: governance

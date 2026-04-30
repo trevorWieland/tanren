@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0033
 title: See quality signals across work
 area: observation

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0181
 title: Ingest post-ship feedback
 area: release-learning
@@ -17,12 +18,12 @@ A `solo-builder` or `team-builder` can ingest post-ship bugs, support feedback, 
 ## Preconditions
 
 - Shipped work or a release exists.
-- The user has permission to add product feedback or outcome evidence.
+- The user has permission to add product feedback or outcome source signals.
 
 ## Observable outcomes
 
 - Feedback is linked to the shipped work or product area it concerns.
-- Tanren distinguishes bugs, requests, complaints, metrics, and observations when evidence supports it.
+- Tanren distinguishes bugs, requests, complaints, metrics, and observations when source signals support it.
 - The user can route feedback to candidate work, roadmap revision, or no action with rationale.
 
 ## Out of scope

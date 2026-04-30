@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0135
 title: Uninstall Tanren assets without deleting user work
 area: project-setup
@@ -22,7 +23,7 @@ A `solo-builder` or `team-builder` can uninstall Tanren-managed assets from a re
 ## Observable outcomes
 
 - Generated Tanren assets can be removed deliberately.
-- User-owned files, specs, and evidence are preserved unless explicitly exported or removed by separate action.
+- User-owned files, specs, and source signals are preserved unless explicitly exported or removed by separate action.
 - The uninstall preview makes destructive effects visible before confirmation.
 
 ## Out of scope

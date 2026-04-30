@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0089
 title: See project configuration change history
 area: configuration

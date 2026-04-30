@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0050
 title: Manage shared configuration defaults across projects
 area: configuration

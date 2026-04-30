@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0004
 title: Be notified when a loop completes or needs attention
 area: implementation-loop

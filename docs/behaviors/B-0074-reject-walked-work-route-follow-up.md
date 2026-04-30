@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0074
 title: Reject walked work and route follow-up work
 area: review-merge

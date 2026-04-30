@@ -1,7 +1,8 @@
 ---
+schema: tanren.behavior.v0
 id: B-0166
 title: Present a walk or demo summary before acceptance
-area: walk-evidence
+area: walk-acceptance
 personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
@@ -17,18 +18,18 @@ A user can see a walk or demo summary before acceptance so review focuses on del
 ## Preconditions
 
 - Work has reached walk or acceptance review.
-- The user has visibility into the spec and walk evidence.
+- The user has visibility into the spec and walk acceptance record.
 
 ## Observable outcomes
 
-- The summary names the intended behavior, demonstrated outcome, and supporting evidence.
-- Missing evidence or skipped demonstrations are visible.
+- The summary names the intended behavior, demonstrated outcome, and supporting source references.
+- Missing source signals or skipped demonstrations are visible.
 - The user can continue to accept, reject, or request follow-up work.
 
 ## Out of scope
 
 - Replacing user acceptance where acceptance is required.
-- Hiding failed or incomplete evidence from the summary.
+- Hiding failed or incomplete source signals from the summary.
 
 ## Related
 

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0195
 title: Route a blocker to an appropriate responder
 area: team-coordination

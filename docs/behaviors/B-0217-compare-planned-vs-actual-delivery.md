@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0217
 title: Compare planned versus actual delivery
 area: observation
@@ -17,18 +18,18 @@ A user can compare planned versus actual delivery so schedule, scope, and outcom
 ## Preconditions
 
 - Planned work and delivered or attempted work exist in the selected scope.
-- The user has visibility into the compared planning and delivery evidence.
+- The user has visibility into the compared planning and delivery source signals.
 
 ## Observable outcomes
 
 - Tanren shows what shipped as planned, what changed, what slipped, and what was added or removed.
-- Differences link to replans, decisions, blockers, or evidence where visible.
+- Differences link to replans, decisions, blockers, or source signals where visible.
 - The comparison can be scoped by roadmap item, milestone, initiative, project, or time window.
 
 ## Out of scope
 
 - Treating plan changes as failures by default.
-- Producing precise schedule judgments without planning evidence.
+- Producing precise schedule judgments without planning source signals.
 
 ## Related
 

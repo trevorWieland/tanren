@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0091
 title: Disconnect or replace an external tracker
 area: external-tracker

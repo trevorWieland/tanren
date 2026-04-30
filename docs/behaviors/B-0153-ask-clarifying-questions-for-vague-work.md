@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0153
 title: Ask clarifying questions for vague work
 area: spec-quality

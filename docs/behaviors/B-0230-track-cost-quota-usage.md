@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0230
 title: Track cost and quota usage across providers
 area: operations
@@ -20,7 +21,7 @@ A user can track cost and quota usage across harnesses and providers so Tanren-c
 
 ## Observable outcomes
 
-- Usage is grouped by scope, provider, harness, project, or time window where evidence supports it.
+- Usage is grouped by scope, provider, harness, project, or time window where source signals support it.
 - Warnings identify budget or quota risk before work fails when possible.
 - Missing provider usage data is visible rather than treated as zero usage.
 

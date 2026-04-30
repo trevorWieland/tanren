@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0038
 title: Manage roles as permission templates
 area: governance

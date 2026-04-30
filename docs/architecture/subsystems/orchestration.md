@@ -1,388 +1,464 @@
-# Orchestration Flow
-
-Authoritative spec for the Tanren methodology orchestration state machine.
-Defines phases, transitions, failure routing, escalation, monotonicity
-invariants, and cross-spec concerns.
-
-Companion docs: [agent-tool-surface.md](agent-tool-surface.md),
-[evidence-schemas.md](evidence-schemas.md),
-[audit-rubric.md](audit-rubric.md),
-[adherence.md](adherence.md),
-[phase-taxonomy.md](phase-taxonomy.md).
-
+---
+schema: tanren.subsystem_architecture.v0
+subsystem: orchestration
+status: accepted
+owner_command: architect-system
+updated_at: 2026-04-29
 ---
 
-## 1. Phase classification
+# Orchestration Architecture
 
-### 1.1 Spec-orchestration loop (participates in the typed state machine)
+## Purpose
 
-**Agentic phases:**
-- `shape-spec` — interactive spec shaping
-- `do-task` — autonomous task implementation
-- `audit-task` — autonomous task-level opinionated rubric audit
-- `adhere-task` — autonomous task-level standards-compliance check
-- `run-demo` — autonomous demo execution
-- `audit-spec` — autonomous spec-level opinionated rubric audit
-- `adhere-spec` — autonomous spec-level standards-compliance check
-- `walk-spec` — interactive user validation walkthrough
-- `handle-feedback` — autonomous post-PR review triage
-- `investigate` — autonomous escalation diagnosis
-- `resolve-blockers` — interactive final-escalation resolution
+This document defines Tanren's spec orchestration architecture. Orchestration
+turns one accepted roadmap node into shaped, implemented, checked,
+behavior-proven, walked, reviewed, and merge-ready work.
 
-**Automated phases:**
-- `SETUP` — environment provisioning
-- `TASK_GATE` — automated task-level gate (`{{TASK_VERIFICATION_HOOK}}`)
-- `SPEC_GATE` — automated spec-level gate (`{{SPEC_VERIFICATION_HOOK}}`)
-- `CLEANUP` — environment teardown
+Orchestration is not product planning, implementation assessment, runtime
+placement, behavior-proof semantics, source-control provider mechanics, or release
+operations. It coordinates the active spec loop and routes work until the spec
+is accepted and ready for source-control integration to merge.
 
-### 1.2 Project-management (out-of-loop)
+## Subsystem Boundary
 
-Commands under `commands/project/` do NOT participate in the typed state
-machine. Current project-method commands are temporary bootstrap prompts:
+The orchestration subsystem owns:
 
-- `plan-product`
-- `identify-behaviors`
-- `craft-roadmap`
+- spec lifecycle state;
+- task lifecycle state;
+- phase taxonomy for active spec work;
+- task guard batches;
+- candidate validation batches;
+- active-spec findings;
+- investigation and routing loops;
+- blocker escalation;
+- walk-spec acceptance;
+- human code-review approval state as an orchestration input;
+- team coordination for active specs;
+- merge-ready handoff to source-control integration.
 
-They belong above the spec-orchestration loop and should feed shaped specs
-through a roadmap DAG rather than mutate active task lists directly. They are
-not registered as native typed phase keys yet.
-Future project-analysis commands for scheduled standards sweeps, security
-audits, mutation-testing review, and health checks should likewise enter through
-typed findings or planning-change proposals before producing spec work.
+The subsystem does not own roadmap creation, behavior acceptance, architecture
+decisions, implementation assessment, spec-independent analysis, worker
+placement, harness execution, source-control provider mechanics, CI provider
+mechanics, merge execution, release state, or behavior-proof semantics.
 
-### 1.3 Interactive surface
+## Core Invariants
 
-Exactly three spec-loop phases pause for a human:
-- `shape-spec`
-- `walk-spec`
-- `resolve-blockers`
+1. **Orchestration starts from an accepted roadmap node.** `shape-spec` is not
+   product planning. Ideas, issues, bugs, and feedback must first route through
+   planning or assessment into a roadmap node.
+2. **One roadmap node shapes into one active spec.** A spec is the execution
+   unit for implementation, proof, walk, review, and merge-ready handoff.
+3. **Every project has a mergeable source-control provider.** Draft PR
+   creation is mandatory because external CI, automated review, branch status,
+   and human review need a candidate-change object.
+4. **Task completion is guarded.** A task becomes complete only after
+   implementation and required task-level checks pass.
+5. **Task completion is terminal.** Completed tasks are not reopened. Later
+   findings create new tasks.
+6. **Check failures are batched before repair.** Tanren waits for all checks in
+   a task or candidate validation batch before dispatching investigation.
+7. **Investigation and routing is shared.** Gate failures, audits, adherence,
+   proof failures, CI failures, automated reviews, human review comments,
+   walks, merge conflicts, and intent drift use one routing model.
+8. **Draft PR precedes candidate validation.** After all task guards pass,
+   Tanren creates a draft PR and then runs internal spec checks and external
+   automated checks together.
+9. **Ready-for-review means automated checks are clean.** Human walk and code
+   review begin after required internal and external automated checks pass.
+10. **Walk and code review are separate acceptance channels.** Walk-spec proves
+    behavior to stakeholders. Code review inspects implementation. Policy
+    decides required counts and eligible reviewers.
+11. **Behavior-affecting changes stale walk acceptance.** Any change after a
+    walk acceptance invalidates that acceptance unless policy classifies the
+    change as non-behavioral.
+12. **Source-control integration owns merge execution.** Orchestration emits
+    merge-ready handoff; source-control integration executes the merge and
+    delivery/release subsystems consume the merged result.
 
-Future project-management commands may also pause for human approval or
-authoring. All other spec-loop phases are autonomous. The escalation ladder
-(§5) guarantees human intervention is rare and purposeful.
+## Canonical Flow
 
----
-
-## 2. Task lifecycle
-
-### 2.1 States
-
-```
-              Pending
-                │
-                ▼ TaskStarted
-           InProgress
-                │
-                ▼ TaskImplemented
-          Implemented
-                │
-        ┌───────┼──────────┬────────────┐
-        │       │          │            │ (parallel, any order)
-        ▼       ▼          ▼            ▼
-  TaskGateChecked TaskAudited TaskAdherent TaskXChecked …
-        │       │          │            │
-        └───────┴────┬─────┴────────────┘
-                     │ (all required guards satisfied)
-                     ▼ TaskCompleted
-                  Complete
-
-  Abandoned (side branch from any non-terminal state)
-```
-
-### 2.2 Invariants
-
-- `Complete` is **terminal**. No event may transition out of it.
-- `Abandoned` requires a typed disposition:
-  `replacement` (with non-empty replacement task ids) or
-  `explicit_user_discard` (with typed `resolve-blockers` provenance).
-- Required-guard set is config-defined:
-  ```yaml
-  methodology:
-    task_complete_requires: [gate_checked, audited, adherent]
-  ```
-  Extra guards resolve through
-  `methodology.variables.task_check_hook_<guard_name>`; missing hook
-  for a required extra guard is a hard configuration error.
-- Guards are evaluated as one **task-check batch** per attempt:
-  gate, audit, adherence, and any required extras all execute before
-  routing to `investigate`.
-- Any failed check in a batch emits `TaskGuardsReset` before
-  `investigate`, clearing `gate_checked`, `audited`, `adherent`, and
-  all extra guard flags for the task.
-- State mutations happen exclusively through
-  `tanren-app-services::methodology::service`. Direct store writes
-  are forbidden by the linking rule.
-
-### 2.3 Task origin provenance
-
-Every `TaskCreated` event carries a typed `TaskOrigin`:
-
-```
-ShapeSpec
-Investigation { source_phase, source_task?, loop_index }
-Audit { source_phase, source_task?, source_finding }
-Adherence { source_standard, source_finding }
-Demo { source_run, source_finding }
-Feedback { source_pr_comment_ref }
-SpecAudit { source_finding }
-SpecInvestigation { source_phase, source_finding }
-CrossSpecIntent { source_spec_id, source_finding }
-CrossSpecMerge { source_spec_id }
-User
+```text
+accepted roadmap node
+-> shape-spec
+-> task loop
+-> task check batch
+-> draft PR
+-> candidate validation batch
+-> ready for review
+-> required walk-spec acceptances + human code-review approvals
+-> merge-ready handoff
+-> source-control merge
 ```
 
-Replaces `plan.md` checkbox mutation. History stays monotonic and
-honest: every new task declares why it exists.
+## Spec Lifecycle
 
-### 2.4 Monotonicity
+Spec lifecycle states are:
 
-- `Complete` cannot be reopened.
-- `revise_task` works only on non-terminal tasks and mutates
-  description / acceptance criteria only; does not transition state.
-- Task-scoped failures never create tasks. `investigate` records
-  root cause and repair context, then `do-task` repairs the same task.
-- Every spec-level failure (`RUN_DEMO` fail, `AUDIT_SPEC` fix_now,
-  `ADHERE_SPEC` fix_now, `SPEC_GATE` fail, feedback-driven fix)
-  routes through `investigate`; spec-scoped investigation may
-  materialize new tasks and completed tasks are never un-checked.
+- **candidate**: a roadmap node has been selected for shaping;
+- **shaping**: `shape-spec` is defining scope, acceptance, tasks, proof, demo,
+  review policy, and dependencies;
+- **ready**: the shaped spec can start implementation;
+- **running**: task execution is active;
+- **blocked**: the spec awaits human resolution, dependency completion, policy
+  approval, or external unblock;
+- **candidate_validation**: all task guards passed, draft PR exists, and
+  internal/external automated checks are running or being repaired;
+- **ready_for_review**: required automated checks have passed and manual walk
+  and code-review acceptance can proceed;
+- **awaiting_acceptance**: one or more required walks or code reviews remain;
+- **merge_ready**: required walks and code reviews are satisfied;
+- **handed_to_integration**: source-control integration has accepted
+  merge-ready handoff;
+- **cancelled**: work stopped before completion;
+- **archived**: work preserved without active merge.
 
----
+Spec state is event-sourced. Repo-local spec documents are projections.
 
-## 3. Canonical single-spec flow
+## Shape-Spec
 
-```mermaid
-flowchart TD
-    A[User invokes shape-spec INTERACTIVE] -->|create_task × N, SpecDefined| B[SETUP auto]
-    B --> C{Any Pending task?}
-    C -->|yes| D[DO_TASK task_id]
-    D -->|complete_task| E[TASK_GATE auto]
-    E -->|pass| F1[AUDIT_TASK]
-    E -->|pass| F2[ADHERE_TASK]
-    E -->|persistent fail| G[INVESTIGATE_TASK]
-    F1 -->|fix_now| G
-    F2 -->|fix_now| G
-    F1 -->|zero fix_now| I1[TaskAudited]
-    F2 -->|zero fix_now| I2[TaskAdherent]
-    E -->|pass| I3[TaskGateChecked]
-    I1 --> Z1{All required guards?}
-    I2 --> Z1
-    I3 --> Z1
-    Z1 -->|no| Z1
-    Z1 -->|yes| I[TaskCompleted]
-    I --> C
-    G -->|record root cause + revise same task if needed| D
-    G -->|loop cap hit| ZZ[escalate_to_blocker]
-    C -->|no| J[SPEC_GATE auto]
-    J -->|pass| KDR[parallel spec checks]
-    J -->|fail| M[INVESTIGATE_SPEC]
-    KDR --> K[RUN_DEMO]
-    KDR --> L1[AUDIT_SPEC]
-    KDR --> L2[ADHERE_SPEC]
-    K -->|pass| OK{All spec checks pass?}
-    K -->|fail| M
-    L1 -->|pass, all pillars ≥ 7, zero fix_now| OK
-    L1 -->|fix_now findings| M
-    L2 -->|zero fix_now| OK
-    L2 -->|fix_now| M
-    M -->|create_task only; never un-check| C
-    M -->|loop cap| ZZ
-    OK -->|yes| N[walk-spec INTERACTIVE]
-    N -->|accept| Q[orchestrator: create PR via ISSUE_PROVIDER adapter]
-    N -->|reject| R[create_task origin=User or escalate]
-    R --> C
-    Q --> CI[CI on PR]
-    CI -->|green| RV[Awaiting review]
-    CI -->|red| HF[handle-feedback autonomous]
-    RV -->|comments| HF
-    HF -->|valid-actionable| C
-    HF -->|valid-addressed / invalid| PRR[post_reply_directive]
-    HF -->|out-of-scope| BK[create_issue to backlog]
-    HF -->|no unresolved items, CI green, approvals met| MRG[orchestrator: merge PR]
-    MRG --> CU[CLEANUP auto]
-    CU --> DONE([Spec merged])
-    ZZ --> U[resolve-blockers INTERACTIVE]
-    U --> C
-```
+`shape-spec` is an interactive phase. It turns one accepted roadmap node into
+a spec.
 
----
+Shaped spec state includes:
 
-## 4. Cross-spec flows
+- linked roadmap node;
+- accepted behaviors completed by the spec;
+- problem statement and scope;
+- non-goals;
+- acceptance criteria;
+- task plan;
+- behavior-proof obligations;
+- demo path for `run-demo` and `walk-spec`;
+- required task guards;
+- required candidate validation checks;
+- required walk and code-review acceptance policy;
+- dependencies and base branch;
+- expected source-control target.
 
-### 4.1 Parallel specs with merge / intent conflict
+`shape-spec` may ask clarifying questions and may route gaps back to planning,
+but it must not silently create product direction outside the roadmap node.
 
-```mermaid
-flowchart LR
-    subgraph Spec_A[Spec A: add foo to every bar]
-      A1[shape-spec] --> A2[do-task loops]
-      A2 --> A3[walk-spec]
-      A3 --> A4[PR A in review]
-    end
-    subgraph Spec_B[Spec B: add 3 new bars]
-      B1[shape-spec] --> B2[do-task loops]
-      B2 --> B3[walk-spec]
-      B3 --> B4[PR B created]
-    end
-    B4 --> B5[PR B merged first]
-    B5 --> X{Rebase postflight for Spec A}
-    X -->|text-level conflict| Y1[INVESTIGATE_MERGE_CONFLICT]
-    X -->|no text conflict| Y2[INVESTIGATE_INTENT_CONFLICT]
-    Y2 -->|new bars lack foo| Y3[create_task origin=CrossSpecIntent]
-    Y3 --> A2
-    Y1 -->|resolve| A2
-```
+## Task Lifecycle
 
-**Intent-conflict detection** uses
-`spec.acceptance_criteria` + `spec.touched_symbols` (new typed fields
-on `SpecFrontmatter`). The current event model records the typed inputs; the
-resolution engine lands in Phase 2+.
+Tasks are autonomous units of work inside one spec.
 
-### 4.2 Stacked-diff dependent specs
+Task states are:
 
-```mermaid
-flowchart LR
-    A[Spec A on branch/A] --> A1[PR A in review]
-    A1 --> B[Spec B starts on branch/B, base=branch/A]
-    B --> B1[B implements against A's current state]
-    A1 -->|A approved & merged| M[A merged to main]
-    M --> RB[orchestrator: postflight rebases branch/B onto main]
-    RB -->|clean| B2[B continues on rebased base]
-    RB -->|conflict| Y[INVESTIGATE_MERGE_CONFLICT]
-    Y --> B2
-    B2 --> B3[Spec B completes, walk-spec, PR B]
-```
+- **pending**: task exists but has not started;
+- **in_progress**: `do-task` or repair work is active;
+- **implemented**: implementation is complete but guards have not all passed;
+- **checking**: task guard batch is running or being summarized;
+- **complete**: required guards passed;
+- **abandoned**: task is no longer pursued and has a typed disposition.
 
-`Spec` records `base_branch` and `depends_on_spec_ids` in the
-`SpecDefined` event. Rebase orchestration lands in Phase 2+.
+Task rules:
 
----
+- `do-task` implements one task slice.
+- A non-terminal task may be revised during investigation.
+- A completed task is terminal.
+- Findings against incomplete work update or repair the current task.
+- Findings after task completion create new tasks.
+- Abandoned tasks require a typed reason and replacement or explicit discard
+  disposition.
+- Every task has typed origin provenance such as shape-spec, investigation,
+  audit, adherence, demo, review feedback, walk rejection, merge conflict,
+  intent drift, or user request.
 
-## 5. Escalation ladder
+## Task Check Batch
 
-| Level | Trigger | Owner | Action |
-|---|---|---|---|
-| 0 | Transient failure (network, timeout, rate limit) | Worker | Retry ≤ 3 with 10/30/60s backoff; fresh session each retry |
-| 1 | Persistent phase failure | Orchestrator | Dispatch `investigate` in same scope |
-| 2 | `investigate` loop cap hit | `investigate` | Emits `escalate_to_blocker(reason, options)` |
-| 3 | Blocker halt | User | Runs `resolve-blockers`; orchestrator resumes |
+After `do-task` reports implementation, Tanren runs the task check batch.
 
-**Root-cause signature** for loop cap:
-`sha256(failing_phase || task_id || normalized_error_fingerprint)`.
-Different fingerprint = counter reset. Same fingerprint increments.
-Default cap = 3.
+The required baseline checks are:
 
-**Escalation confinement:** `escalate_to_blocker` is callable only
-from `investigate`. Enforced via the tool capability scope
-(§agent-tool-surface). Other phases lack the capability; attempting
-to call it returns `CapabilityDenied`.
+- `task-gate`: automated task-scoped verification command;
+- `audit-task`: autonomous rubric-based code-quality audit;
+- `adhere-task`: autonomous standards-compliance check.
 
----
+These checks are first-class method phases. They may be configured, extended,
+or policy-controlled, but they are not optional in the baseline method because
+they are where Tanren checks task-level correctness, quality, and standards
+before allowing progress.
 
-## 6. Phase outcome contract
+Tanren waits for all task-check results before dispatching investigation. If
+any check fails, one investigation receives the full batch so repair work can
+address all known failures together.
 
-Every agentic phase session ends with one of:
-- **Complete + `report_phase_outcome(complete)`** — normal exit,
-  orchestrator records success.
-- **Complete without `report_phase_outcome`** — lenient default:
-  `Implemented` for do-task, `Complete` for other phases, conditional
-  on downstream gate/audit agreement.
-- **Non-zero exit** — `Error` outcome regardless of tool calls;
-  routes to `investigate`.
-- **Explicit `blocked`** — routes to `investigate` (not directly to
-  human).
-- **Explicit `escalate_to_blocker`** (investigate-only) — halts
-  orchestration pending `resolve-blockers`.
+## Draft PR Creation
 
-**Task-check failure evidence contract:** when any task check in a
-batch fails, orchestrator writes an investigation bundle containing
-the full untruncated logs for every check attempt plus a failed-check
-index. The investigate prompt receives the bundle index path; the next
-`do-task` retry prompt receives the latest recovery-context pointer.
+When every task is complete and task guards have passed, orchestration requests
+draft PR creation.
 
-**Retry semantics:** All retries are **fresh sessions**. No resume.
-Prompt caching keeps fresh-session cost low. Retry context includes
-the previous failure's narrative + any revised task description from
-the investigate session.
+Draft PR creation:
 
----
+- is mandatory for every spec;
+- creates or updates the candidate source-control object;
+- signals external CI and automated code-review systems;
+- records the branch, base branch, source-control provider, and PR identity;
+- moves the spec into candidate validation.
 
-## 7. Artifact edit enforcement
+Source-control integration owns the source-control mechanics. Orchestration
+owns the state transition and consumes provider status.
 
-Orchestrator-owned files (`spec.md`, `plan.md`, `tasks.md`,
-`tasks.json`, `demo.md`, `audit.md`, `signposts.md`, `progress.json`,
-`.tanren-generated-artifacts.json`, `.tanren-projection-checkpoint.json`,
-`phase-events.jsonl`) cannot be edited by agents.
-`phase-events.jsonl` is append-only via typed tools, and appended lines
-must exactly match projected outbox rows for the active session.
-Three-layer
-enforcement:
+## Candidate Validation Batch
 
-1. **Prompt banner** — `{{READONLY_ARTIFACT_BANNER}}` renders
-   into every agent prompt:
-   > ⚠️ The following files are orchestrator-owned. Any edits will
-   > be reverted and recorded as an `UnauthorizedArtifactEdit` event:
-   > spec.md, plan.md, tasks.md, tasks.json, demo.md, progress.json,
-   > and the generated-artifacts manifest. `phase-events.jsonl`
-   > appends are only
-   > accepted when they match service-projected outbox events.
-2. **Filesystem `chmod 0444`** — set on agent session start for
-   read-only artifacts (`spec.md`, `plan.md`, `tasks.md`, `tasks.json`,
-   `demo.md`, `audit.md`, `signposts.md`, `progress.json`,
-   `.tanren-generated-artifacts.json`, `.tanren-projection-checkpoint.json`,
-   generated indexes); append-only artifacts keep write mode so orchestrator
-   outbox projection can append.
-3. **Postflight diff + auto-revert** — diff each file against its
-   pre-phase snapshot; mismatches are reverted and emit
-   `UnauthorizedArtifactEdit { file, diff_preview, phase, agent_session }`.
+After the draft PR exists, Tanren runs internal spec checks and consumes
+external automated checks as one candidate validation batch.
 
-`investigation-report.json` is tool-authored and session-writable.
-Generated orchestrator-owned artifacts are fully projected and
-overwritten deterministically from events.
+Internal checks:
 
----
+- `spec-gate`: automated spec-scoped verification command;
+- `audit-spec`: autonomous rubric-based whole-spec audit;
+- `adhere-spec`: autonomous whole-spec standards-compliance check;
+- `run-demo`: autonomous critic/practice demo run.
 
-## 8. Dispatch lifecycle integration
+External automated checks:
 
-The methodology orchestration flow composes with dispatch CRUD:
+- source-control CI and workflow status;
+- automated AI code review;
+- provider status checks;
+- mergeability checks;
+- configured branch or PR protection checks.
 
-- Each phase is one `Dispatch` (existing dispatch entity from
-  `tanren-domain`).
-- Dispatch `phase` field identifies which command runs.
-- Dispatch `context` carries the resolved inputs for the command:
-  spec folder, task_id, diff_range, PR number, review-thread context,
-  resolved verification hook, resolved MCP config path.
-- Dispatch outcome events from Lane 0.4 (`DispatchCompleted`,
-  `DispatchFailed`, `DispatchCancelled`, `DispatchTimeout`) chain into
-  the task state machine via the orchestrator's transition rules.
+Tanren waits for the required candidate validation results before dispatching
+repair. If any required internal or external check fails, investigation
+receives the whole batch and routes repair.
 
----
+This Option A ordering is intentional: the draft PR starts external feedback
+early, while draft status keeps the candidate out of human review until
+Tanren's internal and external automated checks pass.
 
-## 9. Transition rules (authoritative table)
+## Run-Demo And Walk-Spec
 
-| From state | Event | To state | Guard |
-|---|---|---|---|
-| Pending | TaskStarted | InProgress | phase = do-task |
-| InProgress | TaskImplemented | Implemented | phase = do-task outcome = complete |
-| Implemented | TaskGateChecked | Implemented+gate_checked | gate outcome = pass |
-| Implemented | TaskAudited | Implemented+audited | audit outcome = pass, zero fix_now |
-| Implemented | TaskAdherent | Implemented+adherent | adherence outcome = pass, zero fix_now |
-| Implemented | TaskXChecked(guard) | Implemented+guard | guard outcome = pass |
-| Implemented+(all required) | TaskCompleted | Complete | — |
-| * (non-terminal) | TaskAbandoned | Abandoned | typed disposition + required provenance |
-| * (non-terminal) | TaskRevised | same state | mutates description only |
+`run-demo` and `walk-spec` are separate phases.
 
-All other event/state pairs are illegal and rejected by the service
-with `IllegalTaskTransition { from, event }`.
+`run-demo` is autonomous. It is an internal critic and practice run that checks
+whether the spec is demoable and whether completed behaviors appear to work as
+intended before human attention is requested.
 
----
+`walk-spec` is interactive. It is a live stakeholder demo and acceptance flow.
+It re-demonstrates the behavior with human judgment and does not blindly trust
+or consume `run-demo`.
 
-## 10. See also
+Passing `run-demo` is part of candidate validation. It is not a substitute for
+a required walk.
 
-- Tool surface that drives these transitions:
-  [agent-tool-surface.md](agent-tool-surface.md)
-- Evidence schemas produced at each phase:
-  [evidence-schemas.md](evidence-schemas.md)
-- Audit rubric semantics: [audit-rubric.md](audit-rubric.md)
-- Adherence semantics: [adherence.md](adherence.md)
-- Phase taxonomy (execution mode, intent, scope):
-  [phase-taxonomy.md](phase-taxonomy.md)
+## Ready For Review
+
+A spec becomes ready for review when:
+
+- all task guards passed;
+- draft PR exists;
+- required internal spec checks passed;
+- required external automated checks passed;
+- no unresolved candidate-validation investigation remains;
+- source-control provider reports the candidate is reviewable.
+
+Ready-for-review changes the PR from draft to ready-for-review and opens the
+manual acceptance stage.
+
+## Manual Acceptance
+
+Manual acceptance consists of separate channels:
+
+- **walk acceptance** through `walk-spec`;
+- **code-review approval** through source-control review or configured review
+  integration.
+
+Project or organization policy defines:
+
+- required walk count;
+- eligible walk acceptors;
+- required code-review approval count;
+- eligible code reviewers;
+- whether approvals are personal, project, or organization scoped;
+- whether certain low-risk scopes can omit code review;
+- whether any approval requires additional policy approval.
+
+Any actionable review comment moves the spec and PR back to draft
+candidate-checking. Any code change after walk acceptance makes prior walk
+acceptance stale unless policy explicitly classifies the change as
+non-behavioral.
+
+## Investigation And Routing
+
+Investigation is the shared repair and routing loop for active specs.
+
+Triggers include:
+
+- task gate failure;
+- task audit finding;
+- task adherence finding;
+- spec gate failure;
+- spec audit finding;
+- spec adherence finding;
+- run-demo failure;
+- external CI failure;
+- automated AI review finding;
+- human code-review comment;
+- walk rejection;
+- merge conflict;
+- base-branch intent drift;
+- provider status failure;
+- runtime or harness failure affecting the active spec.
+
+Investigation outcomes include:
+
+- revise a non-terminal task;
+- create a new task;
+- mark feedback addressed, invalid, or already satisfied;
+- route out-of-scope material to assessment or planning;
+- request more information;
+- escalate to `resolve-blockers`;
+- cancel or archive the spec according to policy.
+
+Task-scoped failures repair the same non-terminal task. Spec-scoped failures
+and feedback after completed tasks create new tasks. Completed tasks are not
+reopened.
+
+## Resolve-Blockers
+
+`resolve-blockers` is an interactive escalation phase.
+
+It is used when autonomous investigation cannot safely proceed because product
+direction, scope, policy, credential access, dependency state, external system
+state, or reviewer intent requires human judgment.
+
+Resolution may unblock work, revise tasks, create tasks, route to planning,
+cancel work, or change the spec disposition according to permissions and
+policy.
+
+## Base-Branch And Intent Drift
+
+Orchestration tracks base-branch changes while a spec is active.
+
+When another branch merges into the base branch:
+
+- if text merge conflicts exist, the spec routes to merge-conflict
+  investigation;
+- if no text conflict exists, the spec still pauses merge readiness for
+  intent-drift investigation.
+
+Intent-drift investigation checks whether newly merged work changes the
+meaning or completeness of this spec. A branch can become incomplete without a
+textual conflict when parallel work changes the product surface the spec was
+meant to cover.
+
+For stacked-diff or dependent specs, orchestration tracks dependency branches,
+base revisions, and readiness to revalidate when upstream work changes.
+Source-control integration owns the source-control mechanics of rebasing and
+merging.
+
+## Active-Spec Findings
+
+Active-spec findings are scoped to the current spec and candidate branch. They
+represent incomplete implementation, quality gaps, standards violations, demo
+failures, review comments, merge conflicts, or active-spec risks.
+
+They are distinct from assessment findings, which are spec-independent and may
+become one or more future specs. Active-spec findings route inside the current
+spec unless they are explicitly out of scope.
+
+The finding model should share common fields with assessment findings where
+useful, such as severity, provenance, source-state, source, scope, and
+rationale, but active
+spec findings have task/spec provenance and repair routing.
+
+## Team Coordination
+
+Orchestration owns coordination around active specs:
+
+- current owner;
+- assignee;
+- reviewer;
+- walk acceptor;
+- takeover request;
+- assist permissions;
+- handoff notes;
+- blocker responder;
+- duplicate or overlapping active work detection;
+- visibility of active team work.
+
+Coordination decisions are policy-checked and event-sourced. Ownership is
+accountability and routing; it is not automatically broad permission to make
+every decision.
+
+## Handoff To Source-Control Integration
+
+When required walk acceptances and code reviews are satisfied, orchestration
+emits a merge-ready handoff.
+
+The handoff includes:
+
+- spec identity;
+- roadmap node identity;
+- accepted behavior IDs;
+- PR identity;
+- source branch and base branch;
+- required checks and approval summary;
+- proof status summary;
+- known residual risks;
+- merge and release constraints.
+
+Source-control integration owns merge execution. Delivery and release-related
+subsystems consume the merged result for shipped state, post-merge cleanup, and
+post-release learning handoff.
+
+## Accepted Orchestration Decisions
+
+- Orchestration starts from an accepted roadmap node.
+- `shape-spec` is not product planning.
+- Every spec creates a draft PR after all tasks complete and task guards pass.
+- Draft PR creation precedes candidate validation.
+- Internal spec checks and external automated checks run as one candidate
+  validation batch.
+- Task checks and candidate validation checks are batched before
+  investigation.
+- `task-gate`, `audit-task`, and `adhere-task` are first-class required
+  task-level phases.
+- `spec-gate`, `audit-spec`, `adhere-spec`, and `run-demo` are first-class
+  spec-level validation phases.
+- `run-demo` is an autonomous critic/practice run.
+- `walk-spec` is a separate human/stakeholder demo and acceptance phase.
+- Human code review and walk acceptance are separate acceptance channels.
+- Actionable review feedback moves the PR/spec back to draft
+  candidate-checking.
+- Code changes after walk acceptance stale prior walk acceptance by default.
+- Base-branch changes trigger merge-conflict or intent-drift investigation.
+- Task-complete is terminal.
+- Task-scoped failures repair non-terminal tasks; spec-scoped failures create
+  new tasks.
+- Source-control integration owns merge execution after orchestration emits
+  merge-ready handoff.
+- Review policy defines required walk count, required code-review count,
+  required reviewer scopes, stale-on-change rules, and merge authority.
+- Required external checks are project configured. Source-control mergeability
+  is always required.
+- Post-walk changes preserve walk acceptance only when marked documentation,
+  metadata, generated projection refresh, or policy-approved non-behavioral
+  change with changed paths and rationale.
+- Shared findings include source control, source phase, severity, provenance,
+  source-state, affected scope, affected behavior/resource where known,
+  rationale, disposition, destination, source references, freshness, and
+  redaction state.
+- Tanren requests draft/ready transitions through the source-control provider
+  and records provider state as source signals; it does not treat provider
+  state as canonical orchestration state.
+
+## Rejected Alternatives
+
+- **Starting orchestration from an unplanned draft spec.** Rejected because
+  `shape-spec` should not become product planning.
+- **Creating PRs only after walk acceptance.** Rejected because CI, automated
+  review, and provider checks need to run before humans spend final acceptance
+  attention.
+- **Running internal spec checks before draft PR creation.** Rejected for the
+  baseline because early draft PR creation improves feedback throughput and the
+  cost of changing the ordering later is low.
+- **Treating run-demo as walk acceptance.** Rejected because autonomous critic
+  runs cannot replace stakeholder judgment where policy requires a walk.
+- **Treating code review as walk acceptance.** Rejected because code inspection
+  and behavior demonstration answer different questions.
+- **Reopening completed tasks.** Rejected because monotonic task history keeps
+  repair provenance clear.
+- **Ignoring clean base-branch merges.** Rejected because intent drift can
+  occur without text conflicts.

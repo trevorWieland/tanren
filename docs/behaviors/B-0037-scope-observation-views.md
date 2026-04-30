@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0037
 title: Scope observation views by project or grouping
 area: observation

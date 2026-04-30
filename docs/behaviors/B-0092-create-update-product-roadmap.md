@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0092
 title: Maintain a product roadmap as planning context
 area: product-planning

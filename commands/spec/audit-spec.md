@@ -101,7 +101,7 @@ orchestrator owns the spec gate.
 
 - Creating `{{ISSUE_REF_NOUN}}s` for deferred items (orchestrator
   does this via `create_issue` on your classified findings)
-- Editing `ROADMAP.md`, `plan.md`, or any orchestrator-owned file
+- Editing `docs/roadmap/roadmap.md`, `plan.md`, or any orchestrator-owned file
 - Creating tasks directly
 - Standards compliance (that's `adhere-spec`)
 - Committing, pushing, or PR mechanics

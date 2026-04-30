@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0255
 title: Accept idempotent client create and update requests
 area: integration-contract

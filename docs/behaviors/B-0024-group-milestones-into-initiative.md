@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0024
 title: Group milestones into an initiative
 area: spec-lifecycle

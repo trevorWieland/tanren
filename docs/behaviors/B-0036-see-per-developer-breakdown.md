@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0036
 title: See a per-builder breakdown of contribution
 area: observation

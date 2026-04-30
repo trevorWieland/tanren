@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0141
 title: Define target users and problems
 area: product-discovery

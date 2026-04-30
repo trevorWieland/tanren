@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0157
 title: Explain why a spec is not ready
 area: spec-quality
@@ -22,7 +23,7 @@ A user can see why a spec is not ready so unresolved shaping, policy, dependency
 ## Observable outcomes
 
 - The not-ready explanation names user-visible blockers or concerns.
-- Each concern links to the relevant product context, dependency, policy, or missing evidence where visible.
+- Each concern links to the relevant product context, dependency, policy, or missing source signals where visible.
 - Hidden details are redacted without hiding that a blocker exists.
 
 ## Out of scope

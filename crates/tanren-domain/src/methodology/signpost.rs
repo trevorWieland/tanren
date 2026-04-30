@@ -2,7 +2,7 @@
 //!
 //! A [`Signpost`] captures a tricky problem, what the implementer tried,
 //! and how (or whether) it was resolved. Per
-//! `docs/architecture/evidence-schemas.md`, signposts live in
+//! `docs/architecture/subsystems/evidence.md`, signposts live in
 //! `signposts.md` with typed frontmatter plus a free-form markdown body;
 //! the `entries` list is managed exclusively via `add_signpost` /
 //! `update_signpost_status` tool calls.

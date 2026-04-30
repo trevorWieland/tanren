@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0137
 title: Choose a deployment posture
 area: project-setup

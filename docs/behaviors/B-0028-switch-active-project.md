@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0028
 title: Switch the active project within an account
 area: project-setup

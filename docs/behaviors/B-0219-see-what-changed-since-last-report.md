@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0219
 title: See what changed since the last report
 area: observation
@@ -21,9 +22,9 @@ A user can see what changed since the last report so recurring status reviews fo
 
 ## Observable outcomes
 
-- Tanren summarizes changes in progress, risk, blockers, decisions, shipped outcomes, and confidence since the prior report.
+- Tanren summarizes changes in progress, risk, blockers, decisions, shipped outcomes, and provenance since the prior report.
 - Unchanged areas are distinguishable from areas with missing data.
-- The summary links to changed work and supporting evidence where visible.
+- The summary links to changed work and supporting source references where visible.
 
 ## Out of scope
 

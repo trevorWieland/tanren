@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0126
 title: Store project or organization secrets without exposing secret values
 area: configuration

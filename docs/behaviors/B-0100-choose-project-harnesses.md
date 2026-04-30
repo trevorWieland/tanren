@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0100
 title: Choose which harnesses a project may use
 area: runtime-substrate

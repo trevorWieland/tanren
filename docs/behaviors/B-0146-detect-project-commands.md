@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0146
 title: Detect build, test, lint, and release commands
 area: repo-understanding
@@ -22,13 +23,13 @@ A `solo-builder` or `team-builder` can detect project commands so verification a
 ## Observable outcomes
 
 - Tanren identifies likely build, test, lint, format, and release commands.
-- Detected commands include confidence or evidence for why they were chosen.
+- Detected commands include provenance or source signals for why they were chosen.
 - Ambiguous or missing commands are surfaced for user confirmation.
 
 ## Out of scope
 
 - Running commands without the user's configured execution policy.
-- Inventing commands when repository evidence is absent.
+- Inventing commands when repository source signals are absent.
 
 ## Related
 

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0144
 title: Import existing planning context
 area: product-discovery

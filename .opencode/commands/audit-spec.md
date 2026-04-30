@@ -104,7 +104,7 @@ template: |2
 
   - Creating `GitHub issues` for deferred items (orchestrator
     does this via `create_issue` on your classified findings)
-  - Editing `ROADMAP.md`, `plan.md`, or any orchestrator-owned file
+  - Editing `docs/roadmap/roadmap.md`, `plan.md`, or any orchestrator-owned file
   - Creating tasks directly
   - Standards compliance (that's `adhere-spec`)
   - Committing, pushing, or PR mechanics

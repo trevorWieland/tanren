@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0079
 title: Bootstrap a product mission for a project
 area: product-planning

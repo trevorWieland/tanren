@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0057
 title: Quick-access external links from a spec to its ticket and pull request
 area: external-tracker

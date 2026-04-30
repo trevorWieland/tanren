@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0118
 title: See pull request and CI state from the spec
 area: review-merge

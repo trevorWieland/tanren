@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0075
 title: Prefill a draft spec from an external ticket
 area: intake

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0262
 title: Observe state through read models or subscriptions
 area: integration-contract

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0172
 title: Reuse prior user preferences when shaping work
 area: decision-memory

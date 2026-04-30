@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0270
 title: Configure what counts as shipped for a project
 area: release-learning
@@ -26,7 +27,7 @@ is always release.
 - The project records whether shipped means merged, deployed, released,
   manually marked, or confirmed by an external signal.
 - Recently shipped outcome views use the configured definition.
-- Missing or unavailable release evidence is visible instead of treated as
+- Missing or unavailable release source signals are visible instead of treated as
   success.
 - Changes to the shipped definition are attributed and affect subsequent
   reporting.

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0183
 title: See coherent Tanren state across public interfaces
 area: cross-interface
@@ -21,7 +22,7 @@ A user or integration client can see coherent Tanren state across public interfa
 
 ## Observable outcomes
 
-- Project, spec, loop, graph, configuration, and evidence state agree across public interfaces.
+- Project, spec, loop, graph, configuration, and source-reference state agree across public interfaces.
 - Interface-specific presentation differences do not change the underlying behavior status.
 - Stale or unavailable interface views are marked as such.
 

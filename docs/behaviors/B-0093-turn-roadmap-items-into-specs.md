@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0093
 title: Turn roadmap items into specs
 area: intake

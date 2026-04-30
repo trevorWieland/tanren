@@ -2,7 +2,7 @@
 //!
 //! Every agentic phase concludes by calling `report_phase_outcome` exactly
 //! once. The outcome is one of three variants per
-//! `docs/architecture/agent-tool-surface.md` §3.6.
+//! `docs/architecture/subsystems/tools.md` §3.6.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

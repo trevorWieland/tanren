@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0155
 title: Detect oversized specs and propose splits
 area: spec-quality

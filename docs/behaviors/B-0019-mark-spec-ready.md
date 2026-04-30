@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0019
 title: Mark a spec ready to run
 area: spec-lifecycle

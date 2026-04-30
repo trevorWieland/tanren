@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0110
 title: See the planned graph of work
 area: planner-orchestration

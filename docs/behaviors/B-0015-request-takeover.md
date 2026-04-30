@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0015
 title: Request a takeover from the current owner
 area: team-coordination

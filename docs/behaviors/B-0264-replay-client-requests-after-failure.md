@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0264
 title: Safely replay client requests after failure
 area: integration-contract
@@ -28,7 +29,7 @@ An `integration-client` can safely replay requests after client, network, or Tan
 ## Out of scope
 
 - Making unsafe non-idempotent requests replayable by default.
-- Hiding partial failure evidence.
+- Hiding partial failure source signals.
 
 ## Related
 

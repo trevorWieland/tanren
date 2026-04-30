@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0242
 title: Export operational audit logs
 area: operations

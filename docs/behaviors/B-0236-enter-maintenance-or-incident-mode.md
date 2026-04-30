@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0236
 title: Enter maintenance or incident mode
 area: operations

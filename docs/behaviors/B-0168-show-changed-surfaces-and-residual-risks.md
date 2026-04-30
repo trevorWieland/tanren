@@ -1,7 +1,8 @@
 ---
+schema: tanren.behavior.v0
 id: B-0168
 title: Show changed surfaces and residual risks
-area: walk-evidence
+area: walk-acceptance
 personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
@@ -16,7 +17,7 @@ A user can see changed surfaces and residual risks before acceptance so they und
 
 ## Preconditions
 
-- Work has produced changes or evidence for a spec.
+- Work has produced changes or source signals for a spec.
 - The user has visibility into the affected project surfaces.
 
 ## Observable outcomes

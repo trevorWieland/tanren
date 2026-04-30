@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0069
 title: Detect installer drift without mutating files
 area: project-setup
@@ -29,6 +30,7 @@ generated Tanren assets are checked for drift without changing the repository.
 ## Out of scope
 
 - Automatically applying drift remediation.
+- Performing local repository drift checks from phone-only interfaces.
 
 ## Related
 

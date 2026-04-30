@@ -40,7 +40,7 @@ just ci
 - `commands/`: workflow instructions rendered into agent targets
 - `profiles/`: coding standards by stack
 - `protocol/`: protocol overview
-- `docs/`: roadmap, architecture, methodology, and operations docs
+- `docs/`: Tanren-owned product, behavior, architecture, implementation, and roadmap projections
 - `tests/bdd/`: behavior feature files used by the proof suite
 
 ## Commit Style
@@ -72,9 +72,9 @@ the workspace crate metadata and repository license files.
 If behavior, interfaces, lifecycle, or security posture changes, update the
 canonical docs in the same PR.
 
-- Product vision: `docs/vision.md`
+- Product vision: `docs/product/vision.md`
 - Behavior canon: `docs/behaviors/`
 - Roadmap DAG guidance: `docs/roadmap/`
 - Architecture and boundaries: `docs/architecture/`
-- Command installation and methodology: `docs/methodology/`
+- Command installation and methodology: `docs/architecture/delivery.md`
 - Root summaries: `README.md` and `AGENTS.md`

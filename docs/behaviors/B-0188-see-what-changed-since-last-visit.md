@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0188
 title: See what changed since I last visited the project
 area: observation

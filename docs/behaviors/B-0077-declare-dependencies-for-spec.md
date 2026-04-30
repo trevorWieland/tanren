@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0077
 title: Declare dependencies for a spec
 area: spec-lifecycle

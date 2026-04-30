@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0261
 title: Deny machine clients across permission boundaries
 area: integration-contract

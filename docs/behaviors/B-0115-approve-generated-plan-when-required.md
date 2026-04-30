@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0115
 title: Approve a generated plan when policy requires approval
 area: planner-orchestration

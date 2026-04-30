@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0002
 title: Automatically start eligible ready work when serial execution is configured
 area: implementation-loop

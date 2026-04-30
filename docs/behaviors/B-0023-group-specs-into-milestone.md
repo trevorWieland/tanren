@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0023
 title: Group specs into a milestone
 area: spec-lifecycle

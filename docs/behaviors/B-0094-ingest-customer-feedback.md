@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0094
 title: Ingest customer feedback into candidate work
 area: intake

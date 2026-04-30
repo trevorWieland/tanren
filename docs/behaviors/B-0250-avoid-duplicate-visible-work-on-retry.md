@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0250
 title: Avoid duplicate visible work on retry
 area: runtime-actor-contract

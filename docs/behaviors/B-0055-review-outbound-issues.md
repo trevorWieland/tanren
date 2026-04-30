@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0055
 title: Configure outbound issue review mode
 area: external-tracker

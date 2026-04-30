@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0231
 title: Detect over-scoped credentials or integrations
 area: configuration
@@ -21,7 +22,7 @@ A user can detect over-scoped credentials or integrations so external access can
 ## Observable outcomes
 
 - Tanren identifies access that appears broader than configured need or policy.
-- Findings explain affected scope, capability, and evidence without revealing secret values.
+- Findings explain affected scope, capability, and source signals without revealing secret values.
 - The user can route the concern to rotation, revocation, policy change, or accepted exception.
 
 ## Out of scope

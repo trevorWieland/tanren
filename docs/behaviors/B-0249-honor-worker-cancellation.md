@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0249
 title: Honor cancellation and access revocation
 area: runtime-actor-contract
@@ -24,12 +25,12 @@ An `agent-worker` can honor cancellation and access revocation so Tanren-control
 
 - The worker stops using revoked access and stops or pauses affected work according to policy.
 - The affected work records whether cancellation completed, failed, or needs recovery.
-- Evidence needed to understand what happened remains available.
+- Source signals needed to understand what happened remain available.
 
 ## Out of scope
 
 - Continuing work after cancellation by switching credentials.
-- Deleting evidence to make cancellation look clean.
+- Deleting source signals to make cancellation look clean.
 
 ## Related
 

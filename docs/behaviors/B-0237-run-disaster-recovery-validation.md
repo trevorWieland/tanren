@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0237
 title: Run disaster recovery validation
 area: operations
@@ -23,7 +24,7 @@ A user can run disaster recovery validation so backups and recovery paths are tr
 
 - Tanren reports whether required recovery artifacts, permissions, and procedures are present.
 - Validation failures are actionable without exposing secret values.
-- Results are stored as operational evidence.
+- Results are stored as operational source signals.
 
 ## Out of scope
 

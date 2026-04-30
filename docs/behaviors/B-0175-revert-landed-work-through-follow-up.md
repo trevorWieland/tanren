@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0175
 title: Revert landed work through controlled follow-up
 area: undo-recovery
@@ -21,7 +22,7 @@ A user can revert landed work through controlled follow-up so shipped changes ca
 
 ## Observable outcomes
 
-- Tanren creates or routes revert work linked to the original spec, evidence, and merge.
+- Tanren creates or routes revert work linked to the original spec, source signals, and merge.
 - The revert follows normal shaping, execution, review, and merge policy.
 - The original work remains historically visible after the revert lands.
 

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0083
 title: Configure organization budget and quota policy
 area: governance

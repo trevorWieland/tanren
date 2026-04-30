@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0235
 title: Revoke active worker access
 area: runtime-substrate
@@ -28,7 +29,7 @@ A user can revoke active worker access so execution access can be stopped during
 
 ## Out of scope
 
-- Destroying evidence needed for investigation.
+- Destroying source signals needed for investigation.
 - Hiding that work was interrupted by access revocation.
 
 ## Related

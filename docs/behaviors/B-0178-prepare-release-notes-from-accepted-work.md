@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0178
 title: Prepare release notes from accepted work
 area: release-learning
@@ -12,7 +13,7 @@ supersedes: []
 
 ## Intent
 
-A `solo-builder` or `team-builder` can prepare release notes from accepted work so shipped changes are communicated from product evidence.
+A `solo-builder` or `team-builder` can prepare release notes from accepted work so shipped changes are communicated from product source signals.
 
 ## Preconditions
 
@@ -21,7 +22,7 @@ A `solo-builder` or `team-builder` can prepare release notes from accepted work 
 
 ## Observable outcomes
 
-- Tanren drafts release notes linked to accepted specs and evidence.
+- Tanren drafts release notes linked to accepted specs and source signals.
 - User-visible changes, fixes, risks, and follow-up work are distinguishable.
 - The user can revise release notes before they are published or exported.
 

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0224
 title: Connect a user-owned provider integration
 area: integration-management

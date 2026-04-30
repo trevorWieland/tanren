@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0123
 title: Recover from merge conflicts after parallel work lands
 area: review-merge
@@ -24,12 +25,12 @@ A user or Tanren worker can recover when parallel work causes a merge conflict s
 
 - The conflict is visible on the affected spec or graph node.
 - Tanren routes conflict resolution into follow-up work or human escalation.
-- The original evidence and branch history remain traceable.
+- The original source signals and branch history remain traceable.
 
 ## Out of scope
 
 - Silently discarding one side of the conflict.
-- Resolving conflicts without evidence.
+- Resolving conflicts without source signals.
 
 ## Related
 

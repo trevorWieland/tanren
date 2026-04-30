@@ -1,6 +1,7 @@
 ---
+schema: tanren.behavior.v0
 id: B-0161
-title: Rebalance the roadmap after new evidence
+title: Rebalance the roadmap after new source signals
 area: prioritization
 personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
@@ -12,7 +13,7 @@ supersedes: []
 
 ## Intent
 
-A `solo-builder` or `team-builder` can rebalance the roadmap after new evidence so product planning adapts without losing the prior rationale.
+A `solo-builder` or `team-builder` can rebalance the roadmap after new source signals so product planning adapts without losing the prior rationale.
 
 ## Preconditions
 
@@ -21,9 +22,9 @@ A `solo-builder` or `team-builder` can rebalance the roadmap after new evidence 
 
 ## Observable outcomes
 
-- Tanren identifies roadmap items affected by the new evidence.
+- Tanren identifies roadmap items affected by the new source signals.
 - Proposed changes show what would move, split, defer, or become newly important.
-- Accepted roadmap changes preserve links to the evidence that motivated them.
+- Accepted roadmap changes preserve links to the source signals that motivated them.
 
 ## Out of scope
 

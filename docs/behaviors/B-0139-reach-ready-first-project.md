@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0139
 title: Reach a ready first project
 area: project-setup

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0013
 title: Prevent uncoordinated concurrent loops on the same spec
 area: team-coordination

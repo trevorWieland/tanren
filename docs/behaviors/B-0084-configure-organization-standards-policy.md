@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0084
 title: Configure organization standards policy
 area: governance

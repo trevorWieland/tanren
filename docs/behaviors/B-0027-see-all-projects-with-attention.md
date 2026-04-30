@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0027
 title: See all projects in an account with attention indicators
 area: project-setup

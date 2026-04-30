@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0256
 title: Return machine-readable validation errors
 area: integration-contract

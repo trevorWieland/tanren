@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEFAULT_OUTPUT="artifacts/behavior/readiness/implementation-readiness.json"
+DEFAULT_OUTPUT="docs/implementation/readiness.json"
 DEFAULT_RUN_ROOT="artifacts/behavior/readiness/runs"
 DEFAULT_MODEL="gpt-5.4-mini"
 DEFAULT_REASONING_EFFORT="medium"
@@ -18,7 +18,7 @@ reports as workers finish, then writes one aggregate JSON artifact.
 
 Options:
   --output PATH        Aggregate report path
-                       (default: artifacts/behavior/readiness/implementation-readiness.json)
+                       (default: docs/implementation/readiness.json)
   --jobs N            Parallel Codex workers (default: 4)
   --model MODEL       Codex model (default: gpt-5.4-mini)
   --reasoning-effort LEVEL
@@ -431,8 +431,8 @@ Behavior under review:
 Required reading:
 - The behavior file above.
 - Similar behavior files: same area, directly related IDs in the Related section, superseded/superseding IDs if present, and behavior files with overlapping personas/interfaces/context when relevant.
-- Read docs/behaviors/README.md, docs/behaviors/concepts.md, docs/behaviors/personas.md, docs/behaviors/runtime-actors.md, docs/behaviors/interfaces.md, docs/behaviors/current-verification.md.
-- If needed for this behavior, read high-level product and architecture docs that exist in this checkout, especially README.md, docs/roadmap/README.md, docs/roadmap/ROADMAP.md, docs/architecture/overview.md, docs/architecture/orchestration-flow.md, docs/methodology/system.md.
+- Read docs/behaviors/index.md, docs/product/concepts.md, docs/product/personas.md, docs/architecture/subsystems/runtime-actors.md, docs/architecture/subsystems/interfaces.md, and docs/implementation/verification.md.
+- If needed for this behavior, read high-level product and architecture docs that exist in this checkout, especially README.md, docs/roadmap/roadmap.md, docs/roadmap/dag.json, docs/architecture/system.md, docs/architecture/technology.md, docs/architecture/delivery.md, docs/architecture/operations.md, and docs/architecture/subsystems/orchestration.md.
 - Code, tests, command docs, BDD features, and architecture docs that look relevant after searching for behavior terms, related IDs, area terms, and domain concepts.
 
 Classify readiness from the current repository state:

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0152
 title: Detect conflicting standards before work starts
 area: standards-evolution
@@ -22,7 +23,7 @@ A `solo-builder` or `team-builder` can detect conflicting standards before work 
 ## Observable outcomes
 
 - Conflicting standards are shown with the work they affect.
-- Tanren identifies whether the conflict blocks readiness or only lowers confidence.
+- Tanren identifies whether the conflict blocks readiness or only lowers provenance.
 - The user can route the conflict to standards revision or explicit override when policy allows.
 
 ## Out of scope

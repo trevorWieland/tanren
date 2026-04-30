@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0021
 title: See a spec's current lifecycle state
 area: spec-lifecycle

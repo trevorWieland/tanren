@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0226
 title: See provider connection health
 area: integration-management

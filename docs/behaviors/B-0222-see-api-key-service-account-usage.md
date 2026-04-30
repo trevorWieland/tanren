@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0222
 title: See API key and service account usage
 area: configuration

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0177
 title: Recover from a bad planning decision without losing history
 area: undo-recovery

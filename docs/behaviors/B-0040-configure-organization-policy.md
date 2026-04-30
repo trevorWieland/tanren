@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0040
 title: Configure organization approval policy
 area: governance

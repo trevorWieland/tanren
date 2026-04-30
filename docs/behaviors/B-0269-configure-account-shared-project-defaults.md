@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0269
 title: Configure shared project defaults for an account
 area: configuration

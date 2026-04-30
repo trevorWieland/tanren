@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0066
 title: Create an organization
 area: governance

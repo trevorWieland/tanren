@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0228
 title: Recover from provider authorization failure
 area: integration-management

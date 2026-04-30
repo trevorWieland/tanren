@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0165
 title: Stop automation when user-set boundaries are crossed
 area: autonomy-controls

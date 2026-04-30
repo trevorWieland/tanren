@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0099
 title: Add credentials for a code harness
 area: runtime-substrate

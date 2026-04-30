@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0199
 title: Distinguish personal credentials from shared secrets
 area: configuration

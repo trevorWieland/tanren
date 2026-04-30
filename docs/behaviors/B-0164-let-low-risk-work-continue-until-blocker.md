@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0164
 title: Let low-risk work continue until a blocker
 area: autonomy-controls
@@ -28,7 +29,7 @@ A `solo-builder` or `team-builder` can let low-risk work continue until a blocke
 ## Out of scope
 
 - Continuing work after a configured stop boundary.
-- Suppressing evidence needed for later review.
+- Suppressing source signals needed for later review.
 
 ## Related
 

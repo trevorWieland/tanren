@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0206
 title: See what is blocked and why
 area: observation

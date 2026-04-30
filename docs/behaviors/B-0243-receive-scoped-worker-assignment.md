@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0243
 title: Receive a scoped worker assignment
 area: runtime-actor-contract
@@ -13,7 +14,7 @@ supersedes: []
 
 ## Intent
 
-An `agent-worker` can receive a scoped assignment so Tanren-controlled execution has explicit work, phase, capability, and evidence boundaries.
+An `agent-worker` can receive a scoped assignment so Tanren-controlled execution has explicit work, phase, capability, and proof and source-signal boundaries.
 
 ## Preconditions
 
@@ -22,7 +23,7 @@ An `agent-worker` can receive a scoped assignment so Tanren-controlled execution
 
 ## Observable outcomes
 
-- The assignment identifies work scope, phase or intent, allowed tools, environment, credentials, expiration, and evidence obligations.
+- The assignment identifies work scope, phase or intent, allowed tools, environment, credentials, expiration, and proof obligations.
 - Users with visibility can see that a worker assignment exists without seeing secret values.
 - Missing assignment context prevents the worker from starting work.
 

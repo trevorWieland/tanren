@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0198
 title: Collect required approvals for a gated action
 area: governance

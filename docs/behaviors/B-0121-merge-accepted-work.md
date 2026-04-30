@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0121
 title: Merge accepted work
 area: review-merge
@@ -24,7 +25,7 @@ A user or authorized Tanren worker can merge accepted work so completed, reviewe
 
 - The merge is performed or queued according to project policy.
 - The spec records merge completion.
-- Merge failure leaves actionable evidence and does not mark the spec done.
+- Merge failure leaves actionable source signals and does not mark the spec done.
 
 ## Out of scope
 

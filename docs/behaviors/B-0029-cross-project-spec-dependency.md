@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0029
 title: Honor cross-project spec dependencies
 area: spec-lifecycle

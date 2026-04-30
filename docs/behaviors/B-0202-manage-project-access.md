@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0202
 title: Manage project access
 area: governance

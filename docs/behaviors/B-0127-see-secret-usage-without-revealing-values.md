@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0127
 title: See where credentials or secrets are used without revealing them
 area: configuration

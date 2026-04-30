@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0072
 title: Review delivered behavior during a walk
 area: review-merge
@@ -22,7 +23,7 @@ A `solo-builder` or `team-builder` can review the delivered behavior for a spec 
 ## Observable outcomes
 
 - The user can see the behaviors and acceptance criteria being walked.
-- The user can review evidence, notes, and demonstrations associated with the walk.
+- The user can review source signals, notes, and demonstrations associated with the walk.
 - The user can record walk observations without accepting or rejecting the work yet.
 
 ## Out of scope

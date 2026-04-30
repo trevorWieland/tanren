@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0124
 title: Detect intent conflicts after related work lands
 area: review-merge

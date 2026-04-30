@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0136
 title: Complete first-run setup
 area: project-setup

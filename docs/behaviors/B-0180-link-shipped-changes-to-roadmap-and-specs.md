@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0180
 title: Link shipped changes back to roadmap and specs
 area: release-learning
@@ -21,7 +22,7 @@ A user can link shipped changes back to roadmap and specs so product progress re
 
 ## Observable outcomes
 
-- Shipped changes link to their source specs, roadmap items, and evidence.
+- Shipped changes link to their source specs, roadmap items, and source signals.
 - The roadmap can distinguish planned, in-progress, shipped, and superseded work.
 - Missing links are visible for correction.
 

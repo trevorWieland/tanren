@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0034
 title: See health signals of active work
 area: observation

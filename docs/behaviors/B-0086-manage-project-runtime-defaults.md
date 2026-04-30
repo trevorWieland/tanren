@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0086
 title: Manage project runtime defaults
 area: configuration

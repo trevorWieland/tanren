@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0143
 title: Define product success signals
 area: product-discovery

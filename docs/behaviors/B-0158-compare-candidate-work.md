@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0158
 title: Compare candidate work before prioritization
 area: prioritization
@@ -22,7 +23,7 @@ A `solo-builder` or `team-builder` can compare candidate work before prioritizat
 ## Observable outcomes
 
 - Tanren shows comparable dimensions such as mission alignment, urgency, risk, dependencies, and rough effort.
-- Missing comparison evidence is called out.
+- Missing comparison source signals are called out.
 - The comparison can support roadmap sequencing or deferral.
 
 ## Out of scope

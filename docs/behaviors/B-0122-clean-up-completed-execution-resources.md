@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0122
 title: Clean up completed execution resources
 area: review-merge
@@ -13,7 +14,7 @@ supersedes: []
 
 ## Intent
 
-A user or Tanren worker can clean up resources for completed work so finished execution does not leave unnecessary worktrees, leases, or runtime targets active.
+A user or Tanren worker can clean up resources for completed work so finished execution does not leave unnecessary workspace clones, leases, or runtime targets active.
 
 ## Preconditions
 
@@ -23,12 +24,12 @@ A user or Tanren worker can clean up resources for completed work so finished ex
 ## Observable outcomes
 
 - Runtime resources are released or marked retained with a reason.
-- Evidence needed for audit and recovery remains available.
+- Source signals needed for audit and recovery remain available.
 - Users can see cleanup status.
 
 ## Out of scope
 
-- Deleting required evidence.
+- Deleting required source signals.
 - Cleaning unrelated work.
 
 ## Related

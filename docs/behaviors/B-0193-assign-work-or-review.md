@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0193
 title: Assign work or review to another builder
 area: team-coordination

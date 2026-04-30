@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0112
 title: See why Tanren chose the next available work
 area: planner-orchestration

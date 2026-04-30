@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0244
 title: Refuse invalid or unauthorized worker assignments
 area: runtime-actor-contract

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0272
 title: Choose project disposition when deleting an organization
 area: governance

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0008
 title: Inspect detailed live activity of a running loop
 area: implementation-loop

@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0240
 title: Manage webhook endpoints
 area: integration-management
@@ -22,12 +23,14 @@ events only through configured subscriptions and scopes.
 ## Observable outcomes
 
 - Webhook endpoints show scope, event categories, signing status, health, and recent delivery state.
-- Failed deliveries can be retried, paused, disabled, or investigated according to policy.
+- The user can create, update, pause, resume, disable, or remove endpoints when permitted.
+- Endpoint views show whether delivery failures exist and link to failure handling.
 - Secret signing material is not displayed after creation or rotation.
 
 ## Out of scope
 
 - Remediating delivery failures after events have been attempted.
+- Defining webhook delivery semantics for receivers.
 - Sending events outside the endpoint's configured scope.
 
 ## Related
@@ -35,4 +38,5 @@ events only through configured subscriptions and scopes.
 - B-0128
 - B-0229
 - B-0242
+- B-0258
 - B-0275

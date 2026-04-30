@@ -1,4 +1,5 @@
 ---
+schema: tanren.behavior.v0
 id: B-0088
 title: Manage project-scoped secrets
 area: configuration
