@@ -33,10 +33,16 @@ bootstrap:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    curl_retry() {
+        curl --retry 10 --retry-delay 2 --retry-all-errors "$@"
+    }
+
+    failed=""
+
     echo "==> Checking for rustup..."
     if ! command -v rustup &>/dev/null; then
         echo "Installing rustup..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        curl_retry --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         echo "Run 'source ~/.cargo/env' or restart your shell, then re-run 'just bootstrap'"
         exit 1
     fi
@@ -53,12 +59,14 @@ bootstrap:
 
     echo "==> Installing cargo-binstall..."
     if ! command -v cargo-binstall &>/dev/null; then
-        curl -L --proto '=https' --tlsv1.2 -sSf \
-            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+        if ! curl_retry -L --proto '=https' --tlsv1.2 -sSf \
+            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash; then
+            echo "  FAIL: cargo-binstall"
+            failed="$failed cargo-binstall"
+        fi
     fi
 
     echo "==> Installing cargo tools (skipping already-installed)..."
-    failed=""
 
     # Remaining tools via binstall (install one at a time so one failure doesn't abort the rest)
     tools=(
@@ -73,17 +81,21 @@ bootstrap:
         "rumdl:rumdl"
         "just:just"
     )
-    for entry in "${tools[@]}"; do
-        bin="${entry%%:*}"
-        pkg="${entry##*:}"
-        if ! command -v "$bin" &>/dev/null; then
-            echo "  Installing $pkg..."
-            if ! cargo binstall --no-confirm "$pkg"; then
-                echo "  FAIL: $pkg"
-                failed="$failed $pkg"
+    if command -v cargo-binstall &>/dev/null; then
+        for entry in "${tools[@]}"; do
+            bin="${entry%%:*}"
+            pkg="${entry##*:}"
+            if ! command -v "$bin" &>/dev/null; then
+                echo "  Installing $pkg..."
+                if ! cargo binstall --no-confirm "$pkg"; then
+                    echo "  FAIL: $pkg"
+                    failed="$failed $pkg"
+                fi
             fi
-        fi
-    done
+        done
+    else
+        echo "  Skipping cargo tools because cargo-binstall is unavailable."
+    fi
 
     echo "==> Installing actionlint..."
     if ! command -v actionlint &>/dev/null; then
@@ -108,7 +120,7 @@ bootstrap:
     echo "==> Installing lefthook..."
     if ! command -v lefthook &>/dev/null; then
         if [[ "$(uname -s)" == "Linux" ]] && command -v apt-get &>/dev/null; then
-            if curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | sudo -E bash \
+            if curl_retry -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | sudo -E bash \
                 && sudo apt-get install -y lefthook \
                 && command -v lefthook &>/dev/null; then
                 true
