@@ -90,6 +90,9 @@ write_schema() {
     "implementation_evidence",
     "test_evidence",
     "documentation_evidence",
+    "architecture_alignment",
+    "architecture_evidence",
+    "architecture_gaps",
     "gaps",
     "suggested_next_items",
     "roadmap_dependencies",
@@ -134,21 +137,14 @@ write_schema() {
     "implementation_evidence": { "$ref": "#/$defs/evidence_list" },
     "test_evidence": { "$ref": "#/$defs/evidence_list" },
     "documentation_evidence": { "$ref": "#/$defs/evidence_list" },
+    "architecture_alignment": {
+      "type": "string",
+      "enum": ["aligned", "divergent", "unclear", "not_applicable"]
+    },
+    "architecture_evidence": { "$ref": "#/$defs/evidence_list" },
+    "architecture_gaps": { "$ref": "#/$defs/gap_list" },
     "gaps": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["gap", "impact", "likely_files"],
-        "properties": {
-          "gap": { "type": "string" },
-          "impact": { "type": "string" },
-          "likely_files": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "additionalProperties": false
-      }
+      "$ref": "#/$defs/gap_list"
     },
     "suggested_next_items": {
       "type": "array",
@@ -187,6 +183,22 @@ write_schema() {
           "line": { "type": ["integer", "null"] },
           "summary": { "type": "string" },
           "strength": { "type": "string", "enum": ["strong", "partial", "weak"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "gap_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["gap", "impact", "likely_files"],
+        "properties": {
+          "gap": { "type": "string" },
+          "impact": { "type": "string" },
+          "likely_files": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
         },
         "additionalProperties": false
       }
@@ -394,6 +406,9 @@ private_worker() {
                 implementation_evidence: [],
                 test_evidence: [],
                 documentation_evidence: [],
+                architecture_alignment: "unclear",
+                architecture_evidence: [],
+                architecture_gaps: [],
                 gaps: [],
                 suggested_next_items: [],
                 roadmap_dependencies: [],
@@ -432,20 +447,28 @@ Required reading:
 - The behavior file above.
 - Similar behavior files: same area, directly related IDs in the Related section, superseded/superseding IDs if present, and behavior files with overlapping personas/interfaces/context when relevant.
 - Read docs/behaviors/index.md, docs/product/concepts.md, docs/product/personas.md, docs/architecture/subsystems/runtime-actors.md, docs/architecture/subsystems/interfaces.md, and docs/implementation/verification.md.
-- If needed for this behavior, read high-level product and architecture docs that exist in this checkout, especially README.md, docs/roadmap/roadmap.md, docs/roadmap/dag.json, docs/architecture/system.md, docs/architecture/technology.md, docs/architecture/delivery.md, docs/architecture/operations.md, and docs/architecture/subsystems/orchestration.md.
+- Read the accepted architecture before classifying readiness: docs/architecture/system.md, docs/architecture/technology.md, docs/architecture/delivery.md, docs/architecture/operations.md, and every relevant docs/architecture/subsystems/*.md file.
+- If needed for this behavior, also read high-level planning docs that exist in this checkout, especially README.md, docs/roadmap/roadmap.md, and docs/roadmap/dag.json.
 - Code, tests, command docs, BDD features, and architecture docs that look relevant after searching for behavior terms, related IDs, area terms, and domain concepts.
 
 Classify readiness from the current repository state:
-- already_implemented: code appears to support the behavior end to end, but assertion evidence may still be missing.
-- close_needs_work: clear implementation surface exists and only bounded gaps remain.
+- already_implemented: code appears to support the behavior end to end and the implementation is broadly aligned with the accepted architecture, but assertion evidence may still be missing.
+- close_needs_work: clear implementation surface exists and only bounded gaps remain, or behavior support exists but architecture alignment gaps must be fixed before it should count as implemented.
 - partial_foundation: adjacent primitives exist, but meaningful product behavior remains.
 - not_started: little or no relevant implementation exists.
 - unclear: evidence is contradictory or too thin.
 
+Architecture alignment rules:
+- Set architecture_alignment to aligned when implementation evidence follows the accepted architecture closely enough for roadmap planning.
+- Set architecture_alignment to divergent when code appears to support the behavior through the wrong layer, bypasses the intended tool surface, skips required persistence or evidence paths, violates adapter/runtime boundaries, or conflicts with accepted delivery/operations constraints.
+- Set architecture_alignment to unclear when the architecture docs or code evidence are too thin to judge.
+- Set architecture_alignment to not_applicable only when the behavior has no meaningful implementation architecture concern.
+- Do not use readiness_status already_implemented when architecture_alignment is divergent or unclear. Use close_needs_work or partial_foundation and record architecture_gaps instead.
+
 Use recommended_verification_status this way:
-- implemented when implementation appears credible but BDD assertion is missing.
+- implemented when implementation appears credible, architecture_alignment is aligned or not_applicable, and BDD assertion is missing.
 - unimplemented when behavior should remain below implemented.
-- asserted_candidate only when implementation and both positive/falsification BDD evidence appear present but the behavior doc is not asserted.
+- asserted_candidate only when implementation, architecture alignment, and both positive/falsification BDD evidence appear present but the behavior doc is not asserted.
 - unknown when analysis failed or evidence is too contradictory.
 
 Keep the report concise. Evidence entries should cite repository-relative paths and line numbers when you have them. Suggested next items should be roadmap-friendly line items, not implementation essays.
@@ -497,6 +520,15 @@ EOF
             implementation_evidence: [],
             test_evidence: [],
             documentation_evidence: [],
+            architecture_alignment: "unclear",
+            architecture_evidence: [],
+            architecture_gaps: [
+                {
+                    gap: "Architecture alignment was not assessed because readiness analysis did not complete.",
+                    impact: $error_text,
+                    likely_files: [$behavior_path]
+                }
+            ],
             gaps: [
                 {
                     gap: "Readiness analysis did not complete.",

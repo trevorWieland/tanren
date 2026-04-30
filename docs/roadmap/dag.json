@@ -1,10 +1,832 @@
 {
   "schema": "tanren.roadmap_dag.v0",
-  "generated_at": "2026-04-29",
+  "generated_at": "2026-04-30",
   "product_ref": "docs/product/vision.md",
   "behavior_root": "docs/behaviors",
   "architecture_root": "docs/architecture",
   "implementation_ref": "docs/implementation/readiness.json",
-  "milestones": [],
-  "nodes": []
+  "milestones": [
+    {
+      "id": "M-0001",
+      "title": "Rebuild the control-plane kernel",
+      "goal": "Replace file-first and direct-service paths with typed event canon, shared contracts, and coherent public surfaces",
+      "status": "planned"
+    },
+    {
+      "id": "M-0002",
+      "title": "Make planning native",
+      "goal": "Turn product, behavior, architecture, assessment, roadmap, and decision memory into first-party typed planning state",
+      "status": "planned"
+    },
+    {
+      "id": "M-0003",
+      "title": "Shape executable specs",
+      "goal": "Convert accepted roadmap nodes and intake signals into spec-sized work with readiness, quality, and dependency rules",
+      "status": "planned"
+    },
+    {
+      "id": "M-0004",
+      "title": "Run the orchestration loop",
+      "goal": "Execute active specs through loop state, blockers, notifications, team coordination, and candidate implementations",
+      "status": "planned"
+    },
+    {
+      "id": "M-0005",
+      "title": "Isolate runtime execution",
+      "goal": "Run assignments through scoped workers, durable queues, harness adapters, target placement, and redacted results",
+      "status": "planned"
+    },
+    {
+      "id": "M-0006",
+      "title": "Prove and review delivered behavior",
+      "goal": "Require behavior proof, quality controls, walks, PR validation, merge handoff, and release learning",
+      "status": "planned"
+    },
+    {
+      "id": "M-0007",
+      "title": "Govern access and configuration",
+      "goal": "Add the identity, policy, approvals, configuration, secret, and credential model needed for safe solo and team use",
+      "status": "planned"
+    },
+    {
+      "id": "M-0008",
+      "title": "Integrate providers and clients",
+      "goal": "Connect provider integrations, external trackers, webhooks, API clients, and source-control status through adapter-backed contracts",
+      "status": "planned"
+    },
+    {
+      "id": "M-0009",
+      "title": "Expose observation and operations",
+      "goal": "Provide provenance-aware progress, quality, risk, health, reporting, backup, restore, incident, and audit views",
+      "status": "planned"
+    },
+    {
+      "id": "M-0010",
+      "title": "Package Tanren for self-hosting",
+      "goal": "Deliver the Compose-first stack, repository assets, standards profiles, installer drift handling, upgrade, and uninstall flows",
+      "status": "planned"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "R-0001",
+      "title": "Build canonical event log and read-model substrate",
+      "status": "planned",
+      "milestone": "M-0001",
+      "completes_behaviors": ["B-0255", "B-0256", "B-0262"],
+      "supports_behaviors": ["B-0183", "B-0185"],
+      "depends_on": [],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0255",
+          "description": "Positive and falsification scenarios cover idempotent mutations, validation errors, and read-model observation through the event-backed command path"
+        }
+      ],
+      "scope": "Create the typed event envelope, append service, idempotency records, projection checkpoints, read-model freshness metadata, and shared validation error categories.",
+      "rationale": "The accepted architecture makes the event log primary canon. The rewrite should start here so old file-first paths become salvageable inputs rather than architectural constraints.",
+      "risks": ["Too much subsystem semantics may leak into the generic state layer"],
+      "shape_notes": ["Keep this as a narrow kernel; subsystem-specific events should arrive in later nodes."]
+    },
+    {
+      "id": "R-0002",
+      "title": "Stand up shared HTTP interface contracts",
+      "status": "planned",
+      "milestone": "M-0001",
+      "completes_behaviors": ["B-0183", "B-0184", "B-0185", "B-0257", "B-0260", "B-0264"],
+      "supports_behaviors": ["B-0255", "B-0256", "B-0262"],
+      "depends_on": ["R-0001"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0183",
+          "description": "Cross-interface scenarios assert coherent state, consistent validation, schema negotiation, backpressure reporting, and safe client replay"
+        }
+      ],
+      "scope": "Define API command, query, subscription, cursor, freshness, error, idempotency, versioning, and generated-client contracts for web, CLI, TUI, API, and MCP surfaces.",
+      "rationale": "The implementation assessment identifies the empty API and direct-service interface paths as the highest-impact architecture divergence.",
+      "risks": ["Contract breadth can outpace implemented behavior"],
+      "shape_notes": ["Prefer thin vertical slices through one shared application-service path over broad route scaffolding."]
+    },
+    {
+      "id": "R-0003",
+      "title": "Bootstrap identity, account, organization, and project scope",
+      "status": "planned",
+      "milestone": "M-0001",
+      "completes_behaviors": ["B-0025", "B-0026", "B-0028", "B-0030", "B-0043", "B-0046", "B-0047", "B-0066", "B-0136", "B-0137", "B-0138", "B-0139", "B-0186"],
+      "supports_behaviors": ["B-0031", "B-0202", "B-0203"],
+      "depends_on": ["R-0001", "R-0002"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0136",
+          "description": "First-run scenarios prove setup, deployment posture choice, identity/source-control selection, project creation/connection, project switching, and ready first project outcomes"
+        }
+      ],
+      "scope": "Implement first-run account, organization, project, active scope, project connection, project creation, project disconnection, and join-existing-project flows through the HTTP control plane.",
+      "rationale": "Solo and team use share one model, so the rewrite needs real scope and identity before planning or execution state is claimed.",
+      "risks": ["Bootstrap ergonomics can hide policy shortcuts that later conflict with team use"],
+      "shape_notes": ["Treat local solo setup as a small self-hosted install, not a separate no-auth architecture."]
+    },
+    {
+      "id": "R-0004",
+      "title": "Provide first-party surface shells over the shared contract",
+      "status": "planned",
+      "milestone": "M-0001",
+      "completes_behaviors": ["B-0204", "B-0188", "B-0218"],
+      "supports_behaviors": ["B-0183", "B-0184", "B-0185"],
+      "depends_on": ["R-0002", "R-0003"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0204",
+          "description": "Interface scenarios show project overview and changed-since views from API-backed read models with provenance links"
+        }
+      ],
+      "scope": "Create thin CLI, MCP, TUI, API, and web entry surfaces that authenticate, call shared contracts, render project overview state, and expose provenance without local mutation bypasses.",
+      "rationale": "This makes interface divergence visible early while postponing specialized workflows until their subsystem state exists.",
+      "risks": ["Surface shells may be mistaken for complete workflows"],
+      "shape_notes": ["Unsupported actions should return explicit contract responses until later nodes implement them."]
+    },
+    {
+      "id": "R-0005",
+      "title": "Implement native product brief and decision memory",
+      "status": "planned",
+      "milestone": "M-0002",
+      "completes_behaviors": ["B-0079", "B-0140", "B-0141", "B-0142", "B-0143", "B-0144", "B-0170", "B-0171", "B-0172", "B-0173", "B-0191"],
+      "supports_behaviors": ["B-0098", "B-0189", "B-0190"],
+      "depends_on": ["R-0003", "R-0004"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0140",
+          "description": "Planning scenarios prove project brief creation, target users, non-goals, constraints, success signals, imported context, assumptions, stale assumptions, and rejected alternatives"
+        }
+      ],
+      "scope": "Replace temporary product markdown editing with event-backed product brief, imported context, decision, assumption, preference, and conflict-resolution records plus repo projections.",
+      "rationale": "Product intent is the first durable planning layer and must not remain an ad hoc document path during the architecture revision.",
+      "risks": ["Overfitting the model to Tanren's own product vocabulary"],
+      "shape_notes": ["Keep project-defined vocabulary open while enforcing lifecycle and projection ownership."]
+    },
+    {
+      "id": "R-0006",
+      "title": "Implement native behavior catalog and coverage state",
+      "status": "planned",
+      "milestone": "M-0002",
+      "completes_behaviors": ["B-0276", "B-0277", "B-0278", "B-0288"],
+      "supports_behaviors": ["B-0280", "B-0285"],
+      "depends_on": ["R-0005"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0276",
+          "description": "Behavior catalog scenarios prove accepted behavior maintenance, coverage visibility, bug classification against behavior status, and catalog coherence review"
+        }
+      ],
+      "scope": "Add typed behavior records, lifecycle transitions, verification-status projections, behavior coverage summaries, bug-report classification, coherence review, and generated behavior-file projections.",
+      "rationale": "Every executable roadmap node and proof record depends on stable accepted behavior contracts.",
+      "risks": ["Verification state may be accidentally stored as behavior acceptance"],
+      "shape_notes": ["Keep product status and verification/proof status as separate records."]
+    },
+    {
+      "id": "R-0007",
+      "title": "Implement architecture records and tradeoff review",
+      "status": "planned",
+      "milestone": "M-0002",
+      "completes_behaviors": ["B-0281", "B-0282"],
+      "supports_behaviors": ["B-0147", "B-0189"],
+      "depends_on": ["R-0005", "R-0006"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0281",
+          "description": "Architecture scenarios prove architecture record maintenance, tradeoff review, accepted projection generation, and rejected alternative preservation"
+        }
+      ],
+      "scope": "Create architecture record events, accepted/draft/proposed lifecycle state, tradeoff review, projection generation, and links to product and behavior context.",
+      "rationale": "The mass revision needs architecture as durable planning state rather than a loose set of markdown files.",
+      "risks": ["Architecture review can become too heavyweight for small projects"],
+      "shape_notes": ["Support concise records first; subsystem detail can grow through accepted changes."]
+    },
+    {
+      "id": "R-0008",
+      "title": "Implement repository understanding and implementation assessment",
+      "status": "planned",
+      "milestone": "M-0002",
+      "completes_behaviors": ["B-0145", "B-0146", "B-0147", "B-0148", "B-0283", "B-0284"],
+      "supports_behaviors": ["B-0161", "B-0279"],
+      "depends_on": ["R-0006", "R-0007"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0283",
+          "description": "Assessment scenarios prove repository analysis, command detection, architecture/risk summary, initial configuration proposals, behavior assessment, and uncertainty review"
+        }
+      ],
+      "scope": "Turn current static readiness into typed assessment runs, behavior classifications, uncertainty review, source-signal references, and repo-understanding projections.",
+      "rationale": "Existing code should be mined for useful primitives, but assessment must report evidence and uncertainty instead of letting current structure dictate the target system.",
+      "risks": ["Static analysis can overclaim behavior support"],
+      "shape_notes": ["Classify the old implementation conservatively and preserve source references for salvage decisions."]
+    },
+    {
+      "id": "R-0009",
+      "title": "Implement roadmap DAG and replanning",
+      "status": "planned",
+      "milestone": "M-0002",
+      "completes_behaviors": ["B-0092", "B-0098", "B-0110", "B-0111", "B-0112", "B-0113", "B-0114", "B-0115", "B-0116", "B-0158", "B-0159", "B-0160", "B-0161", "B-0280"],
+      "supports_behaviors": ["B-0093", "B-0189", "B-0190"],
+      "depends_on": ["R-0006", "R-0007", "R-0008"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0110",
+          "description": "Roadmap scenarios prove graph visibility, blocked/next-work explanations, replan changes, graph revision comparisons, approval-gated plans, source-signal links, sequencing, deferral, and behavior coverage"
+        }
+      ],
+      "scope": "Create event-backed roadmap revisions, node dependencies, behavior coverage, prioritization comparisons, generated-plan approvals, replan diffs, and roadmap projections.",
+      "rationale": "A dependency-aware graph is the planning source of truth for the rewrite and for future execution.",
+      "risks": ["Grouping too many behaviors into one roadmap node can hide proof obligations"],
+      "shape_notes": ["Require each executable node to cite accepted behavior and expected proof before it can shape into a spec."]
+    },
+    {
+      "id": "R-0010",
+      "title": "Implement planning proposal, revision recovery, and controlled undo",
+      "status": "planned",
+      "milestone": "M-0002",
+      "completes_behaviors": ["B-0174", "B-0175", "B-0177", "B-0189", "B-0190"],
+      "supports_behaviors": ["B-0161", "B-0191"],
+      "depends_on": ["R-0005", "R-0006", "R-0007", "R-0009"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0189",
+          "description": "Planning-change scenarios prove proposal, review, revision restore, follow-up revert, and bad-decision recovery without deleting history"
+        }
+      ],
+      "scope": "Add proposal records, accepted/rejected/deferred review, revision restore, landed-work revert through follow-up, and recovery from bad planning decisions.",
+      "rationale": "A rewrite roadmap will change as evidence arrives; revisions need history-preserving mutation rather than direct artifact edits.",
+      "risks": ["Restore semantics can be confused with destructive rollback"],
+      "shape_notes": ["Corrections must append new events and regenerate projections."]
+    },
+    {
+      "id": "R-0011",
+      "title": "Implement draft spec intake and candidate creation",
+      "status": "planned",
+      "milestone": "M-0003",
+      "completes_behaviors": ["B-0018", "B-0075", "B-0093", "B-0094", "B-0095", "B-0097"],
+      "supports_behaviors": ["B-0189", "B-0190"],
+      "depends_on": ["R-0009", "R-0010"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0093",
+          "description": "Intake scenarios prove roadmap-to-spec conversion plus manual, ticket, feedback, meeting-note, and audit-finding candidate creation"
+        }
+      ],
+      "scope": "Create draft spec candidate records from roadmap nodes, manual input, external tickets, customer feedback, meeting notes, and audit findings.",
+      "rationale": "Ideas and source signals should enter delivery through typed candidates rather than bypassing planning.",
+      "risks": ["Intake can create too many unprioritized candidates"],
+      "shape_notes": ["Candidate creation does not make work ready; readiness belongs to shape-spec."]
+    },
+    {
+      "id": "R-0012",
+      "title": "Implement shape-spec readiness and spec quality gates",
+      "status": "planned",
+      "milestone": "M-0003",
+      "completes_behaviors": ["B-0076", "B-0077", "B-0078", "B-0153", "B-0154", "B-0155", "B-0156", "B-0157"],
+      "supports_behaviors": ["B-0098", "B-0285"],
+      "depends_on": ["R-0011"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0078",
+          "description": "Shape-spec scenarios prove acceptance criteria, dependency declaration, prioritization readiness, clarifying questions, edge-case detection, oversized split proposals, untestable readiness blocks, and not-ready explanations"
+        }
+      ],
+      "scope": "Implement the shaped spec model, acceptance criteria, dependency declarations, readiness checks, spec quality findings, split proposals, and readiness explanations.",
+      "rationale": "Current near-ready shaping primitives are useful, but the rewrite should anchor them in accepted roadmap and proof obligations.",
+      "risks": ["Quality checks can become advisory text instead of lifecycle guards"],
+      "shape_notes": ["Promote the already-implemented candidates only after behavior proof is added."]
+    },
+    {
+      "id": "R-0013",
+      "title": "Implement spec lifecycle, grouping, and dependency state",
+      "status": "planned",
+      "milestone": "M-0003",
+      "completes_behaviors": ["B-0019", "B-0020", "B-0021", "B-0022", "B-0023", "B-0024", "B-0029", "B-0061"],
+      "supports_behaviors": ["B-0111", "B-0205"],
+      "depends_on": ["R-0012"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0021",
+          "description": "Spec lifecycle scenarios prove ready/backlog/archive transitions, state visibility, bulk actions, milestone and initiative grouping, and cross-project dependency blocking"
+        }
+      ],
+      "scope": "Create event-backed spec states, backlog movement, ready marking, archiving, bulk actions, milestones, initiatives, and dependency records.",
+      "rationale": "Orchestration needs typed spec lifecycle state rather than temporary command markdown.",
+      "risks": ["Grouping can drift into portfolio management before execution needs are met"],
+      "shape_notes": ["Keep lifecycle rules focused on execution eligibility and visibility."]
+    },
+    {
+      "id": "R-0014",
+      "title": "Implement loop start, state, pause, resume, cancellation, and eligibility",
+      "status": "planned",
+      "milestone": "M-0004",
+      "completes_behaviors": ["B-0001", "B-0002", "B-0003", "B-0007", "B-0017", "B-0058"],
+      "supports_behaviors": ["B-0021", "B-0111"],
+      "depends_on": ["R-0013"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0001",
+          "description": "Loop scenarios prove manual start, serial auto-start, state visibility, pause/resume, dependency blocking, and cancellation through shared orchestration state"
+        }
+      ],
+      "scope": "Implement active spec loop state, start eligibility, serial auto-start, dependency blocking, pause/resume, and cancellation transitions.",
+      "rationale": "Existing loop behaviors are close but divergent because they do not yet run through the shared API, event, and dependency model.",
+      "risks": ["A compatibility shim around old loop code could preserve the wrong state model"],
+      "shape_notes": ["Rewrite the state transitions first; salvage existing command semantics only where they match the architecture."]
+    },
+    {
+      "id": "R-0015",
+      "title": "Implement blockers, notifications, and attention routing",
+      "status": "planned",
+      "milestone": "M-0004",
+      "completes_behaviors": ["B-0004", "B-0005", "B-0187", "B-0195"],
+      "supports_behaviors": ["B-0062", "B-0206"],
+      "depends_on": ["R-0014"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0005",
+          "description": "Blocker scenarios prove attention routing, responder selection, notifications, and user response while a loop is paused"
+        }
+      ],
+      "scope": "Add blocker records, routed questions, attention read models, notification events, response capture, and unblocking transitions.",
+      "rationale": "Human judgment remains required at blockers; the loop must surface exact attention needs without losing execution state.",
+      "risks": ["Notification delivery could be implemented before routing semantics are stable"],
+      "shape_notes": ["Keep notification preferences as dependency on configuration; use default routing initially."]
+    },
+    {
+      "id": "R-0016",
+      "title": "Implement live activity and team coordination",
+      "status": "planned",
+      "milestone": "M-0004",
+      "completes_behaviors": ["B-0008", "B-0009", "B-0010", "B-0011", "B-0012", "B-0013", "B-0014", "B-0015", "B-0016", "B-0192", "B-0193", "B-0194", "B-0196", "B-0200", "B-0201", "B-0265"],
+      "supports_behaviors": ["B-0036", "B-0206"],
+      "depends_on": ["R-0014", "R-0015"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0013",
+          "description": "Team coordination scenarios prove active-work visibility, assist/takeover, ownership transfer, takeover requests, action history, overlap prevention, handoff notes, assignments, onboarding, attention load, and candidate coordination"
+        }
+      ],
+      "scope": "Add active loop activity streams, ownership, assignment, assist/takeover rules, overlap detection, handoff notes, action history, and grouped active-work views.",
+      "rationale": "Parallel agent and team work needs explicit coordination before runtime parallelism becomes useful.",
+      "risks": ["People metrics can accidentally become productivity scoring"],
+      "shape_notes": ["Expose coordination state, not individual performance rankings."]
+    },
+    {
+      "id": "R-0017",
+      "title": "Implement runtime harness configuration and readiness",
+      "status": "planned",
+      "milestone": "M-0005",
+      "completes_behaviors": ["B-0099", "B-0100", "B-0101"],
+      "supports_behaviors": ["B-0082", "B-0086", "B-0233"],
+      "depends_on": ["R-0003", "R-0013"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0101",
+          "description": "Harness readiness scenarios prove credential presence, harness selection, capability preflight, and readiness/blocked explanations"
+        }
+      ],
+      "scope": "Implement harness credential metadata, project harness selection, harness capability discovery, and readiness read models for Codex, Claude Code, and OpenCode adapter families.",
+      "rationale": "Runtime execution should be harness-neutral and policy-aware before actual assignments run.",
+      "risks": ["Credential values can leak if readiness checks inspect secrets directly"],
+      "shape_notes": ["Use metadata and scoped use operations only; secret storage arrives through the governance milestone."]
+    },
+    {
+      "id": "R-0018",
+      "title": "Implement isolated execution target placement",
+      "status": "planned",
+      "milestone": "M-0005",
+      "completes_behaviors": ["B-0102", "B-0103", "B-0104", "B-0108", "B-0109", "B-0130", "B-0133", "B-0241"],
+      "supports_behaviors": ["B-0081", "B-0230"],
+      "depends_on": ["R-0017"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0102",
+          "description": "Runtime placement scenarios prove isolated target start, active-location visibility, environment access visibility, remote target management, drain/retire, queue/target health, and placement approval audit"
+        }
+      ],
+      "scope": "Create target classes, placement decisions, queue/target health, active execution location, execution access summaries, remote target management, retirement/drain, and placement audit records.",
+      "rationale": "The accepted architecture rejects unmanaged local worktrees; execution needs isolated targets as a product baseline.",
+      "risks": ["Docker-local implementation can accidentally become a non-portable assumption"],
+      "shape_notes": ["Keep target class contracts orchestrator-neutral even if local containers are implemented first."]
+    },
+    {
+      "id": "R-0019",
+      "title": "Implement assignment queue, lease, retry, cancellation, and recovery",
+      "status": "planned",
+      "milestone": "M-0005",
+      "completes_behaviors": ["B-0105", "B-0106", "B-0107", "B-0243", "B-0244", "B-0245", "B-0246", "B-0247", "B-0248", "B-0249", "B-0250", "B-0253", "B-0254"],
+      "supports_behaviors": ["B-0007", "B-0058"],
+      "depends_on": ["R-0018"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0243",
+          "description": "Worker-contract scenarios prove scoped assignment receipt/refusal, progress, artifacts, blockers, terminal outcomes, cancellation, idempotent retry, failure classification, and interrupted-session reconciliation"
+        }
+      ],
+      "scope": "Implement durable assignments, queue claims, leases, heartbeats, cancellation, retries, terminal outcomes, worker progress, artifacts, blockers, failure taxonomy, and reconciliation.",
+      "rationale": "Runtime must report bounded durable outcomes without reinterpreting product semantics.",
+      "risks": ["Retry paths can duplicate visible work if assignment identity is weak"],
+      "shape_notes": ["Tie every assignment to spec/task/phase context and idempotency records."]
+    },
+    {
+      "id": "R-0020",
+      "title": "Implement worker-scoped access and redacted runtime output",
+      "status": "planned",
+      "milestone": "M-0005",
+      "completes_behaviors": ["B-0234", "B-0235", "B-0251", "B-0252"],
+      "supports_behaviors": ["B-0125", "B-0126", "B-0233"],
+      "depends_on": ["R-0019"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0252",
+          "description": "Access and redaction scenarios prove temporary grants, revocation, granted-access-only execution, and result preservation without leaking secrets"
+        }
+      ],
+      "scope": "Add temporary worker access grants, assignment-scoped credentials, revocation, capability checks, output redaction, and bounded result persistence.",
+      "rationale": "The readiness assessment calls out this behavior as close; it should be completed in the new runtime model rather than patched into old output paths.",
+      "risks": ["Redaction after persistence is too late"],
+      "shape_notes": ["Redact before logs, events, proof records, and interface responses."]
+    },
+    {
+      "id": "R-0021",
+      "title": "Implement executable behavior proof",
+      "status": "planned",
+      "milestone": "M-0006",
+      "completes_behaviors": ["B-0285"],
+      "supports_behaviors": ["B-0277", "B-0280"],
+      "depends_on": ["R-0006", "R-0012", "R-0019"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0285",
+          "description": "Proof scenarios prove behavior-to-proof linkage, positive witnesses, falsification witnesses, proof results, staleness, and assertion read models"
+        }
+      ],
+      "scope": "Create behavior proof targets, BDD linkage, positive/falsification witness classification, proof runs, assertion read models, mutation-quality inputs, and proof staleness.",
+      "rationale": "Behavior proof is the executable bridge between accepted behavior and delivery completion.",
+      "risks": ["Unit tests may be overcounted as behavior proof"],
+      "shape_notes": ["Feature files should normally prove exactly one behavior ID."]
+    },
+    {
+      "id": "R-0022",
+      "title": "Implement quality controls, findings, audits, and proactive analysis",
+      "status": "planned",
+      "milestone": "M-0006",
+      "completes_behaviors": ["B-0080", "B-0096", "B-0279", "B-0286", "B-0287"],
+      "supports_behaviors": ["B-0150", "B-0283"],
+      "depends_on": ["R-0008", "R-0021"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0080",
+          "description": "Quality-control scenarios prove finding lifecycle, codebase-wide audit, proactive analysis scheduling/runs, planning routing, and recommendation review"
+        }
+      ],
+      "scope": "Add finding lifecycle, codebase-wide audit runs, proactive analysis schedules, analysis result review, and routing into planning proposals or spec candidates.",
+      "rationale": "Analysis should feed the method rather than bypassing roadmap and spec shaping.",
+      "risks": ["Analysis findings may become noisy if provenance and uncertainty are weak"],
+      "shape_notes": ["Normalize source findings and keep human review available for uncertain recommendations."]
+    },
+    {
+      "id": "R-0023",
+      "title": "Implement walk, demo, and acceptance records",
+      "status": "planned",
+      "milestone": "M-0006",
+      "completes_behaviors": ["B-0006", "B-0072", "B-0073", "B-0074", "B-0166", "B-0167", "B-0168", "B-0169"],
+      "supports_behaviors": ["B-0285"],
+      "depends_on": ["R-0014", "R-0021", "R-0022"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0072",
+          "description": "Walk scenarios prove demo summary, expected-vs-actual behavior, changed surfaces, residual risks, acceptance records, rejection routing, and trigger from implementation-ready work"
+        }
+      ],
+      "scope": "Implement run-demo outputs, walk-spec sessions, behavior review, acceptance/rejection, residual risk capture, acceptance preservation, and behavior-affecting staleness.",
+      "rationale": "The product method needs human behavior acceptance as a separate channel from code review.",
+      "risks": ["Run-demo output can be confused with human walk acceptance"],
+      "shape_notes": ["Keep autonomous demo critique and interactive walk acceptance as separate events."]
+    },
+    {
+      "id": "R-0024",
+      "title": "Implement PR, CI, review feedback, merge-ready, and cleanup flow",
+      "status": "planned",
+      "milestone": "M-0006",
+      "completes_behaviors": ["B-0117", "B-0118", "B-0119", "B-0120", "B-0121", "B-0122", "B-0123", "B-0124", "B-0266"],
+      "supports_behaviors": ["B-0073", "B-0169"],
+      "depends_on": ["R-0023"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0117",
+          "description": "Review and merge scenarios prove draft PR creation, CI visibility, review-feedback routing, addressed/out-of-scope dispositions, merge acceptance, cleanup, merge-conflict recovery, intent-conflict detection, and stacked-diff execution"
+        }
+      ],
+      "scope": "Add source-control handoff for draft PRs, CI status consumption, review-feedback routing, merge-ready state, merge handoff, cleanup, merge-conflict recovery, intent-conflict detection, and stacked-diff dependent specs.",
+      "rationale": "Delivered work should not count as shipped until proof, walk, review, and merge flow are durable and explainable.",
+      "risks": ["Provider-specific mechanics can leak into orchestration semantics"],
+      "shape_notes": ["Keep source-control provider calls behind integration adapters."]
+    },
+    {
+      "id": "R-0025",
+      "title": "Implement release learning and shipped outcomes",
+      "status": "planned",
+      "milestone": "M-0006",
+      "completes_behaviors": ["B-0178", "B-0179", "B-0180", "B-0181", "B-0182", "B-0270"],
+      "supports_behaviors": ["B-0098", "B-0210", "B-0211"],
+      "depends_on": ["R-0024"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0178",
+          "description": "Release-learning scenarios prove release notes, post-release verification, shipped links to roadmap/specs, feedback intake, roadmap updates, and configurable shipped definition"
+        }
+      ],
+      "scope": "Add shipped-definition configuration, release-note preparation, post-release checks, shipped links to roadmap/specs, feedback intake, and roadmap/spec update routing.",
+      "rationale": "The method is cumulative only if shipped outcomes feed back into planning and assessment.",
+      "risks": ["Release learning may be delayed if provider integration is incomplete"],
+      "shape_notes": ["Support manual shipped records first, then provider-backed automation."]
+    },
+    {
+      "id": "R-0026",
+      "title": "Implement organization access, roles, memberships, and project grants",
+      "status": "planned",
+      "milestone": "M-0007",
+      "completes_behaviors": ["B-0031", "B-0038", "B-0039", "B-0040", "B-0042", "B-0044", "B-0045", "B-0059", "B-0060", "B-0065", "B-0067", "B-0202", "B-0203", "B-0272"],
+      "supports_behaviors": ["B-0197", "B-0198"],
+      "depends_on": ["R-0003"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0039",
+          "description": "Governance scenarios prove project access, role templates, permissions visibility, organization policy, permission history, invitations, join/leave/remove, organization deletion disposition, and project/organization access management"
+        }
+      ],
+      "scope": "Implement permissions, role templates, grants, membership invitations, member lifecycle, project access, organization access, policy history, and deletion disposition.",
+      "rationale": "Governance is core for safe automation, even for solo installs that later become team installs.",
+      "risks": ["Role templates can be mistaken for authorization roles"],
+      "shape_notes": ["Authorization checks permission grants, not personas or role names."]
+    },
+    {
+      "id": "R-0027",
+      "title": "Implement approvals and autonomy boundaries",
+      "status": "planned",
+      "milestone": "M-0007",
+      "completes_behaviors": ["B-0162", "B-0163", "B-0164", "B-0165", "B-0197", "B-0198", "B-0238", "B-0239"],
+      "supports_behaviors": ["B-0115", "B-0133"],
+      "depends_on": ["R-0026"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0163",
+          "description": "Approval scenarios prove autonomy level configuration, sensitive-action approval requirements, low-risk continuation, boundary stops, approval state, approval collection, policy simulation, and denial explanations"
+        }
+      ],
+      "scope": "Add autonomy configuration, approval policy, gated action state, approval collection, policy dry-runs, denial explanations, and automation boundary enforcement.",
+      "rationale": "Agentic execution must stop at explicit human and policy boundaries.",
+      "risks": ["Approvals can become interface-only prompts without durable policy state"],
+      "shape_notes": ["Approval satisfaction and denial explanations should be event-backed and audit-visible."]
+    },
+    {
+      "id": "R-0028",
+      "title": "Implement configuration inheritance and standards policy",
+      "status": "planned",
+      "milestone": "M-0007",
+      "completes_behaviors": ["B-0048", "B-0049", "B-0050", "B-0051", "B-0062", "B-0084", "B-0085", "B-0086", "B-0087", "B-0089", "B-0269"],
+      "supports_behaviors": ["B-0081", "B-0082", "B-0083"],
+      "depends_on": ["R-0003", "R-0026"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0049",
+          "description": "Configuration scenarios prove user/project/organization/account settings, cross-device sync, notification preferences, standards policy, policy inheritance/overrides, runtime defaults, verification gates, change history, and shared project defaults"
+        }
+      ],
+      "scope": "Add scoped configuration records, effective-setting resolution, inheritance/override/lock semantics, notification preferences, standards policy, runtime defaults, verification gates, and configuration history.",
+      "rationale": "The system needs typed configuration before runtime, standards, and verification behavior can be safely customized.",
+      "risks": ["A single global precedence ladder will not fit all setting families"],
+      "shape_notes": ["Each setting family declares its own resolution rules."]
+    },
+    {
+      "id": "R-0029",
+      "title": "Implement secrets, credentials, service accounts, and API keys",
+      "status": "planned",
+      "milestone": "M-0007",
+      "completes_behaviors": ["B-0088", "B-0125", "B-0126", "B-0127", "B-0128", "B-0129", "B-0199", "B-0220", "B-0221", "B-0222", "B-0231", "B-0232", "B-0233", "B-0274"],
+      "supports_behaviors": ["B-0202", "B-0234", "B-0235"],
+      "depends_on": ["R-0026", "R-0028"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0125",
+          "description": "Credential scenarios prove non-exposure, shared secret storage, secret usage visibility, rotation, revocation, personal/shared distinction, service accounts, API keys, overscoped/stale detection, credential-use policy, and API key rotation/revocation"
+        }
+      ],
+      "scope": "Implement write-only/use-only secret storage, credential metadata, secret usage records, personal/shared ownership, service accounts, API keys, rotation, revocation, stale/overscoped detection, and credential-use policy.",
+      "rationale": "Execution and integrations require credentials, but secret values must never become events, projections, logs, proof, or interface responses.",
+      "risks": ["Secret-store shortcuts can compromise the event-sourced model"],
+      "shape_notes": ["Store secret metadata canonically; store values behind the secret-store abstraction."]
+    },
+    {
+      "id": "R-0030",
+      "title": "Implement runtime placement, harness, and budget policy",
+      "status": "planned",
+      "milestone": "M-0007",
+      "completes_behaviors": ["B-0081", "B-0082", "B-0083"],
+      "supports_behaviors": ["B-0102", "B-0133", "B-0230"],
+      "depends_on": ["R-0018", "R-0027", "R-0028", "R-0029"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0081",
+          "description": "Policy scenarios prove runtime placement policy, harness allowlist policy, and budget/quota policy affecting execution eligibility and placement"
+        }
+      ],
+      "scope": "Connect runtime placement, harness allowlists, budget/quota limits, and approval requirements to execution placement and readiness decisions.",
+      "rationale": "Parallelism, remote execution, and provider use must remain policy-controlled optimizations.",
+      "risks": ["Policy can become hard-coded runtime conditionals"],
+      "shape_notes": ["Policy evaluation should produce explainable decisions consumed by runtime."]
+    },
+    {
+      "id": "R-0031",
+      "title": "Implement provider integration management",
+      "status": "planned",
+      "milestone": "M-0008",
+      "completes_behaviors": ["B-0223", "B-0224", "B-0225", "B-0226", "B-0227", "B-0228", "B-0229"],
+      "supports_behaviors": ["B-0138", "B-0241"],
+      "depends_on": ["R-0029"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0223",
+          "description": "Provider scenarios prove organization/user connections, personal/shared access distinction, connection health, permissions and reachable resources, authorization recovery, and external action audit"
+        }
+      ],
+      "scope": "Implement provider connection records, auth state, health, permission/resource discovery, recovery flows, provider action audit, and personal versus shared provider access.",
+      "rationale": "Provider adapters should be replaceable and governed by Tanren policy instead of embedded in workflow code.",
+      "risks": ["Provider-specific payloads can leak into core contracts"],
+      "shape_notes": ["Normalize adapter state and retain raw payloads only where policy permits."]
+    },
+    {
+      "id": "R-0032",
+      "title": "Implement external tracker and outbound issue integration",
+      "status": "planned",
+      "milestone": "M-0008",
+      "completes_behaviors": ["B-0052", "B-0053", "B-0054", "B-0055", "B-0056", "B-0057", "B-0091", "B-0271"],
+      "supports_behaviors": ["B-0018", "B-0075"],
+      "depends_on": ["R-0011", "R-0031"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0052",
+          "description": "External tracker scenarios prove connection, unshaped ticket visibility, outbound issue state, review mode, external reference state, quick links, disconnect/replace, and queued outbound issue review"
+        }
+      ],
+      "scope": "Add external tracker connection, unshaped ticket ingestion, outbound issue queue/review, external reference state, quick links, and disconnect/replace flow.",
+      "rationale": "Tanren remains the system of record for specs while supporting one-way outbound tracker integration.",
+      "risks": ["Tracker integration can pull Tanren toward ticket-tracker semantics"],
+      "shape_notes": ["Keep specs canonical in Tanren and treat trackers as external references."]
+    },
+    {
+      "id": "R-0033",
+      "title": "Implement webhooks, external client attribution, CI status, and provider backpressure",
+      "status": "planned",
+      "milestone": "M-0008",
+      "completes_behaviors": ["B-0240", "B-0258", "B-0259", "B-0261", "B-0263", "B-0275"],
+      "supports_behaviors": ["B-0118", "B-0229"],
+      "depends_on": ["R-0002", "R-0031"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0258",
+          "description": "Client integration scenarios prove webhook retry/ordering/dedupe, external automation attribution, permission-boundary denial, CI/source-control status reporting, webhook endpoint management, and delivery failure handling"
+        }
+      ],
+      "scope": "Implement webhook endpoints, delivery outbox, retry/dedupe/ordering, external automation actor attribution, machine-client permission boundaries, external CI/status reporting, and delivery failure management.",
+      "rationale": "External automation must be auditable and idempotent rather than a side channel around Tanren state.",
+      "risks": ["Webhook delivery can create duplicate side effects without durable outbox keys"],
+      "shape_notes": ["Use event/outbox records as the source for delivery and replay."]
+    },
+    {
+      "id": "R-0034",
+      "title": "Implement project, pipeline, quality, health, and risk observation",
+      "status": "planned",
+      "milestone": "M-0009",
+      "completes_behaviors": ["B-0027", "B-0032", "B-0033", "B-0034", "B-0035", "B-0036", "B-0037", "B-0205", "B-0206", "B-0207", "B-0208", "B-0209", "B-0212", "B-0213", "B-0214", "B-0217"],
+      "supports_behaviors": ["B-0204", "B-0218"],
+      "depends_on": ["R-0004", "R-0009", "R-0016", "R-0019", "R-0022", "R-0024"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0032",
+          "description": "Observation scenarios prove pipeline, quality, health, time-window comparison, per-builder contextual breakdown, scoped views, roadmap progress, blocked overview, delivery forecast/risk, quality trends, source signals, open decisions, drift, cross-project risk, and planned-vs-actual delivery"
+        }
+      ],
+      "scope": "Build observation read models for project lists, work pipeline, quality/health signals, scoped metrics, roadmap progress, blocked work, forecasts, risk, decisions, mission/standards drift, cross-project risk, and planned-versus-actual delivery.",
+      "rationale": "Observation must compose source-backed claims rather than invent dashboard-local truth.",
+      "risks": ["Missing data can be incorrectly reported as healthy or zero"],
+      "shape_notes": ["Every observation claim should expose freshness, completeness, bounds, and provenance."]
+    },
+    {
+      "id": "R-0035",
+      "title": "Implement shipped-outcome, report, digest, and changed-since observation",
+      "status": "planned",
+      "milestone": "M-0009",
+      "completes_behaviors": ["B-0210", "B-0211", "B-0215", "B-0216", "B-0219"],
+      "supports_behaviors": ["B-0178", "B-0182"],
+      "depends_on": ["R-0025", "R-0034"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0215",
+          "description": "Reporting scenarios prove recently shipped outcomes, post-release health and feedback, read-only status export, observer digest subscription, and changed-since-last-report baselines"
+        }
+      ],
+      "scope": "Add durable report snapshots, observer digests, shipped outcome summaries, post-release health/feedback summaries, exportable read-only reports, and changed-since-last-report baselines.",
+      "rationale": "Reports and digests are durable observation artifacts, not screenshots of live dashboards.",
+      "risks": ["Reports can leak redacted state through aggregation"],
+      "shape_notes": ["Apply redaction before summarization and persist report baselines."]
+    },
+    {
+      "id": "R-0036",
+      "title": "Implement operations, backup, restore, pause, incident, quota, and audit export",
+      "status": "planned",
+      "milestone": "M-0009",
+      "completes_behaviors": ["B-0063", "B-0064", "B-0131", "B-0132", "B-0230", "B-0236", "B-0237", "B-0242"],
+      "supports_behaviors": ["B-0130", "B-0215"],
+      "depends_on": ["R-0027", "R-0034", "R-0035"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0063",
+          "description": "Operations scenarios prove export, restore, pause/resume new work, cost/quota tracking, incident/maintenance mode, disaster recovery validation, and operational audit log export"
+        }
+      ],
+      "scope": "Add data export/restore, scoped pause/resume, cost/quota tracking, incident and maintenance mode, disaster recovery validation, and operational audit export.",
+      "rationale": "Self-hosted operators need recoverability and operational control before broad team use is credible.",
+      "risks": ["Restore behavior can conflict with append-only event semantics if modeled as overwrite"],
+      "shape_notes": ["Represent restore and recovery as controlled operations with audit-visible events."]
+    },
+    {
+      "id": "R-0037",
+      "title": "Implement repository asset bootstrap, drift, generated integrations, and standards root",
+      "status": "planned",
+      "milestone": "M-0010",
+      "completes_behaviors": ["B-0068", "B-0069", "B-0070", "B-0071", "B-0149", "B-0150", "B-0151", "B-0152", "B-0267", "B-0268"],
+      "supports_behaviors": ["B-0098", "B-0279"],
+      "depends_on": ["R-0007", "R-0022", "R-0028"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0068",
+          "description": "Repository asset scenarios prove bootstrap, drift detection, selected agent integration generation, standards root loading, standards discovery/update proposals, standards influence explanations, conflict detection, standards profile management, and profile application"
+        }
+      ],
+      "scope": "Implement generated repository assets, installer drift detection, selected harness/agent integrations, runtime standards root loading, standards source discovery, standards update proposals, influence explanations, conflict detection, organization standards profiles, and profile application.",
+      "rationale": "Repo-local artifacts remain valuable, but they should be projections or controlled install artifacts rather than source of truth.",
+      "risks": ["Installer code can reintroduce direct file mutation as canon"],
+      "shape_notes": ["Generated assets should include ownership metadata and drift fingerprints."]
+    },
+    {
+      "id": "R-0038",
+      "title": "Implement self-hosted stack packaging, upgrade, and uninstall",
+      "status": "planned",
+      "milestone": "M-0010",
+      "completes_behaviors": ["B-0134", "B-0135"],
+      "supports_behaviors": ["B-0136", "B-0137"],
+      "depends_on": ["R-0003", "R-0037"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0134",
+          "description": "Delivery scenarios prove upgrade of installed Tanren assets and uninstall without deleting user work"
+        }
+      ],
+      "scope": "Package upgrade bundles, migration invocation, asset upgrade, stack/repo uninstall separation, and uninstall safety checks for user-owned work.",
+      "rationale": "Delivery has to preserve the same architecture posture through install, upgrade, and removal.",
+      "risks": ["Uninstall can accidentally delete user-owned project work"],
+      "shape_notes": ["Keep stack uninstall and repository asset uninstall separate."]
+    }
+  ]
 }
