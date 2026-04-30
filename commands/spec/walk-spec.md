@@ -74,6 +74,6 @@ signal complete.
 ## Out of scope
 
 - Creating `{{PR_NOUN}}s`
-- Updating `roadmap.md`, issue comments, or any external state
+- Updating `docs/roadmap/roadmap.md`, issue comments, or any external state
 - Running `audit-spec` or any other automated check
 - Implementing code (if something breaks, emit a task; do not fix)

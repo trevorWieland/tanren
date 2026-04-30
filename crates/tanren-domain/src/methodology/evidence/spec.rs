@@ -1,6 +1,6 @@
 //! Typed spec.md frontmatter.
 //!
-//! Shape mirrors `docs/architecture/evidence-schemas.md` §2 verbatim.
+//! Shape mirrors `docs/architecture/subsystems/evidence.md` §2 verbatim.
 //! Construction is mediated exclusively by `spec.frontmatter` tool
 //! calls; this module owns the wire contract.
 

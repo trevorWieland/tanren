@@ -3,7 +3,7 @@
 //! Unlike the five markdown-with-frontmatter evidence files, the
 //! investigation report is a pure JSON document emitted by
 //! `investigate` before the phase exits. Structure per
-//! `docs/architecture/evidence-schemas.md` §2.
+//! `docs/architecture/subsystems/evidence.md` §2.
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;

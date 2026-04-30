@@ -1,18 +1,21 @@
 ---
+schema: tanren.behavior.v0
 id: B-0033
 title: See quality signals across work
-personas: [team-dev, observer]
+area: observation
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can see quality signals about the work Tanren is
-producing — walk outcomes, audit flags, blocker frequency — so that they
-can judge not just how much is getting done but whether the result is good.
+A user can see quality signals about the work Tanren is producing — walk
+outcomes, audit flags, blocker frequency — so that they can judge not just how
+much is getting done but whether the result is good.
 
 ## Preconditions
 
@@ -31,7 +34,7 @@ can judge not just how much is getting done but whether the result is good.
 
 ## Out of scope
 
-- Ranking developers or teams by quality — this behavior reports signals, it
+- Ranking builders or teams by quality — this behavior reports signals, it
   does not rank.
 - Customizable quality thresholds or alerts.
 

@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0008
 title: Inspect detailed live activity of a running loop
-personas: [solo-dev, team-dev, observer]
+area: implementation-loop
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can drill into a running implementation
+A `solo-builder`, `team-builder`, or `observer` can drill into a running implementation
 loop to see what it is currently doing in detail, beyond the summary state, so
 that they can understand progress or diagnose unusual slowness.
 

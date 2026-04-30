@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0004
 title: Be notified when a loop completes or needs attention
-personas: [solo-dev, team-dev, observer]
+area: implementation-loop
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can be notified when an implementation
+A `solo-builder`, `team-builder`, or `observer` can be notified when an implementation
 loop they care about completes or needs attention, so that they do not have to
 watch it to know when action is required.
 

@@ -1,18 +1,21 @@
 ---
+schema: tanren.behavior.v0
 id: B-0035
 title: Compare metrics across time windows
-personas: [team-dev, observer]
+area: observation
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can pick a time window — or compare two time
-windows — when viewing velocity, throughput, quality, and health signals,
-so that they can see historical trends rather than only the current moment.
+A user can pick a time window — or compare two time windows — when viewing
+velocity, throughput, quality, and health signals, so that they can see
+historical trends rather than only the current moment.
 
 ## Preconditions
 

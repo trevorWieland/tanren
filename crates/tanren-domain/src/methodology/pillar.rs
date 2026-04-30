@@ -1,7 +1,7 @@
 //! Audit-rubric pillars.
 //!
 //! A [`Pillar`] is a scoring dimension. The 13 defaults in [`builtin_pillars`]
-//! mirror `docs/architecture/audit-rubric.md` §3 verbatim. Callers may
+//! mirror `docs/architecture/subsystems/audit.md` §3 verbatim. Callers may
 //! override any built-in or add their own via `tanren/rubric.yml`.
 
 use schemars::JsonSchema;
@@ -238,7 +238,7 @@ const BUILTIN_ROWS: &[BuiltinRow] = &[
     ),
 ];
 
-/// The 13 built-in pillars per `docs/architecture/audit-rubric.md` §3.
+/// The 13 built-in pillars per `docs/architecture/subsystems/audit.md` §3.
 #[must_use]
 pub fn builtin_pillars() -> Vec<Pillar> {
     let target = PillarScore::try_new(10).expect("built-in target is 10");

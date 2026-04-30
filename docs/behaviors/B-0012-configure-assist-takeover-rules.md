@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0012
 title: Configure when teammates can assist or take over each other's loops
-personas: [team-dev]
+area: team-coordination
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` can configure the rules that govern when another `team-dev` may
+A `team-builder` can configure the rules that govern when another `team-builder` may
 assist or take over an in-flight loop, so that each team can choose between
 permissive ad-hoc collaboration and stricter pre-granted-consent workflows.
 
@@ -29,7 +32,7 @@ permissive ad-hoc collaboration and stricter pre-granted-consent workflows.
 - The user can configure, per project, whether taking over a teammate's
   loop (B-0011) is allowed ad-hoc for every project member or requires an
   explicit permission grant via B-0031.
-- The current rule set is visible to every `team-dev` on the project.
+- The current rule set is visible to every `team-builder` on the project.
 
 ## Out of scope
 

@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0020
 title: Move a spec to or from the backlog
-personas: [solo-dev, team-dev]
+area: spec-lifecycle
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can move a shaped spec to the backlog when it is
+A `solo-builder` or `team-builder` can move a shaped spec to the backlog when it is
 not yet prioritized, and can later move it back to ready when they want it
 picked up, so that a queue of not-yet-prioritized work is kept distinct from
 specs ready to run.

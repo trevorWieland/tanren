@@ -38,7 +38,7 @@ produces_evidence:
 
 Apply the 10-pillar rubric at spec scope. Record non-negotiable
 compliance. Classify findings as `fix_now` (must address in this
-spec) or `defer` (backlog for future specs via `triage-audits`).
+spec) or `defer` (backlog for future specs through project intake).
 
 ## Inputs (from your dispatch)
 
@@ -131,7 +131,7 @@ UnauthorizedArtifactEdit event. Use the typed tool surface
 
 - Creating `GitHub issues` for deferred items (orchestrator
   does this via `create_issue` on your classified findings)
-- Editing `roadmap.md`, `plan.md`, or any orchestrator-owned file
+- Editing `docs/roadmap/roadmap.md`, `plan.md`, or any orchestrator-owned file
 - Creating tasks directly
 - Standards compliance (that's `adhere-spec`)
 - Committing, pushing, or PR mechanics

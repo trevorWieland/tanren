@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0038
 title: Manage roles as permission templates
-personas: [team-dev]
+area: governance
+personas: [team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` with permission to manage roles can create, edit, and delete
+A `team-builder` with permission to manage roles can create, edit, and delete
 named roles that bundle a set of permissions, so that grantors can apply a
 coherent bundle in one action instead of selecting individual permissions
 each time.

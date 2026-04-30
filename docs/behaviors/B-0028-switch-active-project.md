@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0028
 title: Switch the active project within an account
-personas: [solo-dev, team-dev, observer]
+area: project-setup
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can switch between projects in their
+A `solo-builder`, `team-builder`, or `observer` can switch between projects in their
 active account quickly, so that they can move their attention from one
 project to another without losing context or re-authenticating.
 

@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0022
 title: Archive a spec without implementation
-personas: [solo-dev, team-dev]
+area: spec-lifecycle
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can archive a spec that will not be implemented
+A `solo-builder` or `team-builder` can archive a spec that will not be implemented
 (obsolete, rejected, duplicate, deprioritized) so that it stops appearing in
 active views without being deleted or losing the record of why it existed.
 

@@ -1,20 +1,21 @@
 ---
+schema: tanren.behavior.v0
 id: B-0049
-title: Manage project-tier configuration
-personas: [solo-dev, team-dev]
+title: Manage project methodology settings
+area: configuration
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` with the required permission can manage
-configuration specific to a project — such as gate commands that loops
-must satisfy, standard folder conventions, and project-scoped secrets —
-so that the project's working rules are shared consistently with everyone
-who has access to it.
+A `solo-builder` or `team-builder` with the required permission can manage the
+methodology settings for a project so that installed commands, standards
+locations, and project working rules are consistent for everyone with access.
 
 ## Preconditions
 
@@ -24,19 +25,19 @@ who has access to it.
 
 ## Observable outcomes
 
-- The user can view and edit project-tier configuration values, including
-  gate commands, folder conventions, and project-level secrets.
-- Project-tier values are visible to everyone with access to the project
-  and apply to every loop and action taken within the project.
-- Changes take effect for subsequent work; loops already in flight when a
-  change is made continue under the settings they started with.
-- Every change is attributed and visible in the project's change history
-  (B-0042).
+- The user can view the project's active methodology profile, installed command
+  set, standards location, and local working rules.
+- The user can change project methodology settings when policy allows it.
+- Methodology configuration applies to subsequent Tanren commands and work in
+  the project.
+- Changes are attributed and visible in the project's change history.
 
 ## Out of scope
 
-- Per-user overrides of project configuration (settings live at one tier,
-  not mixed).
+- Runtime defaults.
+- Verification gates.
+- Project-scoped secrets.
+- Organization standards profile lifecycle and requirements.
 - Automatic migration of configuration between projects.
 
 ## Related
@@ -44,3 +45,7 @@ who has access to it.
 - B-0048
 - B-0050
 - B-0051
+- B-0086
+- B-0087
+- B-0088
+- B-0089

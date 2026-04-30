@@ -1,10 +1,13 @@
 ---
+schema: tanren.behavior.v0
 id: B-0043
 title: Create an account
-personas: [any]
+area: governance
+personas: [solo-builder, team-builder, observer, operator]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 

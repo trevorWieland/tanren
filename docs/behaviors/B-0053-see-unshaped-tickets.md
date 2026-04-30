@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0053
 title: See external tickets that are not yet shaped into specs
-personas: [solo-dev, team-dev]
+area: external-tracker
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can see tickets in the project's connected
+A `solo-builder` or `team-builder` can see tickets in the project's connected
 external tracker that do not yet have a corresponding Tanren spec, so that
 nothing sits waiting to be shaped because no one noticed it.
 

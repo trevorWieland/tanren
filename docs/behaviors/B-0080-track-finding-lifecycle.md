@@ -1,42 +1,47 @@
 ---
+schema: tanren.behavior.v0
 id: B-0080
-title: Track finding lifecycle
-personas: [solo-dev, team-dev]
+title: See unresolved check findings that block readiness
+area: findings
+personas: [solo-builder, team-builder]
 interfaces: [cli, mcp]
 contexts: [personal, organizational]
-status: accepted
+product_status: accepted
+verification_status: asserted
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can see which audit, adherence, demo, and gate
-findings are still open so implementation readiness is based on current typed
-state, not stale projected artifacts.
+A `solo-builder` or `team-builder` can see which check findings are still unresolved
+so that readiness decisions are based on current source signals instead of stale
+artifacts.
 
 ## Preconditions
 
-- A spec is being checked by Tanren methodology phases.
-- Check phases may raise findings that require remediation before readiness.
+- A spec is being checked by Tanren.
+- A check can raise findings that require remediation before the work is ready.
 
 ## Observable outcomes
 
-- New findings are projected as open until explicitly resolved, reopened,
-  deferred, or superseded.
-- Open `fix_now` findings block readiness and check completion.
-- Remediation tasks preserve typed links to source checks, source findings,
-  investigation attempts, and root causes.
-- Implementation phases can record evidence but cannot resolve findings.
-- Audit artifacts show historical findings while counting only open blockers.
+- New findings remain visible as unresolved until they are explicitly resolved,
+  reopened, deferred, or superseded.
+- Findings that require immediate remediation block readiness and check
+  completion while they remain unresolved.
+- Remediation work preserves links to the check, finding, investigation, and
+  root-cause source signals that led to it.
+- Implementation work can record repair source signals but cannot mark findings
+  resolved by itself.
+- Historical findings remain visible while readiness counts only unresolved
+  blockers.
 
 ## Out of scope
 
-- Automatically resolving historical findings based on later passing checks.
-- Scheduling or prioritizing deferred remediation outside the finding lifecycle.
+- Automatically resolving findings solely because a later check passes.
+- Scheduling or prioritizing deferred remediation.
 
 ## Related
 
 - B-0003
 - B-0006
 - B-0021
-- `docs/behaviors/` — **what** users can do (this directory)

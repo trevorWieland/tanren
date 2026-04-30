@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0003
 title: See the current state of an implementation loop
-personas: [solo-dev, team-dev, observer]
+area: implementation-loop
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: implemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can at any time see the current state
+A `solo-builder`, `team-builder`, or `observer` can at any time see the current state
 of any implementation loop they have visibility of, so that they can tell
 whether it is progressing, paused, errored, or waiting for human feedback.
 

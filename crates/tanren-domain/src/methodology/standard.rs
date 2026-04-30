@@ -3,7 +3,7 @@
 //! A [`Standard`] is a named, categorized, importance-tagged rule with
 //! glob-, language-, and domain-based applicability filters. Adherence
 //! phases (`adhere-task`, `adhere-spec`) compute the relevant-standard
-//! set per `docs/architecture/adherence.md` §4.1 and then check each
+//! set per `docs/architecture/subsystems/adherence.md` §4.1 and then check each
 //! against the spec's touched files.
 
 use schemars::JsonSchema;

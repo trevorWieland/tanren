@@ -1,41 +1,47 @@
 ---
+schema: tanren.behavior.v0
 id: B-0013
-title: Prevent concurrent loops on the same spec
-personas: [solo-dev, team-dev]
+title: Prevent uncoordinated concurrent loops on the same spec
+area: team-coordination
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` who attempts to start a loop on a spec that
-already has an active loop can discover that the loop exists and decide
-what to do next, rather than being allowed to start a second concurrent
-loop on the same spec. Each spec has at most one active loop at a time.
+A `solo-builder` or `team-builder` who attempts to start ordinary implementation
+work on a spec that already has active execution can discover that execution and
+decide what to do next, rather than accidentally creating competing visible work
+on the same spec.
 
 ## Preconditions
 
 - The user is attempting to start an implementation loop via B-0001.
-- Another active loop already exists for the same spec.
+- Another active execution track already exists for the same spec.
+- The start attempt is not part of an approved candidate-implementation
+  comparison workflow.
 
 ## Observable outcomes
 
-- The start attempt is blocked; no second loop begins.
-- The user is shown the existing loop, including who owns it and its current
+- The ordinary start attempt is blocked; no uncoordinated second loop begins.
+- The user is shown the existing execution, including who owns it and its current
   state.
 - From that view the user can take the actions available to them: observing
   the loop (B-0003), assisting it (B-0010), or requesting or performing a
   takeover (B-0011) — each subject to their own permissions.
-- A spec whose active loop has finished or been closed can have a new loop
-  started against it normally.
+- A spec whose active execution has finished or been closed can have ordinary
+  implementation work started against it normally.
 
 ## Out of scope
 
 - Queueing a start attempt so it runs after the existing loop finishes
   (autostart is covered by B-0002).
-- Running multiple exploratory attempts in parallel — explicitly unsupported.
+- Coordinated parallel candidate implementations, ranking, and selection
+  (covered by B-0265).
 
 ## Related
 
@@ -43,3 +49,4 @@ loop on the same spec. Each spec has at most one active loop at a time.
 - B-0003
 - B-0010
 - B-0011
+- B-0265

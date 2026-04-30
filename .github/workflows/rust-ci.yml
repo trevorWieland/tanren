@@ -30,6 +30,9 @@ jobs:
         with:
           tool: just,taplo-cli,rumdl,lychee,cargo-llvm-cov,cargo-deny,cargo-machete
 
+      - name: Install actionlint
+        run: bash scripts/install-actionlint.sh
+
       - name: Run PR gate
         run: just ci
 

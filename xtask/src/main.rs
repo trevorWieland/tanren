@@ -27,7 +27,7 @@ const CURRENT_POLICY_FILES: &[&str] = &[
     "justfile",
     "lefthook.yml",
     ".github/workflows/rust-ci.yml",
-    "docs/roadmap/README.md",
+    "docs/roadmap/dag.json",
     "README.md",
     "CLAUDE.md",
 ];
@@ -57,13 +57,18 @@ const SUMMARY_OUTCOME_FILES: &[(&str, &str)] = &[
 ];
 const SURVIVOR_OUTCOME_FILES: &[(&str, &str)] =
     &[("missed", "missed.txt"), ("timeout", "timeout.txt")];
+const MUTATION_TRIAGE_PREVIEW_LIMIT: usize = 50;
 type WaveBehaviorIds = BTreeMap<String, Vec<String>>;
 
 #[derive(Debug, Clone)]
 struct BehaviorDoc {
     id: String,
     title: String,
-    status: String,
+    area: String,
+    personas: Vec<String>,
+    runtime_actors: Vec<String>,
+    product_status: String,
+    verification_status: String,
     path: String,
 }
 
@@ -468,8 +473,9 @@ fn behavior_validate() -> Result<()> {
         bail!("behavior validation failed");
     }
     println!(
-        "behavior: accepted={} scenarios={} artifact={}",
+        "behavior: accepted={} asserted={} scenarios={} artifact={}",
         accepted_behavior_count(&inventory),
+        asserted_behavior_count(&inventory),
         inventory.scenarios.len(),
         run_dir.display()
     );
@@ -648,7 +654,16 @@ fn behavior_mutation(raw: &[String]) -> Result<()> {
         .cloned()
         .or_else(|| env::var("TANREN_MUTATION_PACKAGE_SHARD").ok())
         .unwrap_or_else(|| "0/1".to_string());
-    let selected_packages = mutation_product_packages(&package_shard)?;
+    let explicit_packages = args
+        .values
+        .get("packages")
+        .cloned()
+        .or_else(|| env::var("TANREN_MUTATION_PACKAGES").ok());
+    let selected_packages = if let Some(packages) = explicit_packages.as_deref() {
+        mutation_explicit_packages(packages)?
+    } else {
+        mutation_product_packages(&package_shard)?
+    };
 
     let mut command = Command::new("cargo");
     command
@@ -688,6 +703,46 @@ fn behavior_mutation(raw: &[String]) -> Result<()> {
     )?;
     let resolved_mutants_out = resolve_mutants_out_dir(&mutants_out);
     let counts = count_outcomes(&resolved_mutants_out)?;
+    let survivors = build_mutation_survivors(&resolved_mutants_out)?;
+    let missed_by_file = group_survivors_by_file(&survivors, "missed");
+    let timeouts_by_file = group_survivors_by_file(&survivors, "timeout");
+    let artifacts = json!({
+        "mutants_out": repo_path(&resolved_mutants_out),
+        "command": repo_path(&run_dir.join("command.txt")),
+        "stdout": repo_path(&run_dir.join("cargo-mutants.stdout.log")),
+        "stderr": repo_path(&run_dir.join("cargo-mutants.stderr.log")),
+        "survivors_json": repo_path(&run_dir.join("survivors.json")),
+        "triage_md": repo_path(&run_dir.join("triage.md")),
+        "missed_by_file_tsv": repo_path(&run_dir.join("missed-by-file.tsv")),
+        "timeouts_by_file_tsv": repo_path(&run_dir.join("timeouts-by-file.tsv")),
+        "missed_txt": repo_path(&resolved_mutants_out.join("missed.txt")),
+        "timeout_txt": repo_path(&resolved_mutants_out.join("timeout.txt")),
+        "outcomes_json": repo_path(&resolved_mutants_out.join("outcomes.json")),
+        "mutants_json": repo_path(&resolved_mutants_out.join("mutants.json")),
+    });
+    write_json(
+        &run_dir.join("survivors.json"),
+        &serialize_survivors(&survivors),
+    )?;
+    write_survivor_groups_tsv(&run_dir.join("missed-by-file.tsv"), &missed_by_file)?;
+    write_survivor_groups_tsv(&run_dir.join("timeouts-by-file.tsv"), &timeouts_by_file)?;
+    write_mutation_triage_markdown(
+        &run_dir.join("triage.md"),
+        &MutationTriageView {
+            status: if status.success() { "passed" } else { "failed" },
+            exit_code: status.code().unwrap_or(1),
+            shard: &shard,
+            package_shard: &package_shard,
+            explicit_packages: explicit_packages.as_deref(),
+            packages: &selected_packages,
+            timeout_secs: &timeout,
+            counts: &counts,
+            survivors: &survivors,
+            missed_by_file: &missed_by_file,
+            timeouts_by_file: &timeouts_by_file,
+            artifacts: &artifacts,
+        },
+    )?;
     let missed = counts
         .get("missed_count")
         .and_then(Value::as_u64)
@@ -707,6 +762,7 @@ fn behavior_mutation(raw: &[String]) -> Result<()> {
                 "exit_code": status.code().unwrap_or(1),
                 "shard": shard,
                 "package_shard": package_shard,
+                "explicit_packages": explicit_packages,
                 "packages": selected_packages,
                 "timeout_secs": timeout,
                 "test_package": "tanren-bdd",
@@ -715,10 +771,10 @@ fn behavior_mutation(raw: &[String]) -> Result<()> {
                 "excluded": ["crates/tanren-bdd/**", "crates/tanren-testkit/**", "xtask/**", "artifacts/**"],
             },
             "outcomes": counts,
-            "artifacts": {
-                "mutants_out": repo_path(&resolved_mutants_out),
-                "command": repo_path(&run_dir.join("command.txt")),
-            }
+            "survivors": serialize_survivors(&survivors),
+            "missed_by_file": serialize_survivor_groups(&missed_by_file),
+            "timeouts_by_file": serialize_survivor_groups(&timeouts_by_file),
+            "artifacts": artifacts,
         }),
     )?;
     update_latest(Path::new(MUTATION_OUTPUT_ROOT), &run_dir)?;
@@ -743,10 +799,53 @@ fn behavior_inventory() -> Result<BehaviorInventory> {
 
 fn mutation_product_packages(shard: &str) -> Result<Vec<String>> {
     let (index, total) = parse_zero_based_shard(shard)?;
+    let product = mutation_workspace_product_packages()?;
+
+    let selected = product
+        .into_iter()
+        .enumerate()
+        .filter_map(|(offset, name)| (offset % total == index).then_some(name))
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        bail!("mutation package shard {shard} selected no product packages");
+    }
+    Ok(selected)
+}
+
+fn mutation_explicit_packages(raw: &str) -> Result<Vec<String>> {
+    let requested = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<BTreeSet<_>>();
+    if requested.is_empty() {
+        bail!("explicit mutation package list is empty");
+    }
+
+    let available = mutation_workspace_product_packages()?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let unknown = requested
+        .difference(&available)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unknown.is_empty() {
+        bail!(
+            "unknown mutation package(s): {}; available product packages: {}",
+            unknown.join(", "),
+            available.iter().cloned().collect::<Vec<_>>().join(", ")
+        );
+    }
+
+    Ok(requested.into_iter().collect())
+}
+
+fn mutation_workspace_product_packages() -> Result<Vec<String>> {
     let output = Command::new("cargo")
         .args(["metadata", "--no-deps", "--format-version", "1"])
         .output()
-        .context("read cargo metadata for mutation package shard")?;
+        .context("read cargo metadata for mutation packages")?;
     if !output.status.success() {
         bail!(
             "cargo metadata failed\nstdout:\n{}\nstderr:\n{}",
@@ -794,16 +893,7 @@ fn mutation_product_packages(shard: &str) -> Result<Vec<String>> {
     }
     product.sort();
     product.dedup();
-
-    let selected = product
-        .into_iter()
-        .enumerate()
-        .filter_map(|(offset, name)| (offset % total == index).then_some(name))
-        .collect::<Vec<_>>();
-    if selected.is_empty() {
-        bail!("mutation package shard {shard} selected no product packages");
-    }
-    Ok(selected)
+    Ok(product)
 }
 
 fn parse_zero_based_shard(raw: &str) -> Result<(usize, usize)> {
@@ -838,11 +928,19 @@ fn load_behavior_docs(root: &Path) -> Result<BTreeMap<String, BehaviorDoc>> {
             .with_context(|| format!("parse frontmatter {}", path.display()))?;
         let id = yaml_string(&metadata, "id").unwrap_or_default();
         let title = yaml_string(&metadata, "title").unwrap_or_default();
-        let status = yaml_string(&metadata, "status").unwrap_or_default();
+        let area = yaml_string(&metadata, "area").unwrap_or_default();
+        let personas = yaml_strings(&metadata, "personas");
+        let runtime_actors = yaml_strings(&metadata, "runtime_actors");
+        let product_status = yaml_string(&metadata, "product_status").unwrap_or_default();
+        let verification_status = yaml_string(&metadata, "verification_status").unwrap_or_default();
         let doc = BehaviorDoc {
             id: id.clone(),
             title,
-            status,
+            area,
+            personas,
+            runtime_actors,
+            product_status,
+            verification_status,
             path: repo_path(&path),
         };
         if docs.insert(id.clone(), doc).is_some() {
@@ -861,8 +959,57 @@ fn validate_behavior_docs(docs: &BTreeMap<String, BehaviorDoc>) -> Vec<String> {
         if doc.title.trim().is_empty() {
             errors.push(format!("{}: missing title", doc.path));
         }
-        if !matches!(doc.status.as_str(), "draft" | "accepted" | "deprecated") {
-            errors.push(format!("{}: invalid status {}", doc.path, doc.status));
+        if doc.area.trim().is_empty() {
+            errors.push(format!("{}: missing area", doc.path));
+        }
+        if doc.personas.is_empty() {
+            errors.push(format!("{}: missing personas", doc.path));
+        }
+        for persona in &doc.personas {
+            if !matches!(
+                persona.as_str(),
+                "solo-builder" | "team-builder" | "observer" | "operator" | "integration-client"
+            ) {
+                errors.push(format!("{}: invalid persona {}", doc.path, persona));
+            }
+        }
+        if doc.personas.iter().any(|persona| persona == "any") {
+            errors.push(format!("{}: personas must not use any", doc.path));
+        }
+        if doc.personas.iter().any(|persona| persona == "agent-worker") {
+            errors.push(format!(
+                "{}: agent-worker belongs in runtime_actors, not personas",
+                doc.path
+            ));
+        }
+        for actor in &doc.runtime_actors {
+            if actor != "agent-worker" {
+                errors.push(format!("{}: invalid runtime actor {}", doc.path, actor));
+            }
+        }
+        if !matches!(
+            doc.product_status.as_str(),
+            "draft" | "accepted" | "deprecated" | "removed"
+        ) {
+            errors.push(format!(
+                "{}: invalid product_status {}",
+                doc.path, doc.product_status
+            ));
+        }
+        if !matches!(
+            doc.verification_status.as_str(),
+            "unimplemented" | "implemented" | "asserted" | "retired"
+        ) {
+            errors.push(format!(
+                "{}: invalid verification_status {}",
+                doc.path, doc.verification_status
+            ));
+        }
+        if doc.product_status == "removed" && doc.verification_status != "retired" {
+            errors.push(format!(
+                "{}: removed behavior must have verification_status retired",
+                doc.path
+            ));
         }
         let Some(file_id) = Path::new(&doc.path)
             .file_name()
@@ -1005,9 +1152,15 @@ fn validate_scenario_tags(
         ));
         return;
     };
-    if doc.status == "deprecated" && !has_deprecated_coverage_tag(tags) {
+    if doc.product_status == "deprecated" && !has_deprecated_coverage_tag(tags) {
         errors.push(format!(
             "{file}:{line}: deprecated behavior {behavior_id} requires compatibility, migration, or deprecation coverage tag"
+        ));
+    }
+    if doc.verification_status != "asserted" {
+        errors.push(format!(
+            "{file}:{line}: behavior {behavior_id} has verification_status {}; active BDD scenarios require asserted behavior docs",
+            doc.verification_status
         ));
     }
     let witness_count = tags
@@ -1026,7 +1179,10 @@ fn validate_witness_obligations(
     scenarios: &[FeatureScenario],
     errors: &mut Vec<String>,
 ) {
-    for doc in docs.values().filter(|doc| doc.status == "accepted") {
+    for doc in docs
+        .values()
+        .filter(|doc| doc.verification_status == "asserted")
+    {
         let has_positive = scenarios
             .iter()
             .any(|scenario| scenario.behavior_id == doc.id && scenario.witness == "positive");
@@ -1035,13 +1191,13 @@ fn validate_witness_obligations(
             .any(|scenario| scenario.behavior_id == doc.id && scenario.witness == "falsification");
         if !has_positive {
             errors.push(format!(
-                "{}: accepted behavior missing positive witness",
+                "{}: asserted behavior missing positive witness",
                 doc.id
             ));
         }
         if !has_falsification {
             errors.push(format!(
-                "{}: accepted behavior missing falsification witness",
+                "{}: asserted behavior missing falsification witness",
                 doc.id
             ));
         }
@@ -1057,7 +1213,11 @@ fn behavior_inventory_json(inventory: &BehaviorInventory) -> Value {
             json!({
                 "id": doc.id,
                 "title": doc.title,
-                "status": doc.status,
+                "area": doc.area,
+                "personas": doc.personas,
+                "runtime_actors": doc.runtime_actors,
+                "product_status": doc.product_status,
+                "verification_status": doc.verification_status,
                 "path": doc.path,
             })
         }).collect::<Vec<_>>(),
@@ -1080,7 +1240,7 @@ fn behavior_witness_summary(inventory: &BehaviorInventory) -> Vec<Value> {
     inventory
         .docs
         .values()
-        .filter(|doc| doc.status == "accepted")
+        .filter(|doc| doc.verification_status == "asserted")
         .map(|doc| {
             let positive = inventory
                 .scenarios
@@ -1115,7 +1275,15 @@ fn accepted_behavior_count(inventory: &BehaviorInventory) -> usize {
     inventory
         .docs
         .values()
-        .filter(|doc| doc.status == "accepted")
+        .filter(|doc| doc.product_status == "accepted")
+        .count()
+}
+
+fn asserted_behavior_count(inventory: &BehaviorInventory) -> usize {
+    inventory
+        .docs
+        .values()
+        .filter(|doc| doc.verification_status == "asserted")
         .count()
 }
 
@@ -1147,6 +1315,20 @@ fn yaml_string(value: &serde_yaml::Value, key: &str) -> Option<String> {
         .get(key)
         .and_then(serde_yaml::Value::as_str)
         .map(ToOwned::to_owned)
+}
+
+fn yaml_strings(value: &serde_yaml::Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_yaml::Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn collect_markdown_files(path: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -1569,10 +1751,39 @@ fn valid_behavior_id(id: &str) -> bool {
 struct SurvivorRecord {
     outcome: String,
     mutant: String,
+    package: Option<String>,
+    file: Option<String>,
+    line: Option<u64>,
+    function: Option<String>,
+    name: String,
+    diff_path: Option<String>,
+    log_path: Option<String>,
     source_path: Option<String>,
     source_line: Option<u64>,
     behavior_ids: Vec<String>,
     linkage_mode: String,
+}
+
+#[derive(Debug, Clone)]
+struct SurvivorFileGroup {
+    package: String,
+    file: String,
+    count: u64,
+}
+
+struct MutationTriageView<'a> {
+    status: &'a str,
+    exit_code: i32,
+    shard: &'a str,
+    package_shard: &'a str,
+    explicit_packages: Option<&'a str>,
+    packages: &'a [String],
+    timeout_secs: &'a str,
+    counts: &'a Value,
+    survivors: &'a [SurvivorRecord],
+    missed_by_file: &'a [SurvivorFileGroup],
+    timeouts_by_file: &'a [SurvivorFileGroup],
+    artifacts: &'a Value,
 }
 
 fn load_wave_behavior_ids(path: &Path) -> Result<(WaveBehaviorIds, Vec<String>)> {
@@ -1637,18 +1848,20 @@ fn build_survivors(
             let Some(outcome) = row
                 .get("summary")
                 .and_then(Value::as_str)
-                .map(|summary| summary.trim().to_ascii_lowercase())
+                .and_then(normalize_mutation_outcome)
             else {
                 continue;
             };
-            if outcome != "missed" && outcome != "timeout" {
-                continue;
-            }
             let Some(mutant) = mutant_label_from_outcome(row) else {
                 continue;
             };
-            if dedupe.insert((outcome.clone(), mutant.clone())) {
-                rows.push(survivor_record(outcome, mutant, wave_ids, all_ids));
+            if dedupe.insert((outcome.to_string(), mutant.clone())) {
+                rows.push(survivor_record(
+                    outcome.to_string(),
+                    mutant,
+                    wave_ids,
+                    all_ids,
+                ));
             }
         }
     }
@@ -1668,6 +1881,311 @@ fn build_survivors(
     Ok(rows)
 }
 
+fn build_mutation_survivors(mutants_out: &Path) -> Result<Vec<SurvivorRecord>> {
+    let mut dedupe = BTreeSet::new();
+    let mut rows = Vec::new();
+
+    if let Some(payload) = load_json_optional(&mutants_out.join("outcomes.json"))? {
+        for row in payload
+            .get("outcomes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(outcome) = row
+                .get("summary")
+                .and_then(Value::as_str)
+                .and_then(normalize_mutation_outcome)
+            else {
+                continue;
+            };
+            if outcome != "missed" && outcome != "timeout" {
+                continue;
+            }
+            let Some(mutant) = row
+                .get("scenario")
+                .and_then(|scenario| scenario.get("Mutant"))
+            else {
+                continue;
+            };
+            let Some(name) = mutant
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+            else {
+                continue;
+            };
+            if dedupe.insert((outcome.to_string(), name.to_string())) {
+                rows.push(mutation_survivor_from_outcome(outcome, name, mutant, row));
+            }
+        }
+    }
+
+    for (outcome, filename) in SURVIVOR_OUTCOME_FILES {
+        for mutant in read_lines(&mutants_out.join(filename))? {
+            if dedupe.insert(((*outcome).to_string(), mutant.clone())) {
+                rows.push(mutation_survivor_from_label((*outcome).to_string(), mutant));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+fn normalize_mutation_outcome(summary: &str) -> Option<&'static str> {
+    match summary.trim().to_ascii_lowercase().as_str() {
+        "missed" | "missedmutant" => Some("missed"),
+        "timeout" => Some("timeout"),
+        _ => None,
+    }
+}
+
+fn mutation_survivor_from_outcome(
+    outcome: &str,
+    name: &str,
+    mutant: &Value,
+    row: &Value,
+) -> SurvivorRecord {
+    let file = mutant
+        .get("file")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let line = mutant
+        .get("span")
+        .and_then(|span| span.get("start"))
+        .and_then(|start| start.get("line"))
+        .and_then(Value::as_u64)
+        .or_else(|| parse_source_ref(name).1);
+    let package = mutant
+        .get("package")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| file.as_deref().and_then(infer_package_from_path));
+    let function = mutant
+        .get("function")
+        .and_then(|function| function.get("function_name"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let diff_path = row
+        .get("diff_path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let log_path = row
+        .get("log_path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    SurvivorRecord {
+        outcome: outcome.to_string(),
+        mutant: name.to_string(),
+        package,
+        file: file.clone(),
+        line,
+        function,
+        name: name.to_string(),
+        diff_path,
+        log_path,
+        source_path: file,
+        source_line: line,
+        behavior_ids: Vec::new(),
+        linkage_mode: "unmapped".to_string(),
+    }
+}
+
+fn mutation_survivor_from_label(outcome: String, mutant: String) -> SurvivorRecord {
+    let (file, line) = parse_source_ref(&mutant);
+    SurvivorRecord {
+        outcome,
+        mutant: mutant.clone(),
+        package: file.as_deref().and_then(infer_package_from_path),
+        file: file.clone(),
+        line,
+        function: None,
+        name: mutant,
+        diff_path: None,
+        log_path: None,
+        source_path: file,
+        source_line: line,
+        behavior_ids: Vec::new(),
+        linkage_mode: "unmapped".to_string(),
+    }
+}
+
+fn infer_package_from_path(path: &str) -> Option<String> {
+    let normalized = path.replace('\\', "/");
+    if let Some(rest) = normalized.strip_prefix("crates/") {
+        return rest.split('/').next().map(ToOwned::to_owned);
+    }
+    if let Some(rest) = normalized.strip_prefix("bin/") {
+        return rest.split('/').next().map(ToOwned::to_owned);
+    }
+    None
+}
+
+fn group_survivors_by_file(rows: &[SurvivorRecord], outcome: &str) -> Vec<SurvivorFileGroup> {
+    let mut counts = BTreeMap::<(String, String), u64>::new();
+    for row in rows.iter().filter(|row| row.outcome == outcome) {
+        let package = row.package.clone().unwrap_or_else(|| "unknown".to_string());
+        let file = row.file.clone().unwrap_or_else(|| "unknown".to_string());
+        *counts.entry((package, file)).or_default() += 1;
+    }
+    let mut groups = counts
+        .into_iter()
+        .map(|((package, file), count)| SurvivorFileGroup {
+            package,
+            file,
+            count,
+        })
+        .collect::<Vec<_>>();
+    groups.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.package.cmp(&right.package))
+            .then_with(|| left.file.cmp(&right.file))
+    });
+    groups
+}
+
+fn write_survivor_groups_tsv(path: &Path, groups: &[SurvivorFileGroup]) -> Result<()> {
+    let mut out = String::from("package\tfile\tcount\n");
+    for group in groups {
+        out.push_str(&format!(
+            "{}\t{}\t{}\n",
+            group.package, group.file, group.count
+        ));
+    }
+    fs::write(path, out).with_context(|| format!("write {}", path.display()))
+}
+
+fn serialize_survivor_groups(groups: &[SurvivorFileGroup]) -> Value {
+    Value::Array(
+        groups
+            .iter()
+            .map(|group| {
+                json!({
+                    "package": group.package,
+                    "file": group.file,
+                    "count": group.count,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn write_mutation_triage_markdown(path: &Path, view: &MutationTriageView<'_>) -> Result<()> {
+    let mut out = String::new();
+    out.push_str("# Mutation Triage\n\n");
+    out.push_str(&format!(
+        "- Status: `{}`\n- Exit code: `{}`\n- Cargo-mutants shard: `{}`\n- Package shard: `{}`\n- Timeout seconds: `{}`\n",
+        view.status, view.exit_code, view.shard, view.package_shard, view.timeout_secs
+    ));
+    if let Some(explicit) = view.explicit_packages {
+        out.push_str(&format!("- Explicit packages: `{}`\n", explicit));
+    }
+    out.push_str("\n## Packages\n\n");
+    for package in view.packages {
+        out.push_str(&format!("- `{package}`\n"));
+    }
+    out.push_str("\n## Outcome Counts\n\n");
+    out.push_str("| Outcome | Count |\n| --- | ---: |\n");
+    for (label, key) in [
+        ("Tested", "tested_count"),
+        ("Caught", "caught_count"),
+        ("Missed", "missed_count"),
+        ("Timeout", "timeout_count"),
+        ("Unviable", "unviable_count"),
+    ] {
+        out.push_str(&format!("| {label} | {} |\n", value_u64(view.counts, key)));
+    }
+
+    out.push_str("\n## Top Missed Files\n\n");
+    push_group_table(&mut out, view.missed_by_file, 25);
+    out.push_str("\n## Top Timeout Files\n\n");
+    push_group_table(&mut out, view.timeouts_by_file, 25);
+
+    out.push_str("\n## Representative Missed Mutants\n\n");
+    push_survivor_table(
+        &mut out,
+        view.survivors,
+        "missed",
+        MUTATION_TRIAGE_PREVIEW_LIMIT,
+    );
+    out.push_str("\n## Representative Timeout Mutants\n\n");
+    push_survivor_table(
+        &mut out,
+        view.survivors,
+        "timeout",
+        MUTATION_TRIAGE_PREVIEW_LIMIT,
+    );
+
+    out.push_str("\n## Artifact Paths\n\n");
+    if let Some(artifacts) = view.artifacts.as_object() {
+        for (name, value) in artifacts {
+            if let Some(path) = value.as_str() {
+                out.push_str(&format!("- `{name}`: `{path}`\n"));
+            }
+        }
+    }
+
+    fs::write(path, out).with_context(|| format!("write {}", path.display()))
+}
+
+fn value_u64(value: &Value, key: &str) -> u64 {
+    value.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn push_group_table(out: &mut String, groups: &[SurvivorFileGroup], limit: usize) {
+    if groups.is_empty() {
+        out.push_str("None.\n");
+        return;
+    }
+    out.push_str("| Package | File | Count |\n| --- | --- | ---: |\n");
+    for group in groups.iter().take(limit) {
+        out.push_str(&format!(
+            "| `{}` | `{}` | {} |\n",
+            escape_markdown_table_cell(&group.package),
+            escape_markdown_table_cell(&group.file),
+            group.count
+        ));
+    }
+}
+
+fn push_survivor_table(out: &mut String, rows: &[SurvivorRecord], outcome: &str, limit: usize) {
+    let selected = rows
+        .iter()
+        .filter(|row| row.outcome == outcome)
+        .take(limit)
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        out.push_str("None.\n");
+        return;
+    }
+    out.push_str("| Package | File | Line | Function | Mutant | Diff | Log |\n");
+    out.push_str("| --- | --- | ---: | --- | --- | --- | --- |\n");
+    for row in selected {
+        out.push_str(&format!(
+            "| `{}` | `{}` | {} | `{}` | {} | `{}` | `{}` |\n",
+            escape_markdown_table_cell(row.package.as_deref().unwrap_or("unknown")),
+            escape_markdown_table_cell(row.file.as_deref().unwrap_or("unknown")),
+            row.line
+                .map(|line| line.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            escape_markdown_table_cell(row.function.as_deref().unwrap_or("-")),
+            escape_markdown_table_cell(&row.name),
+            escape_markdown_table_cell(row.diff_path.as_deref().unwrap_or("-")),
+            escape_markdown_table_cell(row.log_path.as_deref().unwrap_or("-")),
+        ));
+    }
+}
+
+fn escape_markdown_table_cell(value: &str) -> String {
+    value.replace('|', "\\|")
+}
+
 fn survivor_record(
     outcome: String,
     mutant: String,
@@ -1678,7 +2196,14 @@ fn survivor_record(
     let (behavior_ids, linkage_mode) = map_behavior_ids(source_path.as_deref(), wave_ids, all_ids);
     SurvivorRecord {
         outcome,
-        mutant,
+        mutant: mutant.clone(),
+        package: None,
+        file: source_path.clone(),
+        line: source_line,
+        function: None,
+        name: mutant,
+        diff_path: None,
+        log_path: None,
         source_path,
         source_line,
         behavior_ids,
@@ -1801,6 +2326,13 @@ fn serialize_survivors(rows: &[SurvivorRecord]) -> Value {
                 };
                 json!({
                     "outcome": row.outcome,
+                    "package": row.package,
+                    "file": row.file,
+                    "line": row.line,
+                    "function": row.function,
+                    "name": row.name,
+                    "diff_path": row.diff_path,
+                    "log_path": row.log_path,
                     "mutant": row.mutant,
                     "source_path": row.source_path,
                     "source_line": row.source_line,

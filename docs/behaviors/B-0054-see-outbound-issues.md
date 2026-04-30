@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0054
 title: See outbound issues Tanren has pushed to external trackers
-personas: [team-dev, observer]
+area: external-tracker
+personas: [team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can see the issues Tanren has pushed to the
+A `team-builder` or `observer` can see the issues Tanren has pushed to the
 connected external tracker — issues raised by audit findings that are out
 of scope for the current spec, issues raised from PR feedback, and others —
 so that the team can keep a coherent view of what Tanren has filed.

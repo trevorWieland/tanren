@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0062
 title: Configure notification preferences and routing
-personas: [solo-dev, team-dev, observer]
+area: configuration
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can configure which events notify
+A `solo-builder`, `team-builder`, or `observer` can configure which events notify
 them, through which channels, and at what level of urgency, so that B-0004
 notifications can be tuned rather than being a single on/off switch.
 

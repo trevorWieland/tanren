@@ -79,7 +79,7 @@ pub struct PhaseEventsCompactionReport {
 }
 
 /// Canonical `phase-events.jsonl` line envelope per
-/// `docs/architecture/agent-tool-surface.md` §6.
+/// `docs/architecture/subsystems/tools.md` §6.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhaseEventLine {
     pub schema_version: String,

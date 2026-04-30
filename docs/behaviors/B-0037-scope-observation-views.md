@@ -1,19 +1,21 @@
 ---
+schema: tanren.behavior.v0
 id: B-0037
 title: Scope observation views by project or grouping
-personas: [team-dev, observer]
+area: observation
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can choose the slice of work an observation
-view reflects — a single project, a milestone, an initiative, a whole
-organization, or the entire account — so that the view answers the
-question they are actually asking.
+A user can choose the slice of work an observation view reflects — a single
+project, a milestone, an initiative, a whole organization, or the entire
+account — so that the view answers the question they are actually asking.
 
 ## Preconditions
 

@@ -1,10 +1,13 @@
 ---
+schema: tanren.behavior.v0
 id: B-0047
 title: Switch the active organization within an account
-personas: [any]
+area: governance
+personas: [solo-builder, team-builder, observer, operator]
 interfaces: [cli, api, mcp, tui]
 contexts: [organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 

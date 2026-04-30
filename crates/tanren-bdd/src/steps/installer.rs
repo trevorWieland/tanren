@@ -218,7 +218,7 @@ fn when_methodology_command_loads_runtime_standards(world: &mut BehaviorWorld) {
             "--methodology-config".into(),
             config,
             "--phase".into(),
-            "discover-standards".into(),
+            "adhere-task".into(),
             "standard".into(),
             "list".into(),
             "--json".into(),
@@ -244,6 +244,21 @@ fn then_bootstrap_writes_full_default_targets(world: &mut BehaviorWorld) {
     ] {
         assert_exists(&repo.join(rel));
     }
+    let opencode_config = read_file(&repo.join("opencode.json")).expect("read opencode config");
+    let opencode_json: serde_json::Value =
+        serde_json::from_str(&opencode_config).expect("parse opencode config");
+    assert_eq!(opencode_json["mcp"]["tanren"]["type"], "local");
+    assert_eq!(opencode_json["mcp"]["tanren"]["enabled"], true);
+    assert_eq!(
+        opencode_json["mcp"]["tanren"]["command"],
+        serde_json::json!(["tanren-mcp", "serve"])
+    );
+    assert_eq!(
+        opencode_json["mcp"]["tanren"]["environment"]["TANREN_CONFIG"],
+        "./tanren.yml"
+    );
+    assert!(opencode_json["mcp"]["tanren"]["args"].is_null());
+    assert!(opencode_json["mcp"]["tanren"]["env"].is_null());
 }
 
 #[then(expr = "generated config records profile {string} and all default agents")]

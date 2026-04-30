@@ -119,9 +119,9 @@ pub enum FindingSource {
     },
     /// Emitted from `investigate` during diagnosis.
     Investigation { loop_index: u16 },
-    /// Emitted from `triage-audits` when re-classifying an existing finding.
+    /// Emitted when re-classifying an existing finding during project intake.
     Triage,
-    /// Emitted from `sync-roadmap` or `handle-feedback`.
+    /// Emitted from `handle-feedback` or external feedback reconciliation.
     Feedback { source_ref: NonEmptyString },
 }
 

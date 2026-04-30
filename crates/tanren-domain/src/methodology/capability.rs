@@ -7,7 +7,7 @@
 //! to decide which tools are callable in the current phase.
 //!
 //! Per-phase defaults mirror
-//! `docs/architecture/agent-tool-surface.md` §4 verbatim.
+//! `docs/architecture/subsystems/tools.md` §4 verbatim.
 
 use std::collections::BTreeSet;
 
@@ -307,12 +307,6 @@ fn default_capabilities_for_known_phase(phase: KnownPhase) -> &'static [ToolCapa
         KnownPhase::ResolveBlockers => {
             &[TaskCreate, TaskRevise, TaskAbandon, TaskRead, PhaseOutcome]
         }
-        KnownPhase::TriageAudits => &[IssueCreate, FindingAdd, PhaseOutcome],
-        KnownPhase::SyncRoadmap => &[FindingAdd, PhaseOutcome],
-        KnownPhase::DiscoverStandards
-        | KnownPhase::IndexStandards
-        | KnownPhase::InjectStandards => &[StandardRead, PhaseOutcome],
-        KnownPhase::PlanProduct => &[PhaseOutcome],
     }
 }
 

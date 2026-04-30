@@ -8,12 +8,12 @@
 //! enforcement) lives in `tanren-app-services::methodology`.
 //!
 //! Architecture references:
-//! - `docs/architecture/orchestration-flow.md` — task lifecycle
-//! - `docs/architecture/agent-tool-surface.md` — tool catalog + scopes
-//! - `docs/architecture/audit-rubric.md` — pillar definitions
-//! - `docs/architecture/adherence.md` — standard-filter algorithm
-//! - `docs/architecture/evidence-schemas.md` — evidence frontmatter
-//! - `docs/architecture/install-targets.md` — variable taxonomy
+//! - `docs/architecture/subsystems/orchestration.md` — task lifecycle
+//! - `docs/architecture/subsystems/tools.md` — tool catalog + scopes
+//! - `docs/architecture/subsystems/audit.md` — pillar definitions
+//! - `docs/architecture/subsystems/adherence.md` — standard-filter algorithm
+//! - `docs/architecture/subsystems/evidence.md` — evidence frontmatter
+//! - `docs/architecture/delivery.md` — variable taxonomy
 
 pub mod capability;
 pub mod check;

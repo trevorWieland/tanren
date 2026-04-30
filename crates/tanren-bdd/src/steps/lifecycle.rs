@@ -139,7 +139,7 @@ fn when_task_scoped_audit_finding_is_investigated(world: &mut BehaviorWorld) {
     world.lifecycle_task_id = Some(task_id);
 }
 
-#[when("do-task records repair evidence for the same task")]
+#[when("do-task records repair source references for the same task")]
 fn when_do_task_records_repair_evidence_for_same_task(world: &mut BehaviorWorld) {
     let task_id = lifecycle_task_id(world);
     run_lifecycle_ok(

@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0023
 title: Group specs into a milestone
-personas: [solo-dev, team-dev]
+area: spec-lifecycle
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can create a milestone and assign specs to it, so
+A `solo-builder` or `team-builder` can create a milestone and assign specs to it, so
 that a cohesive set of work can be tracked, viewed, and reported on together.
 
 ## Preconditions

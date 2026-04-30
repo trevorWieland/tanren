@@ -14,7 +14,8 @@ repo gates.
 - `commands/`: source command markdown rendered by the installer
 - `profiles/`, `protocol/`, `scripts/`: standards, protocol docs, and shell entrypoints
 - `tests/bdd/`: behavior feature files used by the Rust BDD proof crate
-- `docs/roadmap/`: product roadmap and proof source documents
+- `docs/product/vision.md`, `docs/behaviors/`, `docs/roadmap/`: product vision,
+  behavior canon, and roadmap DAG source documents
 
 ## Build, Test, and Development Commands
 
@@ -46,10 +47,11 @@ Run commands from the repo root.
 
 ## Documentation Source of Truth
 
-- Product planning and phase proof docs live under `docs/roadmap/`.
+- Product vision lives in `docs/product/vision.md`; behavior canon lives under
+  `docs/behaviors/`; roadmap DAG guidance lives under `docs/roadmap/`.
 - Architecture details live under `docs/architecture/`.
-- Methodology and command installation details live under `docs/methodology/`.
-- Runtime implementation details live in `docs/ADAPTERS.md`.
+- Methodology and command installation details live under `docs/architecture/`.
+- Runtime implementation details live in `docs/architecture/subsystems/adapters.md`.
 - If behavior, interfaces, lifecycle, or security model changes, update the relevant doc in the same PR.
 
 ## Commit and Pull Request Guidelines

@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0056
 title: See the current state of external issues referenced by a spec
-personas: [solo-dev, team-dev, observer]
+area: external-tracker
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can see the current state of any
+A `solo-builder`, `team-builder`, or `observer` can see the current state of any
 external issues referenced by a spec — the originating ticket and any
 external issues listed as dependencies — so that they understand where the
 external work stands without leaving Tanren.

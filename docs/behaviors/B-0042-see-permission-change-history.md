@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0042
 title: See the change history for a project or organization
-personas: [team-dev, observer]
+area: governance
+personas: [team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `team-dev` or `observer` can see a chronological record of changes
+A `team-builder` or `observer` can see a chronological record of changes
 within a project or organization they have visibility of — permission
 changes, access changes, and configuration changes — so that how the
 project or organization runs is attributable and auditable over time.

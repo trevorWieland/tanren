@@ -4,75 +4,99 @@ description: Tanren methodology command `plan-product`
 role: meta
 orchestration_loop: false
 autonomy: interactive
-declared_variables:
-- ISSUE_REF_NOUN
-- PRODUCT_ROOT
-- READONLY_ARTIFACT_BANNER
-- TASK_TOOL_BINDING
-declared_tools:
-- report_phase_outcome
-required_capabilities:
-- phase.outcome
+declared_variables: []
+declared_tools: []
+required_capabilities: []
 produces_evidence:
-- tanren/product/mission.md
-- tanren/product/roadmap.md
-- tanren/product/tech-stack.md
+- docs/product/vision.md
+- docs/product/personas.md
+- docs/product/concepts.md
+- README product framing when approved
 ---
 
 # plan-product
 
+## Temporary Status
+
+This is a temporary Tanren-method bootstrap command. It writes markdown
+projections directly because native product-planning schemas, typed tools, and
+project-method events do not exist yet. Prefer structured frontmatter, stable
+headings, explicit decisions, and small approved edits so these artifacts can
+later migrate into typed Tanren storage.
+
+This command is for any repository adopting the Tanren method. Use the
+repository's configured product artifact paths; if none are configured, use the
+conventional `docs/product/` paths.
+
 ## Purpose
 
-Establish foundational product docs for a new project. This is
-one-shot scaffolding, not recurring work.
+Establish and maintain product intent: what the product is, who it serves, why
+it matters, which constraints and non-goals apply, what success looks like, and
+which assumptions or open decisions still need human judgment.
 
-## Inputs (from your dispatch)
+## Inputs
 
-- Any existing `tanren/product/` state (may be empty).
-- User-provided product context: problem, target users, solution,
-  success criteria, roadmap priorities, and stack choices.
-- Any installed standards that describe product documentation,
-  roadmap, or technology-stack expectations.
+- Existing product brief, vision, motivation, or README material.
+- Persona, customer, user, or actor documents.
+- Concept, glossary, or domain-language documents.
+- Existing code, tests, and docs when adopting Tanren in an existing
+  repository.
+- User-provided goals, constraints, non-goals, risks, and open questions.
+
+## Editable Artifacts
+
+This command owns product-planning projections:
+
+- `docs/product/vision.md`
+- `docs/product/personas.md`
+- `docs/product/concepts.md`
+- product-facing sections of `README.md` when the README is the public product
+  entry
+
+README edits are limited to product identity, audience, method, positioning,
+and source-of-truth links unless the user explicitly asks to revise
+implementation, installation, API, or CLI sections.
+
+## Temporary Artifact Formats
+
+Prefer product artifacts with frontmatter:
+
+```yaml
+---
+schema: tanren.product_brief.v0
+status: draft | accepted
+owner_command: plan-product
+updated_at: YYYY-MM-DD
+---
+```
+
+Use stable headings for product identity, target users, problems, motivations,
+non-goals, constraints, success signals, core method, open questions, and change
+history.
 
 ## Responsibilities
 
-1. Detect existing docs. If all three exist, ask the user whether
-   to regenerate or edit.
-2. Ask about problem, target users, solution.
-3. Ask about MVP features and post-launch features.
-4. Ask about tech stack, OR use an existing tech-stack standard if
-   one is installed.
-5. Generate `tanren/product/mission.md`,
-   `tanren/product/roadmap.md`, and
-   `tanren/product/tech-stack.md` as first-class project context:
-   - `mission.md`: problem, users, solution, and success criteria.
-   - `roadmap.md`: phased priorities with status and linked
-     `GitHub issue` references when known.
-   - `tech-stack.md`: language/runtime, package management,
-     framework, testing, CI/CD, and infrastructure choices.
-6. Leave empty sections only when the user explicitly does not know
-   the answer yet; mark them as open decisions rather than silent
-   blanks.
-7. `report_phase_outcome("complete", <files created>)`.
+1. Identify product artifact roots and ask the user to confirm them only if
+   ambiguous.
+2. Read current product, persona, concept, README, and overview context before
+   asking broad questions.
+3. Reconstruct current product intent from existing evidence when working in an
+   existing repository.
+4. Ask targeted questions where artifacts are missing, contradictory, stale, or
+   under-specified.
+5. Propose a concise edit plan before changing files.
+6. After user approval, create or revise product projections using stable
+   headings and structured frontmatter.
+7. Preserve unresolved decisions in an open-questions section rather than
+   hiding uncertainty.
+8. Summarize changed product assumptions, open decisions, and likely follow-up
+   behavior work.
 
-## Out of scope
+## Out of Scope
 
-- Creating `GitHub issues` for roadmap items (shape-spec does
-  that when the user picks one up)
-- Modifying standards (that's `discover-standards`)
-- Running any gate or audit
-
-⚠ ORCHESTRATOR-OWNED ARTIFACT — DO NOT EDIT.
-spec.md, plan.md, tasks.md, tasks.json, demo.md, audit.md,
-signposts.md, progress.json, and .tanren-projection-checkpoint.json
-are generated from the typed event stream.
-Postflight reverts unauthorized edits and emits an
-UnauthorizedArtifactEdit event. Use the typed tool surface
-(MCP or CLI) to record progress.
-
-
-Use Tanren MCP tools for all structured mutations in this phase.
-MCP-first canonical invocation set for phase `plan-product`:
-The orchestrator exports `TANREN_CLI`, `TANREN_DATABASE_URL`, `TANREN_CONFIG`, and `TANREN_SPEC_FOLDER`; use those values directly for CLI tool calls.
-- MCP `report_phase_outcome` payload: `{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}`
-- CLI `report_phase_outcome` command: `"$TANREN_CLI" --database-url "$TANREN_DATABASE_URL" methodology --methodology-config "$TANREN_CONFIG" --phase plan-product --spec-id <spec_uuid> --spec-folder "$TANREN_SPEC_FOLDER" phase outcome --json '{"schema_version":"1.0.0","spec_id":"00000000-0000-0000-0000-000000000000","outcome":{"outcome":"complete","summary":"phase complete"}}'`
+- Creating or revising behavior files. Use `identify-behaviors`.
+- Choosing implementation architecture. Use `architect-system`.
+- Assessing current implementation state. Use `assess-implementation`.
+- Creating or revising roadmap DAG nodes. Use `craft-roadmap`.
+- Dispatching specs, creating tasks, opening pull requests, or mutating
+  orchestration state.

@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0063
 title: Export account or project data for backup or migration
-personas: [solo-dev, team-dev]
+area: operations
+personas: [solo-builder, team-builder, operator]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` with the required permission can export their
+A `solo-builder` or `team-builder` with the required permission can export their
 account's data or a project's data, so that they can back it up, migrate
 to another Tanren installation, or retain a copy outside the system.
 

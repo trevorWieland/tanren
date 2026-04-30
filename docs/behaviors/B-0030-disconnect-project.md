@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0030
 title: Disconnect a project from Tanren
-personas: [solo-dev, team-dev]
+area: project-setup
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can disconnect a project from their account, so
+A `solo-builder` or `team-builder` can disconnect a project from their account, so
 that it no longer appears in their views, without affecting the underlying
 repository.
 

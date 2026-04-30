@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0070
 title: Generate selected agent integrations deterministically
-personas: [solo-dev, team-dev]
+area: project-setup
+personas: [solo-builder, team-builder]
 interfaces: [cli]
 contexts: [personal, organizational]
-status: accepted
+product_status: accepted
+verification_status: asserted
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can restrict installer output to selected agent
+A `solo-builder` or `team-builder` can restrict installer output to selected agent
 integrations so that the repository only receives the command and config
 targets the user requested.
 
@@ -29,8 +32,8 @@ targets the user requested.
 
 - Configuring agents after installation through account or organization
   settings.
+- Performing local repository installation from phone-only interfaces.
 
 ## Related
 
 - B-0068
-

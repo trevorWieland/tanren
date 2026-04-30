@@ -89,12 +89,6 @@ pub enum KnownPhase {
     HandleFeedback,
     Investigate,
     ResolveBlockers,
-    TriageAudits,
-    SyncRoadmap,
-    DiscoverStandards,
-    IndexStandards,
-    InjectStandards,
-    PlanProduct,
 }
 
 impl KnownPhase {
@@ -114,12 +108,6 @@ impl KnownPhase {
             Self::HandleFeedback,
             Self::Investigate,
             Self::ResolveBlockers,
-            Self::TriageAudits,
-            Self::SyncRoadmap,
-            Self::DiscoverStandards,
-            Self::IndexStandards,
-            Self::InjectStandards,
-            Self::PlanProduct,
         ]
     }
 
@@ -139,12 +127,6 @@ impl KnownPhase {
             Self::HandleFeedback => "handle-feedback",
             Self::Investigate => "investigate",
             Self::ResolveBlockers => "resolve-blockers",
-            Self::TriageAudits => "triage-audits",
-            Self::SyncRoadmap => "sync-roadmap",
-            Self::DiscoverStandards => "discover-standards",
-            Self::IndexStandards => "index-standards",
-            Self::InjectStandards => "inject-standards",
-            Self::PlanProduct => "plan-product",
         }
     }
 
@@ -164,12 +146,6 @@ impl KnownPhase {
             "handle-feedback" => Some(Self::HandleFeedback),
             "investigate" => Some(Self::Investigate),
             "resolve-blockers" => Some(Self::ResolveBlockers),
-            "triage-audits" => Some(Self::TriageAudits),
-            "sync-roadmap" => Some(Self::SyncRoadmap),
-            "discover-standards" => Some(Self::DiscoverStandards),
-            "index-standards" => Some(Self::IndexStandards),
-            "inject-standards" => Some(Self::InjectStandards),
-            "plan-product" => Some(Self::PlanProduct),
             _ => None,
         }
     }

@@ -1,19 +1,43 @@
 # tanren
 
-Rust code-orchestration framework for agentic software delivery.
+Turn a product idea into enterprise-ready software, with proof at every step.
 
 [![Rust CI](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/trevorWieland/tanren/actions/workflows/rust-ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
-Tanren decides what work happens, in what order, under which policy and
-runtime constraints. Agent runtimes decide how each role executes. This keeps
-workflow state, evidence, installation, and execution contracts in one typed
-Rust control plane while allowing harnesses and environments to vary.
+Tanren is a product-to-proof control plane for agentic software delivery. It is
+the framework around coding agents that preserves product intent, accepted
+behaviors, roadmap order, workflow state, execution boundaries, source signals,
+and behavior proof.
+Agent runtimes such as Codex, Claude Code, or OpenCode decide how an assigned
+role reasons and edits. Tanren decides what work exists, why it exists, what may
+run next, and what proof is required before the work counts as complete.
 
-Tanren is not an agent runtime. It is the framework around agent runtimes:
-it shapes work into specs and tasks, dispatches the right phase, enforces
-state transitions through typed tools, records durable evidence, and loops
-until the configured gates are satisfied or a human decision is required.
+Enterprise-ready primarily means production-grade engineering discipline:
+accepted behavior contracts, executable behavior proof, standards, CI, auditability,
+typed workflow state, isolated execution, and repeatable delivery.
+
+The long-term goal is a continuous chain from product idea to shipped, proven
+behavior:
+
+```text
+product brief
+-> accepted behavior catalog
+-> roadmap DAG
+-> shaped specs
+-> orchestrated implementation
+-> behavior proof and human walk
+-> PR, review, merge, ship
+-> feedback, bug triage, and proactive analysis
+-> updated product plan
+```
+
+This makes autonomous coding governable. Every increment should be traceable to
+accepted product behavior, every asserted behavior should have executable
+behavior proof, and every roadmap milestone should explain what user, operator,
+client, or runtime-actor outcomes are now complete.
+
+For the accepted product brief, read [docs/product/vision.md](docs/product/vision.md).
 
 ## Quick Start
 
@@ -33,9 +57,106 @@ scripts/runtime/verify-installed-runtime.sh
 tanren-cli install --dry-run
 ```
 
+## Why Tanren Exists
+
+Coding agents can produce changes quickly, but speed without durable product
+method creates drift. Tanren exists to prevent common failures:
+
+- vague ideas become plausible code without accepted product intent;
+- roadmaps become stale prose instead of dependency-aware executable plans;
+- specs complete implementation tasks without completing user-visible behavior;
+- tests prove implementation details but not accepted product outcomes;
+- demos and reviews lack a clear behavior story;
+- bugs, audit findings, benchmarks, and feedback become scattered
+  interruptions;
+- parallel agent work collides without explicit execution boundaries;
+- autonomous loops either stop too often or run without typed events.
+
+Tanren's answer is opinionated: product behavior is the unit of meaning,
+roadmap nodes must complete behavior, specs are shaped before execution, BDD
+behavior proof is the proof path, and agents mutate workflow state only through
+typed tools.
+
+## What Tanren Is Not
+
+Tanren is not an agent runtime, model provider, editor, ticket tracker, CI
+system, or generic task runner. It integrates with those systems through
+adapters. The core responsibility stays the same across integrations: decide
+what work happens, preserve why it exists, enforce how it progresses, and keep
+proof and source references for what was proven.
+
+Tanren is pluggable at the edges but not methodology-neutral. It should not
+care whether a team uses GitHub or another source-control provider, local
+subprocesses or remote VMs, one agent harness or another. It should care that
+work is behavior-backed, roadmap-ordered, spec-shaped, audited, walked, and
+proven.
+
+## What Tanren Empowers
+
+In its complete form, Tanren should let a technical product builder or team
+answer, from durable state:
+
+- what product is being built and for whom;
+- which user problems and success signals justify the current roadmap;
+- which behaviors are accepted, implemented, asserted, deprecated, or missing;
+- what spec-sized work remains and why that order is correct;
+- what is currently in flight, blocked, reviewed, or shipped;
+- which behavior proof proves that a behavior exists;
+- how bugs, audit findings, benchmarks, post-ship outcomes, and proactive
+  analyses changed the plan;
+- where active agent work is running and which harness, credentials, and
+  environment boundaries apply.
+
+That is the difference between "agents can write code" and "agents can help
+deliver enterprise-ready software whose intended behaviors are planned,
+implemented, validated, reviewed, shipped, and continuously improved."
+
+## Tanren Method
+
+Tanren's method has four product-to-proof layers:
+
+1. **Plan product**: establish the product brief, motivations, target users,
+   constraints, success signals, and open product decisions.
+2. **Identify behaviors**: turn product intent into a parsable catalog of
+   accepted user, operator, client, and runtime-actor behaviors.
+3. **Craft roadmap**: synthesize a machine-readable DAG of spec-sized nodes
+   that complete accepted behaviors in dependency order. Human-readable
+   roadmap documents are rendered views of that graph.
+4. **Execute specs**: shape one roadmap node into a spec, orchestrate the task
+   loop, run behavior proof, walk the result with a human, review, merge,
+   and update behavior verification state.
+
+Tanren also treats proactive project analysis as a first-class source of
+planning input. Scheduled standards sweeps, security audits, mutation-testing
+runs, post-ship health checks, and similar non-interactive analyses should
+produce findings or proposed planning changes that flow back into behaviors,
+roadmap nodes, and shaped specs rather than bypassing the product method.
+
+Tanren also treats bug handling as a product-method funnel. A bug report should
+be triaged as a false alarm, missing behavior, misaligned behavior, insufficient
+behavior assertion, or regression against asserted behavior before follow-up
+work is planned.
+
+The spec-orchestration loop is the execution layer, not the whole method.
+Without product intent there is no meaningful behavior catalog; without
+accepted behaviors there is no reliable roadmap; without a roadmap DAG there is
+no principled spec queue; without behavior proof and walks, completed specs do
+not prove product progress.
+
+This repo currently has the real spec-loop commands installed and temporary
+project-method bootstrap commands for `plan-product`, `identify-behaviors`,
+`architect-system`, `assess-implementation`, and `craft-roadmap`. The
+project-method commands write owned planning projections for now; they are not
+yet native typed Tanren phases.
+
+The first major product milestone is Tanren-in-Tanren: using Tanren to plan,
+shape, execute, prove, walk, and update Tanren itself, including harness and
+environment management for Codex, Claude Code, OpenCode, and container or
+remote execution targets.
+
 ## How It Works
 
-Tanren's orchestration model has four layers:
+Tanren's runtime orchestration model has four layers:
 
 1. **Intent**: a human or coordinator starts a spec, task, dispatch, or
    lifecycle action through CLI, MCP, API, or TUI.
@@ -43,8 +164,8 @@ Tanren's orchestration model has four layers:
    call the orchestrator, and persist typed events.
 3. **Execution**: scheduler/runtime crates lease an environment and hand one
    phase to an agent harness.
-4. **Evidence**: every meaningful state change becomes a typed event and a
-   projected artifact, so the next phase has a coherent view of the work.
+4. **State and proof**: every meaningful state change becomes a typed event,
+   while behavior proof and source references stay linked to the work.
 
 ```mermaid
 flowchart TD
@@ -64,7 +185,7 @@ flowchart TD
 ```
 
 The core loop is intentionally narrow: agents write implementation and
-diagnostic evidence, while Tanren owns state. Agents do not directly edit
+diagnostic output, while Tanren owns state. Agents do not directly edit
 orchestrator-owned artifacts such as `plan.md`, `tasks.json`,
 `progress.json`, or `phase-events.jsonl`; they call typed tools, and Tanren
 projects those files from durable events.
@@ -120,27 +241,33 @@ stateDiagram-v2
 
 The full state-machine specification, including cross-spec flows and
 escalation rules, lives in
-[docs/architecture/orchestration-flow.md](docs/architecture/orchestration-flow.md).
+[docs/architecture/subsystems/orchestration.md](docs/architecture/subsystems/orchestration.md).
 
 ## Architecture
 
 ```mermaid
 graph TD
-    COORD[Coordinator UX] --> CLI[tanren-cli]
-    COORD --> MCP[tanren-mcp]
-    COORD --> API[tanren-api]
+    WEB[tanren-web] --> API[tanren-api]
+    CLI[tanren-cli] --> API
+    TUI[tanren-tui] --> API
+    EXT[External clients] --> API
+    AGENT[Agent clients] --> MCP[tanren-mcp]
 
-    CLI --> APP[tanren-app-services]
+    API --> APP[tanren-app-services]
     MCP --> APP
-    API --> APP
-
-    APP --> STORE[(SQLite / Postgres)]
-    APP --> CONTRACT[tanren-contract]
     APP --> DOMAIN[tanren-domain]
+    APP --> CONTRACT[tanren-contract]
+    APP --> STORE[tanren-store]
+    STORE --> PG[(Postgres event log and projections)]
 
-    WORKER[tanrend] --> RUNTIME[tanren-runtime]
-    RUNTIME --> HARNESS[Harness adapters]
-    RUNTIME --> ENV[Environment adapters]
+    DAEMON[tanren-daemon] --> APP
+    PROJ[tanren-projection-worker] --> STORE
+    PROVIDER[tanren-provider-worker] --> APP
+    WEBHOOK[tanren-webhook-worker] --> APP
+    NOTIFY[tanren-notification-worker] --> APP
+    RUNTIME[tanren-runtime-worker] --> TARGET[Container or remote execution target]
+    TARGET --> HARNESS[Codex / Claude Code / OpenCode adapters]
+    PROVIDER --> SCM[Source control / CI / issue / VM providers]
 ```
 
 Core crates:
@@ -172,7 +299,7 @@ tanren/
 ├── commands/        # source command markdown rendered by the installer
 ├── profiles/        # standards profiles
 ├── protocol/        # protocol overview
-├── docs/            # architecture, methodology, roadmap
+├── docs/            # Tanren-owned product, behavior, architecture, implementation, roadmap projections
 ├── tests/bdd/       # behavior feature files
 └── scripts/         # shell entrypoints
 ```
@@ -191,13 +318,14 @@ Rust CI runs `just ci`. Protected development branches are governed by the
 ## Documentation
 
 - [docs/README.md](docs/README.md) - documentation index
-- [docs/roadmap/README.md](docs/roadmap/README.md) - product roadmap suite
-- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - phase roadmap
-- [docs/behaviors/README.md](docs/behaviors/README.md) - product behavior catalog
-- [tests/bdd/README.md](tests/bdd/README.md) - executable behavior evidence rules
-- [docs/methodology/commands-install.md](docs/methodology/commands-install.md) - command installation contract
-- [docs/architecture/overview.md](docs/architecture/overview.md) - architecture overview
-- [docs/architecture/agent-tool-surface.md](docs/architecture/agent-tool-surface.md) - tool and CLI fallback contract
+- [docs/product/vision.md](docs/product/vision.md) - accepted product brief
+- [docs/roadmap/dag.json](docs/roadmap/dag.json) - roadmap DAG source-of-truth
+- [docs/roadmap/roadmap.md](docs/roadmap/roadmap.md) - current human-readable roadmap view
+- [docs/behaviors/index.md](docs/behaviors/index.md) - product behavior catalog
+- [tests/bdd/README.md](tests/bdd/README.md) - executable behavior proof rules
+- [docs/architecture/delivery.md](docs/architecture/delivery.md) - stack installation and delivery contract
+- [docs/architecture/system.md](docs/architecture/system.md) - architecture overview
+- [docs/architecture/subsystems/quality-controls.md](docs/architecture/subsystems/quality-controls.md) - gates, audit, adherence, and quality controls
 
 ## License
 

@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0021
 title: See a spec's current lifecycle state
-personas: [solo-dev, team-dev, observer]
+area: spec-lifecycle
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: implemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can at any time see a spec's current
+A `solo-builder`, `team-builder`, or `observer` can at any time see a spec's current
 lifecycle state so that they can tell where it is in the authoring and
 delivery pipeline without having to open the spec's loop.
 

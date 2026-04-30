@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0039
 title: See my own permissions
-personas: [solo-dev, team-dev, observer]
+area: governance
+personas: [solo-builder, team-builder, observer]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev`, `team-dev`, or `observer` can see a summary of what they are
+A `solo-builder`, `team-builder`, or `observer` can see a summary of what they are
 permitted to do across the projects and organizations they have access to,
 so that they know what is available to them without trial-and-error.
 

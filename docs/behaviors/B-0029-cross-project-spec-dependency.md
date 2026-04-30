@@ -1,16 +1,19 @@
 ---
+schema: tanren.behavior.v0
 id: B-0029
 title: Honor cross-project spec dependencies
-personas: [solo-dev, team-dev]
+area: spec-lifecycle
+personas: [solo-builder, team-builder]
 interfaces: [cli, api, mcp, tui]
 contexts: [personal, organizational]
-status: draft
+product_status: accepted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-dev` or `team-dev` can rely on Tanren to honor a spec dependency that
+A `solo-builder` or `team-builder` can rely on Tanren to honor a spec dependency that
 points to a spec in another project, so that work that crosses project
 boundaries is coordinated the same way work within a single project is.
 

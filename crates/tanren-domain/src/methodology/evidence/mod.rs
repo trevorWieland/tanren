@@ -1,5 +1,5 @@
 //! Typed evidence schemas per
-//! `docs/architecture/evidence-schemas.md` §2.
+//! `docs/architecture/subsystems/evidence.md` §2.
 //!
 //! Six shapes:
 //!
