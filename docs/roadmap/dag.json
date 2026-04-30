@@ -5,6 +5,21 @@
   "behavior_root": "docs/behaviors",
   "architecture_root": "docs/architecture",
   "implementation_ref": "docs/implementation/readiness.json",
+  "completion_definition": {
+    "node_complete_means": "Every behavior listed in completes_behaviors is implemented, asserted by executable behavior proof, and demonstrated through the shaped spec walkthrough before the node can be marked complete.",
+    "completed_behavior_rule": "A roadmap node does not complete a behavior through implementation alone. Completion requires passing behavior-linked proof with a positive witness, a meaningful falsification witness where applicable, and demo or walk evidence showing the behavior is real through the observable surface named by the behavior.",
+    "bootstrap_assertion_mode": "Before the native behavior-proof subsystem exists, assertion may be satisfied by repo BDD proof and the spec walkthrough record. After native behavior proof exists, assertion must also be visible through behavior-proof and assessment read models.",
+    "not_allowed": [
+      "Marking a node complete while any completed behavior remains only implemented, unproven, or undocumented by the spec walkthrough",
+      "Using supports_behaviors as a substitute for completed and asserted behavior",
+      "Counting implementation-detail unit tests as behavior assertion unless they are part of behavior-linked executable proof"
+    ]
+  },
+  "parallelization_strategy": {
+    "kernel": ["R-0001", "R-0002", "R-0003"],
+    "tanren_in_tanren_spine": ["R-0001", "R-0002", "R-0003", "R-0005", "R-0006", "R-0007", "R-0008", "R-0009", "R-0011", "R-0012", "R-0013", "R-0017", "R-0018", "R-0019", "R-0014", "R-0015", "R-0021", "R-0022", "R-0023"],
+    "parallel_tracks_after_scope": ["planning", "governance_configuration", "runtime", "provider_integrations", "interfaces", "delivery_assets", "observation"]
+  },
   "milestones": [
     {
       "id": "M-0001",
@@ -155,7 +170,7 @@
       "milestone": "M-0002",
       "completes_behaviors": ["B-0079", "B-0140", "B-0141", "B-0142", "B-0143", "B-0144", "B-0170", "B-0171", "B-0172", "B-0173", "B-0191"],
       "supports_behaviors": ["B-0098", "B-0189", "B-0190"],
-      "depends_on": ["R-0003", "R-0004"],
+      "depends_on": ["R-0003"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -275,7 +290,7 @@
       "milestone": "M-0003",
       "completes_behaviors": ["B-0018", "B-0075", "B-0093", "B-0094", "B-0095", "B-0097"],
       "supports_behaviors": ["B-0189", "B-0190"],
-      "depends_on": ["R-0009", "R-0010"],
+      "depends_on": ["R-0009"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -335,7 +350,7 @@
       "milestone": "M-0004",
       "completes_behaviors": ["B-0001", "B-0002", "B-0003", "B-0007", "B-0017", "B-0058"],
       "supports_behaviors": ["B-0021", "B-0111"],
-      "depends_on": ["R-0013"],
+      "depends_on": ["R-0013", "R-0019"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -375,7 +390,7 @@
       "milestone": "M-0004",
       "completes_behaviors": ["B-0008", "B-0009", "B-0010", "B-0011", "B-0012", "B-0013", "B-0014", "B-0015", "B-0016", "B-0192", "B-0193", "B-0194", "B-0196", "B-0200", "B-0201", "B-0265"],
       "supports_behaviors": ["B-0036", "B-0206"],
-      "depends_on": ["R-0014", "R-0015"],
+      "depends_on": ["R-0014", "R-0015", "R-0026"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -395,7 +410,7 @@
       "milestone": "M-0005",
       "completes_behaviors": ["B-0099", "B-0100", "B-0101"],
       "supports_behaviors": ["B-0082", "B-0086", "B-0233"],
-      "depends_on": ["R-0003", "R-0013"],
+      "depends_on": ["R-0028", "R-0029"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -415,7 +430,7 @@
       "milestone": "M-0005",
       "completes_behaviors": ["B-0102", "B-0103", "B-0104", "B-0108", "B-0109", "B-0130", "B-0133", "B-0241"],
       "supports_behaviors": ["B-0081", "B-0230"],
-      "depends_on": ["R-0017"],
+      "depends_on": ["R-0017", "R-0030"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -455,7 +470,7 @@
       "milestone": "M-0005",
       "completes_behaviors": ["B-0234", "B-0235", "B-0251", "B-0252"],
       "supports_behaviors": ["B-0125", "B-0126", "B-0233"],
-      "depends_on": ["R-0019"],
+      "depends_on": ["R-0019", "R-0029"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -615,7 +630,7 @@
       "milestone": "M-0007",
       "completes_behaviors": ["B-0048", "B-0049", "B-0050", "B-0051", "B-0062", "B-0084", "B-0085", "B-0086", "B-0087", "B-0089", "B-0269"],
       "supports_behaviors": ["B-0081", "B-0082", "B-0083"],
-      "depends_on": ["R-0003", "R-0026"],
+      "depends_on": ["R-0026"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -655,7 +670,7 @@
       "milestone": "M-0007",
       "completes_behaviors": ["B-0081", "B-0082", "B-0083"],
       "supports_behaviors": ["B-0102", "B-0133", "B-0230"],
-      "depends_on": ["R-0018", "R-0027", "R-0028", "R-0029"],
+      "depends_on": ["R-0027", "R-0028", "R-0029"],
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -730,23 +745,43 @@
     },
     {
       "id": "R-0034",
-      "title": "Implement project, pipeline, quality, health, and risk observation",
+      "title": "Implement project, roadmap, blocked-work, and provenance observation",
       "status": "planned",
       "milestone": "M-0009",
-      "completes_behaviors": ["B-0027", "B-0032", "B-0033", "B-0034", "B-0035", "B-0036", "B-0037", "B-0205", "B-0206", "B-0207", "B-0208", "B-0209", "B-0212", "B-0213", "B-0214", "B-0217"],
+      "completes_behaviors": ["B-0027", "B-0037", "B-0205", "B-0206", "B-0209", "B-0212", "B-0213", "B-0214"],
       "supports_behaviors": ["B-0204", "B-0218"],
-      "depends_on": ["R-0004", "R-0009", "R-0016", "R-0019", "R-0022", "R-0024"],
+      "depends_on": ["R-0004", "R-0009", "R-0015", "R-0022", "R-0037"],
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0205",
+          "description": "Observation scenarios prove project attention, scoped views, roadmap progress, blocked overview, source-signal provenance, open decisions, mission or standards drift, and cross-project dependency risk"
+        }
+      ],
+      "scope": "Build observation read models for project lists, scoped views, roadmap progress, blocked work, source-signal provenance, open decisions, mission or standards drift, and cross-project dependency risk.",
+      "rationale": "This gives Tanren-in-Tanren useful planning and blocked-work visibility before delivery metrics are mature.",
+      "risks": ["Missing data can be incorrectly reported as healthy or zero"],
+      "shape_notes": ["Every observation claim should expose freshness, completeness, bounds, and provenance."]
+    },
+    {
+      "id": "R-0039",
+      "title": "Implement pipeline, quality, health, and delivery observation",
+      "status": "planned",
+      "milestone": "M-0009",
+      "completes_behaviors": ["B-0032", "B-0033", "B-0034", "B-0035", "B-0036", "B-0207", "B-0208", "B-0217"],
+      "supports_behaviors": ["B-0037", "B-0209"],
+      "depends_on": ["R-0016", "R-0019", "R-0022", "R-0024", "R-0025"],
       "expected_evidence": [
         {
           "kind": "bdd",
           "behavior_id": "B-0032",
-          "description": "Observation scenarios prove pipeline, quality, health, time-window comparison, per-builder contextual breakdown, scoped views, roadmap progress, blocked overview, delivery forecast/risk, quality trends, source signals, open decisions, drift, cross-project risk, and planned-vs-actual delivery"
+          "description": "Observation scenarios prove work pipeline, quality signals, health signals, time-window comparison, contextual per-builder breakdown, delivery forecast and risk, quality risk trends, and planned-versus-actual delivery"
         }
       ],
-      "scope": "Build observation read models for project lists, work pipeline, quality/health signals, scoped metrics, roadmap progress, blocked work, forecasts, risk, decisions, mission/standards drift, cross-project risk, and planned-versus-actual delivery.",
-      "rationale": "Observation must compose source-backed claims rather than invent dashboard-local truth.",
-      "risks": ["Missing data can be incorrectly reported as healthy or zero"],
-      "shape_notes": ["Every observation claim should expose freshness, completeness, bounds, and provenance."]
+      "scope": "Build observation read models for work pipeline, quality and health signals, time-window comparison, contextual per-builder breakdown, forecasts, quality risk trends, and planned-versus-actual delivery.",
+      "rationale": "Delivery metrics require orchestration, runtime, quality, review, and shipped-outcome signals, so they should not block earlier planning observation.",
+      "risks": ["Per-builder views can drift into individual productivity scoring"],
+      "shape_notes": ["Expose concrete coordination and improvement signals, not leaderboards."]
     },
     {
       "id": "R-0035",

@@ -41,15 +41,66 @@ typed product state.
 
 - All nodes are `planned`; the previous DAG contained no completed or in-flight
   nodes to preserve.
-- Each executable node completes at least one accepted behavior.
-- Behavior proof is expected for every behavior completed by a node, normally
-  with one behavior-linked positive witness and one meaningful falsification
-  witness.
+- Each executable node completes at least one accepted behavior, and completion
+  means the behavior is implemented and asserted.
+- A roadmap node cannot be marked complete while any behavior in
+  `completes_behaviors` is only implemented, unproven, or missing demo/walk
+  evidence.
 - Dependencies are intentionally front-loaded around state, contracts, scope,
   and planning because later orchestration and runtime behavior should not be
   built on file-first shortcuts.
 - Existing implementation should be salvaged only when it aligns with the
   accepted event, contract, projection, policy, and runtime boundaries.
+
+## Completion Definition
+
+In this roadmap, **a spec completes a behavior** means the spec completes and
+asserts that behavior. Implementation alone is insufficient.
+
+Before a roadmap node can move to `complete`, every behavior in
+`completes_behaviors` must have:
+
+- executable behavior proof linked to that behavior;
+- a positive witness;
+- a meaningful falsification witness unless the shaped spec explicitly
+  justifies why none applies;
+- demo or walk evidence showing the behavior is real through the observable
+  surface named by the behavior;
+- assertion status visible through native behavior-proof and assessment read
+  models once those subsystems exist.
+
+Before the native behavior-proof subsystem exists, early nodes may satisfy the
+assertion requirement through repo BDD proof and the shaped spec walkthrough
+record. After native behavior proof exists, completion also requires the
+assertion to be visible through Tanren's own proof and assessment state.
+
+## Parallelization Strategy
+
+The graph keeps only three nodes in the serial kernel: event/read-model state
+(`R-0001`), shared HTTP contracts (`R-0002`), and bootstrap scope (`R-0003`).
+After that, work splits into planning, governance/configuration, runtime,
+provider integration, interface, delivery-asset, and observation tracks.
+
+The fast path to meaningful Tanren-in-Tanren is:
+
+```text
+R-0001 -> R-0002 -> R-0003
+-> R-0005 -> R-0006 -> R-0007 -> R-0008 -> R-0009
+-> R-0011 -> R-0012 -> R-0013
+```
+
+In parallel with that planning spine, governance and runtime should move
+toward:
+
+```text
+R-0026 -> R-0028 -> R-0029 -> R-0030
+-> R-0017 -> R-0018 -> R-0019
+```
+
+Those two tracks converge at `R-0014`, where Tanren can start asserting real
+implementation-loop behavior against shaped specs. From there, `R-0015`,
+`R-0021`, `R-0022`, and `R-0023` make iterative spec work easier by adding
+blockers, behavior proof, quality controls, and walk/demo records.
 
 ## Milestones
 
@@ -77,7 +128,7 @@ memory into first-party typed planning state.
 
 | Node | Title | Depends on |
 |---|---|---|
-| `R-0005` | Implement native product brief and decision memory | `R-0003`, `R-0004` |
+| `R-0005` | Implement native product brief and decision memory | `R-0003` |
 | `R-0006` | Implement native behavior catalog and coverage state | `R-0005` |
 | `R-0007` | Implement architecture records and tradeoff review | `R-0005`, `R-0006` |
 | `R-0008` | Implement repository understanding and implementation assessment | `R-0006`, `R-0007` |
@@ -95,7 +146,7 @@ with readiness, quality, and dependency rules.
 
 | Node | Title | Depends on |
 |---|---|---|
-| `R-0011` | Implement draft spec intake and candidate creation | `R-0009`, `R-0010` |
+| `R-0011` | Implement draft spec intake and candidate creation | `R-0009` |
 | `R-0012` | Implement shape-spec readiness and spec quality gates | `R-0011` |
 | `R-0013` | Implement spec lifecycle, grouping, and dependency state | `R-0012` |
 
@@ -111,9 +162,9 @@ coordination, and candidate implementations.
 
 | Node | Title | Depends on |
 |---|---|---|
-| `R-0014` | Implement loop start, state, pause, resume, cancellation, and eligibility | `R-0013` |
+| `R-0014` | Implement loop start, state, pause, resume, cancellation, and eligibility | `R-0013`, `R-0019` |
 | `R-0015` | Implement blockers, notifications, and attention routing | `R-0014` |
-| `R-0016` | Implement live activity and team coordination | `R-0014`, `R-0015` |
+| `R-0016` | Implement live activity and team coordination | `R-0014`, `R-0015`, `R-0026` |
 
 The readiness assessment identifies several loop behaviors as close but
 architecture-divergent. They should be rewritten through shared orchestration
@@ -126,10 +177,10 @@ adapters, target placement, and redacted results.
 
 | Node | Title | Depends on |
 |---|---|---|
-| `R-0017` | Implement runtime harness configuration and readiness | `R-0003`, `R-0013` |
-| `R-0018` | Implement isolated execution target placement | `R-0017` |
+| `R-0017` | Implement runtime harness configuration and readiness | `R-0028`, `R-0029` |
+| `R-0018` | Implement isolated execution target placement | `R-0017`, `R-0030` |
 | `R-0019` | Implement assignment queue, lease, retry, cancellation, and recovery | `R-0018` |
-| `R-0020` | Implement worker-scoped access and redacted runtime output | `R-0019` |
+| `R-0020` | Implement worker-scoped access and redacted runtime output | `R-0019`, `R-0029` |
 
 This milestone implements the accepted runtime posture: no unmanaged local
 worktree execution as the core path, workers communicate through public
@@ -162,9 +213,9 @@ credential model needed for safe solo and team use.
 |---|---|---|
 | `R-0026` | Implement organization access, roles, memberships, and project grants | `R-0003` |
 | `R-0027` | Implement approvals and autonomy boundaries | `R-0026` |
-| `R-0028` | Implement configuration inheritance and standards policy | `R-0003`, `R-0026` |
+| `R-0028` | Implement configuration inheritance and standards policy | `R-0026` |
 | `R-0029` | Implement secrets, credentials, service accounts, and API keys | `R-0026`, `R-0028` |
-| `R-0030` | Implement runtime placement, harness, and budget policy | `R-0018`, `R-0027`, `R-0028`, `R-0029` |
+| `R-0030` | Implement runtime placement, harness, and budget policy | `R-0027`, `R-0028`, `R-0029` |
 
 Governance is not an enterprise add-on. The same model supports solo use,
 team use, service accounts, worker-scoped access, approvals, and policy
@@ -192,13 +243,16 @@ backup, restore, incident, and audit views.
 
 | Node | Title | Depends on |
 |---|---|---|
-| `R-0034` | Implement project, pipeline, quality, health, and risk observation | `R-0004`, `R-0009`, `R-0016`, `R-0019`, `R-0022`, `R-0024` |
+| `R-0034` | Implement project, roadmap, blocked-work, and provenance observation | `R-0004`, `R-0009`, `R-0015`, `R-0022`, `R-0037` |
+| `R-0039` | Implement pipeline, quality, health, and delivery observation | `R-0016`, `R-0019`, `R-0022`, `R-0024`, `R-0025` |
 | `R-0035` | Implement shipped-outcome, report, digest, and changed-since observation | `R-0025`, `R-0034` |
 | `R-0036` | Implement operations, backup, restore, pause, incident, quota, and audit export | `R-0027`, `R-0034`, `R-0035` |
 
 Observation claims should show source, freshness, completeness, bounds,
 redaction, and whether a value is measured, estimated, inferred, unavailable,
-or hidden. Missing data is not healthy data.
+or hidden. Missing data is not healthy data. Planning and blocked-work
+observation intentionally lands before delivery metrics so Tanren-in-Tanren can
+get useful roadmap and blocker visibility earlier.
 
 ### M-0010 Package Tanren for self-hosting
 
@@ -217,7 +271,7 @@ service contracts should work under equivalent container orchestrators.
 ## Evidence Expectations
 
 Each node in `dag.json` declares expected evidence. Before any node is marked
-complete, the shaped spec should add or update behavior-level proof for each
+complete, the shaped spec must add or update behavior-level proof for each
 completed behavior. The expected default is:
 
 - one behavior-linked BDD target per accepted behavior where practical;
