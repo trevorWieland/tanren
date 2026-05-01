@@ -28,7 +28,10 @@ jobs:
 
       - uses: taiki-e/install-action@cf525cb33f51aca27cd6fa02034117ab963ff9f1
         with:
-          tool: just,taplo-cli,rumdl,lychee,cargo-llvm-cov,cargo-deny,cargo-machete,actionlint
+          tool: just,taplo-cli,rumdl,lychee,cargo-llvm-cov,cargo-deny,cargo-machete
+
+      - name: Install actionlint
+        run: bash scripts/install-actionlint.sh
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
