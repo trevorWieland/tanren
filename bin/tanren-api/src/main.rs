@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::Handlers;
 use tokio::net::TcpListener;
-use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
 
 const BIND_ADDRESS: &str = "0.0.0.0:8080";
@@ -86,7 +85,28 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Wait for the first OS signal that indicates the process should shut
+/// down gracefully. SIGINT (`Ctrl+C`) is universally supported; SIGTERM
+/// is gated on Unix because Windows lacks a direct equivalent.
+/// Kubernetes and systemd send SIGTERM during normal rollouts, so the
+/// graceful-shutdown path must observe both.
+#[cfg(unix)]
 async fn shutdown() {
-    let _ = signal::ctrl_c().await;
+    use tokio::signal::unix::{SignalKind, signal};
+    let sigterm = signal(SignalKind::terminate()).ok();
+    if let Some(mut sigterm) = sigterm {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+    } else {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+    tracing::info!(target: "tanren_api", "shutdown signal received");
+}
+
+#[cfg(not(unix))]
+async fn shutdown() {
+    let _ = tokio::signal::ctrl_c().await;
     tracing::info!(target: "tanren_api", "shutdown signal received");
 }

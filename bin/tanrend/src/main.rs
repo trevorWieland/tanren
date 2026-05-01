@@ -6,8 +6,6 @@
 
 use anyhow::{Context, Result};
 use tanren_app_services::Handlers;
-use tokio::signal;
-use tokio::signal::unix::{SignalKind, signal as unix_signal};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,10 +26,24 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Wait for SIGINT or, on Unix, SIGTERM. SIGTERM is what Kubernetes and
+/// systemd send during normal rollouts; SIGINT is what an interactive
+/// `Ctrl+C` produces. Windows lacks a direct SIGTERM equivalent, so the
+/// non-Unix branch falls back to SIGINT only.
+#[cfg(unix)]
 async fn wait_for_shutdown() -> Result<()> {
-    let mut sigterm = unix_signal(SignalKind::terminate()).context("install SIGTERM handler")?;
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut sigterm = signal(SignalKind::terminate()).context("install SIGTERM handler")?;
     tokio::select! {
-        _ = signal::ctrl_c() => Ok(()),
+        _ = tokio::signal::ctrl_c() => Ok(()),
         _ = sigterm.recv() => Ok(()),
     }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown() -> Result<()> {
+    tokio::signal::ctrl_c()
+        .await
+        .context("install SIGINT handler")?;
+    Ok(())
 }
