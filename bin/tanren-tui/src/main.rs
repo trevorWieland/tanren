@@ -21,17 +21,33 @@ use tanren_app_services::Handlers;
 
 fn main() -> Result<()> {
     let mut terminal = setup_terminal().context("setup terminal")?;
-    let result = run(&mut terminal);
-    teardown_terminal(&mut terminal).context("teardown terminal")?;
-    result
+    let run_result = run(&mut terminal);
+    let teardown_result = teardown_terminal(&mut terminal).context("teardown terminal");
+    // The run error is the more interesting one for the user; surface it
+    // first. If only teardown failed, surface that.
+    run_result.and(teardown_result)
 }
 
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
+    // Each step that mutates terminal state must roll back on failure of any
+    // later step in setup; otherwise the user is left in raw / alternate
+    // mode with no way to recover. Build the terminal incrementally and
+    // restore on the first failure.
     enable_raw_mode().context("enable raw mode")?;
     let mut out = stdout();
-    execute!(out, EnterAlternateScreen).context("enter alternate screen")?;
+    if let Err(err) = execute!(out, EnterAlternateScreen).context("enter alternate screen") {
+        let _ = disable_raw_mode();
+        return Err(err);
+    }
     let backend = CrosstermBackend::new(out);
-    Terminal::new(backend).context("construct terminal")
+    match Terminal::new(backend).context("construct terminal") {
+        Ok(terminal) => Ok(terminal),
+        Err(err) => {
+            let _ = execute!(stdout(), LeaveAlternateScreen);
+            let _ = disable_raw_mode();
+            Err(err)
+        }
+    }
 }
 
 fn teardown_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {

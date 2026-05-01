@@ -122,8 +122,14 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
+        // Order by `occurred_at` first for human-meaningful recency, then by
+        // `id` (UUIDv7) as a stable tie-breaker. Without the secondary key,
+        // events landing inside the same timestamp bucket can come back in
+        // different orders across reads — replay and projection correctness
+        // demands a total order.
         let rows = entity::events::Entity::find()
             .order_by_desc(entity::events::Column::OccurredAt)
+            .order_by_desc(entity::events::Column::Id)
             .limit(limit)
             .all(&self.conn)
             .await?;
