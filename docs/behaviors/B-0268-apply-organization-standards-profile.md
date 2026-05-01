@@ -4,7 +4,7 @@ id: B-0268
 title: Apply organization standards profiles to projects
 area: governance
 personas: [team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

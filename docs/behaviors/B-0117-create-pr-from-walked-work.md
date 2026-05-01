@@ -5,7 +5,7 @@ title: Create a pull request from walked work
 area: review-merge
 personas: [solo-builder, team-builder, integration-client]
 runtime_actors: [agent-worker]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

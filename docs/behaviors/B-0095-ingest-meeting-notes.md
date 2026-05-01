@@ -4,35 +4,22 @@ id: B-0095
 title: Ingest meeting notes into candidate work
 area: intake
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
-product_status: accepted
+product_status: deprecated
 verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-builder` or `team-builder` can turn meeting notes into candidate work so decisions and requests become traceable product inputs.
+This behavior has been superseded by **B-0094** (Capture human-authored
+product signals as candidate work), which covers customer feedback, meeting
+notes, and other human-authored intake under one provable contract.
 
-## Preconditions
-
-- An active project is selected.
-- The user has permission to add intake items.
-
-## Observable outcomes
-
-- Meeting notes are captured with source context.
-- Candidate work items can be extracted for user review.
-- Accepted candidates can become specs or roadmap items.
-
-## Out of scope
-
-- Recording meetings.
-- Accepting generated work without user review.
+This file is retained as a tombstone so the historical ID is not silently
+repurposed. New work should reference B-0094.
 
 ## Related
 
-- B-0018
-- B-0092
 - B-0094

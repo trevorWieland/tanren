@@ -1,0 +1,16 @@
+[package]
+name = "tanren-client-integrations"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Client Integrations subsystem: inbound webhooks, subscriptions, idempotent requests, rate limits, and backpressure for external systems calling Tanren."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

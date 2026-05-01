@@ -4,7 +4,7 @@ id: B-0270
 title: Configure what counts as shipped for a project
 area: release-learning
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

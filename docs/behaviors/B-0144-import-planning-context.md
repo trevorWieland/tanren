@@ -4,7 +4,7 @@ id: B-0144
 title: Import existing planning context
 area: product-discovery
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
@@ -35,4 +35,4 @@ A `solo-builder` or `team-builder` can import existing notes, docs, or planning 
 
 - B-0079
 - B-0092
-- B-0095
+- B-0094

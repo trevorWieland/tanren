@@ -134,12 +134,11 @@ bootstrap:
 
     echo "==> Bootstrap complete!"
 
-# Fetch dependencies and verify build
+# Fetch dependencies and verify build (Rust + web frontend)
 install:
-    {{ cargo }} fetch --locked
-    {{ cargo }} build --workspace --locked
-    {{ cargo }} install --locked --path bin/tanren-cli --force
-    {{ cargo }} install --locked --path bin/tanren-mcp --force
+    @{{ cargo }} fetch --locked
+    @{{ cargo }} build --workspace --locked
+    @pnpm install --frozen-lockfile
 
 # Verify lockfile and manifests are in sync without mutating Cargo.lock
 deps-locked-check:
@@ -182,29 +181,18 @@ deps-upgrade-major:
 # ============================================================================
 
 # Render the command catalog and standards per `tanren.yml`.
+# DISABLED until tanren-cli is rebuilt against the new architecture.
 install-commands:
-    @{{ cargo }} run --quiet -p tanren-cli -- install
+    @echo "tanren-cli not yet rebuilt — see CLAUDE.md."
 
 # Preview installer writes without mutating files.
 install-commands-dry-run:
-    @{{ cargo }} run --quiet -p tanren-cli -- install --dry-run
+    @echo "tanren-cli not yet rebuilt — see CLAUDE.md."
 
 # Strict dry-run: fail if rendered artifacts drift from the plan.
-# Wired into `just ci` below so merging a command-source change
-# without re-running `install-commands` fails at PR time.
-#
-# Captures install stdout/stderr so the happy path is silent; on
-# drift (exit 3) or any other failure the full plan + error are
-# replayed to the console for triage.
+# Re-wire into `just ci` once tanren-cli is rebuilt.
 install-commands-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    output=$({{ cargo }} run --quiet -p tanren-cli -- install --dry-run --strict 2>&1) && status=0 || status=$?
-    if [[ $status -ne 0 ]]; then
-        echo "$output"
-        echo "FAIL: installer drift — re-run 'just install-commands' and commit the result." >&2
-        exit "$status"
-    fi
+    @echo "tanren-cli not yet rebuilt — see CLAUDE.md."
 
 # ============================================================================
 # Build
@@ -264,13 +252,27 @@ check:
 # Test
 # ============================================================================
 
-# Canonical behavior verification path: inventory, BDD run, and coverage artifact.
+# Canonical behavior verification path. F-0001 ships zero feature files;
+# every R-* slice from R-0001 onwards adds its `B-XXXX.feature` file under
+# tests/bdd/features/. The harness machinery (cucumber-rs World, step
+# registry) is exercised by Rust unit tests inside tanren-bdd — those are
+# the only `#[test]` items in the workspace, enforced by
+# `just check-rust-test-surface`.
 tests:
-    @CARGO_INCREMENTAL=0 {{ cargo }} run --quiet -p tanren-xtask -- behavior verify
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ cargo }} test -p tanren-bdd --locked --quiet
+    {{ cargo }} run -q -p tanren-bdd --bin tanren-bdd-runner --locked
 
-# Deep mutation verification path for scheduled CI and explicit local profiling.
+# Deep mutation verification path. Runs cargo-mutants against the BDD crate
+# step-definition machinery. Reserved for nightly main-branch CI; not part
+# of `just ci`. With zero scenarios shipped in F-0001 the report is
+# necessarily empty — the assertion is that the pipeline runs without error.
 mutation:
-    @CARGO_INCREMENTAL=0 {{ cargo }} run --quiet -p tanren-xtask -- behavior mutation
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ cargo }} mutants --package tanren-bdd --check
+    echo "mutation: pipeline ran (no real scenarios yet — empty report is expected)"
 
 # ============================================================================
 # Lint & Format
@@ -280,8 +282,9 @@ mutation:
 lint:
     @CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings
 
-# Glob for Rust workspace TOML files.
-toml_globs := "Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml xtask/Cargo.toml .cargo/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml lefthook.yml"
+# Glob for Rust workspace TOML files. Crate-member globs (bin/*/Cargo.toml etc.)
+# are added back when those crates are restored.
+toml_globs := "Cargo.toml .cargo/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml lefthook.yml"
 
 # Check formatting (Rust + TOML + Markdown).
 fmt:
@@ -590,7 +593,45 @@ ci:
     run_stage "deny" just deny
     run_stage "doc" just doc
     run_stage "machete" just machete
-    run_stage "install drift" just install-commands-check
+    run_stage "web install" just web-install
+    run_stage_quiet "web build" just web-build
+    run_stage_quiet "web lint" just web-lint
+    run_stage_quiet "web typecheck" just web-typecheck
+    run_stage_quiet "web format" just web-format-check
+    # Disabled until tanren-cli is rebuilt:
+    # run_stage "install drift" just install-commands-check
     total_elapsed="$(( $(now_ms) - total_start ))"
     echo "<== ci total ($(fmt_duration "${total_elapsed}"))"
     echo "==> ci passed"
+
+# ============================================================================
+# Web frontend (apps/web/)
+# ============================================================================
+
+# Install pnpm workspace dependencies. Lockfile must be up to date.
+web-install:
+    pnpm install --frozen-lockfile
+
+# Build the web frontend (Next.js + Turbopack).
+web-build:
+    pnpm --filter @tanren/web build
+
+# Lint the web frontend (oxlint).
+web-lint:
+    pnpm --filter @tanren/web lint
+
+# Typecheck the web frontend (tsgo from @typescript/native-preview).
+web-typecheck:
+    pnpm --filter @tanren/web typecheck
+
+# Format the web frontend (auto-fix).
+web-format:
+    pnpm --filter @tanren/web format
+
+# Format the web frontend (check only — used in CI gate).
+web-format-check:
+    pnpm --filter @tanren/web format:check
+
+# Run web frontend unit tests.
+web-test:
+    pnpm --filter @tanren/web test

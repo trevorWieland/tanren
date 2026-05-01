@@ -4,7 +4,7 @@ id: B-0012
 title: Configure when teammates can assist or take over each other's loops
 area: team-coordination
 personas: [team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

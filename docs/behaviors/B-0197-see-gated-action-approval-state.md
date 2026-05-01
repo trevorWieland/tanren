@@ -4,7 +4,7 @@ id: B-0197
 title: See approval state for a gated action
 area: governance
 personas: [team-builder, observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

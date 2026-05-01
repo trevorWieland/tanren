@@ -4,7 +4,7 @@ id: B-0121
 title: Merge accepted work
 area: review-merge
 personas: [solo-builder, team-builder, operator, integration-client]
-interfaces: [cli, api, mcp, tui, daemon]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -5,7 +5,7 @@ title: Grant worker-scoped temporary access
 area: runtime-substrate
 personas: [operator]
 runtime_actors: [agent-worker]
-interfaces: [cli, api, mcp]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

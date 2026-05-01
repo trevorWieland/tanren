@@ -51,6 +51,27 @@ Library crates use `thiserror`; binaries may use `anyhow`. Production code
 avoids `unsafe`, `unwrap`, `panic!`, `todo!`, `unimplemented!`, `println!`,
 `eprintln!`, and `dbg!`.
 
+Crate dependency rules (mechanically enforced by `xtask check-deps`):
+
+1. `tanren-domain` does not depend on any other workspace crate. It is the
+   leaf canonical-entity layer.
+2. Interface binaries (`tanren-api`, `tanren-cli`, `tanren-mcp`, `tanren-tui`,
+   `tanrend`) depend on `tanren-app-services` and `tanren-contract` for
+   product behavior; they do not reach into store, runtime, or harness crates
+   directly.
+3. Only `tanren-store` owns SQL and database row details. Other crates work
+   in domain types and command/event contracts.
+4. Runtime and harness crates do not own policy decisions. Policy decisions
+   come from `tanren-policy` as typed results.
+5. `tanren-policy` returns typed decisions, not transport errors. Interface
+   binaries translate denial reasons into transport-appropriate responses.
+6. Contract crates (`tanren-contract`) are serialization/schema surfaces, not
+   orchestration logic. Orchestration consumes contracts; contracts do not
+   import orchestration.
+7. Observability is structured and correlation-friendly. Crates emit tracing
+   spans and events through `tanren-observability` rather than bespoke logging
+   or printlns.
+
 ## Backend Runtime
 
 Tanren backend services run on Tokio.

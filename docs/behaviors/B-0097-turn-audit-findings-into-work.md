@@ -4,7 +4,7 @@ id: B-0097
 title: Turn audit findings into specs or backlog items
 area: intake
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -4,7 +4,7 @@ id: B-0186
 title: Join an existing project with current context
 area: project-setup
 personas: [team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

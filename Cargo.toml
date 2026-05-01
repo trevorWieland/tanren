@@ -1,28 +1,31 @@
 [workspace]
 members = [
-  "bin/tanrend",
   "bin/tanren-api",
   "bin/tanren-cli",
   "bin/tanren-mcp",
   "bin/tanren-tui",
-  "crates/tanren-domain",
-  "crates/tanren-contract",
-  "crates/tanren-policy",
-  "crates/tanren-store",
-  "crates/tanren-planner",
-  "crates/tanren-scheduler",
-  "crates/tanren-runtime",
-  "crates/tanren-runtime-local",
-  "crates/tanren-runtime-docker",
-  "crates/tanren-runtime-remote",
-  "crates/tanren-bdd",
-  "crates/tanren-testkit",
-  "crates/tanren-harness-claude",
-  "crates/tanren-harness-codex",
-  "crates/tanren-harness-opencode",
-  "crates/tanren-orchestrator",
-  "crates/tanren-observability",
+  "bin/tanrend",
   "crates/tanren-app-services",
+  "crates/tanren-assessment",
+  "crates/tanren-bdd",
+  "crates/tanren-behavior-proof",
+  "crates/tanren-client-integrations",
+  "crates/tanren-configuration-secrets",
+  "crates/tanren-contract",
+  "crates/tanren-domain",
+  "crates/tanren-harness",
+  "crates/tanren-identity-policy",
+  "crates/tanren-observability",
+  "crates/tanren-observation",
+  "crates/tanren-orchestrator",
+  "crates/tanren-planner",
+  "crates/tanren-policy",
+  "crates/tanren-provider-integrations",
+  "crates/tanren-quality-controls",
+  "crates/tanren-runtime",
+  "crates/tanren-scheduler",
+  "crates/tanren-store",
+  "crates/tanren-testkit",
   "xtask",
 ]
 resolver = "2"
@@ -178,6 +181,10 @@ clap = { version = "4", features = ["derive"] }
 # TUI
 ratatui = "0.29"
 crossterm = "0.29"
+
+# BDD harness. Shipped in F-0001 with zero feature files; the first feature
+# file enters the repo with R-0001 alongside the first asserted behavior.
+cucumber = "0.23"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }

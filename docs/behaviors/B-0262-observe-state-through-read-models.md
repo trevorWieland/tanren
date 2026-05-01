@@ -1,7 +1,7 @@
 ---
 schema: tanren.behavior.v0
 id: B-0262
-title: Observe state through read models or subscriptions
+title: Observe Tanren state from external systems
 area: integration-contract
 personas: [integration-client, observer, operator]
 interfaces: [api, mcp]
@@ -13,7 +13,7 @@ supersedes: []
 
 ## Intent
 
-An `integration-client` can observe Tanren state through read models or subscriptions so external systems can stay synchronized without scraping interfaces.
+An `integration-client` can observe Tanren state so external systems can stay synchronized without scraping interfaces meant for human use.
 
 ## Preconditions
 
@@ -22,14 +22,14 @@ An `integration-client` can observe Tanren state through read models or subscrip
 
 ## Observable outcomes
 
-- The client can request current state, changes after a cursor, or subscribed event streams where supported.
-- Read results include stable resource identities and freshness or cursor metadata.
+- The client can request current state, changes since a known point in time, or streamed updates where supported.
+- Read results include stable resource identities and ordering or freshness information.
 - Hidden state is omitted or redacted according to the client's permission boundary.
 
 ## Out of scope
 
-- Exposing internal database shapes.
-- Requiring every UI view to have an identical machine read model.
+- Exposing internal storage shapes.
+- Requiring every human-facing view to be available identically as a machine contract.
 
 ## Related
 

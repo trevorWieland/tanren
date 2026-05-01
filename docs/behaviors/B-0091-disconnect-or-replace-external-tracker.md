@@ -4,7 +4,7 @@ id: B-0091
 title: Disconnect or replace an external tracker
 area: external-tracker
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

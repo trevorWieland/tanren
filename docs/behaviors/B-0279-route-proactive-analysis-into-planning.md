@@ -4,7 +4,7 @@ id: B-0279
 title: Route proactive analysis into planning
 area: proactive-analysis
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp, tui, daemon]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -4,7 +4,7 @@ id: B-0088
 title: Manage project-scoped secrets
 area: configuration
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

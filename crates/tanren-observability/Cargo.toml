@@ -1,20 +1,17 @@
 [package]
 name = "tanren-observability"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Shared telemetry primitives — tracing context, metrics registry, and audit correlation"
+description = "Tracing, structured logging, and span emission primitives shared by all Tanren binaries."
 
 [lints]
 workspace = true
 
 [dependencies]
-tanren-contract = { path = "../tanren-contract" }
-tracing-subscriber.workspace = true
-thiserror.workspace = true
-chrono.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-uuid.workspace = true
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,16 +1,21 @@
 [package]
 name = "tanren-xtask"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
+description = "Repo maintenance commands for Tanren. Hosts check-rust-test-surface, check-suppression, and other workspace-wide gates that don't fit a runtime crate."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "tanren-xtask"
+path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
-chrono.workspace = true
-jsonwebtoken.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-serde_yaml.workspace = true
-uuid.workspace = true
+anyhow = { workspace = true }
+clap = { workspace = true }
+walkdir = "2"

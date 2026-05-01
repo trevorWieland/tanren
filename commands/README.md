@@ -9,13 +9,18 @@ Do not hand-edit rendered artifacts. Edit files in `commands/` and re-run
 `just install-commands` in this repository, or `tanren-cli install` in an
 adopting repository.
 
+> **Note (rewrite reset):** the `spec/` directory and the
+> `assess-implementation` command have been removed during the architecture
+> rewrite. The spec-orchestration state machine is being redesigned from
+> scratch and will be reintroduced as Tanren-native, typed-event-driven
+> commands. Until then, only the four project-method commands below are
+> supported.
+
 ## Layout
 
-- `spec/` contains commands that participate in the spec-orchestration state
-  machine. These commands emit typed events through the agent tool surface and
-  contribute to task, finding, evidence, and phase state.
-- `project/` contains temporary project-method commands. They are installed
-  prompts, but they are not native typed orchestration phases yet.
+- `project/` contains the project-method commands that drive the planning
+  loop end-to-end. They are installed prompts, not yet native typed
+  orchestration phases.
 
 Current project-method chain:
 
@@ -23,9 +28,7 @@ Current project-method chain:
 plan-product
 -> identify-behaviors
 -> architect-system
--> assess-implementation
 -> craft-roadmap
--> shape-spec / orchestrate / walk
 ```
 
 Project commands directly edit owned planning projections for now:
@@ -33,7 +36,6 @@ Project commands directly edit owned planning projections for now:
 - `plan-product` owns `docs/product/**`.
 - `identify-behaviors` owns `docs/behaviors/**`.
 - `architect-system` owns `docs/architecture/**`.
-- `assess-implementation` owns `docs/implementation/**`.
 - `craft-roadmap` owns `docs/roadmap/**`.
 
 These commands should later be replaced by Tanren-native commands backed by
@@ -58,26 +60,10 @@ produces_evidence: [...]
 
 Template variables (`{{UPPER_SNAKE}}`) are filled at install time from
 `tanren.yml` and standards/rubric configuration. Unknown variables,
-declared-but-unused variables, and referenced-but-undeclared variables are hard
-errors.
-
-## Tool Surface
-
-Spec-loop commands mutate structured state through typed tools exposed by MCP
-or CLI fallback. The canonical tool and capability contract is documented in
-`docs/architecture/subsystems/tools.md`.
-
-Project-method commands do not yet have typed project tools. They must keep
-edits small, structured, and projection-friendly so their artifacts can migrate
-to native Tanren storage later.
+declared-but-unused variables, and referenced-but-undeclared variables are
+hard errors.
 
 ## Related Docs
 
-- `docs/README.md`
-- `docs/architecture/delivery.md`
-- `docs/architecture/subsystems/orchestration.md`
-- `docs/architecture/subsystems/tools.md`
-- `docs/architecture/subsystems/evidence.md`
-- `docs/architecture/subsystems/audit.md`
-- `docs/architecture/subsystems/adherence.md`
-- `docs/roadmap/roadmap.md`
+- `docs/architecture/`
+- `tests/bdd/README.md`

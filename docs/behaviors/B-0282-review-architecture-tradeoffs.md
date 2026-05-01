@@ -4,7 +4,7 @@ id: B-0282
 title: Review architecture tradeoffs
 area: architecture-planning
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -4,7 +4,7 @@ id: B-0238
 title: Test policy changes before applying them
 area: governance
 personas: [operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

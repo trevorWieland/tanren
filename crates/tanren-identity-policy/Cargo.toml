@@ -1,0 +1,16 @@
+[package]
+name = "tanren-identity-policy"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Identity and Policy subsystem: accounts, organizations, projects, memberships, roles, service accounts, API keys, approval policy, runtime placement policy."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

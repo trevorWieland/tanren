@@ -5,7 +5,7 @@ title: Receive consistent validation errors across public interfaces
 area: cross-interface
 personas: [solo-builder, team-builder, observer, operator, integration-client]
 runtime_actors: [agent-worker]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
@@ -25,7 +25,7 @@ A user, integration client, or agent worker can receive consistent validation er
 
 - Equivalent invalid requests report the same user-visible reason across interfaces.
 - Error details identify missing input, policy denial, state conflict, or unavailable capability without leaking secrets.
-- Machine-readable interfaces expose stable error categories for automation.
+- Machine-readable interfaces expose consistent, distinguishable error categories so automation can respond reliably to specific failure modes.
 
 ## Out of scope
 

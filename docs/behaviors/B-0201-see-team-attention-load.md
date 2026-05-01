@@ -4,7 +4,7 @@ id: B-0201
 title: See team attention load without performance surveillance
 area: team-coordination
 personas: [team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

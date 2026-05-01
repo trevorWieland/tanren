@@ -4,35 +4,22 @@ id: B-0218
 title: See provenance behind summaries
 area: observation
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
-product_status: accepted
+product_status: deprecated
 verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A user can see provenance behind summaries so Tanren distinguishes source-backed status from uncertain interpretation.
+This behavior has been superseded by **B-0209** (See what supports a summary
+and how trustworthy it is), which combines the source-signal-linking and the
+provenance/uncertainty concerns under one provable contract.
 
-## Preconditions
-
-- A visible summary, forecast, recommendation, or report includes interpreted status.
-- Tanren has source signals, missing source signals, or uncertainty that affects the interpretation.
-
-## Observable outcomes
-
-- Tanren shows provenance, uncertainty, and source signal limits in user-visible terms.
-- Insufficiently supported summaries identify what source signals are missing or stale.
-- Users can navigate from provenance statements to supporting source references where visible.
-
-## Out of scope
-
-- Pretending provenance is a mathematically precise guarantee.
-- Hiding low provenance to make reports look cleaner.
+This file is retained as a tombstone so the historical ID is not silently
+repurposed. New work should reference B-0209.
 
 ## Related
 
-- B-0207
 - B-0209
-- B-0219

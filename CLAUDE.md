@@ -1,88 +1,107 @@
-# Tanren Project Conventions
+# Claude Working Notes for Tanren
 
-Tanren is a Rust control plane for agentic software delivery. This file
-summarizes repo conventions for Claude-oriented agents; `AGENTS.md` is the
-general contributor guide.
+Tanren is a Rust control plane for agentic software delivery. The canonical
+architecture lives in [`docs/architecture/`](docs/architecture/); the general
+contributor guide is [`AGENTS.md`](AGENTS.md). This file captures
+**Claude-specific** working guidance only — it does not restate technical
+detail that belongs in those records.
 
-## Architecture
+When in doubt, read the architecture record before editing code or docs.
 
-The workspace contains Rust libraries in `crates/`, binaries in `bin/`, and
-repo automation in `xtask/`.
+## Source-of-truth map
 
-```text
-bin/
-  tanrend              # daemon/control-plane runtime
-  tanren-api           # HTTP API
-  tanren-cli           # CLI
-  tanren-mcp           # MCP server
-  tanren-tui           # terminal UI
+| Question | Read this first |
+|---|---|
+| What is Tanren for? | [`docs/product/vision.md`](docs/product/vision.md) |
+| What can a user do? | [`docs/behaviors/`](docs/behaviors/) and [`docs/behaviors/index.md`](docs/behaviors/index.md) |
+| How is the system structured? | [`docs/architecture/system.md`](docs/architecture/system.md) |
+| What technology + workspace conventions? | [`docs/architecture/technology.md`](docs/architecture/technology.md) |
+| Subsystem ownership and contracts | [`docs/architecture/subsystems/`](docs/architecture/subsystems/) |
+| Operations + delivery posture | [`docs/architecture/operations.md`](docs/architecture/operations.md), [`docs/architecture/delivery.md`](docs/architecture/delivery.md) |
+| What work is planned and in what order? | [`docs/roadmap/dag.json`](docs/roadmap/dag.json) (canonical), [`docs/roadmap/roadmap.md`](docs/roadmap/roadmap.md) (rendered) |
 
-crates/
-  tanren-domain        # canonical entities, commands, events, errors
-  tanren-contract      # interface schema generation and versioning
-  tanren-policy        # authz, budgets, quotas, placement policy
-  tanren-store         # event log, projections, migrations
-  tanren-planner       # task graph planning and replanning
-  tanren-scheduler     # lane/capability-aware dispatch scheduling
-  tanren-runtime       # harness and environment trait contracts
-  tanren-runtime-*     # concrete environment implementations
-  tanren-harness-*     # concrete harness implementations
-  tanren-orchestrator  # control-plane orchestration engine
-  tanren-observability # tracing, metrics, correlation helpers
-  tanren-app-services  # shared service layer for interfaces
-```
+If a technical question is not answered by the docs above, that is a real
+gap to be raised through the `architect-system` skill, not guessed at.
 
-## Rust Conventions
+## Methodology — use the skills, do not freelance
 
-- Edition: 2024, stable toolchain pinned in `rust-toolchain.toml`.
-- Error handling: `thiserror` in libraries, `anyhow` only in binaries and
-  repo tooling.
-- Unsafe code is forbidden at workspace level.
-- `unwrap`, `panic!`, `todo!`, `unimplemented!`, `println!`, `eprintln!`, and
-  `dbg!` are denied by lint policy.
-- Secrets use `secrecy::Secret<T>` and are never logged or serialized raw.
-- IDs use `uuid::Uuid`, usually wrapped in domain newtypes.
+Tanren is built using its own methodology. The artifacts under `docs/` are
+each owned by a specific skill. When the user asks for work that fits a
+skill description, invoke the skill via the **Skill** tool. Don't edit those
+artifacts directly except for explicit out-of-band fixes (audit cleanup, ID
+renames, tooling repairs).
 
-## Dependency Rules
+| Artifact | Owning skill |
+|---|---|
+| `docs/product/**` | `plan-product` |
+| `docs/behaviors/**` | `identify-behaviors` |
+| `docs/architecture/**` | `architect-system` |
+| `docs/roadmap/**` | `craft-roadmap` |
+| Implementation assessment | `assess-implementation` |
 
-1. `tanren-domain` does not depend on other workspace crates.
-2. Interface binaries use `tanren-app-services` and `tanren-contract` for
-   product behavior.
-3. Only `tanren-store` owns SQL and database row details.
-4. Runtime and harness crates do not own policy decisions.
-5. Policy returns typed decisions, not transport errors.
-6. Contract crates are serialization/schema surfaces, not orchestration logic.
-7. Observability is structured and correlation-friendly.
+The roadmap DAG is the bridge between behaviors and architecture. Any change
+to behaviors or architecture should propagate through the DAG via
+`craft-roadmap`; the validator [`scripts/roadmap_check.py`](scripts/roadmap_check.py)
+catches drift mechanically.
 
-## Quality Gate
+## Foundation state (current branch)
 
-Use `just`.
+The workspace is mid-F-0001. **F-0001** in
+[`docs/roadmap/dag.json`](docs/roadmap/dag.json) is the foundation spec that
+brings the workspace from "scaffolding only" to "minimum buildable Tanren":
+every subsystem stubbed, every public interface (web, api, mcp, cli, tui)
+hosting a runnable scaffold, and the BDD harness wired into `just tests`.
 
-```bash
-just bootstrap
-just install
-just fmt
-just check
-just tests
-just ci
-```
+Do not attempt to add behavior implementation before F-0001 lands — the
+crate skeletons, interface scaffolding, and BDD machinery that every
+behavior slice depends on come from F-0001.
 
-`just ci` is the PR gate and the required status check for rewrite branches.
+## Workflow rules
 
-## Testing
+- **Run gates through `just`.** Never substitute raw `cargo` calls when a
+  recipe exists. The full PR gate is `just ci`. Recipe list: `just --list`.
+- **Mutation testing is nightly-only.** `just mutation` runs as a scheduled
+  main-branch job that uploads failure artifacts; it is intentionally NOT
+  part of `just ci`. Don't recommend wiring it into CI.
+- **Tests live exclusively in BDD.** All scenarios live under
+  [`tests/bdd/features/`](tests/bdd/) and step definitions in the
+  `tanren-bdd` crate. No `#[cfg(test)]` modules or `#[test]` functions
+  outside the BDD crate — `xtask check-rust-test-surface` enforces this.
+- **No inline lint suppressions.** Workspace policy denies `allow_attributes`
+  and `allow_attributes_without_reason`. Relax a lint in the owning crate's
+  `[lints.clippy]` section with a comment explaining why; never use inline
+  `#[allow(...)]` or `#[expect(...)]`.
+- **Crate dependency rules are mechanically enforced.** See the dependency
+  rules in [`docs/architecture/technology.md`](docs/architecture/technology.md);
+  `xtask check-deps` validates them. Don't add a dependency edge that crosses
+  a stated boundary without raising an architecture decision.
+- **Cite IDs.** Reference behaviors as `B-XXXX`, roadmap nodes as `R-XXXX`,
+  milestones as `M-XXXX`, foundation as `F-XXXX`. The DAG validator and
+  human readers both rely on these stable IDs.
 
-- `just tests` is the authoritative behavior proof path.
-- BDD feature files live under `tests/bdd/features/`.
-- The BDD harness is `crates/tanren-bdd`.
-- Non-BDD Rust test files and inline `#[cfg(test)]` modules are prohibited
-  outside the BDD harness.
+## Validating roadmap and behavior edits
 
-## Planning Docs
+After any change to `docs/roadmap/dag.json` or `docs/behaviors/B-*.md`, run
+`python3 scripts/roadmap_check.py`. It enforces:
 
-- `docs/product/vision.md` - product-to-proof vision and boundaries
-- `docs/roadmap/dag.json` - roadmap DAG source-of-truth
-- `docs/roadmap/roadmap.md` - current human-readable roadmap view
-- `docs/behaviors/index.md` - product behavior catalog
-- `tests/bdd/README.md` - executable behavior evidence rules
-- `docs/architecture/` - durable architecture and interface boundaries
-- `docs/architecture/delivery.md` - command installation and delivery system
+- structural validity and acyclicity;
+- every accepted behavior is completed by exactly one node;
+- every behavior node transitively depends on F-0001;
+- evidence-item interfaces match the behavior frontmatter (no drift);
+- no transitively redundant `depends_on` edges.
+
+The validator also surfaces a non-blocking warning for nodes whose playbook
+is suspiciously thin relative to declared interfaces. That warning indicates
+a future `shape-spec` follow-up, not a blocker.
+
+## Branch and commit conventions
+
+See [`AGENTS.md`](AGENTS.md) for Conventional Commit conventions, PR
+expectations, and the role of `just ci`. Don't bypass pre-commit hooks
+(`lefthook.yml`) — fix the underlying issue.
+
+## What this file is NOT
+
+This file is not a duplicate of architecture, technology, or behavior
+contracts. If a technical claim here contradicts a record under `docs/`, the
+record under `docs/` wins and this file should be corrected.

@@ -4,7 +4,7 @@ id: B-0164
 title: Let low-risk work continue until a blocker
 area: autonomy-controls
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

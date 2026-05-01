@@ -4,7 +4,7 @@ id: B-0222
 title: See API key and service account usage
 area: configuration
 personas: [operator, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

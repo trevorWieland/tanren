@@ -4,7 +4,7 @@ id: B-0196
 title: Detect duplicate or overlapping work across builders
 area: team-coordination
 personas: [team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

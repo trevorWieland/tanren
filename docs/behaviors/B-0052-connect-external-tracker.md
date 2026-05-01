@@ -4,7 +4,7 @@ id: B-0052
 title: Connect external tracker capabilities for a project
 area: external-tracker
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

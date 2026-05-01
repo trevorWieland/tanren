@@ -1,310 +1,190 @@
----
-schema: tanren.roadmap_view.v0
-source: dag.json
-status: current
-owner_command: craft-roadmap
-updated_at: 2026-04-30
----
+# Tanren Roadmap
 
-# Roadmap
+**Generated:** 2026-05-01
+**Source of truth:** [`docs/roadmap/dag.json`](dag.json)
 
-This file is the human-readable projection of Tanren's roadmap DAG. The
-machine-readable planning source is `dag.json`.
+## What this is
 
-## Current Direction
+A dependency-aware DAG of spec-sized work that, when complete, realizes every
+accepted behavior in [`docs/behaviors/`](../behaviors) on every interface that
+behavior declares. The DAG lets multiple independent streams progress in
+parallel while honoring real ordering constraints.
 
-Tanren is entering a system-architecture revision. The roadmap intentionally
-treats the current implementation as evidence to mine, not as a shape to
-preserve. Existing code, tests, command markdown, and proof assets may contain
-useful primitives, but new executable work should target the accepted
-architecture:
+Read [`dag.json`](dag.json) for the canonical structure. This document is a
+human-friendly rendering.
 
-- typed event canon in Postgres;
-- generated or validated repo projections rather than file-first source of
-  truth;
-- one shared HTTP control-plane contract for web, API, MCP, CLI, and TUI;
-- behavior-backed planning, specs, proof, walks, reviews, and release learning;
-- isolated runtime execution through queues, workers, leases, target placement,
-  scoped access, and harness adapters;
-- governance, configuration, secrets, integrations, observation, and operations
-  as core product capabilities.
+## State
 
-The implementation readiness assessment shows broad but shallow foundations:
-only two behaviors are currently classified as `already_implemented`, eleven
-as `close_needs_work`, and most accepted behaviors are `partial_foundation`.
-The most important architecture divergence is the interface/control-plane
-shape: current API and TUI surfaces are not yet real control-plane clients, and
-some CLI/MCP paths are closer to temporary methodology commands than native
-typed product state.
+| | |
+|---|---|
+| Milestones | 27 |
+| Spec nodes | 232 (1 foundation + 231 behavior) |
+| Accepted behaviors | 282 |
+| Behaviors covered | 282 (100%) |
+| Longest dependency path | 15 nodes |
+| Max parallel width | 70 nodes |
 
-## Graph Assumptions
+Validate with: `python3 scripts/roadmap_check.py`
 
-- All nodes are `planned`; the previous DAG contained no completed or in-flight
-  nodes to preserve.
-- Each executable node completes at least one accepted behavior, and completion
-  means the behavior is implemented and asserted.
-- A roadmap node cannot be marked complete while any behavior in
-  `completes_behaviors` is only implemented, unproven, or missing demo/walk
-  evidence.
-- Dependencies are intentionally front-loaded around state, contracts, scope,
-  and planning because later orchestration and runtime behavior should not be
-  built on file-first shortcuts.
-- Existing implementation should be salvaged only when it aligns with the
-  accepted event, contract, projection, policy, and runtime boundaries.
+## Methodology
 
-## Completion Definition
+**Foundation-then-thin-slices.** F-0001 is a one-time scaffolding spec that
+brings the repo from "scaffolding only" to "minimum buildable Tanren" with
+every subsystem stubbed and every public interface (web, api, mcp, cli, tui)
+hosting a hello-world surface. Foundation completes zero behaviors by design.
+Every roadmap spec (R-0001 onwards) is a thin behavior slice that fully
+completes its declared behaviors on every interface those behaviors
+declare — no future spec is gated on "an interface doesn't exist yet".
 
-In this roadmap, **a spec completes a behavior** means the spec completes and
-asserts that behavior. Implementation alone is insufficient.
+**Completion definition.** A behavior spec is complete IFF (a) BDD scenarios
+with positive and falsification witnesses pass for every behavior in
+`completes_behaviors` on every declared interface, AND (b) the subjective
+playbook walks end-to-end with human acceptance on every declared interface.
 
-Before a roadmap node can move to `complete`, every behavior in
-`completes_behaviors` must have:
+**Cluster, don't enumerate.** Specs bundle 1-4 closely-related behaviors when
+they share scaffolding, lifecycle, or proof structure. Specs split when
+behaviors capture distinct user-visible outcomes that need independent proof.
 
-- executable behavior proof linked to that behavior;
-- a positive witness;
-- a meaningful falsification witness unless the shaped spec explicitly
-  justifies why none applies;
-- demo or walk evidence showing the behavior is real through the observable
-  surface named by the behavior;
-- assertion status visible through native behavior-proof and assessment read
-  models once those subsystems exist.
+## Phases
 
-Before the native behavior-proof subsystem exists, early nodes may satisfy the
-assertion requirement through repo BDD proof and the shaped spec walkthrough
-record. After native behavior proof exists, completion also requires the
-assertion to be visible through Tanren's own proof and assessment state.
+The DAG isn't strictly phased — work parallelizes — but milestones cluster
+into seven thematic phases that approximate a delivery order:
 
-## Parallelization Strategy
+### Phase 1 — Foundation
 
-The graph keeps only three nodes in the serial kernel: event/read-model state
-(`R-0001`), shared HTTP contracts (`R-0002`), and bootstrap scope (`R-0003`).
-After that, work splits into planning, governance/configuration, runtime,
-provider integration, interface, delivery-asset, and observation tracks.
+Bootstrapping the system and the people who use it.
 
-The fast path to meaningful Tanren-in-Tanren is:
+- **M-0001** Account, Identity & Sign-in Foundation (8 behaviors)
+- **M-0002** Configuration & Secret Storage (18 behaviors)
+- **M-0003** Project Bootstrap & Asset Install (16 behaviors)
+- **M-0004** Permissions & Governance (24 behaviors)
 
-```text
-R-0001 -> R-0002 -> R-0003
--> R-0005 -> R-0006 -> R-0007 -> R-0008 -> R-0009
--> R-0011 -> R-0012 -> R-0013
+### Phase 2 — Planning Method
+
+The plan-product / identify-behaviors / architect-system / craft-roadmap loop
+that Tanren uses on itself and on adopting projects.
+
+- **M-0005** Product Planning Method (20 behaviors)
+- **M-0006** Implementation Assessment (2 behaviors)
+- **M-0007** Spec Shaping & Lifecycle (14 behaviors)
+- **M-0008** Spec Readiness & Quality Gates (5 behaviors)
+
+### Phase 3 — Execution Substrate
+
+Provider connections + runtime + the implementation loop itself.
+
+- **M-0009** Provider Integrations — Source Control & CI (7 behaviors)
+- **M-0010** Runtime & Worker Contracts (26 behaviors)
+- **M-0011** Implementation Loop (11 behaviors)
+
+### Phase 4 — Proof, Quality, Walk
+
+Sequential because each layer needs the previous: proof → quality → walk.
+
+- **M-0012** Behavior Proof Harness (1 behavior — the methodology contract)
+- **M-0013** Quality Gates, Audit & Adherence (2 behaviors — most quality-control work is structurally absorbed by M-0008 pre-impl gates, M-0011 loop gates, and M-0014 walk gates; this milestone owns the user-visible findings UI and the codebase-audit trigger)
+- **M-0014** Walk, Review & Merge (15 behaviors)
+
+### Phase 5 — Integrations Surface
+
+Outbound and inbound machine contracts.
+
+- **M-0015** External Tracker Integration (8 behaviors)
+- **M-0016** Integration Client Contracts (9 behaviors)
+- **M-0017** Webhooks & Event Streaming (3 behaviors)
+
+### Phase 6 — Multi-User & Visibility
+
+What teams need on top of the single-user delivery loop.
+
+- **M-0018** Team Coordination (16 behaviors)
+- **M-0019** Observation, Dashboards & Reports (29 behaviors)
+- **M-0020** Operations & Health (10 behaviors)
+- **M-0021** Cross-Interface Continuity & Notifications (4 behaviors)
+
+### Phase 7 — Advanced Method
+
+The closing-the-loop and intelligence layer.
+
+- **M-0022** Repo Understanding & Standards Evolution (8 behaviors)
+- **M-0023** Release & Learning Loop (6 behaviors)
+- **M-0024** Autonomy Controls (7 behaviors)
+- **M-0025** Prioritization & Replanning (4 behaviors)
+- **M-0026** Decision Memory, Undo & Recovery (3 behaviors)
+- **M-0027** Proactive Analysis & Findings Routing (6 behaviors)
+
+## Critical path
+
+15 nodes — the longest sequential chain through the DAG:
+
+```
+F-0001 → R-0001 → R-0019 → R-0073 → R-0076 → R-0081 → R-0120 → R-0123 →
+R-0133 → R-0134 → R-0136 → R-0138 → R-0139 → R-0141 → R-0142
 ```
 
-In parallel with that planning spine, governance and runtime should move
-toward:
+This is the full deliver loop end-to-end: scaffold → account → project →
+spec creation → shape → ready → loop start → walk trigger → walk session →
+walk content → accept → PR → CI status → merge → cleanup.
 
-```text
-R-0026 -> R-0028 -> R-0029 -> R-0030
--> R-0017 -> R-0018 -> R-0019
+## Parallelism
+
+After F-0001 + R-0001 land, parallelism opens fast:
+
+| Level | Parallel nodes |
+|---|---|
+| L0 | 1 (foundation) |
+| L1 | 2 |
+| L2 | 11 |
+| L3 | 28 |
+| L4 | 38 |
+| L5 | 70 (max width) |
+| L6 | 36 |
+| L7 | 23 |
+| L8 | 6 |
+| L9-L14 | 1-7 (mostly the walk-and-merge tail) |
+
+L5 supports up to 70 specs in flight simultaneously across many milestones.
+
+## Useful queries
+
+```bash
+# Validate the DAG
+python3 scripts/roadmap_check.py
+
+# What's ready to start now?
+python3 scripts/roadmap_check.py --ready
+
+# All nodes in one milestone
+python3 scripts/roadmap_check.py --milestone M-0007
+
+# One node's full info + neighbors
+python3 scripts/roadmap_check.py --node R-0120
+
+# Which spec node owns a behavior
+python3 scripts/roadmap_check.py --behavior B-0285
+
+# Full coverage map
+python3 scripts/roadmap_check.py --coverage-map
+
+# Longest path
+python3 scripts/roadmap_check.py --critical-path
+
+# Auto-remove transitively redundant edges
+python3 scripts/roadmap_check.py --reduce
 ```
 
-Those two tracks converge at `R-0014`, where Tanren can start asserting real
-implementation-loop behavior against shaped specs. From there, `R-0015`,
-`R-0021`, `R-0022`, and `R-0023` make iterative spec work easier by adding
-blockers, behavior proof, quality controls, and walk/demo records.
+## Conventions
 
-## Milestones
-
-### M-0001 Rebuild the control-plane kernel
-
-Goal: replace file-first and direct-service paths with typed event canon,
-shared contracts, and coherent public surfaces.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0001` | Build canonical event log and read-model substrate | none |
-| `R-0002` | Stand up shared HTTP interface contracts | `R-0001` |
-| `R-0003` | Bootstrap identity, account, organization, and project scope | `R-0001`, `R-0002` |
-| `R-0004` | Provide first-party surface shells over the shared contract | `R-0002`, `R-0003` |
-
-This milestone is the architectural reset point. It should not attempt to
-complete every interface workflow. It should make the correct path unavoidable:
-commands append typed events, read models expose freshness, public surfaces use
-the same contracts, and unsupported actions fail explicitly.
-
-### M-0002 Make planning native
-
-Goal: turn product, behavior, architecture, assessment, roadmap, and decision
-memory into first-party typed planning state.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0005` | Implement native product brief and decision memory | `R-0003` |
-| `R-0006` | Implement native behavior catalog and coverage state | `R-0005` |
-| `R-0007` | Implement architecture records and tradeoff review | `R-0005`, `R-0006` |
-| `R-0008` | Implement repository understanding and implementation assessment | `R-0006`, `R-0007` |
-| `R-0009` | Implement roadmap DAG and replanning | `R-0006`, `R-0007`, `R-0008` |
-| `R-0010` | Implement planning proposal, revision recovery, and controlled undo | `R-0005`, `R-0006`, `R-0007`, `R-0009` |
-
-This milestone retires the temporary planning-command posture. Markdown and
-JSON remain important repository projections, but accepted product direction
-comes from typed planning events and reviewable revisions.
-
-### M-0003 Shape executable specs
-
-Goal: convert accepted roadmap nodes and intake signals into spec-sized work
-with readiness, quality, and dependency rules.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0011` | Implement draft spec intake and candidate creation | `R-0009` |
-| `R-0012` | Implement shape-spec readiness and spec quality gates | `R-0011` |
-| `R-0013` | Implement spec lifecycle, grouping, and dependency state | `R-0012` |
-
-The current code has useful shaping primitives, especially around acceptance
-criteria and prioritization. This milestone should lift the good parts into a
-native spec model that is anchored to accepted roadmap nodes and proof
-obligations.
-
-### M-0004 Run the orchestration loop
-
-Goal: execute active specs through loop state, blockers, notifications, team
-coordination, and candidate implementations.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0014` | Implement loop start, state, pause, resume, cancellation, and eligibility | `R-0013`, `R-0019` |
-| `R-0015` | Implement blockers, notifications, and attention routing | `R-0014` |
-| `R-0016` | Implement live activity and team coordination | `R-0014`, `R-0015`, `R-0026` |
-
-The readiness assessment identifies several loop behaviors as close but
-architecture-divergent. They should be rewritten through shared orchestration
-state rather than patched in place.
-
-### M-0005 Isolate runtime execution
-
-Goal: run assignments through scoped workers, durable queues, harness
-adapters, target placement, and redacted results.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0017` | Implement runtime harness configuration and readiness | `R-0028`, `R-0029` |
-| `R-0018` | Implement isolated execution target placement | `R-0017`, `R-0030` |
-| `R-0019` | Implement assignment queue, lease, retry, cancellation, and recovery | `R-0018` |
-| `R-0020` | Implement worker-scoped access and redacted runtime output | `R-0019`, `R-0029` |
-
-This milestone implements the accepted runtime posture: no unmanaged local
-worktree execution as the core path, workers communicate through public
-contracts, provider credentials stay in the control plane, and outputs are
-bounded and redacted before persistence.
-
-### M-0006 Prove and review delivered behavior
-
-Goal: require behavior proof, quality controls, walks, PR validation, merge
-handoff, and release learning.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0021` | Implement executable behavior proof | `R-0006`, `R-0012`, `R-0019` |
-| `R-0022` | Implement quality controls, findings, audits, and proactive analysis | `R-0008`, `R-0021` |
-| `R-0023` | Implement walk, demo, and acceptance records | `R-0014`, `R-0021`, `R-0022` |
-| `R-0024` | Implement PR, CI, review feedback, merge-ready, and cleanup flow | `R-0023` |
-| `R-0025` | Implement release learning and shipped outcomes | `R-0024` |
-
-This milestone closes the product-to-proof loop. Completion should mean a
-behavior is implemented, proven, walked where required, reviewed, linked to a
-candidate change, and able to feed release outcomes back into planning.
-
-### M-0007 Govern access and configuration
-
-Goal: add the identity, policy, approvals, configuration, secret, and
-credential model needed for safe solo and team use.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0026` | Implement organization access, roles, memberships, and project grants | `R-0003` |
-| `R-0027` | Implement approvals and autonomy boundaries | `R-0026` |
-| `R-0028` | Implement configuration inheritance and standards policy | `R-0026` |
-| `R-0029` | Implement secrets, credentials, service accounts, and API keys | `R-0026`, `R-0028` |
-| `R-0030` | Implement runtime placement, harness, and budget policy | `R-0027`, `R-0028`, `R-0029` |
-
-Governance is not an enterprise add-on. The same model supports solo use,
-team use, service accounts, worker-scoped access, approvals, and policy
-explanations.
-
-### M-0008 Integrate providers and clients
-
-Goal: connect provider integrations, external trackers, webhooks, API clients,
-and source-control status through adapter-backed contracts.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0031` | Implement provider integration management | `R-0029` |
-| `R-0032` | Implement external tracker and outbound issue integration | `R-0011`, `R-0031` |
-| `R-0033` | Implement webhooks, external client attribution, CI status, and provider backpressure | `R-0002`, `R-0031` |
-
-Provider-specific payloads and mechanics should stay behind adapters. The
-control plane stores normalized state, attribution, health, permissions,
-external references, and audited actions.
-
-### M-0009 Expose observation and operations
-
-Goal: provide provenance-aware progress, quality, risk, health, reporting,
-backup, restore, incident, and audit views.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0034` | Implement project, roadmap, blocked-work, and provenance observation | `R-0004`, `R-0009`, `R-0015`, `R-0022`, `R-0037` |
-| `R-0039` | Implement pipeline, quality, health, and delivery observation | `R-0016`, `R-0019`, `R-0022`, `R-0024`, `R-0025` |
-| `R-0035` | Implement shipped-outcome, report, digest, and changed-since observation | `R-0025`, `R-0034` |
-| `R-0036` | Implement operations, backup, restore, pause, incident, quota, and audit export | `R-0027`, `R-0034`, `R-0035` |
-
-Observation claims should show source, freshness, completeness, bounds,
-redaction, and whether a value is measured, estimated, inferred, unavailable,
-or hidden. Missing data is not healthy data. Planning and blocked-work
-observation intentionally lands before delivery metrics so Tanren-in-Tanren can
-get useful roadmap and blocker visibility earlier.
-
-### M-0010 Package Tanren for self-hosting
-
-Goal: deliver the Compose-first stack, repository assets, standards profiles,
-installer drift handling, upgrade, and uninstall flows.
-
-| Node | Title | Depends on |
-|---|---|---|
-| `R-0037` | Implement repository asset bootstrap, drift, generated integrations, and standards root | `R-0007`, `R-0022`, `R-0028` |
-| `R-0038` | Implement self-hosted stack packaging, upgrade, and uninstall | `R-0003`, `R-0037` |
-
-Delivery should preserve the target architecture instead of introducing a
-local-only backend. Compose is the baseline bundle, not a lock-in; the same
-service contracts should work under equivalent container orchestrators.
-
-## Evidence Expectations
-
-Each node in `dag.json` declares expected evidence. Before any node is marked
-complete, the shaped spec must add or update behavior-level proof for each
-completed behavior. The expected default is:
-
-- one behavior-linked BDD target per accepted behavior where practical;
-- a positive witness;
-- a meaningful falsification witness unless explicitly not applicable;
-- proof results and assertion status visible through behavior-proof and
-  assessment read models;
-- source links from roadmap nodes, specs, proof, walks, reviews, and shipped
-  outcomes.
-
-## Preserved Work
-
-No completed or in-flight roadmap nodes existed in the previous DAG. Existing
-asserted behaviors remain important source signals:
-
-- `B-0068` Bootstrap Tanren assets into an existing repository;
-- `B-0069` Detect installer drift without mutating files;
-- `B-0070` Generate selected agent integrations deterministically;
-- `B-0071` Use the repository's installed standards;
-- `B-0080` See unresolved check findings that block readiness.
-
-Those behaviors are placed in later graph nodes because the architecture
-revision should preserve their useful proof while re-homing the implementation
-under the event, projection, configuration, and quality-control model.
-
-## Evidence Gaps And Open Decisions
-
-- The roadmap is comprehensive but still graph-level. Each node needs a later
-  `shape-spec` pass before implementation.
-- The current readiness assessment was static only; it did not run `just
-  tests`, `just check`, or `just ci`.
-- The graph assumes the accepted architecture remains the target. If
-  architecture changes during the mass revision, `R-0007`, `R-0009`, and
-  dependent nodes should be replanned through the alteration funnel.
-- The exact service split may evolve, but first-party public clients should
-  continue to use the HTTP control plane.
+- **Node IDs** are stable. `F-XXXX` for foundation, `R-XXXX` for behavior.
+  Once a node ships, its ID is durable — successors use `supersedes`.
+- **`completes_behaviors`** lists behaviors fully proven by this spec.
+  Every behavior node has at least one entry. Foundation may have zero.
+- **`supports_behaviors`** lists behaviors this spec partially exercises
+  but doesn't own completion of.
+- **`depends_on`** is acyclic and minimal — transitively redundant edges are
+  removed by `--reduce`. Every behavior node has F-0001 as a transitive
+  ancestor.
+- **`expected_evidence`** lists per-behavior BDD coverage with witnesses
+  (`positive` + `falsification`) and the interfaces the proof must cover.
+- **`playbook`** is the human-walked acceptance sequence. Subjective; one
+  reviewer signs off.

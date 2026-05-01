@@ -4,7 +4,7 @@ id: B-0150
 title: Propose standards updates from repeated findings
 area: standards-evolution
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

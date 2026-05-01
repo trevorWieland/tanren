@@ -4,7 +4,7 @@ id: B-0151
 title: Explain which standards influenced a decision
 area: standards-evolution
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

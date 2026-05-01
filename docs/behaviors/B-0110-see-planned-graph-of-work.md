@@ -4,7 +4,7 @@ id: B-0110
 title: See the planned graph of work
 area: planner-orchestration
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

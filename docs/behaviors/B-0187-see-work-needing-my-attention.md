@@ -4,7 +4,7 @@ id: B-0187
 title: See shared work that needs my attention
 area: team-coordination
 personas: [team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

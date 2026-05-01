@@ -4,7 +4,7 @@ id: B-0074
 title: Reject walked work and route follow-up work
 area: review-merge
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

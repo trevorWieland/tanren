@@ -4,7 +4,7 @@ id: B-0010
 title: Temporarily assist a teammate's in-flight loop
 area: team-coordination
 personas: [team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

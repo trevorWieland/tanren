@@ -4,7 +4,7 @@ id: B-0198
 title: Collect required approvals for a gated action
 area: governance
 personas: [team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

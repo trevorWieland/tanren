@@ -4,7 +4,7 @@ id: B-0099
 title: Add credentials for a code harness
 area: runtime-substrate
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

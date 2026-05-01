@@ -1,28 +1,16 @@
 [package]
 name = "tanren-domain"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Canonical domain model — entities, commands, events, state machines, and error taxonomy"
+description = "Canonical Tanren domain entities. Foundation crate — depends on no other workspace crate."
 
 [lints]
 workspace = true
 
 [dependencies]
-chrono = { workspace = true }
-# JSON Schema derive for the methodology types consumed by the
-# contract crate's tool-surface schemas. Pure derive; no runtime or
-# I/O concern — consistent with the existing serde derives.
-schemars = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
-serde_path_to_error = { workspace = true }
-# YAML frontmatter parse/render for typed evidence files (spec.md,
-# plan.md, demo.md, audit.md, signposts.md). Pure serialization —
-# consistent with serde/serde_json already present here; no runtime
-# or I/O concern.
-serde_yaml = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true }

@@ -1,13 +1,17 @@
 [package]
 name = "tanren-scheduler"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Dispatch graph scheduling — lane/capability-aware routing and backpressure"
+description = "Cron-style schedule evaluation for Tanren. Returns the next due time for a schedule expression; does not own dispatch."
 
 [lints]
 workspace = true
 
 [dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }

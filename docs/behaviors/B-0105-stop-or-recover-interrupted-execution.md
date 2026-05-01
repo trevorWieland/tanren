@@ -5,7 +5,7 @@ title: Stop or recover interrupted execution
 area: runtime-substrate
 personas: [solo-builder, team-builder, operator]
 runtime_actors: [agent-worker]
-interfaces: [cli, api, mcp, tui, daemon]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
@@ -26,8 +26,9 @@ understandable after cancellation, crash, or lease loss.
 
 - Tanren records whether execution stopped, failed, or recovered.
 - Recovered work continues from a known state or asks for human decision.
-- No duplicate visible work is created by recovery.
-- Worker session reconciliation remains linked when the interruption involved a worker.
+- Recovery does not create duplicate visible work.
+- When the interruption involved a worker, the recovered state remains linked
+  to that worker's prior assignment so accountability is preserved.
 
 ## Out of scope
 

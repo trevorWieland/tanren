@@ -4,7 +4,7 @@ id: B-0221
 title: Create and scope API keys
 area: governance
 personas: [operator, integration-client]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

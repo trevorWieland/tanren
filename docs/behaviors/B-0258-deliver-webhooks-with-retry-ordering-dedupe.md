@@ -1,10 +1,10 @@
 ---
 schema: tanren.behavior.v0
 id: B-0258
-title: Deliver webhooks with retry, ordering, and dedupe
+title: Deliver webhooks reliably so event consumers can process them without ambiguity
 area: integration-contract
 personas: [integration-client, operator]
-interfaces: [api]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
@@ -13,7 +13,7 @@ supersedes: []
 
 ## Intent
 
-An `integration-client` can receive webhooks with retry, ordering, and dedupe metadata so event consumers can process Tanren events reliably.
+An `integration-client` can receive webhook event notifications reliably so event consumers can process Tanren events without ambiguity, loss, or undetected duplication.
 
 ## Preconditions
 
@@ -22,9 +22,9 @@ An `integration-client` can receive webhooks with retry, ordering, and dedupe me
 
 ## Observable outcomes
 
-- Webhook deliveries include stable event identity, timestamp, resource identity, and ordering or cursor metadata where available.
-- Failed deliveries retry according to visible policy and expose delivery state to permitted users.
-- Duplicate deliveries are identifiable by the receiver.
+- Webhook deliveries include stable event identity, timestamp, resource identity, and ordering information where available.
+- Failed deliveries are retried according to a visible policy, and delivery state is visible to permitted users.
+- Duplicate deliveries can be recognized as duplicates by the receiver.
 
 ## Out of scope
 

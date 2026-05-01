@@ -4,7 +4,7 @@ id: B-0184
 title: Continue the same work from another interface
 area: cross-interface
 personas: [solo-builder, team-builder, observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

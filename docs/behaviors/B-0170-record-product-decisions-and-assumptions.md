@@ -4,7 +4,7 @@ id: B-0170
 title: Record product decisions and assumptions
 area: decision-memory
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

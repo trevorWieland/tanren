@@ -4,7 +4,7 @@ id: B-0183
 title: See coherent Tanren state across public interfaces
 area: cross-interface
 personas: [solo-builder, team-builder, observer, operator, integration-client]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -1,37 +1,49 @@
-//! External contract representation and versioning for tanren interfaces.
+//! Wire-shape contracts for Tanren's API and MCP boundaries.
 //!
-//! Depends on: `tanren-domain`
-//!
-//! # Responsibilities
-//!
-//! - Interface-safe request/response/error types with serde round-trip guarantees
-//! - Validated conversion from contract requests to domain commands
-//! - Error mapping from domain and store errors to wire-safe error responses
-//!
-//! # Design Rules
-//!
-//! - Serialization and schema only — no orchestration logic
-//! - Every interface (CLI/API/MCP/TUI) derives from this contract
-//! - Contract changes must be backwards-compatible or explicitly versioned
+//! Types in this crate are the serialization surface that interface binaries
+//! (`tanren-api`, `tanren-mcp`, the generated web client) expose to external
+//! callers. Orchestration logic does not live here — this crate stays a pure
+//! shape layer so that wire compatibility is reviewable in isolation.
 
-mod convert;
-pub mod enums;
-pub mod error;
-pub mod methodology;
-pub mod request;
-pub mod response;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-pub use convert::{cancel_dispatch_from_request, create_dispatch_from_request};
-pub use enums::{
-    AuthMode, Cli, DispatchMode, DispatchStatus, Lane, Outcome, Phase, StepReadyState, StepStatus,
-    StepType,
-};
-pub use error::{
-    CliParseReasonCode, ContractError, ErrorCode, ErrorDetails, ErrorResponse,
-    internal_error_response_with_correlation,
-};
-pub use request::{
-    CancelDispatchRequest, CreateDispatchRequest, DispatchCursorToken, DispatchListFilter,
-    parse_project_env_entries,
-};
-pub use response::{DispatchListResponse, DispatchResponse, DispatchSummaryResponse, StepResponse};
+/// Wire-shape version for Tanren's external contract surface.
+///
+/// Bumped on breaking changes to the request/response shapes this crate
+/// exports. The wire version moves independently of [`tanren_domain`'s
+/// `DomainVersion`](../tanren_domain/struct.DomainVersion.html) — the wire
+/// format may stay stable across domain refactors and vice versa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ContractVersion(u32);
+
+impl ContractVersion {
+    /// Current wire-contract version.
+    pub const CURRENT: Self = Self(0);
+
+    /// Construct a contract version from its numeric form.
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// The numeric value of this wire version.
+    #[must_use]
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+}
+
+/// Errors raised when a wire payload fails contract-level validation.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ContractError {
+    /// The payload's declared contract version is incompatible with this build.
+    #[error("incompatible contract version: payload={payload:?}, supported={supported:?}")]
+    IncompatibleVersion {
+        /// Version declared by the incoming payload.
+        payload: ContractVersion,
+        /// Version this build understands.
+        supported: ContractVersion,
+    },
+}

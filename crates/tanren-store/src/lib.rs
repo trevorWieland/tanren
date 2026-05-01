@@ -1,59 +1,151 @@
-//! Event-sourced persistence layer for the tanren control plane.
+//! Database access layer for Tanren.
 //!
-//! Depends on: `tanren-domain`
-//!
-//! # Responsibilities
-//!
-//! - Event append APIs (append-only canonical event log)
-//! - Projection read/write APIs (materialized views for queries)
-//! - Migration lifecycle (schema versioning and upgrades)
-//! - Transactional guards for race-safe operations
-//!
-//! # Design Rules
-//!
-//! - Only this crate owns SQL and query details
-//! - Supports `SQLite` (local/dev) and Postgres (team/enterprise)
-//! - Write-side uses transactional guarantees
-//! - Read-side uses purpose-built indexed projections (no scan-heavy paths)
+//! This crate is the **only** place in the workspace that owns SQL and
+//! row-shape entities. Other crates consume typed envelopes through the
+//! [`Store`] handle; the underlying `SeaORM` entity types are intentionally
+//! crate-private (`entity/` is a private module) so that row shape changes
+//! never leak across the dependency boundary.
 
-// `connection` houses `ConnectConfig` (public) alongside internal
-// helpers (`connect`, `connect_with_config`).  Making the module
-// `pub(crate)` keeps the helpers private while letting `lib.rs`
-// re-export `ConnectConfig` by path.
-mod connection;
-mod converters;
-mod db_error_codes;
-#[doc(hidden)]
-pub(crate) mod entity;
-mod errors;
-mod event_store;
-mod job_queue;
-mod job_queue_dequeue;
-pub mod methodology;
+mod entity;
 mod migration;
-mod params;
-mod sql_tags;
-mod state_store;
-mod state_store_cancel;
-mod state_store_summary;
-mod store;
-mod token_replay_purge;
-mod token_replay_store;
 
-pub use connection::ConnectConfig;
-pub use errors::{StoreConflictClass, StoreError, StoreOperation, StoreResult};
-pub use event_store::EventStore;
-pub use job_queue::JobQueue;
-pub use params::{
-    AckAndEnqueueParams, AckParams, CancelDispatchParams, CancelPendingStepsParams,
-    ConsumeActorTokenJtiParams, CreateDispatchParams, CreateDispatchWithInitialStepParams,
-    DEFAULT_QUERY_LIMIT, DequeueParams, DispatchCursor, DispatchFilter, DispatchQueryPage,
-    DispatchSummaryQueryPage, EnqueueStepParams, EventFilter, MAX_DISPATCH_QUERY_LIMIT, NackParams,
-    PurgeExpiredActorTokenJtisParams, QueuedStep, ReplayGuard, UpdateDispatchStatusParams,
+pub use migration::Migrator;
+
+use chrono::{DateTime, Utc};
+use sea_orm::{
+    ActiveModelTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryOrder, QuerySelect,
+    Set,
 };
-pub use state_store::StateStore;
-pub use store::Store;
-pub use token_replay_purge::{
-    ReplayPurgeConfig, ReplayPurgeService, ReplayPurgeStats, spawn_replay_purge,
-};
-pub use token_replay_store::TokenReplayStore;
+use sea_orm_migration::MigratorTrait;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
+
+/// A connected handle to Tanren's canonical event store.
+///
+/// Construct via [`Store::connect`]; apply pending migrations via
+/// [`Store::migrate`]; append events via [`Store::append_event`]; read recent
+/// events via [`Store::recent_events`]. The handle is cheap to clone — under
+/// the hood `SeaORM` pools connections.
+pub struct Store {
+    conn: DatabaseConnection,
+}
+
+impl std::fmt::Debug for Store {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store").finish_non_exhaustive()
+    }
+}
+
+impl Clone for Store {
+    fn clone(&self) -> Self {
+        Self {
+            conn: self.conn.clone(),
+        }
+    }
+}
+
+/// A row in Tanren's canonical event log.
+///
+/// Per architecture, payloads are JSON-serialised typed events. F-0001 ships
+/// only the envelope shape; concrete event types arrive with later behavior
+/// slices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventEnvelope {
+    /// UUID v7 — globally unique, time-ordered.
+    pub id: Uuid,
+    /// Wall-clock time the event was appended.
+    pub occurred_at: DateTime<Utc>,
+    /// Opaque JSON payload.
+    pub payload: serde_json::Value,
+}
+
+impl Store {
+    /// Connect to a database by URL (e.g. `postgres://...`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the underlying `SeaORM` connect call
+    /// fails.
+    pub async fn connect(url: &str) -> Result<Self, StoreError> {
+        let conn = Database::connect(url).await?;
+        Ok(Self { conn })
+    }
+
+    /// Reference to the underlying `SeaORM` connection. Provided so app-services
+    /// can run cross-cutting transactions; row-shape entity types remain
+    /// crate-private.
+    #[must_use]
+    pub fn connection(&self) -> &DatabaseConnection {
+        &self.conn
+    }
+
+    /// Apply all pending migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if migration execution fails.
+    pub async fn migrate(&self) -> Result<(), StoreError> {
+        Migrator::up(&self.conn, None).await?;
+        Ok(())
+    }
+
+    /// Append a payload to the canonical event log.
+    ///
+    /// The event id is allocated as UUID v7 and the timestamp is taken from
+    /// `chrono::Utc::now()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the insert fails.
+    pub async fn append_event(
+        &self,
+        payload: serde_json::Value,
+    ) -> Result<EventEnvelope, StoreError> {
+        let envelope = EventEnvelope {
+            id: Uuid::now_v7(),
+            occurred_at: Utc::now(),
+            payload,
+        };
+        let model = entity::events::ActiveModel {
+            id: Set(envelope.id),
+            occurred_at: Set(envelope.occurred_at),
+            payload: Set(envelope.payload.clone()),
+        };
+        model.insert(&self.conn).await?;
+        Ok(envelope)
+    }
+
+    /// Read the most recent `limit` events, newest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
+        let rows = entity::events::Entity::find()
+            .order_by_desc(entity::events::Column::OccurredAt)
+            .limit(limit)
+            .all(&self.conn)
+            .await?;
+        Ok(rows.into_iter().map(EventEnvelope::from).collect())
+    }
+}
+
+impl From<entity::events::Model> for EventEnvelope {
+    fn from(model: entity::events::Model) -> Self {
+        Self {
+            id: model.id,
+            occurred_at: model.occurred_at,
+            payload: model.payload,
+        }
+    }
+}
+
+/// Errors raised by the store layer.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum StoreError {
+    /// The underlying `SeaORM` call failed.
+    #[error("database error: {0}")]
+    Database(#[from] DbErr),
+}

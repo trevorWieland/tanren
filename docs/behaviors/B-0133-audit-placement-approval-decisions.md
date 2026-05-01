@@ -4,7 +4,7 @@ id: B-0133
 title: Audit placement and approval decisions
 area: operations
 personas: [team-builder, observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -1,24 +1,16 @@
 [package]
 name = "tanren-contract"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "External contract representation — API/CLI/MCP/TUI schema generation and versioning"
+description = "Wire-shape contracts for Tanren's API and MCP boundaries. Foundation crate — orchestration logic does not live here."
 
 [lints]
 workspace = true
 
 [dependencies]
-tanren-domain = { path = "../tanren-domain" }
-chrono.workspace = true
-# JSON Schema generation for the methodology tool catalog. The contract
-# crate owns the authoritative `tanren.methodology.v1` schema surface.
-schemars.workspace = true
-serde.workspace = true
-thiserror.workspace = true
-uuid.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
+serde = { workspace = true }
+thiserror = { workspace = true }

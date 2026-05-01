@@ -4,7 +4,7 @@ id: B-0065
 title: See existing members' access to an organization
 area: governance
 personas: [team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

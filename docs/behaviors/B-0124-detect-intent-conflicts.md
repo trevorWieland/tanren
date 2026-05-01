@@ -5,7 +5,7 @@ title: Detect intent conflicts after related work lands
 area: review-merge
 personas: [solo-builder, team-builder, operator]
 runtime_actors: [agent-worker]
-interfaces: [cli, api, mcp, tui, daemon]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

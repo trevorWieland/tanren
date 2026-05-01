@@ -1,18 +1,17 @@
 [package]
 name = "tanren-runtime"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Runtime trait contracts — harness and environment lease abstractions"
+description = "Runtime substrate contract: Substrate trait, ExecutionTarget and Lease types. Concrete substrates (docker, hetzner, GCP, AWS, ...) live in separate adapter crates introduced by the slices that need them."
 
 [lints]
 workspace = true
 
 [dependencies]
-async-trait.workspace = true
-secrecy.workspace = true
-serde.workspace = true
-thiserror.workspace = true
-tanren-domain = { path = "../tanren-domain" }
+async-trait = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

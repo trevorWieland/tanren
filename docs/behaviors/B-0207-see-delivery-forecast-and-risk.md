@@ -4,7 +4,7 @@ id: B-0207
 title: See delivery forecast and risk
 area: observation
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
@@ -35,4 +35,4 @@ A user can see delivery forecast and risk so expectations are grounded in curren
 
 - B-0035
 - B-0113
-- B-0218
+- B-0209

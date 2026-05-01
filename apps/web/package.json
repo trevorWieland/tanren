@@ -1,0 +1,31 @@
+{
+  "name": "@tanren/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tanren responsive web UI. F-0001 ships a placeholder route that fetches the API's /health endpoint and renders the response.",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build --turbopack",
+    "start": "next start",
+    "lint": "oxlint .",
+    "typecheck": "tsgo --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next": "catalog:default",
+    "react": "catalog:default",
+    "react-dom": "catalog:default"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:default",
+    "@types/react": "catalog:default",
+    "@types/react-dom": "catalog:default",
+    "@typescript/native-preview": "catalog:default",
+    "oxlint": "catalog:default",
+    "prettier": "catalog:default",
+    "typescript": "catalog:default",
+    "vitest": "catalog:default"
+  }
+}

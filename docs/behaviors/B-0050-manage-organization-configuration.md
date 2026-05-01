@@ -4,7 +4,7 @@ id: B-0050
 title: Manage shared configuration defaults across projects
 area: configuration
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

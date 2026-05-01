@@ -4,7 +4,7 @@ id: B-0167
 title: Show expected versus actual behavior
 area: walk-acceptance
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

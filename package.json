@@ -1,0 +1,19 @@
+{
+  "name": "tanren",
+  "private": true,
+  "description": "Tanren control plane for agentic software delivery — pnpm workspace root for the web frontend.",
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter ./apps/web build",
+    "dev": "pnpm --filter ./apps/web dev",
+    "lint": "pnpm --filter ./apps/web lint",
+    "typecheck": "pnpm --filter ./apps/web typecheck",
+    "test": "pnpm --filter ./apps/web test",
+    "format": "pnpm --filter ./apps/web format",
+    "format:check": "pnpm --filter ./apps/web format:check"
+  },
+  "packageManager": "pnpm@10.19.0"
+}
