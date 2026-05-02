@@ -1,5 +1,7 @@
 //! Repo maintenance commands for Tanren.
 
+mod bdd_tags;
+
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use std::fs;
@@ -22,18 +24,29 @@ struct Cli {
 enum Command {
     /// Reject any `#[test]`, `#[cfg(test)]`, or `mod tests` outside the
     /// `tanren-bdd` crate. Tests live exclusively in BDD scenarios.
-    CheckRustTestSurface,
+    #[command(name = "check-rust-test-surface")]
+    RustTestSurface,
     /// Reject inline `#[allow(...)]` and `#[expect(...)]` anywhere in
     /// workspace Rust source. Lint relaxations belong in a crate's
     /// `[lints.clippy]` section, not at the source-line level.
-    CheckSuppression,
+    #[command(name = "check-suppression")]
+    Suppression,
+    /// Validate `tests/bdd/features/**/*.feature` against the F-0002 BDD
+    /// convention: filename↔feature-tag match, closed tag allowlist,
+    /// strict-equality interface coverage, behavior-catalog cross-check,
+    /// and DAG-evidence coverage. See
+    /// `docs/architecture/subsystems/behavior-proof.md` for the full
+    /// contract.
+    #[command(name = "check-bdd-tags")]
+    BddTags,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::CheckRustTestSurface => check_rust_test_surface(),
-        Command::CheckSuppression => check_suppression(),
+        Command::RustTestSurface => check_rust_test_surface(),
+        Command::Suppression => check_suppression(),
+        Command::BddTags => bdd_tags::run(&workspace_root()?),
     }
 }
 

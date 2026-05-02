@@ -176,6 +176,31 @@ deps-upgrade-major:
     {{ cargo }} update -w
     just ci
 
+# Read-only audit of Rust + Node deps that have newer releases on
+# crates.io / npm. Surfaces:
+#   - Rust workspace pins that would shift under `just deps-upgrade`
+#     (semver-compatible) or `just deps-upgrade-major` (incompatible).
+#   - npm catalog pins (pnpm-workspace.yaml) and pnpm overrides whose
+#     installed versions trail the registry's latest.
+# Pure read; never mutates Cargo.lock or pnpm-lock.yaml. Use the
+# upgrade recipes above to actually apply changes.
+deps-outdated:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    have() { command -v "$1" &>/dev/null; }
+
+    echo "==> Rust workspace (cargo upgrade --dry-run)"
+    if ! have cargo-upgrade; then
+        echo "  cargo-upgrade unavailable — run 'just bootstrap' to install cargo-edit" >&2
+    else
+        {{ cargo }} upgrade --dry-run --incompatible 2>&1 | sed 's/^/  /'
+    fi
+
+    echo
+    echo "==> Node workspace (pnpm outdated)"
+    pnpm outdated -r --format list 2>&1 | sed 's/^/  /' || true
+
 # ============================================================================
 # Methodology self-hosting (tanren-repo specific)
 #
@@ -251,6 +276,7 @@ check:
     run_stage "suppression guard" just check-suppression
     run_stage "dependency boundaries" just check-deps
     run_stage "rust test surface" just check-rust-test-surface
+    run_stage "bdd tags" just check-bdd-tags
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
     total_elapsed="$(( $(now_ms) - total_start ))"
@@ -472,6 +498,19 @@ check-deps:
         echo "FAIL: crates/tanren-store/src/entity/mod.rs exposes row-shape modules publicly"
         failed=1
     fi
+
+    # F-0002: tanren-mcp must serve over HTTP (axum-based stack), per
+    # docs/architecture/subsystems/interfaces.md#mcp and
+    # docs/architecture/technology.md (rejected-alternatives: stdio MCP).
+    # The presence of axum in the dependency closure is the mechanical
+    # signal that the binary is wired to the HTTP transport rather than
+    # rmcp's stdio transport.
+    mcp_deps=$(echo "$metadata" | jq -r '.packages[] | select(.name == "tanren-mcp") | .dependencies[] | select(.kind == null) | .name' 2>/dev/null || true)
+    if ! echo "$mcp_deps" | grep -qx "axum"; then
+        echo "FAIL: tanren-mcp must depend on axum (HTTP transport mandated by architecture)"
+        failed=1
+    fi
+
     if [[ "$failed" -eq 1 ]]; then
         echo "Dependency/boundary rule violations detected."
         exit 1
@@ -480,6 +519,14 @@ check-deps:
 # Enforce BDD-only Rust test surface and retired gate names.
 check-rust-test-surface:
     @{{ cargo }} run --quiet -p tanren-xtask -- check-rust-test-surface
+
+# Enforce the F-0002 BDD `.feature` convention: filename↔@B-XXXX, closed
+# tag allowlist, strict-equality interface coverage against
+# docs/behaviors and docs/roadmap/dag.json. See
+# docs/architecture/subsystems/behavior-proof.md (BDD Tagging And File
+# Convention).
+check-bdd-tags:
+    @{{ cargo }} run --quiet -p tanren-xtask -- check-bdd-tags
 
 # Verify active rustc/clippy match the pinned toolchain in rust-toolchain.toml.
 check-rust-toolchain-sync:
