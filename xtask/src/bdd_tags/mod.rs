@@ -54,12 +54,19 @@ pub(crate) fn run(workspace_root: &Path) -> Result<()> {
     let dag_evidence = load_dag_evidence(&dag_path)?;
 
     let mut violations: Vec<String> = Vec::new();
+    // Track which behavior IDs already have a feature file so the
+    // convention's "one .feature per behavior" rule fails fast across
+    // files (each file otherwise validates in isolation, so two files
+    // like `B-0123-a.feature` and `B-0123-b.feature` would each pass
+    // their own checks and silently violate the global invariant).
+    let mut behavior_owners: HashMap<String, PathBuf> = HashMap::new();
     for path in &feature_files {
         validate_feature_file(
             path,
             workspace_root,
             &behaviors,
             &dag_evidence,
+            &mut behavior_owners,
             &mut violations,
         );
     }
@@ -115,6 +122,7 @@ fn validate_feature_file(
     workspace_root: &Path,
     behaviors: &HashMap<String, BehaviorRecord>,
     dag_evidence: &HashMap<String, EvidenceRecord>,
+    behavior_owners: &mut HashMap<String, PathBuf>,
     violations: &mut Vec<String>,
 ) {
     let rel = path.strip_prefix(workspace_root).unwrap_or(path);
@@ -130,6 +138,17 @@ fn validate_feature_file(
         ));
         return;
     };
+
+    if let Some(prior) = behavior_owners.get(&expected_id) {
+        let prior_rel = prior.strip_prefix(workspace_root).unwrap_or(prior);
+        violations.push(format!(
+            "{}: behavior {expected_id} is already proven by {} — F-0002 BDD convention requires exactly one .feature per behavior",
+            rel.display(),
+            prior_rel.display()
+        ));
+    } else {
+        behavior_owners.insert(expected_id.clone(), path.to_path_buf());
+    }
 
     let content = match fs::read_to_string(path).with_context(|| format!("read {}", path.display()))
     {
