@@ -7,7 +7,7 @@
 //! enter with R-0001 onwards.
 
 use cucumber::World as CucumberWorld;
-use std::path::Path;
+use std::path::PathBuf;
 use tanren_testkit::FixtureSeed;
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -24,11 +24,20 @@ pub struct TanrenWorld {
 
 /// Run the cucumber harness against the supplied features directory.
 ///
+/// Treats undefined-step and skipped-scenario outcomes as failures so that
+/// `just tests` cannot pass with silently-broken behavior proof — a feature
+/// file containing an unmatched step definition fails the gate. On failure
+/// the process exits with a non-zero status; on success it returns
+/// normally.
+///
 /// In F-0001 the directory is empty, so cucumber reports zero scenarios and
-/// the call returns immediately. The harness machinery itself is exercised
+/// the call exits 0 immediately. The harness machinery itself is exercised
 /// by the unit tests inside this crate (see `cargo test -p tanren-bdd`).
-pub async fn run_features(features_dir: impl AsRef<Path>) {
-    TanrenWorld::run(features_dir.as_ref()).await;
+pub async fn run_features(features_dir: impl Into<PathBuf>) {
+    TanrenWorld::cucumber()
+        .fail_on_skipped()
+        .run_and_exit(features_dir.into())
+        .await;
 }
 
 #[cfg(test)]
