@@ -47,12 +47,23 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
         let trimmed = raw_line.trim_start();
 
         if trimmed.is_empty() {
+            // A blank line breaks rationale-to-tag-block adjacency.
+            // The convention requires `# rationale:` to sit immediately
+            // above the tag block; without this clear, a stray
+            // rationale comment could attach to a later non-adjacent
+            // scenario.
+            pending_rationale = None;
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix('#') {
             let rest = rest.trim();
             if let Some(value) = rest.strip_prefix("rationale:") {
                 pending_rationale = Some(value.trim().to_owned());
+            } else {
+                // Non-rationale comments also break adjacency. Only
+                // contiguous `# rationale:` + tag lines may carry a
+                // rationale forward to the next `Scenario:`.
+                pending_rationale = None;
             }
             continue;
         }
@@ -109,8 +120,14 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
             pending_tags.clear();
             pending_tag_line = None;
             pending_rationale = None;
+            continue;
         }
-        // Steps, doc strings, and tables are passthrough — nothing to do.
+        // Steps, doc strings, tables, and any other unrecognised line
+        // also break rationale adjacency. Pending tags are left alone
+        // here because Gherkin allows stray content only inside step
+        // blocks (which we never reach with active pending_tags), but
+        // a rationale must not float over arbitrary content.
+        pending_rationale = None;
     }
 
     ParsedFeature {
