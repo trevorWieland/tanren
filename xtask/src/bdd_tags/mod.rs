@@ -292,9 +292,18 @@ fn check_scenario(
             interface_tags.len()
         ));
     }
-    if interface_tags.len() == 2 && scenario.rationale.is_none() {
+    // Reject both missing rationale and empty `# rationale:` (the parser
+    // captures `# rationale:` with no body as `Some("")` — without this
+    // empty-string guard a bare `# rationale:` would silently satisfy
+    // the convention that calls for a one-line justification).
+    if interface_tags.len() == 2
+        && scenario
+            .rationale
+            .as_deref()
+            .is_none_or(|s| s.trim().is_empty())
+    {
         violations.push(format!(
-            "{}:{line}: 2-interface scenario requires a preceding `# rationale: <one line>` comment",
+            "{}:{line}: 2-interface scenario requires a non-empty preceding `# rationale: <one line>` comment",
             rel.display()
         ));
     }
