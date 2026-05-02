@@ -107,12 +107,20 @@ bootstrap:
 
     echo "==> Installing lefthook..."
     if ! command -v lefthook &>/dev/null; then
-        # Official install script works on Linux, macOS, and WSL — no brew/go required
-        if curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.shell.sh' | bash 2>/dev/null \
-            && command -v lefthook &>/dev/null; then
-            true
+        if [[ "$(uname -s)" == "Linux" ]] && command -v apt-get &>/dev/null; then
+            if curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | sudo -E bash \
+                && sudo apt-get install -y lefthook \
+                && command -v lefthook &>/dev/null; then
+                true
+            else
+                echo "  FAIL: lefthook"
+                failed="$failed lefthook"
+            fi
         elif command -v brew &>/dev/null; then
-            brew install lefthook
+            if ! brew install lefthook; then
+                echo "  FAIL: lefthook"
+                failed="$failed lefthook"
+            fi
         else
             echo "  FAIL: lefthook"
             failed="$failed lefthook"
