@@ -176,6 +176,31 @@ deps-upgrade-major:
     {{ cargo }} update -w
     just ci
 
+# Read-only audit of Rust + Node deps that have newer releases on
+# crates.io / npm. Surfaces:
+#   - Rust workspace pins that would shift under `just deps-upgrade`
+#     (semver-compatible) or `just deps-upgrade-major` (incompatible).
+#   - npm catalog pins (pnpm-workspace.yaml) and pnpm overrides whose
+#     installed versions trail the registry's latest.
+# Pure read; never mutates Cargo.lock or pnpm-lock.yaml. Use the
+# upgrade recipes above to actually apply changes.
+deps-outdated:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    have() { command -v "$1" &>/dev/null; }
+
+    echo "==> Rust workspace (cargo upgrade --dry-run)"
+    if ! have cargo-upgrade; then
+        echo "  cargo-upgrade unavailable — run 'just bootstrap' to install cargo-edit" >&2
+    else
+        {{ cargo }} upgrade --dry-run --incompatible 2>&1 | sed 's/^/  /'
+    fi
+
+    echo
+    echo "==> Node workspace (pnpm outdated)"
+    pnpm outdated -r --format list 2>&1 | sed 's/^/  /' || true
+
 # ============================================================================
 # Methodology self-hosting (tanren-repo specific)
 #

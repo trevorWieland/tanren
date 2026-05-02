@@ -179,6 +179,12 @@ fn check_forbidden_keywords(rel: &Path, parsed: &ParsedFeature, violations: &mut
             rel.display()
         ));
     }
+    for line in &parsed.stray_tag_lines {
+        violations.push(format!(
+            "{}:{line}: tag block precedes `Background:` / `Rule:`; tags belong at the feature header or immediately above a `Scenario:`",
+            rel.display()
+        ));
+    }
 }
 
 fn check_feature_tags(

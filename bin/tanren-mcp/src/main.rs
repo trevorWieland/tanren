@@ -39,6 +39,15 @@ use tower_http::cors::{Any, CorsLayer};
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
+/// Comma-separated extra hostnames / `host:port` authorities to add to
+/// rmcp's `allowed_hosts` Host-header allowlist. rmcp's defaults
+/// (`localhost`, `127.0.0.1`, `::1`) are kept; this env var appends to
+/// them. Set to `*` to disable Host-header validation entirely (auth
+/// remains the only gate). Operators deploying MCP behind a load
+/// balancer or under a real hostname must set this — see
+/// `docs/architecture/subsystems/interfaces.md` and
+/// `docs/architecture/operations.md`.
+const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
 
 /// Empty tool surface. Behavior tools land with R-* slices via
 /// `#[rmcp::tool]` annotations on this type.
@@ -107,23 +116,28 @@ async fn require_api_key(
     request: Request,
     next: Next,
 ) -> Response {
-    let Some(presented) = AuthConfig::extract_credential(request.headers()) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(error_body(
-                "auth_required",
-                "Missing Authorization: Bearer <api-key> or X-API-Key header.",
-            )),
-        )
-            .into_response();
-    };
-
+    // Operator-config check first: an unconfigured server is in an
+    // outage state, not an auth-failure state. Reporting 401 to an
+    // unauthenticated probe in that case would misclassify the outage
+    // as a client-credential failure and route operators away from
+    // the actual cause.
     let Some(expected) = config.bootstrap_key.as_deref() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(error_body(
                 "unavailable",
                 "MCP credential store is not configured. Set TANREN_MCP_API_KEY (bootstrap key) until R-0008 lands the real store.",
+            )),
+        )
+            .into_response();
+    };
+
+    let Some(presented) = AuthConfig::extract_credential(request.headers()) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(error_body(
+                "auth_required",
+                "Missing Authorization: Bearer <api-key> or X-API-Key header.",
             )),
         )
             .into_response();
@@ -155,11 +169,12 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 fn build_router(auth_config: Arc<AuthConfig>, cancellation: CancellationToken) -> Router {
+    let config = streamable_http_config(cancellation);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
         StreamableHttpService::new(
             || Ok(TanrenMcp),
             Arc::new(LocalSessionManager::default()),
-            StreamableHttpServerConfig::default().with_cancellation_token(cancellation),
+            config,
         );
 
     let mcp_with_auth = ServiceBuilder::new()
@@ -175,6 +190,40 @@ fn build_router(auth_config: Arc<AuthConfig>, cancellation: CancellationToken) -
         .route("/health", get(health))
         .nest_service("/mcp", mcp_with_auth)
         .layer(cors)
+}
+
+/// Build rmcp's `StreamableHttpServerConfig` honouring the
+/// `TANREN_MCP_ALLOWED_HOSTS` env var. rmcp ships loopback-only Host
+/// validation by default for DNS-rebind protection; non-local
+/// deployments must extend the allowlist (or set `*` to disable Host
+/// validation entirely and rely solely on the API-key middleware).
+fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServerConfig {
+    let base = StreamableHttpServerConfig::default().with_cancellation_token(cancellation);
+    let raw = env::var(ALLOWED_HOSTS_ENV).ok().filter(|s| !s.is_empty());
+    let Some(value) = raw else {
+        return base;
+    };
+    if value.trim() == "*" {
+        tracing::warn!(
+            target: "tanren_mcp",
+            env_var = ALLOWED_HOSTS_ENV,
+            "Host-header validation disabled by `*`; relying on API-key auth as the sole gate."
+        );
+        return base.disable_allowed_hosts();
+    }
+    let mut hosts: Vec<String> = vec!["localhost".into(), "127.0.0.1".into(), "::1".into()];
+    for host in value.split(',') {
+        let trimmed = host.trim();
+        if !trimmed.is_empty() {
+            hosts.push(trimmed.to_owned());
+        }
+    }
+    tracing::info!(
+        target: "tanren_mcp",
+        allowed_hosts = ?hosts,
+        "Host-header validation extended via {ALLOWED_HOSTS_ENV}"
+    );
+    base.with_allowed_hosts(hosts)
 }
 
 #[tokio::main]

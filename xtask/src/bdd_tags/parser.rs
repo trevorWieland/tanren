@@ -12,6 +12,12 @@ pub(super) struct ParsedFeature {
     pub scenarios: Vec<ParsedScenario>,
     pub scenario_outline_lines: Vec<usize>,
     pub examples_lines: Vec<usize>,
+    /// Lines where tags were observed immediately before a structural
+    /// keyword that does not consume tags (`Background:`, `Rule:`).
+    /// The convention forbids tag-block placement other than feature-
+    /// or scenario-level, so these are reported as violations rather
+    /// than silently floated forward to the next `Scenario:`.
+    pub stray_tag_lines: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -30,6 +36,7 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
     let mut scenarios: Vec<ParsedScenario> = Vec::new();
     let mut scenario_outline_lines: Vec<usize> = Vec::new();
     let mut examples_lines: Vec<usize> = Vec::new();
+    let mut stray_tag_lines: Vec<usize> = Vec::new();
 
     let mut pending_tags: Vec<String> = Vec::new();
     let mut pending_tag_line: Option<usize> = None;
@@ -87,8 +94,20 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
             continue;
         }
         if trimmed.starts_with("Background:") || trimmed.starts_with("Rule:") {
-            // Tag/rationale must not float past structural keywords other
-            // than `Scenario:`.
+            // Tag/rationale must not float past structural keywords
+            // other than `Scenario:`. Capture the tag-block start line
+            // as a stray-tag violation (a misplaced `@positive @web`
+            // before a `Rule:` header would otherwise silently attach
+            // to the next `Scenario:` and produce confusing pass /
+            // fail reports). Also drop any pending rationale so it
+            // can't bind to a later scenario it didn't precede.
+            if !pending_tags.is_empty()
+                && let Some(line) = pending_tag_line
+            {
+                stray_tag_lines.push(line);
+            }
+            pending_tags.clear();
+            pending_tag_line = None;
             pending_rationale = None;
         }
         // Steps, doc strings, and tables are passthrough — nothing to do.
@@ -100,6 +119,7 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
         scenarios,
         scenario_outline_lines,
         examples_lines,
+        stray_tag_lines,
     }
 }
 

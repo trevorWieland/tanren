@@ -15,5 +15,11 @@
     "format": "pnpm --filter ./apps/web format",
     "format:check": "pnpm --filter ./apps/web format:check"
   },
-  "packageManager": "pnpm@10.19.0"
+  "packageManager": "pnpm@10.19.0",
+  "pnpm": {
+    "//": "Override transitive pins where the upstream tracker is behind a security advisory. postcss < 8.5.10 is GHSA-qx2v-qp2m-jg93 (XSS via unescaped </style>); next 16.2.4 still pins 8.4.31 transitively. Drop this override once next bumps its postcss range.",
+    "overrides": {
+      "postcss": "^8.5.10"
+    }
+  }
 }

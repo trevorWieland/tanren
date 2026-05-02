@@ -195,7 +195,11 @@ def check_feature_files(
             bid = ev.get("behavior_id")
             if bid:
                 evidence_owners[bid] = nid
-    for f in sorted(FEATURES_DIR.glob("B-*.feature")):
+    # Recursive walk so nested feature directories (R-* slices may
+    # group features by milestone or area) match the
+    # `tests/bdd/features/**/*.feature` walk that
+    # `xtask check-bdd-tags` performs. Plain glob() is non-recursive.
+    for f in sorted(FEATURES_DIR.rglob("B-*.feature")):
         m = name_re.match(f.name)
         if not m:
             errors.append(
