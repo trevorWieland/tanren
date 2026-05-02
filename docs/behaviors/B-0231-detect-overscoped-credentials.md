@@ -4,7 +4,7 @@ id: B-0231
 title: Detect over-scoped credentials or integrations
 area: configuration
 personas: [observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

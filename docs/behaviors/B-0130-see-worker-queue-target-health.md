@@ -1,10 +1,10 @@
 ---
 schema: tanren.behavior.v0
 id: B-0130
-title: See daemon, worker, queue, and execution-target health
+title: See operational health of execution infrastructure
 area: operations
 personas: [solo-builder, team-builder, observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

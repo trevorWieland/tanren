@@ -4,7 +4,7 @@ id: B-0029
 title: Honor cross-project spec dependencies
 area: spec-lifecycle
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

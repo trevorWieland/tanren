@@ -4,7 +4,7 @@ id: B-0140
 title: Turn a vague idea into a project brief
 area: product-discovery
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

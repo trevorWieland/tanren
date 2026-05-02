@@ -4,7 +4,7 @@ id: B-0100
 title: Choose which harnesses a project may use
 area: runtime-substrate
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -4,7 +4,7 @@ id: B-0098
 title: Keep work aligned with product mission
 area: product-planning
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

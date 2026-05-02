@@ -4,7 +4,7 @@ id: B-0049
 title: Manage project methodology settings
 area: configuration
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
@@ -14,8 +14,8 @@ supersedes: []
 ## Intent
 
 A `solo-builder` or `team-builder` with the required permission can manage the
-methodology settings for a project so that installed commands, standards
-locations, and project working rules are consistent for everyone with access.
+methodology settings for a project so that the project's methodology profile,
+standards, and local working rules are consistent for everyone with access.
 
 ## Preconditions
 
@@ -25,11 +25,11 @@ locations, and project working rules are consistent for everyone with access.
 
 ## Observable outcomes
 
-- The user can view the project's active methodology profile, installed command
-  set, standards location, and local working rules.
+- The user can view the project's active methodology profile, the methodology
+  commands available to the project, the standards in effect, and local
+  working rules.
 - The user can change project methodology settings when policy allows it.
-- Methodology configuration applies to subsequent Tanren commands and work in
-  the project.
+- Methodology configuration applies to subsequent project work.
 - Changes are attributed and visible in the project's change history.
 
 ## Out of scope

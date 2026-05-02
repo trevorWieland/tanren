@@ -4,7 +4,7 @@ id: B-0007
 title: Manually pause and resume an active loop
 area: implementation-loop
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

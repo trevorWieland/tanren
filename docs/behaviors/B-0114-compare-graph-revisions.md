@@ -4,7 +4,7 @@ id: B-0114
 title: Compare graph revisions
 area: planner-orchestration
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

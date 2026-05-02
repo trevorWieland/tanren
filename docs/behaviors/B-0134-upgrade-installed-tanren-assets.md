@@ -4,7 +4,7 @@ id: B-0134
 title: Upgrade installed Tanren assets
 area: project-setup
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

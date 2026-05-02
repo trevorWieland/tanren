@@ -4,7 +4,7 @@ id: B-0229
 title: Audit external actions performed through an integration
 area: integration-management
 personas: [observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

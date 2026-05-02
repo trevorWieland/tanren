@@ -4,7 +4,7 @@ id: B-0078
 title: Shape a draft spec for prioritization
 area: spec-lifecycle
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -4,7 +4,7 @@ id: B-0214
 title: See cross-project dependency risk
 area: observation
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

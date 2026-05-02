@@ -4,7 +4,7 @@ id: B-0157
 title: Explain why a spec is not ready
 area: spec-quality
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

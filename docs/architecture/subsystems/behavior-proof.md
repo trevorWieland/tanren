@@ -162,9 +162,14 @@ signal for behavior gaps, proof gaps, and implementation relevance.
 Mutation testing is proof-quality assessment. It asks whether behavior proof
 would fail if meaningful implementation logic were broken.
 
-Mutation testing is often too expensive to run as a normal PR gate. It may run
-on a schedule, manually, or as spec-independent analysis. Results feed the
-assessment subsystem.
+Mutation testing is too expensive to run as a normal PR gate. It runs as a
+nightly job against the main branch (or any longer-lived integration branch)
+when the source has changed since the last run. The nightly job uploads
+mutation reports as failure artifacts so that subsequent PRs can address the
+surviving mutants. Mutation testing is intentionally NOT part of `just ci` and
+must not gate merges. Results feed the assessment subsystem and quality
+controls; they do not directly fail active specs unless policy explicitly
+routes them that way.
 
 Mutation survivors can indicate:
 

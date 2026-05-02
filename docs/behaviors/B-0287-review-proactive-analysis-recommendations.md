@@ -4,7 +4,7 @@ id: B-0287
 title: Review proactive analysis recommendations
 area: proactive-analysis
 personas: [solo-builder, team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

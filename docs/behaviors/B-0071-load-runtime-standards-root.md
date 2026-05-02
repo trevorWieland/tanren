@@ -7,7 +7,7 @@ personas: [solo-builder, team-builder]
 interfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: asserted
+verification_status: unimplemented
 supersedes: []
 ---
 

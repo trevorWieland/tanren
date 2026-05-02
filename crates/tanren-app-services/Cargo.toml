@@ -1,82 +1,18 @@
 [package]
 name = "tanren-app-services"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Shared application service layer — stable use-case APIs for CLI/API/MCP/TUI"
-build = "build.rs"
+description = "Command and query handlers shared by every Tanren interface binary (api, cli, mcp, tui, tanrend). Equivalent operations across interfaces resolve to the same handler in this crate."
 
-[lints.rust]
-warnings = "deny"
-unsafe_code = "forbid"
-missing_debug_implementations = "warn"
-unreachable_pub = "warn"
-unused_qualifications = "warn"
-
-[lints.clippy]
-correctness = { level = "deny", priority = -1 }
-suspicious = { level = "deny", priority = -1 }
-perf = { level = "deny", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-unwrap_used = "deny"
-panic = "deny"
-todo = "deny"
-dbg_macro = "deny"
-print_stdout = "deny"
-print_stderr = "deny"
-unimplemented = "deny"
-allow_attributes = "deny"
-allow_attributes_without_reason = "deny"
-module_name_repetitions = "allow"
-must_use_candidate = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-# Relaxations for the methodology installer + renderer surface:
-# - doc_markdown: installer doc-comments reference `.codex/`, etc. with
-#   dots clippy would want backticked; harder to read at source site.
-# - implicit_hasher: installer signatures take `&HashMap<String, String>`
-#   context maps from callers; the default `RandomState` is the right
-#   fit.
-# - type_complexity: a couple of static tuple arrays carry frontmatter
-#   rows; typedef'ing buries intent.
-# - default_trait_access: `#[serde(flatten)] extras: BTreeMap<..>` uses
-#   `Default::default()` idiomatically.
-# - elidable_lifetime_names, unnecessary_wraps, redundant_slicing,
-#   unnecessary_raw_string_hashes: ergonomic fits for the renderer's
-#   byte-walking loop and docstring-heavy modules.
-doc_markdown = "allow"
-implicit_hasher = "allow"
-type_complexity = "allow"
-default_trait_access = "allow"
-elidable_lifetime_names = "allow"
-unnecessary_wraps = "allow"
-redundant_slicing = "allow"
-needless_raw_string_hashes = "allow"
+[lints]
+workspace = true
 
 [dependencies]
-tanren-domain = { path = "../tanren-domain" }
+serde = { workspace = true }
 tanren-contract = { path = "../tanren-contract" }
-tanren-orchestrator = { path = "../tanren-orchestrator" }
-tanren-policy = { path = "../tanren-policy" }
 tanren-store = { path = "../tanren-store" }
-tanren-observability = { path = "../tanren-observability" }
-uuid.workspace = true
-chrono.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-globset.workspace = true
-sha2.workspace = true
-fs2.workspace = true
-# Evidence + tanren.yml + command-frontmatter parsing.
-serde_yaml.workspace = true
-# Codex MCP config writer (`.codex/config.toml`).
-toml.workspace = true
-jsonwebtoken.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-
-# `spawn_replay_purge` spawns the long-running purge loop for the
-# future `tanren-daemon` binary; JoinHandle is a tokio primitive.
-tokio = { workspace = true }
+thiserror = { workspace = true }

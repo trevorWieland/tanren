@@ -13,6 +13,11 @@ ignore = [
   # still functions correctly; this is an unmaintained notice, not
   # a vulnerability. Remove when SeaORM upgrades to a successor.
   "RUSTSEC-2025-0134",
+  # RUSTSEC-2024-0436: `paste` is unmaintained. Pulled in transitively
+  # through ratatui (used by tanren-tui) and pastey-via-rmcp. The
+  # successor `pastey` exists; remove this ignore when ratatui adopts
+  # it. Unmaintained notice, not a vulnerability.
+  "RUSTSEC-2024-0436",
 ]
 
 # License policy — permissive licenses only

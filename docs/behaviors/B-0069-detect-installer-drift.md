@@ -7,14 +7,15 @@ personas: [solo-builder, team-builder]
 interfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: asserted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-builder` or `team-builder` can run install in strict dry-run mode so that
-generated Tanren assets are checked for drift without changing the repository.
+A `solo-builder` or `team-builder` can check whether installed Tanren assets
+match the current standards profile without modifying the repository, so that
+drift is visible before any update.
 
 ## Preconditions
 
@@ -22,10 +23,10 @@ generated Tanren assets are checked for drift without changing the repository.
 
 ## Observable outcomes
 
-- Drift in generated command files produces a drift exit status.
-- Missing preserved standards produce a drift exit status.
-- Locally edited preserved standards are accepted.
-- Strict dry-run leaves the repository's file contents unchanged.
+- Drift in generated assets is reported.
+- Missing preserved standards are reported as drift.
+- User-edited preserved standards are accepted as non-drift.
+- The drift check leaves the repository unchanged.
 
 ## Out of scope
 

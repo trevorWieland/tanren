@@ -1,0 +1,19 @@
+packages:
+  - "apps/*"
+
+# Catalog: centralized version pinning per
+# profiles/react-ts-pnpm/global/dependency-management.md. Every package.json
+# in the workspace references `catalog:default` rather than pinning versions
+# individually, so dependency upgrades land in one place.
+catalog:
+  next: "16.2.4"
+  react: "19.2.5"
+  react-dom: "19.2.5"
+  "@types/react": "19.2.14"
+  "@types/react-dom": "19.2.3"
+  "@types/node": "25.6.0"
+  typescript: "6.0.3"
+  "@typescript/native-preview": "7.0.0-dev.20251030.1"
+  oxlint: "1.62.0"
+  vitest: "4.1.5"
+  prettier: "3.4.2"

@@ -5,7 +5,7 @@ title: Retry transient runtime failures without duplicating visible work
 area: runtime-substrate
 personas: [solo-builder, team-builder, operator]
 runtime_actors: [agent-worker]
-interfaces: [cli, api, mcp, tui, daemon]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -4,7 +4,7 @@ id: B-0004
 title: Be notified when a loop completes or needs attention
 area: implementation-loop
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

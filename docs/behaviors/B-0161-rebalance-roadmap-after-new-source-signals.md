@@ -4,7 +4,7 @@ id: B-0161
 title: Rebalance the roadmap after new source signals
 area: prioritization
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

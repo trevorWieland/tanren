@@ -4,7 +4,7 @@ id: B-0154
 title: Identify missing edge cases in a spec
 area: spec-quality
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

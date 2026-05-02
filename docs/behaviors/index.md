@@ -37,7 +37,10 @@ Supporting owned projections:
 - Runtime actor IDs are defined by runtime and related subsystem architecture
   records.
 - `docs/architecture/subsystems/interfaces.md` defines interface IDs.
-- `docs/implementation/verification.md` summarizes current verification state.
+- `docs/implementation/verification.md` will summarize current verification
+  state once any implementation exists. It is produced by the
+  `assess-implementation` skill and is absent pre-Foundation; Tanren has no
+  implementation to assess until F-0001 lands.
 
 ## Behavior file format
 
@@ -51,7 +54,7 @@ title: <imperative phrase, user-visible>
 area: implementation-loop                  # stable product area slug
 personas: [solo-builder, team-builder]      # IDs from docs/product/personas.md
 runtime_actors: []                          # optional IDs from architecture
-interfaces: [cli, api, mcp]                 # interface IDs, or [any]
+interfaces: [web, api, mcp, cli, tui]       # subset of {web, api, mcp, cli, tui}
 contexts: [personal, organizational]        # one or both
 product_status: draft | accepted | deprecated | removed
 verification_status: unimplemented | implemented | asserted | retired
@@ -118,6 +121,24 @@ These are hard rules. Violations should fail review.
    or external clients that care about the behavior. `runtime_actors` may be
    added only for internal runtime subjects defined in runtime and related
    subsystem architecture records.
+
+   The `interfaces` field MUST be a subset of `{web, api, mcp, cli, tui}` as
+   defined in `docs/architecture/subsystems/interfaces.md`. The legacy `any`
+   marker is forbidden, as is `daemon` (an internal actor, not a public
+   interface). The list represents the architectural commitment of where this
+   behavior is reachable to its declared personas — not a description of how
+   it is implemented. Adding or removing an interface is a behavior change.
+
+   Default for human-facing behaviors (any persona in
+   `{solo-builder, team-builder, observer, operator}`):
+   `[web, api, mcp, cli, tui]`. Narrower lists require a clear product reason
+   stated in the behavior body or the `Out of scope` section. Common
+   exceptions:
+
+   - Machine-only contracts (only persona is `integration-client`):
+     `[api, mcp]`.
+   - Repository-bootstrap behaviors that necessarily run before the
+     repository's web/tui surfaces are reachable: `[cli]`.
 5. **Every behavior declares one `area`.** Areas are stable roadmap groupings,
    not implementation modules. Examples: `project-setup`,
    `implementation-loop`, `runtime-substrate`, `planner-orchestration`,
@@ -181,10 +202,11 @@ honoring scoped access or reporting progress. Runtime actors belong in
 ### Device reach
 
 Every behavior should be achievable via at least one interface that works on
-each supported device class — phone, low-power laptop, full laptop. Phone
-access is through `api` (web or mobile client) or `mcp` (chat clients); `cli`
-and `tui` are laptop-only. A behavior that genuinely cannot work on a phone
-must state this in **Out of scope**.
+each supported device class — phone, low-power laptop, full laptop. The `web`
+interface is responsive and works on phone and laptop. `mcp` is reachable
+from phone chat clients. `api` is reachable from any client (web, mobile
+native, or external automation). `cli` and `tui` are laptop-only. A behavior
+that genuinely cannot work on a phone must state this in **Out of scope**.
 
 ### External issue trackers
 
@@ -275,8 +297,7 @@ witness and a falsification witness.
 - [B-0018](B-0018-shape-spec-from-ticket.md) — Create a draft spec manually
 - [B-0075](B-0075-prefill-draft-spec-from-external-ticket.md) — Prefill a draft spec from an external ticket
 - [B-0093](B-0093-turn-roadmap-items-into-specs.md) — Turn roadmap items into specs
-- [B-0094](B-0094-ingest-customer-feedback.md) — Ingest customer feedback into candidate work
-- [B-0095](B-0095-ingest-meeting-notes.md) — Ingest meeting notes into candidate work
+- [B-0094](B-0094-ingest-customer-feedback.md) — Capture human-authored product signals as candidate work
 - [B-0097](B-0097-turn-audit-findings-into-work.md) — Turn audit findings into specs or backlog items
 - [B-0278](B-0278-classify-bug-reports-against-behavior-status.md) — Classify bug reports against behavior status
 
@@ -524,14 +545,14 @@ witness and a falsification witness.
 
 ### Integration Client Contracts
 
-- [B-0255](B-0255-accept-idempotent-client-requests.md) — Accept idempotent client create and update requests
+- [B-0255](B-0255-accept-idempotent-client-requests.md) — Accept retry-safe client create and update requests
 - [B-0256](B-0256-return-machine-readable-validation-errors.md) — Return machine-readable validation errors
 - [B-0257](B-0257-negotiate-api-schema-version.md) — Negotiate API and schema versions
-- [B-0258](B-0258-deliver-webhooks-with-retry-ordering-dedupe.md) — Deliver webhooks with retry, ordering, and dedupe
+- [B-0258](B-0258-deliver-webhooks-with-retry-ordering-dedupe.md) — Deliver webhooks reliably so event consumers can process them without ambiguity
 - [B-0259](B-0259-attribute-external-automation.md) — Attribute external automation actions
 - [B-0260](B-0260-report-rate-limit-backpressure.md) — Report rate limit and backpressure state
 - [B-0261](B-0261-deny-machine-client-with-permission-boundary.md) — Deny machine clients across permission boundaries
-- [B-0262](B-0262-observe-state-through-read-models.md) — Observe state through read models or subscriptions
+- [B-0262](B-0262-observe-state-through-read-models.md) — Observe Tanren state from external systems
 - [B-0263](B-0263-report-external-ci-source-status.md) — Report external CI or source-control status
 - [B-0264](B-0264-replay-client-requests-after-failure.md) — Safely replay client requests after failure
 
@@ -560,7 +581,7 @@ witness and a falsification witness.
 - [B-0206](B-0206-see-blocked-work-overview.md) — See what is blocked and why
 - [B-0207](B-0207-see-delivery-forecast-and-risk.md) — See delivery forecast and risk
 - [B-0208](B-0208-see-quality-risk-trends.md) — See quality and risk trends over time
-- [B-0209](B-0209-see-source-signals-behind-status-summary.md) — See source signals behind a status summary
+- [B-0209](B-0209-see-source-signals-behind-status-summary.md) — See what supports a summary and how trustworthy it is
 - [B-0210](B-0210-see-recently-shipped-outcomes.md) — See recently shipped outcomes
 - [B-0211](B-0211-see-post-release-health-and-feedback.md) — See post-release health and feedback
 - [B-0212](B-0212-see-open-decisions-and-disagreements.md) — See open decisions and unresolved disagreements
@@ -569,7 +590,6 @@ witness and a falsification witness.
 - [B-0215](B-0215-export-read-only-status-report.md) — Export a read-only status report
 - [B-0216](B-0216-subscribe-to-observer-digest.md) — Subscribe to an observer digest
 - [B-0217](B-0217-compare-planned-vs-actual-delivery.md) — Compare planned versus actual delivery
-- [B-0218](B-0218-see-provenance-behind-summaries.md) — See provenance behind summaries
 - [B-0219](B-0219-see-what-changed-since-last-report.md) — See what changed since the last report
 
 ### Cross-Interface Continuity
@@ -583,7 +603,7 @@ witness and a falsification witness.
 - [B-0063](B-0063-export-data.md) — Export account or project data for backup or migration
 - [B-0064](B-0064-restore-data.md) — Restore account or project data from a backup
 - [B-0096](B-0096-run-codebase-wide-audit.md) — Run a codebase-wide audit
-- [B-0130](B-0130-see-worker-queue-target-health.md) — See daemon, worker, queue, and execution-target health
+- [B-0130](B-0130-see-worker-queue-target-health.md) — See operational health of execution infrastructure
 - [B-0131](B-0131-pause-new-work-for-scope.md) — Pause new work for a project or organization
 - [B-0132](B-0132-resume-new-work-for-scope.md) — Resume new work for a project or organization
 - [B-0133](B-0133-audit-placement-approval-decisions.md) — Audit placement and approval decisions

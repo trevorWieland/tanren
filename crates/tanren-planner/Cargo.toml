@@ -1,13 +1,16 @@
 [package]
 name = "tanren-planner"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Task graph planning — issue decomposition, dependency graphs, and replanning logic"
+description = "Planning subsystem: product, behavior catalog, architecture, roadmap, decision memory, planning proposals."
 
 [lints]
 workspace = true
 
 [dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

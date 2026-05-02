@@ -1,13 +1,18 @@
 [package]
 name = "tanren-tui"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Tanren TUI — ratatui-based terminal UI for lifecycle monitoring and control"
+description = "Tanren terminal UI. F-0001 ships an empty buildable shell that renders a placeholder frame and exits cleanly on `q`."
 
 [lints]
 workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
+tanren-app-services = { path = "../../crates/tanren-app-services" }

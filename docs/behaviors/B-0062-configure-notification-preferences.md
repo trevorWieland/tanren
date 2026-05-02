@@ -4,7 +4,7 @@ id: B-0062
 title: Configure notification preferences and routing
 area: configuration
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

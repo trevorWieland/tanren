@@ -4,7 +4,7 @@ id: B-0191
 title: Resolve conflicting product direction
 area: decision-memory
 personas: [team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

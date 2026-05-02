@@ -4,7 +4,7 @@ id: B-0212
 title: See open decisions and unresolved disagreements
 area: observation
 personas: [team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

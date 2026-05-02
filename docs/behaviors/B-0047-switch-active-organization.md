@@ -4,7 +4,7 @@ id: B-0047
 title: Switch the active organization within an account
 area: governance
 personas: [solo-builder, team-builder, observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

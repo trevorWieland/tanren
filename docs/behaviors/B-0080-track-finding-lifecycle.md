@@ -4,10 +4,10 @@ id: B-0080
 title: See unresolved check findings that block readiness
 area: findings
 personas: [solo-builder, team-builder]
-interfaces: [cli, mcp]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: asserted
+verification_status: unimplemented
 supersedes: []
 ---
 

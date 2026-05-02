@@ -4,10 +4,10 @@ id: B-0003
 title: See the current state of an implementation loop
 area: implementation-loop
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: implemented
+verification_status: unimplemented
 supersedes: []
 ---
 

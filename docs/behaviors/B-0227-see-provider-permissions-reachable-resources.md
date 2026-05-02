@@ -4,7 +4,7 @@ id: B-0227
 title: See provider permissions and reachable resources
 area: integration-management
 personas: [team-builder, observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

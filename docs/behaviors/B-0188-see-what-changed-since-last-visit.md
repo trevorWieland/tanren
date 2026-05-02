@@ -4,7 +4,7 @@ id: B-0188
 title: See what changed since I last visited the project
 area: observation
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

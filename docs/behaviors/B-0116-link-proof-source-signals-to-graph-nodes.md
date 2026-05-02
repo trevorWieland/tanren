@@ -4,7 +4,7 @@ id: B-0116
 title: Link proof and source signals to graph nodes
 area: planner-orchestration
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

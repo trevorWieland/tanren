@@ -4,7 +4,7 @@ id: B-0008
 title: Inspect detailed live activity of a running loop
 area: implementation-loop
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

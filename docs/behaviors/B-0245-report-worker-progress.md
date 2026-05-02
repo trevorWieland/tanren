@@ -5,7 +5,7 @@ title: Report worker progress durably
 area: runtime-actor-contract
 personas: [solo-builder, team-builder, observer, operator]
 runtime_actors: [agent-worker]
-interfaces: [api, mcp, daemon]
+interfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

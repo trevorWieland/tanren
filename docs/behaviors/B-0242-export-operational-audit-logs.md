@@ -4,7 +4,7 @@ id: B-0242
 title: Export operational audit logs
 area: operations
 personas: [observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

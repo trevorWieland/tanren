@@ -4,7 +4,7 @@ id: B-0089
 title: See project configuration change history
 area: configuration
 personas: [solo-builder, team-builder, observer, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

@@ -4,7 +4,7 @@ id: B-0111
 title: See why work is blocked by another graph node
 area: planner-orchestration
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

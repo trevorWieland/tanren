@@ -1,14 +1,16 @@
 [package]
 name = "tanren-policy"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Authorization and governance — identity, budgets, quotas, and placement policy"
+description = "Typed authorization, placement, and budget policy decisions. Foundation crate — returns typed decisions, never transport-layer errors."
 
 [lints]
 workspace = true
 
 [dependencies]
-tanren-domain = { path = "../tanren-domain" }
+serde = { workspace = true }
+thiserror = { workspace = true }

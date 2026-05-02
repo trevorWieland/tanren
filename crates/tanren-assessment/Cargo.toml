@@ -1,0 +1,16 @@
+[package]
+name = "tanren-assessment"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Assessment subsystem: spec-independent implementation analysis, findings, recommendations, intake classification, routing."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

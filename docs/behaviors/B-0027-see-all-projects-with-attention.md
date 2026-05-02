@@ -4,7 +4,7 @@ id: B-0027
 title: See all projects in an account with attention indicators
 area: project-setup
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

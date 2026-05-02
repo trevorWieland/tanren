@@ -7,30 +7,30 @@ personas: [solo-builder, team-builder]
 interfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: asserted
+verification_status: unimplemented
 supersedes: []
 ---
 
 ## Intent
 
-A `solo-builder` or `team-builder` can bootstrap Tanren support files into an
-existing repository so that methodology commands, standards, and agent
-integrations are installed from the bundled distribution.
+A `solo-builder` or `team-builder` can bootstrap Tanren methodology assets
+into an existing repository so that the project gains the commands, standards,
+and agent integrations it needs to participate in the Tanren method.
 
 ## Preconditions
 
-- The user has a local repository path where Tanren files may be written.
+- The user has a repository where Tanren may install assets.
 - The user chooses a supported standards profile.
 
 ## Observable outcomes
 
 - A compatible Tanren project configuration exists or is created when none is
   present.
-- Methodology command assets, MCP config targets, and standards files are
-  written for the selected profile and agent integrations.
-- Re-running install replaces generated command files, removes stale generated
-  command files, preserves edited standards, and restores missing standards.
-- Invalid bootstrap input fails validation before bootstrap files are written.
+- The repository receives the methodology assets, agent integration assets,
+  and standards required by the selected profile.
+- Re-running install replaces generated assets, removes stale generated
+  assets, preserves user-edited standards, and restores missing standards.
+- Invalid bootstrap input is rejected before any assets are written.
 
 ## Out of scope
 

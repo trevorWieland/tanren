@@ -1,13 +1,19 @@
 [package]
 name = "tanrend"
-version = "0.1.0"
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
-description = "Tanren daemon — control-plane runtime and worker process"
+description = "Tanren control-plane daemon. F-0001 ships an empty event loop that boots, logs liveness, and shuts down gracefully on SIGTERM/SIGINT. Concrete control-plane workers (projection, outbox, scheduler, reconciliation) arrive with R-* slices."
 
 [lints]
 workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+tanren-app-services = { path = "../../crates/tanren-app-services" }
+tanren-observability = { path = "../../crates/tanren-observability" }
+tokio = { workspace = true }
+tracing = { workspace = true }

@@ -4,7 +4,7 @@ id: B-0014
 title: See the history of human actions on a loop
 area: team-coordination
 personas: [team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

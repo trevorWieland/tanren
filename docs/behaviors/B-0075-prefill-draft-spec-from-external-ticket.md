@@ -4,7 +4,7 @@ id: B-0075
 title: Prefill a draft spec from an external ticket
 area: intake
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

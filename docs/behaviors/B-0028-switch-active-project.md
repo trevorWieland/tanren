@@ -4,7 +4,7 @@ id: B-0028
 title: Switch the active project within an account
 area: project-setup
 personas: [solo-builder, team-builder, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

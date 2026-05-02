@@ -4,7 +4,7 @@ id: B-0081
 title: Configure organization runtime placement policy
 area: governance
 personas: [team-builder, operator]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
 verification_status: unimplemented

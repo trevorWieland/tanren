@@ -4,7 +4,7 @@ id: B-0009
 title: See teammates' active work alongside my own
 area: team-coordination
 personas: [team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

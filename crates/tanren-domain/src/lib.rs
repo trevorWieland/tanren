@@ -1,70 +1,40 @@
-//! Canonical domain model for the tanren orchestration engine.
+//! Canonical Tanren domain entities.
 //!
-//! This crate owns all domain semantics and has **no internal workspace dependencies**.
-//! Everything else in the workspace depends on `tanren-domain`, never the reverse.
-//!
-//! # Responsibilities
-//!
-//! - Domain ID newtypes (dispatch, step, lease, user, team, org, project)
-//! - Lifecycle state machines (dispatch / step / lease) and scheduler ready-state
-//! - Actor attribution and typed policy decisions
-//! - Commands, events, error taxonomy, and validated value types
-//! - Pure guard functions over step projections
-//!
-//! # Design Rules
-//!
-//! - No external runtime or storage concerns
-//! - No async — pure domain logic only
-//! - All types must be `Send + Sync` for safe concurrent use
-//! - Validated newtypes enforce construction-time invariants
-//! - Domain events never carry secret values; only audit-safe projections
+//! This crate is the foundation of the workspace dependency layering: it has
+//! no workspace dependencies. Other crates may depend on `tanren-domain`;
+//! `tanren-domain` depends on nothing else from the workspace.
 
-pub mod actor;
-pub mod commands;
-pub mod entity;
-pub mod errors;
-pub mod events;
-pub mod graph;
-pub mod guards;
-pub mod ids;
-pub mod methodology;
-pub mod payloads;
-pub mod policy;
-pub mod status;
-pub mod validated;
-pub mod views;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-// Re-export the most commonly used types at the crate root for convenience.
-pub use self::actor::ActorContext;
-pub use self::commands::{
-    CancelDispatch, CreateDispatch, EnqueueStep, LeaseCapabilities, ReleaseLease, RequestLease,
-    ResourceLimits,
-};
-pub use self::entity::{EntityKind, EntityRef};
-pub use self::errors::{DomainError, ErrorClass, TRANSIENT_BACKOFF, classify_error};
-pub use self::events::{
-    DomainEvent, EnvelopeDecodeError, EventEnvelope, RawEventEnvelope, SCHEMA_VERSION,
-};
-pub use self::graph::GraphRevision;
-pub use self::guards::{check_execute_guards, check_teardown_guards};
-pub use self::ids::{
-    ApiKeyId, CheckRunId, DispatchId, EventId, FindingId, InvestigationAttemptId, IssueId, LeaseId,
-    OrgId, ProjectId, RootCauseId, SignpostId, SpecId, StepId, TaskId, TeamId, UserId,
-};
-pub use self::payloads::{
-    ConfigEnv, ConfigKeys, DispatchSnapshot, DispatchSnapshotRef, DryRunPayload, DryRunResult,
-    EnvironmentHandle, ExecutePayload, ExecuteResult, Finding, FindingSeverity, ProvisionPayload,
-    ProvisionRefPayload, ProvisionResult, StepPayload, StepResult, TeardownPayload, TeardownResult,
-    TokenUsage,
-};
-pub use self::policy::{
-    DispatchReadScope, DispatchScopeMismatch, PolicyDecisionKind, PolicyDecisionRecord,
-    PolicyOutcome, PolicyReasonCode, PolicyResourceRef, PolicyScope, actor_matches_dispatch_scope,
-    read_scope_allows_dispatch_actor,
-};
-pub use self::status::{
-    AuthMode, Cli, DispatchMode, DispatchStatus, Lane, LeaseStatus, Outcome, Phase, StepReadyState,
-    StepStatus, StepType, cli_to_lane,
-};
-pub use self::validated::{FiniteF64, NonEmptyString, TimeoutSecs};
-pub use self::views::{DispatchSummary, DispatchView, EventCursor, EventQueryResult, StepView};
+/// Schema version for the canonical domain model.
+///
+/// Bumped on breaking shape changes to the domain types this crate exports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DomainVersion(u32);
+
+impl DomainVersion {
+    /// Current domain schema version.
+    pub const CURRENT: Self = Self(0);
+
+    /// Construct a domain version from its numeric form.
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// The numeric value of this schema version.
+    #[must_use]
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+}
+
+/// Errors raised when a domain-level invariant is violated.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum DomainError {
+    /// A domain invariant was violated. The argument names which invariant.
+    #[error("domain invariant violated: {0}")]
+    InvariantViolation(String),
+}

@@ -1,15 +1,38 @@
-//! Task graph planning and replanning for planner-native orchestration.
+//! Planning subsystem.
 //!
-//! Depends on: `tanren-domain`
-//!
-//! # Responsibilities
-//!
-//! - Issue/task graph planning (decompose work into dependency-aware graphs)
-//! - Dependency graph updates (add/remove/reorder tasks based on evidence)
-//! - Replanning triggers and outputs (failure, conflict, or policy denial recovery)
-//!
-//! # Design Rules
-//!
-//! - Planning produces explicit dispatch graphs with deterministic state transitions
-//! - Replanning is evidence-driven, not ad-hoc
-//! - Planner outputs are pure data — execution is delegated to scheduler/orchestrator
+//! Owns product, behavior catalog, architecture records, roadmap graph,
+//! decisions, planning proposals, and assumption tracking. Concrete planning
+//! handlers arrive with the R-* slices that implement product / planning /
+//! roadmap behaviors.
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+/// Stable identifier for any planning artifact (behavior, roadmap node,
+/// decision, proposal). Format is enforced by the artifact's owning skill.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PlanningId(String);
+
+impl PlanningId {
+    /// Wrap a raw string as a planning id without validation. Validation
+    /// arrives with the slice that introduces the artifact type.
+    #[must_use]
+    pub const fn from_string(value: String) -> Self {
+        Self(value)
+    }
+
+    /// Borrow the underlying id string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Errors raised by planning operations.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum PlanningError {
+    /// A planning artifact id failed format validation.
+    #[error("invalid planning id: {0}")]
+    InvalidId(String),
+}

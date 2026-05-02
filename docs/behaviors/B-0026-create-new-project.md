@@ -4,7 +4,7 @@ id: B-0026
 title: Create a new project from scratch
 area: project-setup
 personas: [solo-builder, team-builder]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented

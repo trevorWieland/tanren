@@ -4,7 +4,7 @@ id: B-0237
 title: Run disaster recovery validation
 area: operations
 personas: [operator, observer]
-interfaces: [cli, api, mcp, tui]
+interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
