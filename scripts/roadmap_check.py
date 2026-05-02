@@ -32,6 +32,10 @@ Checks:
   - Every behavior node has the foundation spec as a transitive ancestor
   - Each `expected_evidence[].interfaces` matches the behavior's frontmatter
     `interfaces:` declaration (catches drift between catalog and DAG)
+  - Each `tests/bdd/features/B-XXXX-*.feature` file references a behavior
+    that has a corresponding R-* node `expected_evidence` entry
+    (inverse of the `xtask check-bdd-tags` cross-check; catches deletes
+    or renames that orphan a feature file from the DAG)
   - (Warn) No transitively redundant `depends_on` edges
   - (Warn) Playbook count vs. declared interfaces — flags suspiciously thin
     playbooks for nodes with 5 declared interfaces
@@ -50,6 +54,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DAG_PATH = REPO_ROOT / "docs" / "roadmap" / "dag.json"
 BEHAVIORS_DIR = REPO_ROOT / "docs" / "behaviors"
+FEATURES_DIR = REPO_ROOT / "tests" / "bdd" / "features"
 
 NODE_REQUIRED = (
     "id",
@@ -167,6 +172,49 @@ def check_evidence_interfaces(
                     f"do not match behavior frontmatter {sorted(declared)} "
                     f"({'; '.join(parts)})"
                 )
+
+
+def check_feature_files(
+    dag: dict,
+    accepted: set[str],
+    errors: list[str],
+) -> None:
+    """Each `B-XXXX-*.feature` file under tests/bdd/features must point at
+    an accepted behavior that some R-* node lists in its
+    `expected_evidence`. F-0002 BDD convention says one feature per
+    behavior; this check is the inverse of `xtask check-bdd-tags` and
+    catches the case where a feature exists but no DAG node owns it.
+    """
+    if not FEATURES_DIR.exists():
+        return
+    name_re = re.compile(r"^B-(\d{4})-")
+    evidence_owners: dict[str, str] = {}
+    for n in dag.get("nodes", []):
+        nid = n.get("id", "<?>")
+        for ev in n.get("expected_evidence", []) or []:
+            bid = ev.get("behavior_id")
+            if bid:
+                evidence_owners[bid] = nid
+    for f in sorted(FEATURES_DIR.glob("B-*.feature")):
+        m = name_re.match(f.name)
+        if not m:
+            errors.append(
+                f"{f.relative_to(REPO_ROOT)}: filename does not match "
+                "B-XXXX-<slug>.feature"
+            )
+            continue
+        bid = f"B-{m.group(1)}"
+        if bid not in accepted:
+            errors.append(
+                f"{f.relative_to(REPO_ROOT)}: behavior {bid} is not "
+                "accepted in docs/behaviors"
+            )
+            continue
+        if bid not in evidence_owners:
+            errors.append(
+                f"{f.relative_to(REPO_ROOT)}: behavior {bid} has a feature "
+                "file but no DAG node lists it in expected_evidence"
+            )
 
 
 def find_thin_playbooks(
@@ -515,6 +563,7 @@ def main() -> int:
     milestone_ids, node_ids = check_schema(dag, errors)
     check_references(dag, accepted, deprecated, node_ids, errors)
     check_evidence_interfaces(dag, behavior_interfaces, errors)
+    check_feature_files(dag, accepted, errors)
 
     nodes_by_id = {n["id"]: n for n in dag.get("nodes", []) if "id" in n}
     topo = topo_sort(nodes_by_id, errors) if not errors else None

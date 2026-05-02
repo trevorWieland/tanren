@@ -40,9 +40,18 @@ Run commands from the repo root.
 
 ## Testing Guidelines
 
-- `just tests` is the behavior proof path and runs BDD, mutation, and coverage classification stages.
-- New behavior should include positive and falsification coverage in BDD-owned scenarios.
-- `tests/bdd/phase0` remains the accepted Phase 0 behavior suite.
+- `just tests` is the behavior proof path; it runs the cucumber-rs BDD
+  harness and the runner binary. Mutation testing is intentionally
+  separated into `just mutation` and runs nightly only.
+- All scenarios live under `tests/bdd/features/B-XXXX-<slug>.feature`.
+  Follow the canonical convention in
+  [`docs/architecture/subsystems/behavior-proof.md`](docs/architecture/subsystems/behavior-proof.md)
+  ("BDD Tagging And File Convention"): one feature per behavior;
+  scenario tags from a closed allowlist
+  (`@positive | @falsification | @web | @api | @mcp | @cli | @tui`);
+  per-interface positive + falsification coverage.
+- `xtask check-bdd-tags` (wired into `just check`) hard-fails any
+  feature file that strays from the convention.
 - Do not add skipped or ignored behavior scenarios.
 
 ## Documentation Source of Truth
@@ -51,7 +60,7 @@ Run commands from the repo root.
   `docs/behaviors/`; roadmap DAG guidance lives under `docs/roadmap/`.
 - Architecture details live under `docs/architecture/`.
 - Methodology and command installation details live under `docs/architecture/`.
-- Runtime implementation details live in `docs/architecture/subsystems/adapters.md`.
+- Runtime implementation details live in `docs/architecture/subsystems/runtime.md`.
 - If behavior, interfaces, lifecycle, or security model changes, update the relevant doc in the same PR.
 
 ## Commit and Pull Request Guidelines

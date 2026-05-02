@@ -67,6 +67,12 @@ behavior slice depends on come from F-0001.
   [`tests/bdd/features/`](tests/bdd/) and step definitions in the
   `tanren-bdd` crate. No `#[cfg(test)]` modules or `#[test]` functions
   outside the BDD crate — `xtask check-rust-test-surface` enforces this.
+- **Follow the BDD convention.** One `.feature` per behavior, named
+  `B-XXXX-<slug>.feature`; closed tag allowlist; strict per-interface
+  positive + falsification coverage. Canonical contract:
+  [`docs/architecture/subsystems/behavior-proof.md`](docs/architecture/subsystems/behavior-proof.md)
+  ("BDD Tagging And File Convention"). Enforced by
+  `xtask check-bdd-tags` (wired into `just check`).
 - **No inline lint suppressions.** Workspace policy denies `allow_attributes`
   and `allow_attributes_without_reason`. Relax a lint in the owning crate's
   `[lints.clippy]` section with a comment explaining why; never use inline
@@ -86,8 +92,11 @@ After any change to `docs/roadmap/dag.json` or `docs/behaviors/B-*.md`, run
 
 - structural validity and acyclicity;
 - every accepted behavior is completed by exactly one node;
-- every behavior node transitively depends on F-0001;
+- every behavior node transitively depends on the current
+  `foundation_spec_id` (F-0002 since the foundation correction landed);
 - evidence-item interfaces match the behavior frontmatter (no drift);
+- every `tests/bdd/features/B-XXXX-*.feature` file maps to an accepted
+  behavior with a DAG node;
 - no transitively redundant `depends_on` edges.
 
 The validator also surfaces a non-blocking warning for nodes whose playbook

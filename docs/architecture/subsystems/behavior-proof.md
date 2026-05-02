@@ -3,7 +3,7 @@ schema: tanren.subsystem_architecture.v0
 subsystem: behavior-proof
 status: accepted
 owner_command: architect-system
-updated_at: 2026-04-29
+updated_at: 2026-05-02
 ---
 
 # Behavior Proof Architecture
@@ -69,10 +69,12 @@ an accepted behavior.
 
 ## Behavior-To-Proof Linkage
 
-Each behavior proof target links to one accepted behavior ID. A feature file
-should normally prove one behavior. Exceptions are allowed only when a single
-observable scenario necessarily demonstrates a tightly coupled behavior set,
-and the linkage must remain explicit.
+Each behavior proof target links to one accepted behavior ID. F-0002 closes
+the original "tightly coupled behavior set" exception: every `.feature`
+proves exactly one behavior. Roadmap nodes that complete more than one
+behavior ship one feature file per completed behavior — bundling lives at
+the node level, not the feature level. The mechanical rules are documented
+under "BDD Tagging And File Convention" below.
 
 Proof linkage records:
 
@@ -255,13 +257,92 @@ Events include:
 Proof events do not store secret values or raw runtime logs. They store
 behavior-level proof results, metadata, and references needed for assessment.
 
+## BDD Tagging And File Convention
+
+This section is the mechanical contract that
+[`xtask check-bdd-tags`](../../../xtask/src/bdd_tags/) enforces and that
+[`scripts/roadmap_check.py`](../../../scripts/roadmap_check.py)
+cross-references. It was locked in F-0002 to close drift between
+`tests/bdd/README.md`, `interfaces.md`, and three competing R-0001
+attempts. Future authors should not relitigate; if the convention truly
+needs to change, change it here first and then update both validators.
+
+### File granularity
+
+- One `.feature` file per behavior, named
+  `tests/bdd/features/B-XXXX-<slug>.feature`. The slug is human-readable
+  (kebab-case) and is informational only — `xtask check-bdd-tags` keys
+  off the `B-XXXX` prefix.
+- Multi-behavior R-* nodes (43 of 231 today, e.g. R-0007 = B-0059 +
+  B-0060) ship one feature file per completed behavior. Each behavior is
+  validated independently.
+- A feature file's behavior must exist in `docs/behaviors/` with
+  `product_status: accepted`.
+
+### Tag rules
+
+- **Feature-level**: exactly one tag, `@B-XXXX`, matching the filename
+  prefix. No other feature-level tags.
+- **Scenario-level**: exactly one of `@positive` / `@falsification`,
+  plus 1–2 interface tags drawn from `@web | @api | @mcp | @cli | @tui`.
+- **Closed allowlist**: the seven scenario tags above are the only tags
+  permitted anywhere in the suite. `@skip`, `@wip`, `@ignore`, phase
+  tags, wave tags, and proof IDs are rejected.
+- **Two-interface scenarios** (e.g., create-via-CLI verify-via-web)
+  require a `# rationale: <one line>` comment immediately above the
+  scenario's tag block. Three or more interface tags on a single
+  scenario is a hard error.
+
+### Forbidden Gherkin constructs
+
+- `Scenario Outline` and `Examples:` blocks are forbidden. Outlines
+  generate synthetic scenario names that destabilize assessment and
+  mutation IDs and break the one-witness-per-scenario rule.
+- `Background:` and `Rule:` are allowed. `Rule:` is encouraged as the
+  natural seam for grouping scenarios per interface inside one file.
+
+### Coverage rules (strict equality)
+
+A behavior is binary: fully asserted or not. There is no "partially
+asserted" lane.
+
+- The union of interface tags across the feature's scenarios must
+  **equal** the behavior's frontmatter `interfaces:` set. Any tag
+  outside that set is a hard error (surface drift); any frontmatter
+  interface with no tagged scenario is a hard error (incomplete proof).
+- For each interface in the behavior's `interfaces:` set, the feature
+  must contain at least one `@positive` scenario tagged for that
+  interface.
+- When the R-* node's `expected_evidence.witnesses` for the behavior
+  includes `falsification`, the feature must additionally contain at
+  least one `@falsification` scenario tagged for **every** interface in
+  the behavior's `interfaces:` set. F-0002 deliberately elevates
+  falsification to per-interface coverage, stricter than the
+  "where meaningful" framing in core invariant 5 above; the elevation
+  is the contract because every surface needs an independent negative
+  witness, not just the behavior as a whole.
+- The validator already enforces that
+  `expected_evidence.interfaces` equals the behavior's
+  `interfaces:`; this convention rides on top.
+
+### Validator wiring
+
+`xtask check-bdd-tags` parses every `tests/bdd/features/**/*.feature`,
+applies the rules above, and exits non-zero on any violation with a
+file:line message naming the rule. It is wired into `just check` after
+`check-rust-test-surface`, so every PR runs it. The inverse check —
+that every `B-XXXX-*.feature` references an accepted behavior with a
+DAG node — runs in `scripts/roadmap_check.py` so an orphan feature
+file is caught even if the xtask validator has not been touched.
+
 ## Accepted Behavior Proof Decisions
 
 - The subsystem is named behavior proof.
 - Tanren rejects a general artifact-vault architecture as the core proof
   model.
 - BDD feature files are the primary executable behavior proof mechanism.
-- A feature file should normally prove one accepted behavior.
+- A feature file proves exactly one accepted behavior. F-0002 closes the
+  original "normally one, exceptions allowed" wording.
 - Asserted behavior requires active behavior-level proof.
 - Behavior records do not store verification or assertion status.
 - Positive witnesses are required for behavior assertion.

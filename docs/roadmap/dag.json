@@ -5,7 +5,7 @@
   "behavior_root": "docs/behaviors",
   "architecture_root": "docs/architecture",
   "implementation_ref": null,
-  "foundation_spec_id": "F-0001",
+  "foundation_spec_id": "F-0002",
   "completion_definition": "A behavior spec node is complete IFF (a) BDD scenarios with positive and falsification witnesses exist and pass for every behavior listed in completes_behaviors on every interface declared by that behavior, and (b) the subjective playbook has been walked end-to-end with a human accepting each step on every declared interface. Foundation spec nodes are complete IFF the definition_of_done in the foundation spec passes; they intentionally complete zero behaviors.",
   "parallelization_strategy": {
     "phase_1_foundation_sequential": [
@@ -300,8 +300,81 @@
       ],
       "risks": [
         "Foundation is large by necessity. Estimate 3-5 weeks for a small team (web frontend stack adds to the original kernel-only estimate). We accept this as a one-time cost.",
-        "F-0001 must produce auth primitives (session model, credential verification trait) without committing to a specific mechanism — the architecture commits to local + OIDC (technology.md), but mechanism wiring is deferred to R-0001 because Foundation has no user identity. Care is needed to avoid baking in shape that R-0001 must then unwind.",
-        "Workspace lint policy (deny unwrap/panic/todo/print, forbid unsafe, deny allow_attributes) is the most likely cause of mid-Foundation churn — every stub crate must compile clean under the strict ruleset on first commit. Plan for time to reshape early stubs that fall foul of clippy::pedantic."
+        "F-0001 must produce auth primitives (session model, credential verification trait) without committing to a specific mechanism \u2014 the architecture commits to local + OIDC (technology.md), but mechanism wiring is deferred to R-0001 because Foundation has no user identity. Care is needed to avoid baking in shape that R-0001 must then unwind.",
+        "Workspace lint policy (deny unwrap/panic/todo/print, forbid unsafe, deny allow_attributes) is the most likely cause of mid-Foundation churn \u2014 every stub crate must compile clean under the strict ruleset on first commit. Plan for time to reshape early stubs that fall foul of clippy::pedantic."
+      ]
+    },
+    {
+      "id": "F-0002",
+      "kind": "foundation",
+      "milestone": "M-0001",
+      "status": "planned",
+      "evidence_ref": "docs/roadmap/evidence/F-0002.md",
+      "title": "Foundation Correction \u2014 HTTP MCP, BDD convention, validators",
+      "completes_behaviors": [],
+      "supports_behaviors": [],
+      "depends_on": [
+        "F-0001"
+      ],
+      "scope": "One-time correction of four F-0001 misalignments with the accepted architecture under docs/architecture/, applied before any R-* node lands. (1) Replaces the empty rmcp stdio entry point in bin/tanren-mcp with an axum-hosted Streamable HTTP service gated behind an API-key middleware that emits the shared auth_required / permission_denied error taxonomy from interfaces.md. The bootstrap key reads from the TANREN_MCP_API_KEY environment variable; the real credential store lands with R-0008 (B-0048 / B-0125). (2) Adds the xtask check-bdd-tags validator: walks tests/bdd/features for filename to feature-tag match, the closed tag allowlist, strict-equality interface coverage against docs/behaviors and docs/roadmap/dag.json, and the forbidden Gherkin-construct list. Wired into just check. (3) Locks the BDD .feature convention in docs/architecture/subsystems/behavior-proof.md (BDD Tagging And File Convention): one .feature per behavior, feature-level B-XXXX tag, scenario-level positive or falsification plus 1 to 2 interface tags, no Scenario Outline or Examples, and per-interface positive plus falsification coverage when the DAG node lists falsification witnesses. (4) Tightens scripts/roadmap_check.py with a feature-file inventory check (every B-XXXX-*.feature maps to an accepted behavior with a DAG node) and tightens just check-deps with a positive assertion that tanren-mcp depends on axum (mechanical guard against accidental reversion to stdio). Updates the foundation_spec_id pointer from F-0001 to F-0002 so every R-* behavior node transitively depends on the corrected foundation.",
+      "boundary_with_neighbors": "F-0001 owned the initial scaffolding (workspace, crates, five interface scaffolds, BDD harness, postgres + migrations). F-0002 corrects four specific architectural misalignments left in F-0001 (stdio MCP, missing tag enforcement, missing BDD convention, dependency-shape drift). All R-* behavior nodes \u2014 starting with R-0001 \u2014 depend on F-0002 (which transitively pulls in F-0001) so they inherit the corrected foundation. The real MCP credential store, including organisation- and project-scoped service-account keys, is owned by R-0008 (B-0048 / B-0125); F-0002 ships the enforcement point with a single env-sourced bootstrap key as a placeholder.",
+      "expected_evidence": [
+        {
+          "kind": "build",
+          "description": "cargo build --workspace --locked succeeds; tanren-mcp links axum, rmcp (transport-streamable-http-server), tower, tower-http; cargo tree -p tanren-mcp shows no stdio transport feature on rmcp."
+        },
+        {
+          "kind": "ci",
+          "description": "just ci exits 0 with all aggregator stages including the new bdd tags step (xtask check-bdd-tags) and the tightened dependency boundaries step (axum-required for tanren-mcp)."
+        },
+        {
+          "kind": "manual",
+          "description": "Start tanren-mcp with TANREN_MCP_API_KEY set; curl /health returns 200 with the tanren-app-services HealthReport shape; curl /mcp without Authorization returns 401 with auth_required; curl /mcp with a wrong key returns 403 with permission_denied; curl /mcp with the correct key returns the Streamable HTTP MCP greeting and tools/list resolves to an empty array."
+        },
+        {
+          "kind": "validator",
+          "description": "xtask check-bdd-tags runs against an empty tests/bdd/features tree and exits 0 with the vacuous-pass message; runs against a malformed B-XXXX-*.feature fixture and hard-fails with precise per-violation messages; runs against a partial-coverage fixture and hard-fails listing the uncovered interfaces (no soft-coverage lane)."
+        },
+        {
+          "kind": "validator",
+          "description": "python3 scripts/roadmap_check.py exits 0 against the post-merge DAG; foundation_spec_id is F-0002; every R-* node transitively reaches F-0002."
+        }
+      ],
+      "playbook": [
+        "Migrate bin/tanren-mcp from rmcp stdio to rmcp Streamable HTTP server hosted under axum, mirroring tanren-api posture.",
+        "Add an axum middleware that requires Authorization: Bearer <key> (or X-API-Key) on /mcp and rejects with auth_required / permission_denied per interfaces.md error taxonomy.",
+        "Source the bootstrap key from TANREN_MCP_API_KEY; emit a startup warning when unset.",
+        "Drop rmcp transport-io feature in workspace deps; enable transport-streamable-http-server.",
+        "Add tokio-util to workspace deps for rmcp CancellationToken.",
+        "Add the check-bdd-tags xtask subcommand with a closed tag allowlist, strict-equality interface coverage, behavior-catalog cross-check, and DAG-evidence cross-check.",
+        "Wire check-bdd-tags into just check (after check-rust-test-surface).",
+        "Tighten just check-deps with a positive assertion that tanren-mcp depends on axum.",
+        "Extend scripts/roadmap_check.py with a tests/bdd/features inventory check (every B-XXXX-*.feature maps to accepted behavior + DAG evidence).",
+        "Document the BDD convention in docs/architecture/subsystems/behavior-proof.md (new BDD Tagging And File Convention section).",
+        "Rewrite tests/bdd/README.md to point at the canonical convention and the validator commands.",
+        "Add a one-line BDD-convention pointer to CLAUDE.md and AGENTS.md.",
+        "Add F-0002 to docs/roadmap/dag.json; switch foundation_spec_id from F-0001 to F-0002; repoint R-0001 and R-0023 from F-0001 to F-0002 (other R-* nodes already reach F-0002 transitively through their R-* parents).",
+        "Run python3 scripts/roadmap_check.py and just ci; both must exit 0.",
+        "Manually verify the MCP HTTP service end-to-end: spin up postgres, run tanren-cli migrate up, start tanren-mcp with a bootstrap key, exercise /health and /mcp with curl.",
+        "Manually exercise check-bdd-tags with malformed and partial-coverage fixtures; confirm the failures are precise and the green path stays green."
+      ],
+      "rationale": "F-0001 set up scaffolding for every subsystem and interface but baked four small mismatches against the architecture record \u2014 most visibly an MCP service running over stdio when docs/architecture/subsystems/interfaces.md and docs/architecture/technology.md (rejected-alternatives section) mandate Streamable HTTP. Three R-0001 attempts on top of F-0001 each invented their own BDD convention because tests/bdd/README declared the contract but no validator enforced it. F-0002 closes those gaps before any behavior slice lands so the first wave of R-* nodes (R-0001 through R-0010) inherits a corrected, mechanically-enforced foundation. Foundation no-completes-behaviors carve-out remains: F-0002 produces tooling and corrected scaffolding, not behavior assertion.",
+      "definition_of_done": [
+        "tanren-mcp serves MCP Streamable HTTP under axum on the configured port; cargo tree -p tanren-mcp contains axum and excludes rmcp stdio transport feature.",
+        "Auth middleware: /mcp without a credential returns 401 auth_required; with a wrong credential returns 403 permission_denied; with the bootstrap key returns the empty Streamable HTTP MCP surface.",
+        "xtask check-bdd-tags exists and is wired into just check (visible in just ci).",
+        "scripts/roadmap_check.py enforces tests/bdd/features to DAG to behavior alignment; running it post-merge exits 0 with foundation_spec_id == F-0002.",
+        "just check-deps requires axum in tanren-mcp direct deps and continues to reject domain/policy/store from any transport binary.",
+        "docs/architecture/subsystems/behavior-proof.md contains the BDD Tagging And File Convention section.",
+        "tests/bdd/README.md is rewritten to point at the convention and the validator commands; CLAUDE.md and AGENTS.md carry a one-line pointer.",
+        "docs/roadmap/dag.json contains F-0002, foundation_spec_id is F-0002, and R-0001 + R-0023 depend on F-0002 (not F-0001).",
+        "just ci exits 0; python3 scripts/roadmap_check.py exits 0."
+      ],
+      "risks": [
+        "rmcp Streamable HTTP server transport is a network surface \u2014 binding to 0.0.0.0 by default makes the service reachable from any container on the host network. Mitigation: the axum middleware refuses every request without an exact bootstrap-key match (constant-time compare); the bind address is overridable via TANREN_MCP_BIND for operators that prefer 127.0.0.1.",
+        "The bootstrap-key auth is a placeholder, not the real credential store. Mitigation: the placeholder shape is deliberately narrow (one env var, single-tenant) so R-0008 can swap it for the per-actor service-account model without re-shaping the middleware contract.",
+        "F-0002 closes the multi-behavior-feature exception in behavior-proof.md (one .feature proves exactly one behavior). Future authors might reach for the closed exception when they encounter genuinely-coupled behavior pairs (e.g., R-0007 owns B-0059 + B-0060). Mitigation: the convention requires multi-behavior R-* nodes to ship one feature file per completed behavior \u2014 the bundling lives at the node level, not the feature level.",
+        "Per-interface falsification coverage is stricter than behavior-proof.md where meaningful framing. Some R-* nodes will need to write five falsification scenarios per behavior. Mitigation: the validator emits precise per-interface error messages so authors know exactly which falsification scenarios are missing; the convention section in behavior-proof.md flags the elevation explicitly."
       ]
     },
     {
@@ -313,7 +386,7 @@
       ],
       "supports_behaviors": [],
       "depends_on": [
-        "F-0001"
+        "F-0002"
       ],
       "scope": "Add the account-create + sign-in surface on every interface declared by B-0043 (web, api, mcp, cli, tui). Cover both creation pathways (self-signup and invitation-based-creation), the multi-account-per-person rule, the personal-orphans-no-org rule, and the sign-in flow that produces an authenticated session. Invitation-based-creation scenarios use a fixtured invitation record (the user-facing invite-creation flow is R-0005). Foundation has already established the bones of each interface, the API server, the auth primitives, the event log, and the BDD harness \u2014 this spec adds account events + projections, the create/sign-in endpoints/pages/commands/tools/screens, and the BDD scenarios that prove all observable outcomes on every interface.",
       "boundary_with_neighbors": "R-0003 owns switching between multiple accounts. R-0002 owns organization creation. R-0005 owns the invite-sending flow. R-0006 owns invitation acceptance for an EXISTING account. F-0001 already established the kernel + interface scaffolding; this node only adds the account-specific behavior on top.",
@@ -1392,7 +1465,7 @@
       ],
       "supports_behaviors": [],
       "depends_on": [
-        "F-0001"
+        "F-0002"
       ],
       "scope": "The CLI install flow: from a local repository path and a chosen standards profile, install the methodology assets (commands, agent integrations, standards) into the repo. Two sub-modes bundled because they share most of the install code: (1) install everything for the chosen profile (B-0068), (2) install only selected agent integrations (B-0070). Cover the re-install rules (replaces generated assets, removes stale generated assets, preserves user-edited standards, restores missing standards) and the validation rule (invalid bootstrap input is rejected before any write).",
       "boundary_with_neighbors": "R-0024 owns drift detection (read-only check on the install output). R-0025 owns the runtime use of installed standards. R-0026 owns upgrade. R-0027 owns uninstall. R-0019 owns the orthogonal account-level project registration (different layer). F-0001 already established the cli binary; this node adds the install subcommand, the profile readers, and the asset writers.",

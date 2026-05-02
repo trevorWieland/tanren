@@ -1,6 +1,6 @@
 # Tanren Roadmap
 
-**Generated:** 2026-05-01
+**Generated:** 2026-05-02
 **Source of truth:** [`docs/roadmap/dag.json`](dag.json)
 
 ## What this is
@@ -18,22 +18,25 @@ human-friendly rendering.
 | | |
 |---|---|
 | Milestones | 27 |
-| Spec nodes | 232 (1 foundation + 231 behavior) |
+| Spec nodes | 233 (2 foundation + 231 behavior) |
 | Accepted behaviors | 282 |
 | Behaviors covered | 282 (100%) |
-| Longest dependency path | 15 nodes |
+| Longest dependency path | 16 nodes |
 | Max parallel width | 70 nodes |
 
 Validate with: `python3 scripts/roadmap_check.py`
 
 ## Methodology
 
-**Foundation-then-thin-slices.** F-0001 is a one-time scaffolding spec that
-brings the repo from "scaffolding only" to "minimum buildable Tanren" with
-every subsystem stubbed and every public interface (web, api, mcp, cli, tui)
-hosting a hello-world surface. Foundation completes zero behaviors by design.
-Every roadmap spec (R-0001 onwards) is a thin behavior slice that fully
-completes its declared behaviors on every interface those behaviors
+**Foundation-then-thin-slices.** F-0001 is the original scaffolding spec
+that brings the repo from "scaffolding only" to "minimum buildable Tanren"
+with every subsystem stubbed and every public interface (web, api, mcp, cli,
+tui) hosting a hello-world surface. F-0002 is a one-time correction node
+that closes four F-0001 misalignments (HTTP MCP transport, mechanical BDD
+tag enforcement, locked `.feature` convention, dependency-shape drift)
+before any R-* node lands. Both foundation specs complete zero behaviors by
+design. Every roadmap spec (R-0001 onwards) is a thin behavior slice that
+fully completes its declared behaviors on every interface those behaviors
 declare — no future spec is gated on "an interface doesn't exist yet".
 
 **Completion definition.** A behavior spec is complete IFF (a) BDD scenarios
@@ -115,11 +118,11 @@ The closing-the-loop and intelligence layer.
 
 ## Critical path
 
-15 nodes — the longest sequential chain through the DAG:
+16 nodes — the longest sequential chain through the DAG:
 
 ```
-F-0001 → R-0001 → R-0019 → R-0073 → R-0076 → R-0081 → R-0120 → R-0123 →
-R-0133 → R-0134 → R-0136 → R-0138 → R-0139 → R-0141 → R-0142
+F-0001 → F-0002 → R-0001 → R-0019 → R-0073 → R-0076 → R-0081 → R-0120 →
+R-0123 → R-0133 → R-0134 → R-0136 → R-0138 → R-0139 → R-0141 → R-0142
 ```
 
 This is the full deliver loop end-to-end: scaffold → account → project →
@@ -182,8 +185,8 @@ python3 scripts/roadmap_check.py --reduce
 - **`supports_behaviors`** lists behaviors this spec partially exercises
   but doesn't own completion of.
 - **`depends_on`** is acyclic and minimal — transitively redundant edges are
-  removed by `--reduce`. Every behavior node has F-0001 as a transitive
-  ancestor.
+  removed by `--reduce`. Every behavior node has F-0002 as a transitive
+  ancestor (and F-0002 has F-0001).
 - **`expected_evidence`** lists per-behavior BDD coverage with witnesses
   (`positive` + `falsification`) and the interfaces the proof must cover.
 - **`playbook`** is the human-walked acceptance sequence. Subjective; one

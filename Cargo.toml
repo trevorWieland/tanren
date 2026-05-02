@@ -132,15 +132,22 @@ schemars = { version = "1", features = ["chrono04", "uuid1"] }
 # Model Context Protocol SDK. License verified via `cargo info rmcp`
 # (Apache-2.0, in deny.toml allowlist) before this dep was added.
 # `server` enables `#[tool_router]`/`#[tool]` macros and the derive
-# path; `transport-io` wires the active stdio transport;
-# `macros` brings the attribute-macro surface; `schemars` re-export
-# ensures contract types produce the JSON Schemas rmcp registers.
+# path; `transport-streamable-http-server` wires the network MCP
+# transport mandated by the architecture (see
+# docs/architecture/subsystems/interfaces.md#mcp); `macros` brings
+# the attribute-macro surface; `schemars` re-export ensures
+# contract types produce the JSON Schemas rmcp registers.
 rmcp = { version = "1", features = [
   "server",
-  "transport-io",
+  "transport-streamable-http-server",
   "macros",
   "schemars",
 ] }
+
+# Cancellation primitives — needed by rmcp's StreamableHttpService for
+# session-graceful shutdown coordination. License: MIT (in deny.toml
+# allowlist).
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # Error handling
 thiserror = "2"
