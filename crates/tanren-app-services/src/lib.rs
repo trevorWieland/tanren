@@ -5,16 +5,22 @@
 //! depend on `tanren-app-services` (and `tanren-contract` for wire shapes);
 //! they do not import domain, store, or runtime crates directly.
 
+pub mod account;
+pub mod events;
+
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::ContractVersion;
-use tanren_store::{Store, StoreError};
+use tanren_contract::{
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use tanren_store::Store;
+
+use std::sync::Arc;
+use tanren_store::StoreError;
 use thiserror::Error;
 
 /// Stable response shape for the cross-interface health/liveness query.
-///
-/// Every interface (the api's `/health`, the cli's `--version`, the mcp
-/// server's introspection, the tui's status bar, the daemon's startup log)
-/// resolves to [`Handlers::health`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthReport {
     /// Static "ok" string. Present so consumers can match on a discriminator
@@ -26,16 +32,64 @@ pub struct HealthReport {
     pub contract_version: ContractVersion,
 }
 
-/// Stateless handler facade. Future versions of this crate will hold
-/// dependencies (store, policy, runtime); F-0001 ships the seam itself.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct Handlers;
+/// Injected wall-clock. BDD scenarios swap this for a deterministic
+/// fake; production binaries keep [`Clock::default`] (reads
+/// `chrono::Utc::now()`).
+#[derive(Clone)]
+pub struct Clock {
+    inner: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
+}
+
+impl std::fmt::Debug for Clock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Clock").finish_non_exhaustive()
+    }
+}
+
+impl Default for Clock {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Utc::now),
+        }
+    }
+}
+
+impl Clock {
+    /// Wrap a custom `now` impl. The BDD harness uses this to make
+    /// invitation-expiry scenarios deterministic.
+    #[must_use]
+    pub fn from_fn<F>(f: F) -> Self
+    where
+        F: Fn() -> DateTime<Utc> + Send + Sync + 'static,
+    {
+        Self { inner: Arc::new(f) }
+    }
+
+    /// Current wall-clock instant according to this `Clock`.
+    #[must_use]
+    pub fn now(&self) -> DateTime<Utc> {
+        (self.inner)()
+    }
+}
+
+/// Stateless handler facade. Holds an injectable [`Clock`] so account
+/// flow handlers stay deterministic under the BDD harness.
+#[derive(Debug, Clone, Default)]
+pub struct Handlers {
+    clock: Clock,
+}
 
 impl Handlers {
-    /// Construct a fresh handler facade.
+    /// Construct a handler facade backed by [`Clock::default`].
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Construct a handler facade backed by an explicit clock.
+    #[must_use]
+    pub fn with_clock(clock: Clock) -> Self {
+        Self { clock }
     }
 
     /// Liveness query. Returns the same shape regardless of which interface
@@ -59,6 +113,57 @@ impl Handlers {
         store.migrate().await?;
         Ok(())
     }
+
+    /// Self-signup command: create a new personal account, mint a
+    /// session, and append an `account_created` event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] for taxonomy failures
+    /// (duplicate identifier, invalid credential), or
+    /// [`AppServiceError::Store`] for unexpected database failures.
+    pub async fn sign_up(
+        &self,
+        store: &Store,
+        request: SignUpRequest,
+    ) -> Result<SignUpResponse, AppServiceError> {
+        account::sign_up(store, &self.clock, request).await
+    }
+
+    /// Sign-in command: verify an identifier+password against the
+    /// stored hash and mint a fresh session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::InvalidCredential`] when the credential
+    /// does not verify; [`AppServiceError::Store`] for unexpected
+    /// database failures.
+    pub async fn sign_in(
+        &self,
+        store: &Store,
+        request: SignInRequest,
+    ) -> Result<SignInResponse, AppServiceError> {
+        account::sign_in(store, &self.clock, request).await
+    }
+
+    /// Invitation-acceptance command: consume the supplied token,
+    /// create an account joined to the inviting org, and append both
+    /// `account_created` and `invitation_accepted` events.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with the matching
+    /// invitation taxonomy variant when the token is unknown / expired
+    /// / already consumed; [`AppServiceError::Store`] for unexpected
+    /// database failures.
+    pub async fn accept_invitation(
+        &self,
+        store: &Store,
+        request: AcceptInvitationRequest,
+    ) -> Result<AcceptInvitationResponse, AppServiceError> {
+        account::accept_invitation(store, &self.clock, request).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -71,4 +176,8 @@ pub enum AppServiceError {
     /// The underlying store layer raised an error.
     #[error(transparent)]
     Store(#[from] StoreError),
+    /// A taxonomy failure interface binaries map to a `{code, summary}`
+    /// error body.
+    #[error("account: {}", .0.code())]
+    Account(AccountFailureReason),
 }

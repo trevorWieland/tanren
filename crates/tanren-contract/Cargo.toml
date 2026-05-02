@@ -12,5 +12,7 @@ description = "Wire-shape contracts for Tanren's API and MCP boundaries. Foundat
 workspace = true
 
 [dependencies]
+schemars = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }

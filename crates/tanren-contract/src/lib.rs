@@ -5,6 +5,13 @@
 //! callers. Orchestration logic does not live here — this crate stays a pure
 //! shape layer so that wire compatibility is reviewable in isolation.
 
+pub mod account;
+
+pub use account::{
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
+    SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

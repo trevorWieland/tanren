@@ -12,5 +12,7 @@ description = "Identity and Policy subsystem: accounts, organizations, projects,
 workspace = true
 
 [dependencies]
+chrono = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }

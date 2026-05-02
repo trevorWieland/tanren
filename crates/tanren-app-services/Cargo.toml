@@ -12,7 +12,11 @@ description = "Command and query handlers shared by every Tanren interface binar
 workspace = true
 
 [dependencies]
+chrono = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 tanren-contract = { path = "../tanren-contract" }
 tanren-store = { path = "../tanren-store" }
 thiserror = { workspace = true }
+uuid = { workspace = true }

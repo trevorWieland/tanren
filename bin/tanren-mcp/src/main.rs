@@ -9,10 +9,9 @@
 //! `auth_required` / `permission_denied` taxonomy from the interfaces
 //! contract, and exposes the same `/health` shape as `tanren-api`.
 //!
-//! The bootstrap key is sourced from `TANREN_MCP_API_KEY`; the real
-//! credential store lands with R-0008 (B-0048 / B-0125) and replaces
-//! the env-sourced placeholder. The tool registry is empty — R-* slices
-//! add `#[rmcp::tool]` routes that route through `tanren-app-services`.
+//! R-0001 (S-07) registers the first three account-flow tools
+//! (`account.create`, `account.sign_in`, `account.accept_invitation`)
+//! via `#[rmcp::tool]` routes that delegate to `tanren-app-services`.
 
 use anyhow::{Context, Result};
 use axum::Json;
@@ -22,7 +21,11 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use rmcp::ErrorData as McpError;
 use rmcp::ServerHandler;
+use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::wrapper::Parameters;
+use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -30,7 +33,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
-use tanren_app_services::Handlers;
+use tanren_app_services::{AppServiceError, Handlers, Store};
+use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -39,22 +43,153 @@ use tower_http::cors::{Any, CorsLayer};
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
+const DATABASE_URL_ENV: &str = "DATABASE_URL";
 /// Comma-separated extra hostnames / `host:port` authorities to add to
-/// rmcp's `allowed_hosts` Host-header allowlist. rmcp's defaults
-/// (`localhost`, `127.0.0.1`, `::1`) are kept; this env var appends to
-/// them. Set to `*` to disable Host-header validation entirely (auth
-/// remains the only gate). Operators deploying MCP behind a load
-/// balancer or under a real hostname must set this — see
-/// `docs/architecture/subsystems/interfaces.md` and
-/// `docs/architecture/operations.md`.
+/// rmcp's `allowed_hosts` Host-header allowlist.
 const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
 
-/// Empty tool surface. Behavior tools land with R-* slices via
-/// `#[rmcp::tool]` annotations on this type.
-#[derive(Debug, Clone, Default)]
-struct TanrenMcp;
+/// MCP tool surface. Holds the shared `Handlers` facade and a `Store`
+/// handle; behaviour tools delegate through the facade so the api / mcp /
+/// cli / tui surfaces all resolve to the same logic per the
+/// equivalent-operations rule in
+/// `docs/architecture/subsystems/interfaces.md`.
+#[derive(Clone)]
+struct TanrenMcp {
+    handlers: Handlers,
+    store: Arc<Store>,
+    /// Cached tool router built from the `#[rmcp::tool]` methods on this
+    /// type. Read by the macro-generated `ServerHandler` impl below.
+    tool_router: ToolRouter<Self>,
+}
 
-impl ServerHandler for TanrenMcp {}
+impl std::fmt::Debug for TanrenMcp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TanrenMcp").finish_non_exhaustive()
+    }
+}
+
+#[rmcp::tool_router]
+impl TanrenMcp {
+    fn new(handlers: Handlers, store: Arc<Store>) -> Self {
+        Self {
+            handlers,
+            store,
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    /// Self-signup tool. Mirrors the api `POST /accounts` shape via
+    /// `tanren_contract::SignUpRequest` / `SignUpResponse`.
+    #[rmcp::tool(
+        name = "account.create",
+        description = "Create a new Tanren account via self-signup. Returns the new account view and an opaque session token. Failures use the shared {code, summary} taxonomy: duplicate_identifier, invalid_credential."
+    )]
+    async fn account_create(
+        &self,
+        Parameters(request): Parameters<SignUpRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        match self.handlers.sign_up(self.store.as_ref(), request).await {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Sign-in tool. Mirrors the api `POST /sessions` shape via
+    /// `tanren_contract::SignInRequest` / `SignInResponse`.
+    #[rmcp::tool(
+        name = "account.sign_in",
+        description = "Sign in to an existing Tanren account. Returns the account view and an opaque session token. Failure code: invalid_credential."
+    )]
+    async fn account_sign_in(
+        &self,
+        Parameters(request): Parameters<SignInRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        match self.handlers.sign_in(self.store.as_ref(), request).await {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Invitation-acceptance tool. Mirrors the api
+    /// `POST /invitations/{token}/accept` shape via
+    /// `tanren_contract::AcceptInvitationRequest` /
+    /// `AcceptInvitationResponse`.
+    #[rmcp::tool(
+        name = "account.accept_invitation",
+        description = "Accept an organization invitation and create a Tanren account in the inviting org. Failure codes: invitation_not_found, invitation_already_consumed, invitation_expired, invalid_credential."
+    )]
+    async fn account_accept_invitation(
+        &self,
+        Parameters(request): Parameters<AcceptInvitationRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        match self
+            .handlers
+            .accept_invitation(self.store.as_ref(), request)
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Borrow the cached `ToolRouter`. Exists so the dead-code lint can
+    /// see the field as read even on rmcp macro versions whose
+    /// `#[tool_handler]` expansion path does not access the field
+    /// directly under the lint's heuristic. Production callers reach
+    /// the router via the `ServerHandler` trait's `call_tool` /
+    /// `list_tools` methods generated by `#[tool_handler]`, not this
+    /// helper.
+    fn router(&self) -> &ToolRouter<Self> {
+        &self.tool_router
+    }
+}
+
+#[rmcp::tool_handler]
+impl ServerHandler for TanrenMcp {
+    fn get_info(&self) -> ServerInfo {
+        // Touch the cached router so the dead-code lint never flags
+        // `tool_router` even on rmcp macro versions whose tool_handler
+        // expansion path uses the static `Self::tool_router()` builder
+        // rather than the cached field.
+        let _ = self.router();
+        let mut info = ServerInfo::default();
+        info.instructions = Some(
+            "Tanren control plane MCP server. Account-flow tools route through the same handlers the HTTP API uses; failure responses share the {code, summary} error taxonomy."
+                .to_owned(),
+        );
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info
+    }
+}
+
+/// Encode a successful handler response as a JSON-text `CallToolResult`.
+fn success<T: Serialize>(value: &T) -> CallToolResult {
+    let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
+    CallToolResult::success(vec![Content::text(text)])
+}
+
+/// Encode an [`AppServiceError`] as the shared `{code, summary}` error
+/// body and surface it as an MCP tool failure result.
+fn map_failure(err: AppServiceError) -> CallToolResult {
+    let (code, summary) = match err {
+        AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
+        AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
+        AppServiceError::Store(err) => (
+            "internal_error".to_owned(),
+            format!("Tanren encountered an internal error: {err}"),
+        ),
+        _ => (
+            "internal_error".to_owned(),
+            "Unknown app-service failure".to_owned(),
+        ),
+    };
+    let body = json!({
+        "code": code,
+        "summary": summary,
+    });
+    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
+    CallToolResult::error(vec![Content::text(text)])
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HealthResponse {
@@ -117,10 +252,7 @@ async fn require_api_key(
     next: Next,
 ) -> Response {
     // Operator-config check first: an unconfigured server is in an
-    // outage state, not an auth-failure state. Reporting 401 to an
-    // unauthenticated probe in that case would misclassify the outage
-    // as a client-credential failure and route operators away from
-    // the actual cause.
+    // outage state, not an auth-failure state.
     let Some(expected) = config.bootstrap_key.as_deref() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -168,11 +300,16 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-fn build_router(auth_config: Arc<AuthConfig>, cancellation: CancellationToken) -> Router {
+fn build_router(
+    auth_config: Arc<AuthConfig>,
+    handlers: Handlers,
+    store: Arc<Store>,
+    cancellation: CancellationToken,
+) -> Router {
     let config = streamable_http_config(cancellation);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
         StreamableHttpService::new(
-            || Ok(TanrenMcp),
+            move || Ok(TanrenMcp::new(handlers.clone(), store.clone())),
             Arc::new(LocalSessionManager::default()),
             config,
         );
@@ -193,10 +330,7 @@ fn build_router(auth_config: Arc<AuthConfig>, cancellation: CancellationToken) -
 }
 
 /// Build rmcp's `StreamableHttpServerConfig` honouring the
-/// `TANREN_MCP_ALLOWED_HOSTS` env var. rmcp ships loopback-only Host
-/// validation by default for DNS-rebind protection; non-local
-/// deployments must extend the allowlist (or set `*` to disable Host
-/// validation entirely and rely solely on the API-key middleware).
+/// `TANREN_MCP_ALLOWED_HOSTS` env var.
 fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServerConfig {
     let base = StreamableHttpServerConfig::default().with_cancellation_token(cancellation);
     let raw = env::var(ALLOWED_HOSTS_ENV).ok().filter(|s| !s.is_empty());
@@ -240,8 +374,18 @@ async fn main() -> Result<()> {
         );
     }
 
+    let database_url = env::var(DATABASE_URL_ENV).with_context(|| {
+        format!("{DATABASE_URL_ENV} must be set so tanren-mcp can connect to the event store")
+    })?;
+    let store = Arc::new(
+        Store::connect(&database_url)
+            .await
+            .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
+    );
+    let handlers = Handlers::new();
+
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, cancellation.clone());
+    let router = build_router(auth_config, handlers, store, cancellation.clone());
 
     let listener = TcpListener::bind(&bind)
         .await

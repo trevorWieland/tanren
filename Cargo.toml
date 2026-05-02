@@ -197,7 +197,7 @@ cucumber = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 
 # IDs
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # JWT verification
 jsonwebtoken = { version = "10", default-features = false, features = [

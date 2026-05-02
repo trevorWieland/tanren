@@ -16,3 +16,5 @@ anyhow = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
 tanren-app-services = { path = "../../crates/tanren-app-services" }
+tanren-contract = { path = "../../crates/tanren-contract" }
+tokio = { workspace = true }

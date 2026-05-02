@@ -12,4 +12,8 @@ description = "Shared test utilities. Used only by the BDD step-definition crate
 workspace = true
 
 [dependencies]
+chrono = { workspace = true }
 serde = { workspace = true }
+tanren-app-services = { path = "../tanren-app-services" }
+tanren-store = { path = "../tanren-store" }
+uuid = { workspace = true }
