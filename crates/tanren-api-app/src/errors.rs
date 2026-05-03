@@ -6,8 +6,10 @@
 //! API's HTTP transport.
 
 use axum::Json;
+use axum::extract::{FromRequest, Request, rejection::JsonRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
@@ -74,6 +76,53 @@ fn failure_body(reason: AccountFailureReason) -> Response {
     (
         status,
         Json(json!({"code": reason.code(), "summary": reason.summary()})),
+    )
+        .into_response()
+}
+
+/// Custom `Json` extractor that maps any deserialize-time failure
+/// (malformed JSON, missing required field, OR a validating-newtype
+/// `Deserialize` impl returning an error — e.g. `Email::parse` rejecting
+/// an RFC-malformed address) to the shared `{code, summary}` taxonomy:
+/// `400 Bad Request` with `code = "validation_failed"`. Without this
+/// wrapper, axum's default behaviour returns 422 with a plain-text body
+/// that bypasses the wire taxonomy clients depend on, and the new
+/// validating-`Deserialize` impls on `Email` / `Identifier` /
+/// `InvitationToken` (Codex P1 review on PR #133) would surface as
+/// untyped 422s.
+#[derive(Debug)]
+pub(crate) struct ValidatedJson<T>(pub T);
+
+impl<S, T> FromRequest<S> for ValidatedJson<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(value)) => Ok(Self(value)),
+            Err(rejection) => Err(map_json_rejection(&rejection)),
+        }
+    }
+}
+
+fn map_json_rejection(rejection: &JsonRejection) -> Response {
+    let summary = match rejection {
+        JsonRejection::JsonDataError(e) => e.body_text(),
+        JsonRejection::JsonSyntaxError(e) => e.body_text(),
+        JsonRejection::MissingJsonContentType(_) => {
+            "request body must be application/json".to_owned()
+        }
+        other => other.body_text(),
+    };
+    (
+        StatusCode::BAD_REQUEST,
+        Json(AccountFailureBody {
+            code: "validation_failed".to_owned(),
+            summary,
+        }),
     )
         .into_response()
 }

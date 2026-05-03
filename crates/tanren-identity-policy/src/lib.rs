@@ -154,37 +154,62 @@ impl std::fmt::Display for MembershipId {
     }
 }
 
-/// Validated email address. Constructed via [`Email::parse`] which
-/// trims surrounding whitespace and lower-cases the string. R-0001
-/// keeps the validation deliberately lightweight (presence + single
-/// `@`) — full RFC 5322 verification is the responsibility of an
-/// out-of-band confirmation flow that lands later.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+/// Validated email address. Constructed via [`Email::parse`] which:
+/// trims surrounding whitespace, validates against RFC 5322 syntax via
+/// the [`email_validator_rfc5322`] crate (RFC 5321 length limits +
+/// quoted local parts), additionally requires a TLD-style domain (no
+/// dotless or IP-literal domains), and canonicalises to lower-case so
+/// case variants of the same address compare equal.
+///
+/// # Wire-input contract
+///
+/// `Email` does NOT derive `Deserialize` — the custom impl below routes
+/// every wire input through [`parse`](Self::parse). Without this,
+/// `#[serde(transparent)]` would let HTTP/MCP/CLI requests carry
+/// untrimmed/un-lowercased/RFC-invalid addresses, which would persist
+/// verbatim via `Identifier::from_email` and let two case variants of
+/// the same logical email register as separate accounts. Codex P1
+/// review on PR #133.
+///
+/// Validation invariants are exercised end-to-end by the @api / @web
+/// scenarios in `tests/bdd/features/B-0043-create-account.feature` —
+/// case-variant rejection and malformed-email rejection both run
+/// through the live wire surface, not through Rust unit tests.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "email")]
 pub struct Email(String);
 
 impl Email {
-    /// Parse a raw user-supplied email. Trims and lower-cases.
+    /// Parse a raw user-supplied email. Trims, validates against RFC
+    /// 5322 + RFC 5321 length limits, and canonicalises to lower-case.
     ///
     /// # Errors
     ///
-    /// Returns [`ValidationError::EmptyEmail`] if the input is empty
-    /// after trimming, or [`ValidationError::InvalidEmail`] if the
-    /// input does not contain exactly one `@` separating non-empty
-    /// local and domain parts.
+    /// Returns [`ValidationError::EmptyEmail`] when the input is empty
+    /// after trimming. Returns [`ValidationError::InvalidEmail`] when
+    /// the input fails RFC 5322 syntax or RFC 5321 length limits.
     pub fn parse(raw: &str) -> Result<Self, ValidationError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
             return Err(ValidationError::EmptyEmail);
         }
-        let mut parts = trimmed.split('@');
-        let local = parts.next().unwrap_or("");
-        let domain = parts.next().unwrap_or("");
-        if local.is_empty() || domain.is_empty() || parts.next().is_some() {
-            return Err(ValidationError::InvalidEmail);
-        }
-        if !domain.contains('.') {
+        email_validator_rfc5322::validate_email(trimmed)
+            .map_err(|_| ValidationError::InvalidEmail)?;
+        // RFC 5322 permits dotless domains (`user@host`), but the
+        // public-internet account flow this type backs always uses a
+        // TLD-style domain. Reject dotless and IP-literal domains
+        // (`[10.0.0.1]`, `[IPv6:...]`) so identifier collisions and
+        // typos are caught at the boundary instead of at the duplicate-
+        // identifier error code path. If a future feature needs the
+        // permissive RFC 5322 surface, add a sibling
+        // `Email::parse_permissive` rather than relaxing here.
+        let domain_start = trimmed
+            .rfind('@')
+            .ok_or(ValidationError::InvalidEmail)?
+            .saturating_add(1);
+        let domain = &trimmed[domain_start..];
+        if domain.starts_with('[') || !domain.contains('.') {
             return Err(ValidationError::InvalidEmail);
         }
         Ok(Self(trimmed.to_lowercase()))
@@ -194,6 +219,13 @@ impl Email {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for Email {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
@@ -207,7 +239,16 @@ impl std::fmt::Display for Email {
 /// identifier+password where the identifier is the canonical email; the
 /// type wraps the raw string so future mechanisms can lift constraints
 /// in one place.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+///
+/// `Identifier` does NOT derive `Deserialize` — the custom impl below
+/// routes every wire input through [`parse`](Self::parse) so untrimmed
+/// or differently-cased identifiers cannot bypass canonicalisation.
+/// Validation invariants are exercised end-to-end by the @api / @web
+/// scenarios in `tests/bdd/features/B-0043-create-account.feature`
+/// (case-variant rejection, malformed-input rejection); per the
+/// BDD-only test surface policy there are no Rust unit or doc-tests
+/// for these rules.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
 pub struct Identifier(String);
@@ -243,6 +284,13 @@ impl Identifier {
     }
 }
 
+impl<'de> Deserialize<'de> for Identifier {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
 impl std::fmt::Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -254,7 +302,17 @@ const INVITATION_TOKEN_MIN_LEN: usize = 16;
 
 /// Opaque invitation token. R-0001 treats the token as a flat string —
 /// generation/delivery is R-0005's job; here we just verify and consume.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+///
+/// `InvitationToken` does NOT derive `Deserialize` — the custom impl
+/// below routes every wire input through [`parse`](Self::parse) so
+/// short-on-wire tokens are rejected at the contract boundary instead
+/// of reaching the handler. Validation invariants are exercised
+/// end-to-end by the @api / @web scenarios in
+/// `tests/bdd/features/B-0043-create-account.feature` (expired-token
+/// rejection, missing-token rejection, etc.); per the BDD-only test
+/// surface policy there are no Rust unit or doc-tests for these
+/// rules.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
 pub struct InvitationToken(String);
@@ -284,6 +342,13 @@ impl InvitationToken {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for InvitationToken {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
