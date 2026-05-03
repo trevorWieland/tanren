@@ -49,6 +49,11 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-bdd-wire-coverage
+    tsconfig:
+      glob: "apps/web/tsconfig.json"
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-tsconfig
 
 pre-push:
   parallel: false

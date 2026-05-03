@@ -4,9 +4,10 @@
   "private": true,
   "description": "Tanren responsive web UI. F-0001 ships a placeholder route that fetches the API's /health endpoint and renders the response.",
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "dev": "concurrently -n paraglide,next \"paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations --watch\" \"next dev --turbopack\"",
+    "build": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations && next build --turbopack",
     "start": "next start",
+    "i18n:compile": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations",
     "lint": "oxlint .",
     "typecheck": "tsgo --noEmit",
     "format": "prettier --write .",
@@ -14,15 +15,20 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@inlang/paraglide-js": "catalog:default",
     "next": "catalog:default",
     "react": "catalog:default",
-    "react-dom": "catalog:default"
+    "react-dom": "catalog:default",
+    "tailwindcss": "catalog:default",
+    "valibot": "catalog:default"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "catalog:default",
     "@types/node": "catalog:default",
     "@types/react": "catalog:default",
     "@types/react-dom": "catalog:default",
     "@typescript/native-preview": "catalog:default",
+    "concurrently": "catalog:default",
     "oxlint": "catalog:default",
     "prettier": "catalog:default",
     "typescript": "catalog:default",

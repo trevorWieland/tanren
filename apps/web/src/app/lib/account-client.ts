@@ -1,7 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+import * as m from "@/i18n/paraglide/messages";
 
-const SESSION_TOKEN_KEY = "tanren.session_token";
-const ACCOUNT_ID_KEY = "tanren.account_id";
+const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
 export interface SignUpInput {
   email: string;
@@ -15,6 +14,7 @@ export interface SignInInput {
 }
 
 export interface AcceptInvitationInput {
+  email: string;
   invitation_token: string;
   password: string;
   display_name: string;
@@ -27,9 +27,14 @@ export interface AccountView {
   org: string | null;
 }
 
+/**
+ * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
+ * sign-up/sign-in/accept-invitation. The body carries metadata only —
+ * the session token itself is never readable from JavaScript.
+ */
 export interface SessionView {
   account_id: string;
-  token: string;
+  expires_at: string;
 }
 
 export interface SignUpResult {
@@ -73,31 +78,22 @@ interface FailureBody {
   summary?: unknown;
 }
 
-const FAILURE_MESSAGES: Record<AccountFailureCode, string> = {
-  duplicate_identifier: "An account already exists for that email.",
-  invalid_credential: "Email or password is invalid.",
-  invitation_not_found: "This invitation link is not recognized.",
-  invitation_already_consumed: "This invitation has already been accepted.",
-  invitation_expired: "This invitation has expired.",
-  validation_failed: "Please check the form fields and try again.",
-  unavailable: "Tanren is temporarily unavailable. Please try again shortly.",
-  internal_error: "Something went wrong. Please try again.",
-};
-
+/**
+ * Map an `AccountFailure` to a localized message via paraglide. Falls back
+ * to the API-supplied summary, then to a generic "Request failed" string,
+ * so unknown failure codes still surface something meaningful.
+ */
 export function describeFailure(failure: AccountFailure): string {
-  const known = FAILURE_MESSAGES[failure.code as AccountFailureCode];
-  if (known !== undefined) {
-    return known;
+  const key = `failure_${failure.code}`;
+  const lookup = m as unknown as Record<string, (() => string) | undefined>;
+  const fn = lookup[key];
+  if (typeof fn === "function") {
+    return fn();
   }
-  return failure.summary !== "" ? failure.summary : "Request failed.";
-}
-
-export function persistSession(accountId: string, sessionToken: string): void {
-  if (typeof window === "undefined") {
-    return;
+  if (failure.summary !== "") {
+    return failure.summary;
   }
-  window.localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
-  window.localStorage.setItem(ACCOUNT_ID_KEY, accountId);
+  return m.failure_fallback();
 }
 
 export class AccountRequestError extends Error {
@@ -117,6 +113,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      // Cookie transport: send/receive HTTP-only session cookie on every
+      // request. Replaces localStorage token storage (M2).
+      credentials: "include",
     });
   } catch (cause: unknown) {
     throw new AccountRequestError({
@@ -158,7 +157,33 @@ export function acceptInvitation(
 ): Promise<AcceptInvitationResult> {
   const path = `/invitations/${encodeURIComponent(token)}/accept`;
   return postJson<AcceptInvitationResult>(path, {
+    email: input.email,
     password: input.password,
     display_name: input.display_name,
   });
+}
+
+/**
+ * Sign-out clears the session row server-side and the cookie via
+ * `Set-Cookie: tanren_session=; Max-Age=0`.
+ */
+export async function signOut(): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/sessions/revoke`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+  if (!response.ok) {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: `HTTP ${response.status}`,
+    });
+  }
 }

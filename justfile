@@ -344,6 +344,7 @@ check:
     run_stage "thin binary" just check-thin-binary
     run_stage "tracing init" just check-tracing-init
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
+    run_stage "tsconfig" just check-tsconfig
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
     total_elapsed="$(( $(now_ms) - total_start ))"
