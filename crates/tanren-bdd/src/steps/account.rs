@@ -249,6 +249,30 @@ async fn then_fails_with(world: &mut TanrenWorld, code: String) {
     assert_eq!(actual, code, "expected failure code");
 }
 
+#[then(expr = "a {string} event is recorded")]
+async fn then_event_recorded(world: &mut TanrenWorld, kind: String) {
+    use tanren_store::AccountStore;
+    let ctx = world.ensure_account_ctx().await;
+    let recent: Vec<tanren_store::EventEnvelope> = AccountStore::recent_events(&ctx.store, 20)
+        .await
+        .expect("recent_events should succeed under BDD");
+    let found = recent.iter().any(|envelope| {
+        envelope
+            .payload
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|k| k == kind)
+    });
+    assert!(
+        found,
+        "expected a '{kind}' event in the recent log; got {kinds:?}",
+        kinds = recent
+            .iter()
+            .filter_map(|e| e.payload.get("kind").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>()
+    );
+}
+
 async fn do_sign_up(
     world: &mut TanrenWorld,
     actor: String,

@@ -9,11 +9,54 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tanren_contract::AccountFailureReason;
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
 pub const EVENT_FAMILY: &str = "account";
+
+/// Closed taxonomy of account-flow event kinds.
+///
+/// `xtask check-event-coverage` cross-references every variant against
+/// BDD feature steps to ensure each kind has at least one assertion. The
+/// kind also serialises to the JSON envelope's `kind` field so log
+/// consumers can filter without parsing the payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AccountEventKind {
+    /// A new account was created (self-signup or invitation acceptance).
+    AccountCreated,
+    /// An existing account signed in.
+    SignedIn,
+    /// An invitation was accepted (paired with `AccountCreated` for the
+    /// new invitee account).
+    InvitationAccepted,
+    /// A sign-up was rejected — duplicate identifier, validation failure,
+    /// or other taxonomy reason.
+    SignUpRejected,
+    /// A sign-in was rejected — invalid credential or validation failure.
+    SignInFailed,
+    /// An invitation acceptance was rejected — not found / expired /
+    /// already consumed / validation failure.
+    InvitationAcceptFailed,
+}
+
+impl AccountEventKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AccountCreated => "account_created",
+            Self::SignedIn => "signed_in",
+            Self::InvitationAccepted => "invitation_accepted",
+            Self::SignUpRejected => "sign_up_rejected",
+            Self::SignInFailed => "sign_in_failed",
+            Self::InvitationAcceptFailed => "invitation_accept_failed",
+        }
+    }
+}
 
 /// A new account was created.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,12 +93,47 @@ pub struct InvitationAccepted {
     pub at: DateTime<Utc>,
 }
 
+/// A sign-up attempt was rejected. Carries the [`AccountFailureReason`]
+/// so audit consumers can distinguish duplicate identifiers from
+/// validation failures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignUpRejected {
+    /// Why the attempt was rejected.
+    pub reason: AccountFailureReason,
+    /// Email the caller submitted (case-folded; safe to log).
+    pub identifier: String,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// A sign-in attempt was rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignInFailed {
+    /// Why the attempt failed.
+    pub reason: AccountFailureReason,
+    /// Email the caller submitted (case-folded; safe to log).
+    pub identifier: String,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// An invitation-acceptance attempt was rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvitationAcceptFailed {
+    /// Why the attempt was rejected.
+    pub reason: AccountFailureReason,
+    /// Token the caller submitted.
+    pub token: InvitationToken,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
 /// Encode a typed event as the JSON envelope persisted in the event log.
 #[must_use]
-pub fn envelope<T: Serialize>(kind: &str, payload: &T) -> serde_json::Value {
+pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
     serde_json::json!({
         "family": EVENT_FAMILY,
-        "kind": kind,
+        "kind": kind.as_str(),
         "payload": payload,
     })
 }
