@@ -2,19 +2,23 @@
 //!
 //! This crate is the **only** place in the workspace that owns SQL and
 //! row-shape entities. Other crates consume typed envelopes through the
-//! [`Store`] handle; the underlying `SeaORM` entity types are intentionally
-//! crate-private (`entity/` is a private module) so that row shape changes
-//! never leak across the dependency boundary.
+//! [`AccountStore`] port and the concrete [`Store`] adapter; the
+//! underlying `SeaORM` entity types are intentionally crate-private
+//! (`entity/` is a private module) so that row shape changes never leak
+//! across the dependency boundary.
 
 mod entity;
 mod migration;
 mod records;
+mod traits;
 
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
 };
+pub use traits::{AccountStore, ConsumeInvitationError, ConsumedInvitation};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
@@ -33,9 +37,12 @@ use uuid::Uuid;
 /// A connected handle to Tanren's canonical event store.
 ///
 /// Construct via [`Store::connect`]; apply pending migrations via
-/// [`Store::migrate`]; append events via [`Store::append_event`]; read recent
-/// events via [`Store::recent_events`]. The handle is cheap to clone — under
-/// the hood `SeaORM` pools connections.
+/// [`Store::migrate`]. The handle is cheap to clone — under the hood
+/// `SeaORM` pools connections.
+///
+/// All account-flow methods are exposed via the [`AccountStore`] trait
+/// impl below; handlers depend on `&dyn AccountStore`, not on `Store`
+/// directly.
 pub struct Store {
     conn: DatabaseConnection,
 }
@@ -98,22 +105,174 @@ impl Store {
         Migrator::up(&self.conn, None).await?;
         Ok(())
     }
+}
 
-    /// Append a payload to the canonical event log at the supplied
-    /// instant. Caller threads `clock.now()` in — the store does not
-    /// read time directly.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn append_event(
+impl From<entity::events::Model> for EventEnvelope {
+    fn from(model: entity::events::Model) -> Self {
+        Self {
+            id: model.id,
+            occurred_at: model.occurred_at,
+            payload: model.payload,
+        }
+    }
+}
+
+#[async_trait]
+impl AccountStore for Store {
+    async fn find_account_by_identifier(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Option<AccountRecord>, StoreError> {
+        let row = entity::accounts::Entity::find()
+            .filter(entity::accounts::Column::Identifier.eq(identifier.as_str()))
+            .one(&self.conn)
+            .await?;
+        row.map(AccountRecord::try_from).transpose()
+    }
+
+    async fn find_account_by_email(
+        &self,
+        email: &Email,
+    ) -> Result<Option<AccountRecord>, StoreError> {
+        let identifier = Identifier::from_email(email);
+        AccountStore::find_account_by_identifier(self, &identifier).await
+    }
+
+    async fn insert_account(&self, new: NewAccount) -> Result<AccountRecord, StoreError> {
+        let model = entity::accounts::ActiveModel {
+            id: Set(new.id.as_uuid()),
+            identifier: Set(new.identifier.as_str().to_owned()),
+            display_name: Set(new.display_name),
+            password_hash: Set(new.password_hash),
+            password_salt: Set(new.password_salt),
+            created_at: Set(new.created_at),
+            org_id: Set(new.org_id.map(OrgId::as_uuid)),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        AccountRecord::try_from(inserted)
+    }
+
+    async fn insert_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        now: DateTime<Utc>,
+    ) -> Result<MembershipId, StoreError> {
+        let id = MembershipId::fresh();
+        let model = entity::memberships::ActiveModel {
+            id: Set(id.as_uuid()),
+            account_id: Set(account_id.as_uuid()),
+            org_id: Set(org_id.as_uuid()),
+            created_at: Set(now),
+        };
+        model.insert(&self.conn).await?;
+        Ok(id)
+    }
+
+    async fn find_invitation_by_token(
+        &self,
+        token: &InvitationToken,
+    ) -> Result<Option<InvitationRecord>, StoreError> {
+        let row = entity::invitations::Entity::find_by_id(token.as_str().to_owned())
+            .one(&self.conn)
+            .await?;
+        row.map(InvitationRecord::try_from).transpose()
+    }
+
+    async fn consume_invitation(
+        &self,
+        token: &InvitationToken,
+        now: DateTime<Utc>,
+    ) -> Result<ConsumedInvitation, ConsumeInvitationError> {
+        // Single round-trip conditional UPDATE: only flip rows that are
+        // still pending and not yet expired. SQLite serialises writes,
+        // and a Postgres deployment relies on the partial-unique index
+        // `idx_invitations_active_token` (see the
+        // m20260503_000002_account_sessions_expires_at migration) to
+        // belt-and-brace the same invariant.
+        let token_owned = token.as_str().to_owned();
+        let result = entity::invitations::Entity::update_many()
+            .col_expr(
+                entity::invitations::Column::ConsumedAt,
+                sea_orm::sea_query::Expr::value(Some(now)),
+            )
+            .filter(entity::invitations::Column::Token.eq(token_owned.clone()))
+            .filter(entity::invitations::Column::ConsumedAt.is_null())
+            .filter(entity::invitations::Column::ExpiresAt.gt(now))
+            .exec(&self.conn)
+            .await
+            .map_err(StoreError::from)?;
+
+        if result.rows_affected == 1 {
+            // Re-read the row to populate the success shape. The row is
+            // already pinned to `consumed_at = now` so any concurrent
+            // acceptance has lost the race and will see the same row in
+            // its disambiguation read below.
+            let row = entity::invitations::Entity::find_by_id(token_owned)
+                .one(&self.conn)
+                .await
+                .map_err(StoreError::from)?
+                .ok_or_else(|| StoreError::DataInvariant {
+                    column: "invitation_token",
+                    cause: ValidationError::InvitationTokenEmpty,
+                })?;
+            return Ok(ConsumedInvitation {
+                inviting_org_id: OrgId::new(row.inviting_org_id),
+                expires_at: row.expires_at,
+                consumed_at: row.consumed_at.unwrap_or(now),
+            });
+        }
+
+        // No row was transitioned. Disambiguate why.
+        let existing = entity::invitations::Entity::find_by_id(token.as_str().to_owned())
+            .one(&self.conn)
+            .await
+            .map_err(StoreError::from)?;
+        match existing {
+            None => Err(ConsumeInvitationError::NotFound),
+            Some(row) if row.consumed_at.is_some() => Err(ConsumeInvitationError::AlreadyConsumed),
+            Some(row) if row.expires_at <= now => Err(ConsumeInvitationError::Expired),
+            // The row matched the WHERE clause when we read it but the
+            // UPDATE reported zero rows-affected — this can only happen
+            // if a concurrent caller transitioned-then-reset the row,
+            // which the schema does not permit. Surface as
+            // `AlreadyConsumed` because that's the racier-than-expected
+            // failure shape the user-facing API exposes for any
+            // already-locked invitation.
+            Some(_) => Err(ConsumeInvitationError::AlreadyConsumed),
+        }
+    }
+
+    async fn insert_session(
+        &self,
+        token: SessionToken,
+        account_id: AccountId,
+        now: DateTime<Utc>,
+        expires_at: DateTime<Utc>,
+    ) -> Result<SessionRecord, StoreError> {
+        let model = entity::account_sessions::ActiveModel {
+            token: Set(token.expose_secret().to_owned()),
+            account_id: Set(account_id.as_uuid()),
+            created_at: Set(now),
+            expires_at: Set(expires_at),
+        };
+        model.insert(&self.conn).await?;
+        Ok(SessionRecord {
+            token,
+            account_id,
+            created_at: now,
+            expires_at,
+        })
+    }
+
+    async fn append_event(
         &self,
         payload: serde_json::Value,
-        occurred_at: DateTime<Utc>,
+        now: DateTime<Utc>,
     ) -> Result<EventEnvelope, StoreError> {
         let envelope = EventEnvelope {
             id: Uuid::now_v7(),
-            occurred_at,
+            occurred_at: now,
             payload,
         };
         let model = entity::events::ActiveModel {
@@ -125,12 +284,7 @@ impl Store {
         Ok(envelope)
     }
 
-    /// Read the most recent `limit` events, newest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
+    async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
         // Order by `occurred_at` first, then by `id` (UUIDv7) as a stable
         // tie-breaker. Without the secondary key, events landing inside the
         // same timestamp bucket can come back in different orders across
@@ -145,92 +299,14 @@ impl Store {
     }
 }
 
-impl From<entity::events::Model> for EventEnvelope {
-    fn from(model: entity::events::Model) -> Self {
-        Self {
-            id: model.id,
-            occurred_at: model.occurred_at,
-            payload: model.payload,
-        }
-    }
-}
-
+/// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
+/// so production binaries cannot accidentally seed test data; the testkit
+/// (and only the testkit) enables the feature.
+#[cfg(feature = "test-hooks")]
 impl Store {
-    /// Insert a new account row.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails — including
-    /// the unique-index violation that fires on duplicate `identifier`.
-    pub async fn insert_account(&self, new: NewAccount) -> Result<AccountRecord, StoreError> {
-        let model = entity::accounts::ActiveModel {
-            id: Set(new.id.as_uuid()),
-            identifier: Set(new.identifier.as_str().to_owned()),
-            display_name: Set(new.display_name),
-            password_hash: Set(new.password_hash),
-            password_salt: Set(new.password_salt),
-            created_at: Set(new.created_at),
-            org_id: Set(new.org_id.map(OrgId::as_uuid)),
-        };
-        let inserted = model.insert(&self.conn).await?;
-        AccountRecord::try_from(inserted)
-    }
-
-    /// Look up an account by its case-sensitive identifier.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn find_account_by_identifier(
-        &self,
-        identifier: &Identifier,
-    ) -> Result<Option<AccountRecord>, StoreError> {
-        let row = entity::accounts::Entity::find()
-            .filter(entity::accounts::Column::Identifier.eq(identifier.as_str()))
-            .one(&self.conn)
-            .await?;
-        row.map(AccountRecord::try_from).transpose()
-    }
-
-    /// Look up an account by an [`Email`]. R-0001 derives identifier
-    /// from the canonical email; this is a thin alias kept around so
-    /// the email-driven sign-in path reads naturally.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn find_account_by_email(
-        &self,
-        email: &Email,
-    ) -> Result<Option<AccountRecord>, StoreError> {
-        let identifier = Identifier::from_email(email);
-        self.find_account_by_identifier(&identifier).await
-    }
-
-    /// Insert a membership linking an account to an organization.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn insert_membership(
-        &self,
-        account_id: AccountId,
-        org_id: OrgId,
-        created_at: DateTime<Utc>,
-    ) -> Result<MembershipId, StoreError> {
-        let id = MembershipId::fresh();
-        let model = entity::memberships::ActiveModel {
-            id: Set(id.as_uuid()),
-            account_id: Set(account_id.as_uuid()),
-            org_id: Set(org_id.as_uuid()),
-            created_at: Set(created_at),
-        };
-        model.insert(&self.conn).await?;
-        Ok(id)
-    }
-
-    /// Seed a fixture invitation. PR 4 will gate this behind the
-    /// `test-hooks` feature.
+    /// Seed a fixture invitation row directly. Bypasses the (currently
+    /// non-existent) invitation-creation flow so BDD scenarios can stage
+    /// pending invitations without an inviting handler.
     ///
     /// # Errors
     ///
@@ -247,70 +323,6 @@ impl Store {
         };
         let inserted = model.insert(&self.conn).await?;
         InvitationRecord::try_from(inserted)
-    }
-
-    /// Look up an invitation by token.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn find_invitation_by_token(
-        &self,
-        token: &InvitationToken,
-    ) -> Result<Option<InvitationRecord>, StoreError> {
-        let row = entity::invitations::Entity::find_by_id(token.as_str().to_owned())
-            .one(&self.conn)
-            .await?;
-        row.map(InvitationRecord::try_from).transpose()
-    }
-
-    /// Mark an invitation consumed at the supplied instant.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the update fails.
-    pub async fn mark_invitation_consumed(
-        &self,
-        token: &InvitationToken,
-        consumed_at: DateTime<Utc>,
-    ) -> Result<(), StoreError> {
-        let row = entity::invitations::Entity::find_by_id(token.as_str().to_owned())
-            .one(&self.conn)
-            .await?;
-        if let Some(row) = row {
-            let mut active: entity::invitations::ActiveModel = row.into();
-            active.consumed_at = Set(Some(consumed_at));
-            active.update(&self.conn).await?;
-        }
-        Ok(())
-    }
-
-    /// Issue a session for the supplied account. The DB column for
-    /// `expires_at` lands in PR 4; the value is currently held only in
-    /// the returned [`SessionRecord`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn insert_session(
-        &self,
-        token: SessionToken,
-        account_id: AccountId,
-        created_at: DateTime<Utc>,
-        expires_at: DateTime<Utc>,
-    ) -> Result<SessionRecord, StoreError> {
-        let model = entity::account_sessions::ActiveModel {
-            token: Set(token.expose_secret().to_owned()),
-            account_id: Set(account_id.as_uuid()),
-            created_at: Set(created_at),
-        };
-        model.insert(&self.conn).await?;
-        Ok(SessionRecord {
-            token,
-            account_id,
-            created_at,
-            expires_at,
-        })
     }
 }
 
@@ -334,9 +346,9 @@ pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, St
     })
 }
 
-/// Wrap a raw secret string into a [`SecretString`]. Re-exported so
-/// `tanren-app-services` (and tests) can build a [`SecretString`]
-/// without taking a direct `secrecy` dependency.
+/// Wrap a raw string into a [`SecretString`]. Re-exported so callers
+/// can build a [`SecretString`] without taking a direct `secrecy`
+/// dependency.
 #[must_use]
 pub fn secret_from_string(value: String) -> SecretString {
     SecretString::from(value)

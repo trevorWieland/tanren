@@ -77,6 +77,11 @@ fn scan_file(root: &Path, path: &Path, doc_re: &Regex, violations: &mut Vec<Stri
     let Ok(file) = syn::parse_file(&src) else {
         return Ok(());
     };
+    // A `#![cfg(feature = "test-hooks")]` (or equivalent) inner attribute
+    // at the top of the file gates every public item it contains.
+    if is_cfg_gated(&file.attrs) {
+        return Ok(());
+    }
     scan_items(root, path, &src, &file.items, doc_re, violations);
     Ok(())
 }
@@ -98,6 +103,12 @@ fn scan_items(
                 }
             }
             Item::Impl(i) => {
+                // The cfg-gate may live on the enclosing `impl` block —
+                // that is the canonical pattern for a `#[cfg(feature =
+                // "test-hooks")] impl Foo { ... }` block of fixture
+                // seeders. Treat any cfg on the impl as covering every
+                // method inside it.
+                let impl_gated = is_cfg_gated(&i.attrs);
                 for ii in &i.items {
                     if let ImplItem::Fn(m) = ii {
                         let is_pub = matches!(m.vis, Visibility::Public(_));
@@ -109,15 +120,16 @@ fn scan_items(
                         if !doc_re.is_match(&doc) {
                             continue;
                         }
-                        if !is_cfg_gated(attrs) {
-                            let line = locate_fn_line(src, &m.sig.ident.to_string());
-                            violations.push(format_violation(
-                                root,
-                                path,
-                                line,
-                                &m.sig.ident.to_string(),
-                            ));
+                        if impl_gated || is_cfg_gated(attrs) {
+                            continue;
                         }
+                        let line = locate_fn_line(src, &m.sig.ident.to_string());
+                        violations.push(format_violation(
+                            root,
+                            path,
+                            line,
+                            &m.sig.ident.to_string(),
+                        ));
                     }
                 }
             }

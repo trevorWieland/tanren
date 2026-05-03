@@ -11,6 +11,7 @@ pub struct Model {
     pub token: String,
     pub account_id: Uuid,
     pub created_at: DateTimeUtc,
+    pub expires_at: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

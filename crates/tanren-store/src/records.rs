@@ -5,7 +5,7 @@
 //! the seam between the `SeaORM`-shaped DB row and the domain newtype
 //! shape produced by `tanren-identity-policy`.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
@@ -108,10 +108,10 @@ impl From<entity::memberships::Model> for MembershipRecord {
 /// Persisted session row — issued by `tanren-app-services` on
 /// successful sign-up / sign-in / invitation acceptance.
 ///
-/// `expires_at` is currently a Rust-only field — PR 4 lands the
-/// matching DB column + migration. Until then, callers compute it as
-/// `created_at + Duration::days(30)` and the [`crate::Store::insert_session`]
-/// path returns it from the supplied input.
+/// The matching DB column for `expires_at` lands in
+/// `m20260503_000002_account_sessions_expires_at`; callers thread the
+/// computed expiry (`now + 30 days`) on every insert and the verifier
+/// path filters `WHERE expires_at > now`.
 #[derive(Debug, Clone)]
 pub struct SessionRecord {
     /// Opaque session token (PK).
@@ -126,14 +126,11 @@ pub struct SessionRecord {
 
 impl From<entity::account_sessions::Model> for SessionRecord {
     fn from(model: entity::account_sessions::Model) -> Self {
-        // PR 4 introduces an `expires_at` column; until then a
-        // re-hydrated row defaults to `created_at + 30 days`.
-        let expires_at = model.created_at + Duration::days(30);
         Self {
             token: SessionToken::from_secret(SecretString::from(model.token)),
             account_id: AccountId::new(model.account_id),
             created_at: model.created_at,
-            expires_at,
+            expires_at: model.expires_at,
         }
     }
 }
