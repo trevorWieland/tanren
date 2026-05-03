@@ -33,8 +33,12 @@
 //!   The `expectrl` driver was tried but the ratatui screen scrape is
 //!   too fragile to commit as a default; PR 11 will revisit alongside
 //!   the Playwright work for `@web`.
-//! - `@web` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   Real `playwright-bdd` wiring lands in PR 11.
+//! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
+//!   parallel Node-side Playwright harness for the same `@web` Gherkin
+//!   scenarios via `playwright-bdd`. The two layers prove themselves
+//!   independently against the same scenario file (shared via the
+//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
+//!   dual-coverage note.
 //! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
 //!   dispatch on an ephemeral `SQLite` store).
 
@@ -43,6 +47,7 @@ mod cli;
 mod in_process;
 mod mcp;
 mod tui;
+mod web;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -62,6 +67,7 @@ pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
 pub use tui::TuiHarness;
+pub use web::WebHarness;
 
 /// Identifier for the active wire-harness — derived from the cucumber
 /// scenario tags by the BDD World.

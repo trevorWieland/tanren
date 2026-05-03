@@ -88,14 +88,18 @@ async function main() {
   try {
     parsed = JSON.parse(stripJsonc(raw));
   } catch (err) {
-    console.error(`check-tsconfig: failed to parse ${TSCONFIG_PATH}: ${err.message}`);
+    console.error(
+      `check-tsconfig: failed to parse ${TSCONFIG_PATH}: ${err.message}`,
+    );
     process.exit(1);
   }
   const co = parsed.compilerOptions ?? {};
   const missing = [];
   for (const [flag, expected] of REQUIRED) {
     if (co[flag] !== expected) {
-      missing.push(`  - ${flag}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(co[flag])}`);
+      missing.push(
+        `  - ${flag}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(co[flag])}`,
+      );
     }
   }
   if (missing.length > 0) {

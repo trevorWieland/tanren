@@ -804,6 +804,7 @@ ci:
     run_stage_quiet "web lint" just web-lint
     run_stage_quiet "web typecheck" just web-typecheck
     run_stage_quiet "web format" just web-format-check
+    run_stage_quiet "web test" just web-test
     # Disabled until tanren-cli is rebuilt:
     # run_stage "install drift" just install-commands-check
     total_elapsed="$(( $(now_ms) - total_start ))"
@@ -838,6 +839,34 @@ web-format:
 web-format-check:
     pnpm --filter @tanren/web format:check
 
-# Run web frontend unit tests.
-web-test:
+# Run the web frontend's Vitest unit project (no stories, no e2e).
+web-unit:
     pnpm --filter @tanren/web test
+
+# Run the web frontend's Storybook component-test project (Vitest +
+# Playwright browser provider). Storybook 9's `addon-vitest` transforms
+# every `*.stories.tsx` file into a real-browser component test; the
+# play function asserts the DOM and `addon-a11y` runs axe-core afterwards.
+web-storybook-test:
+    pnpm --filter @tanren/web run storybook:test
+
+# Build a production Storybook bundle. Useful as a smoke check that
+# every story compiles end-to-end against the modern toolchain.
+web-storybook-build:
+    pnpm --filter @tanren/web run storybook:build
+
+# Run the playwright-bdd `@web` slice end-to-end. Boots the Tanren API
+# binary on a free port (against an ephemeral SQLite DB) via Playwright's
+# globalSetup, then spawns a Next.js dev server pointing at it. The
+# Gherkin source is shared with the Rust BDD runner via the symlink at
+# `apps/web/tests/bdd/features` → `tests/bdd/features`.
+web-e2e:
+    pnpm --filter @tanren/web run e2e
+
+# Aggregate web test gate — every layer Storybook 9 + Vitest + Playwright
+# adds in PR 11. CI's `just ci` invokes this; locally the three child
+# recipes are usable independently.
+web-test:
+    @just web-unit
+    @just web-storybook-test
+    @just web-e2e
