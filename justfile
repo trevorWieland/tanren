@@ -132,6 +132,53 @@ bootstrap:
         lefthook install
     fi
 
+    # === Node.js + pnpm ===
+    echo "==> Ensuring Node.js (LTS 22.x via fnm/nvm/corepack)..."
+    need_node=true
+    if command -v node &>/dev/null; then
+        node_major="$(node --version | sed 's/^v//' | cut -d. -f1)"
+        if [[ "$node_major" -ge 22 ]]; then need_node=false; fi
+    fi
+    if [[ "$need_node" == true ]]; then
+        if command -v fnm &>/dev/null; then
+            fnm install --lts && fnm use --lts
+        elif command -v nvm &>/dev/null; then
+            # shellcheck disable=SC1090
+            . "$HOME/.nvm/nvm.sh"
+            nvm install --lts && nvm use --lts
+        else
+            echo "  Install fnm (https://github.com/Schniz/fnm) or nvm, then re-run 'just bootstrap'."
+            echo "  (macOS: brew install fnm)"
+            failed="$failed node"
+        fi
+    fi
+
+    echo "==> Ensuring pnpm 10.x..."
+    if ! command -v pnpm &>/dev/null; then
+        if command -v corepack &>/dev/null; then
+            corepack enable && corepack prepare pnpm@latest --activate
+        else
+            echo "  FAIL: pnpm — corepack not available"
+            failed="$failed pnpm"
+        fi
+    fi
+
+    # === Playwright browsers ===
+    if command -v pnpm &>/dev/null && [[ -f apps/web/package.json ]]; then
+        echo "==> Installing Playwright browsers (chromium, firefox, webkit)..."
+        if ! (cd apps/web && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium firefox webkit); then
+            echo "  WARN: Playwright browser install failed (network? sudo?). Re-run later if needed."
+        fi
+    fi
+
+    # === First paraglide compile ===
+    # Paraglide compile generates the typed message functions tsc/oxlint need.
+    # Until apps/web has the paraglide config (PR 10), this is a no-op.
+    if [[ -f apps/web/src/i18n/project.inlang/settings.json ]]; then
+        echo "==> First paraglide-js compile..."
+        (cd apps/web && pnpm run i18n:compile) || echo "  WARN: paraglide compile failed; PR 10 may not have landed yet."
+    fi
+
     if [[ -n "$failed" ]]; then
         echo ""
         echo "==> Bootstrap completed with failures:"
@@ -144,9 +191,20 @@ bootstrap:
 
 # Fetch dependencies and verify build (Rust + web frontend)
 install:
+    @echo "==> Cargo fetch (locked) + workspace build"
     @{{ cargo }} fetch --locked
     @{{ cargo }} build --workspace --locked
-    @pnpm install --frozen-lockfile
+    @echo "==> pnpm install (frozen lockfile)"
+    @CI=true pnpm install --frozen-lockfile
+    @if [ -f apps/web/src/i18n/project.inlang/settings.json ]; then \
+        echo "==> Compile i18n messages" ; \
+        cd apps/web && pnpm run i18n:compile ; \
+    fi
+    @if command -v pnpm >/dev/null 2>&1 && [ -f apps/web/package.json ]; then \
+        echo "==> Verify Playwright browsers" ; \
+        (cd apps/web && pnpm exec playwright install --with-deps chromium firefox webkit) 2>/dev/null || echo "  WARN: Playwright not yet installed; run 'just bootstrap' first." ; \
+    fi
+    @echo "==> install complete."
 
 # Verify lockfile and manifests are in sync without mutating Cargo.lock
 deps-locked-check:
@@ -277,6 +335,8 @@ check:
     run_stage "dependency boundaries" just check-deps
     run_stage "rust test surface" just check-rust-test-surface
     run_stage "bdd tags" just check-bdd-tags
+    run_stage "event coverage" just check-event-coverage
+    run_stage "profiles" just check-profiles
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
     total_elapsed="$(( $(now_ms) - total_start ))"
@@ -576,6 +636,87 @@ check-suppression:
         found=1
     fi
     if [[ "$found" -eq 1 ]]; then exit 1; fi
+
+# ============================================================================
+# R-0001 enforcement guards
+#
+# Wired into `just check` only after the corresponding fix-PR lands so that
+# the guard's failure mode is informative rather than masking pre-existing
+# violations. PR 2 wires `check-event-coverage` and `check-profiles`. The
+# remaining recipes are callable today but not part of the default `check`
+# chain — each fix-PR (PR 3..PR 10) adds its own guard once the fix lands.
+# ============================================================================
+
+# Reject `bin/*/src/main.rs` files exceeding 50 lines. Logic belongs in a
+# per-binary library crate (`crates/tanren-{api,cli,mcp,tui}-app`); the
+# binary main is a thin entrypoint.
+check-thin-binary:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail=0
+    for f in bin/*/src/main.rs; do
+        [ -f "$f" ] || continue
+        lines=$(wc -l < "$f" | tr -d ' ')
+        if [ "$lines" -gt 50 ]; then
+            echo "$f: $lines lines, max 50" >&2
+            fail=1
+        fi
+    done
+    exit $fail
+
+# Validate apps/web/tsconfig.json carries the strict-mode flag set required
+# by the React-TS profile (M3). PR 10 lands the tsconfig changes; until
+# then this recipe fails by design.
+check-tsconfig:
+    @cd apps/web && node scripts/check-tsconfig.mjs
+
+# AST scan for plaintext secret fields (C3). Wired into `check` by PR 6.
+check-secrets:
+    @{{ cargo }} run -q -p tanren-xtask -- check-secrets
+
+# AST scan asserting BDD steps dispatch through `*Harness` traits, never
+# `tanren_app_services::Handlers::*` directly (C4). Wired into `check` by PR 9.
+check-bdd-wire-coverage:
+    @{{ cargo }} run -q -p tanren-xtask -- check-bdd-wire-coverage
+
+# Reject `pub fn` items whose docs reference test/seed/fixture and which
+# are not gated on `#[cfg(any(test, feature = "test-hooks"))]` (H3).
+# Wired into `check` by PR 4.
+check-test-hooks:
+    @{{ cargo }} run -q -p tanren-xtask -- check-test-hooks
+
+# AST scan for bare `uuid::Uuid` field types in domain crates (H4). Each
+# domain id must be its own newtype. Wired into `check` by PR 3.
+check-newtype-ids:
+    @{{ cargo }} run -q -p tanren-xtask -- check-newtype-ids
+
+# Assert every `bin/*/src/main.rs` calls `tanren_observability::init` (M8).
+# Wired into `check` by PR 8.
+check-tracing-init:
+    @{{ cargo }} run -q -p tanren-xtask -- check-tracing-init
+
+# Cross-reference `EventKind` failure variants with BDD assertions (M7).
+# Wired into `check` by PR 2 (this PR) — passes today because no events
+# have failure variants yet.
+check-event-coverage:
+    @{{ cargo }} run -q -p tanren-xtask -- check-event-coverage
+
+# Validate profile docs against the architecture records and enforcement
+# wiring (N1/N2/N3). Wired into `check` by PR 2 (this PR).
+check-profiles:
+    @{{ cargo }} run -q -p tanren-xtask -- check-profiles
+
+# Reject `pub trait` definitions with no production impls (H1). Wired
+# into `check` by PR 5.
+check-orphan-traits:
+    @{{ cargo }} run -q -p tanren-xtask -- check-orphan-traits
+
+# Run the regression-fixture test suite that proves each guard rejects
+# its synthetic regression. Fixtures land in PR 12; until then this
+# recipe runs `cargo test -p tanren-xtask --tests`, which exits 0 with
+# no tests, so branch protection can require it now.
+check-enforcement-regressions:
+    @{{ cargo }} test -p tanren-xtask --tests
 
 # ============================================================================
 # Maintenance

@@ -1,6 +1,14 @@
 //! Repo maintenance commands for Tanren.
 
 mod bdd_tags;
+mod check_bdd_wire_coverage;
+mod check_event_coverage;
+mod check_newtype_ids;
+mod check_orphan_traits;
+mod check_profiles;
+mod check_secrets;
+mod check_test_hooks;
+mod check_tracing_init;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -39,14 +47,66 @@ enum Command {
     /// contract.
     #[command(name = "check-bdd-tags")]
     BddTags,
+    /// Reject struct fields whose name implies a secret but whose type is
+    /// not a `secrecy` wrapper or workspace newtype listed in
+    /// `xtask/secret-newtypes.toml`. See
+    /// `profiles/rust-cargo/architecture/secrets-handling.md`.
+    #[command(name = "check-secrets")]
+    Secrets,
+    /// Reject BDD step definitions that dispatch directly through
+    /// `tanren_app_services::Handlers::*` rather than the
+    /// per-interface `*Harness` traits. See
+    /// `profiles/rust-cargo/testing/bdd-wire-harness.md`.
+    #[command(name = "check-bdd-wire-coverage")]
+    BddWireCoverage,
+    /// Reject `pub fn`s whose doc-comment hints at test/fixture/seed use
+    /// but lack a `#[cfg(test)]` / `#[cfg(feature = "test-hooks")]`
+    /// gate. See `docs/architecture/subsystems/state.md`.
+    #[command(name = "check-test-hooks")]
+    TestHooks,
+    /// Reject struct/enum field types that use bare `uuid::Uuid`
+    /// outside the newtype declaration sites listed in
+    /// `xtask/uuid-allowlist.toml`. See
+    /// `profiles/rust-cargo/architecture/id-formats.md`.
+    #[command(name = "check-newtype-ids")]
+    NewtypeIds,
+    /// Reject `bin/*/src/main.rs` files that do not initialize tracing
+    /// via `tanren_observability::init`. See
+    /// `docs/architecture/subsystems/observation.md`.
+    #[command(name = "check-tracing-init")]
+    TracingInit,
+    /// Reject event variants (enums whose name ends in `Event` /
+    /// `EventKind`) without a corresponding BDD scenario asserting the
+    /// variant fires. See
+    /// `profiles/rust-cargo/global/just-ci-gate.md`.
+    #[command(name = "check-event-coverage")]
+    EventCoverage,
+    /// Validate that profile/architecture markdown links resolve and
+    /// every referenced `just <recipe>` / `xtask <subcommand>` exists
+    /// (or is listed in `xtask/check-profiles-pending.toml`).
+    #[command(name = "check-profiles")]
+    Profiles,
+    /// Reject `pub trait` definitions that have no implementor in the
+    /// workspace. See `profiles/rust-cargo/global/just-ci-gate.md`.
+    #[command(name = "check-orphan-traits")]
+    OrphanTraits,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let root = workspace_root()?;
     match cli.command {
         Command::RustTestSurface => check_rust_test_surface(),
         Command::Suppression => check_suppression(),
-        Command::BddTags => bdd_tags::run(&workspace_root()?),
+        Command::BddTags => bdd_tags::run(&root),
+        Command::Secrets => check_secrets::run(&root),
+        Command::BddWireCoverage => check_bdd_wire_coverage::run(&root),
+        Command::TestHooks => check_test_hooks::run(&root),
+        Command::NewtypeIds => check_newtype_ids::run(&root),
+        Command::TracingInit => check_tracing_init::run(&root),
+        Command::EventCoverage => check_event_coverage::run(&root),
+        Command::Profiles => check_profiles::run(&root),
+        Command::OrphanTraits => check_orphan_traits::run(&root),
     }
 }
 

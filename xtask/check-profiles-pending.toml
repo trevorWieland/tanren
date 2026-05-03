@@ -1,0 +1,24 @@
+# Recipes / xtask subcommands referenced in profiles or architecture docs
+# before the corresponding implementation lands. Each entry should reference
+# the PR that introduces the actual recipe/subcommand and remove itself when
+# that PR lands.
+#
+# Source of references: `profiles/rust-cargo/global/just-ci-gate.md` and the
+# enforcement matrix in PR 1's architecture/profile updates.
+
+# `just <recipe>` references that are not yet present in `justfile`.
+pending_recipes = [
+  "check-thin-binary",          # PR (system thin-binary work) wires this in.
+  "check-tsconfig",             # apps/web TS strictness gate; arrives later.
+  "check-enforcement-regressions", # falsification-fixture meta-gate.
+  "check-lines",                # max-lines-per-file gate; lands later.
+]
+
+# `xtask <subcommand>` references for subcommands that PR 2 does not ship.
+pending_subcommands = [
+  "check-openapi-handcraft",    # planned guard from openapi-generation.md.
+  "check-deps",                 # exists today as a `just` recipe; arch docs
+                                # still describe it as `xtask check-deps`.
+                                # PR fixing the docs (or porting the recipe
+                                # into xtask) removes this entry.
+]

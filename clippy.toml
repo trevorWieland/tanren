@@ -1,1 +1,18 @@
 too-many-lines-threshold = 100
+
+# Workspace baseline — each crate extends in its own [lints.clippy] section.
+# `allow-invalid = true` lets the workspace declare these denials before
+# the dependency that exposes them is actually pulled in by any crate.
+# When a fix-PR adds the dep AND opts the relevant crate into `disallowed_methods = "deny"`,
+# the entry starts taking effect mechanically. Without `allow-invalid`,
+# clippy emits a workspace-noise warning for unreachable paths.
+disallowed-methods = [
+  { path = "chrono::Utc::now", reason = "inject Clock; pass `now` as parameter", allow-invalid = true },
+  { path = "uuid::Uuid::new_v4", reason = "use newtype::fresh() for IDs or rand::random for opaque tokens", allow-invalid = true },
+  { path = "sha2::Sha256::new", reason = "use CredentialVerifier (argon2id) — see profiles/rust-cargo/architecture/secrets-handling.md", allow-invalid = true },
+  { path = "std::env::var", reason = "use tanren_configuration_secrets::Config", allow-invalid = true },
+]
+
+disallowed-types = [
+  { path = "tower_http::cors::Any", reason = "explicit origins required — see profiles/rust-cargo/architecture/cookie-session.md", allow-invalid = true },
+]
