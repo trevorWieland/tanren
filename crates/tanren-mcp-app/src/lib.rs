@@ -381,6 +381,26 @@ fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServ
     base.with_allowed_hosts(hosts)
 }
 
+/// Build the MCP axum router around a caller-supplied `Arc<Store>` and a
+/// caller-supplied bootstrap API key. Intended for the BDD wire-harness
+/// in `tanren-testkit`: the harness owns the database, seeds
+/// invitations + reads events directly, and spawns this router on an
+/// ephemeral port. Returns the router plus the `CancellationToken`
+/// callers can flip to drive graceful shutdown of the rmcp streaming
+/// service.
+#[cfg(any(test, feature = "test-hooks"))]
+pub fn build_router_with_store(
+    store: Arc<Store>,
+    api_key: secrecy::SecretString,
+) -> (Router, CancellationToken) {
+    let auth_config = Arc::new(AuthConfig {
+        bootstrap_key: Some(api_key),
+    });
+    let cancellation = CancellationToken::new();
+    let router = build_router(auth_config, Handlers::new(), store, cancellation.clone());
+    (router, cancellation)
+}
+
 /// Serve the tanren-mcp surface to completion. Honours `SIGTERM`/`SIGINT`
 /// for graceful shutdown.
 ///

@@ -89,12 +89,20 @@ pub(crate) async fn build_cookie_store(database_url: &str) -> Result<CookieStore
 /// `Secure + HttpOnly + SameSite=Strict + Path=/ + Max-Age=2592000`.
 /// See `profiles/rust-cargo/architecture/cookie-session.md`.
 pub(crate) fn session_layer(store: CookieStore) -> SessionLayerEnum {
+    session_layer_with_secure(store, true)
+}
+
+/// Build the cookie-session layer with an explicit `secure` flag. The BDD
+/// wire-harness drives the API over plain HTTP on an ephemeral port and
+/// must disable the `Secure` attribute so cookies survive the loopback
+/// hop; production callers always use [`session_layer`] (secure = true).
+pub(crate) fn session_layer_with_secure(store: CookieStore, secure: bool) -> SessionLayerEnum {
     let expiry = Expiry::OnInactivity(CookieDuration::days(SESSION_MAX_AGE_DAYS));
     match store {
         CookieStore::Sqlite(s) => SessionLayerEnum::Sqlite(
             SessionManagerLayer::new(s)
                 .with_name(SESSION_COOKIE_NAME)
-                .with_secure(true)
+                .with_secure(secure)
                 .with_http_only(true)
                 .with_same_site(SameSite::Strict)
                 .with_path("/")
@@ -103,7 +111,7 @@ pub(crate) fn session_layer(store: CookieStore) -> SessionLayerEnum {
         CookieStore::Postgres(s) => SessionLayerEnum::Postgres(
             SessionManagerLayer::new(s)
                 .with_name(SESSION_COOKIE_NAME)
-                .with_secure(true)
+                .with_secure(secure)
                 .with_http_only(true)
                 .with_same_site(SameSite::Strict)
                 .with_path("/")

@@ -68,6 +68,13 @@ Feature: Create an account
       Then the request fails with code "invitation_expired"
       And a "invitation_accept_failed" event is recorded
 
+    @falsification @api
+    Scenario: API serializes concurrent acceptances of one invitation
+      Given a pending invitation token "api-race-token-padpad"
+      When 5 actors concurrently accept invitation "api-race-token-padpad"
+      Then exactly 1 acceptance succeeds
+      And 4 fail with code "invitation_already_consumed"
+
   Rule: Web surface
 
     @positive @web
