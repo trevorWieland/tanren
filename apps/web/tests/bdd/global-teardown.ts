@@ -47,13 +47,21 @@ export default async function globalTeardown(): Promise<void> {
   }
 
   if (!state) return;
-  if (state.apiProcess && !state.apiProcess.killed) {
-    state.apiProcess.kill("SIGTERM");
-    // Give it a moment to flush; Playwright already runs this after all
-    // tests complete so a tight loop is fine.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
-    if (!state.apiProcess.killed) {
-      state.apiProcess.kill("SIGKILL");
+  if (state.apiProcess && state.apiProcess.exitCode === null) {
+    // Codex P2 review on PR #133: `child.killed` flips to true the
+    // moment a signal is *sent*, not when the child actually exits, so
+    // gating SIGKILL on `!killed` after a successful SIGTERM made the
+    // SIGKILL path unreachable. A `cargo run -p tanren-api` process
+    // that ignores SIGTERM (or hangs in build/teardown) would survive
+    // the hook and pollute later runs. Use the actual exit-state probe
+    // (`exitCode === null` ⇒ still running) and wait for the exit
+    // event (or a deadline) before escalating.
+    const proc = state.apiProcess;
+    proc.kill("SIGTERM");
+    const exitedAfterTerm = await waitForExit(proc, 5_000);
+    if (!exitedAfterTerm) {
+      proc.kill("SIGKILL");
+      await waitForExit(proc, 2_000);
     }
   }
   if (state.tmpRoot) {
@@ -64,4 +72,24 @@ export default async function globalTeardown(): Promise<void> {
     }
   }
   globalThis.__tanrenBddState = undefined;
+}
+
+/**
+ * Resolve to `true` if the child has exited (or is already exited)
+ * within `timeoutMs`; `false` if the deadline elapses with the child
+ * still running. Avoids racing on `child.killed`, which only reflects
+ * signal delivery and not actual process termination.
+ */
+async function waitForExit(
+  child: import("node:child_process").ChildProcess,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
 }

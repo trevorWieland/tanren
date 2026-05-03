@@ -54,20 +54,21 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-tsconfig
-    web-format:
+    # Web format/lint/typecheck collapsed into one serial chain because
+    # each precondition-runs `just web-i18n-compile` (the paraglide
+    # compile that emits typed message functions), and three parallel
+    # paraglide compiles racing on the same output directory hit
+    # `ENOTEMPTY: rmdir '...paraglide'` non-deterministically. Running
+    # them in sequence behind a single hook compiles paraglide once
+    # and then performs all three checks in order. The Rust hooks above
+    # remain parallel.
+    web:
       glob: "apps/web/**/*.{ts,tsx,js,jsx,json,md,css,yaml,yml}"
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
+        just web-i18n-compile
         just web-format-check
-    web-lint:
-      glob: "apps/web/**/*.{ts,tsx,js,jsx}"
-      run: |
-        export PATH="$HOME/.cargo/bin:$PATH"
         just web-lint
-    web-typecheck:
-      glob: "apps/web/**/*.{ts,tsx}"
-      run: |
-        export PATH="$HOME/.cargo/bin:$PATH"
         just web-typecheck
 
 pre-push:

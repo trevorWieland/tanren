@@ -38,8 +38,16 @@ impl std::fmt::Debug for InProcessHarness {
 
 impl InProcessHarness {
     /// Construct a fresh in-process harness. Connects an in-memory
-    /// `SQLite` store, applies migrations, and pins the clock at
-    /// `Utc::now()`.
+    /// `SQLite` store, applies migrations, and drives handlers with a
+    /// live clock that calls `Utc::now()` on every invocation.
+    ///
+    /// A live clock matters because BDD scenarios interleave setup
+    /// steps with handler calls that depend on real time progression.
+    /// Invitation `expires_at` checks compare to the handler's
+    /// `clock.now()`, so a frozen clock captured at construction would
+    /// let an invitation registered with a past `expires_at` still
+    /// appear unexpired when the scenario runs the acceptance step
+    /// (Codex P2 review on PR #133).
     ///
     /// # Errors
     ///
@@ -49,8 +57,7 @@ impl InProcessHarness {
         let store = crate::ephemeral_store()
             .await
             .map_err(|e| HarnessError::Transport(format!("ephemeral store: {e}")))?;
-        let now = Utc::now();
-        let clock = Clock::from_fn(move || now);
+        let clock = Clock::from_fn(Utc::now);
         let handlers = Handlers::with_verifier(clock, Arc::new(Argon2idVerifier::fast_for_tests()));
         Ok(Self {
             store,
