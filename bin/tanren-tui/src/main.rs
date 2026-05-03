@@ -13,8 +13,8 @@ mod draw;
 mod ui;
 
 use ui::{
-    accept_invitation_fields, accept_invitation_outcome, render_error, sign_in_fields,
-    sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
+    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
 };
 
 use std::env;
@@ -31,7 +31,6 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tokio::runtime::Runtime;
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
@@ -140,7 +139,7 @@ impl FormState {
         }
     }
 
-    fn value(&self, idx: usize) -> &str {
+    pub(crate) fn value(&self, idx: usize) -> &str {
         self.fields.get(idx).map_or("", |f| f.value.as_str())
     }
 }
@@ -300,14 +299,19 @@ impl App {
         let handlers = &self.handlers;
         match kind {
             FormKind::SignUp => {
-                let request = {
+                let parsed = {
                     let Screen::SignUp(state) = &self.screen else {
                         return;
                     };
-                    SignUpRequest {
-                        email: state.value(0).to_owned(),
-                        password: state.value(1).to_owned(),
-                        display_name: state.value(2).to_owned(),
+                    parse_sign_up(state)
+                };
+                let request = match parsed {
+                    Ok(req) => req,
+                    Err(message) => {
+                        if let Screen::SignUp(state) = &mut self.screen {
+                            state.error = Some(message);
+                        }
+                        return;
                     }
                 };
                 let result = self
@@ -323,13 +327,19 @@ impl App {
                 }
             }
             FormKind::SignIn => {
-                let request = {
+                let parsed = {
                     let Screen::SignIn(state) = &self.screen else {
                         return;
                     };
-                    SignInRequest {
-                        email: state.value(0).to_owned(),
-                        password: state.value(1).to_owned(),
+                    parse_sign_in(state)
+                };
+                let request = match parsed {
+                    Ok(req) => req,
+                    Err(message) => {
+                        if let Screen::SignIn(state) = &mut self.screen {
+                            state.error = Some(message);
+                        }
+                        return;
                     }
                 };
                 let result = self
@@ -345,14 +355,19 @@ impl App {
                 }
             }
             FormKind::AcceptInvitation => {
-                let request = {
+                let parsed = {
                     let Screen::AcceptInvitation(state) = &self.screen else {
                         return;
                     };
-                    AcceptInvitationRequest {
-                        invitation_token: state.value(0).to_owned(),
-                        password: state.value(1).to_owned(),
-                        display_name: state.value(2).to_owned(),
+                    parse_accept_invitation(state)
+                };
+                let request = match parsed {
+                    Ok(req) => req,
+                    Err(message) => {
+                        if let Screen::AcceptInvitation(state) = &mut self.screen {
+                            state.error = Some(message);
+                        }
+                        return;
                     }
                 };
                 let result = self

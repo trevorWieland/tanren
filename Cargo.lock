@@ -2453,8 +2453,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "libc",
- "rand_chacha",
+ "rand_chacha 0.3.1",
  "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44c5af06bb1b7d3216d91932aed5265164bf384dc89cd6ba05cf59a35f5f76ea"
+dependencies = [
+ "rand_chacha 0.9.0",
+ "rand_core 0.9.5",
 ]
 
 [[package]]
@@ -2479,12 +2489,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_chacha"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.9.5",
+]
+
+[[package]]
 name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.17",
+]
+
+[[package]]
+name = "rand_core"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
+dependencies = [
+ "getrandom 0.3.4",
 ]
 
 [[package]]
@@ -3076,6 +3105,7 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
 dependencies = [
+ "serde",
  "zeroize",
 ]
 
@@ -3708,10 +3738,12 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "axum",
+ "secrecy",
  "serde",
  "serde_json",
  "tanren-app-services",
  "tanren-contract",
+ "tanren-identity-policy",
  "tanren-observability",
  "tokio",
  "tower-http",
@@ -3723,13 +3755,14 @@ name = "tanren-app-services"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "tanren-contract",
+ "tanren-identity-policy",
  "tanren-store",
  "thiserror 2.0.18",
- "uuid",
 ]
 
 [[package]]
@@ -3746,8 +3779,10 @@ version = "0.0.0"
 dependencies = [
  "chrono",
  "cucumber",
+ "secrecy",
  "tanren-app-services",
  "tanren-contract",
+ "tanren-identity-policy",
  "tanren-store",
  "tanren-testkit",
  "tokio",
@@ -3767,8 +3802,10 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "secrecy",
  "tanren-app-services",
  "tanren-contract",
+ "tanren-identity-policy",
  "tokio",
 ]
 
@@ -3793,10 +3830,12 @@ dependencies = [
 name = "tanren-contract"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "schemars",
+ "secrecy",
  "serde",
+ "tanren-identity-policy",
  "thiserror 2.0.18",
- "uuid",
 ]
 
 [[package]]
@@ -3820,7 +3859,11 @@ dependencies = [
 name = "tanren-identity-policy"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "chrono",
+ "rand 0.9.4",
+ "schemars",
+ "secrecy",
  "serde",
  "thiserror 2.0.18",
  "uuid",
@@ -3833,6 +3876,7 @@ dependencies = [
  "anyhow",
  "axum",
  "rmcp",
+ "secrecy",
  "serde",
  "serde_json",
  "tanren-app-services",
@@ -3932,8 +3976,10 @@ dependencies = [
  "chrono",
  "sea-orm",
  "sea-orm-migration",
+ "secrecy",
  "serde",
  "serde_json",
+ "tanren-identity-policy",
  "thiserror 2.0.18",
  "tokio",
  "uuid",
@@ -3946,6 +3992,7 @@ dependencies = [
  "chrono",
  "serde",
  "tanren-app-services",
+ "tanren-identity-policy",
  "tanren-store",
  "uuid",
 ]
@@ -3957,8 +4004,10 @@ dependencies = [
  "anyhow",
  "crossterm",
  "ratatui",
+ "secrecy",
  "tanren-app-services",
  "tanren-contract",
+ "tanren-identity-policy",
  "tokio",
 ]
 

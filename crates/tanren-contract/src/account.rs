@@ -6,18 +6,28 @@
 //! binary serialises the same shapes — keeping them here is the
 //! architectural guarantee that the surfaces stay equivalent.
 
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use tanren_identity_policy::secret_serde;
+use tanren_identity_policy::{AccountId, Email, Identifier, InvitationToken, OrgId, SessionToken};
 
 /// Self-signup request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SignUpRequest {
     /// Email address that will own the new account. Lower-cased + trimmed
     /// during validation.
-    pub email: String,
+    pub email: Email,
     /// Plaintext password. Hashed by the handler before persistence.
-    pub password: String,
+    /// Wrapped in `SecretString` so accidental `Debug` / `Serialize`
+    /// calls do not leak the credential.
+    #[serde(
+        deserialize_with = "secret_serde::deserialize_password",
+        serialize_with = "secret_serde::serialize_password_expose"
+    )]
+    #[schemars(with = "String")]
+    pub password: SecretString,
     /// Human-readable display name for the new account.
     pub display_name: String,
 }
@@ -35,9 +45,14 @@ pub struct SignUpResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SignInRequest {
     /// Email of the account being signed in to.
-    pub email: String,
+    pub email: Email,
     /// Plaintext password — verified against the stored hash.
-    pub password: String,
+    #[serde(
+        deserialize_with = "secret_serde::deserialize_password",
+        serialize_with = "secret_serde::serialize_password_expose"
+    )]
+    #[schemars(with = "String")]
+    pub password: SecretString,
 }
 
 /// Successful sign-in response.
@@ -53,9 +68,18 @@ pub struct SignInResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AcceptInvitationRequest {
     /// Invitation token issued by the inviting organization.
-    pub invitation_token: String,
+    pub invitation_token: InvitationToken,
+    /// Email the invitee chooses for the new account. (Subsequent PRs
+    /// finalize the email-from-invitation flow; for PR 3 the field is
+    /// already first-class on the wire shape.)
+    pub email: Email,
     /// Plaintext password for the new account.
-    pub password: String,
+    #[serde(
+        deserialize_with = "secret_serde::deserialize_password",
+        serialize_with = "secret_serde::serialize_password_expose"
+    )]
+    #[schemars(with = "String")]
+    pub password: SecretString,
     /// Display name for the new account.
     pub display_name: String,
 }
@@ -68,20 +92,20 @@ pub struct AcceptInvitationResponse {
     /// Newly minted session.
     pub session: SessionView,
     /// Organization the new account joined as a result of this acceptance.
-    pub joined_org: Uuid,
+    pub joined_org: OrgId,
 }
 
 /// External-facing view of a Tanren account.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AccountView {
     /// Stable account id.
-    pub id: Uuid,
+    pub id: AccountId,
     /// User-facing identifier (email).
-    pub identifier: String,
+    pub identifier: Identifier,
     /// Display name.
     pub display_name: String,
     /// Owning organization id — `None` for personal (self-signup) accounts.
-    pub org: Option<Uuid>,
+    pub org: Option<OrgId>,
 }
 
 /// External-facing view of a session token. The token is opaque to all
@@ -90,9 +114,11 @@ pub struct AccountView {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SessionView {
     /// Account this session is bound to.
-    pub account_id: Uuid,
+    pub account_id: AccountId,
     /// Opaque session token.
-    pub token: String,
+    pub token: SessionToken,
+    /// Wall-clock time at which the session expires.
+    pub expires_at: DateTime<Utc>,
 }
 
 /// Closed taxonomy of account-flow failures.
@@ -110,6 +136,11 @@ pub enum AccountFailureReason {
     DuplicateIdentifier,
     /// The submitted credentials did not match a stored credential.
     InvalidCredential,
+    /// User-supplied input failed validation before any verification
+    /// could run (empty password, malformed email, ...). Distinct from
+    /// `InvalidCredential` so callers can tell "your inputs are
+    /// malformed" apart from "your credentials don't match".
+    ValidationFailed,
     /// Invitation token does not correspond to any known invitation.
     InvitationNotFound,
     /// Invitation token has expired.
@@ -125,6 +156,7 @@ impl AccountFailureReason {
         match self {
             Self::DuplicateIdentifier => "duplicate_identifier",
             Self::InvalidCredential => "invalid_credential",
+            Self::ValidationFailed => "validation_failed",
             Self::InvitationNotFound => "invitation_not_found",
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
@@ -138,6 +170,9 @@ impl AccountFailureReason {
             Self::DuplicateIdentifier => "An account already exists for the supplied identifier.",
             Self::InvalidCredential => {
                 "The supplied credentials are invalid or did not match an account."
+            }
+            Self::ValidationFailed => {
+                "The submitted input did not satisfy contract-level validation."
             }
             Self::InvitationNotFound => "The invitation token does not match any known invitation.",
             Self::InvitationExpired => "The invitation has expired and can no longer be accepted.",
@@ -155,6 +190,7 @@ impl AccountFailureReason {
         match self {
             Self::DuplicateIdentifier => 409,
             Self::InvalidCredential => 401,
+            Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
         }

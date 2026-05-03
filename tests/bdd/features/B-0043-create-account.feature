@@ -25,8 +25,8 @@ Feature: Create an account
 
     @positive @api
     Scenario: Invitation acceptance over the API joins the inviting org
-      Given a pending invitation token "api-token-1"
-      When bob accepts invitation "api-token-1" with password "team-pw"
+      Given a pending invitation token "api-token-1-padpad"
+      When bob accepts invitation "api-token-1-padpad" with password "team-pw"
       Then bob receives a session token
       And bob has joined an organization
 
@@ -34,8 +34,8 @@ Feature: Create an account
     Scenario: One person holds two accounts via the API
       When alice self-signs up with email "alice-api-multi@example.com" and password "p4ssw0rd"
       Then alice receives a session token
-      Given a pending invitation token "api-token-multi"
-      When alice accepts invitation "api-token-multi" with password "work-pw"
+      Given a pending invitation token "api-token-multi-padpad"
+      When alice accepts invitation "api-token-multi-padpad" with password "work-pw"
       Then alice now holds 2 accounts
 
     @positive @api
@@ -58,8 +58,8 @@ Feature: Create an account
 
     @falsification @api
     Scenario: API rejects accepting an expired invitation
-      Given an expired invitation token "api-token-expired"
-      When erin accepts invitation "api-token-expired" with password "any-pw"
+      Given an expired invitation token "api-token-expired-padpad"
+      When erin accepts invitation "api-token-expired-padpad" with password "any-pw"
       Then the request fails with code "invitation_expired"
 
   Rule: Web surface
@@ -73,8 +73,8 @@ Feature: Create an account
 
     @positive @web
     Scenario: Invitation acceptance over the web joins the inviting org
-      Given a pending invitation token "web-token-1"
-      When bob accepts invitation "web-token-1" with password "team-pw"
+      Given a pending invitation token "web-token-1-padpad"
+      When bob accepts invitation "web-token-1-padpad" with password "team-pw"
       Then bob receives a session token
       And bob has joined an organization
 
@@ -82,8 +82,8 @@ Feature: Create an account
     Scenario: One person holds two accounts via the web
       When alice self-signs up with email "alice-web-multi@example.com" and password "p4ssw0rd"
       Then alice receives a session token
-      Given a pending invitation token "web-token-multi"
-      When alice accepts invitation "web-token-multi" with password "work-pw"
+      Given a pending invitation token "web-token-multi-padpad"
+      When alice accepts invitation "web-token-multi-padpad" with password "work-pw"
       Then alice now holds 2 accounts
 
     @positive @web
@@ -106,8 +106,8 @@ Feature: Create an account
 
     @falsification @web
     Scenario: Web rejects accepting an expired invitation
-      Given an expired invitation token "web-token-expired"
-      When erin accepts invitation "web-token-expired" with password "any-pw"
+      Given an expired invitation token "web-token-expired-padpad"
+      When erin accepts invitation "web-token-expired-padpad" with password "any-pw"
       Then the request fails with code "invitation_expired"
 
   Rule: CLI surface
@@ -121,8 +121,8 @@ Feature: Create an account
 
     @positive @cli
     Scenario: Invitation acceptance over the CLI joins the inviting org
-      Given a pending invitation token "cli-token-1"
-      When bob accepts invitation "cli-token-1" with password "team-pw"
+      Given a pending invitation token "cli-token-1-padpad"
+      When bob accepts invitation "cli-token-1-padpad" with password "team-pw"
       Then bob receives a session token
       And bob has joined an organization
 
@@ -130,8 +130,8 @@ Feature: Create an account
     Scenario: One person holds two accounts via the CLI
       When alice self-signs up with email "alice-cli-multi@example.com" and password "p4ssw0rd"
       Then alice receives a session token
-      Given a pending invitation token "cli-token-multi"
-      When alice accepts invitation "cli-token-multi" with password "work-pw"
+      Given a pending invitation token "cli-token-multi-padpad"
+      When alice accepts invitation "cli-token-multi-padpad" with password "work-pw"
       Then alice now holds 2 accounts
 
     @positive @cli
@@ -154,8 +154,8 @@ Feature: Create an account
 
     @falsification @cli
     Scenario: CLI rejects accepting an expired invitation
-      Given an expired invitation token "cli-token-expired"
-      When erin accepts invitation "cli-token-expired" with password "any-pw"
+      Given an expired invitation token "cli-token-expired-padpad"
+      When erin accepts invitation "cli-token-expired-padpad" with password "any-pw"
       Then the request fails with code "invitation_expired"
 
   Rule: MCP surface
@@ -169,8 +169,8 @@ Feature: Create an account
 
     @positive @mcp
     Scenario: Invitation acceptance over MCP joins the inviting org
-      Given a pending invitation token "mcp-token-1"
-      When bob accepts invitation "mcp-token-1" with password "team-pw"
+      Given a pending invitation token "mcp-token-1-padpad"
+      When bob accepts invitation "mcp-token-1-padpad" with password "team-pw"
       Then bob receives a session token
       And bob has joined an organization
 
@@ -178,8 +178,8 @@ Feature: Create an account
     Scenario: One person holds two accounts via MCP
       When alice self-signs up with email "alice-mcp-multi@example.com" and password "p4ssw0rd"
       Then alice receives a session token
-      Given a pending invitation token "mcp-token-multi"
-      When alice accepts invitation "mcp-token-multi" with password "work-pw"
+      Given a pending invitation token "mcp-token-multi-padpad"
+      When alice accepts invitation "mcp-token-multi-padpad" with password "work-pw"
       Then alice now holds 2 accounts
 
     @positive @mcp
@@ -202,8 +202,8 @@ Feature: Create an account
 
     @falsification @mcp
     Scenario: MCP rejects accepting an expired invitation
-      Given an expired invitation token "mcp-token-expired"
-      When erin accepts invitation "mcp-token-expired" with password "any-pw"
+      Given an expired invitation token "mcp-token-expired-padpad"
+      When erin accepts invitation "mcp-token-expired-padpad" with password "any-pw"
       Then the request fails with code "invitation_expired"
 
   Rule: TUI surface
@@ -217,8 +217,8 @@ Feature: Create an account
 
     @positive @tui
     Scenario: Invitation acceptance over the TUI joins the inviting org
-      Given a pending invitation token "tui-token-1"
-      When frank accepts invitation "tui-token-1" with password "team-pw"
+      Given a pending invitation token "tui-token-1-padpad"
+      When frank accepts invitation "tui-token-1-padpad" with password "team-pw"
       Then frank receives a session token
       And frank has joined an organization
 
@@ -226,8 +226,8 @@ Feature: Create an account
     Scenario: One person holds two accounts via the TUI
       When alice self-signs up with email "alice-tui-multi@example.com" and password "p4ssw0rd"
       Then alice receives a session token
-      Given a pending invitation token "tui-token-multi"
-      When alice accepts invitation "tui-token-multi" with password "work-pw"
+      Given a pending invitation token "tui-token-multi-padpad"
+      When alice accepts invitation "tui-token-multi-padpad" with password "work-pw"
       Then alice now holds 2 accounts
 
     @positive @tui
@@ -250,6 +250,6 @@ Feature: Create an account
 
     @falsification @tui
     Scenario: TUI rejects accepting an expired invitation
-      Given an expired invitation token "tui-token-expired"
-      When erin accepts invitation "tui-token-expired" with password "any-pw"
+      Given an expired invitation token "tui-token-expired-padpad"
+      When erin accepts invitation "tui-token-expired-padpad" with password "any-pw"
       Then the request fails with code "invitation_expired"

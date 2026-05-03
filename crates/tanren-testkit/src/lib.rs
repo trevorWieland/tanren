@@ -7,6 +7,7 @@
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Store;
+use tanren_identity_policy::{InvitationToken, OrgId};
 use tanren_store::{NewInvitation, StoreError};
 use uuid::Uuid;
 
@@ -42,15 +43,29 @@ pub async fn ephemeral_store() -> Result<Store, StoreError> {
     Ok(store)
 }
 
+/// Generate a fresh fixture invitation token. The output is a 36-byte
+/// `inv-<uuid>` string — well above the 16-byte `InvitationToken` floor.
+///
+/// # Panics
+///
+/// Panics only if the resulting string fails [`InvitationToken::parse`],
+/// which would indicate a programmer error in this helper rather than
+/// runtime input — the panic is the right signal.
+#[must_use]
+pub fn fresh_invitation_token() -> InvitationToken {
+    let raw = format!("inv-{}", Uuid::new_v4().simple());
+    InvitationToken::parse(&raw).expect("synthesised invitation token must parse")
+}
+
 /// Spec for a test invitation. R-0005 will land the user-facing
 /// invitation-send flow; R-0001's BDD scenarios seed pending invitations
 /// directly via this helper.
 #[derive(Debug, Clone)]
 pub struct InvitationFixture {
     /// The opaque token callers will accept against.
-    pub token: String,
+    pub token: InvitationToken,
     /// Inviting organization id.
-    pub inviting_org: Uuid,
+    pub inviting_org: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
 }
@@ -60,8 +75,8 @@ impl InvitationFixture {
     #[must_use]
     pub fn valid(now: DateTime<Utc>) -> Self {
         Self {
-            token: format!("inv-{}", Uuid::new_v4().simple()),
-            inviting_org: Uuid::now_v7(),
+            token: fresh_invitation_token(),
+            inviting_org: OrgId::fresh(),
             expires_at: now + Duration::days(1),
         }
     }
@@ -70,8 +85,8 @@ impl InvitationFixture {
     #[must_use]
     pub fn expired(now: DateTime<Utc>) -> Self {
         Self {
-            token: format!("inv-{}", Uuid::new_v4().simple()),
-            inviting_org: Uuid::now_v7(),
+            token: fresh_invitation_token(),
+            inviting_org: OrgId::fresh(),
             expires_at: now - Duration::seconds(1),
         }
     }

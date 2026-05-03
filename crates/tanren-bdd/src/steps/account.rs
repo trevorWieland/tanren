@@ -9,7 +9,9 @@
 
 use chrono::Duration;
 use cucumber::{given, then, when};
+use secrecy::SecretString;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_identity_policy::{Email, InvitationToken};
 use tanren_testkit::InvitationFixture;
 
 use crate::{ActorState, Outcome, TanrenWorld};
@@ -23,8 +25,9 @@ async fn clean_env(world: &mut TanrenWorld) {
 async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
     let ctx = world.ensure_account_ctx().await;
     let now = ctx.clock.read();
+    let parsed = InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
     let mut fixture = InvitationFixture::valid(now);
-    fixture.token = token.clone();
+    fixture.token = parsed;
     tanren_testkit::seed_invitation(&ctx.store, &fixture)
         .await
         .expect("seed valid invitation");
@@ -35,8 +38,9 @@ async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
 async fn given_expired_invitation(world: &mut TanrenWorld, token: String) {
     let ctx = world.ensure_account_ctx().await;
     let now = ctx.clock.read();
+    let parsed = InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
     let mut fixture = InvitationFixture::expired(now);
-    fixture.token = token.clone();
+    fixture.token = parsed;
     tanren_testkit::seed_invitation(&ctx.store, &fixture)
         .await
         .expect("seed expired invitation");
@@ -61,13 +65,14 @@ async fn when_sign_up(world: &mut TanrenWorld, actor: String, email: String, pas
 #[when(expr = "{word} signs in with email {string} and password {string}")]
 async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, password: String) {
     let ctx = world.ensure_account_ctx().await;
+    let parsed_email = Email::parse(&email).expect("scenario emails must parse");
     let result = ctx
         .handlers
         .sign_in(
             &ctx.store,
             SignInRequest {
-                email: email.clone(),
-                password: password.clone(),
+                email: parsed_email,
+                password: SecretString::from(password.clone()),
             },
         )
         .await;
@@ -115,13 +120,21 @@ async fn when_accept_invitation(
 ) {
     let ctx = world.ensure_account_ctx().await;
     let display_name = format!("{actor} via {token}");
+    let invitation_token =
+        InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
+    // PR 7 sources the invitee email from the invitation row; for PR 3 the
+    // step synthesises a deterministic email from the actor name + token so
+    // every invitation acceptance lands on a unique identifier.
+    let email_raw = format!("{actor}-{token}@invitation.tanren");
+    let parsed_email = Email::parse(&email_raw).expect("synthesised invitation email must parse");
     let result = ctx
         .handlers
         .accept_invitation(
             &ctx.store,
             AcceptInvitationRequest {
-                invitation_token: token,
-                password: password.clone(),
+                invitation_token,
+                email: parsed_email,
+                password: SecretString::from(password.clone()),
                 display_name: display_name.clone(),
             },
         )
@@ -130,7 +143,7 @@ async fn when_accept_invitation(
     entry.password = Some(password);
     let outcome = match result {
         Ok(response) => {
-            entry.identifier = Some(response.account.identifier.clone());
+            entry.identifier = Some(response.account.identifier.as_str().to_owned());
             entry.accept_invitation = Some(response.clone());
             Outcome::AcceptedInvitation(response)
         }
@@ -154,12 +167,17 @@ async fn then_session_token(world: &mut TanrenWorld, actor: String) {
         .get(&actor)
         .expect("actor must have an outcome recorded");
     let token = match entry.sign_up.as_ref() {
-        Some(r) => Some(&r.session.token),
+        Some(r) => Some(r.session.token.expose_secret()),
         None => entry
             .sign_in
             .as_ref()
-            .map(|r| &r.session.token)
-            .or_else(|| entry.accept_invitation.as_ref().map(|r| &r.session.token)),
+            .map(|r| r.session.token.expose_secret())
+            .or_else(|| {
+                entry
+                    .accept_invitation
+                    .as_ref()
+                    .map(|r| r.session.token.expose_secret())
+            }),
     };
     assert!(
         token.is_some_and(|t| !t.is_empty()),
@@ -239,13 +257,14 @@ async fn do_sign_up(
     display_name: String,
 ) {
     let ctx = world.ensure_account_ctx().await;
+    let parsed_email = Email::parse(&email).expect("scenario emails must parse");
     let result = ctx
         .handlers
         .sign_up(
             &ctx.store,
             SignUpRequest {
-                email: email.clone(),
-                password: password.clone(),
+                email: parsed_email,
+                password: SecretString::from(password.clone()),
                 display_name,
             },
         )

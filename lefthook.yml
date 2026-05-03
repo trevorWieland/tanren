@@ -21,6 +21,14 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-profiles
+    newtype-ids:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-newtype-ids
+    secrets:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-secrets
 
 pre-push:
   parallel: false

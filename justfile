@@ -335,6 +335,8 @@ check:
     run_stage "dependency boundaries" just check-deps
     run_stage "rust test surface" just check-rust-test-surface
     run_stage "bdd tags" just check-bdd-tags
+    run_stage "newtype ids" just check-newtype-ids
+    run_stage "secrets" just check-secrets
     run_stage "event coverage" just check-event-coverage
     run_stage "profiles" just check-profiles
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'

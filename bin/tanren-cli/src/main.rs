@@ -15,8 +15,10 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_identity_policy::{Email, InvitationToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -166,50 +168,55 @@ async fn run_account(action: AccountAction) -> Result<()> {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
+            let email = Email::parse(&identifier).context("parse --identifier as email")?;
+            let password = SecretString::from(password);
             match invitation {
                 None => {
                     let response = handlers
                         .sign_up(
                             &store,
                             SignUpRequest {
-                                email: identifier,
+                                email,
                                 password,
                                 display_name,
                             },
                         )
                         .await
                         .map_err(account_error)?;
-                    persist_session(&response.session.token)?;
+                    persist_session(response.session.token.expose_secret())?;
                     let stdout = std::io::stdout();
                     let mut handle = stdout.lock();
                     writeln!(
                         handle,
                         "account_id={id} session={token}",
                         id = response.account.id,
-                        token = response.session.token
+                        token = response.session.token.expose_secret(),
                     )
                     .context("write sign-up result")?;
                 }
                 Some(token) => {
+                    let invitation_token = InvitationToken::parse(&token)
+                        .context("parse --invitation as invitation token")?;
                     let response = handlers
                         .accept_invitation(
                             &store,
                             AcceptInvitationRequest {
-                                invitation_token: token,
+                                invitation_token,
+                                email,
                                 password,
                                 display_name,
                             },
                         )
                         .await
                         .map_err(account_error)?;
-                    persist_session(&response.session.token)?;
+                    persist_session(response.session.token.expose_secret())?;
                     let stdout = std::io::stdout();
                     let mut handle = stdout.lock();
                     writeln!(
                         handle,
                         "account_id={id} session={token} joined_org={org}",
                         id = response.account.id,
-                        token = response.session.token,
+                        token = response.session.token.expose_secret(),
                         org = response.joined_org,
                     )
                     .context("write invitation-acceptance result")?;
@@ -224,24 +231,20 @@ async fn run_account(action: AccountAction) -> Result<()> {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
+            let email = Email::parse(&identifier).context("parse --identifier as email")?;
+            let password = SecretString::from(password);
             let response = handlers
-                .sign_in(
-                    &store,
-                    SignInRequest {
-                        email: identifier,
-                        password,
-                    },
-                )
+                .sign_in(&store, SignInRequest { email, password })
                 .await
                 .map_err(account_error)?;
-            persist_session(&response.session.token)?;
+            persist_session(response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             writeln!(
                 handle,
                 "account_id={id} session={token}",
                 id = response.account.id,
-                token = response.session.token
+                token = response.session.token.expose_secret(),
             )
             .context("write sign-in result")?;
         }

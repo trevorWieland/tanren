@@ -32,6 +32,24 @@ struct ScanCtx<'a> {
     secret_name_re: &'a Regex,
     suffix_name_re: &'a Regex,
     allowlist: &'a [String],
+    field_exemptions: &'a [FieldExemption],
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct FieldExemption {
+    /// Path to a file (workspace-relative) where the exemption applies.
+    file: String,
+    /// Field name to exempt. Combined with `file` so an exemption is
+    /// scoped to a known declaration site.
+    field: String,
+    /// Required textual rendering of the field's type — without this the
+    /// exemption would silently allow type drift. Whitespace-normalised
+    /// like the type-allowlist matcher.
+    ty: String,
+    /// Free-form note explaining why the field is exempt. Required so
+    /// every exemption has an audit trail; absence of a reason fails
+    /// parsing rather than silently allowing the legacy field.
+    reason: String,
 }
 
 const TARGET_CRATES: &[&str] = &[
@@ -45,10 +63,17 @@ const TARGET_CRATES: &[&str] = &[
 struct AllowlistFile {
     #[serde(default)]
     allowed: Vec<String>,
+    /// Per-(file, field) exemptions. Used for legacy storage shapes
+    /// that ship raw bytes/strings before a wrapper newtype lands. The
+    /// shape is intentionally chatty — every exemption is a justified
+    /// audit-trail entry.
+    #[serde(default)]
+    field_exemptions: Vec<FieldExemption>,
 }
 
 pub(crate) fn run(root: &Path) -> Result<()> {
-    let allowlist = load_allowlist(&root.join("xtask").join("secret-newtypes.toml"))?;
+    let (allowlist, field_exemptions) =
+        load_allowlist(&root.join("xtask").join("secret-newtypes.toml"))?;
     let secret_name_re = Regex::new(
         r"(?i)password|secret|api_key|credential|session_token|bearer|private_key|csrf|auth_token",
     )
@@ -60,6 +85,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         secret_name_re: &secret_name_re,
         suffix_name_re: &suffix_name_re,
         allowlist: &allowlist,
+        field_exemptions: &field_exemptions,
     };
     let mut violations: Vec<String> = Vec::new();
     for c in TARGET_CRATES {
@@ -85,14 +111,14 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     report(&violations)
 }
 
-fn load_allowlist(path: &Path) -> Result<Vec<String>> {
+fn load_allowlist(path: &Path) -> Result<(Vec<String>, Vec<FieldExemption>)> {
     if !path.exists() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let parsed: AllowlistFile =
         toml::from_str(&raw).with_context(|| format!("parse {} as TOML", path.display()))?;
-    Ok(parsed.allowed)
+    Ok((parsed.allowed, parsed.field_exemptions))
 }
 
 fn scan_file(ctx: &ScanCtx<'_>, path: &Path, violations: &mut Vec<String>) -> Result<()> {
@@ -152,15 +178,26 @@ fn check_fields(
             .allowlist
             .iter()
             .any(|t| ty_string.contains(&normalize(t)));
+        let has_field_exemption = ctx.field_exemptions.iter().any(|ex| {
+            normalize_path(&ex.file) == normalize_path(&rel)
+                && ex.field == name
+                && normalize(&ex.ty) == ty_string
+                // The reason field is part of the contract — audit
+                // entries without a justification are a parse error
+                // (no `serde(default)`) rather than a silent allow,
+                // and we sanity-check it is non-empty here so the
+                // file stays informative over time.
+                && !ex.reason.trim().is_empty()
+        });
 
-        if name_hits_secret && !has_secrecy && !has_allowlist {
+        if name_hits_secret && !has_secrecy && !has_allowlist && !has_field_exemption {
             violations.push(format!(
                 "{rel}:{line}: field `{name}: {ty_string}` looks like a secret but is not wrapped in `secrecy::SecretString`/`SecretBox` or a workspace newtype (xtask/secret-newtypes.toml)"
             ));
             continue;
         }
 
-        if name_hits_suffix && !has_secrecy && !has_allowlist {
+        if name_hits_suffix && !has_secrecy && !has_allowlist && !has_field_exemption {
             let bare_string = ty_string == "String" || ty_string == "std :: string :: String";
             let bare_bytes = ty_string == "Vec < u8 >" || ty_string.ends_with(":: Vec < u8 >");
             if bare_string || bare_bytes {
@@ -191,6 +228,10 @@ fn report(violations: &[String]) -> Result<()> {
         "check-secrets: {} violation(s); see profiles/rust-cargo/architecture/secrets-handling.md",
         violations.len()
     );
+}
+
+fn normalize_path(s: &str) -> String {
+    s.replace('\\', "/")
 }
 
 fn normalize(s: &str) -> String {
