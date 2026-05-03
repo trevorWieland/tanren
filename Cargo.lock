@@ -994,6 +994,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "email-validator-rfc5322"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ff8b1bffee2940db7f16e2521a1544d118d990f40e17e35d41b029fcd566e84"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4295,6 +4304,7 @@ dependencies = [
  "argon2",
  "base64",
  "chrono",
+ "email-validator-rfc5322",
  "password-hash",
  "rand 0.9.4",
  "schemars",

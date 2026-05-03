@@ -207,6 +207,9 @@ fn check_rust_test_surface(root: &Path) -> Result<()> {
         }
         let content =
             fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        let mut in_doc_block = false;
+        let mut doc_block_runnable = false;
+        let mut doc_block_start = 0usize;
         for (lineno, line) in content.lines().enumerate() {
             let trimmed = line.trim_start();
             let hit = trimmed.starts_with("#[test]")
@@ -220,6 +223,48 @@ fn check_rust_test_surface(root: &Path) -> Result<()> {
                     lineno + 1,
                     trimmed
                 ));
+            }
+            // Reject runnable doc-tests (``` rust code blocks inside
+            // `///` or `//!` comments without `ignore`/`no_run`/`text`
+            // markers). Doc-tests are tests by `cargo test` semantics
+            // and the BDD-only policy admits zero exceptions: any
+            // executable test must live in `tanren-bdd` as a `.feature`
+            // scenario. Allowed annotations: `text`, `ignore`,
+            // `no_run`, `compile_fail` — all non-runnable.
+            if trimmed.starts_with("///") || trimmed.starts_with("//!") {
+                let body = trimmed
+                    .trim_start_matches("///")
+                    .trim_start_matches("//!")
+                    .trim_start();
+                if let Some(rest) = body.strip_prefix("```") {
+                    if in_doc_block {
+                        if doc_block_runnable {
+                            violations.push(format!(
+                                "{}:{}: runnable doc-test — annotate with `text`/`ignore`/`no_run`/`compile_fail` or move to a BDD scenario",
+                                path.strip_prefix(root).unwrap_or(&path).display(),
+                                doc_block_start + 1,
+                            ));
+                        }
+                        in_doc_block = false;
+                        doc_block_runnable = false;
+                    } else {
+                        in_doc_block = true;
+                        doc_block_start = lineno;
+                        let lang = rest.trim();
+                        let runnable_lang = lang.is_empty()
+                            || lang == "rust"
+                            || lang.starts_with("rust,")
+                            || lang.starts_with("rust ");
+                        let opts: Vec<&str> = lang
+                            .split(|c: char| c == ',' || c.is_whitespace())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        let suppressed = opts.iter().any(|o| {
+                            *o == "text" || *o == "ignore" || *o == "no_run" || *o == "compile_fail"
+                        });
+                        doc_block_runnable = runnable_lang && !suppressed;
+                    }
+                }
             }
         }
     }

@@ -23,6 +23,7 @@ test-hooks = []
 argon2 = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
+email-validator-rfc5322 = { workspace = true }
 password-hash = { workspace = true }
 rand = { workspace = true }
 schemars = { workspace = true }

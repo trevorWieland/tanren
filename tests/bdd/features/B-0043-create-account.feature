@@ -55,6 +55,13 @@ Feature: Create an account
       And a "sign_up_rejected" event is recorded
 
     @falsification @api
+    Scenario: API rejects sign-up with a case variant of an existing identifier
+      Given alice has signed up with email "alice-api-case@example.com" and password "p4ssw0rd"
+      When mallory self-signs up with email "ALICE-API-CASE@Example.COM" and password "different-pw"
+      Then the request fails with code "duplicate_identifier"
+      And a "sign_up_rejected" event is recorded
+
+    @falsification @api
     Scenario: API rejects sign-in with a wrong credential
       Given alice has signed up with email "alice-api-wrong@example.com" and password "p4ssw0rd"
       When alice signs in with email "alice-api-wrong@example.com" and password "wrong-pw"

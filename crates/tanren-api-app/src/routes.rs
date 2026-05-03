@@ -23,7 +23,7 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, map_app_error, session_install_error};
+use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -152,7 +152,7 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
 pub(crate) async fn sign_up_route(
     State(state): State<AppState>,
     session: Session,
-    Json(request): Json<SignUpRequest>,
+    ValidatedJson(request): ValidatedJson<SignUpRequest>,
 ) -> Response {
     match state.handlers.sign_up(state.store.as_ref(), request).await {
         Ok(response) => {
@@ -191,7 +191,7 @@ pub(crate) async fn sign_up_route(
 pub(crate) async fn sign_in_route(
     State(state): State<AppState>,
     session: Session,
-    Json(request): Json<SignInRequest>,
+    ValidatedJson(request): ValidatedJson<SignInRequest>,
 ) -> Response {
     match state.handlers.sign_in(state.store.as_ref(), request).await {
         Ok(response) => {
@@ -235,7 +235,7 @@ pub(crate) async fn accept_invitation_route(
     State(state): State<AppState>,
     session: Session,
     Path(token): Path<String>,
-    Json(body): Json<AcceptInvitationBody>,
+    ValidatedJson(body): ValidatedJson<AcceptInvitationBody>,
 ) -> Response {
     let invitation_token = match InvitationToken::parse(&token) {
         Ok(t) => t,

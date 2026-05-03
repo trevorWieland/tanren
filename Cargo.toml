@@ -217,6 +217,14 @@ jsonwebtoken = { version = "10", default-features = false, features = [
 # Secrets
 secrecy = { version = "0.10", features = ["serde"] }
 
+# RFC 5322-compliant email validator. Used by
+# `tanren_identity_policy::Email::parse` so wire-input and CLI/TUI
+# user-input go through the same canonicalisation rules. The previous
+# hand-rolled "single @ + dot in domain" check accepted malformed
+# addresses (Codex P1 review on PR #133); RFC 5322 closes that gap and
+# the crate exposes detailed error variants we can surface.
+email-validator-rfc5322 = "0.1"
+
 # CSPRNG (for opaque session/credential tokens; never used as a record id).
 rand = "0.9"
 
