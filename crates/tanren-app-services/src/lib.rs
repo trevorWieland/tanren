@@ -14,7 +14,7 @@ use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-pub use tanren_store::Store;
+pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -122,11 +122,14 @@ impl Handlers {
     /// Returns [`AppServiceError::Account`] for taxonomy failures
     /// (duplicate identifier, invalid credential), or
     /// [`AppServiceError::Store`] for unexpected database failures.
-    pub async fn sign_up(
+    pub async fn sign_up<S>(
         &self,
-        store: &Store,
+        store: &S,
         request: SignUpRequest,
-    ) -> Result<SignUpResponse, AppServiceError> {
+    ) -> Result<SignUpResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
         account::sign_up(store, &self.clock, request).await
     }
 
@@ -139,11 +142,14 @@ impl Handlers {
     /// [`AccountFailureReason::InvalidCredential`] when the credential
     /// does not verify; [`AppServiceError::Store`] for unexpected
     /// database failures.
-    pub async fn sign_in(
+    pub async fn sign_in<S>(
         &self,
-        store: &Store,
+        store: &S,
         request: SignInRequest,
-    ) -> Result<SignInResponse, AppServiceError> {
+    ) -> Result<SignInResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
         account::sign_in(store, &self.clock, request).await
     }
 
@@ -157,11 +163,14 @@ impl Handlers {
     /// invitation taxonomy variant when the token is unknown / expired
     /// / already consumed; [`AppServiceError::Store`] for unexpected
     /// database failures.
-    pub async fn accept_invitation(
+    pub async fn accept_invitation<S>(
         &self,
-        store: &Store,
+        store: &S,
         request: AcceptInvitationRequest,
-    ) -> Result<AcceptInvitationResponse, AppServiceError> {
+    ) -> Result<AcceptInvitationResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
         account::accept_invitation(store, &self.clock, request).await
     }
 }

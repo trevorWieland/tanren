@@ -3,6 +3,13 @@
 //! This crate is intentionally not pulled into product code. Only the BDD
 //! step-definition crate depends on it. Per architecture, test-only support
 //! must not leak into runtime crates.
+//!
+//! Every public item is gated behind the `test-hooks` Cargo feature so
+//! the `xtask check-test-hooks` guard treats the whole crate as
+//! correctly-scoped fixture surface. The feature is on by default;
+//! consumers that disable default features get an empty crate.
+
+#![cfg(feature = "test-hooks")]
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};

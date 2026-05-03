@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use std::env;
 use std::io::Write;
-use tanren_store::Store;
+use tanren_store::{AccountStore, Store};
 
 #[tokio::main]
 async fn main() -> Result<()> {

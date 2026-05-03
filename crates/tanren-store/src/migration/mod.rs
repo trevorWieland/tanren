@@ -5,6 +5,7 @@ use sea_orm_migration::MigratorTrait;
 
 mod m20260501_000001_init;
 mod m20260502_000001_accounts;
+mod m20260503_000002_account_sessions_expires_at;
 
 /// Tanren's migration runner. Applied via [`Store::migrate`](crate::Store::migrate).
 pub struct Migrator;
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(m20260501_000001_init::Migration),
             Box::new(m20260502_000001_accounts::Migration),
+            Box::new(m20260503_000002_account_sessions_expires_at::Migration),
         ]
     }
 }

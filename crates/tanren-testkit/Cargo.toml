@@ -11,10 +11,19 @@ description = "Shared test utilities. Used only by the BDD step-definition crate
 [lints]
 workspace = true
 
+[features]
+default = ["test-hooks"]
+# The testkit only ships test fixtures and helpers; everything it
+# exposes is gated behind this feature so the `xtask check-test-hooks`
+# guard never trips on an inadvertently public test seam. Consumers
+# (currently only `tanren-bdd`) inherit the gate via
+# `default-features` or by enabling `test-hooks` explicitly.
+test-hooks = []
+
 [dependencies]
 chrono = { workspace = true }
 serde = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
-tanren-store = { path = "../tanren-store" }
+tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
 uuid = { workspace = true }

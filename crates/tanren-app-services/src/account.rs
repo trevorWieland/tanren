@@ -7,6 +7,13 @@
 //! `tanren_identity_policy::CredentialVerifier` trait without touching the
 //! wire shapes. Session tokens are 256 bits of CSPRNG randomness wrapped
 //! in `SessionToken` (URL-safe base64, no padding).
+//!
+//! Handlers consume `&dyn AccountStore` (the port defined in
+//! `tanren_store::traits`); the SeaORM-backed `Store` is the adapter
+//! injected by interface binaries. The atomic `consume_invitation` call
+//! replaces the previous find-then-check-then-update sequence — no two
+//! callers can both successfully accept the same token even under
+//! concurrent load.
 
 use chrono::Duration;
 use secrecy::ExposeSecret;
@@ -16,20 +23,23 @@ use tanren_contract::{
     SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{AccountId, Identifier, SessionToken};
-use tanren_store::{AccountRecord, NewAccount, Store};
+use tanren_store::{AccountRecord, AccountStore, ConsumeInvitationError, NewAccount};
 
 use crate::events::{AccountCreated, InvitationAccepted, SignedIn, envelope};
 use crate::{AppServiceError, Clock};
 
-/// Default session lifetime. Held centrally so PR 4's `expires_at`
-/// migration and PR 8's tower-sessions wiring observe a single value.
+/// Default session lifetime. Held centrally so the cookie-session policy
+/// landing in PR 8 observes a single value.
 const SESSION_LIFETIME_DAYS: i64 = 30;
 
-pub(crate) async fn sign_up(
-    store: &Store,
+pub(crate) async fn sign_up<S>(
+    store: &S,
     clock: &Clock,
     request: SignUpRequest,
-) -> Result<SignUpResponse, AppServiceError> {
+) -> Result<SignUpResponse, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
     let identifier = Identifier::from_email(&request.email);
     let display_name = request.display_name.trim().to_owned();
     if request.password.expose_secret().is_empty() || display_name.is_empty() {
@@ -87,11 +97,14 @@ pub(crate) async fn sign_up(
     })
 }
 
-pub(crate) async fn sign_in(
-    store: &Store,
+pub(crate) async fn sign_in<S>(
+    store: &S,
     clock: &Clock,
     request: SignInRequest,
-) -> Result<SignInResponse, AppServiceError> {
+) -> Result<SignInResponse, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
     if request.password.expose_secret().is_empty() {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
@@ -132,34 +145,18 @@ pub(crate) async fn sign_in(
     })
 }
 
-pub(crate) async fn accept_invitation(
-    store: &Store,
+pub(crate) async fn accept_invitation<S>(
+    store: &S,
     clock: &Clock,
     request: AcceptInvitationRequest,
-) -> Result<AcceptInvitationResponse, AppServiceError> {
+) -> Result<AcceptInvitationResponse, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
     let display_name = request.display_name.trim().to_owned();
     if request.password.expose_secret().is_empty() || display_name.is_empty() {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
-        ));
-    }
-    let Some(invitation) = store
-        .find_invitation_by_token(&request.invitation_token)
-        .await?
-    else {
-        return Err(AppServiceError::Account(
-            AccountFailureReason::InvitationNotFound,
-        ));
-    };
-    if invitation.consumed_at.is_some() {
-        return Err(AppServiceError::Account(
-            AccountFailureReason::InvitationAlreadyConsumed,
-        ));
-    }
-    let now = clock.now();
-    if invitation.expires_at <= now {
-        return Err(AppServiceError::Account(
-            AccountFailureReason::InvitationExpired,
         ));
     }
 
@@ -178,6 +175,34 @@ pub(crate) async fn accept_invitation(
         ));
     }
 
+    let now = clock.now();
+    // Atomic consume: a single conditional UPDATE on the store
+    // transitions the invitation from pending → consumed. Concurrent
+    // callers serialise to exactly one success; the rest receive
+    // `AlreadyConsumed`.
+    let consumed = match store
+        .consume_invitation(&request.invitation_token, now)
+        .await
+    {
+        Ok(consumed) => consumed,
+        Err(ConsumeInvitationError::NotFound) => {
+            return Err(AppServiceError::Account(
+                AccountFailureReason::InvitationNotFound,
+            ));
+        }
+        Err(ConsumeInvitationError::AlreadyConsumed) => {
+            return Err(AppServiceError::Account(
+                AccountFailureReason::InvitationAlreadyConsumed,
+            ));
+        }
+        Err(ConsumeInvitationError::Expired) => {
+            return Err(AppServiceError::Account(
+                AccountFailureReason::InvitationExpired,
+            ));
+        }
+        Err(ConsumeInvitationError::Store(err)) => return Err(AppServiceError::Store(err)),
+    };
+
     let salt = random_salt(&now, identifier.as_str());
     let password_hash = hash_password(&salt, request.password.expose_secret());
     let id = AccountId::fresh();
@@ -189,15 +214,12 @@ pub(crate) async fn accept_invitation(
             password_hash,
             password_salt: salt,
             created_at: now,
-            org_id: Some(invitation.inviting_org_id),
+            org_id: Some(consumed.inviting_org_id),
         })
         .await
         .map_err(map_insert_error)?;
     store
-        .insert_membership(account.id, invitation.inviting_org_id, now)
-        .await?;
-    store
-        .mark_invitation_consumed(&invitation.token, now)
+        .insert_membership(account.id, consumed.inviting_org_id, now)
         .await?;
 
     let session = mint_session(store, account.id, now).await?;
@@ -208,7 +230,7 @@ pub(crate) async fn accept_invitation(
                 &AccountCreated {
                     account_id: account.id,
                     identifier: account.identifier.as_str().to_owned(),
-                    org: Some(invitation.inviting_org_id),
+                    org: Some(consumed.inviting_org_id),
                     created_at: now,
                 },
             ),
@@ -220,9 +242,9 @@ pub(crate) async fn accept_invitation(
             envelope(
                 "invitation_accepted",
                 &InvitationAccepted {
-                    token: invitation.token.clone(),
+                    token: request.invitation_token.clone(),
                     account_id: account.id,
-                    joined_org: invitation.inviting_org_id,
+                    joined_org: consumed.inviting_org_id,
                     at: now,
                 },
             ),
@@ -233,7 +255,7 @@ pub(crate) async fn accept_invitation(
     Ok(AcceptInvitationResponse {
         account: account_view(&account),
         session,
-        joined_org: invitation.inviting_org_id,
+        joined_org: consumed.inviting_org_id,
     })
 }
 
@@ -246,11 +268,14 @@ fn account_view(record: &AccountRecord) -> AccountView {
     }
 }
 
-async fn mint_session(
-    store: &Store,
+async fn mint_session<S>(
+    store: &S,
     account_id: AccountId,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<SessionView, AppServiceError> {
+) -> Result<SessionView, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
     let token = SessionToken::generate();
     let expires_at = now + Duration::days(SESSION_LIFETIME_DAYS);
     let session = store

@@ -29,6 +29,10 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-secrets
+    test-hooks:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-test-hooks
 
 pre-push:
   parallel: false
