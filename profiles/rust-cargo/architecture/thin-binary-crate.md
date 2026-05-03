@@ -76,7 +76,48 @@ async fn main() -> Result<()> {
 **Rules:**
 - Binary crates use `anyhow::Result` for the main return type
 - All logic lives in library crates, binary crates just wire and run
-- Binary crates should be under 100 lines total (often under 50)
+- Binary crates should be under 50 lines total — enforced by `just check-thin-binary`
 - Binary crates depend on `app-services` or `orchestrator` + concrete infrastructure crates
 
-**Why:** Thin binaries keep all testable logic in library crates where it can be unit-tested without spinning up a full server. Multiple binaries (API, CLI, daemon) can share the same library crates with different wiring.
+## Refactor recipe: extract `main()` into a library crate
+
+When a binary creeps over the 50-line ceiling, the fix is to promote its
+logic into a per-binary library crate (`crates/tanren-X-app/`) and shrink
+`bin/X/src/main.rs` back down to a wiring shell.
+
+```rust
+// ✓ Good: library crate owns the runtime
+// crates/tanren-X-app/src/lib.rs
+pub async fn serve(config: AppConfig) -> anyhow::Result<()> {
+    let store = build_store(&config).await?;
+    let service = AppService::new(store);
+    transport::serve(service, config.port).await
+}
+```
+
+```rust
+// ✓ Good: bin/X/src/main.rs becomes the wiring shell
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    tanren_observability::init(cli.log_filter())?;
+    tanren_X_app::serve(cli.into_config()).await
+}
+```
+
+For CLI-shaped binaries the convention is `run()` instead of `serve()`:
+
+```rust
+// ✓ Good: CLI variant
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    tanren_observability::init(cli.log_filter())?;
+    tanren_cli_app::run(cli.into_config()).await
+}
+```
+
+The 50-line ceiling on `bin/X/src/main.rs` is enforced by
+`just check-thin-binary`, which counts non-blank, non-comment lines and
+fails the gate when a binary crate exceeds the threshold. Fix the gate
+failure by extracting code, never by raising the threshold.
+
+**Why:** Thin binaries keep all testable logic in library crates where it can be unit-tested without spinning up a full server. Multiple binaries (API, CLI, daemon) can share the same library crates with different wiring. The 50-line ceiling forces every non-trivial code path through a library crate the BDD harness can depend on.

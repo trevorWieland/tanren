@@ -61,4 +61,31 @@ just test && just lint   # Missing other gates
 - **machete** job: unused deps (ubuntu)
 - **quality-gates** job: check-lines + check-suppression + check-deps (ubuntu)
 
+## R-0001 enforcement recipes
+
+R-0001 introduces a family of `just check-*` recipes — each backed by a
+small `xtask` AST walker or scanner — that catch architectural drift the
+compiler cannot see. They are composed by `just check`, which is itself
+part of `just ci`. Lefthook pre-commit runs the fast subset.
+
+| Recipe | Enforces |
+|---|---|
+| `just check-secrets` | No raw secret literals or unwrapped secret types in code or fixtures |
+| `just check-bdd-wire-coverage` | BDD step bodies do not call `Handlers::` directly — every interface witness routes through a per-interface harness |
+| `just check-test-hooks` | No `#[cfg(test)]` or `#[test]` outside the BDD crate; covers the rust-test-surface invariant for R-0001 additions |
+| `just check-newtype-ids` | Bare `uuid::Uuid` field types are rejected in `tanren-{contract,store,identity-policy,app-services}` outside the newtype declaration site |
+| `just check-tracing-init` | Every `bin/*/src/main.rs` calls `tanren_observability::init(env_filter)` before any other work |
+| `just check-event-coverage` | Every CLI/MCP/API contract event identifier listed in the contract has at least one emitter and one consumer test path |
+| `just check-profiles` | Standards profiles stay structurally valid (frontmatter, schema, no orphan files) |
+| `just check-orphan-traits` | No public traits without at least one implementor or one mocked usage in a step |
+| `just check-thin-binary` | `bin/*/src/main.rs` only wires deps + dispatches — no business logic in binary crates |
+| `just check-tsconfig` | `apps/web` TS config matches the workspace's standardized strictness settings |
+| `just check-enforcement-regressions` | Each enforcement check has a falsification fixture proving it actually fails when violated |
+
+The orchestrating `check` recipe runs all of them. CI runs `just ci`,
+which calls `just check` plus the existing fmt/lint/test/deny/doc/machete
+gates. Lefthook pre-commit runs the fast subset — formatting, clippy,
+TOML formatting, and the cheapest of the `check-*` recipes — so push
+feedback stays under the seconds-budget.
+
 **Why:** A single broken gate means broken code reaches the main branch. Running all gates locally with `just ci` before push catches issues before CI, keeping feedback loops fast.

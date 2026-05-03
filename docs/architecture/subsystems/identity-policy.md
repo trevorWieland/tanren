@@ -415,6 +415,74 @@ applicable.
   merge readiness, baseline-control disablement, raw export, destructive
   restore, runtime budget override, and production-affecting operations.
 
+## Canonical Credential And Session Decisions
+
+These decisions land with R-0001 (B-0043 "Create an account") and apply to
+every subsequent feature that handles credentials, secrets, or session
+tokens. They cross-reference
+[`profiles/rust-cargo/architecture/secrets-handling.md`](../../../profiles/rust-cargo/architecture/secrets-handling.md)
+and
+[`profiles/rust-cargo/architecture/id-formats.md`](../../../profiles/rust-cargo/architecture/id-formats.md).
+
+### Password hashing
+
+The canonical password verifier impl is `Argon2idVerifier` in
+`tanren-identity-policy::argon2`, an implementation of the
+`CredentialVerifier` trait. It is the only verifier impl Tanren ships;
+inline SHA-256 paths are removed and the workspace `clippy.toml` denies
+`sha2::Sha256::new` outside an explicit allowlist.
+
+Production parameters track the **OWASP 2025 floor**:
+`m = 19 MiB, t = 2, p = 1`. Passwords are stored as a single PHC string
+(`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`) in one TEXT column; the
+salt is embedded in the PHC string and there is no separate salt column.
+
+`Argon2idVerifier::fast_for_tests()` is gated on
+`cfg(any(test, feature = "test-hooks"))` and uses cheap params
+(`m = 8 KiB, t = 1, p = 1`) so BDD scenarios stay fast. The production
+verifier is the only one a release build can construct.
+
+### Secrets handling and the `xtask check-secrets` allowlist
+
+Every credential-shaped field in workspace types uses
+`secrecy::SecretString` (or a workspace newtype that wraps one). This
+applies to:
+
+- request types in `tanren-contract` (`SignUpRequest`, `SignInRequest`,
+  `AcceptInvitationRequest`, …);
+- store record types whose fields hold raw credential material;
+- env-loaded credentials such as `TANREN_MCP_API_KEY` in
+  `bin/tanren-mcp`.
+
+`xtask check-secrets` (a `syn`-based AST walker) rejects struct fields
+whose name matches the regex
+`(?i)password|secret|api_key|credential|session_token|bearer|private_key|csrf|auth_token`
+unless the field type is in the allowlist:
+
+- `secrecy::SecretString` and `secrecy::SecretBox<_>`;
+- workspace newtype wrappers listed in `xtask/secret-newtypes.toml`.
+
+Adding a new credential-shaped newtype requires registering it in
+`xtask/secret-newtypes.toml`; that registration is the audit trail for
+the wrapper's existence. OpenAPI examples MUST never include real
+secret values; `utoipa` annotations on credential request fields use
+placeholder values only.
+
+### Session tokens
+
+Session tokens are 32 random bytes from a CSPRNG (`rand::random::<[u8;
+32]>()`), encoded URL-safe base64 with no padding via the `base64` crate,
+and wrapped in `SessionToken(SecretString)`. They are explicitly NOT
+UUIDs — UUIDs are identifiers, not secrets, and using them as session
+tokens conflates the two.
+
+`SessionToken` exposes the inner value only via `expose_secret()`. Its
+`Debug` impl prints `SessionToken(<redacted>)`. It implements neither
+`Display` nor `Serialize` for the inner bytes. The `clippy.toml`
+workspace lint denies `uuid::Uuid::new_v4` in `tanren-app-services` and
+the `tanren-{api,cli,mcp,tui}-app` lib crates so a future contributor
+cannot regress to a UUID session token.
+
 ## Rejected Alternatives
 
 - **Personas as authorization subjects.** Rejected because personas describe

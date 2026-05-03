@@ -326,6 +326,29 @@ maintenance, incident, and safe modes, worker/queue/target health,
 pause/resume/drain controls by scope, cost and quota enforcement, schedules,
 operational audit export, and production readiness of the self-hosted stack.
 
+## Per-Binary Library Crate Pattern
+
+Every interface binary (`tanren-api`, `tanren-cli`, `tanren-mcp`,
+`tanren-tui`) is implemented as a paired pair: a **per-binary library
+crate** at `crates/tanren-{api,cli,mcp,tui}-app/` that owns all of the
+binary's logic, and a **thin binary shell** at
+`bin/tanren-{api,cli,mcp,tui}/src/main.rs` (≤ 50 lines) that parses CLI
+flags, calls `tanren_observability::init`, and hands off to the lib
+crate's entry point.
+
+This pattern is required because Cargo binary crates cannot be depended
+on by integration test crates. Promoting the logic into a real lib crate
+lets BDD wire harnesses (in `tanren-testkit`) depend on the same code
+the binary runs — `@api` scenarios spin up `tanren-api-app` directly on
+an ephemeral port; `@mcp` scenarios spin up `tanren-mcp-app` the same
+way. The binary subprocess is exercised separately by `@cli` and `@tui`
+scenarios, which need real process boundaries (`tokio::process::Command`
+and pty respectively).
+
+The 50-line cap is mechanically enforced by `just check-thin-binary`.
+Profile cross-links: [thin-binary-crate](../../profiles/rust-cargo/architecture/thin-binary-crate.md)
+and [crate-layering](../../profiles/rust-cargo/architecture/crate-layering.md).
+
 ## Behavior Coverage Ownership
 
 Every accepted behavior area must have one primary architecture owner:

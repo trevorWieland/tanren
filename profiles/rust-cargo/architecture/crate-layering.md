@@ -81,4 +81,51 @@ check-deps:
 - Validate layering in CI via `just check-deps` in quality-gates job
 - Add `check-deps` to the `ci` gate for all projects with 3+ crates
 
-**Why:** Enforced layering prevents accidental coupling that makes crates untestable in isolation. A domain crate that imports `sqlx` can no longer be tested without a database. Automated checks catch violations before code review.
+## Per-binary library crate pattern (R-0001)
+
+Cargo binary crates cannot be depended on by other crates, including
+integration tests. Any non-trivial logic that lives only in `bin/X/src/main.rs`
+is therefore unreachable from the BDD harness, from doctests, and from sibling
+binaries. R-0001 promotes every binary's logic into a sibling **library crate**:
+
+```
+crates/
+  tanren-api-app/    # all API binary logic, exposes serve(config) -> Future
+  tanren-cli-app/    # all CLI binary logic,  exposes run(config)   -> Future
+  tanren-mcp-app/    # all MCP binary logic,  exposes serve(config) -> Future
+  tanren-tui-app/    # all TUI binary logic,  exposes run(config)   -> Future
+
+bin/
+  tanren-api/src/main.rs   # ≤ 50 lines: parse → tracing → call serve()
+  tanren-cli/src/main.rs   # ≤ 50 lines
+  tanren-mcp/src/main.rs   # ≤ 50 lines
+  tanren-tui/src/main.rs   # ≤ 50 lines
+```
+
+```rust
+// ✓ Good: library crate owns the logic
+// crates/tanren-api-app/src/lib.rs
+pub async fn serve(config: ApiConfig) -> anyhow::Result<()> {
+    let store = SeaOrmStore::connect(&config.database_url).await?;
+    let router = build_router(store);
+    axum::serve(listener, router).await
+}
+```
+
+```rust
+// ✓ Good: bin/ shell is wiring only
+// bin/tanren-api/src/main.rs
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    tanren_observability::init(cli.log_filter())?;
+    tanren_api_app::serve(cli.into_config()).await
+}
+```
+
+The BDD harness depends on `tanren-api-app` (the library crate) directly,
+exercising the same `serve()` entrypoint that the production binary boots.
+A `tests/` integration test attempting to depend on `bin/tanren-api` would
+fail to compile — the library-crate split is what makes the binary itself
+testable.
+
+**Why:** Enforced layering prevents accidental coupling that makes crates untestable in isolation. A domain crate that imports `sqlx` can no longer be tested without a database. Promoting binary logic into per-binary library crates extends the same principle to the binary surface — the BDD harness drives the same code path the shipped binary runs, instead of a parallel test-only fork. Automated checks catch violations before code review.
