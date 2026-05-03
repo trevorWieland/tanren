@@ -92,7 +92,7 @@ async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, pas
         .await;
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.identifier = Some(email);
-    entry.password = Some(password);
+    entry.password = Some(SecretString::from(password));
     let outcome = match result {
         Ok(session) => {
             entry.sign_in = Some(session.clone());
@@ -105,6 +105,7 @@ async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, pas
 
 #[when(expr = "{word} signs in with the same credentials")]
 async fn when_sign_in_same(world: &mut TanrenWorld, actor: String) {
+    use secrecy::ExposeSecret;
     let (email, password) = {
         let ctx = world.ensure_account_ctx().await;
         let entry = ctx
@@ -118,7 +119,8 @@ async fn when_sign_in_same(world: &mut TanrenWorld, actor: String) {
                 .expect("actor identifier captured during sign-up"),
             entry
                 .password
-                .clone()
+                .as_ref()
+                .map(|s| s.expose_secret().to_owned())
                 .expect("actor password captured during sign-up"),
         )
     };
@@ -148,7 +150,7 @@ async fn when_accept_invitation(
         })
         .await;
     let entry = ctx.actors.entry(actor.clone()).or_default();
-    entry.password = Some(password);
+    entry.password = Some(SecretString::from(password));
     let outcome = match result {
         Ok(acceptance) => {
             entry.identifier = Some(acceptance.session.account.identifier.as_str().to_owned());
@@ -373,7 +375,7 @@ async fn do_sign_up(
         .await;
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.identifier = Some(email);
-    entry.password = Some(password);
+    entry.password = Some(SecretString::from(password));
     let outcome = match result {
         Ok(session) => {
             entry.sign_up = Some(session.clone());

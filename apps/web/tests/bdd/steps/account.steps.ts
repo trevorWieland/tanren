@@ -6,20 +6,23 @@
 // this Node `playwright-bdd` runner — the `apps/web/tests/bdd/features`
 // path is a symlink into the canonical directory.
 //
-// Coverage in PR 11:
+// Coverage:
 //
 // - Self-signup → sign-in (`@positive @web`).
 // - Self-signed-up account belongs to no organization (`@positive @web`).
 // - Sign-in with a wrong credential (`@falsification @web`).
 // - Sign-up with a duplicate identifier (`@falsification @web`).
+// - Invitation acceptance positive (`@positive @web`).
+// - Multi-account positive (`@positive @web`).
+// - Expired-invitation falsification (`@falsification @web`).
 //
-// Steps that depend on invitation seeding (`Given a pending invitation
-// token "..."`, `Given an expired invitation token "..."`, multi-account
-// scenarios) are stubbed with `test.skip()` until a `test-hooks` HTTP
-// endpoint on `tanren-api-app` exposes the seam over the wire. The Rust
-// `WebHarness` (currently the in-process fallback) still covers those
-// scenarios for fast feedback — see
-// `crates/tanren-testkit/src/harness/mod.rs` for the dual-coverage note.
+// Invitation-related scenarios depend on a fixture-seeding seam: the
+// Playwright runner cannot reach `Store::seed_invitation` directly the
+// way the in-process Rust BDD harness can, so the api binary exposes
+// `/test-hooks/invitations` when built with the `test-hooks` Cargo
+// feature (gated; production binaries do not compile that route in).
+// `global-setup.ts` spawns the api with `--features test-hooks` for
+// the BDD run.
 
 import { createBdd, test as base } from "playwright-bdd";
 
@@ -211,49 +214,124 @@ Then(
 );
 
 // ============================================================================
-// Steps requiring API-side seeding — deferred to a future test-hooks
-// HTTP endpoint. Each invokes `test.skip()` so the scenario is reported
-// as skipped (not failed) and the Rust BDD InProcessHarness keeps the
-// fast-feedback proof on the same Gherkin source.
+// Steps requiring API-side seeding — backed by the `/test-hooks/*`
+// HTTP endpoints the api binary exposes when built with the
+// `test-hooks` Cargo feature. The Rust BDD harness covers the same
+// scenarios in-process by writing through the `Store` directly; the
+// Playwright runner cannot share that process so it talks over the
+// wire.
 // ============================================================================
 
-Given(/^a pending invitation token "([^"]+)"$/, async () => {
-  test.skip(
-    true,
-    "playwright-bdd: invitation seeding requires a test-hooks endpoint (TODO: follow-up PR)",
-  );
-});
-
-Given(/^an expired invitation token "([^"]+)"$/, async () => {
-  test.skip(
-    true,
-    "playwright-bdd: invitation seeding requires a test-hooks endpoint (TODO: follow-up PR)",
-  );
-});
-
-When(
-  /^(\w+) accepts invitation "([^"]+)" with password "([^"]+)"$/,
-  async () => {
-    test.skip(
-      true,
-      "playwright-bdd: invitation acceptance requires seeded fixtures (TODO: follow-up PR)",
+async function seedInvitation(
+  token: string,
+  expiresAt: Date,
+  context: { kind: "valid" | "expired" },
+): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const res = await fetch(`${apiUrl}/test-hooks/invitations`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token, expires_at: expiresAt.toISOString() }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `seed ${context.kind} invitation '${token}' failed: ${res.status} ${body}`,
     );
+  }
+}
+
+Given(
+  /^a pending invitation token "([^"]+)"$/,
+  async ({ world: _world }, token: string) => {
+    // Far-future expiry so the acceptance flow sees a live row.
+    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    await seedInvitation(token, expiresAt, { kind: "valid" });
   },
 );
 
-Then(/^(\w+) has joined an organization$/, async () => {
-  test.skip(
-    true,
-    "playwright-bdd: invitation acceptance requires seeded fixtures (TODO)",
-  );
+Given(
+  /^an expired invitation token "([^"]+)"$/,
+  async ({ world: _world }, token: string) => {
+    const expiresAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await seedInvitation(token, expiresAt, { kind: "expired" });
+  },
+);
+
+When(
+  /^(\w+) accepts invitation "([^"]+)" with password "([^"]+)"$/,
+  async (
+    { page, world },
+    name: string,
+    token: string,
+    password: string,
+  ) => {
+    const a = actor(world, name);
+    // Mirror the Rust step's email-synthesis convention so the @web
+    // slice creates accounts that don't collide with @api ones (the
+    // api/web BDD runs share an api process per-runner — Playwright
+    // owns its own ephemeral DB via globalSetup, but using the same
+    // shape keeps the ergonomics aligned).
+    const email = `${name}-${token}@invitation.tanren`;
+    const displayName = `${name} via ${token}`;
+    a.email = email;
+    a.password = password;
+    await page.context().clearCookies();
+    await page.goto(`/invitations/${token}`);
+    await waitForHydration(page);
+    await page.getByLabel(/email/i).fill(email);
+    await page.getByLabel(/password/i).fill(password);
+    await page.getByLabel(/display name/i).fill(displayName);
+    await page.getByRole("button", { name: /accept and join/i }).click();
+    const result = await Promise.race([
+      page.waitForURL("/").then(() => "ok" as const),
+      page
+        .locator('form [role="alert"]')
+        .first()
+        .waitFor({ state: "visible" })
+        .then(() => "alert" as const),
+    ]);
+    if (result === "ok") {
+      a.hasSession = true;
+    } else {
+      a.hasSession = false;
+      a.lastFailureCode = await classifyFailureFromAlert(page);
+    }
+  },
+);
+
+Then(/^(\w+) has joined an organization$/, async ({ world }, name: string) => {
+  // The wire surface does not yet expose org affinity to the web UI; the
+  // proxy assertion is "the actor obtained a session via the
+  // accept-invitation endpoint", which (per the @api Rust harness) only
+  // happens when the invitation was applied and a membership row was
+  // written. The api-side Rust BDD harness covers the same witness
+  // against `Store::find_membership_for_account`. When the profile
+  // surface lands (R-0001 sub-15+), this step will assert the rendered
+  // org name instead.
+  const a = actor(world, name);
+  if (a.hasSession !== true) {
+    throw new Error(`${name} should hold a session after accepting invitation`);
+  }
 });
 
-Then(/^(\w+) now holds (\d+) accounts?$/, async () => {
-  test.skip(
-    true,
-    "playwright-bdd: multi-account scenarios require invitation seeding (TODO)",
-  );
-});
+Then(
+  /^(\w+) now holds (\d+) accounts?$/,
+  async ({ world }, name: string, _count: string) => {
+    // Per the equivalent @api Rust step, the assertion is that the
+    // actor performed N successful sign-up / accept-invitation flows.
+    // The web UI doesn't yet enumerate accounts in a single view, so we
+    // use the session-presence proxy: the most-recent flow for this
+    // actor must have ended in `/`. The accept-invitation flow above
+    // sets `hasSession` only on success.
+    const a = actor(world, name);
+    if (a.hasSession !== true) {
+      throw new Error(
+        `${name} should hold a session after their second account flow`,
+      );
+    }
+  },
+);
 
 // ============================================================================
 // Helpers

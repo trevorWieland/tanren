@@ -39,6 +39,8 @@
 mod cookies;
 mod errors;
 mod routes;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 
 use std::env;
 use std::sync::Arc;
@@ -153,7 +155,7 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
     );
     let state = AppState {
         handlers: Handlers::new(),
-        store,
+        store: store.clone(),
     };
 
     let cookie_store = build_cookie_store(database_url).await?;
@@ -179,7 +181,10 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
         }),
     );
 
-    let merged = router.merge(openapi_router).layer(cors);
+    let merged = router.merge(openapi_router);
+    #[cfg(feature = "test-hooks")]
+    let merged = merged.merge(test_hooks::router(store.clone()));
+    let merged = merged.layer(cors);
     let with_sessions: axum::Router = match layer {
         SessionLayerEnum::Sqlite(l) => merged.layer(l),
         SessionLayerEnum::Postgres(l) => merged.layer(l),
@@ -230,7 +235,7 @@ pub async fn build_app_with_store(
 ) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
-        store,
+        store: store.clone(),
     };
 
     let cookie_store = build_cookie_store(cookie_database_url).await?;
@@ -256,7 +261,10 @@ pub async fn build_app_with_store(
         }),
     );
 
-    let merged = router.merge(openapi_router).layer(cors);
+    let merged = router
+        .merge(openapi_router)
+        .merge(test_hooks::router(store))
+        .layer(cors);
     let with_sessions: axum::Router = match layer {
         SessionLayerEnum::Sqlite(l) => merged.layer(l),
         SessionLayerEnum::Postgres(l) => merged.layer(l),

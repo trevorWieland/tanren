@@ -4176,6 +4176,7 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-store",
  "tokio",
  "tower-http",
  "tower-sessions",
@@ -4183,6 +4184,7 @@ dependencies = [
  "tracing",
  "utoipa",
  "utoipa-axum",
+ "uuid",
 ]
 
 [[package]]

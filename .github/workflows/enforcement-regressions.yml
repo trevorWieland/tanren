@@ -12,6 +12,11 @@ on:
   pull_request:
     branches: ["main"]
 
+# Restrict GITHUB_TOKEN to read-only by default. CodeQL flagged the
+# missing permissions block; the regression suite only reads the repo.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"

@@ -140,22 +140,32 @@ export default async function globalSetup(): Promise<void> {
   const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3000";
   const webOrigin = `http://127.0.0.1:${webPort}`;
 
-  // Spawn the API. We rely on `cargo run -q -p tanren-api` to be
-  // available — CI builds it ahead of time and caches the binary; locally
-  // the first run is slow but subsequent runs hit the warm cache.
-  const apiProcess = spawn("cargo", ["run", "-q", "-p", "tanren-api"], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-      TANREN_API_BIND: `127.0.0.1:${apiPort}`,
-      TANREN_API_CORS_ORIGINS: webOrigin,
-      // Quiet the API's tracing output; uncomment for debugging.
-      RUST_LOG: process.env["RUST_LOG"] ?? "warn",
+  // Spawn the API with the `test-hooks` feature so the
+  // `/test-hooks/*` fixture-seeding routes are available — those are the
+  // seam the @web invitation scenarios rely on (Playwright cannot reach
+  // `Store::seed_invitation` directly the way the in-process Rust BDD
+  // harness can). The feature flag is a passthrough on the binary crate
+  // that turns on `tanren-api-app/test-hooks`. Production binaries do
+  // not enable this feature and never expose `/test-hooks/*`.
+  const apiProcess = spawn(
+    "cargo",
+    ["run", "-q", "-p", "tanren-api", "--features", "test-hooks"],
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        TANREN_API_BIND: `127.0.0.1:${apiPort}`,
+        TANREN_API_CORS_ORIGINS: webOrigin,
+        // Quiet the API's tracing output; uncomment for debugging.
+        RUST_LOG: process.env["RUST_LOG"] ?? "warn",
+      },
+      stdio:
+        process.env["TANREN_BDD_API_STDIO"] === "inherit"
+          ? "inherit"
+          : "ignore",
     },
-    stdio:
-      process.env["TANREN_BDD_API_STDIO"] === "inherit" ? "inherit" : "ignore",
-  });
+  );
   apiProcess.on("error", (err) => {
     console.error("[playwright-bdd] failed to spawn tanren-api:", err);
   });
