@@ -2,11 +2,11 @@
 //!
 //! Handlers are mechanism-neutral at the contract surface but mechanism-
 //! specific underneath: R-0001 pins identifier+password as the simplest
-//! credible choice, with hashing delegated to a
-//! [`CredentialVerifier`](tanren_identity_policy::CredentialVerifier)
-//! trait object. Production binaries inject the
-//! [`Argon2idVerifier`](tanren_identity_policy::Argon2idVerifier);
+//! credible choice, with hashing delegated to a [`CredentialVerifier`]
+//! trait object. Production binaries inject the [`Argon2idVerifier`];
 //! BDD scenarios inject the cheap-parameter `fast_for_tests` preset.
+//!
+//! [`Argon2idVerifier`]: tanren_identity_policy::Argon2idVerifier
 //!
 //! Session tokens are 256 bits of CSPRNG randomness wrapped in
 //! `SessionToken` (URL-safe base64, no padding).

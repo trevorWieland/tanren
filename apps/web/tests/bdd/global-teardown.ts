@@ -17,7 +17,7 @@ declare global {
 export default async function globalTeardown(): Promise<void> {
   const state = globalThis.__tanrenBddState;
   try {
-    unlinkSync(join(process.cwd(), ".env.test.local"));
+    unlinkSync(join(process.cwd(), ".env.local"));
   } catch {
     /* file may not exist */
   }
