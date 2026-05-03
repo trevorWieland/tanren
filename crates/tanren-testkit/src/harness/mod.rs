@@ -211,6 +211,28 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance>;
 
+    /// Fan out N invitation-acceptance requests in parallel against the
+    /// underlying surface. Used by the `@falsification @api` race
+    /// scenario to prove `consume_invitation`'s atomicity. The default
+    /// implementation runs the requests serially via [`accept_invitation`];
+    /// `ApiHarness` overrides this to dispatch each request as an
+    /// independent `tokio::spawn` so the race actually happens.
+    ///
+    /// Returns one `HarnessResult<HarnessAcceptance>` per input request
+    /// in the order submitted.
+    ///
+    /// [`accept_invitation`]: AccountHarness::accept_invitation
+    async fn accept_invitations_concurrent(
+        &mut self,
+        requests: Vec<AcceptInvitationRequest>,
+    ) -> Vec<HarnessResult<HarnessAcceptance>> {
+        let mut out = Vec::with_capacity(requests.len());
+        for r in requests {
+            out.push(self.accept_invitation(r).await);
+        }
+        out
+    }
+
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
 

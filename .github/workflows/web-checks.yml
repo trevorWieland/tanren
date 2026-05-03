@@ -16,6 +16,8 @@ permissions:
 
 env:
   CI: "true"
+  # Match rust-ci.yml so cargo runs use the pinned toolchain.
+  RUST_TOOLCHAIN: "1.94.1"
 
 jobs:
   web:
@@ -68,9 +70,12 @@ jobs:
         run: just check-tsconfig
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        # SHA-pinned to match rust-ci.yml; the repo's action policy
+        # rejects tag refs (`@stable`), which surfaces as a workflow
+        # startup_failure rather than a step error.
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Cache cargo build
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57

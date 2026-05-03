@@ -8,8 +8,6 @@
 //! `xtask check-bdd-wire-coverage` mechanically rejects any future
 //! step that bypasses this seam.
 
-use std::future::Future;
-use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
@@ -20,7 +18,6 @@ use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tanren_testkit::{
     ConcurrentAcceptanceTally, HarnessInvitation, HarnessOutcome, record_failure,
 };
-use tokio::sync::Mutex;
 
 use crate::TanrenWorld;
 
@@ -167,11 +164,15 @@ async fn when_concurrent_accept(world: &mut TanrenWorld, count: usize, token: St
     let ctx = world.ensure_account_ctx().await;
     let invitation_token =
         InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
-    let harness_ref = Arc::new(Mutex::new(&mut ctx.harness));
-    let mut tally = ConcurrentAcceptanceTally::default();
-    let mut handles = Vec::with_capacity(count);
+    // Build N independent acceptance requests, then dispatch them
+    // through the harness's parallel fan-out (default impl is serial;
+    // ApiHarness overrides to spawn each request as its own
+    // `tokio::spawn` against the live api server). Without the
+    // override, the previous mutex-around-harness design serialized
+    // every request and could not catch real `consume_invitation` race
+    // regressions — Codex P2 review on PR #133.
+    let mut requests = Vec::with_capacity(count);
     for i in 0..count {
-        let harness = harness_ref.clone();
         let token = invitation_token.clone();
         let email_raw = format!(
             "racer-{i}-{token}@invitation.tanren",
@@ -179,18 +180,15 @@ async fn when_concurrent_accept(world: &mut TanrenWorld, count: usize, token: St
         );
         let parsed_email = Email::parse(&email_raw).expect("synthesised email must parse");
         let display = format!("Racer {i}");
-        let req = AcceptInvitationRequest {
+        requests.push(AcceptInvitationRequest {
             invitation_token: token,
             email: parsed_email,
             password: SecretString::from("race-password".to_owned()),
             display_name: display,
-        };
-        handles.push(async move {
-            let mut h = harness.lock().await;
-            h.accept_invitation(req).await
         });
     }
-    let outcomes = futures_join_all(handles).await;
+    let outcomes = ctx.harness.accept_invitations_concurrent(requests).await;
+    let mut tally = ConcurrentAcceptanceTally::default();
     for outcome in outcomes {
         tally.record(outcome);
     }
@@ -413,26 +411,4 @@ async fn read_concurrent_tally(world: &mut TanrenWorld) -> ConcurrentAcceptanceT
         failures_by_code: parsed.failures,
         other: Vec::new(),
     }
-}
-
-/// Local thin wrapper around `futures::future::join_all` to avoid
-/// pulling the `futures` crate in as a workspace dep just for this
-/// single call. Awaits each future sequentially — fine for the
-/// concurrent-race test because the outer `tokio::spawn` model isn't
-/// strictly required: the race window is the harness's own
-/// `accept_invitation` round-trip, and serializing the spawn calls
-/// still proves the store-level atomicity (the DB constraint plus
-/// `consume_invitation` rejects all but one). To get true parallelism
-/// we'd need each task on its own runtime task; switching to
-/// `tokio::spawn` is a follow-up once the harness is `Send + Sync +
-/// Clone` (currently `Send` only, hence the local mutex).
-async fn futures_join_all<F, T>(futures: Vec<F>) -> Vec<T>
-where
-    F: Future<Output = T>,
-{
-    let mut results = Vec::with_capacity(futures.len());
-    for f in futures {
-        results.push(f.await);
-    }
-    results
 }

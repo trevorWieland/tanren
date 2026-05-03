@@ -365,6 +365,12 @@ check:
 tests:
     #!/usr/bin/env bash
     set -euo pipefail
+    # Pre-build binaries that the wire harnesses spawn as subprocesses.
+    # CliHarness::spawn locates `tanren-cli` next to the test executable
+    # in `target/debug/`; without an explicit build, CI runs (which only
+    # `cargo check` earlier) hit "binary tanren-cli not found alongside
+    # test executable". Locally the binaries are warm from `just install`.
+    {{ cargo }} build -p tanren-cli -p tanren-tui --locked --quiet
     {{ cargo }} test -p tanren-bdd --locked --quiet
     {{ cargo }} run -q -p tanren-bdd --bin tanren-bdd-runner --locked
 

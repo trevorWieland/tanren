@@ -71,9 +71,9 @@ Feature: Create an account
     @falsification @api
     Scenario: API serializes concurrent acceptances of one invitation
       Given a pending invitation token "api-race-token-padpad"
-      When 5 actors concurrently accept invitation "api-race-token-padpad"
+      When 20 actors concurrently accept invitation "api-race-token-padpad"
       Then exactly 1 acceptance succeeds
-      And 4 fail with code "invitation_already_consumed"
+      And 19 fail with code "invitation_already_consumed"
 
   Rule: Web surface
 

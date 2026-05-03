@@ -263,6 +263,96 @@ impl AccountHarness for ApiHarness {
         })
     }
 
+    async fn accept_invitations_concurrent(
+        &mut self,
+        requests: Vec<AcceptInvitationRequest>,
+    ) -> Vec<HarnessResult<HarnessAcceptance>> {
+        // Fan out via `tokio::spawn` so each acceptance issues its own
+        // POST against the live api server in parallel. Each task gets
+        // its own `reqwest::Client` (built fresh from a default
+        // configuration) so cookie state from one task doesn't bleed
+        // into another. The shared base URL is cheap to clone.
+        //
+        // Without this override, the trait's default impl would await
+        // each request serially — defeating the @falsification @api
+        // race scenario which is supposed to prove that
+        // `consume_invitation` serializes concurrent acceptances at
+        // the store layer (Codex P2 review on PR #133).
+        let base_url = self.base_url.clone();
+        let mut handles = Vec::with_capacity(requests.len());
+        for req in requests {
+            let url = format!(
+                "{}/invitations/{}/accept",
+                base_url,
+                req.invitation_token.as_str()
+            );
+            let body = accept_invitation_body(&req);
+            // Each task builds its own client. cookie_store is irrelevant
+            // here — the race scenario doesn't reuse the session.
+            let client = match Client::builder().build() {
+                Ok(c) => c,
+                Err(e) => {
+                    handles.push(tokio::spawn(async move {
+                        Err::<HarnessAcceptance, HarnessError>(HarnessError::Transport(format!(
+                            "build client: {e}"
+                        )))
+                    }));
+                    continue;
+                }
+            };
+            handles.push(tokio::spawn(async move {
+                let response = client.post(&url).json(&body).send().await.map_err(|e| {
+                    HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
+                })?;
+                let status = response.status();
+                let cookies_set = response
+                    .headers()
+                    .get_all(reqwest::header::SET_COOKIE)
+                    .iter()
+                    .any(|v| {
+                        v.to_str()
+                            .ok()
+                            .is_some_and(|s| s.starts_with("tanren_session="))
+                    });
+                let json: Value = response
+                    .json()
+                    .await
+                    .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+                if !status.is_success() {
+                    return Err(failure_from_body(&json));
+                }
+                let account: AccountView = serde_json::from_value(json["account"].clone())
+                    .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
+                let expires_at = json["session"]["expires_at"]
+                    .as_str()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|d| d.with_timezone(&chrono::Utc))
+                    .ok_or_else(|| {
+                        HarnessError::Transport("missing session.expires_at".to_owned())
+                    })?;
+                let joined_org = serde_json::from_value(json["joined_org"].clone())
+                    .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
+                Ok(HarnessAcceptance {
+                    session: HarnessSession {
+                        account_id: account.id,
+                        account,
+                        expires_at,
+                        has_token: cookies_set,
+                    },
+                    joined_org,
+                })
+            }));
+        }
+        let mut out = Vec::with_capacity(handles.len());
+        for h in handles {
+            out.push(match h.await {
+                Ok(r) => r,
+                Err(e) => Err(HarnessError::Transport(format!("join: {e}"))),
+            });
+        }
+        out
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
             .seed_invitation(NewInvitation {
