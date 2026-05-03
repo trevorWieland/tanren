@@ -89,4 +89,22 @@ pub struct RetryConfig {
 - Use `NonZero*`, `NonEmpty<Vec<T>>`, and similar types to encode invariants
 - Prefer `#[serde(rename_all = "snake_case")]` on enums for consistent serialization
 
+## Cross-link: ID newtype enforcement
+
+ID newtype formatting and the canonical Display/serialization contract
+live in the `id-formats.md` standard. Mechanical enforcement in tanren
+is done by an AST walker:
+
+- `xtask check-newtype-ids` rejects bare `uuid::Uuid` field types inside
+  `tanren-{contract,store,identity-policy,app-services}` crates outside
+  the newtype declaration sites themselves. New domain IDs MUST land as
+  newtypes; raw `Uuid` in those crates is a hard fail at the gate.
+- The workspace `clippy.toml` denies `uuid::Uuid::new_v4` in
+  handler/binary crates so opaque tokens are derived from CSPRNG bytes
+  (`rand`) rather than v4 UUIDs. UUIDv7 remains the choice for domain
+  IDs created via the newtype constructors.
+
+See `id-formats.md` for the full Display/PHC-style/serialization
+contract these newtypes implement.
+
 **Why:** Newtypes prevent cross-type confusion at compile time (can't pass `UserId` where `OrderId` is expected). UUIDv7 provides time-ordered, globally-unique identifiers without coordination. Type-level invariants eliminate runtime validation for structurally impossible states.

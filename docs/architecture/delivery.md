@@ -526,6 +526,65 @@ Required delivery read models include:
 - repo uninstall preview;
 - delivery audit history.
 
+## Sub-PR Stack Methodology For High-Stakes Multi-Area PRs
+
+Single landing PRs that cross many subsystems are unreviewable; reviewers
+fatigue, regressions slip in, and `main` accumulates risk between green
+checks. Tanren uses a **sub-PR stack against a long-lived integration
+branch** for any PR that crosses four or more of: domain types, store,
+app-services, binaries, BDD, web, profiles, architecture records.
+
+R-0001 (the first behavior implementation slice — B-0043 "Create an
+account" across web/api/mcp/cli/tui) is the canonical worked example of
+this pattern.
+
+### The pattern
+
+1. **Open a long-lived integration branch** `feature/<feature-id>` from
+   `main`. The integration branch is the merge target for the stack and
+   stays open until every sub-PR has merged into it green.
+2. **Stack small, focused sub-PRs** against the integration branch. Each
+   sub-PR is independently reviewable, independently CI-green, and ≤ 1200
+   LOC (target 300–800).
+3. **Sub-PR 1 is profile + architecture record reconciliation** when the
+   work introduces new tools or patterns. Profile docs and arch records
+   land before any code so reviewers can read the contract first and so
+   later sub-PRs reference stable doc anchors.
+4. **Sub-PR 2 is the enforcement skeleton** — `xtask` subcommands,
+   `justfile` recipes, `clippy.toml` rules, and `lefthook` hooks all
+   wired in **as no-ops on empty input** so they commit cleanly before the
+   guarded code lands. The enforcement layer landing first means the
+   first regression slips through the guard rather than landing silently.
+5. **Subsequent sub-PRs deliver code in dependency order.** Each sub-PR
+   passes the now-enforced guards landed by sub-PR 2. Sub-PRs 3+ may
+   review concurrently once 1 and 2 have merged.
+6. **The integration branch merges to `main` as a single landing event**
+   after all sub-PRs are green. Branch protection on `main` requires the
+   green CI surface; the integration branch's own protection requires
+   green sub-PR CI.
+
+### Why this beats one fat PR
+
+- Each sub-PR fits in a reviewer's working memory.
+- The enforcement layer (sub-PR 2) is committable before code lands, so
+  every later sub-PR is the first opportunity for any regression to be
+  caught — by automation, not human review.
+- `main` only sees one merge event, so the integration is atomic from
+  every `main`-watching consumer's perspective (CI, downstream branches,
+  branch-protection counters).
+- Reviewer load is spread across days instead of compressed into one
+  huge diff that pressures fast approvals.
+
+### Required for which work
+
+This pattern is **required** for any PR that crosses four or more of:
+domain types, store, app-services, binaries, BDD, web, profiles,
+architecture records.
+
+It is **recommended** for any cross-cutting refactor (clock injection,
+secrets sweep, error taxonomy migration, etc.) even when the area count
+is lower, because the enforcement-first ordering still applies.
+
 ## Accepted Decisions
 
 - Delivery owns installation, packaging, generated assets, upgrades, uninstall,

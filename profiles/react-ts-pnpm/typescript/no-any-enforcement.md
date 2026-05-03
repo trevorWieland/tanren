@@ -14,7 +14,8 @@ applies_to_domains:
 
 # No Any Enforcement
 
-Never use `any` in application code. Use `unknown` for genuinely unknown types and narrow with type guards.
+Never use `any` in application code. Use `unknown` for genuinely unknown types
+and narrow with type guards.
 
 ```typescript
 // ✓ Good: unknown with type guard
@@ -41,10 +42,12 @@ function parseApiResponse(data: any): User {
 ```
 
 **Rules:**
-- `any` is banned in all application code — enforced by oxlint rule `typescript/no-explicit-any`
-- Use `unknown` when the type is genuinely not known at compile time
-- Always narrow `unknown` with type guards, Zod schemas, or assertion functions before use
-- Use generics to propagate types instead of falling back to `any`
+- `any` is banned in all application code — enforced by oxlint rule
+  `typescript/no-explicit-any`.
+- Use `unknown` when the type is genuinely not known at compile time.
+- Always narrow `unknown` with type guards, runtime-validation schemas, or
+  assertion functions before use.
+- Use generics to propagate types instead of falling back to `any`.
 
 ```typescript
 // ✓ Good: Generic preserves type information
@@ -58,33 +61,58 @@ function first(items: any[]): any {
 }
 ```
 
-**Zod for runtime validation:**
-- Use Zod schemas to validate external data (API responses, form input, environment variables)
-- Derive TypeScript types from Zod schemas with `z.infer<typeof schema>`
-- Never assert external data as a known type without validation
+## Runtime validation: valibot
+
+Tanren standardises on **`valibot`** for runtime validation of external data
+(form input, API responses, environment variables). Schemas double as the
+single source of truth for the corresponding TypeScript type via
+`v.InferOutput<typeof Schema>`.
+
+**Why valibot, not Zod or ArkType.**
+- A typical sign-up form schema costs ~17.7 KB minified+gzipped of Zod's
+  standard build to ship to the browser. The same schema in valibot's
+  tree-shakable modular API is ~1.4 KB — roughly 12× smaller. For a
+  bundle-size-sensitive web surface this matters.
+- ArkType is the fastest of the three at runtime, but its DSL pays an
+  ergonomic cost on small form schemas (the very shapes the account flow
+  needs).
+- For the tanren web surface — account flow now and the next ~50 R-* slices
+  ahead — valibot is the canonical choice.
 
 ```typescript
-// ✓ Good: Zod schema validates and types external data
-import { z } from "zod";
+// ✓ Good: valibot schema validates and types external data
+import * as v from "valibot";
 
-const UserSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string().min(1),
-  email: z.string().email(),
+const SignUpInput = v.object({
+  email: v.pipe(v.string(), v.email(), v.toLowerCase(), v.trim()),
+  password: v.pipe(v.string(), v.minLength(8)),
+  display_name: v.pipe(v.string(), v.minLength(1), v.trim()),
 });
 
-type User = z.infer<typeof UserSchema>;
+type SignUpInput = v.InferOutput<typeof SignUpInput>;
 
-function parseUser(data: unknown): User {
-  return UserSchema.parse(data);
+const result = v.safeParse(SignUpInput, formInput);
+if (!result.success) {
+  // render result.issues — each issue has a path + message ready for the form
+  return renderValidationErrors(result.issues);
 }
+const validated: SignUpInput = result.output;
 ```
 
-**Exceptions (extremely rare, high bar):**
-`any` only when **all** are true:
-1. Third-party library types are incorrect or missing
-2. A type-safe wrapper is not feasible
-3. The usage is isolated to a single adapter module
-4. A `// eslint-disable-next-line` comment explains why
+- Compose schemas with `v.pipe(...)` for ordered transforms + checks.
+- Use `v.safeParse(schema, input)` at boundary points; `v.parse` only when a
+  thrown exception is actually wanted.
+- Derive types from the schema, not the other way around — there is one
+  source of truth.
 
-**Why:** `any` silently disables type checking for everything it touches. One `any` propagates through assignments, return types, and function calls — infecting the entire call chain. `unknown` forces explicit narrowing, keeping the type system intact.
+**Exceptions (extremely rare, high bar):**
+`any` is permitted only when **all** of the following hold:
+1. Third-party library types are incorrect or missing.
+2. A type-safe wrapper is not feasible.
+3. The usage is isolated to a single adapter module.
+4. A comment immediately above the line explains why.
+
+**Why:** `any` silently disables type checking for everything it touches. One
+`any` propagates through assignments, return types, and function calls —
+infecting the entire call chain. `unknown` forces explicit narrowing, and
+valibot makes that narrowing tree-shakable, type-safe, and cheap to ship.

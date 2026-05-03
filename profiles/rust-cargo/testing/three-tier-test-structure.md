@@ -44,4 +44,29 @@ crates/myapp-core/
 - No standalone executable tests that are not mapped to scenarios
 - Keep helper code in support modules, not as free-form untracked tests
 
-**Why:** Tiered runtime control and single-format behavior proof can coexist without ambiguity.
+## Tanren mapping: tiers are harness choice, not file location
+
+In tanren, runtime tiers map to harness choice rather than a tier-tag or
+a per-tier directory. The three tiers all share a single Gherkin source
+tree:
+
+| Tier | Harness | Selected by |
+|------|---------|-------------|
+| In-process | `tanren_app_services` handlers + ephemeral SQLite | (no interface tag — this is the unit substrate the in-process harness exposes; in tanren's BDD surface it appears only as the in-process implementation behind a per-interface harness adapter when relevant.) |
+| Spawned-binary | `tanren-api-app` / `tanren-cli` / `tanren-mcp-app` / `tanren-tui` on ephemeral ports/pipes | `@api`, `@cli`, `@mcp`, `@tui` |
+| Playwright | full browser against running api + Next.js dev server | `@web` |
+
+`tests/bdd/features/B-XXXX-*.feature` is the **single source of truth**
+for behavior scenarios. The `apps/web/tests/bdd/features/` location is a
+symlink to that directory so that `playwright-bdd` (the Node-side
+`@web` runner) consumes exactly the same files Rust does. There is no
+duplication of scenario text between the Rust and TypeScript sides.
+
+See `bdd-wire-harness.md` for the per-interface harness contract and
+`mock-boundaries.md` § "Per-interface BDD wire harnesses (R-0001)" for
+the rule that step definitions never call handlers directly.
+
+**Why:** Tiered runtime control and single-format behavior proof can
+coexist without ambiguity. Anchoring the tier to the harness rather than
+a tag makes the runtime category mechanically obvious from the scenario
+text.

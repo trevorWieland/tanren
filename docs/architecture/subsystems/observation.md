@@ -550,6 +550,30 @@ Required observation read models include:
 Each read model must include scope, freshness, source position, and visibility
 metadata where applicable.
 
+## Tracing Initialization Contract
+
+Every binary in `bin/*/src/main.rs` MUST call
+`tanren_observability::init(env_filter)` as its first action, before any
+other tracing emission, log line, or service-status `println!`.
+
+`tanren_observability::init` centralizes the tracing-subscriber setup:
+JSON-formatted output, env-filtered via the standard
+`RUST_LOG`/`TANREN_LOG` envelope, and span/event metadata aligned with
+the cross-binary correlation contract in this document.
+
+CLI and TUI service-status messages (`Starting tanren-cli...`,
+`Connected to API at ...`, etc.) route through `tracing::info!` to
+**stderr**, not via `writeln!(io::stdout(), ...)`. This frees stdout for
+the structured event identifiers the existing CLI output contract
+relies on (script consumers grep machine-readable lines from stdout;
+status chatter goes to stderr). The CLI output contract is unchanged;
+only its delivery mechanism — `tracing` events to stderr instead of ad
+hoc prints — is canonicalized.
+
+Mechanical enforcement: `xtask check-tracing-init` AST-walks every
+`bin/*/src/main.rs` and rejects any binary whose `main` does not invoke
+`tanren_observability::init` as the first non-trivial statement.
+
 ## Accepted Decisions
 
 - Observation is a read-side composition subsystem, not canonical product or

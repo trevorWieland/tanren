@@ -85,4 +85,81 @@ pub struct Config {
 - Never pass raw secret values to `tracing` fields or format strings
 - Use `secrecy::zeroize` feature if you need memory scrubbing after use
 
-**Why:** `Secret<T>` makes accidental credential exposure a compile-time or at minimum a visible code-review concern rather than a silent runtime leak. The type system prevents secrets from appearing in logs, error messages, serialized output, and debug displays.
+## Mandatory password hashing: Argon2id
+
+The workspace uses `argon2 = "0.5"` (the RustCrypto implementation) for every
+password and password-equivalent secret. The single supported entry point is
+`Argon2idVerifier::production()`, which defaults to the OWASP 2025 floor:
+`m = 19 MiB`, `t = 2`, `p = 1`. Hashes are stored in PHC string format
+
+```
+$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>
+```
+
+in a single `TEXT` column — there is no separate salt column, because the
+salt is embedded in the PHC string and the `argon2` crate parses it back out
+on verify.
+
+```rust
+// ✓ Good: production verifier with workspace-pinned parameters
+let verifier = Argon2idVerifier::production();
+let phc = verifier.hash(password.expose_secret())?;
+// stored as a single TEXT column on `accounts.password_hash`
+```
+
+```rust
+// ✓ Good: test-only fast verifier behind a cfg gate
+#[cfg(any(test, feature = "test-hooks"))]
+let verifier = Argon2idVerifier::fast_for_tests(); // m=8 KiB, t=1, p=1
+```
+
+```rust
+// ✗ Bad: bare SHA-256 of a password
+let digest = sha2::Sha256::new().chain_update(password).finalize();
+
+// ✗ Bad: bcrypt or scrypt — banned in this workspace
+let hash = bcrypt::hash(password, 12)?;
+```
+
+**Banned alternatives:** bare `sha2::Sha256` for password material, `bcrypt`,
+`scrypt`. The workspace `clippy.toml` lists `disallowed_methods` /
+`disallowed_types` entries that reject `sha2::Sha256::new` outside the
+verifier impl, so accidental misuse fails `just check`.
+
+## Mechanical enforcement: `xtask check-secrets`
+
+An AST walker shipped under `xtask` (run via `just check-secrets`) inspects
+every struct field declared anywhere in the workspace. A field is rejected
+when its identifier matches the case-insensitive pattern
+
+```
+(?i)password|secret|api_key|credential|session_token|bearer|private_key|csrf|auth_token
+```
+
+unless its declared type is one of:
+
+- `secrecy::SecretString`
+- `secrecy::SecretBox<_>`
+- a workspace newtype enumerated in `xtask/secret-newtypes.toml`
+  (e.g. `SessionToken`, `InvitationToken`, `ApiKey`)
+
+A field whose name ends in `*token` and whose type is bare `String` is
+treated the same way: it must either change type or be added to the
+allowlist with a justification comment.
+
+```rust
+// ✓ Good: name matches the pattern, type is allow-listed
+pub struct AccountRow {
+    pub password_hash: SecretString,   // SecretString — OK
+    pub session_token: SessionToken,   // newtype listed in secret-newtypes.toml
+}
+
+// ✗ Bad: rejected by xtask check-secrets
+pub struct AccountRow {
+    pub password: String,         // bare String for password-named field
+    pub api_key: String,          // bare String for api_key-named field
+    pub bearer_token: String,     // *token-named bare String
+}
+```
+
+**Why:** `Secret<T>` makes accidental credential exposure a compile-time or at minimum a visible code-review concern rather than a silent runtime leak. Argon2id with workspace-pinned parameters keeps every password verification on the same vetted path, and the `xtask` AST walker turns naming-and-typing drift into a hard gate so a careless `pub api_key: String` never reaches main.

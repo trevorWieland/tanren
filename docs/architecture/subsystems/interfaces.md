@@ -375,6 +375,98 @@ shapes in first-party clients are rejected.
   notification feed, observation digest status, and audit events where
   permitted.
 
+## Canonical Session, Error, OpenAPI, And Design-Token Decisions
+
+These decisions land with R-0001 and apply to every subsequent feature
+that touches authenticated requests, error mapping, schema generation,
+or web styling. They cross-reference
+[`profiles/rust-cargo/architecture/cookie-session.md`](../../../profiles/rust-cargo/architecture/cookie-session.md),
+[`profiles/rust-cargo/architecture/openapi-generation.md`](../../../profiles/rust-cargo/architecture/openapi-generation.md),
+and
+[`profiles/react-ts-pnpm/architecture/styling-and-design-tokens.md`](../../../profiles/react-ts-pnpm/architecture/styling-and-design-tokens.md).
+
+### Cookie session for `@web` and `@api`
+
+Successful sign-up, sign-in, and accept-invitation responses to web and
+API clients set a session cookie:
+
+```
+Set-Cookie: tanren_session=<id>; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000
+```
+
+The cookie is managed by `tower-sessions` with a SQLx-backed
+`SessionStore` over the `account_sessions` table (see
+[state](state.md)). The web invitation flow uses a server-rendered
+interstitial accept page (a Next.js page) so the cookie-setting POST is
+same-origin and `SameSite=Strict` fires correctly. Sign-out is
+`POST /sessions/revoke`, which clears the cookie and deletes the
+session row.
+
+### Bearer session for `@cli`, `@mcp`, and `@tui`
+
+CLI, MCP, and TUI clients have no cookie jar to use. Their session
+responses carry the `SessionToken` in the response body, and clients
+attach it as a bearer token on subsequent requests. The same backing
+session row is created — the difference is purely transport.
+
+### `SessionEnvelope` discriminator
+
+The contract type is:
+
+```rust
+enum SessionEnvelope {
+    Cookie { account_id: AccountId, expires_at: DateTime<Utc> },
+    Bearer { account_id: AccountId, expires_at: DateTime<Utc>, token: SessionToken },
+}
+```
+
+API and web responses receive `Cookie`; CLI/MCP/TUI receive `Bearer`.
+The discriminator is part of the contract because a generated client
+must know which transport it is using to know whether to attach
+credentials from a cookie jar or from request state.
+
+### Error taxonomy extension
+
+The shared error taxonomy (above) gains `validation_failed` for empty
+or malformed request input — HTTP 400. This is distinct from
+`invalid_credential` (HTTP 401, "credentials don't match a user"):
+empty-input requests must NOT map to 401, because doing so leaks
+"credentials shape valid" as separate from "credentials accepted." Any
+empty-field input returns `validation_failed`.
+
+### OpenAPI generation
+
+OpenAPI 3.1 documents are generated from `utoipa` annotations on
+handlers and `OpenApi` derives on the contract types. `utoipa-axum`
+provides `OpenApiRouter` so the router and the schema stay in sync.
+The generated document is served at `/openapi.json`.
+
+Hand-rolled `serde_json::json!({...})` OpenAPI definitions are
+forbidden. Contract drift is caught at compile time by the same
+generation that produces the document, not at review time by a human
+re-reading two files. OpenAPI examples never include real secret
+values.
+
+### CORS configuration
+
+`tanren-api-app::Config::cors_allow_origins` is a `Vec<HeaderValue>`.
+The dev default is `vec!["http://localhost:3000"]`. Production must set
+`TANREN_API_CORS_ORIGINS` (comma-separated). `tower_http::cors::Any` is
+denied in `tanren-api-app` via `clippy.toml` `disallowed_types` so a
+future contributor cannot accidentally widen CORS to "any origin."
+
+### Design tokens (web)
+
+All colors and spacing flow through Tailwind v4's `@theme` block in
+`apps/web/src/app/globals.css`. The token palette uses oklch values so
+luminance-aware adjustments stay perceptually correct.
+
+Inline `style={{ background: "#…" }}` for color or spacing is
+forbidden; the oxlint rule `react/forbid-dom-props: ["style"]` (with a
+narrow allowlist for CSS custom properties only) enforces this. The
+component layer reads tokens through Tailwind utility classes, never
+through arbitrary hex literals.
+
 ## Rejected Alternatives
 
 - **`any` as a behavior interface marker.** Rejected because explicit interface

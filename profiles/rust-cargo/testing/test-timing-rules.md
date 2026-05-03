@@ -15,18 +15,26 @@ applies_to_domains:
 
 # Scenario Timing Rules
 
-Timing limits apply to BDD scenario execution tiers.
+Per-scenario timing budgets keep the BDD suite usable as a feedback loop.
+The runtime classification — fast vs slow — is implicit in the harness
+chosen, not in a tag.
 
-| Tier | Max Time | I/O Allowed |
-|------|----------|-------------|
-| Unit scenario | 250ms | No |
-| Integration scenario | 5s | Yes |
-| Doc/API scenario examples | 250ms | No |
+| Harness | Max Time | I/O Allowed |
+|---------|----------|-------------|
+| In-process (handlers + ephemeral SQLite) | 250 ms | No external |
+| Spawned-binary (api/cli/mcp/tui on ephemeral ports/pipes) | 5 s | Yes |
+| Cross-process Playwright (`@web` slice) | 10 s | Yes |
 
 **Rules:**
-- Scenario tier tagging must match runtime behavior
-- Slow scenarios must be split or moved to the correct tier
-- Nextest slow-timeout configuration still applies to Rust test binaries in CI
-- No skip-based workaround for slow scenarios
+- Per-interface harness selection (api/cli/mcp/tui/web) is documented in
+  `bdd-wire-harness.md`; tier as a tag (`@tier(unit)`,
+  `@tier(integration)`) is no longer used.
+- Scenario timing budgets above are hard ceilings. Slow scenarios must be
+  redesigned or split — there is no "slow" escape hatch.
+- Nextest slow-timeout configuration still applies to Rust test binaries
+  in CI as a backstop for runaway scenarios.
+- No skip-based workaround for slow scenarios.
 
 **Why:** Fast behavior feedback prevents test rot and gate avoidance.
+Tying the budget to harness choice instead of an opt-in tag means timing
+is enforced by construction.

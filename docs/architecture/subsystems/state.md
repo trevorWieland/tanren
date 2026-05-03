@@ -391,6 +391,89 @@ followed by explicit repair events or administrative records where possible.
   streams and webhook-safe event categories allowed by their grants. Raw event
   subscriptions require explicit high-permission grants.
 
+## Canonical Store Trait, Sessions Table, And Clock Injection
+
+These decisions land with R-0001 and apply to every subsequent store
+adapter and store-consuming handler. They cross-reference
+[`profiles/rust-cargo/architecture/trait-based-abstraction.md`](../../../profiles/rust-cargo/architecture/trait-based-abstraction.md)
+and
+[`profiles/rust-cargo/architecture/crate-layering.md`](../../../profiles/rust-cargo/architecture/crate-layering.md).
+
+### `AccountStore` trait — port and adapter
+
+The store crate (`tanren-store`) defines a single
+`pub trait AccountStore: Send + Sync + std::fmt::Debug` covering all
+account/membership/session/event/invitation reads and writes for the
+account lifecycle. `SeaOrmStore` is the SQLite/Postgres adapter.
+Application services (`tanren-app-services`) depend on
+`&dyn AccountStore`, never on the concrete `SeaOrmStore`. The
+`clippy.toml` for `tanren-app-services` denies
+`tanren_store::SeaOrmStore` so handlers cannot regress to the concrete
+type.
+
+The trait is intentionally one trait, not split per aggregate. Sign-up
+writes account + session + event in one logical unit; accept-invitation
+writes account + membership + invitation update + session + two events.
+Splitting the port forces handlers to take a fistful of trait objects
+per call without making the boundary cleaner.
+
+### Atomic invitation consume
+
+Invitation acceptance is a single round-trip:
+
+```sql
+UPDATE invitations SET consumed_at = $1
+  WHERE token = $2 AND consumed_at IS NULL
+  RETURNING ...
+```
+
+`rows_affected = 0` paired with the row's existence determines whether
+the invitation was already consumed, expired, or never existed. The
+find→check→update sequence is forbidden because it admits a race.
+
+A partial-unique constraint
+`UNIQUE (token) WHERE consumed_at IS NULL` on the `invitations` table
+provides belt-and-braces protection at the SQL layer.
+
+### `account_sessions` table
+
+The `account_sessions` table has an `expires_at TIMESTAMPTZ NOT NULL`
+column. The default value at insert time is `now + 30 days`; the
+verifier path filters `expires_at > now` so expired sessions cannot
+authenticate. Schema-snapshot tests guard the column.
+
+`tower-sessions-sqlx-store` adapts the table for HTTP cookie sessions
+(see [interfaces](interfaces.md)). The session row stores the opaque
+`SessionToken`; no secret value other than the token itself is ever
+written to the table.
+
+### Clock injection
+
+Every store write that previously called `chrono::Utc::now()` now takes
+`now: DateTime<Utc>` as a parameter. The store does not read the clock;
+handlers thread `clock.now()` (a `&dyn Clock`) into store calls. The
+`clippy.toml` for `tanren-store` denies `chrono::Utc::now`
+(`disallowed_methods`) so the rule is mechanically enforced.
+
+This makes time controllable in BDD scenarios (the harness installs a
+deterministic clock) and removes a class of flake from store-level
+tests.
+
+### `test-hooks` feature gate
+
+Fixture-seeding methods (`seed_invitation`, `seed_account_for_test`, …)
+are gated on `#[cfg(feature = "test-hooks")]`. `tanren-store/Cargo.toml`
+declares the feature; `tanren-testkit/Cargo.toml` enables
+`tanren-store/test-hooks`; production binaries do not.
+
+CI runs `cargo check --workspace` twice: once **without** `test-hooks`
+(catches accidental production reliance) and once **with** (catches
+lint failures in the gated path). The matrix is wired into `just ci`.
+
+`xtask check-test-hooks` rejects any `pub fn` whose doc-comment matches
+`(?i)test|fixture|seed` unless gated on
+`cfg(any(test, feature = "test-hooks"))`.
+
 ## Rejected Alternatives
 
 - **Relational tables as independent truth.** Rejected because direct table
