@@ -16,7 +16,8 @@
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build",
     "storybook:test": "vitest run --project=storybook",
-    "e2e": "playwright test",
+    "bddgen": "bddgen",
+    "e2e": "bddgen && playwright test",
     "e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
