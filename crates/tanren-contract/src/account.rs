@@ -121,6 +121,67 @@ pub struct SessionView {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Transport-aware projection of a freshly minted session.
+///
+/// The `@web` and `@api` surfaces deliver session tokens via an
+/// `HttpOnly + Secure + SameSite=Strict` cookie set by the API; the body
+/// only exposes `account_id` + `expires_at` (`Cookie` variant). The
+/// `@cli`, `@mcp`, and `@tui` surfaces have no cookie jar — they receive
+/// the token in the response body (`Bearer` variant). Subsequent PRs map
+/// `SessionView` → `SessionEnvelope` per surface inside each binary
+/// (cookie session lands in PR 8). The discriminator is the transport,
+/// not the user.
+///
+/// See `docs/architecture/subsystems/interfaces.md` § "Canonical session,
+/// error, `OpenAPI`, and design-token decisions" and
+/// `profiles/rust-cargo/architecture/cookie-session.md`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "transport", rename_all = "snake_case")]
+pub enum SessionEnvelope {
+    /// Cookie-bound session for `@web` + `@api`. The token is set by the
+    /// server via `Set-Cookie` and never appears in the response body.
+    Cookie {
+        /// Account this session is bound to.
+        account_id: AccountId,
+        /// Wall-clock time at which the session expires.
+        expires_at: DateTime<Utc>,
+    },
+    /// Bearer-token session for `@cli` + `@mcp` + `@tui`. The opaque
+    /// token is returned in the body; clients keep it in their session
+    /// store / keyring.
+    Bearer {
+        /// Account this session is bound to.
+        account_id: AccountId,
+        /// Wall-clock time at which the session expires.
+        expires_at: DateTime<Utc>,
+        /// Opaque session token.
+        token: SessionToken,
+    },
+}
+
+impl SessionEnvelope {
+    /// Project a [`SessionView`] into the cookie-transport envelope (no
+    /// token in body — it ships in the `Set-Cookie` header).
+    #[must_use]
+    pub fn cookie(view: &SessionView) -> Self {
+        Self::Cookie {
+            account_id: view.account_id,
+            expires_at: view.expires_at,
+        }
+    }
+
+    /// Project a [`SessionView`] into the bearer-transport envelope (token
+    /// in body — for clients without a cookie jar).
+    #[must_use]
+    pub fn bearer(view: &SessionView) -> Self {
+        Self::Bearer {
+            account_id: view.account_id,
+            expires_at: view.expires_at,
+            token: view.token.clone(),
+        }
+    }
+}
+
 /// Closed taxonomy of account-flow failures.
 ///
 /// Maps onto the shared `{code, summary}` error body documented in
