@@ -101,7 +101,7 @@ async fn sign_up(world: &mut TanrenWorld, email: String) {
 - `xtask check-bdd-wire-coverage` (AST walker) rejects any direct
   `Handlers::` call inside `crates/tanren-bdd/src/steps/**`. The witness
   earned by an interface tag must be earned over its real wire.
-- `xtask check-deps` rejects `tanren-app-services` in
+- `just check-deps` rejects `tanren-app-services` in
   `crates/tanren-bdd/Cargo.toml`. The crate cannot reach the in-process
   handlers even by accident — the dep edge is closed.
 
