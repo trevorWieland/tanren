@@ -19,6 +19,7 @@ use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationResponse, AccountFailureReason, SignInResponse, SignUpResponse,
 };
+use tanren_identity_policy::Argon2idVerifier;
 use tanren_testkit::{FixtureSeed, InvitationFixture};
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -72,7 +73,10 @@ impl AccountContext {
     pub async fn new() -> Result<Self, tanren_store::StoreError> {
         let store = tanren_testkit::ephemeral_store().await?;
         let clock = SharedClock::new(Utc::now());
-        let handlers = Handlers::with_clock(clock.as_app_clock());
+        let handlers = Handlers::with_verifier(
+            clock.as_app_clock(),
+            Arc::new(Argon2idVerifier::fast_for_tests()),
+        );
         Ok(Self {
             store,
             handlers,

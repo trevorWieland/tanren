@@ -338,6 +338,7 @@ check:
     run_stage "test hooks" just check-test-hooks
     run_stage "newtype ids" just check-newtype-ids
     run_stage "secrets" just check-secrets
+    run_stage "orphan traits" just check-orphan-traits
     run_stage "event coverage" just check-event-coverage
     run_stage "profiles" just check-profiles
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'

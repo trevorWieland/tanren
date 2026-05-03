@@ -3,10 +3,14 @@
 //! Owns accounts, organizations, projects, memberships, roles, service
 //! accounts, API keys, approval policy, and runtime placement policy. The
 //! mechanism for credential verification (local password hashing, OIDC
-//! introspection, ...) is deliberately not committed here — R-0001 onwards
-//! pin the mechanism behind a [`CredentialVerifier`] impl.
+//! introspection, ...) is deliberately not committed here — R-0001 pins
+//! the mechanism behind a [`CredentialVerifier`] impl, with
+//! [`Argon2idVerifier`] as the canonical local-password implementation.
 
+mod argon2_verifier;
 pub mod secret_serde;
+
+pub use argon2_verifier::Argon2idVerifier;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -409,16 +413,30 @@ pub struct Session {
     pub token: SessionToken,
 }
 
-/// Verifies a credential and returns a [`Session`] on success. Mechanism
-/// (local password, OIDC, ...) is the implementor's responsibility.
-pub trait CredentialVerifier: Send + Sync {
-    /// Verify the supplied credential and produce a session.
+/// Hashes and verifies a plaintext password against a stored PHC string.
+///
+/// Mechanism (Argon2id today; potentially OIDC introspection or hardware-
+/// backed verifiers later) is the implementor's responsibility. The
+/// canonical workspace impl is [`Argon2idVerifier`].
+pub trait CredentialVerifier: Send + Sync + std::fmt::Debug {
+    /// Hash a plaintext password into a portable PHC-format string
+    /// (`$argon2id$v=19$m=...$<salt>$<hash>`). Salt is generated
+    /// internally by the verifier.
     ///
     /// # Errors
     ///
-    /// Returns [`IdentityError::InvalidCredential`] if the credential does
-    /// not verify.
-    fn verify(&self, credential: &PasswordCredential) -> Result<Session, IdentityError>;
+    /// Returns [`IdentityError::HashFailed`] when the underlying hashing
+    /// primitive raises an error (e.g. invalid parameter combinations).
+    fn hash(&self, password: &SecretString) -> Result<String, IdentityError>;
+
+    /// Verify a plaintext password against a stored PHC-format hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidCredential`] when the password
+    /// does not match the stored hash, or [`IdentityError::HashFailed`]
+    /// when the stored hash string is malformed.
+    fn verify(&self, password: &SecretString, stored: &str) -> Result<(), IdentityError>;
 }
 
 /// Errors raised by identity-policy operations.
@@ -440,6 +458,12 @@ pub enum IdentityError {
     /// The invitation has already been consumed (or revoked).
     #[error("the invitation has already been consumed")]
     InvitationAlreadyConsumed,
+    /// The hashing primitive raised an error (or the stored hash string
+    /// failed to parse). Distinct from
+    /// [`IdentityError::InvalidCredential`] which signals a verified
+    /// password mismatch.
+    #[error("hash error: {0}")]
+    HashFailed(String),
     /// User-supplied input failed validation before any verification could run.
     #[error("invalid input: {0}")]
     Validation(#[from] ValidationError),

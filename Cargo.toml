@@ -213,3 +213,14 @@ rand = "0.9"
 
 # Base64 URL-safe-no-pad encoding (paired with `rand` for opaque tokens).
 base64 = "0.22"
+
+# Password hashing — Argon2id is the canonical CredentialVerifier impl
+# (PR 5 of R-0001). `password-hash` ships the PHC string format that the
+# Argon2id verifier writes / reads.
+argon2 = { version = "0.5", default-features = false, features = [
+  "std",
+  "alloc",
+] }
+password-hash = { version = "0.5", default-features = false, features = [
+  "alloc",
+] }
