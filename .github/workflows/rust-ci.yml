@@ -12,6 +12,11 @@ env:
   RUSTFLAGS: "-D warnings"
   RUST_TOOLCHAIN: "1.94.1"
 
+# Restrict GITHUB_TOKEN to read-only by default. CodeQL flagged the
+# missing permissions block; this job only checks out + builds + tests.
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: just ci
