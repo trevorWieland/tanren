@@ -9,21 +9,23 @@
 
 mod argon2_verifier;
 pub mod secret_serde;
+mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
+pub use session_token::SessionToken;
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Stable identifier for a Tanren account. `UUIDv7` — sortable + unique.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
+#[schema(value_type = String, format = "uuid")]
 pub struct AccountId(Uuid);
 
 impl AccountId {
@@ -65,8 +67,9 @@ impl std::fmt::Display for AccountId {
 }
 
 /// Stable identifier for a Tanren organization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
+#[schema(value_type = String, format = "uuid")]
 pub struct OrgId(Uuid);
 
 impl OrgId {
@@ -108,8 +111,9 @@ impl std::fmt::Display for OrgId {
 }
 
 /// Stable identifier for a membership row (links an account to an org).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
+#[schema(value_type = String, format = "uuid")]
 pub struct MembershipId(Uuid);
 
 impl MembershipId {
@@ -155,8 +159,9 @@ impl std::fmt::Display for MembershipId {
 /// keeps the validation deliberately lightweight (presence + single
 /// `@`) — full RFC 5322 verification is the responsibility of an
 /// out-of-band confirmation flow that lands later.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
+#[schema(value_type = String, format = "email")]
 pub struct Email(String);
 
 impl Email {
@@ -202,8 +207,9 @@ impl std::fmt::Display for Email {
 /// identifier+password where the identifier is the canonical email; the
 /// type wraps the raw string so future mechanisms can lift constraints
 /// in one place.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
+#[schema(value_type = String)]
 pub struct Identifier(String);
 
 impl Identifier {
@@ -248,8 +254,9 @@ const INVITATION_TOKEN_MIN_LEN: usize = 16;
 
 /// Opaque invitation token. R-0001 treats the token as a flat string —
 /// generation/delivery is R-0005's job; here we just verify and consume.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
+#[schema(value_type = String)]
 pub struct InvitationToken(String);
 
 impl InvitationToken {
@@ -282,84 +289,6 @@ impl InvitationToken {
 impl std::fmt::Display for InvitationToken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
-    }
-}
-
-/// Opaque session token — 256 bits of CSPRNG randomness encoded
-/// base64url-no-pad and wrapped in [`SecretString`] so accidental
-/// `Display` / `Debug` / `Serialize` calls cannot leak the credential.
-///
-/// Construction is one of:
-///
-/// - [`SessionToken::generate`] — fresh CSPRNG token at sign-up / sign-in /
-///   accept-invitation time.
-/// - [`SessionToken::from_secret`] — wrap an already-realised secret (used
-///   by the store layer when re-hydrating a session row).
-///
-/// Access to the inner string is only via [`SessionToken::expose_secret`].
-/// `Debug` prints `SessionToken(<redacted>)`; `Display` is intentionally
-/// not implemented.
-#[derive(Clone)]
-pub struct SessionToken(SecretString);
-
-impl SessionToken {
-    /// Mint a fresh session token: 32 random bytes, URL-safe base64
-    /// (no padding).
-    #[must_use]
-    pub fn generate() -> Self {
-        let bytes: [u8; 32] = rand::random();
-        let encoded = URL_SAFE_NO_PAD.encode(bytes);
-        Self(SecretString::from(encoded))
-    }
-
-    /// Wrap an existing secret. Used by the store layer when re-hydrating
-    /// a session row from the database; production handlers should call
-    /// [`SessionToken::generate`] instead.
-    #[must_use]
-    pub const fn from_secret(secret: SecretString) -> Self {
-        Self(secret)
-    }
-
-    /// Expose the inner token string. The only access point — every
-    /// other surface (Debug, Display, Serialize) intentionally redacts.
-    #[must_use]
-    pub fn expose_secret(&self) -> &str {
-        self.0.expose_secret()
-    }
-}
-
-impl std::fmt::Debug for SessionToken {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("SessionToken(<redacted>)")
-    }
-}
-
-impl Serialize for SessionToken {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.expose_secret())
-    }
-}
-
-impl<'de> Deserialize<'de> for SessionToken {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        Ok(Self(SecretString::from(raw)))
-    }
-}
-
-impl JsonSchema for SessionToken {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("SessionToken")
-    }
-
-    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        String::json_schema(generator)
     }
 }
 

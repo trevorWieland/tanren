@@ -30,3 +30,9 @@ secrecy = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+# `ToSchema` lives alongside `JsonSchema` on every newtype id so the api
+# crate's `utoipa`-generated OpenAPI document references the same source
+# of truth as the rmcp tool registry. R-0001 sub-8 dual-derives both;
+# `profiles/rust-cargo/architecture/openapi-generation.md` covers the
+# rationale.
+utoipa = { workspace = true }

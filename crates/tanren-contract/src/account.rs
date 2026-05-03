@@ -12,9 +12,10 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::secret_serde;
 use tanren_identity_policy::{AccountId, Email, Identifier, InvitationToken, OrgId, SessionToken};
+use utoipa::ToSchema;
 
 /// Self-signup request.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SignUpRequest {
     /// Email address that will own the new account. Lower-cased + trimmed
     /// during validation.
@@ -27,13 +28,14 @@ pub struct SignUpRequest {
         serialize_with = "secret_serde::serialize_password_expose"
     )]
     #[schemars(with = "String")]
+    #[schema(value_type = String, format = Password)]
     pub password: SecretString,
     /// Human-readable display name for the new account.
     pub display_name: String,
 }
 
 /// Successful sign-up response.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SignUpResponse {
     /// View of the freshly created account.
     pub account: AccountView,
@@ -42,7 +44,7 @@ pub struct SignUpResponse {
 }
 
 /// Sign-in request.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SignInRequest {
     /// Email of the account being signed in to.
     pub email: Email,
@@ -52,11 +54,12 @@ pub struct SignInRequest {
         serialize_with = "secret_serde::serialize_password_expose"
     )]
     #[schemars(with = "String")]
+    #[schema(value_type = String, format = Password)]
     pub password: SecretString,
 }
 
 /// Successful sign-in response.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SignInResponse {
     /// View of the signed-in account.
     pub account: AccountView,
@@ -65,7 +68,7 @@ pub struct SignInResponse {
 }
 
 /// Invitation-acceptance request.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct AcceptInvitationRequest {
     /// Invitation token issued by the inviting organization.
     pub invitation_token: InvitationToken,
@@ -79,13 +82,14 @@ pub struct AcceptInvitationRequest {
         serialize_with = "secret_serde::serialize_password_expose"
     )]
     #[schemars(with = "String")]
+    #[schema(value_type = String, format = Password)]
     pub password: SecretString,
     /// Display name for the new account.
     pub display_name: String,
 }
 
 /// Successful invitation-acceptance response.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct AcceptInvitationResponse {
     /// View of the newly created account.
     pub account: AccountView,
@@ -96,7 +100,7 @@ pub struct AcceptInvitationResponse {
 }
 
 /// External-facing view of a Tanren account.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct AccountView {
     /// Stable account id.
     pub id: AccountId,
@@ -111,7 +115,7 @@ pub struct AccountView {
 /// External-facing view of a session token. The token is opaque to all
 /// callers; only the issuer (the api/cli/mcp/tui binary that signed it)
 /// understands its internal shape.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SessionView {
     /// Account this session is bound to.
     pub account_id: AccountId,
@@ -135,7 +139,7 @@ pub struct SessionView {
 /// See `docs/architecture/subsystems/interfaces.md` § "Canonical session,
 /// error, `OpenAPI`, and design-token decisions" and
 /// `profiles/rust-cargo/architecture/cookie-session.md`.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "transport", rename_all = "snake_case")]
 pub enum SessionEnvelope {
     /// Cookie-bound session for `@web` + `@api`. The token is set by the
@@ -189,7 +193,7 @@ impl SessionEnvelope {
 /// interface (api/mcp/cli/tui/web) projects an `AccountFailureReason`
 /// into the same wire shape so callers can match on `code` regardless of
 /// transport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AccountFailureReason {
