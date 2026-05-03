@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
-import { AcceptInvitationForm } from "@/components/account/AcceptInvitationForm";
 import * as m from "@/i18n/paraglide/messages";
+
+import { AcceptInvitationFormShell } from "./AcceptInvitationFormShell";
 
 interface InvitationPageProps {
   params: Promise<{ token: string }>;
@@ -24,7 +25,7 @@ export default async function InvitationAcceptPage(
       <p className="m-0 text-[--color-fg-muted]">
         {m.acceptInvitation_subtitle()}
       </p>
-      <AcceptInvitationForm token={token} />
+      <AcceptInvitationFormShell token={token} />
     </main>
   );
 }

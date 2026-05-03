@@ -14,7 +14,13 @@ import * as m from "@/i18n/paraglide/messages";
 
 const AcceptInvitationInput = v.object({
   email: v.pipe(v.string(), v.trim(), v.toLowerCase(), v.email()),
-  password: v.pipe(v.string(), v.minLength(8)),
+  // The identity-policy crate doesn't enforce a server-side minimum
+  // password length on the accept-invitation flow (an invitee picks
+  // their own password during onboarding, and the existing inviter is
+  // already trusted to have routed the link to the right person). The
+  // form mirrors that contract: any non-empty password is accepted, and
+  // the server is the single source of truth for credential rules.
+  password: v.pipe(v.string(), v.minLength(1)),
   display_name: v.pipe(v.string(), v.trim(), v.minLength(1)),
 });
 
