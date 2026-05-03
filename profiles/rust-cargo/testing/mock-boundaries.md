@@ -69,7 +69,7 @@ Mechanical enforcement:
 
 - `xtask check-bdd-wire-coverage` (AST walker) rejects any direct
   `Handlers::` call inside `crates/tanren-bdd/src/steps/**`.
-- `xtask check-deps` rejects `tanren-app-services` as a dependency of
+- `just check-deps` rejects `tanren-app-services` as a dependency of
   the `tanren-bdd` crate. The crate cannot reach the in-process surface
   even by accident.
 

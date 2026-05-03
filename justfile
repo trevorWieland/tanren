@@ -345,6 +345,8 @@ check:
     run_stage "tracing init" just check-tracing-init
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
+    run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
     total_elapsed="$(( $(now_ms) - total_start ))"
@@ -721,10 +723,21 @@ check-profiles:
 check-orphan-traits:
     @{{ cargo }} run -q -p tanren-xtask -- check-orphan-traits
 
+# Reject hand-rolled `serde_json::json!({"openapi": ..., "paths": ...,
+# "components": ...})` documents in api crates. The api stack derives
+# its OpenAPI document via `utoipa`; raw JSON literals would silently
+# drift from the running server. Wired into `check` by PR 12.
+check-openapi-handcraft:
+    @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
+
 # Run the regression-fixture test suite that proves each guard rejects
-# its synthetic regression. Fixtures land in PR 12; until then this
-# recipe runs `cargo test -p tanren-xtask --tests`, which exits 0 with
-# no tests, so branch protection can require it now.
+# its synthetic regression. Each fixture under
+# `xtask/tests/fixtures/<guard>/` is a synthetic minimal source tree
+# that violates exactly one rule; the matching `#[test]` in
+# `xtask/tests/regressions.rs` invokes `xtask <subcommand> --root
+# <fixture>` and asserts the guard fails with the expected error
+# substring. If any fixture stops failing, the corresponding guard has
+# been weakened — investigate before merging.
 check-enforcement-regressions:
     @{{ cargo }} test -p tanren-xtask --tests
 

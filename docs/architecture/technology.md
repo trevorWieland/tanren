@@ -51,7 +51,7 @@ Library crates use `thiserror`; binaries may use `anyhow`. Production code
 avoids `unsafe`, `unwrap`, `panic!`, `todo!`, `unimplemented!`, `println!`,
 `eprintln!`, and `dbg!`.
 
-Crate dependency rules (mechanically enforced by `xtask check-deps`):
+Crate dependency rules (mechanically enforced by `just check-deps`):
 
 1. `tanren-domain` does not depend on any other workspace crate. It is the
    leaf canonical-entity layer.

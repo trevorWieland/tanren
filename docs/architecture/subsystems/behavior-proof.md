@@ -395,7 +395,7 @@ the same behavior.
   `crates/tanren-bdd/src/steps/**/*.rs` (AST via `syn`) and rejects any
   step body that calls `tanren_app_services::Handlers::` directly.
   Steps must dispatch through `*Harness` traits.
-- `xtask check-deps` rejects `tanren-app-services` from
+- `just check-deps` rejects `tanren-app-services` from
   `tanren-bdd/Cargo.toml`. The BDD crate depends on `tanren-testkit`
   and `tanren-contract` only; `Handlers` is reachable only via
   harnesses.
