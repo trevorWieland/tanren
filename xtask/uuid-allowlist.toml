@@ -1,0 +1,8 @@
+# Files where bare `uuid::Uuid` field types are permitted (newtype
+# declaration sites, From<Model> conversions, etc.). Paths are
+# relative to the repo root and matched literally.
+#
+# Empty during PR 2 (enforcement skeleton). PR 3 populates it for the
+# newtype declaration sites that legitimately wrap `Uuid`.
+allowed_files = [
+]

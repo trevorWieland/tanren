@@ -1,0 +1,71 @@
+name: Web Checks
+
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'crates/tanren-api-app/**'
+      - 'crates/tanren-contract/**'
+      - 'pnpm-workspace.yaml'
+      - 'pnpm-lock.yaml'
+
+env:
+  CI: "true"
+
+jobs:
+  web:
+    name: web lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: 'apps/web/.nvmrc'
+
+      - name: Install pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.19.0 --activate
+          pnpm --version
+
+      - name: Cache apps/web/node_modules
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: apps/web/node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml', 'apps/web/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile i18n messages (paraglide)
+        if: hashFiles('apps/web/src/i18n/project.inlang/settings.json') != ''
+        run: pnpm --filter @tanren/web run i18n:compile
+
+      - name: Lint
+        run: pnpm --filter @tanren/web lint
+
+      - name: Typecheck
+        run: pnpm --filter @tanren/web typecheck
+
+      # The following steps are gated by repo-vars until later PRs land.
+      # Toggle `WEB_TESTS_ENABLED` (PR 11) and `WEB_TSCONFIG_CHECK_ENABLED`
+      # (PR 10) to "true" in repo settings to enable.
+
+      - name: Web tests (vitest + storybook + playwright)
+        if: ${{ vars.WEB_TESTS_ENABLED == 'true' }}
+        run: pnpm --filter @tanren/web test
+
+      - name: Validate tsconfig flags
+        if: ${{ vars.WEB_TSCONFIG_CHECK_ENABLED == 'true' }}
+        run: just check-tsconfig
