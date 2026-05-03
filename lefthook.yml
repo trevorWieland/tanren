@@ -54,6 +54,21 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-tsconfig
+    web-format:
+      glob: "apps/web/**/*.{ts,tsx,js,jsx,json,md,css,yaml,yml}"
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just web-format-check
+    web-lint:
+      glob: "apps/web/**/*.{ts,tsx,js,jsx}"
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just web-lint
+    web-typecheck:
+      glob: "apps/web/**/*.{ts,tsx}"
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just web-typecheck
 
 pre-push:
   parallel: false

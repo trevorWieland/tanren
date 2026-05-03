@@ -349,6 +349,13 @@ check:
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
+    # Fast web checks — wired here so prettier/oxlint/tsgo failures
+    # surface locally at `just check` time rather than at CI time.
+    # Heavier web work (vitest unit + storybook + playwright) stays in
+    # `just web-test` / `just ci`.
+    run_stage "web format" just web-format-check
+    run_stage "web lint" just web-lint
+    run_stage "web typecheck" just web-typecheck
     total_elapsed="$(( $(now_ms) - total_start ))"
     echo "<== check total ($(fmt_duration "${total_elapsed}"))"
 
@@ -842,12 +849,23 @@ web-install:
 web-build:
     pnpm --filter @tanren/web build
 
+# Compile inlang/paraglide messages so subsequent web-* recipes can
+# resolve `@/i18n/paraglide/messages` at typecheck/lint time. No-op
+# when paraglide isn't configured (early in the bootstrap, or when
+# `apps/web/` is not present in a partial checkout). Idempotent;
+# `paraglide-js compile` re-emits if the catalog changed and exits
+# fast (~200ms) when nothing changed.
+web-i18n-compile:
+    @if [ -f apps/web/src/i18n/project.inlang/settings.json ]; then \
+        pnpm --filter @tanren/web run i18n:compile --silent ; \
+    fi
+
 # Lint the web frontend (oxlint).
-web-lint:
+web-lint: web-i18n-compile
     pnpm --filter @tanren/web lint
 
 # Typecheck the web frontend (tsgo from @typescript/native-preview).
-web-typecheck:
+web-typecheck: web-i18n-compile
     pnpm --filter @tanren/web typecheck
 
 # Format the web frontend (auto-fix).
@@ -855,7 +873,7 @@ web-format:
     pnpm --filter @tanren/web format
 
 # Format the web frontend (check only — used in CI gate).
-web-format-check:
+web-format-check: web-i18n-compile
     pnpm --filter @tanren/web format:check
 
 # Run the web frontend's Vitest unit project (no stories, no e2e).
