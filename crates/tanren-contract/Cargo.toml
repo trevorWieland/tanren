@@ -25,3 +25,9 @@ secrecy = { workspace = true }
 serde = { workspace = true }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
+# `ToSchema` derives let `utoipa` generate the OpenAPI components from
+# contract types. R-0001 sub-8 dual-derives `JsonSchema` (rmcp's tool
+# inventory consumes it) and `ToSchema` (utoipa generates the api crate's
+# OpenAPI document). Both derives stay on the same struct definition so
+# the contract layer remains the single source of truth.
+utoipa = { workspace = true }

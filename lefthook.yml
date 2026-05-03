@@ -37,6 +37,14 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-orphan-traits
+    thin-binary:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-thin-binary
+    tracing-init:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-tracing-init
 
 pre-push:
   parallel: false

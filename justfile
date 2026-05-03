@@ -341,6 +341,8 @@ check:
     run_stage "orphan traits" just check-orphan-traits
     run_stage "event coverage" just check-event-coverage
     run_stage "profiles" just check-profiles
+    run_stage "thin binary" just check-thin-binary
+    run_stage "tracing init" just check-tracing-init
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
     total_elapsed="$(( $(now_ms) - total_start ))"
@@ -563,15 +565,17 @@ check-deps:
         failed=1
     fi
 
-    # F-0002: tanren-mcp must serve over HTTP (axum-based stack), per
-    # docs/architecture/subsystems/interfaces.md#mcp and
+    # F-0002: the tanren-mcp transport must serve over HTTP (axum-based
+    # stack), per docs/architecture/subsystems/interfaces.md#mcp and
     # docs/architecture/technology.md (rejected-alternatives: stdio MCP).
-    # The presence of axum in the dependency closure is the mechanical
-    # signal that the binary is wired to the HTTP transport rather than
-    # rmcp's stdio transport.
-    mcp_deps=$(echo "$metadata" | jq -r '.packages[] | select(.name == "tanren-mcp") | .dependencies[] | select(.kind == null) | .name' 2>/dev/null || true)
+    # R-0001 sub-8 promoted the runtime out of `bin/tanren-mcp` into
+    # `crates/tanren-mcp-app` per the thin-binary-crate profile, so the
+    # axum dependency now lives on the app crate. Either is sufficient
+    # to prove the HTTP transport is wired (the bin always depends on
+    # the app, so an axum dep on either is reachable).
+    mcp_deps=$(echo "$metadata" | jq -r '.packages[] | select(.name == "tanren-mcp" or .name == "tanren-mcp-app") | .dependencies[] | select(.kind == null) | .name' 2>/dev/null || true)
     if ! echo "$mcp_deps" | grep -qx "axum"; then
-        echo "FAIL: tanren-mcp must depend on axum (HTTP transport mandated by architecture)"
+        echo "FAIL: tanren-mcp/tanren-mcp-app must depend on axum (HTTP transport mandated by architecture)"
         failed=1
     fi
 

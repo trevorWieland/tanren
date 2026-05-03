@@ -9,7 +9,8 @@ use tanren_app_services::Handlers;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tanren_observability::init().context("install tracing subscriber")?;
+    tanren_observability::init(tanren_observability::default_filter())
+        .context("install tracing subscriber")?;
 
     let report = Handlers::new().health(env!("CARGO_PKG_VERSION"));
     tracing::info!(

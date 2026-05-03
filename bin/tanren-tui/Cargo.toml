@@ -13,10 +13,5 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-crossterm = { workspace = true }
-ratatui = { workspace = true }
-secrecy = { workspace = true }
-tanren-app-services = { path = "../../crates/tanren-app-services" }
-tanren-contract = { path = "../../crates/tanren-contract" }
-tanren-identity-policy = { path = "../../crates/tanren-identity-policy" }
-tokio = { workspace = true }
+tanren-observability = { path = "../../crates/tanren-observability" }
+tanren-tui-app = { path = "../../crates/tanren-tui-app" }

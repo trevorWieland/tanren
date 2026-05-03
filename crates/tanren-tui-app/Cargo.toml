@@ -1,0 +1,22 @@
+[package]
+name = "tanren-tui-app"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Library crate that hosts the tanren-tui runtime — terminal setup/teardown, the screen router (menu/sign-up/sign-in/accept-invitation/outcome), form state, and ratatui rendering. The bin/tanren-tui/src/main.rs entry point is a thin wiring shell."
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
+secrecy = { workspace = true }
+tanren-app-services = { path = "../tanren-app-services" }
+tanren-contract = { path = "../tanren-contract" }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
+tokio = { workspace = true }
