@@ -21,8 +21,8 @@ const webBaseUrl = process.env["WEB_BASE_URL"] ?? `http://127.0.0.1:${webPort}`;
 // config-load. globalSetup (./tests/bdd/global-setup.ts) chooses the API
 // port at runtime — possibly falling back to a kernel-picked port when
 // 8081 is busy — and writes the resolved URL to BOTH process.env and
-// `apps/web/.env.test.local`. The webServer block below relies on
-// inheritance: `pnpm dev` reads .env.test.local automatically (Next.js
+// `apps/web/.env.local`. The webServer block below relies on
+// inheritance: `pnpm dev` reads .env.local automatically (Next.js
 // loads it ahead of .env), and any explicit `env:` here would override
 // that with a stale value. Keeping the block absent fixes the
 // nondeterministic-port bug Codex flagged on PR #133.
@@ -45,7 +45,7 @@ export default defineConfig({
   ],
   // The `tanren-api` Rust binary is spawned by globalSetup against an
   // ephemeral SQLite DB; the Next.js dev server below picks up the API
-  // URL from .env.test.local (written by globalSetup). PLAYWRIGHT_NO_SERVER
+  // URL from .env.local (written by globalSetup). PLAYWRIGHT_NO_SERVER
   // skips the Next.js spin-up when the developer has already booted the
   // dev server in another tab.
   ...(process.env["PLAYWRIGHT_NO_SERVER"]
@@ -53,7 +53,7 @@ export default defineConfig({
     : {
         webServer: {
           // `next dev` is used over `next start` so `NEXT_PUBLIC_API_URL`
-          // resolves at runtime from .env.test.local (production builds
+          // resolves at runtime from .env.local (production builds
           // bake the value at build time, which is incompatible with
           // globalSetup picking an ephemeral API port).
           command: "pnpm dev",
@@ -61,7 +61,7 @@ export default defineConfig({
           reuseExistingServer: process.env["CI"] !== "true",
           timeout: 240_000,
           // No `env` block — see comment above. NEXT_PUBLIC_API_URL is
-          // sourced from .env.test.local, which globalSetup writes after
+          // sourced from .env.local, which globalSetup writes after
           // it has bound to the actual port.
         },
       }),

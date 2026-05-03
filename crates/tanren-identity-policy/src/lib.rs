@@ -267,7 +267,8 @@ impl InvitationToken {
     /// Returns [`ValidationError::InvitationTokenEmpty`] if the input
     /// is empty after trimming, or
     /// [`ValidationError::InvitationTokenTooShort`] if the trimmed
-    /// token is shorter than [`INVITATION_TOKEN_MIN_LEN`] bytes.
+    /// token is shorter than 16 bytes (the canonical minimum, kept as
+    /// a private `INVITATION_TOKEN_MIN_LEN` constant in this module).
     pub fn parse(raw: &str) -> Result<Self, ValidationError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {

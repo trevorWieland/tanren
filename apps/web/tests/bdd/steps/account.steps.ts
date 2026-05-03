@@ -260,12 +260,7 @@ Given(
 
 When(
   /^(\w+) accepts invitation "([^"]+)" with password "([^"]+)"$/,
-  async (
-    { page, world },
-    name: string,
-    token: string,
-    password: string,
-  ) => {
+  async ({ page, world }, name: string, token: string, password: string) => {
     const a = actor(world, name);
     // Mirror the Rust step's email-synthesis convention so the @web
     // slice creates accounts that don't collide with @api ones (the

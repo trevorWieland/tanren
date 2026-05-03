@@ -104,10 +104,10 @@ export default async function globalSetup(): Promise<void> {
         "TANREN_BDD_EXTERNAL_API=true but NEXT_PUBLIC_API_URL is unset",
       );
     }
-    // Mirror to .env.test.local so the Next.js dev server (a child
+    // Mirror to .env.local so the Next.js dev server (a child
     // process spawned by Playwright's webServer) picks it up.
     writeFileSync(
-      join(process.cwd(), ".env.test.local"),
+      join(process.cwd(), ".env.local"),
       `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\n`,
     );
     return;
@@ -177,7 +177,7 @@ export default async function globalSetup(): Promise<void> {
 
   process.env["NEXT_PUBLIC_API_URL"] = apiUrl;
   writeFileSync(
-    join(process.cwd(), ".env.test.local"),
+    join(process.cwd(), ".env.local"),
     `NEXT_PUBLIC_API_URL=${apiUrl}\n`,
   );
 

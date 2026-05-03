@@ -136,7 +136,7 @@ impl From<entity::account_sessions::Model> for SessionRecord {
     }
 }
 
-/// Input shape for [`crate::Store::insert_account`].
+/// Input shape for [`crate::AccountStore::insert_account`].
 #[derive(Debug, Clone)]
 pub struct NewAccount {
     /// Stable id allocated by the caller (`UUIDv7`).
