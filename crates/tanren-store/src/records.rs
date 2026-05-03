@@ -16,9 +16,10 @@ use crate::entity;
 use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
 
 /// Persisted account row, exposed as a typed envelope so other crates
-/// never see `SeaORM` `Model` types directly. R-0001 stores password
-/// hash + salt as opaque bytes so the hashing scheme is swappable —
-/// PR 5 swaps these for an Argon2id PHC string.
+/// never see `SeaORM` `Model` types directly. R-0001 stores the
+/// password as an Argon2id PHC string (`$argon2id$v=19$m=...$<salt>$<hash>`)
+/// — salt is embedded in the string so the row carries a single TEXT
+/// column, not a hash + salt pair.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountRecord {
     /// Stable account id.
@@ -27,10 +28,11 @@ pub struct AccountRecord {
     pub identifier: Identifier,
     /// Display name.
     pub display_name: String,
-    /// Opaque password hash bytes.
-    pub password_hash: Vec<u8>,
-    /// Salt that produced the password hash.
-    pub password_salt: Vec<u8>,
+    /// PHC-format hash string. Public-by-design hash output — the
+    /// embedded salt is per-row, the parameters are recoverable, and
+    /// no plaintext leaks. Verification goes through
+    /// `CredentialVerifier::verify`.
+    pub password_phc: String,
     /// Wall-clock time the account was created.
     pub created_at: DateTime<Utc>,
     /// Owning organization — `None` for personal (self-signup) accounts.
@@ -46,8 +48,7 @@ impl TryFrom<entity::accounts::Model> for AccountRecord {
             id: AccountId::new(model.id),
             identifier,
             display_name: model.display_name,
-            password_hash: model.password_hash,
-            password_salt: model.password_salt,
+            password_phc: model.password_phc,
             created_at: model.created_at,
             org_id: model.org_id.map(OrgId::new),
         })
@@ -144,10 +145,10 @@ pub struct NewAccount {
     pub identifier: Identifier,
     /// Display name.
     pub display_name: String,
-    /// Opaque password hash bytes.
-    pub password_hash: Vec<u8>,
-    /// Salt that produced the password hash.
-    pub password_salt: Vec<u8>,
+    /// Argon2id PHC string (`$argon2id$v=19$...$<salt>$<hash>`). The
+    /// caller threads this in from
+    /// `CredentialVerifier::hash(&request.password)`.
+    pub password_phc: String,
     /// Wall-clock creation time.
     pub created_at: DateTime<Utc>,
     /// Owning organization — `None` for personal (self-signup) accounts.

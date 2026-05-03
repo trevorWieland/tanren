@@ -33,6 +33,10 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-test-hooks
+    orphan-traits:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-orphan-traits
 
 pre-push:
   parallel: false

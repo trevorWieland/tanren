@@ -17,7 +17,9 @@ cucumber = { workspace = true }
 secrecy = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
-tanren-identity-policy = { path = "../tanren-identity-policy" }
+tanren-identity-policy = { path = "../tanren-identity-policy", features = [
+  "test-hooks",
+] }
 tanren-store = { path = "../tanren-store" }
 tanren-testkit = { path = "../tanren-testkit" }
 tokio = { workspace = true }

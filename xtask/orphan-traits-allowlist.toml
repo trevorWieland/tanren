@@ -1,0 +1,39 @@
+# Orphan-traits allowlist.
+#
+# `xtask check-orphan-traits` rejects every workspace `pub trait` that
+# has no implementor anywhere in the workspace — orphan traits are dead
+# code and tend to drift away from the surfaces they were meant to
+# describe. The exception is *foundation* trait skeletons that ship
+# ahead of the feature work that lands their first impl. Each such
+# trait is listed here with a forward pointer to the spec or feature
+# that will close the gap, plus a one-line rationale.
+#
+# When the spec lands and the impl is written, remove the entry — the
+# checker fails on stale entries (allowlisted traits that turn out to
+# be implemented after all, or names that no longer match a `pub trait`
+# in the workspace).
+
+[[allowed]]
+name = "Gate"
+upcoming_spec = "F-0001"
+reason = "tanren-quality-controls Gate trait — first impl lands with the gates feature work."
+
+[[allowed]]
+name = "Harness"
+upcoming_spec = "F-0001"
+reason = "tanren-harness Harness trait — first impl lands with the harness families feature work."
+
+[[allowed]]
+name = "ProviderAdapter"
+upcoming_spec = "F-0001"
+reason = "tanren-provider-integrations ProviderAdapter — first impl lands with the upstream-adapter feature work (e.g. xhealth GCP/Linear adapters)."
+
+[[allowed]]
+name = "Scheduler"
+upcoming_spec = "F-0001"
+reason = "tanren-scheduler Scheduler trait — first impl lands with the scheduler feature work."
+
+[[allowed]]
+name = "Substrate"
+upcoming_spec = "F-0001"
+reason = "tanren-runtime Substrate trait — first impl lands with the runtime substrate feature work."

@@ -6,16 +6,37 @@
 //! for <Type>` declaration in the workspace and record which trait names
 //! are implemented (matched by the trailing path segment, e.g.
 //! `tanren_identity_policy::CredentialVerifier` matches `CredentialVerifier`).
-//! Any trait with zero impls is reported.
+//! Any trait with zero impls is reported, unless the trait name appears
+//! in `xtask/orphan-traits-allowlist.toml` with a forward-pointer to
+//! the spec/feature whose work will land the impl.
 
 use anyhow::{Context, Result, bail};
 use quote::ToTokens;
-use std::collections::{BTreeMap, BTreeSet};
+use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use syn::{Item, Visibility};
+
+#[derive(Debug, Deserialize, Default)]
+struct AllowlistFile {
+    #[serde(default)]
+    allowed: Vec<AllowedTrait>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AllowedTrait {
+    /// Trait name (the leaf identifier, matching how impls register
+    /// — e.g. `Gate`, not `tanren_quality_controls::Gate`).
+    name: String,
+    /// Forward pointer (e.g. `F-0007`, `R-0014`) to the spec or feature
+    /// whose roadmap entry pins the implementation.
+    upcoming_spec: String,
+    /// Free-form audit-trail note. Required: empty reason is a parse error.
+    reason: String,
+}
 
 pub(crate) fn run(root: &Path) -> Result<()> {
     let crates_dir = root.join("crates");
@@ -28,6 +49,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         );
         return Ok(());
     }
+
+    let allowlist = load_allowlist(&root.join("xtask").join("orphan-traits-allowlist.toml"))?;
 
     let mut traits: BTreeMap<String, (PathBuf, usize)> = BTreeMap::new();
     let mut impls: BTreeSet<String> = BTreeSet::new();
@@ -50,35 +73,93 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     }
 
     let mut violations: Vec<String> = Vec::new();
+    let mut stale_allowlist_entries: Vec<String> = Vec::new();
     for (name, (path, line)) in &traits {
-        if !impls.contains(name) {
-            violations.push(format!(
-                "{}:{}: trait `{name}` has no impl in the workspace",
-                path.strip_prefix(root).unwrap_or(path).display(),
-                line
+        if impls.contains(name) {
+            if allowlist.contains_key(name) {
+                stale_allowlist_entries.push(format!(
+                    "trait `{name}` is now implemented in the workspace; remove its entry from xtask/orphan-traits-allowlist.toml"
+                ));
+            }
+            continue;
+        }
+        if allowlist.contains_key(name) {
+            continue;
+        }
+        violations.push(format!(
+            "{}:{}: trait `{name}` has no impl in the workspace",
+            path.strip_prefix(root).unwrap_or(path).display(),
+            line
+        ));
+    }
+
+    // Flag allowlist entries that don't correspond to any pub trait at
+    // all — the file should not silently rot as traits are renamed or
+    // removed.
+    for name in allowlist.keys() {
+        if !traits.contains_key(name) {
+            stale_allowlist_entries.push(format!(
+                "allowlist entry `{name}` does not match any `pub trait` in the workspace"
             ));
         }
     }
 
-    if violations.is_empty() {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        let _ = writeln!(
-            handle,
-            "check-orphan-traits: 0 violations ({} pub trait(s) implemented)",
-            traits.len()
+    if !violations.is_empty() || !stale_allowlist_entries.is_empty() {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        for v in &violations {
+            let _ = writeln!(handle, "{v}");
+        }
+        for v in &stale_allowlist_entries {
+            let _ = writeln!(handle, "{v}");
+        }
+        bail!(
+            "check-orphan-traits: {} unimplemented trait(s), {} stale allowlist entry(ies)",
+            violations.len(),
+            stale_allowlist_entries.len()
         );
-        return Ok(());
     }
-    let stderr = std::io::stderr();
-    let mut handle = stderr.lock();
-    for v in &violations {
-        let _ = writeln!(handle, "{v}");
-    }
-    bail!(
-        "check-orphan-traits: {} trait(s) lack an implementor",
-        violations.len()
+
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let _ = writeln!(
+        handle,
+        "check-orphan-traits: 0 violations ({} pub trait(s); {} allowlisted as upcoming-spec)",
+        traits.len(),
+        allowlist.len()
     );
+    Ok(())
+}
+
+fn load_allowlist(path: &Path) -> Result<HashMap<String, AllowedTrait>> {
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let parsed: AllowlistFile =
+        toml::from_str(&raw).with_context(|| format!("parse {} as TOML", path.display()))?;
+    let mut out: HashMap<String, AllowedTrait> = HashMap::with_capacity(parsed.allowed.len());
+    for entry in parsed.allowed {
+        if entry.reason.trim().is_empty() {
+            bail!(
+                "orphan-traits allowlist entry `{}` has empty `reason`",
+                entry.name
+            );
+        }
+        if entry.upcoming_spec.trim().is_empty() {
+            bail!(
+                "orphan-traits allowlist entry `{}` has empty `upcoming_spec`",
+                entry.name
+            );
+        }
+        if let Some(prev) = out.insert(entry.name.clone(), entry) {
+            bail!(
+                "orphan-traits allowlist has duplicate entry for `{}`",
+                prev.name
+            );
+        }
+    }
+    Ok(out)
 }
 
 fn scan_file(

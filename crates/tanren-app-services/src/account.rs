@@ -2,11 +2,14 @@
 //!
 //! Handlers are mechanism-neutral at the contract surface but mechanism-
 //! specific underneath: R-0001 pins identifier+password as the simplest
-//! credible choice. Hashing currently uses sha-256 over `salt || password`
-//! — PR 5 swaps in `Argon2id` behind the
-//! `tanren_identity_policy::CredentialVerifier` trait without touching the
-//! wire shapes. Session tokens are 256 bits of CSPRNG randomness wrapped
-//! in `SessionToken` (URL-safe base64, no padding).
+//! credible choice, with hashing delegated to a
+//! [`CredentialVerifier`](tanren_identity_policy::CredentialVerifier)
+//! trait object. Production binaries inject the
+//! [`Argon2idVerifier`](tanren_identity_policy::Argon2idVerifier);
+//! BDD scenarios inject the cheap-parameter `fast_for_tests` preset.
+//!
+//! Session tokens are 256 bits of CSPRNG randomness wrapped in
+//! `SessionToken` (URL-safe base64, no padding).
 //!
 //! Handlers consume `&dyn AccountStore` (the port defined in
 //! `tanren_store::traits`); the SeaORM-backed `Store` is the adapter
@@ -17,12 +20,11 @@
 
 use chrono::Duration;
 use secrecy::ExposeSecret;
-use sha2::{Digest, Sha256};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{AccountId, Identifier, SessionToken};
+use tanren_identity_policy::{AccountId, CredentialVerifier, Identifier, SessionToken};
 use tanren_store::{AccountRecord, AccountStore, ConsumeInvitationError, NewAccount};
 
 use crate::events::{AccountCreated, InvitationAccepted, SignedIn, envelope};
@@ -35,6 +37,7 @@ const SESSION_LIFETIME_DAYS: i64 = 30;
 pub(crate) async fn sign_up<S>(
     store: &S,
     clock: &Clock,
+    verifier: &dyn CredentialVerifier,
     request: SignUpRequest,
 ) -> Result<SignUpResponse, AppServiceError>
 where
@@ -59,16 +62,16 @@ where
     }
 
     let now = clock.now();
-    let salt = random_salt(&now, identifier.as_str());
-    let password_hash = hash_password(&salt, request.password.expose_secret());
+    let password_phc = verifier
+        .hash(&request.password)
+        .map_err(|err| AppServiceError::InvalidInput(err.to_string()))?;
     let id = AccountId::fresh();
     let account = store
         .insert_account(NewAccount {
             id,
             identifier,
             display_name,
-            password_hash,
-            password_salt: salt,
+            password_phc,
             created_at: now,
             org_id: None,
         })
@@ -100,6 +103,7 @@ where
 pub(crate) async fn sign_in<S>(
     store: &S,
     clock: &Clock,
+    verifier: &dyn CredentialVerifier,
     request: SignInRequest,
 ) -> Result<SignInResponse, AppServiceError>
 where
@@ -115,11 +119,10 @@ where
             AccountFailureReason::InvalidCredential,
         ));
     };
-    if !verify_password(
-        &account.password_salt,
-        &account.password_hash,
-        request.password.expose_secret(),
-    ) {
+    if verifier
+        .verify(&request.password, &account.password_phc)
+        .is_err()
+    {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
         ));
@@ -148,6 +151,7 @@ where
 pub(crate) async fn accept_invitation<S>(
     store: &S,
     clock: &Clock,
+    verifier: &dyn CredentialVerifier,
     request: AcceptInvitationRequest,
 ) -> Result<AcceptInvitationResponse, AppServiceError>
 where
@@ -203,16 +207,16 @@ where
         Err(ConsumeInvitationError::Store(err)) => return Err(AppServiceError::Store(err)),
     };
 
-    let salt = random_salt(&now, identifier.as_str());
-    let password_hash = hash_password(&salt, request.password.expose_secret());
+    let password_phc = verifier
+        .hash(&request.password)
+        .map_err(|err| AppServiceError::InvalidInput(err.to_string()))?;
     let id = AccountId::fresh();
     let account = store
         .insert_account(NewAccount {
             id,
             identifier,
             display_name,
-            password_hash,
-            password_salt: salt,
+            password_phc,
             created_at: now,
             org_id: Some(consumed.inviting_org_id),
         })
@@ -286,45 +290,6 @@ where
         token: session.token,
         expires_at: session.expires_at,
     })
-}
-
-/// Compute a deterministic-but-unique salt for the legacy SHA-256
-/// hashing path. PR 5 deletes this in favour of `Argon2id` which
-/// embeds its own random salt; until then we derive 32 bytes from
-/// `sha256(now_iso || identifier)` so the same password hashes
-/// differently across accounts (and across invocations).
-fn random_salt(now: &chrono::DateTime<chrono::Utc>, identifier: &str) -> Vec<u8> {
-    let mut hasher = Sha256::new();
-    hasher.update(now.to_rfc3339().as_bytes());
-    hasher.update(b"|");
-    hasher.update(identifier.as_bytes());
-    hasher.finalize().to_vec()
-}
-
-fn hash_password(salt: &[u8], password: &str) -> Vec<u8> {
-    let mut hasher = Sha256::new();
-    hasher.update(salt);
-    hasher.update(password.as_bytes());
-    hasher.finalize().to_vec()
-}
-
-fn verify_password(salt: &[u8], expected: &[u8], password: &str) -> bool {
-    let mut hasher = Sha256::new();
-    hasher.update(salt);
-    hasher.update(password.as_bytes());
-    let computed = hasher.finalize();
-    constant_time_eq(computed.as_slice(), expected)
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 fn map_insert_error(err: tanren_store::StoreError) -> AppServiceError {

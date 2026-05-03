@@ -10,8 +10,10 @@ pub struct Model {
     #[sea_orm(unique)]
     pub identifier: String,
     pub display_name: String,
-    pub password_hash: Vec<u8>,
-    pub password_salt: Vec<u8>,
+    /// PHC-format hash string written by `Argon2idVerifier::hash`
+    /// (e.g. `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`). The salt
+    /// is embedded in the string — there is no separate salt column.
+    pub password_phc: String,
     pub created_at: DateTimeUtc,
     pub org_id: Option<Uuid>,
 }

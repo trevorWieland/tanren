@@ -143,8 +143,7 @@ impl AccountStore for Store {
             id: Set(new.id.as_uuid()),
             identifier: Set(new.identifier.as_str().to_owned()),
             display_name: Set(new.display_name),
-            password_hash: Set(new.password_hash),
-            password_salt: Set(new.password_salt),
+            password_phc: Set(new.password_phc),
             created_at: Set(new.created_at),
             org_id: Set(new.org_id.map(OrgId::as_uuid)),
         };

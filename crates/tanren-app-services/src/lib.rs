@@ -14,6 +14,7 @@ use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
+use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -72,24 +73,49 @@ impl Clock {
     }
 }
 
-/// Stateless handler facade. Holds an injectable [`Clock`] so account
-/// flow handlers stay deterministic under the BDD harness.
-#[derive(Debug, Clone, Default)]
+/// Stateless handler facade. Holds an injectable [`Clock`] and
+/// [`CredentialVerifier`] so account flow handlers stay deterministic —
+/// and cheaply hashed — under the BDD harness.
+#[derive(Debug, Clone)]
 pub struct Handlers {
     clock: Clock,
+    verifier: Arc<dyn CredentialVerifier>,
+}
+
+impl Default for Handlers {
+    fn default() -> Self {
+        Self {
+            clock: Clock::default(),
+            verifier: Arc::new(Argon2idVerifier::production()),
+        }
+    }
 }
 
 impl Handlers {
-    /// Construct a handler facade backed by [`Clock::default`].
+    /// Construct a handler facade backed by [`Clock::default`] and the
+    /// production-strength [`Argon2idVerifier`].
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Construct a handler facade backed by an explicit clock.
+    /// Construct a handler facade backed by an explicit clock. Uses the
+    /// production-strength [`Argon2idVerifier`] for hashing.
     #[must_use]
     pub fn with_clock(clock: Clock) -> Self {
-        Self { clock }
+        Self {
+            clock,
+            verifier: Arc::new(Argon2idVerifier::production()),
+        }
+    }
+
+    /// Construct a handler facade backed by an explicit
+    /// [`CredentialVerifier`]. Production binaries that want to pin a
+    /// non-default verifier (alternate parameter set, hardware-backed
+    /// implementation) thread it in here.
+    #[must_use]
+    pub fn with_verifier(clock: Clock, verifier: Arc<dyn CredentialVerifier>) -> Self {
+        Self { clock, verifier }
     }
 
     /// Liveness query. Returns the same shape regardless of which interface
@@ -130,7 +156,7 @@ impl Handlers {
     where
         S: AccountStore + ?Sized,
     {
-        account::sign_up(store, &self.clock, request).await
+        account::sign_up(store, &self.clock, self.verifier.as_ref(), request).await
     }
 
     /// Sign-in command: verify an identifier+password against the
@@ -150,7 +176,7 @@ impl Handlers {
     where
         S: AccountStore + ?Sized,
     {
-        account::sign_in(store, &self.clock, request).await
+        account::sign_in(store, &self.clock, self.verifier.as_ref(), request).await
     }
 
     /// Invitation-acceptance command: consume the supplied token,
@@ -171,7 +197,7 @@ impl Handlers {
     where
         S: AccountStore + ?Sized,
     {
-        account::accept_invitation(store, &self.clock, request).await
+        account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
 }
 
