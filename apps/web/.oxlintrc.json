@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": [
+    "react",
+    "react-perf",
+    "nextjs",
+    "jsx-a11y",
+    "import",
+    "unicorn",
+    "typescript"
+  ],
+  "rules": {
+    "react/forbid-dom-props": ["error", { "forbid": ["style"] }],
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "localStorage",
+        "message": "Use HTTP-only cookie session via API; localStorage is forbidden."
+      },
+      {
+        "name": "sessionStorage",
+        "message": "Use HTTP-only cookie session via API; sessionStorage is forbidden."
+      }
+    ],
+    "jsx-a11y/label-has-associated-control": "error",
+    "jsx-a11y/aria-props": "error",
+    "jsx-a11y/aria-role": "error",
+    "jsx-a11y/click-events-have-key-events": "error"
+  },
+  "ignorePatterns": [
+    "src/i18n/paraglide/**",
+    ".next/**",
+    "next-env.d.ts",
+    "node_modules/**"
+  ]
+}
