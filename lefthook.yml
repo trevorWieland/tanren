@@ -45,6 +45,10 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         just check-tracing-init
+    bdd-wire-coverage:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-bdd-wire-coverage
 
 pre-push:
   parallel: false

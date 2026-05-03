@@ -21,9 +21,28 @@ default = ["test-hooks"]
 test-hooks = []
 
 [dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
 chrono = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["cookies"] }
+rmcp = { workspace = true, features = [
+  "client",
+  "transport-streamable-http-client",
+  "transport-streamable-http-client-reqwest",
+] }
+secrecy = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+tanren-api-app = { path = "../tanren-api-app", features = ["test-hooks"] }
 tanren-app-services = { path = "../tanren-app-services" }
-tanren-identity-policy = { path = "../tanren-identity-policy" }
+tanren-contract = { path = "../tanren-contract" }
+tanren-identity-policy = { path = "../tanren-identity-policy", features = [
+  "test-hooks",
+] }
+tanren-mcp-app = { path = "../tanren-mcp-app", features = ["test-hooks"] }
 tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
 uuid = { workspace = true }

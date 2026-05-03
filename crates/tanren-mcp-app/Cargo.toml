@@ -11,6 +11,12 @@ description = "Library crate that hosts the tanren-mcp runtime — rmcp tool sur
 [lints]
 workspace = true
 
+[features]
+# Enables a test-only `build_app_with_store` constructor used by the BDD
+# wire-harness in `tanren-testkit`. Production binaries do not enable
+# this feature.
+test-hooks = []
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }

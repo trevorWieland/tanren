@@ -11,6 +11,13 @@ description = "Library crate that hosts the tanren-api runtime — axum router, 
 [lints]
 workspace = true
 
+[features]
+# Enables test-only constructors used by the BDD wire-harness in
+# `tanren-testkit` (per-interface harnesses spawn the api server on an
+# ephemeral port against a shared in-memory `Store`). Production
+# binaries do not enable this feature.
+test-hooks = []
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }

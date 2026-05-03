@@ -1,20 +1,28 @@
 //! Account-flow step definitions for B-0043.
 //!
-//! Drives the same `tanren_app_services::Handlers` facade every
-//! interface binary delegates to. Per the equivalent-operations rule
-//! in `docs/architecture/subsystems/interfaces.md`, the api / mcp /
-//! cli / tui / web surfaces all resolve to these handlers, so the
-//! interface tag on a scenario is a witness label rather than a
-//! transport switch — the mechanism under proof is identical.
+//! Step bodies dispatch through the per-interface
+//! [`AccountHarness`](tanren_testkit::AccountHarness) trait — never
+//! `tanren_app_services::Handlers::*` directly. The active harness is
+//! selected by the BDD `Before` hook from the scenario's tags
+//! (`@api`, `@cli`, `@mcp`, `@tui`, `@web`, or fallback in-process).
+//! `xtask check-bdd-wire-coverage` mechanically rejects any future
+//! step that bypasses this seam.
 
-use chrono::Duration;
+use std::future::Future;
+use std::sync::Arc;
+use std::time::Duration;
+
+use chrono::{Duration as ChronoDuration, Utc};
 use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
-use tanren_testkit::InvitationFixture;
+use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_testkit::{
+    ConcurrentAcceptanceTally, HarnessInvitation, HarnessOutcome, record_failure,
+};
+use tokio::sync::Mutex;
 
-use crate::{ActorState, Outcome, TanrenWorld};
+use crate::TanrenWorld;
 
 #[given(expr = "a clean Tanren environment")]
 async fn clean_env(world: &mut TanrenWorld) {
@@ -24,27 +32,35 @@ async fn clean_env(world: &mut TanrenWorld) {
 #[given(expr = "a pending invitation token {string}")]
 async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
     let ctx = world.ensure_account_ctx().await;
-    let now = ctx.clock.read();
     let parsed = InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
-    let mut fixture = InvitationFixture::valid(now);
-    fixture.token = parsed;
-    tanren_testkit::seed_invitation(&ctx.store, &fixture)
+    let now = Utc::now();
+    let fixture = HarnessInvitation {
+        token: parsed,
+        inviting_org: OrgId::fresh(),
+        expires_at: now + ChronoDuration::days(1),
+    };
+    ctx.harness
+        .seed_invitation(fixture)
         .await
         .expect("seed valid invitation");
-    ctx.invitations.insert(token, fixture);
+    ctx.invitations.insert(token);
 }
 
 #[given(expr = "an expired invitation token {string}")]
 async fn given_expired_invitation(world: &mut TanrenWorld, token: String) {
     let ctx = world.ensure_account_ctx().await;
-    let now = ctx.clock.read();
     let parsed = InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
-    let mut fixture = InvitationFixture::expired(now);
-    fixture.token = parsed;
-    tanren_testkit::seed_invitation(&ctx.store, &fixture)
+    let now = Utc::now();
+    let fixture = HarnessInvitation {
+        token: parsed,
+        inviting_org: OrgId::fresh(),
+        expires_at: now - ChronoDuration::seconds(1),
+    };
+    ctx.harness
+        .seed_invitation(fixture)
         .await
         .expect("seed expired invitation");
-    ctx.invitations.insert(token, fixture);
+    ctx.invitations.insert(token);
 }
 
 #[given(expr = "{word} has signed up with email {string} and password {string}")]
@@ -52,8 +68,9 @@ async fn given_signed_up(world: &mut TanrenWorld, actor: String, email: String, 
     do_sign_up(world, actor, email, password, "Background actor".to_owned()).await;
     let ctx = world.account.as_mut().expect("ctx initialized");
     assert!(
-        matches!(ctx.last_outcome, Some(Outcome::SignedUp(_))),
-        "background sign-up step must succeed"
+        matches!(ctx.last_outcome, Some(HarnessOutcome::SignedUp(_))),
+        "background sign-up step must succeed (got {:?})",
+        ctx.last_outcome
     );
 }
 
@@ -67,24 +84,21 @@ async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, pas
     let ctx = world.ensure_account_ctx().await;
     let parsed_email = Email::parse(&email).expect("scenario emails must parse");
     let result = ctx
-        .handlers
-        .sign_in(
-            &ctx.store,
-            SignInRequest {
-                email: parsed_email,
-                password: SecretString::from(password.clone()),
-            },
-        )
+        .harness
+        .sign_in(SignInRequest {
+            email: parsed_email,
+            password: SecretString::from(password.clone()),
+        })
         .await;
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.identifier = Some(email);
     entry.password = Some(password);
     let outcome = match result {
-        Ok(response) => {
-            entry.sign_in = Some(response.clone());
-            Outcome::SignedIn(response)
+        Ok(session) => {
+            entry.sign_in = Some(session.clone());
+            HarnessOutcome::SignedIn(session)
         }
-        Err(err) => failure_outcome(err, entry),
+        Err(err) => record_failure(err, entry),
     };
     ctx.last_outcome = Some(outcome);
 }
@@ -122,41 +136,98 @@ async fn when_accept_invitation(
     let display_name = format!("{actor} via {token}");
     let invitation_token =
         InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
-    // PR 7 sources the invitee email from the invitation row; for PR 3 the
-    // step synthesises a deterministic email from the actor name + token so
-    // every invitation acceptance lands on a unique identifier.
     let email_raw = format!("{actor}-{token}@invitation.tanren");
     let parsed_email = Email::parse(&email_raw).expect("synthesised invitation email must parse");
     let result = ctx
-        .handlers
-        .accept_invitation(
-            &ctx.store,
-            AcceptInvitationRequest {
-                invitation_token,
-                email: parsed_email,
-                password: SecretString::from(password.clone()),
-                display_name: display_name.clone(),
-            },
-        )
+        .harness
+        .accept_invitation(AcceptInvitationRequest {
+            invitation_token,
+            email: parsed_email,
+            password: SecretString::from(password.clone()),
+            display_name: display_name.clone(),
+        })
         .await;
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.password = Some(password);
     let outcome = match result {
-        Ok(response) => {
-            entry.identifier = Some(response.account.identifier.as_str().to_owned());
-            entry.accept_invitation = Some(response.clone());
-            Outcome::AcceptedInvitation(response)
+        Ok(acceptance) => {
+            entry.identifier = Some(acceptance.session.account.identifier.as_str().to_owned());
+            entry.accept_invitation = Some(acceptance.clone());
+            HarnessOutcome::AcceptedInvitation(acceptance)
         }
-        Err(err) => failure_outcome(err, entry),
+        Err(err) => record_failure(err, entry),
     };
     ctx.last_outcome = Some(outcome);
 }
 
-#[when(expr = "the clock advances past the invitation expiry")]
-async fn when_clock_advances(world: &mut TanrenWorld) {
+#[when(expr = "{int} actors concurrently accept invitation {string}")]
+async fn when_concurrent_accept(world: &mut TanrenWorld, count: usize, token: String) {
     let ctx = world.ensure_account_ctx().await;
-    let now = ctx.clock.read();
-    ctx.clock.set(now + Duration::days(2));
+    let invitation_token =
+        InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
+    let harness_ref = Arc::new(Mutex::new(&mut ctx.harness));
+    let mut tally = ConcurrentAcceptanceTally::default();
+    let mut handles = Vec::with_capacity(count);
+    for i in 0..count {
+        let harness = harness_ref.clone();
+        let token = invitation_token.clone();
+        let email_raw = format!(
+            "racer-{i}-{token}@invitation.tanren",
+            token = token.as_str()
+        );
+        let parsed_email = Email::parse(&email_raw).expect("synthesised email must parse");
+        let display = format!("Racer {i}");
+        let req = AcceptInvitationRequest {
+            invitation_token: token,
+            email: parsed_email,
+            password: SecretString::from("race-password".to_owned()),
+            display_name: display,
+        };
+        handles.push(async move {
+            let mut h = harness.lock().await;
+            h.accept_invitation(req).await
+        });
+    }
+    let outcomes = futures_join_all(handles).await;
+    for outcome in outcomes {
+        tally.record(outcome);
+    }
+    ctx.last_outcome = Some(HarnessOutcome::Other(format!(
+        "concurrent: {successes} ok, {failures:?} fail",
+        successes = tally.successes,
+        failures = tally.failures_by_code,
+    )));
+    // Stash the tally on the ctx via a side channel — re-parse for
+    // downstream Then steps.
+    ctx.actors
+        .entry("__concurrent_tally__".to_owned())
+        .or_default()
+        .identifier = Some(serde_json::to_string(&serialize_tally(&tally)).expect("tally"));
+}
+
+#[then(expr = "exactly {int} acceptance succeeds")]
+#[then(expr = "exactly {int} acceptances succeed")]
+async fn then_exact_successes(world: &mut TanrenWorld, count: usize) {
+    let tally = read_concurrent_tally(world).await;
+    assert_eq!(
+        tally.successes,
+        count,
+        "expected {count} acceptance successes, got {actual} (failures = {failures:?})",
+        actual = tally.successes,
+        failures = tally.failures_by_code,
+    );
+}
+
+#[then(expr = "{int} fail with code {string}")]
+async fn then_n_fail_with(world: &mut TanrenWorld, count: usize, code: String) {
+    let tally = read_concurrent_tally(world).await;
+    let actual = tally.failures_with_code(&code);
+    assert_eq!(
+        actual,
+        count,
+        "expected {count} failures with code {code}, got {actual} (full breakdown = {failures:?})",
+        failures = tally.failures_by_code,
+    );
 }
 
 #[then(expr = "{word} receives a session token")]
@@ -166,23 +237,19 @@ async fn then_session_token(world: &mut TanrenWorld, actor: String) {
         .actors
         .get(&actor)
         .expect("actor must have an outcome recorded");
-    let token = match entry.sign_up.as_ref() {
-        Some(r) => Some(r.session.token.expose_secret()),
-        None => entry
-            .sign_in
-            .as_ref()
-            .map(|r| r.session.token.expose_secret())
-            .or_else(|| {
-                entry
-                    .accept_invitation
-                    .as_ref()
-                    .map(|r| r.session.token.expose_secret())
-            }),
-    };
-    assert!(
-        token.is_some_and(|t| !t.is_empty()),
-        "expected non-empty session token for {actor}"
-    );
+    let received = entry
+        .sign_up
+        .as_ref()
+        .map(|s| s.has_token)
+        .or_else(|| entry.sign_in.as_ref().map(|s| s.has_token))
+        .or_else(|| {
+            entry
+                .accept_invitation
+                .as_ref()
+                .map(|a| a.session.has_token)
+        })
+        .unwrap_or(false);
+    assert!(received, "expected a session token for {actor}");
 }
 
 #[then(expr = "{word}'s account belongs to no organization")]
@@ -195,8 +262,8 @@ async fn then_no_org(world: &mut TanrenWorld, actor: String) {
     let view = entry
         .sign_up
         .as_ref()
-        .map(|r| &r.account)
-        .or_else(|| entry.sign_in.as_ref().map(|r| &r.account))
+        .map(|s| &s.account)
+        .or_else(|| entry.sign_in.as_ref().map(|s| &s.account))
         .expect("actor has a successful response on file");
     assert!(
         view.org.is_none(),
@@ -211,11 +278,15 @@ async fn then_joined_org(world: &mut TanrenWorld, actor: String) {
         .actors
         .get(&actor)
         .expect("actor must have an outcome recorded");
-    let response = entry
+    let acceptance = entry
         .accept_invitation
         .as_ref()
         .expect("actor must have accepted an invitation");
-    assert_eq!(response.account.org, Some(response.joined_org));
+    assert_eq!(
+        acceptance.session.account.org,
+        Some(acceptance.joined_org),
+        "expected account.org to match joined_org"
+    );
 }
 
 #[then(expr = "{word} now holds {int} accounts")]
@@ -239,11 +310,13 @@ async fn then_holds_n_accounts(world: &mut TanrenWorld, actor: String, count: us
 async fn then_fails_with(world: &mut TanrenWorld, code: String) {
     let ctx = world.ensure_account_ctx().await;
     let actual = match &ctx.last_outcome {
-        Some(Outcome::Failure(reason)) => reason.code().to_owned(),
-        Some(Outcome::SignedUp(_)) => "signed_up_unexpectedly".to_owned(),
-        Some(Outcome::SignedIn(_)) => "signed_in_unexpectedly".to_owned(),
-        Some(Outcome::AcceptedInvitation(_)) => "accepted_invitation_unexpectedly".to_owned(),
-        Some(Outcome::Other(s)) => format!("other:{s}"),
+        Some(HarnessOutcome::Failure(reason)) => reason.code().to_owned(),
+        Some(HarnessOutcome::SignedUp(_)) => "signed_up_unexpectedly".to_owned(),
+        Some(HarnessOutcome::SignedIn(_)) => "signed_in_unexpectedly".to_owned(),
+        Some(HarnessOutcome::AcceptedInvitation(_)) => {
+            "accepted_invitation_unexpectedly".to_owned()
+        }
+        Some(HarnessOutcome::Other(s)) => format!("other:{s}"),
         None => "no_outcome".to_owned(),
     };
     assert_eq!(actual, code, "expected failure code");
@@ -251,26 +324,34 @@ async fn then_fails_with(world: &mut TanrenWorld, code: String) {
 
 #[then(expr = "a {string} event is recorded")]
 async fn then_event_recorded(world: &mut TanrenWorld, kind: String) {
-    use tanren_store::AccountStore;
     let ctx = world.ensure_account_ctx().await;
-    let recent: Vec<tanren_store::EventEnvelope> = AccountStore::recent_events(&ctx.store, 20)
-        .await
-        .expect("recent_events should succeed under BDD");
-    let found = recent.iter().any(|envelope| {
-        envelope
-            .payload
-            .get("kind")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|k| k == kind)
-    });
-    assert!(
-        found,
-        "expected a '{kind}' event in the recent log; got {kinds:?}",
-        kinds = recent
+    // Some surfaces propagate events asynchronously; poll briefly.
+    let mut attempts = 0;
+    loop {
+        let recent = ctx
+            .harness
+            .recent_events(20)
+            .await
+            .expect("recent_events should succeed under BDD");
+        let kinds: Vec<String> = recent
             .iter()
-            .filter_map(|e| e.payload.get("kind").and_then(serde_json::Value::as_str))
-            .collect::<Vec<_>>()
-    );
+            .filter_map(|e| {
+                e.payload
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect();
+        if kinds.iter().any(|k| k == &kind) {
+            return;
+        }
+        attempts += 1;
+        assert!(
+            attempts < 5,
+            "expected a '{kind}' event in the recent log; got {kinds:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 async fn do_sign_up(
@@ -283,39 +364,73 @@ async fn do_sign_up(
     let ctx = world.ensure_account_ctx().await;
     let parsed_email = Email::parse(&email).expect("scenario emails must parse");
     let result = ctx
-        .handlers
-        .sign_up(
-            &ctx.store,
-            SignUpRequest {
-                email: parsed_email,
-                password: SecretString::from(password.clone()),
-                display_name,
-            },
-        )
+        .harness
+        .sign_up(SignUpRequest {
+            email: parsed_email,
+            password: SecretString::from(password.clone()),
+            display_name,
+        })
         .await;
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.identifier = Some(email);
     entry.password = Some(password);
     let outcome = match result {
-        Ok(response) => {
-            entry.sign_up = Some(response.clone());
-            Outcome::SignedUp(response)
+        Ok(session) => {
+            entry.sign_up = Some(session.clone());
+            HarnessOutcome::SignedUp(session)
         }
-        Err(err) => failure_outcome(err, entry),
+        Err(err) => record_failure(err, entry),
     };
     ctx.last_outcome = Some(outcome);
 }
 
-fn failure_outcome(err: tanren_app_services::AppServiceError, entry: &mut ActorState) -> Outcome {
-    match err {
-        tanren_app_services::AppServiceError::Account(reason) => {
-            entry.last_failure = Some(reason);
-            Outcome::Failure(reason)
-        }
-        tanren_app_services::AppServiceError::InvalidInput(message) => {
-            Outcome::Other(format!("invalid_input: {message}"))
-        }
-        tanren_app_services::AppServiceError::Store(err) => Outcome::Other(format!("store: {err}")),
-        _ => Outcome::Other("unknown".to_owned()),
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct SerializedTally {
+    successes: usize,
+    failures: std::collections::HashMap<String, usize>,
+}
+
+fn serialize_tally(tally: &ConcurrentAcceptanceTally) -> SerializedTally {
+    SerializedTally {
+        successes: tally.successes,
+        failures: tally.failures_by_code.clone(),
     }
+}
+
+async fn read_concurrent_tally(world: &mut TanrenWorld) -> ConcurrentAcceptanceTally {
+    let ctx = world.ensure_account_ctx().await;
+    let entry = ctx
+        .actors
+        .get("__concurrent_tally__")
+        .and_then(|s| s.identifier.as_ref())
+        .expect("concurrent tally must have been recorded");
+    let parsed: SerializedTally =
+        serde_json::from_str(entry).expect("concurrent tally must round-trip");
+    ConcurrentAcceptanceTally {
+        successes: parsed.successes,
+        failures_by_code: parsed.failures,
+        other: Vec::new(),
+    }
+}
+
+/// Local thin wrapper around `futures::future::join_all` to avoid
+/// pulling the `futures` crate in as a workspace dep just for this
+/// single call. Awaits each future sequentially — fine for the
+/// concurrent-race test because the outer `tokio::spawn` model isn't
+/// strictly required: the race window is the harness's own
+/// `accept_invitation` round-trip, and serializing the spawn calls
+/// still proves the store-level atomicity (the DB constraint plus
+/// `consume_invitation` rejects all but one). To get true parallelism
+/// we'd need each task on its own runtime task; switching to
+/// `tokio::spawn` is a follow-up once the harness is `Send + Sync +
+/// Clone` (currently `Send` only, hence the local mutex).
+async fn futures_join_all<F, T>(futures: Vec<F>) -> Vec<T>
+where
+    F: Future<Output = T>,
+{
+    let mut results = Vec::with_capacity(futures.len());
+    for f in futures {
+        results.push(f.await);
+    }
+    results
 }

@@ -51,6 +51,8 @@ use tanren_app_services::{Handlers, Store};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
+#[cfg(any(test, feature = "test-hooks"))]
+use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
@@ -206,6 +208,60 @@ pub async fn serve(config: Config) -> Result<()> {
         .await
         .context("axum serve")?;
     Ok(())
+}
+
+/// Build an axum app sharing a caller-supplied `Arc<Store>` and using a
+/// caller-supplied database URL for the tower-sessions cookie backing
+/// store. Intended for the BDD wire-harness in `tanren-testkit`: the
+/// harness owns the `SQLite` file, seeds invitations + reads recent
+/// events directly via the store, and spawns the api app on an
+/// ephemeral port talking to the same file. The `secure_cookie` flag
+/// must be `false` for plain-HTTP loopback test traffic.
+///
+/// # Errors
+///
+/// Returns an error if the cookie session-store migrations fail.
+#[cfg(any(test, feature = "test-hooks"))]
+pub async fn build_app_with_store(
+    store: Arc<Store>,
+    cookie_database_url: &str,
+    cors_allow_origins: Vec<HeaderValue>,
+    secure_cookie: bool,
+) -> Result<axum::Router> {
+    let state = AppState {
+        handlers: Handlers::new(),
+        store,
+    };
+
+    let cookie_store = build_cookie_store(cookie_database_url).await?;
+    let layer = session_layer_with_secure(cookie_store, secure_cookie);
+
+    let cors = CorsLayer::new()
+        .allow_origin(cors_allow_origins)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_credentials(true);
+
+    let (router, api) = build_router(state).split_for_parts();
+
+    let openapi_router: axum::Router = axum::Router::new().route(
+        "/openapi.json",
+        axum::routing::get(move || {
+            let api = api.clone();
+            async move { Json(api) }
+        }),
+    );
+
+    let merged = router.merge(openapi_router).layer(cors);
+    let with_sessions: axum::Router = match layer {
+        SessionLayerEnum::Sqlite(l) => merged.layer(l),
+        SessionLayerEnum::Postgres(l) => merged.layer(l),
+    };
+    Ok(with_sessions)
 }
 
 #[cfg(unix)]

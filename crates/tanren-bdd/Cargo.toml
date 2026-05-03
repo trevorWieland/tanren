@@ -15,13 +15,12 @@ workspace = true
 chrono = { workspace = true }
 cucumber = { workspace = true }
 secrecy = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
-tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }
-tanren-store = { path = "../tanren-store" }
 tanren-testkit = { path = "../tanren-testkit" }
 tokio = { workspace = true }
 

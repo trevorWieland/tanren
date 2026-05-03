@@ -112,7 +112,7 @@ tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
 
 # HTTP client
 reqwest = { version = "0.13", default-features = false, features = [
-  "rustls-tls",
+  "rustls",
   "json",
 ] }
 
@@ -260,3 +260,12 @@ sqlx = { version = "0.8", default-features = false, features = [
 # See `profiles/rust-cargo/architecture/openapi-generation.md`.
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-axum = "0.2"
+
+# BDD wire-harness dependencies (R-0001 sub-9). `expectrl` drives the TUI
+# binary in a pseudo-terminal; the `portable-pty` backend provides
+# cross-platform pty support. Workspace-pinned so any future test
+# crate that needs interactive-terminal scripting picks up the same
+# version. Currently consumed only by `tanren-testkit` behind the
+# `test-hooks` feature.
+expectrl = "0.7"
+regex = "1"
