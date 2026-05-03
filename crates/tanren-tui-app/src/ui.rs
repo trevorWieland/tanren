@@ -55,6 +55,11 @@ pub(crate) fn accept_invitation_fields() -> Vec<FormField> {
             value: String::new(),
         },
         FormField {
+            label: "Email",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
             label: "Password",
             secret: true,
             value: String::new(),
@@ -137,16 +142,14 @@ pub(crate) fn parse_accept_invitation(
 ) -> Result<AcceptInvitationRequest, String> {
     let invitation_token =
         InvitationToken::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    let password = SecretString::from(state.value(1).to_owned());
-    let display_name = state.value(2).to_owned();
-    // PR 7 sources the email from the invitation row; for PR 3 the TUI
-    // lacks an email field on the accept-invitation form, so we synthesise
-    // a placeholder derived from the invitation token. The synthesised
-    // email is unique per invitation token (the token must be ≥ 16 bytes
-    // so the resulting local-part is non-empty).
-    let token_str = invitation_token.as_str().to_owned();
-    let synthesised = format!("{token_str}@invitation.tanren");
-    let email = Email::parse(&synthesised).map_err(|e| validation_message(&e))?;
+    // The user supplies the email directly; the previous implementation
+    // synthesised it from the invitation token, which broke any token
+    // containing `@` (the resulting "<token>@invitation.tanren" had two
+    // `@` characters and Email::parse rejected it before the request
+    // ever reached `accept_invitation`). Codex P2 review on PR #133.
+    let email = Email::parse(state.value(1)).map_err(|e| validation_message(&e))?;
+    let password = SecretString::from(state.value(2).to_owned());
+    let display_name = state.value(3).to_owned();
     Ok(AcceptInvitationRequest {
         invitation_token,
         email,

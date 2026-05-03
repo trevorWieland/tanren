@@ -6,7 +6,7 @@
 // `@api` BDD harness in `crates/tanren-testkit/src/harness/api.rs`.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -23,6 +23,13 @@ interface TanrenBddState {
   databaseUrl: string;
   databasePath: string;
   tmpRoot: string;
+  /**
+   * Pre-existing `.env.local` content captured at setup time so
+   * `globalTeardown` can restore the developer's file rather than
+   * unlinking it. `null` when no `.env.local` existed before our run.
+   * Codex P2 review on PR #133.
+   */
+  preExistingEnvLocal: string | null;
 }
 
 async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
@@ -96,6 +103,15 @@ async function pickFreePort(): Promise<number> {
 }
 
 export default async function globalSetup(): Promise<void> {
+  // Capture any pre-existing .env.local so globalTeardown can restore
+  // the developer's file. Without this, running `pnpm e2e` locally
+  // wipes whatever the developer had configured for unrelated
+  // local-dev workflows. Codex P2 review on PR #133.
+  const envLocalPath = join(process.cwd(), ".env.local");
+  const preExistingEnvLocal = existsSync(envLocalPath)
+    ? readFileSync(envLocalPath, "utf-8")
+    : null;
+
   // If the caller already booted an API (e.g. `cargo run -p tanren-api`
   // in another shell), respect that and skip our own spawn.
   if (process.env["TANREN_BDD_EXTERNAL_API"] === "true") {
@@ -107,9 +123,20 @@ export default async function globalSetup(): Promise<void> {
     // Mirror to .env.local so the Next.js dev server (a child
     // process spawned by Playwright's webServer) picks it up.
     writeFileSync(
-      join(process.cwd(), ".env.local"),
+      envLocalPath,
       `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\n`,
     );
+    // Stash the pre-existing content for teardown even on the
+    // external-API path; teardown reads __tanrenBddState first and
+    // falls back to the unconditional behavior if it's missing, so
+    // we always set it.
+    globalThis.__tanrenBddState = {
+      apiProcess: null,
+      databaseUrl: "",
+      databasePath: "",
+      tmpRoot: "",
+      preExistingEnvLocal,
+    };
     return;
   }
 
@@ -176,15 +203,13 @@ export default async function globalSetup(): Promise<void> {
   await waitForHealth(`${apiUrl}/health`, 180_000);
 
   process.env["NEXT_PUBLIC_API_URL"] = apiUrl;
-  writeFileSync(
-    join(process.cwd(), ".env.local"),
-    `NEXT_PUBLIC_API_URL=${apiUrl}\n`,
-  );
+  writeFileSync(envLocalPath, `NEXT_PUBLIC_API_URL=${apiUrl}\n`);
 
   globalThis.__tanrenBddState = {
     apiProcess,
     databaseUrl,
     databasePath,
     tmpRoot,
+    preExistingEnvLocal,
   };
 }

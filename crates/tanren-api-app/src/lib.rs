@@ -39,7 +39,11 @@
 mod cookies;
 mod errors;
 mod routes;
-#[cfg(feature = "test-hooks")]
+// test_hooks must be visible in any compilation that exposes
+// `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition
+// to feature-on builds), otherwise the call site at the bottom of
+// `build_app_with_store` references an undefined module. Codex P1 review.
+#[cfg(any(test, feature = "test-hooks"))]
 mod test_hooks;
 
 use std::env;
