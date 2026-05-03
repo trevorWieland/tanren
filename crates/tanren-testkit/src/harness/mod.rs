@@ -225,12 +225,18 @@ pub(crate) const HARNESS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 /// so subsequent steps can sign them in or assert on the prior outcome.
 /// The state is harness-agnostic — all transport bookkeeping lives on
 /// the harness implementation, this struct is pure result-tracking.
+///
+/// The cached password is wrapped in `SecretString` so the BDD World's
+/// `Debug` output (and any incidental tracing) cannot leak the cleartext
+/// — the `Then signs in with the same credentials` step needs to recall
+/// the value end-to-end, but it should never appear in logs.
 #[derive(Debug, Default, Clone)]
 pub struct ActorState {
     /// Identifier (email) the actor signed up with.
     pub identifier: Option<String>,
-    /// Password the actor signed up with.
-    pub password: Option<String>,
+    /// Password the actor signed up with — kept opaque via `SecretString`
+    /// so step bookkeeping doesn't keep a plaintext copy in `Debug` output.
+    pub password: Option<secrecy::SecretString>,
     /// Last successful sign-up session.
     pub sign_up: Option<HarnessSession>,
     /// Last successful sign-in session.

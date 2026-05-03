@@ -14,9 +14,18 @@ const testDir = defineBddConfig({
   tags: "@web",
 });
 
-const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3000";
 const webBaseUrl = process.env["WEB_BASE_URL"] ?? `http://127.0.0.1:${webPort}`;
+
+// NOTE: NEXT_PUBLIC_API_URL is intentionally NOT captured here at
+// config-load. globalSetup (./tests/bdd/global-setup.ts) chooses the API
+// port at runtime — possibly falling back to a kernel-picked port when
+// 8081 is busy — and writes the resolved URL to BOTH process.env and
+// `apps/web/.env.test.local`. The webServer block below relies on
+// inheritance: `pnpm dev` reads .env.test.local automatically (Next.js
+// loads it ahead of .env), and any explicit `env:` here would override
+// that with a stale value. Keeping the block absent fixes the
+// nondeterministic-port bug Codex flagged on PR #133.
 
 export default defineConfig({
   testDir,
@@ -35,24 +44,25 @@ export default defineConfig({
     },
   ],
   // The `tanren-api` Rust binary is spawned by globalSetup against an
-  // ephemeral SQLite DB; the Next.js dev server below points at it via
-  // NEXT_PUBLIC_API_URL. PLAYWRIGHT_NO_SERVER skips the Next.js spin-up
-  // when the developer has already booted the dev server in another tab.
+  // ephemeral SQLite DB; the Next.js dev server below picks up the API
+  // URL from .env.test.local (written by globalSetup). PLAYWRIGHT_NO_SERVER
+  // skips the Next.js spin-up when the developer has already booted the
+  // dev server in another tab.
   ...(process.env["PLAYWRIGHT_NO_SERVER"]
     ? {}
     : {
         webServer: {
           // `next dev` is used over `next start` so `NEXT_PUBLIC_API_URL`
-          // resolves at runtime (production builds bake the value at
-          // build time, which is incompatible with our globalSetup that
-          // picks an ephemeral API port).
+          // resolves at runtime from .env.test.local (production builds
+          // bake the value at build time, which is incompatible with
+          // globalSetup picking an ephemeral API port).
           command: "pnpm dev",
           url: webBaseUrl,
           reuseExistingServer: process.env["CI"] !== "true",
           timeout: 240_000,
-          env: {
-            NEXT_PUBLIC_API_URL: apiUrl,
-          },
+          // No `env` block — see comment above. NEXT_PUBLIC_API_URL is
+          // sourced from .env.test.local, which globalSetup writes after
+          // it has bound to the actual port.
         },
       }),
   globalSetup: "./tests/bdd/global-setup.ts",

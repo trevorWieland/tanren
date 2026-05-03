@@ -9,6 +9,11 @@ on:
       - 'pnpm-workspace.yaml'
       - 'pnpm-lock.yaml'
 
+# Restrict GITHUB_TOKEN to read-only by default. CodeQL flagged the
+# missing permissions block; this job only checks out + runs tests.
+permissions:
+  contents: read
+
 env:
   CI: "true"
 
