@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness,
+    InProcessHarness, McpHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -100,18 +100,19 @@ impl AccountContext {
     /// scenario discovery.
     pub async fn new_for(kind: HarnessKind) -> Self {
         let harness: Box<dyn AccountHarness> = match kind {
-            HarnessKind::InProcess | HarnessKind::Web => {
-                // TODO(PR 11): wire WebHarness via Playwright.
-                Box::new(
-                    InProcessHarness::new(kind)
-                        .await
-                        .expect("ephemeral SQLite must connect for BDD"),
-                )
-            }
+            HarnessKind::InProcess => Box::new(
+                InProcessHarness::new(kind)
+                    .await
+                    .expect("ephemeral SQLite must connect for BDD"),
+            ),
             HarnessKind::Api => Box::new(ApiHarness::spawn().await.expect("ApiHarness::spawn")),
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
+            // PR 11 ships the real-browser proof on the Node side via
+            // `playwright-bdd`; the Rust path keeps in-process fallback
+            // for fast feedback. See `tanren_testkit::harness::web`.
+            HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {
             harness,

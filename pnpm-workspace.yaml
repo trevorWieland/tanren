@@ -22,3 +22,20 @@ catalog:
   tailwindcss: "4.2.4"
   "@tailwindcss/postcss": "4.2.4"
   concurrently: "9.2.1"
+  # Component testing + visual contract (Storybook 9 + Vitest addon + a11y).
+  storybook: "9.1.20"
+  "@storybook/nextjs-vite": "9.1.20"
+  "@storybook/addon-vitest": "9.1.20"
+  "@storybook/addon-a11y": "9.1.20"
+  # Browser test runner used by @storybook/addon-vitest under the hood.
+  "@vitest/browser": "4.1.5"
+  "@vitest/browser-playwright": "4.1.5"
+  # End-to-end + BDD-driven web slice harness.
+  "@playwright/test": "1.59.1"
+  "playwright-bdd": "8.5.0"
+  "@axe-core/playwright": "4.11.3"
+  # Vite is pinned to ^7 because Storybook 9.1's `@storybook/nextjs-vite`
+  # declares a `^5 || ^6 || ^7` peer range and vitest 4.1's transitive
+  # `vite` bump to 8 trips that constraint. Drop this once Storybook 9
+  # widens its vite peer.
+  vite: "7.3.2"

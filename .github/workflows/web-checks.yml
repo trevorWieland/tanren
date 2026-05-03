@@ -14,7 +14,7 @@ env:
 
 jobs:
   web:
-    name: web lint + typecheck
+    name: web lint + typecheck + tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -58,14 +58,50 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @tanren/web typecheck
 
-      # The following steps are gated by repo-vars until later PRs land.
-      # Toggle `WEB_TESTS_ENABLED` (PR 11) and `WEB_TSCONFIG_CHECK_ENABLED`
-      # (PR 10) to "true" in repo settings to enable.
-
-      - name: Web tests (vitest + storybook + playwright)
-        if: ${{ vars.WEB_TESTS_ENABLED == 'true' }}
-        run: pnpm --filter @tanren/web test
-
       - name: Validate tsconfig flags
         if: ${{ vars.WEB_TSCONFIG_CHECK_ENABLED == 'true' }}
         run: just check-tsconfig
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo build
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-tanren-api-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-tanren-api-
+
+      - name: Pre-build the tanren-api binary
+        # Pre-warm the binary so playwright-bdd's globalSetup doesn't
+        # blow its 180s health-check window on first compile.
+        run: cargo build -p tanren-api --quiet
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @tanren/web exec playwright install --with-deps chromium
+
+      - name: Web — vitest unit project
+        run: pnpm --filter @tanren/web run test
+
+      - name: Web — storybook component tests (vitest browser)
+        run: pnpm --filter @tanren/web run storybook:test
+
+      - name: Web — playwright-bdd @web slice
+        env:
+          TANREN_REPO_ROOT: ${{ github.workspace }}
+        run: pnpm --filter @tanren/web run e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
