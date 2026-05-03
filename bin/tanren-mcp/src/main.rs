@@ -219,13 +219,18 @@ fn error_body(code: &str, summary: &str) -> serde_json::Value {
 #[derive(Debug, Clone)]
 struct AuthConfig {
     /// Bootstrap API key. F-0002 sources this from `TANREN_MCP_API_KEY`;
-    /// R-0008 will route through the real credential store.
-    bootstrap_key: Option<String>,
+    /// R-0008 will route through the real credential store. Wrapped in
+    /// `SecretString` so accidental `Debug` / `Serialize` calls do not
+    /// leak the credential.
+    bootstrap_key: Option<secrecy::SecretString>,
 }
 
 impl AuthConfig {
     fn from_env() -> Self {
-        let bootstrap_key = env::var(API_KEY_ENV).ok().filter(|s| !s.is_empty());
+        let bootstrap_key = env::var(API_KEY_ENV)
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(secrecy::SecretString::from);
         Self { bootstrap_key }
     }
 
@@ -253,7 +258,11 @@ async fn require_api_key(
 ) -> Response {
     // Operator-config check first: an unconfigured server is in an
     // outage state, not an auth-failure state.
-    let Some(expected) = config.bootstrap_key.as_deref() else {
+    let Some(expected) = config
+        .bootstrap_key
+        .as_ref()
+        .map(secrecy::ExposeSecret::expose_secret)
+    else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(error_body(

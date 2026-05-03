@@ -17,12 +17,14 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::{Email, InvitationToken};
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -143,6 +145,7 @@ async fn sign_in_route(
 
 #[derive(Debug, Deserialize)]
 struct AcceptInvitationBody {
+    email: Email,
     password: String,
     display_name: String,
 }
@@ -152,9 +155,20 @@ async fn accept_invitation_route(
     Path(token): Path<String>,
     Json(body): Json<AcceptInvitationBody>,
 ) -> Response {
+    let invitation_token = match InvitationToken::parse(&token) {
+        Ok(t) => t,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"code": "validation_failed", "summary": err.to_string()})),
+            )
+                .into_response();
+        }
+    };
     let request = AcceptInvitationRequest {
-        invitation_token: token,
-        password: body.password,
+        invitation_token,
+        email: body.email,
+        password: SecretString::from(body.password),
         display_name: body.display_name,
     };
     match state

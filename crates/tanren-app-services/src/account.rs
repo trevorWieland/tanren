@@ -2,30 +2,37 @@
 //!
 //! Handlers are mechanism-neutral at the contract surface but mechanism-
 //! specific underneath: R-0001 pins identifier+password as the simplest
-//! credible choice. Hashing uses sha-256 over `salt || password`; salt
-//! and session token are 16-byte chunks of `Uuid::new_v4()`. The choice
-//! is revisable behind the `tanren_identity_policy::CredentialVerifier`
-//! trait without touching the wire shapes.
+//! credible choice. Hashing currently uses sha-256 over `salt || password`
+//! — PR 5 swaps in `Argon2id` behind the
+//! `tanren_identity_policy::CredentialVerifier` trait without touching the
+//! wire shapes. Session tokens are 256 bits of CSPRNG randomness wrapped
+//! in `SessionToken` (URL-safe base64, no padding).
 
+use chrono::Duration;
+use secrecy::ExposeSecret;
 use sha2::{Digest, Sha256};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
+use tanren_identity_policy::{AccountId, Identifier, SessionToken};
 use tanren_store::{AccountRecord, NewAccount, Store};
-use uuid::Uuid;
 
 use crate::events::{AccountCreated, InvitationAccepted, SignedIn, envelope};
 use crate::{AppServiceError, Clock};
+
+/// Default session lifetime. Held centrally so PR 4's `expires_at`
+/// migration and PR 8's tower-sessions wiring observe a single value.
+const SESSION_LIFETIME_DAYS: i64 = 30;
 
 pub(crate) async fn sign_up(
     store: &Store,
     clock: &Clock,
     request: SignUpRequest,
 ) -> Result<SignUpResponse, AppServiceError> {
-    let identifier = normalize_identifier(&request.email);
+    let identifier = Identifier::from_email(&request.email);
     let display_name = request.display_name.trim().to_owned();
-    if identifier.is_empty() || request.password.is_empty() || display_name.is_empty() {
+    if request.password.expose_secret().is_empty() || display_name.is_empty() {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
         ));
@@ -42,9 +49,9 @@ pub(crate) async fn sign_up(
     }
 
     let now = clock.now();
-    let salt = random_bytes();
-    let password_hash = hash_password(&salt, &request.password);
-    let id = Uuid::now_v7();
+    let salt = random_salt(&now, identifier.as_str());
+    let password_hash = hash_password(&salt, request.password.expose_secret());
+    let id = AccountId::fresh();
     let account = store
         .insert_account(NewAccount {
             id,
@@ -58,17 +65,20 @@ pub(crate) async fn sign_up(
         .await
         .map_err(map_insert_error)?;
 
-    let session = mint_session(store, account.id).await?;
+    let session = mint_session(store, account.id, now).await?;
     store
-        .append_event(envelope(
-            "account_created",
-            &AccountCreated {
-                account_id: account.id,
-                identifier: account.identifier.clone(),
-                org: None,
-                created_at: now,
-            },
-        ))
+        .append_event(
+            envelope(
+                "account_created",
+                &AccountCreated {
+                    account_id: account.id,
+                    identifier: account.identifier.as_str().to_owned(),
+                    org: None,
+                    created_at: now,
+                },
+            ),
+            now,
+        )
         .await?;
 
     Ok(SignUpResponse {
@@ -82,13 +92,12 @@ pub(crate) async fn sign_in(
     clock: &Clock,
     request: SignInRequest,
 ) -> Result<SignInResponse, AppServiceError> {
-    let identifier = normalize_identifier(&request.email);
-    if identifier.is_empty() || request.password.is_empty() {
+    if request.password.expose_secret().is_empty() {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
         ));
     }
-    let Some(account) = store.find_account_by_identifier(&identifier).await? else {
+    let Some(account) = store.find_account_by_email(&request.email).await? else {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
         ));
@@ -96,22 +105,26 @@ pub(crate) async fn sign_in(
     if !verify_password(
         &account.password_salt,
         &account.password_hash,
-        &request.password,
+        request.password.expose_secret(),
     ) {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
         ));
     }
 
-    let session = mint_session(store, account.id).await?;
+    let now = clock.now();
+    let session = mint_session(store, account.id, now).await?;
     store
-        .append_event(envelope(
-            "signed_in",
-            &SignedIn {
-                account_id: account.id,
-                at: clock.now(),
-            },
-        ))
+        .append_event(
+            envelope(
+                "signed_in",
+                &SignedIn {
+                    account_id: account.id,
+                    at: now,
+                },
+            ),
+            now,
+        )
         .await?;
     Ok(SignInResponse {
         account: account_view(&account),
@@ -125,8 +138,7 @@ pub(crate) async fn accept_invitation(
     request: AcceptInvitationRequest,
 ) -> Result<AcceptInvitationResponse, AppServiceError> {
     let display_name = request.display_name.trim().to_owned();
-    if request.invitation_token.is_empty() || request.password.is_empty() || display_name.is_empty()
-    {
+    if request.password.expose_secret().is_empty() || display_name.is_empty() {
         return Err(AppServiceError::Account(
             AccountFailureReason::InvalidCredential,
         ));
@@ -151,11 +163,11 @@ pub(crate) async fn accept_invitation(
         ));
     }
 
-    // The invitee picks a *new* identifier when accepting. R-0001 derives
-    // it from the display name + token to keep the handler self-contained
-    // until R-0005 lets invitations carry a target identifier.
-    let identifier =
-        normalize_identifier(&format!("{display_name} via {}", &request.invitation_token));
+    // The invitee picks the email/identifier pair when accepting. PR 7
+    // will source the identifier from the invitation row instead — for
+    // now the contract carries `request.email` as a first-class field
+    // and the handler trusts it.
+    let identifier = Identifier::from_email(&request.email);
     if store
         .find_account_by_identifier(&identifier)
         .await?
@@ -166,9 +178,9 @@ pub(crate) async fn accept_invitation(
         ));
     }
 
-    let salt = random_bytes();
-    let password_hash = hash_password(&salt, &request.password);
-    let id = Uuid::now_v7();
+    let salt = random_salt(&now, identifier.as_str());
+    let password_hash = hash_password(&salt, request.password.expose_secret());
+    let id = AccountId::fresh();
     let account = store
         .insert_account(NewAccount {
             id,
@@ -182,34 +194,40 @@ pub(crate) async fn accept_invitation(
         .await
         .map_err(map_insert_error)?;
     store
-        .insert_membership(account.id, invitation.inviting_org_id)
+        .insert_membership(account.id, invitation.inviting_org_id, now)
         .await?;
     store
         .mark_invitation_consumed(&invitation.token, now)
         .await?;
 
-    let session = mint_session(store, account.id).await?;
+    let session = mint_session(store, account.id, now).await?;
     store
-        .append_event(envelope(
-            "account_created",
-            &AccountCreated {
-                account_id: account.id,
-                identifier: account.identifier.clone(),
-                org: Some(invitation.inviting_org_id),
-                created_at: now,
-            },
-        ))
+        .append_event(
+            envelope(
+                "account_created",
+                &AccountCreated {
+                    account_id: account.id,
+                    identifier: account.identifier.as_str().to_owned(),
+                    org: Some(invitation.inviting_org_id),
+                    created_at: now,
+                },
+            ),
+            now,
+        )
         .await?;
     store
-        .append_event(envelope(
-            "invitation_accepted",
-            &InvitationAccepted {
-                token: invitation.token.clone(),
-                account_id: account.id,
-                joined_org: invitation.inviting_org_id,
-                at: now,
-            },
-        ))
+        .append_event(
+            envelope(
+                "invitation_accepted",
+                &InvitationAccepted {
+                    token: invitation.token.clone(),
+                    account_id: account.id,
+                    joined_org: invitation.inviting_org_id,
+                    at: now,
+                },
+            ),
+            now,
+        )
         .await?;
 
     Ok(AcceptInvitationResponse {
@@ -228,21 +246,34 @@ fn account_view(record: &AccountRecord) -> AccountView {
     }
 }
 
-async fn mint_session(store: &Store, account_id: Uuid) -> Result<SessionView, AppServiceError> {
-    let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    let session = store.insert_session(token, account_id).await?;
+async fn mint_session(
+    store: &Store,
+    account_id: AccountId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<SessionView, AppServiceError> {
+    let token = SessionToken::generate();
+    let expires_at = now + Duration::days(SESSION_LIFETIME_DAYS);
+    let session = store
+        .insert_session(token, account_id, now, expires_at)
+        .await?;
     Ok(SessionView {
         account_id: session.account_id,
         token: session.token,
+        expires_at: session.expires_at,
     })
 }
 
-fn normalize_identifier(raw: &str) -> String {
-    raw.trim().to_lowercase()
-}
-
-fn random_bytes() -> Vec<u8> {
-    Uuid::new_v4().as_bytes().to_vec()
+/// Compute a deterministic-but-unique salt for the legacy SHA-256
+/// hashing path. PR 5 deletes this in favour of `Argon2id` which
+/// embeds its own random salt; until then we derive 32 bytes from
+/// `sha256(now_iso || identifier)` so the same password hashes
+/// differently across accounts (and across invocations).
+fn random_salt(now: &chrono::DateTime<chrono::Utc>, identifier: &str) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(now.to_rfc3339().as_bytes());
+    hasher.update(b"|");
+    hasher.update(identifier.as_bytes());
+    hasher.finalize().to_vec()
 }
 
 fn hash_password(salt: &[u8], password: &str) -> Vec<u8> {
@@ -278,15 +309,4 @@ fn map_insert_error(err: tanren_store::StoreError) -> AppServiceError {
     } else {
         AppServiceError::Store(err)
     }
-}
-
-/// Convenience for tests / fixtures: hash a password the same way the
-/// sign-up handler does. Does not depend on a Store. Public so the BDD
-/// step-definition crate can seed an account row without spinning up a
-/// fake handler.
-#[must_use]
-pub fn hash_for_fixture(password: &str) -> (Vec<u8>, Vec<u8>) {
-    let salt = random_bytes();
-    let hash = hash_password(&salt, password);
-    (salt, hash)
 }

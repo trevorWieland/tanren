@@ -1,10 +1,15 @@
 //! Typed event payloads written to the canonical Tanren event log on
 //! every account-flow side effect. Payloads are serialised into the
 //! existing `events.payload` JSON column — no migration is required.
+//!
+//! Newtype IDs flow through transparently: `AccountId` /  `OrgId`
+//! serialise as the bare UUID via `#[serde(transparent)]`, so the
+//! on-disk JSON shape is unchanged across the type substitution that
+//! lands in PR 3.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
@@ -14,11 +19,11 @@ pub const EVENT_FAMILY: &str = "account";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountCreated {
     /// Stable account id.
-    pub account_id: Uuid,
+    pub account_id: AccountId,
     /// User-facing identifier (email).
     pub identifier: String,
     /// Owning organization — `None` for self-signup, `Some` for invitation flows.
-    pub org: Option<Uuid>,
+    pub org: Option<OrgId>,
     /// Wall-clock time the account was created.
     pub created_at: DateTime<Utc>,
 }
@@ -27,7 +32,7 @@ pub struct AccountCreated {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedIn {
     /// Account that signed in.
-    pub account_id: Uuid,
+    pub account_id: AccountId,
     /// Wall-clock time the session was minted.
     pub at: DateTime<Utc>,
 }
@@ -36,11 +41,11 @@ pub struct SignedIn {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvitationAccepted {
     /// Token that was consumed.
-    pub token: String,
+    pub token: InvitationToken,
     /// Account that resulted from acceptance.
-    pub account_id: Uuid,
+    pub account_id: AccountId,
     /// Organization the new account joined.
-    pub joined_org: Uuid,
+    pub joined_org: OrgId,
     /// Wall-clock time of acceptance.
     pub at: DateTime<Utc>,
 }

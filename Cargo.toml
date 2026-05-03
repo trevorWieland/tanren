@@ -206,4 +206,10 @@ jsonwebtoken = { version = "10", default-features = false, features = [
 ] }
 
 # Secrets
-secrecy = "0.10"
+secrecy = { version = "0.10", features = ["serde"] }
+
+# CSPRNG (for opaque session/credential tokens; never used as a record id).
+rand = "0.9"
+
+# Base64 URL-safe-no-pad encoding (paired with `rand` for opaque tokens).
+base64 = "0.22"

@@ -6,13 +6,20 @@
 //! introspection, ...) is deliberately not committed here — R-0001 onwards
 //! pin the mechanism behind a [`CredentialVerifier`] impl.
 
+pub mod secret_serde;
+
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
 /// Stable identifier for a Tanren account. `UUIDv7` — sortable + unique.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
 pub struct AccountId(Uuid);
 
 impl AccountId {
@@ -35,8 +42,27 @@ impl AccountId {
     }
 }
 
+impl From<Uuid> for AccountId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl AsRef<Uuid> for AccountId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AccountId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Stable identifier for a Tanren organization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
 pub struct OrgId(Uuid);
 
 impl OrgId {
@@ -59,18 +85,145 @@ impl OrgId {
     }
 }
 
+impl From<Uuid> for OrgId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl AsRef<Uuid> for OrgId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for OrgId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Stable identifier for a membership row (links an account to an org).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct MembershipId(Uuid);
+
+impl MembershipId {
+    /// Wrap a raw UUID.
+    #[must_use]
+    pub const fn new(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    /// Allocate a fresh time-ordered id.
+    #[must_use]
+    pub fn fresh() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// The underlying UUID.
+    #[must_use]
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for MembershipId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl AsRef<Uuid> for MembershipId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for MembershipId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Validated email address. Constructed via [`Email::parse`] which
+/// trims surrounding whitespace and lower-cases the string. R-0001
+/// keeps the validation deliberately lightweight (presence + single
+/// `@`) — full RFC 5322 verification is the responsibility of an
+/// out-of-band confirmation flow that lands later.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct Email(String);
+
+impl Email {
+    /// Parse a raw user-supplied email. Trims and lower-cases.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidationError::EmptyEmail`] if the input is empty
+    /// after trimming, or [`ValidationError::InvalidEmail`] if the
+    /// input does not contain exactly one `@` separating non-empty
+    /// local and domain parts.
+    pub fn parse(raw: &str) -> Result<Self, ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ValidationError::EmptyEmail);
+        }
+        let mut parts = trimmed.split('@');
+        let local = parts.next().unwrap_or("");
+        let domain = parts.next().unwrap_or("");
+        if local.is_empty() || domain.is_empty() || parts.next().is_some() {
+            return Err(ValidationError::InvalidEmail);
+        }
+        if !domain.contains('.') {
+            return Err(ValidationError::InvalidEmail);
+        }
+        Ok(Self(trimmed.to_lowercase()))
+    }
+
+    /// Borrow the canonical (trimmed + lower-cased) email string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Email {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// User-facing identifier for an account. R-0001's chosen mechanism is
-/// identifier+password where the identifier is an email; the type wraps
-/// the raw string so future mechanisms can lift constraints in one place.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// identifier+password where the identifier is the canonical email; the
+/// type wraps the raw string so future mechanisms can lift constraints
+/// in one place.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
 pub struct Identifier(String);
 
 impl Identifier {
-    /// Construct from a raw string (already lower-cased + trimmed by the
-    /// caller for identifier+password mechanisms).
+    /// Parse a raw identifier string. Trims surrounding whitespace and
+    /// lower-cases.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidationError::EmptyIdentifier`] if the input is
+    /// empty after trimming.
+    pub fn parse(raw: &str) -> Result<Self, ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ValidationError::EmptyIdentifier);
+        }
+        Ok(Self(trimmed.to_lowercase()))
+    }
+
+    /// Derive an identifier from a canonical [`Email`]. The identifier
+    /// uses the email's canonical form verbatim — it is the user-facing
+    /// handle for R-0001.
     #[must_use]
-    pub const fn new(value: String) -> Self {
-        Self(value)
+    pub fn from_email(email: &Email) -> Self {
+        Self(email.as_str().to_owned())
     }
 
     /// Borrow the underlying identifier string.
@@ -80,22 +233,129 @@ impl Identifier {
     }
 }
 
+impl std::fmt::Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Minimum byte length of a valid invitation token.
+const INVITATION_TOKEN_MIN_LEN: usize = 16;
+
 /// Opaque invitation token. R-0001 treats the token as a flat string —
 /// generation/delivery is R-0005's job; here we just verify and consume.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
 pub struct InvitationToken(String);
 
 impl InvitationToken {
-    /// Wrap a raw token string.
-    #[must_use]
-    pub const fn new(value: String) -> Self {
-        Self(value)
+    /// Parse a raw invitation token.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidationError::InvitationTokenEmpty`] if the input
+    /// is empty after trimming, or
+    /// [`ValidationError::InvitationTokenTooShort`] if the trimmed
+    /// token is shorter than [`INVITATION_TOKEN_MIN_LEN`] bytes.
+    pub fn parse(raw: &str) -> Result<Self, ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ValidationError::InvitationTokenEmpty);
+        }
+        if trimmed.len() < INVITATION_TOKEN_MIN_LEN {
+            return Err(ValidationError::InvitationTokenTooShort);
+        }
+        Ok(Self(trimmed.to_owned()))
     }
 
     /// Borrow the underlying token string.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl std::fmt::Display for InvitationToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Opaque session token — 256 bits of CSPRNG randomness encoded
+/// base64url-no-pad and wrapped in [`SecretString`] so accidental
+/// `Display` / `Debug` / `Serialize` calls cannot leak the credential.
+///
+/// Construction is one of:
+///
+/// - [`SessionToken::generate`] — fresh CSPRNG token at sign-up / sign-in /
+///   accept-invitation time.
+/// - [`SessionToken::from_secret`] — wrap an already-realised secret (used
+///   by the store layer when re-hydrating a session row).
+///
+/// Access to the inner string is only via [`SessionToken::expose_secret`].
+/// `Debug` prints `SessionToken(<redacted>)`; `Display` is intentionally
+/// not implemented.
+#[derive(Clone)]
+pub struct SessionToken(SecretString);
+
+impl SessionToken {
+    /// Mint a fresh session token: 32 random bytes, URL-safe base64
+    /// (no padding).
+    #[must_use]
+    pub fn generate() -> Self {
+        let bytes: [u8; 32] = rand::random();
+        let encoded = URL_SAFE_NO_PAD.encode(bytes);
+        Self(SecretString::from(encoded))
+    }
+
+    /// Wrap an existing secret. Used by the store layer when re-hydrating
+    /// a session row from the database; production handlers should call
+    /// [`SessionToken::generate`] instead.
+    #[must_use]
+    pub const fn from_secret(secret: SecretString) -> Self {
+        Self(secret)
+    }
+
+    /// Expose the inner token string. The only access point — every
+    /// other surface (Debug, Display, Serialize) intentionally redacts.
+    #[must_use]
+    pub fn expose_secret(&self) -> &str {
+        self.0.expose_secret()
+    }
+}
+
+impl std::fmt::Debug for SessionToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SessionToken(<redacted>)")
+    }
+}
+
+impl Serialize for SessionToken {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.expose_secret())
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionToken {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Ok(Self(SecretString::from(raw)))
+    }
+}
+
+impl JsonSchema for SessionToken {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("SessionToken")
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(generator)
     }
 }
 
@@ -130,21 +390,23 @@ pub struct Invitation {
 
 /// An identifier+password credential pair as supplied by the caller.
 /// Hashing is the responsibility of the [`CredentialVerifier`] impl.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PasswordCredential {
     /// User-facing identifier (email, ...).
     pub identifier: Identifier,
-    /// Plaintext password — hashed before storage / verified against a stored hash.
-    pub password: String,
+    /// Plaintext password — wrapped so accidental `Debug` / `Serialize`
+    /// calls do not leak the credential. Hashed before storage by the
+    /// `CredentialVerifier`.
+    pub password: SecretString,
 }
 
 /// A bounded session held by an authenticated account or service identity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Session {
     /// The account this session represents.
     pub account: AccountId,
     /// Opaque session token.
-    pub token: String,
+    pub token: SessionToken,
 }
 
 /// Verifies a credential and returns a [`Session`] on success. Mechanism
@@ -178,4 +440,33 @@ pub enum IdentityError {
     /// The invitation has already been consumed (or revoked).
     #[error("the invitation has already been consumed")]
     InvitationAlreadyConsumed,
+    /// User-supplied input failed validation before any verification could run.
+    #[error("invalid input: {0}")]
+    Validation(#[from] ValidationError),
+}
+
+/// Errors raised when constructing a domain newtype from a raw string.
+///
+/// Surfaces through `tanren-app-services` as
+/// `AccountFailureReason::ValidationFailed` (HTTP 400) — a separate
+/// taxonomy from credential failures so callers can distinguish "your
+/// inputs are malformed" from "your credentials don't match".
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ValidationError {
+    /// The supplied email string was empty after trimming.
+    #[error("email is empty")]
+    EmptyEmail,
+    /// The supplied email string did not parse as an email address.
+    #[error("email is not in a valid form")]
+    InvalidEmail,
+    /// The supplied identifier was empty after trimming.
+    #[error("identifier is empty")]
+    EmptyIdentifier,
+    /// The supplied invitation token was empty after trimming.
+    #[error("invitation token is empty")]
+    InvitationTokenEmpty,
+    /// The supplied invitation token was shorter than the minimum length.
+    #[error("invitation token is shorter than the minimum length")]
+    InvitationTokenTooShort,
 }

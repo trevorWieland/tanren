@@ -12,7 +12,11 @@ description = "Identity and Policy subsystem: accounts, organizations, projects,
 workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 chrono = { workspace = true }
+rand = { workspace = true }
+schemars = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
