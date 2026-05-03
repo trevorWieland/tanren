@@ -20,8 +20,10 @@ Feature: Create an account
     Scenario: Self-signup over the API creates an account that can sign in
       When alice self-signs up with email "alice-api@example.com" and password "p4ssw0rd"
       Then alice receives a session token
+      And a "account_created" event is recorded
       When alice signs in with the same credentials
       Then alice receives a session token
+      And a "signed_in" event is recorded
 
     @positive @api
     Scenario: Invitation acceptance over the API joins the inviting org
@@ -29,6 +31,7 @@ Feature: Create an account
       When bob accepts invitation "api-token-1-padpad" with password "team-pw"
       Then bob receives a session token
       And bob has joined an organization
+      And a "invitation_accepted" event is recorded
 
     @positive @api
     Scenario: One person holds two accounts via the API
@@ -49,18 +52,21 @@ Feature: Create an account
       Given alice has signed up with email "alice-api-dup@example.com" and password "p4ssw0rd"
       When mallory self-signs up with email "alice-api-dup@example.com" and password "different-pw"
       Then the request fails with code "duplicate_identifier"
+      And a "sign_up_rejected" event is recorded
 
     @falsification @api
     Scenario: API rejects sign-in with a wrong credential
       Given alice has signed up with email "alice-api-wrong@example.com" and password "p4ssw0rd"
       When alice signs in with email "alice-api-wrong@example.com" and password "wrong-pw"
       Then the request fails with code "invalid_credential"
+      And a "sign_in_failed" event is recorded
 
     @falsification @api
     Scenario: API rejects accepting an expired invitation
       Given an expired invitation token "api-token-expired-padpad"
       When erin accepts invitation "api-token-expired-padpad" with password "any-pw"
       Then the request fails with code "invitation_expired"
+      And a "invitation_accept_failed" event is recorded
 
   Rule: Web surface
 
