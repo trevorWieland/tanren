@@ -13,10 +13,13 @@
 //!
 //! Handlers consume `&dyn AccountStore` (the port defined in
 //! `tanren_store::traits`); the SeaORM-backed `Store` is the adapter
-//! injected by interface binaries. The atomic `consume_invitation` call
-//! replaces the previous find-then-check-then-update sequence — no two
-//! callers can both successfully accept the same token even under
-//! concurrent load.
+//! injected by interface binaries. The atomic `accept_invitation_atomic`
+//! call wraps the consume + insert account + insert membership + insert
+//! session + append events sequence in one DB transaction, so a
+//! transient failure mid-flow leaves the invitation pending and the
+//! user can retry. Concurrent acceptances of the same token still
+//! serialise to exactly one success — the rest receive
+//! `InvitationAlreadyConsumed`.
 
 use chrono::{DateTime, Duration, Utc};
 use secrecy::ExposeSecret;
@@ -24,8 +27,13 @@ use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{AccountId, CredentialVerifier, Identifier, SessionToken};
-use tanren_store::{AccountRecord, AccountStore, ConsumeInvitationError, NewAccount};
+use tanren_identity_policy::{
+    AccountId, CredentialVerifier, Identifier, MembershipId, SessionToken,
+};
+use tanren_store::{
+    AcceptInvitationAtomicRequest, AcceptInvitationError, AcceptInvitationEventContext,
+    AccountRecord, AccountStore, NewAccount,
+};
 
 use crate::events::{
     AccountCreated, AccountEventKind, InvitationAcceptFailed, InvitationAccepted, SignInFailed,
@@ -223,6 +231,12 @@ where
     // (subsequent specs will reconcile against the invitation row's
     // target_identifier when R-0005's invite flow lands).
     let identifier = Identifier::from_email(&request.email);
+    // Pre-flight duplicate check: lets us fail fast for the common
+    // "this email is already an account" case without paying the
+    // password-hash cost. The atomic call below ALSO catches a
+    // duplicate under race (unique index inside the transaction), so
+    // skipping this read would still be correct — it just costs one
+    // hash on the reject path.
     if store
         .find_account_by_identifier(&identifier)
         .await?
@@ -240,80 +254,111 @@ where
         ));
     }
 
-    // Atomic consume: a single conditional UPDATE on the store
-    // transitions the invitation from pending → consumed. Concurrent
-    // callers serialise to exactly one success; the rest receive
-    // `AlreadyConsumed`.
-    let consumed = match store.consume_invitation(&token, now).await {
-        Ok(consumed) => consumed,
-        Err(consume_err) => {
-            let reason = match consume_err {
-                ConsumeInvitationError::NotFound => AccountFailureReason::InvitationNotFound,
-                ConsumeInvitationError::AlreadyConsumed => {
-                    AccountFailureReason::InvitationAlreadyConsumed
-                }
-                ConsumeInvitationError::Expired => AccountFailureReason::InvitationExpired,
-                ConsumeInvitationError::Store(err) => return Err(AppServiceError::Store(err)),
+    let password_phc = verifier
+        .hash(&request.password)
+        .map_err(|err| AppServiceError::InvalidInput(err.to_string()))?;
+    let id = AccountId::fresh();
+    let session_token = SessionToken::generate();
+    let session_expires_at = now + Duration::days(SESSION_LIFETIME_DAYS);
+
+    // Atomic accept: consume + insert account + insert membership +
+    // insert session + append both success events run in one DB
+    // transaction. A failure on any step rolls the whole flow back so
+    // the invitation row stays pending and the user can retry —
+    // closing the previous gap where a transient failure after the
+    // consume burned the token without producing an account.
+    let outcome = match store
+        .accept_invitation_atomic(AcceptInvitationAtomicRequest {
+            token: token.clone(),
+            now,
+            account: NewAccount {
+                id,
+                identifier,
+                display_name,
+                password_phc,
+                created_at: now,
+                // `org_id` is overridden inside the atomic call from
+                // the consumed invitation row; the value here is
+                // irrelevant.
+                org_id: None,
+            },
+            membership_id: MembershipId::fresh(),
+            session_token,
+            session_expires_at,
+            events_builder: build_accept_invitation_events_builder(),
+        })
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            let reason = match map_accept_invitation_error(err) {
+                Ok(reason) => reason,
+                Err(app_err) => return Err(app_err),
             };
             emit_invitation_accept_failed(store, reason, &token, now).await?;
             return Err(AppServiceError::Account(reason));
         }
     };
 
-    let password_phc = verifier
-        .hash(&request.password)
-        .map_err(|err| AppServiceError::InvalidInput(err.to_string()))?;
-    let id = AccountId::fresh();
-    let account = store
-        .insert_account(NewAccount {
-            id,
-            identifier,
-            display_name,
-            password_phc,
-            created_at: now,
-            org_id: Some(consumed.inviting_org_id),
-        })
-        .await
-        .map_err(map_insert_error)?;
-    store
-        .insert_membership(account.id, consumed.inviting_org_id, now)
-        .await?;
-
-    let session = mint_session(store, account.id, now).await?;
-    store
-        .append_event(
-            envelope(
-                AccountEventKind::AccountCreated,
-                &AccountCreated {
-                    account_id: account.id,
-                    identifier: account.identifier.as_str().to_owned(),
-                    org: Some(consumed.inviting_org_id),
-                    created_at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
-    store
-        .append_event(
-            envelope(
-                AccountEventKind::InvitationAccepted,
-                &InvitationAccepted {
-                    token,
-                    account_id: account.id,
-                    joined_org: consumed.inviting_org_id,
-                    at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
-
     Ok(AcceptInvitationResponse {
-        account: account_view(&account),
-        session,
-        joined_org: consumed.inviting_org_id,
+        account: account_view(&outcome.account),
+        session: SessionView {
+            account_id: outcome.session.account_id,
+            token: outcome.session.token,
+            expires_at: outcome.session.expires_at,
+        },
+        joined_org: outcome.joined_org,
     })
+}
+
+/// Build the `Box<dyn FnOnce>` the store invokes inside its transaction
+/// to stamp the success-path event envelopes. The store crate does not
+/// know the typed event payload shapes — they live in this crate — so
+/// the closure builds the wire envelopes once the store has determined
+/// the inviting-org id from the consumed invitation row.
+fn build_accept_invitation_events_builder() -> tanren_store::AcceptInvitationEventsBuilder {
+    Box::new(
+        |ctx: &AcceptInvitationEventContext| -> Vec<serde_json::Value> {
+            vec![
+                envelope(
+                    AccountEventKind::AccountCreated,
+                    &AccountCreated {
+                        account_id: ctx.account_id,
+                        identifier: ctx.identifier.as_str().to_owned(),
+                        org: Some(ctx.joined_org),
+                        created_at: ctx.now,
+                    },
+                ),
+                envelope(
+                    AccountEventKind::InvitationAccepted,
+                    &InvitationAccepted {
+                        token: ctx.token.clone(),
+                        account_id: ctx.account_id,
+                        joined_org: ctx.joined_org,
+                        at: ctx.now,
+                    },
+                ),
+            ]
+        },
+    )
+}
+
+/// Translate the store-layer taxonomy error into either an
+/// [`AccountFailureReason`] (for emit-then-fail flows) or a non-taxonomy
+/// [`AppServiceError`] that should bypass the failure-event emit and
+/// propagate directly.
+fn map_accept_invitation_error(
+    err: AcceptInvitationError,
+) -> Result<AccountFailureReason, AppServiceError> {
+    match err {
+        AcceptInvitationError::InvitationNotFound => Ok(AccountFailureReason::InvitationNotFound),
+        AcceptInvitationError::InvitationAlreadyConsumed => {
+            Ok(AccountFailureReason::InvitationAlreadyConsumed)
+        }
+        AcceptInvitationError::InvitationExpired => Ok(AccountFailureReason::InvitationExpired),
+        AcceptInvitationError::DuplicateIdentifier => Ok(AccountFailureReason::DuplicateIdentifier),
+        AcceptInvitationError::Store(store_err) => Err(AppServiceError::Store(store_err)),
+    }
 }
 
 async fn emit_signup_rejected<S>(

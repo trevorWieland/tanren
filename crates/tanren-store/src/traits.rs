@@ -35,6 +35,120 @@ use crate::{
     AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
 };
 
+/// Context the store passes back to the caller's event-builder so
+/// the caller can stamp the inviting org id (only known after the
+/// in-transaction `consume_invitation` step) into the success-path
+/// event payloads it owns.
+#[derive(Debug, Clone)]
+pub struct AcceptInvitationEventContext {
+    /// The id of the freshly inserted account row.
+    pub account_id: AccountId,
+    /// The user-facing identifier on the new account.
+    pub identifier: Identifier,
+    /// The invitation token that was consumed.
+    pub token: InvitationToken,
+    /// The organization the new account joined (read from the
+    /// consumed invitation row inside the transaction).
+    pub joined_org: OrgId,
+    /// `now` from the request, threaded through so event payloads
+    /// can carry the same instant as the row writes.
+    pub now: DateTime<Utc>,
+}
+
+/// Closure the store invokes inside the transaction to build the
+/// success-path event envelopes. The store crate does not know the
+/// concrete event payload shape — that lives in `tanren-app-services`
+/// — so the caller hands in an event-builder closure and the store
+/// invokes it once it has computed the inviting-org id.
+pub type AcceptInvitationEventsBuilder =
+    Box<dyn FnOnce(&AcceptInvitationEventContext) -> Vec<serde_json::Value> + Send>;
+
+/// Input shape for [`AccountStore::accept_invitation_atomic`]. Bundles
+/// every input the atomic flow needs so the trait method runs as a
+/// single unit. The caller pre-derives the password PHC and the
+/// session token because the verifier and the CSPRNG live in the
+/// app-service layer, not in the store.
+pub struct AcceptInvitationAtomicRequest {
+    /// The invitation token the caller is trying to consume.
+    pub token: InvitationToken,
+    /// Wall-clock instant the flow runs at. Used for the consume
+    /// predicate, the membership row, the session row, and every
+    /// emitted event envelope.
+    pub now: DateTime<Utc>,
+    /// New account row to insert. The caller has already derived the
+    /// password PHC and validated the identifier. The `org_id` field
+    /// is ignored by the atomic call — the inviting org id from the
+    /// consumed invitation row is the source of truth.
+    pub account: NewAccount,
+    /// Stable membership id the caller pre-allocates so the success
+    /// path of the atomic call does not need to thread an id back
+    /// out for any subsequent step.
+    pub membership_id: MembershipId,
+    /// Session token the caller pre-generated.
+    pub session_token: SessionToken,
+    /// Wall-clock time the session expires (`now + lifetime`).
+    pub session_expires_at: DateTime<Utc>,
+    /// Closure the store invokes inside the transaction to build the
+    /// success-path event envelopes. See
+    /// [`AcceptInvitationEventsBuilder`].
+    pub events_builder: AcceptInvitationEventsBuilder,
+}
+
+impl std::fmt::Debug for AcceptInvitationAtomicRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AcceptInvitationAtomicRequest")
+            .field("token", &self.token)
+            .field("now", &self.now)
+            .field("account", &self.account)
+            .field("membership_id", &self.membership_id)
+            .field("session_expires_at", &self.session_expires_at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Successful return from [`AccountStore::accept_invitation_atomic`].
+/// The store layer builds and appends the success-path events itself
+/// (it is the only layer that knows the inviting org id at envelope-
+/// build time inside the transaction); the caller only needs the
+/// row-shaped output to render the response.
+#[derive(Debug, Clone)]
+pub struct AcceptInvitationAtomicOutput {
+    /// The freshly inserted account row.
+    pub account: AccountRecord,
+    /// The freshly inserted session row.
+    pub session: SessionRecord,
+    /// Organization the new account joined.
+    pub joined_org: OrgId,
+}
+
+/// Failure taxonomy for [`AccountStore::accept_invitation_atomic`]. The
+/// app-service layer maps each variant to the matching
+/// `AccountFailureReason`; the `Store` variant carries non-taxonomy DB
+/// errors through unchanged. Mirrors [`ConsumeInvitationError`] but
+/// adds [`AcceptInvitationError::DuplicateIdentifier`] for the
+/// race-safe duplicate-account check that runs inside the
+/// transaction.
+#[derive(Debug, thiserror::Error)]
+pub enum AcceptInvitationError {
+    /// No invitation matches the supplied token.
+    #[error("invitation not found")]
+    InvitationNotFound,
+    /// The invitation exists but `consumed_at` was already set.
+    #[error("invitation already consumed")]
+    InvitationAlreadyConsumed,
+    /// The invitation exists but `expires_at <= now`.
+    #[error("invitation expired")]
+    InvitationExpired,
+    /// The supplied identifier collides with an existing account
+    /// (caught either by a pre-flight read or by the unique-index
+    /// constraint inside the transaction).
+    #[error("duplicate identifier")]
+    DuplicateIdentifier,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Port the account-flow handlers consume. The SeaORM-backed adapter is
 /// `impl AccountStore for Store` (see `lib.rs`).
 #[async_trait]
@@ -78,6 +192,14 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
     /// > now` and use a follow-up read to populate the return shape and
     /// disambiguate the failure taxonomy.
     ///
+    /// **For the typical invitation-acceptance flow prefer
+    /// [`AccountStore::accept_invitation_atomic`]** — it consumes the
+    /// invitation, creates the account, links the membership, mints the
+    /// session, and appends the success events in one transaction so a
+    /// failure mid-flow leaves the invitation pending. This bare
+    /// `consume_invitation` is retained for any future flow that wants
+    /// to consume-without-creating.
+    ///
     /// Returns:
     /// - `Ok(ConsumedInvitation { .. })` when exactly one row was
     ///   transitioned.
@@ -94,6 +216,22 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         token: &InvitationToken,
         now: DateTime<Utc>,
     ) -> Result<ConsumedInvitation, ConsumeInvitationError>;
+
+    /// Run the full invitation-acceptance flow as a single transaction:
+    /// consume the invitation, insert the account, link the membership,
+    /// insert the session, and append the success-path
+    /// `account_created` and `invitation_accepted` events. If any step
+    /// fails the transaction rolls back — the invitation row stays
+    /// pending so the user can retry.
+    ///
+    /// The caller pre-derives the password PHC, the session token, the
+    /// membership id and `now`. The implementation owns the inviting-
+    /// org id (it reads it from the consumed row) and stamps it onto
+    /// the inserted account, the membership, and the emitted events.
+    async fn accept_invitation_atomic(
+        &self,
+        request: AcceptInvitationAtomicRequest,
+    ) -> Result<AcceptInvitationAtomicOutput, AcceptInvitationError>;
 
     /// Issue a session for the supplied account.
     async fn insert_session(

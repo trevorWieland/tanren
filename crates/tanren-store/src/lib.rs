@@ -7,6 +7,7 @@
 //! (`entity/` is a private module) so that row shape changes never leak
 //! across the dependency boundary.
 
+mod accept_invitation;
 mod entity;
 mod migration;
 mod records;
@@ -16,7 +17,11 @@ pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
 };
-pub use traits::{AccountStore, ConsumeInvitationError, ConsumedInvitation};
+pub use traits::{
+    AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
+    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
+    ConsumeInvitationError, ConsumedInvitation,
+};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -240,6 +245,13 @@ impl AccountStore for Store {
             // already-locked invitation.
             Some(_) => Err(ConsumeInvitationError::AlreadyConsumed),
         }
+    }
+
+    async fn accept_invitation_atomic(
+        &self,
+        request: AcceptInvitationAtomicRequest,
+    ) -> Result<AcceptInvitationAtomicOutput, AcceptInvitationError> {
+        accept_invitation::run(&self.conn, request).await
     }
 
     async fn insert_session(
