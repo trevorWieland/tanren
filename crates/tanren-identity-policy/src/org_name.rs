@@ -1,15 +1,8 @@
-//! Organization name newtype and bootstrap admin permissions.
+//! `OrgName` validated newtype and `OrgAdminPermissions` bootstrap flags.
 //!
-//! [`OrgName`] is the validated, case-normalised display name for an
-//! organization. Uniqueness is *globally unique, case-insensitive* — the
-//! lower-case canonical form stored here is what the persistence layer
-//! indexes with a `UNIQUE` constraint so two case variants of the same
-//! logical name cannot coexist.
-//!
-//! [`OrgAdminPermissions`] enumerates the five administrative capabilities
-//! the org creator receives at bootstrap. Granular role / policy
-//! configuration is M-0004's scope; this type captures only the initial
-//! set.
+//! Split out of `lib.rs` to keep the crate under the workspace 500-line
+//! budget. See module-level docs in `lib.rs` for the broader identity-policy
+//! surface.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,42 +10,42 @@ use utoipa::ToSchema;
 
 use crate::{IdentityError, ValidationError};
 
-/// Maximum byte length of a valid organization name.
+/// Maximum byte length of an organization name.
 const ORG_NAME_MAX_LEN: usize = 100;
 
-/// Validated organization display name.
+/// Validated, canonical organisation display name.
 ///
 /// Constructed via [`OrgName::parse`] which trims surrounding whitespace,
-/// rejects empty / over-length inputs, and normalises to lower-case so
-/// case variants of the same name compare equal.
+/// rejects empty / over-length inputs, and normalises to lower-case so that
+/// two case variants of the same logical name compare equal.
 ///
 /// # Uniqueness rule
 ///
-/// Globally unique, case-insensitive (normalised). The persistence layer
-/// enforces this with a `UNIQUE` index on the stored lower-case value.
+/// Organisation names are **globally unique, case-insensitive**. The
+/// lower-cased canonical form is what the persistence layer stores in its
+/// `UNIQUE` index; callers should compare via [`OrgName::as_str`] (already
+/// normalised) rather than the raw input.
 ///
 /// # Wire-input contract
 ///
-/// `OrgName` does NOT derive `Deserialize` — the custom impl below
-/// routes every wire input through [`parse`](Self::parse) so untrimmed
-/// or upper-case names cannot bypass canonicalisation.
+/// `OrgName` does **not** derive `Deserialize` — the custom impl below
+/// routes every wire input through [`parse`](Self::parse) so untrimmed or
+/// differently-cased names cannot bypass canonicalisation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
 pub struct OrgName(String);
 
 impl OrgName {
-    /// Parse a raw organization name.
-    ///
-    /// Trims surrounding whitespace, rejects empty or over-length inputs,
-    /// and normalises to lower-case for case-insensitive uniqueness.
+    /// Parse a raw organisation name. Trims, validates length, and
+    /// canonicalises to lower-case.
     ///
     /// # Errors
     ///
     /// Returns [`IdentityError::Validation`] wrapping
-    /// [`ValidationError::EmptyOrgName`] when the input is empty
-    /// after trimming, or [`ValidationError::OrgNameTooLong`] when the
-    /// trimmed input exceeds 100 bytes.
+    /// [`ValidationError::EmptyOrgName`] when the input is empty after
+    /// trimming, or [`ValidationError::OrgNameTooLong`] when it exceeds
+    /// [`ORG_NAME_MAX_LEN`] bytes.
     pub fn parse(raw: &str) -> Result<Self, IdentityError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -64,7 +57,7 @@ impl OrgName {
         Ok(Self(trimmed.to_lowercase()))
     }
 
-    /// Borrow the canonical (trimmed + lower-cased) name string.
+    /// Borrow the canonical (trimmed + lower-cased) organisation name.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -84,64 +77,53 @@ impl std::fmt::Display for OrgName {
     }
 }
 
-/// Bootstrap administrative permissions granted to the organization
-/// creator.
+/// Bootstrap administrative permissions held by the organisation creator.
 ///
-/// The creator receives the full set at org-creation time. These
-/// permissions may be delegated or revoked through the organization
-/// policy subsystem (M-0004). The invariant that at least one member
-/// holds administrative permissions is enforced by the leave/remove
-/// flows in R-0007.
+/// Covers the five capabilities the creator receives at org-creation time.
+/// Each flag is independent; future role / policy work (M-0004) will derive
+/// these from a richer permission model. For now the flat struct is the
+/// authoritative representation of the "last admin holder cannot remove
+/// themselves" invariant source data.
 ///
-/// Serialized as a `u8` bitmask — each flag corresponds to one of
-/// the associated constants (`INVITE`, `MANAGE_ACCESS`, …).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
-#[serde(transparent)]
-#[schema(value_type = u8)]
-pub struct OrgAdminPermissions(u8);
+/// Serialises as a self-describing JSON object so API / MCP consumers can
+/// inspect individual flags without decoding a bitmask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrgAdminPermissions {
+    /// Invite new members to the organisation.
+    pub invite: bool,
+    /// Grant or revoke member access levels.
+    pub manage_access: bool,
+    /// Change organisation-level settings (display name, metadata).
+    pub configure: bool,
+    /// Set organisation policy (allowed auth methods, joining rules).
+    pub set_policy: bool,
+    /// Delete the organisation (requires being the last admin holder).
+    pub delete: bool,
+}
 
 impl OrgAdminPermissions {
-    /// Permission to send invitations to new members.
-    pub const INVITE: u8 = 1 << 0;
-    /// Permission to grant or revoke member access.
-    pub const MANAGE_ACCESS: u8 = 1 << 1;
-    /// Permission to change organization-level configuration.
-    pub const CONFIGURE: u8 = 1 << 2;
-    /// Permission to set organization policy.
-    pub const SET_POLICY: u8 = 1 << 3;
-    /// Permission to delete the organization.
-    pub const DELETE: u8 = 1 << 4;
-
-    /// Return the full permission set granted to the organization creator
-    /// at bootstrap.
+    /// Return the full permission set granted to an organisation creator at
+    /// bootstrap time.
     #[must_use]
-    pub fn bootstrap_creator() -> Self {
-        Self(Self::INVITE | Self::MANAGE_ACCESS | Self::CONFIGURE | Self::SET_POLICY | Self::DELETE)
+    pub const fn bootstrap_creator() -> Self {
+        Self {
+            invite: true,
+            manage_access: true,
+            configure: true,
+            set_policy: true,
+            delete: true,
+        }
     }
 
-    /// Returns `true` when no permissions are held.
+    /// Whether all bootstrap permissions are present.
+    #[must_use]
+    pub fn is_full(self) -> bool {
+        self.invite && self.manage_access && self.configure && self.set_policy && self.delete
+    }
+
+    /// Whether no permissions are present.
     #[must_use]
     pub fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
-    /// Returns `true` when the given flag is set.
-    #[must_use]
-    pub fn contains(self, flag: u8) -> bool {
-        self.0 & flag != 0
-    }
-
-    /// Set the given flag, returning the updated permissions.
-    #[must_use]
-    pub fn insert(mut self, flag: u8) -> Self {
-        self.0 |= flag;
-        self
-    }
-
-    /// Clear the given flag, returning the updated permissions.
-    #[must_use]
-    pub fn remove(mut self, flag: u8) -> Self {
-        self.0 &= !flag;
-        self
+        !self.invite && !self.manage_access && !self.configure && !self.set_policy && !self.delete
     }
 }
