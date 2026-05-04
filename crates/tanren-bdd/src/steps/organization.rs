@@ -1,6 +1,7 @@
 use cucumber::{given, then, when};
-use tanren_contract::CreateOrganizationRequest;
-use tanren_identity_policy::OrgName;
+use secrecy::SecretString;
+use tanren_contract::{CreateOrganizationRequest, SignInRequest};
+use tanren_identity_policy::{Email, OrgName};
 use tanren_testkit::{HarnessOutcome, record_failure};
 
 use crate::TanrenWorld;
@@ -74,6 +75,36 @@ async fn then_full_bootstrap_permissions(world: &mut TanrenWorld) {
 
 #[then(expr = "{string} appears in {word}'s organization list")]
 async fn then_org_appears_in_list(world: &mut TanrenWorld, org_name: String, actor: String) {
+    {
+        use secrecy::ExposeSecret;
+        let (email_raw, password_raw) = {
+            let ctx = world.ensure_account_ctx().await;
+            let entry = ctx
+                .actors
+                .get(&actor)
+                .expect("actor must have signed up before listing their organizations");
+            (
+                entry
+                    .identifier
+                    .clone()
+                    .expect("actor identifier captured during sign-up"),
+                entry
+                    .password
+                    .as_ref()
+                    .map(|s| s.expose_secret().to_owned())
+                    .expect("actor password captured during sign-up"),
+            )
+        };
+        let email = Email::parse(&email_raw).expect("stored identifier must be a valid email");
+        let ctx = world.ensure_account_ctx().await;
+        ctx.harness
+            .sign_in(SignInRequest {
+                email,
+                password: SecretString::from(password_raw),
+            })
+            .await
+            .expect("re-authentication must succeed");
+    }
     let ctx = world.ensure_account_ctx().await;
     let result = ctx.harness.list_organizations().await;
     match result {
