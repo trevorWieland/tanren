@@ -343,7 +343,18 @@ async fn require_auth(
     let now = chrono::Utc::now();
     match store.find_latest_session_for_account(account_id, now).await {
         Ok(Some(record)) => Ok(record.token),
-        _ => Err(unauthenticated()),
+        Ok(None) => Err(unauthenticated()),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "store error in require_auth");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AccountFailureBody {
+                    code: "internal_error".to_owned(),
+                    summary: "Tanren encountered an internal error.".to_owned(),
+                }),
+            )
+                .into_response())
+        }
     }
 }
 
