@@ -4,6 +4,12 @@
 //! no workspace dependencies. Other crates may depend on `tanren-domain`;
 //! `tanren-domain` depends on nothing else from the workspace.
 
+pub mod posture;
+
+pub use posture::{
+    CapabilityAvailability, CapabilityCategory, CapabilitySummary, Posture, PostureParseError,
+};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

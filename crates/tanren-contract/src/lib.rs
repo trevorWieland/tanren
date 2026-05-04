@@ -6,10 +6,16 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod posture;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use posture::{
+    GetPostureResponse, ListPosturesResponse, PostureChangeView, PostureFailureReason, PostureView,
+    SetPostureRequest, SetPostureResponse,
 };
 
 use serde::{Deserialize, Serialize};
