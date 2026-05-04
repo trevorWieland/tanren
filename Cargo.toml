@@ -174,6 +174,9 @@ async-trait = "0.1"
 # Logging / tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# File-sink writer for binaries that own the terminal (e.g. tanren-tui under
+# raw mode + alternate screen). See docs/architecture/subsystems/observation.md.
+tracing-appender = "0.2"
 
 # Database — SeaORM replaces raw sqlx to get transparent JSON dialect
 # handling (TEXT on SQLite, JSONB on Postgres), backend-agnostic migrations,

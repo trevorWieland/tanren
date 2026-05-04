@@ -345,19 +345,7 @@ pub(crate) fn session_path() -> PathBuf {
             return PathBuf::from(explicit);
         }
     }
-    let base = env::var("XDG_STATE_HOME")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map_or_else(
-            || {
-                env::var("HOME").ok().map_or_else(
-                    || PathBuf::from("."),
-                    |home| PathBuf::from(home).join(".local/state"),
-                )
-            },
-            PathBuf::from,
-        );
-    base.join("tanren").join("session")
+    tanren_observability::xdg_state_dir().join("session")
 }
 
 fn persist_session(token: &str) -> Result<()> {

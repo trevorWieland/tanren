@@ -561,7 +561,7 @@ JSON-formatted output, env-filtered via the standard
 `RUST_LOG`/`TANREN_LOG` envelope, and span/event metadata aligned with
 the cross-binary correlation contract in this document.
 
-CLI and TUI service-status messages (`Starting tanren-cli...`,
+CLI service-status messages (`Starting tanren-cli...`,
 `Connected to API at ...`, etc.) route through `tracing::info!` to
 **stderr**, not via `writeln!(io::stdout(), ...)`. This frees stdout for
 the structured event identifiers the existing CLI output contract
@@ -570,9 +570,48 @@ status chatter goes to stderr). The CLI output contract is unchanged;
 only its delivery mechanism — `tracing` events to stderr instead of ad
 hoc prints — is canonicalized.
 
-Mechanical enforcement: `xtask check-tracing-init` AST-walks every
-`bin/*/src/main.rs` and rejects any binary whose `main` does not invoke
-`tanren_observability::init` as the first non-trivial statement.
+### TUI exception: file-sink only
+
+Binaries that own the terminal — currently only `tanren-tui` — MUST call
+`tanren_observability::init_to_file(default_filter, "tanren-tui")`
+instead of `init(...)`. The TUI calls `enable_raw_mode()` and
+`EnterAlternateScreen` on stdout
+(`crates/tanren-tui-app/src/lib.rs::setup_terminal`); a stdout- or
+stderr-bound subscriber would render `INFO …` lines on top of the
+ratatui frame and corrupt the rendered UI.
+
+`init_to_file` installs a non-blocking, daily-rolling file appender:
+
+| Resolution order | Path |
+|---|---|
+| `TANREN_TUI_LOG_FILE` set, non-empty | the value verbatim (parent dir auto-created); single file, no rolling. |
+| else `XDG_STATE_HOME` set, non-empty | `$XDG_STATE_HOME/tanren/logs/tanren-tui.log.YYYY-MM-DD` |
+| else `HOME` set, non-empty | `$HOME/.local/state/tanren/logs/tanren-tui.log.YYYY-MM-DD` |
+| else | `./tanren/logs/tanren-tui.log.YYYY-MM-DD` |
+
+The function returns a `tracing_appender::non_blocking::WorkerGuard`
+which the binary's `main` MUST bind to a named local for the duration of
+the process (e.g. `let _log_guard = tanren_observability::init_to_file(…)?;`)
+— dropping the guard flushes the channel and silently stops emitting
+log records.
+
+This rule is symmetric with the stdout discipline above: the CLI keeps
+stdout clean for its structured output; the TUI keeps stdout clean for
+its rendered frame. Neither writes log records to a stream another
+contract owns.
+
+### Mechanical enforcement
+
+`xtask check-tracing-init` AST-walks every `bin/*/src/main.rs` and
+enforces:
+
+1. Every binary calls `tanren_observability::init(...)` or
+   `tanren_observability::init_to_file(...)` as its first action.
+2. `bin/tanren-tui/src/main.rs` MUST call `init_to_file(...)` and MUST
+   NOT call the plain stdout-bound `init(...)`.
+
+A regression that reintroduces the stdout subscriber for the TUI fails
+`just check` before it can land.
 
 ## Accepted Decisions
 

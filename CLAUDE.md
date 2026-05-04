@@ -81,6 +81,15 @@ behavior slice depends on come from F-0001.
   rules in [`docs/architecture/technology.md`](docs/architecture/technology.md);
   `xtask check-deps` validates them. Don't add a dependency edge that crosses
   a stated boundary without raising an architecture decision.
+- **TUI logs go to a file, never stdout/stderr.** `bin/tanren-tui/src/main.rs`
+  must call `tanren_observability::init_to_file(default_filter, "tanren-tui")`
+  (not `init(...)`) and bind the returned `WorkerGuard` to a named local for
+  the lifetime of `main`. The TUI takes raw mode + alternate screen on stdout,
+  so any subscriber writing to the terminal corrupts the rendered frame. Rule
+  + path resolution + override (`TANREN_TUI_LOG_FILE`) live in
+  [`docs/architecture/subsystems/observation.md`](docs/architecture/subsystems/observation.md);
+  `xtask check-tracing-init` enforces both the call and the prohibition on the
+  plain stdout `init(...)`.
 - **Cite IDs.** Reference behaviors as `B-XXXX`, roadmap nodes as `R-XXXX`,
   milestones as `M-XXXX`, foundation as `F-XXXX`. The DAG validator and
   human readers both rely on these stable IDs.
