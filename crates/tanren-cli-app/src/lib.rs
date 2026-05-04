@@ -22,8 +22,9 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_contract::{AcceptInvitationRequest, SetPostureRequest, SignInRequest, SignUpRequest};
+use tanren_domain::{CapabilityAvailability, CapabilityCategory};
+use tanren_identity_policy::{AccountId, Email, InvitationToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +64,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Deployment posture: list, show, set.
+    Posture {
+        #[command(subcommand)]
+        action: PostureAction,
     },
 }
 
@@ -112,6 +118,32 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum PostureAction {
+    /// List all available deployment postures with capability summaries.
+    List,
+    /// Show the current deployment posture.
+    Show {
+        /// Database URL (defaults to `$DATABASE_URL`).
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+    /// Set the deployment posture.
+    Set {
+        /// Database URL (defaults to `$DATABASE_URL`).
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Posture value to set (hosted, `self_hosted`, `local_only`).
+        value: String,
+        /// Account ID of the actor performing the change.
+        #[arg(long)]
+        account_id: String,
+        /// Grant the actor posture-admin permission.
+        #[arg(long, default_value_t = false)]
+        posture_admin: bool,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +154,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Posture { action }) => dispatch_posture(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -269,6 +302,118 @@ async fn run_account(action: AccountAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn dispatch_posture(action: PostureAction) -> Result<()> {
+    match action {
+        PostureAction::List => run_posture_list(),
+        other => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("build tokio runtime")?;
+            runtime.block_on(run_posture_async(other))
+        }
+    }
+}
+
+fn run_posture_list() -> Result<()> {
+    let handlers = Handlers::new();
+    let response = handlers.list_postures();
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    for view in &response.postures {
+        let caps: String = view
+            .capabilities
+            .iter()
+            .map(|c| {
+                let cat = category_label(c.category);
+                match &c.availability {
+                    CapabilityAvailability::Available => format!("{cat}=available"),
+                    CapabilityAvailability::Unavailable { .. } => format!("{cat}=unavailable"),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        writeln!(handle, "posture={} {caps}", view.posture).context("write posture list entry")?;
+    }
+    Ok(())
+}
+
+async fn run_posture_async(action: PostureAction) -> Result<()> {
+    let handlers = Handlers::new();
+    match action {
+        PostureAction::List => run_posture_list()?,
+        PostureAction::Show { database_url } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let response = handlers.get_posture(&store).await.map_err(posture_error)?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(handle, "posture={}", response.current.posture)
+                .context("write posture show result")?;
+        }
+        PostureAction::Set {
+            database_url,
+            value,
+            account_id,
+            posture_admin,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let parsed_id =
+                uuid::Uuid::parse_str(&account_id).context("parse --account-id as UUID")?;
+            let actor = tanren_app_services::posture::Actor {
+                account_id: AccountId::new(parsed_id),
+                permissions: tanren_app_services::posture::Permissions { posture_admin },
+            };
+            let request = SetPostureRequest {
+                posture: tanren_domain::Posture::parse(&value).map_err(|_| {
+                    anyhow::anyhow!(
+                        "error: unsupported_posture — The requested deployment posture is not supported."
+                    )
+                })?,
+            };
+            let response = handlers
+                .set_posture(&store, actor, request)
+                .await
+                .map_err(posture_error)?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(handle, "posture={}", response.current.posture)
+                .context("write posture set result")?;
+        }
+    }
+    Ok(())
+}
+
+fn category_label(cat: CapabilityCategory) -> &'static str {
+    match cat {
+        CapabilityCategory::Compute => "compute",
+        CapabilityCategory::Storage => "storage",
+        CapabilityCategory::Networking => "networking",
+        CapabilityCategory::Collaboration => "collaboration",
+        CapabilityCategory::Secrets => "secrets",
+        CapabilityCategory::ProviderIntegration => "provider_integration",
+        _ => "unknown",
+    }
+}
+
+fn posture_error(err: AppServiceError) -> anyhow::Error {
+    match err {
+        AppServiceError::Posture(reason) => {
+            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
+        }
+        AppServiceError::InvalidInput(message) => {
+            anyhow::anyhow!("error: validation_failed — {message}")
+        }
+        AppServiceError::Store(err) => {
+            anyhow::anyhow!("error: internal_error — {err}")
+        }
+        _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
+    }
 }
 
 fn account_error(err: AppServiceError) -> anyhow::Error {
