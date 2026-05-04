@@ -30,12 +30,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
+use tanren_app_services::posture::{Actor as PostureActor, Permissions as PosturePermissions};
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, PostureFailureReason, SetPostureRequest, SignInRequest, SignUpRequest,
+};
+use tanren_domain::Posture;
+use tanren_identity_policy::AccountId;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
+use uuid::Uuid;
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
@@ -144,6 +150,68 @@ impl TanrenMcp {
         }
     }
 
+    #[rmcp::tool(
+        name = "posture.list",
+        description = "List all available deployment postures with their capability summaries."
+    )]
+    async fn posture_list(&self) -> Result<CallToolResult, McpError> {
+        let response = self.handlers.list_postures();
+        Ok(success(&response))
+    }
+
+    #[rmcp::tool(
+        name = "posture.get",
+        description = "Get the current deployment posture for this installation. Failure codes: not_configured."
+    )]
+    async fn posture_get(&self) -> Result<CallToolResult, McpError> {
+        match self.handlers.get_posture(self.store.as_ref()).await {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "posture.set",
+        description = "Set the deployment posture for this installation. Requires posture_admin permission. Failure codes: unsupported_posture, permission_denied."
+    )]
+    async fn posture_set(
+        &self,
+        Parameters(request): Parameters<McpSetPostureRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match Uuid::parse_str(&request.account_id) {
+            Ok(uuid) => AccountId::new(uuid),
+            Err(_) => {
+                return Ok(map_failure(AppServiceError::InvalidInput(
+                    "account_id must be a valid UUID".to_owned(),
+                )));
+            }
+        };
+
+        let actor = PostureActor {
+            account_id,
+            permissions: PosturePermissions {
+                posture_admin: request.posture_admin,
+            },
+        };
+
+        let Ok(parsed) = Posture::parse(&request.posture) else {
+            return Ok(map_failure(AppServiceError::Posture(
+                PostureFailureReason::UnsupportedPosture,
+            )));
+        };
+
+        let set_request = SetPostureRequest { posture: parsed };
+
+        match self
+            .handlers
+            .set_posture(self.store.as_ref(), actor, set_request)
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
     /// Borrow the cached `ToolRouter`. Exists so the dead-code lint can
     /// see the field as read even on rmcp macro versions whose
     /// `#[tool_handler]` expansion path does not access the field
@@ -185,6 +253,7 @@ fn success<T: Serialize>(value: &T) -> CallToolResult {
 fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
+        AppServiceError::Posture(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
         AppServiceError::Store(err) => (
             "internal_error".to_owned(),
@@ -201,6 +270,13 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+struct McpSetPostureRequest {
+    posture: String,
+    account_id: String,
+    posture_admin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
