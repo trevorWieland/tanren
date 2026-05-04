@@ -261,6 +261,7 @@ impl AccountHarness for ApiHarness {
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
         let joined_org = serde_json::from_value(json["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
+        self.current_account_id = Some(account.id);
         Ok(HarnessAcceptance {
             session: HarnessSession {
                 account_id: account.id,
