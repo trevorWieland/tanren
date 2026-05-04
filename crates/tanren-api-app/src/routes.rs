@@ -11,19 +11,24 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::Handlers;
+use tanren_app_services::{Handlers, posture};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, GetPostureResponse, ListPosturesResponse,
+    PostureFailureReason, SessionEnvelope, SetPostureRequest, SetPostureResponse, SignInRequest,
+    SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_domain::Posture;
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::cookies::{SESSION_KEY_POSTURE_ADMIN, SessionWrite, install_cookie_session};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, map_app_error, posture_failure_body, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -83,6 +88,15 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
+/// Request body for `PUT /v0/posture`. Accepts the posture as a raw
+/// string so the route handler can map unknown values to
+/// `unsupported_posture` (400) instead of a serde rejection (422).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct SetPostureBody {
+    /// Desired deployment posture (`"hosted"`, `"self_hosted"`, `"local_only"`).
+    pub posture: String,
+}
+
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -98,6 +112,9 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        list_postures_route,
+        get_posture_route,
+        set_posture_route,
     ),
     components(schemas(
         HealthResponse,
@@ -107,12 +124,17 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        SetPostureBody,
+        ListPosturesResponse,
+        GetPostureResponse,
+        SetPostureResponse,
         AccountFailureBody,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "postures", description = "Deployment posture: list, get, set the installation's deployment posture."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -159,6 +181,7 @@ pub(crate) async fn sign_up_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                posture_admin: false,
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -198,6 +221,7 @@ pub(crate) async fn sign_in_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                posture_admin: false,
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -265,6 +289,7 @@ pub(crate) async fn accept_invitation_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                posture_admin: false,
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -308,6 +333,105 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+const SESSION_KEY_ACCOUNT: &str = "account_id";
+
+async fn extract_actor(session: &Session) -> Result<posture::Actor, Response> {
+    let account_id: Option<AccountId> = session.get(SESSION_KEY_ACCOUNT).await.ok().flatten();
+    let account_id = match account_id {
+        Some(id) => id,
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(AccountFailureBody {
+                    code: "unauthorized".to_owned(),
+                    summary: "Authentication required.".to_owned(),
+                }),
+            )
+                .into_response());
+        }
+    };
+    Ok(posture::Actor {
+        account_id,
+        permissions: posture::Permissions {
+            posture_admin: session
+                .get::<bool>(SESSION_KEY_POSTURE_ADMIN)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(false),
+        },
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/v0/postures",
+    responses(
+        (status = 200, body = ListPosturesResponse, description = "Available deployment postures"),
+    ),
+    tag = "postures",
+)]
+pub(crate) async fn list_postures_route(
+    State(state): State<AppState>,
+) -> Json<ListPosturesResponse> {
+    Json(state.handlers.list_postures())
+}
+
+#[utoipa::path(
+    get,
+    path = "/v0/posture",
+    responses(
+        (status = 200, body = GetPostureResponse, description = "Current deployment posture"),
+        (status = 424, body = AccountFailureBody, description = "not_configured"),
+    ),
+    tag = "postures",
+)]
+pub(crate) async fn get_posture_route(State(state): State<AppState>) -> Response {
+    match state.handlers.get_posture(state.store.as_ref()).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/v0/posture",
+    request_body = SetPostureBody,
+    responses(
+        (status = 200, body = SetPostureResponse, description = "Posture updated"),
+        (status = 400, body = AccountFailureBody, description = "unsupported_posture"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+    ),
+    tag = "postures",
+)]
+pub(crate) async fn set_posture_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(body): ValidatedJson<SetPostureBody>,
+) -> Response {
+    let actor = match extract_actor(&session).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+
+    let posture = match Posture::parse(&body.posture) {
+        Ok(p) => p,
+        Err(_) => {
+            return posture_failure_body(PostureFailureReason::UnsupportedPosture);
+        }
+    };
+
+    let request = SetPostureRequest { posture };
+    match state
+        .handlers
+        .set_posture(state.store.as_ref(), actor, request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +444,8 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(list_postures_route))
+        .routes(routes!(get_posture_route))
+        .routes(routes!(set_posture_route))
         .with_state(state)
 }

@@ -64,8 +64,8 @@ use crate::routes::build_router;
 
 pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
-    AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
-    SignUpResponseCookie,
+    AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SetPostureBody,
+    SignInResponseCookie, SignUpResponseCookie,
 };
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
@@ -170,6 +170,7 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::PUT,
             axum::http::Method::OPTIONS,
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
@@ -250,6 +251,7 @@ pub async fn build_app_with_store(
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::PUT,
             axum::http::Method::OPTIONS,
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])

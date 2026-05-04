@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
-use tanren_contract::AccountFailureReason;
+use tanren_contract::{AccountFailureReason, PostureFailureReason};
 
 /// Shared `{code, summary}` failure body.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -43,6 +43,7 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     match err {
         AppServiceError::Account(reason) => failure_body(reason),
+        AppServiceError::Posture(reason) => posture_failure_body(reason),
         AppServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
             Json(json!({"code": "validation_failed", "summary": message})),
@@ -76,6 +77,23 @@ fn failure_body(reason: AccountFailureReason) -> Response {
     (
         status,
         Json(json!({"code": reason.code(), "summary": reason.summary()})),
+    )
+        .into_response()
+}
+
+pub(crate) fn posture_failure_body(reason: PostureFailureReason) -> Response {
+    let status = match reason {
+        PostureFailureReason::UnsupportedPosture => StatusCode::BAD_REQUEST,
+        other => {
+            StatusCode::from_u16(other.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    };
+    (
+        status,
+        Json(AccountFailureBody {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        }),
     )
         .into_response()
 }
