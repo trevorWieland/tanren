@@ -24,6 +24,23 @@ applies_to_domains:
 - `insta`: snapshot assertions inside step implementations when output shape is complex
 - `proptest`: invariant/property checks invoked from scenario-bound step code where needed
 
+**Modern 2026 stack additions (R-0001):**
+
+| Crate / package | Pinned version | Used for |
+|---|---|---|
+| `cucumber` | `0.23` | Existing canonical Rust BDD runner |
+| `playwright-bdd` | latest | `@web` slice only — Node-side harness that consumes the same `.feature` files via symlink |
+| `expectrl` | `0.7` | `@tui` BDD wire scenarios — interactive PTY-driven step coverage of `bin/tanren-tui` |
+| `portable-pty` | `0.8` | PTY allocation underlying `expectrl` (cross-platform) |
+| `wiremock` | `0.6` | HTTP boundary fakes for outbound integrations |
+| `rstest` | `0.23` | Parameterized tests if needed (still rare; BDD covers most cases) |
+
+`expectrl` + `portable-pty` together let `@tui` scenarios drive the real
+`tanren-tui` binary through a pseudoterminal so keystrokes, resize, and
+ANSI-rendered output are all part of the witness. `playwright-bdd` is
+the only Node-side BDD tool in the stack; the Rust side stays on
+`cucumber-rs`.
+
 ```gherkin
 @behavior @dispatch @cli
 Feature: Dispatch event persistence

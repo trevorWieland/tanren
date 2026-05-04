@@ -74,4 +74,30 @@ workspace = true
 - Review changelogs before major version bumps
 - Run `just ci` after every dependency update
 
+## Modern 2026 stack additions for R-0001
+
+The R-0001 account-foundation slice introduces the following workspace
+dependencies. Every entry below MUST land in `[workspace.dependencies]`
+with the version pinned, and every member crate that uses one consumes
+it via `{ workspace = true }` — never with an inline version.
+
+| Crate | Pinned | Purpose |
+|---|---|---|
+| `argon2` | `0.5` | Password hashing (RustCrypto) |
+| `password-hash` | `0.5` | PHC string format produced/verified by `argon2` |
+| `tower-sessions` | `0.14` | HTTP session middleware for `tanren-api-app` |
+| `tower-sessions-sqlx-store` | `0.14` | DB-backed session store using sqlx |
+| `utoipa` | `5` | OpenAPI schema generation from types |
+| `utoipa-axum` | `0.2` | Axum integration for `utoipa` route emission |
+| `rand` | `0.9` | CSPRNG for opaque tokens (invitations, sessions) |
+| `base64` | `0.22` | URL-safe encoding of opaque token bytes |
+| `expectrl` | `0.7` | TUI test driver (PTY interaction) |
+| `portable-pty` | `0.8` | Cross-platform PTY allocation under `expectrl` |
+| `syn` | `2` | AST walker used by `xtask` enforcement checks |
+
+Reaffirmed rule: every new dependency is added to
+`[workspace.dependencies]` with a pinned version. Per-crate `Cargo.toml`
+uses `{ workspace = true }`. Inline version specifications in member
+crates are rejected by `cargo-deny` configuration and review.
+
 **Why:** Centralized dependency management prevents version conflicts, ensures consistent feature flags, and makes auditing tractable. Strict license and source policies protect against legal and supply-chain risks.

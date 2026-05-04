@@ -541,6 +541,76 @@ Required operations read models include:
 Read models include freshness, scope, actor visibility, redaction, and source
 position metadata where applicable.
 
+## Bootstrap And Install Lifecycle
+
+`just bootstrap` and `just install` are the canonical entry points for
+preparing a machine to develop, build, run, and test every Tanren surface
+(api, cli, mcp, tui, web) from a clean checkout. The recipes are required to
+install everything needed end-to-end with no manual follow-ups.
+
+### `just bootstrap` (one-time, idempotent)
+
+`just bootstrap` runs once per machine and is safe to re-run. It installs:
+
+- **Rust toolchain.** `rustup` with the workspace-pinned channel and the
+  components used by `just check`/`just ci` (clippy, rustfmt, plus the
+  cargo extras the existing recipe already manages).
+- **Node.js 22 LTS.** Detected via `fnm`, `nvm`, or `corepack`; the recipe
+  fails fast with a clear pointer if none of those is available rather than
+  silently falling back to a system Node.
+- **`pnpm` 10.** Activated via `corepack` if absent.
+- **Playwright browsers.** `pnpm --filter @tanren/web exec playwright install
+  --with-deps` for chromium, firefox, and webkit. `--with-deps` ensures the
+  underlying system libraries are present so the browsers run headless on
+  fresh CI images.
+- **First paraglide compile.** `pnpm --filter @tanren/web run i18n:compile`
+  populates the generated `apps/web/src/i18n/paraglide/` directory before
+  any tooling reads source files that reference it.
+
+### `just install` (per-checkout, run after bootstrap)
+
+`just install` prepares one checkout's dependency state and does not assume
+toolchain installation. It performs:
+
+- `cargo fetch --workspace` — pre-warm the cargo cache.
+- `cargo build --workspace` — verify the workspace compiles before any other
+  step depends on it.
+- `pnpm install --frozen-lockfile` — installed under `apps/web/` with
+  `CI=true` to avoid the no-TTY pnpm-install hang on automation runners.
+- `pnpm run i18n:compile` — recompile message catalogs into typed functions.
+- Playwright browser verification — re-run `playwright install --with-deps`
+  to ensure cached browsers are still present after a `node_modules` reset.
+
+### Build pipeline ordering
+
+`pnpm i18n:compile` MUST run before any tooling reads source files that
+import the generated `paraglide/` directory:
+
+- `pnpm dev` runs `paraglide-js compile --watch` concurrently with
+  `next dev` (via `concurrently`) so the generated directory exists by the
+  time Next.js, tsgo, or oxlint observes the source.
+- `pnpm build` runs `pnpm i18n:compile` sequentially before `next build`.
+
+CI invokes `just bootstrap && just install && just ci`, which inherits the
+ordering above. `just ci` includes `web-checks` (lint + typecheck + Storybook
+component tests + Playwright e2e) which themselves depend on the generated
+paraglide output.
+
+### CI workflow setup
+
+GitHub Actions setup steps before invoking the gate:
+
+1. `actions/setup-node@v4` with `node-version-file: '.nvmrc'` (the `.nvmrc`
+   pins Node 22 LTS so the toolchain matches local development exactly).
+2. `pnpm/action-setup@v4` with `version: 10`.
+3. Cache `apps/web/node_modules` (pnpm store cache) and
+   `~/.cache/ms-playwright` (browser cache) so re-runs do not re-download
+   browsers or packages.
+4. `just bootstrap && just install && just ci`.
+
+Browser-cache hits make `just bootstrap` effectively free on CI; the
+`--with-deps` re-run is idempotent.
+
 ## Accepted Decisions
 
 - Operations owns live-installation control, recovery, audit, health,

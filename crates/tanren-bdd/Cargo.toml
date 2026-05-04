@@ -12,7 +12,15 @@ description = "BDD step-definition home for Tanren. Hosts the cucumber `World` a
 workspace = true
 
 [dependencies]
+chrono = { workspace = true }
 cucumber = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tanren-contract = { path = "../tanren-contract" }
+tanren-identity-policy = { path = "../tanren-identity-policy", features = [
+  "test-hooks",
+] }
 tanren-testkit = { path = "../tanren-testkit" }
 tokio = { workspace = true }
 

@@ -11,13 +11,23 @@ description = "Database access layer. The only place SQL and row-shape entities 
 [lints]
 workspace = true
 
+[features]
+default = []
+# Test-only fixture seeding methods (e.g. `Store::seed_invitation`).
+# Enabled only by `tanren-testkit` so production binaries cannot
+# accidentally seed test data. The `xtask check-test-hooks` guard
+# enforces that test-flavored pub fns live behind this gate.
+test-hooks = []
+
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 

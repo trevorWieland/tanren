@@ -1,0 +1,17 @@
+# Files where bare `uuid::Uuid` field types are permitted (newtype
+# declaration sites, From<Model> conversions, etc.). Paths are
+# relative to the repo root and matched literally.
+#
+# Populated by PR 3 (`r-0001/sub-3-domain-types`) — the four newtype
+# declaration sites in `tanren-identity-policy` and the `tanren-store`
+# event envelope and SeaORM model entry points stay raw `Uuid` so the
+# domain newtypes can wrap them at the conversion boundary.
+allowed_files = [
+  "crates/tanren-identity-policy/src/lib.rs",
+  "crates/tanren-store/src/lib.rs",
+  "crates/tanren-store/src/entity/accounts.rs",
+  "crates/tanren-store/src/entity/account_sessions.rs",
+  "crates/tanren-store/src/entity/events.rs",
+  "crates/tanren-store/src/entity/invitations.rs",
+  "crates/tanren-store/src/entity/memberships.rs",
+]

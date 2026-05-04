@@ -1,0 +1,43 @@
+[package]
+name = "tanren-api-app"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Library crate that hosts the tanren-api runtime — axum router, account-flow handlers, configurable CORS, tower-sessions cookie middleware, utoipa OpenAPI document. The bin/tanren-api/src/main.rs entry point is a thin wiring shell."
+
+[lints]
+workspace = true
+
+[features]
+# Enables test-only constructors used by the BDD wire-harness in
+# `tanren-testkit` (per-interface harnesses spawn the api server on an
+# ephemeral port against a shared in-memory `Store`) AND mounts the
+# `/test-hooks/*` HTTP routes the Playwright runner uses to seed
+# fixtures it cannot reach over the public surface (e.g. invitation
+# rows, which have no inviting handler yet). Production binaries MUST
+# NOT enable this feature.
+test-hooks = ["tanren-store/test-hooks"]
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tanren-app-services = { path = "../tanren-app-services" }
+tanren-contract = { path = "../tanren-contract" }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
+tanren-store = { path = "../tanren-store" }
+uuid = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tower-sessions = { workspace = true }
+tower-sessions-sqlx-store = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }

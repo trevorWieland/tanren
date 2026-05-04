@@ -12,6 +12,11 @@ env:
   RUSTFLAGS: "-D warnings"
   RUST_TOOLCHAIN: "1.94.1"
 
+# Restrict GITHUB_TOKEN to read-only by default. CodeQL flagged the
+# missing permissions block; this job only checks out + builds + tests.
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: just ci
@@ -35,13 +40,36 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version-file: 'apps/web/.nvmrc'
 
       - name: Install pnpm
         run: |
           corepack enable
           corepack prepare pnpm@10.19.0 --activate
           pnpm --version
+
+      - name: Cache apps/web/node_modules
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: apps/web/node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml', 'apps/web/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browsers
+        if: hashFiles('apps/web/package.json') != ''
+        run: |
+          cd apps/web
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium firefox webkit || echo "Playwright not yet wired (PR 11)."
 
       - name: Run PR gate
         run: just ci

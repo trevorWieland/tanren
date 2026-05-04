@@ -11,6 +11,29 @@ description = "Identity and Policy subsystem: accounts, organizations, projects,
 [lints]
 workspace = true
 
+[features]
+default = []
+# Enables `Argon2idVerifier::fast_for_tests` and other test/fixture
+# helpers. `tanren-testkit` (and only the testkit) flips this on so
+# production binaries cannot accidentally hash with the cheap
+# parameters.
+test-hooks = []
+
 [dependencies]
+argon2 = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+email-validator-rfc5322 = { workspace = true }
+password-hash = { workspace = true }
+rand = { workspace = true }
+schemars = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }
+# `ToSchema` lives alongside `JsonSchema` on every newtype id so the api
+# crate's `utoipa`-generated OpenAPI document references the same source
+# of truth as the rmcp tool registry. R-0001 sub-8 dual-derives both;
+# `profiles/rust-cargo/architecture/openapi-generation.md` covers the
+# rationale.
+utoipa = { workspace = true }

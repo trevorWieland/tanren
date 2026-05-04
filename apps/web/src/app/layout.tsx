@@ -1,4 +1,6 @@
-import type { JSX, ReactNode } from "react";
+import type { ReactNode } from "react";
+
+import "./globals.css";
 
 export const metadata = {
   title: "Tanren",
@@ -9,21 +11,10 @@ interface RootLayoutProps {
   children: ReactNode;
 }
 
-export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
+export default function RootLayout({ children }: RootLayoutProps): ReactNode {
   return (
     <html lang="en">
-      <body
-        style={{
-          fontFamily:
-            "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-          margin: 0,
-          padding: 0,
-          background: "#0b0d10",
-          color: "#e6e8eb",
-        }}
-      >
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

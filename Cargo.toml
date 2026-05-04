@@ -5,16 +5,19 @@ members = [
   "bin/tanren-mcp",
   "bin/tanren-tui",
   "bin/tanrend",
+  "crates/tanren-api-app",
   "crates/tanren-app-services",
   "crates/tanren-assessment",
   "crates/tanren-bdd",
   "crates/tanren-behavior-proof",
+  "crates/tanren-cli-app",
   "crates/tanren-client-integrations",
   "crates/tanren-configuration-secrets",
   "crates/tanren-contract",
   "crates/tanren-domain",
   "crates/tanren-harness",
   "crates/tanren-identity-policy",
+  "crates/tanren-mcp-app",
   "crates/tanren-observability",
   "crates/tanren-observation",
   "crates/tanren-orchestrator",
@@ -26,6 +29,7 @@ members = [
   "crates/tanren-scheduler",
   "crates/tanren-store",
   "crates/tanren-testkit",
+  "crates/tanren-tui-app",
   "xtask",
 ]
 resolver = "2"
@@ -75,6 +79,11 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+# Triggered by `utoipa`'s `OpenApi` derive expansion in
+# `tanren-api-app`; the lint is a false positive on generated code we
+# cannot edit. Suppressing inline would violate the
+# `allow_attributes_without_reason` rule, so the relaxation lives here.
+needless_for_each = "allow"
 
 # Guardrail lints are enabled selectively at crate roots where needed.
 disallowed_types = "allow"
@@ -103,7 +112,7 @@ tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
 
 # HTTP client
 reqwest = { version = "0.13", default-features = false, features = [
-  "rustls-tls",
+  "rustls",
   "json",
 ] }
 
@@ -197,7 +206,7 @@ cucumber = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 
 # IDs
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # JWT verification
 jsonwebtoken = { version = "10", default-features = false, features = [
@@ -206,4 +215,65 @@ jsonwebtoken = { version = "10", default-features = false, features = [
 ] }
 
 # Secrets
-secrecy = "0.10"
+secrecy = { version = "0.10", features = ["serde"] }
+
+# RFC 5322-compliant email validator. Used by
+# `tanren_identity_policy::Email::parse` so wire-input and CLI/TUI
+# user-input go through the same canonicalisation rules. The previous
+# hand-rolled "single @ + dot in domain" check accepted malformed
+# addresses (Codex P1 review on PR #133); RFC 5322 closes that gap and
+# the crate exposes detailed error variants we can surface.
+email-validator-rfc5322 = "0.1"
+
+# CSPRNG (for opaque session/credential tokens; never used as a record id).
+rand = "0.9"
+
+# Base64 URL-safe-no-pad encoding (paired with `rand` for opaque tokens).
+base64 = "0.22"
+
+# Password hashing — Argon2id is the canonical CredentialVerifier impl
+# (PR 5 of R-0001). `password-hash` ships the PHC string format that the
+# Argon2id verifier writes / reads.
+argon2 = { version = "0.5", default-features = false, features = [
+  "std",
+  "alloc",
+] }
+password-hash = { version = "0.5", default-features = false, features = [
+  "alloc",
+] }
+
+# Cookie sessions for the API surface (R-0001 sub-8). `tower-sessions`
+# provides the SameSite=Strict + Secure + HttpOnly cookie middleware;
+# `tower-sessions-sqlx-store` provides a sqlite-backed `SessionStore`
+# implementation. The cookie carries an opaque session id only — all
+# session data lives on the row. See
+# `profiles/rust-cargo/architecture/cookie-session.md`. Pinned at the
+# 0.15 line (current latest); the profile doc still references 0.14
+# because that was the most recent release at the time of writing —
+# revisit when the next minor lands.
+tower-sessions = "0.14"
+tower-sessions-sqlx-store = { version = "0.15", features = [
+  "sqlite",
+  "postgres",
+] }
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio-rustls",
+  "sqlite",
+  "postgres",
+] }
+
+# OpenAPI generation (R-0001 sub-8). `utoipa` ships the `#[utoipa::path]`
+# attribute and the `ToSchema` derive that pairs with `JsonSchema` on
+# contract types; `utoipa-axum` provides the `OpenApiRouter` integration.
+# See `profiles/rust-cargo/architecture/openapi-generation.md`.
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = "0.2"
+
+# BDD wire-harness dependencies (R-0001 sub-9). `expectrl` drives the TUI
+# binary in a pseudo-terminal; the `portable-pty` backend provides
+# cross-platform pty support. Workspace-pinned so any future test
+# crate that needs interactive-terminal scripting picks up the same
+# version. Currently consumed only by `tanren-testkit` behind the
+# `test-hooks` feature.
+expectrl = "0.7"
+regex = "1"

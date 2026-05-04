@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
+
+import * as m from "@/i18n/paraglide/messages";
 
 interface HealthReport {
   status: string;
@@ -8,15 +11,15 @@ interface HealthReport {
   contract_version: number;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
-export default function Home(): JSX.Element {
+export default function Home(): ReactNode {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/health`)
+    fetch(`${API_URL}/health`, { credentials: "include" })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -39,37 +42,20 @@ export default function Home(): JSX.Element {
   }, []);
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "1.5rem",
-        padding: "2rem",
-      }}
-    >
-      <h1 style={{ fontSize: "2rem", fontWeight: 600 }}>Tanren</h1>
-      <p style={{ opacity: 0.7 }}>
-        F-0001 placeholder — minimum buildable Tanren.
-      </p>
-      <section
-        style={{
-          background: "#13171c",
-          border: "1px solid #2a2f36",
-          borderRadius: "0.5rem",
-          padding: "1rem 1.5rem",
-          minWidth: "20rem",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-        }}
-      >
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+      <h1 className="text-3xl font-semibold">{m.app_title()}</h1>
+      <p className="text-[--color-fg-muted]">{m.app_placeholder()}</p>
+      <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
         {report !== null ? (
-          <pre style={{ margin: 0 }}>{JSON.stringify(report, null, 2)}</pre>
+          <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
         ) : error !== null ? (
-          <span style={{ color: "#ff6b6b" }}>API unreachable: {error}</span>
+          <span className="text-[--color-error]">
+            {m.app_health_unreachable()}: {error}
+          </span>
         ) : (
-          <span style={{ opacity: 0.5 }}>Loading {API_URL}/health…</span>
+          <span className="text-[--color-fg-muted]">
+            {m.app_health_loading()}
+          </span>
         )}
       </section>
     </main>

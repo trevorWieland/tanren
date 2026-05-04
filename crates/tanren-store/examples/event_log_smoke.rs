@@ -15,9 +15,10 @@
 //! ```
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use std::env;
 use std::io::Write;
-use tanren_store::Store;
+use tanren_store::{AccountStore, Store};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,10 +27,13 @@ async fn main() -> Result<()> {
     store.migrate().await.context("migrate")?;
 
     let appended = store
-        .append_event(serde_json::json!({
-            "kind": "f0001-smoke",
-            "ok": true,
-        }))
+        .append_event(
+            serde_json::json!({
+                "kind": "f0001-smoke",
+                "ok": true,
+            }),
+            Utc::now(),
+        )
         .await
         .context("append_event")?;
 

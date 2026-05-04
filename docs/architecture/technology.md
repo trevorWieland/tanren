@@ -51,7 +51,7 @@ Library crates use `thiserror`; binaries may use `anyhow`. Production code
 avoids `unsafe`, `unwrap`, `panic!`, `todo!`, `unimplemented!`, `println!`,
 `eprintln!`, and `dbg!`.
 
-Crate dependency rules (mechanically enforced by `xtask check-deps`):
+Crate dependency rules (mechanically enforced by `just check-deps`):
 
 1. `tanren-domain` does not depend on any other workspace crate. It is the
    leaf canonical-entity layer.
@@ -446,6 +446,56 @@ states why that is impossible.
   `https://openapi-ts.dev/introduction`,
   `https://tanstack.com/router/v1/docs/framework/react/routing/file-based-routing`,
   and `https://opentelemetry.io/docs/collector/install/docker/`.
+
+## Modern Dependency Manifest (R-0001 Baseline)
+
+R-0001 is the first behavior implementation slice and the canonical example of
+a behavior PR. It introduces the modern 2026 dependency baseline that every
+subsequent behavior implementation inherits. Each dependency listed here is
+pinned at the workspace level, mandated by an owning profile, and present in
+the canonical workspace manifest (`Cargo.toml [workspace.dependencies]` or
+`pnpm-workspace.yaml` catalog).
+
+**Stack consistency invariant.** Every dep listed in this section MUST appear
+in the canonical workspace manifest. The profile that mandates it MUST exist
+under `profiles/`. `xtask check-profiles` enforces this both directions: a
+profile reference that resolves to a missing arch-doc anchor and an arch-doc
+reference that resolves to a missing profile both fail CI.
+
+### Rust workspace `[workspace.dependencies]`
+
+| Crate | Version | Why | Mandating profile |
+|---|---|---|---|
+| `argon2` | `0.5` | OWASP-recommended Argon2id password hashing (RustCrypto). PHC string format. Replaces inline SHA-256. | [`profiles/rust-cargo/architecture/secrets-handling.md`](../../profiles/rust-cargo/architecture/secrets-handling.md) |
+| `password-hash` | `0.5` | PHC string parsing/formatting shared by `argon2`; isolates verifier impls from string handling. | [`profiles/rust-cargo/architecture/secrets-handling.md`](../../profiles/rust-cargo/architecture/secrets-handling.md) |
+| `secrecy` | `0.10` | Already in the workspace; R-0001 makes it actually load-bearing. Wraps every credential field. | [`profiles/rust-cargo/architecture/secrets-handling.md`](../../profiles/rust-cargo/architecture/secrets-handling.md) |
+| `tower-sessions` | `0.14` | Cookie session middleware on Axum. `Secure + HttpOnly + SameSite::Strict + Expiry::OnInactivity`. Replaces deprecated `axum-sessions`. | [`profiles/rust-cargo/architecture/cookie-session.md`](../../profiles/rust-cargo/architecture/cookie-session.md) |
+| `tower-sessions-sqlx-store` | `0.14` | SQLx-backed `SessionStore` adapter for the `account_sessions` table. | [`profiles/rust-cargo/architecture/cookie-session.md`](../../profiles/rust-cargo/architecture/cookie-session.md) |
+| `utoipa` | `5` | Code-first OpenAPI 3.1 derived from Rust contract types. Replaces hand-rolled `serde_json::json!` documents. | [`profiles/rust-cargo/architecture/openapi-generation.md`](../../profiles/rust-cargo/architecture/openapi-generation.md) |
+| `utoipa-axum` | `0.2` | `OpenApiRouter` integration for Axum handler annotations. | [`profiles/rust-cargo/architecture/openapi-generation.md`](../../profiles/rust-cargo/architecture/openapi-generation.md) |
+| `rand` | `0.9` | CSPRNG for opaque session/invitation tokens (32 random bytes). UUIDs are never used as secrets. | [`profiles/rust-cargo/architecture/id-formats.md`](../../profiles/rust-cargo/architecture/id-formats.md) |
+| `base64` | `0.22` | URL-safe-no-pad encoding for opaque tokens; transport-safe in cookies, headers, and URLs. | [`profiles/rust-cargo/architecture/id-formats.md`](../../profiles/rust-cargo/architecture/id-formats.md) |
+| `expectrl` | `0.7` | Expect-style TUI test driver for `@tui` BDD harness. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
+| `portable-pty` | `0.8` | Cross-platform pty backend used by `expectrl` to drive `tanren-tui`. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
+| `syn` | `2` | AST walker for `xtask` AST-driven guards (`check-secrets`, `check-newtype-ids`, `check-bdd-wire-coverage`, `check-test-hooks`, `check-tracing-init`). Replaces grep heuristics. | [`profiles/rust-cargo/global/just-ci-gate.md`](../../profiles/rust-cargo/global/just-ci-gate.md) |
+| `cucumber` | `0.23` | BDD harness for `@api`/`@cli`/`@mcp`/`@tui` slices (existing). | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
+
+### Web `pnpm-workspace.yaml` catalog
+
+| Package | Version | Why | Mandating profile |
+|---|---|---|---|
+| `@inlang/paraglide-js` | `^2` | Compiler-based i18n. Tree-shakable typed message functions, ~70% smaller bundles than `react-i18next` / `next-intl`. App Router + RSC native. | [`profiles/react-ts-pnpm/global/i18n-enforcement.md`](../../profiles/react-ts-pnpm/global/i18n-enforcement.md) |
+| `valibot` | `^1` | Runtime validation. ~1.4 KB login schema vs Zod's 17.7 KB. Tree-shakable modular API. | [`profiles/react-ts-pnpm/typescript/no-any-enforcement.md`](../../profiles/react-ts-pnpm/typescript/no-any-enforcement.md) |
+| `tailwindcss` | `^4` | CSS-first `@theme` configuration. oklch palette, runtime-readable design tokens. 5x faster Oxide engine. | [`profiles/react-ts-pnpm/architecture/styling-and-design-tokens.md`](../../profiles/react-ts-pnpm/architecture/styling-and-design-tokens.md) |
+| `@tailwindcss/postcss` | `^4` | PostCSS pipeline integration for Tailwind v4. | [`profiles/react-ts-pnpm/architecture/styling-and-design-tokens.md`](../../profiles/react-ts-pnpm/architecture/styling-and-design-tokens.md) |
+| `@storybook/nextjs-vite` | `^9` | Storybook 9 with the Vite builder for parity with vitest; component testing framework. | [`profiles/react-ts-pnpm/testing/component-testing-via-storybook.md`](../../profiles/react-ts-pnpm/testing/component-testing-via-storybook.md) |
+| `@storybook/addon-vitest` | `^9` | Runs Storybook stories as real-browser component tests via Vitest. | [`profiles/react-ts-pnpm/testing/component-testing-via-storybook.md`](../../profiles/react-ts-pnpm/testing/component-testing-via-storybook.md) |
+| `@storybook/addon-a11y` | `^9` | axe-core deep-linked a11y audits run in CI alongside component tests. | [`profiles/react-ts-pnpm/testing/component-testing-via-storybook.md`](../../profiles/react-ts-pnpm/testing/component-testing-via-storybook.md) |
+| `@playwright/test` | latest | Browser-driver integration tier; powers `@web` BDD via `playwright-bdd`. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) (web slice) |
+| `playwright-bdd` | latest | Converts `.feature` files into native Playwright tests so the same Gherkin source drives both Rust and web BDD slices. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) (web slice) |
+| `oxlint` | existing | Strict linting gate for the web surface; extended plugin set (`react`, `jsx-a11y`, `nextjs`, `react-perf`, `import`). | [`profiles/react-ts-pnpm/global/strict-linting-gate.md`](../../profiles/react-ts-pnpm/global/strict-linting-gate.md) |
+| `tsgo` | existing | TypeScript native preview compiler used for typecheck. | [`profiles/react-ts-pnpm/typescript/no-any-enforcement.md`](../../profiles/react-ts-pnpm/typescript/no-any-enforcement.md) |
+| `concurrently` | latest | Runs `paraglide-js compile --watch` alongside `next dev` so generated message functions exist before the dev server reads source. | [`profiles/react-ts-pnpm/global/dependency-management.md`](../../profiles/react-ts-pnpm/global/dependency-management.md) |
 
 ## Rejected Alternatives
 

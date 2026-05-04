@@ -13,6 +13,5 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-clap = { workspace = true }
-tanren-app-services = { path = "../../crates/tanren-app-services" }
-tokio = { workspace = true }
+tanren-cli-app = { path = "../../crates/tanren-cli-app" }
+tanren-observability = { path = "../../crates/tanren-observability" }

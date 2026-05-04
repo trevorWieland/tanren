@@ -1,0 +1,28 @@
+# CodeQL configuration — scopes the Rust + JS/TS scans to production
+# code. Test harnesses (BDD wire drivers, Playwright steps) talk to a
+# loopback `tanren-api-app` over plain HTTP and POST request bodies that
+# carry `password: SecretString` at the contract layer; CodeQL's
+# default `cleartext-transmission` query flags those POSTs without
+# distinguishing test traffic from production traffic.
+#
+# We exclude the per-binary library crates' test entry points and the
+# Node-side Playwright BDD steps from the default queries; production
+# crates (tanren-contract, tanren-store, tanren-app-services,
+# tanren-identity-policy, the four `tanren-X-app` library crates, the
+# four `bin/tanren-X` binaries) remain in scope.
+
+paths-ignore:
+  # Rust test harnesses + BDD machinery
+  - "crates/tanren-testkit/src/harness/**"
+  - "crates/tanren-bdd/**"
+  - "xtask/tests/**"
+  # Web BDD step definitions + globalSetup (Playwright runner code)
+  - "apps/web/tests/bdd/**"
+  # Storybook story files (component visual contracts; not production)
+  - "apps/web/src/**/*.stories.tsx"
+  # Generated paraglide catalog
+  - "apps/web/src/i18n/paraglide/**"
+
+# Default query suite stays in effect for everything else.
+queries:
+  - uses: security-and-quality

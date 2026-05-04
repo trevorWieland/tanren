@@ -2,4 +2,8 @@
 //! must not leak across the workspace dependency boundary. `check-deps`
 //! mechanically rejects `pub mod events` here.
 
+pub(crate) mod account_sessions;
+pub(crate) mod accounts;
 pub(crate) mod events;
+pub(crate) mod invitations;
+pub(crate) mod memberships;

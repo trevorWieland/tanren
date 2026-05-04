@@ -335,6 +335,75 @@ that every `B-XXXX-*.feature` references an accepted behavior with a
 DAG node — runs in `scripts/roadmap_check.py` so an orphan feature
 file is caught even if the xtask validator has not been touched.
 
+## Per-Interface BDD Wire-Harness Wiring (R-0001)
+
+The interface tags `@web | @api | @mcp | @cli | @tui` are **witnesses,
+not labels**. Each tagged scenario MUST drive the actual surface — a
+real HTTP request against a spawned server for `@api` and `@mcp`, a
+real subprocess for `@cli`, a real pty for `@tui`, a real browser for
+`@web`. A scenario that tags `@cli` but invokes the in-process
+`Handlers` facade is a tagging lie and is rejected.
+
+This is the canonical contract that closes the per-interface BDD gap
+identified during R-0001 review. It cross-references
+[`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../../profiles/rust-cargo/testing/bdd-wire-harness.md).
+
+### Harness ownership
+
+`tanren-testkit` hosts the per-feature harness traits. For the account
+lifecycle the trait is `AccountHarness`; future features add their own
+analogues (`SpecHarness`, `RuntimeHarness`, …) following the same
+shape. Implementations:
+
+| Tag | Implementation |
+|---|---|
+| `@api` | Spawns `tanren-api-app` on an ephemeral port; reqwest client with cookie jar. |
+| `@cli` | `tokio::process::Command` against the compiled `tanren-cli` binary. |
+| `@mcp` | Spawns `tanren-mcp-app` on an ephemeral port; `rmcp` client. |
+| `@tui` | `expectrl` over `portable-pty` wrapping the compiled `tanren-tui` binary. |
+| `@web` | `playwright-bdd` against a running api-app + Next.js dev server. |
+
+Each harness exposes the same async trait surface so step bodies are
+written once and dispatched by tag.
+
+### Step dispatch
+
+`TanrenWorld::ensure_account_ctx` (and analogues per feature) reads the
+active scenario's tag set via cucumber-rs's scenario object and
+instantiates the matching harness. Step bodies look up
+`world.harness_mut()` and invoke the harness method; the same Gherkin
+step source drives every interface.
+
+### Single Gherkin source of truth across Rust and Playwright
+
+The `.feature` files at `tests/bdd/features/B-XXXX-*.feature` are
+consumed by:
+
+- the Rust BDD runner (`tanren-bdd`) for `@api`/`@cli`/`@mcp`/`@tui`
+  slices;
+- `playwright-bdd` for the `@web` slice via a symlink at
+  `apps/web/tests/bdd/features/`.
+
+Both runners read the same Gherkin. Rust steps and Playwright fixtures
+are 1:1 with each other; the matching is by step text. This prevents
+the web witness from drifting from the API/CLI/MCP/TUI witnesses for
+the same behavior.
+
+### Mechanical enforcement
+
+- `xtask check-bdd-wire-coverage` parses
+  `crates/tanren-bdd/src/steps/**/*.rs` (AST via `syn`) and rejects any
+  step body that calls `tanren_app_services::Handlers::` directly.
+  Steps must dispatch through `*Harness` traits.
+- `just check-deps` rejects `tanren-app-services` from
+  `tanren-bdd/Cargo.toml`. The BDD crate depends on `tanren-testkit`
+  and `tanren-contract` only; `Handlers` is reachable only via
+  harnesses.
+- The existing `xtask check-bdd-tags` continues to enforce the closed
+  tag allowlist, per-interface positive coverage, and per-interface
+  falsification coverage where the R-* node's
+  `expected_evidence.witnesses` includes `falsification`.
+
 ## Accepted Behavior Proof Decisions
 
 - The subsystem is named behavior proof.

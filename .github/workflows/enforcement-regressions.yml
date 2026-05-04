@@ -1,0 +1,45 @@
+name: Enforcement Regressions
+
+# Runs the regression-fixture test suite that proves each xtask guard
+# rejects its synthetic regression. Fixtures land in PR 12; until then
+# the recipe runs `cargo test -p tanren-xtask --tests`, which exits 0
+# because no tests exist yet. Wiring the workflow now lets branch
+# protection require it from day one.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# Restrict GITHUB_TOKEN to read-only by default. CodeQL flagged the
+# missing permissions block; the regression suite only reads the repo.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "-D warnings"
+  RUST_TOOLCHAIN: "1.94.1"
+
+jobs:
+  enforcement-regressions:
+    name: just check-enforcement-regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+
+      - uses: taiki-e/install-action@cf525cb33f51aca27cd6fa02034117ab963ff9f1
+        with:
+          tool: just
+
+      - name: Run enforcement-regression fixtures
+        run: just check-enforcement-regressions

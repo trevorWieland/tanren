@@ -12,34 +12,47 @@ applies_to_domains:
 
 # Feature Folder Structure
 
-Organize application code by feature, not by file type. Shared UI belongs in a component library package, not app-local.
+Organize application code by feature, not by file type. The Tanren web app uses
+**Next.js App Router** as its routing surface; route segments live under
+`apps/web/src/app/`, while reusable feature components live under
+`apps/web/src/components/{feature}/`.
 
 ```
-# ✓ Good: Feature-based organization
+# ✓ Good: Next.js App Router + feature-grouped components
 apps/web/src/
-├── features/
-│   ├── auth/
-│   │   ├── components/
-│   │   │   ├── login-form.tsx
-│   │   │   ├── login-form.test.tsx
-│   │   │   └── login-form.stories.tsx
-│   │   ├── hooks/
-│   │   │   ├── use-auth.ts
-│   │   │   └── use-auth.test.ts
-│   │   ├── utils/
-│   │   │   ├── validate-token.ts
-│   │   │   └── validate-token.test.ts
-│   │   └── types.ts
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx
+│   ├── sign-up/
+│   │   └── page.tsx              # thin route — renders SignUpForm
+│   ├── sign-in/
+│   │   └── page.tsx
+│   └── invitations/
+│       └── [token]/
+│           └── page.tsx
+├── components/
+│   ├── account/
+│   │   ├── SignUpForm.tsx
+│   │   ├── SignUpForm.stories.tsx
+│   │   ├── SignUpForm.test.tsx
+│   │   ├── SignInForm.tsx
+│   │   ├── SignInForm.stories.tsx
+│   │   ├── SignInForm.test.tsx
+│   │   ├── AcceptInvitationForm.tsx
+│   │   ├── AcceptInvitationForm.stories.tsx
+│   │   └── AcceptInvitationForm.test.tsx
 │   └── dashboard/
-│       ├── components/
-│       ├── hooks/
-│       └── types.ts
-├── routes/
-│   ├── __root.tsx
-│   ├── index.tsx
-│   ├── login.tsx
-│   └── dashboard.tsx
-└── app.tsx
+│       ├── DashboardView.tsx
+│       └── DashboardView.stories.tsx
+├── hooks/
+│   └── account/
+│       └── use-account-client.ts
+├── lib/
+│   └── account-client.ts
+└── i18n/
+    ├── project.inlang/
+    ├── messages/
+    └── paraglide/                 # generated, gitignored
 ```
 
 ```
@@ -54,44 +67,74 @@ apps/web/src/
 │   ├── use-auth.ts
 │   ├── use-dashboard.ts
 │   └── ... 30 more files
-├── utils/
-│   ├── validate-token.ts
-│   └── ... 20 more files
-└── types/
+└── utils/
     └── ... everything in one bucket
 ```
 
 **Rules:**
-- Each feature is a self-contained directory under `src/features/{name}/`
-- Features contain: `components/`, `hooks/`, `utils/`, and `types.ts`
-- Tests and stories are co-located with their source files (not in a separate `__tests__/` tree)
-- Shared UI components live in `packages/ui/`, not duplicated across app features
-- Route pages live in `src/routes/` using TanStack Router file-based routing
+- Routes live under `apps/web/src/app/{route}/page.tsx` using the Next.js App
+  Router. File-based routing is provided by Next.js — do **not** introduce
+  TanStack Router.
+- Reusable components for a feature live in
+  `apps/web/src/components/{feature}/{ComponentName}.tsx`. The project does
+  not have a `packages/ui/` workspace; do not invent one. Components remain
+  app-local until a second consumer materializes.
+- Co-locate stories and tests with the component:
+  `SignUpForm.tsx` + `SignUpForm.stories.tsx` + `SignUpForm.test.tsx`.
+- Each route page is either (a) a thin shell that imports a feature component
+  from `src/components/{feature}/`, or (b) a small page that renders directly
+  when there is no reuse. Prefer (a) for any form/component reused in
+  Storybook stories or BDD step coverage.
+- Server-state — async fetching, caching, mutations — uses **TanStack Query**
+  when applicable. TanStack Query works fine alongside the App Router (use it
+  in client components or via a query-client provider in `app/layout.tsx`).
 
-**Feature boundaries:**
-- Features do not import from other features directly
-- Cross-feature communication goes through shared packages or route-level composition
-- If two features share a component, move it to `packages/ui/`
+**Component-extraction trigger:**
+- Inline JSX in a route page is acceptable for trivial pages.
+- The moment a page needs Storybook stories, BDD play coverage, or unit tests,
+  promote it to `apps/web/src/components/{feature}/{ComponentName}.tsx` so
+  the artifact has a stable import path.
 
-**Route structure:**
-- Use TanStack Router's file-based routing in `src/routes/`
-- Route files are thin — they compose feature components, handle data loading, and define layout
-- Data loading via TanStack Router `loader` functions, backed by TanStack Query
+**Route example:**
 
 ```typescript
-// ✓ Good: Thin route that composes features
-// src/routes/dashboard.tsx
-import { createFileRoute } from "@tanstack/react-router";
-import { DashboardView } from "../features/dashboard/components/dashboard-view";
+// ✓ Good: Thin App Router page composes a feature component
+// apps/web/src/app/sign-up/page.tsx
+import type { ReactNode } from "react";
+import { SignUpForm } from "@/components/account/SignUpForm";
 
-export const Route = createFileRoute("/dashboard")({
-  loader: ({ context }) => context.queryClient.ensureQueryData(dashboardQuery()),
-  component: DashboardPage,
-});
-
-function DashboardPage(): ReactNode {
-  return <DashboardView />;
+export default function SignUpPage(): ReactNode {
+  return <SignUpForm />;
 }
 ```
 
-**Why:** Feature folders keep related code together, making it easy to understand, modify, and delete a feature as a unit. Flat directories become unnavigable past 20-30 files. Co-located tests ensure tests move with the code they test.
+```typescript
+// ✓ Acceptable: tiny page rendered directly when there is no reuse
+// apps/web/src/app/legal/terms/page.tsx
+import type { ReactNode } from "react";
+import * as m from "@/i18n/paraglide/messages";
+
+export default function TermsPage(): ReactNode {
+  return (
+    <main>
+      <h1>{m.legalTermsTitle()}</h1>
+      <p>{m.legalTermsBody()}</p>
+    </main>
+  );
+}
+```
+
+**Feature boundaries:**
+- A component under `src/components/{feature}/` does not import from another
+  feature's components directory. Cross-feature reuse is a signal to lift the
+  shared piece up (to `src/components/shared/` or, eventually, a new package).
+- Hooks specific to a feature live in `src/hooks/{feature}/` and are imported
+  by that feature's components.
+- Route pages may import from any feature directory — pages compose features.
+
+**Why:** Grouping by feature keeps related code together, making it easy to
+understand, modify, and delete a feature as a unit. Anchoring routes to the
+Next.js App Router avoids the meta-conflict of two routing systems competing
+for the same source tree, and matches what the architecture record specifies
+the web surface uses. Co-located stories and tests guarantee the visual
+contract and behavior coverage move with the component.

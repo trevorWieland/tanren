@@ -1,0 +1,22 @@
+# Generated artefacts that prettier shouldn't reformat:
+#
+# - paraglide compiler output (typed message functions; gitignored, but
+#   the i18n:compile step runs before format:check on CI so the files
+#   are present at lint time)
+# - inlang project state (cache + README + .meta.json — only
+#   settings.json is human-curated; ignored by inlang's own
+#   src/i18n/project.inlang/.gitignore but prettier doesn't read that
+#   nested gitignore by default)
+src/i18n/paraglide/
+src/i18n/project.inlang/cache/
+src/i18n/project.inlang/README.md
+src/i18n/project.inlang/.meta.json
+
+# Playwright + Storybook artefacts
+tests/bdd/.bdd-gen/
+playwright-report/
+test-results/
+storybook-static/
+
+# Next.js build cache
+.next/

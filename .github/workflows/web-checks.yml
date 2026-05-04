@@ -1,0 +1,125 @@
+name: Web Checks
+
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'crates/tanren-api-app/**'
+      - 'crates/tanren-contract/**'
+      - 'pnpm-workspace.yaml'
+      - 'pnpm-lock.yaml'
+
+# Restrict GITHUB_TOKEN to read-only by default. CodeQL flagged the
+# missing permissions block; this job only checks out + runs tests.
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  # Match rust-ci.yml so cargo runs use the pinned toolchain.
+  RUST_TOOLCHAIN: "1.94.1"
+
+jobs:
+  web:
+    name: web lint + typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: 'apps/web/.nvmrc'
+
+      - name: Install pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.19.0 --activate
+          pnpm --version
+
+      - name: Cache apps/web/node_modules
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: apps/web/node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml', 'apps/web/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile i18n messages (paraglide)
+        if: hashFiles('apps/web/src/i18n/project.inlang/settings.json') != ''
+        run: pnpm --filter @tanren/web run i18n:compile
+
+      - name: Lint
+        run: pnpm --filter @tanren/web lint
+
+      - name: Typecheck
+        run: pnpm --filter @tanren/web typecheck
+
+      - name: Validate tsconfig flags
+        if: ${{ vars.WEB_TSCONFIG_CHECK_ENABLED == 'true' }}
+        run: just check-tsconfig
+
+      - name: Install Rust toolchain
+        # SHA-pinned to match rust-ci.yml; the repo's action policy
+        # rejects tag refs (`@stable`), which surfaces as a workflow
+        # startup_failure rather than a step error.
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install mold + clang
+        # `.cargo/config.toml` pins `linker = "clang"` +
+        # `-C link-arg=-fuse-ld=mold` for Linux targets so dev/CI builds
+        # match. `just bootstrap` installs these on the rust-ci runner;
+        # this workflow doesn't run bootstrap, so install them directly
+        # before the cargo build.
+        run: sudo apt-get update -qq && sudo apt-get install -y mold clang
+
+      - name: Cache cargo build
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-tanren-api-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-tanren-api-
+
+      - name: Pre-build the tanren-api binary
+        # Pre-warm the binary so playwright-bdd's globalSetup doesn't
+        # blow its 180s health-check window on first compile.
+        run: cargo build -p tanren-api --quiet
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @tanren/web exec playwright install --with-deps chromium
+
+      - name: Web — vitest unit project
+        run: pnpm --filter @tanren/web run test
+
+      - name: Web — storybook component tests (vitest browser)
+        run: pnpm --filter @tanren/web run storybook:test
+
+      - name: Web — playwright-bdd @web slice
+        env:
+          TANREN_REPO_ROOT: ${{ github.workspace }}
+        run: pnpm --filter @tanren/web run e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -13,6 +13,63 @@ pre-commit:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         RUST_LOG=error taplo fmt --check Cargo.toml bin/*/Cargo.toml crates/*/Cargo.toml .cargo/*.toml .config/*.toml rust-toolchain.toml clippy.toml taplo.toml deny.toml .rustfmt.toml
+    event-coverage:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-event-coverage
+    profiles:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-profiles
+    newtype-ids:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-newtype-ids
+    secrets:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-secrets
+    test-hooks:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-test-hooks
+    orphan-traits:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-orphan-traits
+    thin-binary:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-thin-binary
+    tracing-init:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-tracing-init
+    bdd-wire-coverage:
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-bdd-wire-coverage
+    tsconfig:
+      glob: "apps/web/tsconfig.json"
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just check-tsconfig
+    # Web format/lint/typecheck collapsed into one serial chain because
+    # each precondition-runs `just web-i18n-compile` (the paraglide
+    # compile that emits typed message functions), and three parallel
+    # paraglide compiles racing on the same output directory hit
+    # `ENOTEMPTY: rmdir '...paraglide'` non-deterministically. Running
+    # them in sequence behind a single hook compiles paraglide once
+    # and then performs all three checks in order. The Rust hooks above
+    # remain parallel.
+    web:
+      glob: "apps/web/**/*.{ts,tsx,js,jsx,json,md,css,yaml,yml}"
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        just web-i18n-compile
+        just web-format-check
+        just web-lint
+        just web-typecheck
 
 pre-push:
   parallel: false

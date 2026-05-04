@@ -11,6 +11,23 @@ description = "Wire-shape contracts for Tanren's API and MCP boundaries. Foundat
 [lints]
 workspace = true
 
+# Crate-specific clippy extensions land in PR 4+ once cargo's
+# inheritance + override mode is reconciled with the workspace lints
+# table. Per-crate `disallowed_methods` / `disallowed_types` denial is
+# moot as long as the workspace-level `clippy.toml` lists the rules and
+# the xtask AST checks (`check-newtype-ids`, `check-secrets`) are wired
+# into `just check`.
+
 [dependencies]
+chrono = { workspace = true }
+schemars = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
+# `ToSchema` derives let `utoipa` generate the OpenAPI components from
+# contract types. R-0001 sub-8 dual-derives `JsonSchema` (rmcp's tool
+# inventory consumes it) and `ToSchema` (utoipa generates the api crate's
+# OpenAPI document). Both derives stay on the same struct definition so
+# the contract layer remains the single source of truth.
+utoipa = { workspace = true }

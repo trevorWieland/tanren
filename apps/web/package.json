@@ -4,27 +4,49 @@
   "private": true,
   "description": "Tanren responsive web UI. F-0001 ships a placeholder route that fetches the API's /health endpoint and renders the response.",
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "dev": "concurrently -n paraglide,next \"paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations --watch\" \"next dev --turbopack\"",
+    "build": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations && next build --turbopack",
     "start": "next start",
+    "i18n:compile": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations",
     "lint": "oxlint .",
     "typecheck": "tsgo --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run --project=unit --passWithNoTests",
+    "storybook": "storybook dev -p 6006",
+    "storybook:build": "storybook build",
+    "storybook:test": "vitest run --project=storybook",
+    "bddgen": "bddgen",
+    "e2e": "bddgen && playwright test",
+    "e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
+    "@inlang/paraglide-js": "catalog:default",
     "next": "catalog:default",
     "react": "catalog:default",
-    "react-dom": "catalog:default"
+    "react-dom": "catalog:default",
+    "tailwindcss": "catalog:default",
+    "valibot": "catalog:default"
   },
   "devDependencies": {
+    "@axe-core/playwright": "catalog:default",
+    "@playwright/test": "catalog:default",
+    "@storybook/addon-a11y": "catalog:default",
+    "@storybook/addon-vitest": "catalog:default",
+    "@storybook/nextjs-vite": "catalog:default",
+    "@tailwindcss/postcss": "catalog:default",
     "@types/node": "catalog:default",
     "@types/react": "catalog:default",
     "@types/react-dom": "catalog:default",
     "@typescript/native-preview": "catalog:default",
+    "@vitest/browser": "catalog:default",
+    "@vitest/browser-playwright": "catalog:default",
+    "concurrently": "catalog:default",
+    "vite": "catalog:default",
     "oxlint": "catalog:default",
+    "playwright-bdd": "catalog:default",
     "prettier": "catalog:default",
+    "storybook": "catalog:default",
     "typescript": "catalog:default",
     "vitest": "catalog:default"
   }

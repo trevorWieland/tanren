@@ -11,5 +11,38 @@ description = "Shared test utilities. Used only by the BDD step-definition crate
 [lints]
 workspace = true
 
+[features]
+default = ["test-hooks"]
+# The testkit only ships test fixtures and helpers; everything it
+# exposes is gated behind this feature so the `xtask check-test-hooks`
+# guard never trips on an inadvertently public test seam. Consumers
+# (currently only `tanren-bdd`) inherit the gate via
+# `default-features` or by enabling `test-hooks` explicitly.
+test-hooks = []
+
 [dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["cookies"] }
+rmcp = { workspace = true, features = [
+  "client",
+  "transport-streamable-http-client",
+  "transport-streamable-http-client-reqwest",
+] }
+secrecy = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+tanren-api-app = { path = "../tanren-api-app", features = ["test-hooks"] }
+tanren-app-services = { path = "../tanren-app-services" }
+tanren-contract = { path = "../tanren-contract" }
+tanren-identity-policy = { path = "../tanren-identity-policy", features = [
+  "test-hooks",
+] }
+tanren-mcp-app = { path = "../tanren-mcp-app", features = ["test-hooks"] }
+tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
+uuid = { workspace = true }

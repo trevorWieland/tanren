@@ -22,20 +22,41 @@ pub const fn default_log_level() -> Level {
 /// after a successful install are a no-op-error so binaries can call this
 /// idempotently from `main`.
 ///
+/// `RUST_LOG` always wins when set; otherwise the supplied `default_filter`
+/// is parsed. Each binary's `main.rs` calls `tanren_observability::init(...)`
+/// before any other work so the early `tracing::info!` calls in this crate
+/// and downstream crates land in the global subscriber. The
+/// `xtask check-tracing-init` AST scan asserts this convention is upheld.
+///
 /// # Errors
 ///
-/// Returns [`ObservabilityError::FilterParse`] if `RUST_LOG` is malformed,
-/// or [`ObservabilityError::SubscriberInstall`] if a subscriber is already
-/// installed.
-pub fn init() -> Result<(), ObservabilityError> {
-    let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(default_log_level().as_str().to_lowercase()))
-        .map_err(|err| ObservabilityError::FilterParse(err.to_string()))?;
+/// Returns [`ObservabilityError::FilterParse`] if the resolved filter
+/// expression is malformed, or [`ObservabilityError::SubscriberInstall`]
+/// if a subscriber is already installed.
+pub fn init(default_filter: impl Into<String>) -> Result<(), ObservabilityError> {
+    let filter = if std::env::var_os("RUST_LOG").is_some() {
+        EnvFilter::try_from_default_env()
+            .map_err(|err| ObservabilityError::FilterParse(err.to_string()))?
+    } else {
+        EnvFilter::try_new(default_filter.into())
+            .map_err(|err| ObservabilityError::FilterParse(err.to_string()))?
+    };
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .try_init()
         .map_err(|err| ObservabilityError::SubscriberInstall(err.to_string()))
+}
+
+/// Convenience: the canonical default filter used by Tanren binaries when
+/// `RUST_LOG` is unset. Pairs with [`init`] for the typical
+/// `tanren_observability::init(default_filter())` boot sequence.
+#[must_use]
+pub fn default_filter() -> String {
+    format!(
+        "{level},tanren=debug",
+        level = default_log_level().as_str().to_lowercase()
+    )
 }
 
 /// Errors raised when initializing the tracing subscriber.

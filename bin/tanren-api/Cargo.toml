@@ -11,13 +11,16 @@ description = "Tanren HTTP API server. F-0001 ships only the liveness and OpenAP
 [lints]
 workspace = true
 
+[features]
+default = []
+# Passthrough: enabling `--features test-hooks` on the binary turns on
+# the same feature on `tanren-api-app`, which mounts `/test-hooks/*`
+# fixture-seeding routes used by the Playwright BDD runner. Production
+# release builds MUST NOT enable this feature.
+test-hooks = ["tanren-api-app/test-hooks"]
+
 [dependencies]
 anyhow = { workspace = true }
-axum = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tanren-app-services = { path = "../../crates/tanren-app-services" }
+tanren-api-app = { path = "../../crates/tanren-api-app" }
 tanren-observability = { path = "../../crates/tanren-observability" }
 tokio = { workspace = true }
-tower-http = { workspace = true }
-tracing = { workspace = true }
