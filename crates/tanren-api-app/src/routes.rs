@@ -23,7 +23,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, extract_session_token, install_cookie_session};
+use crate::cookies::{
+    SessionWrite, extract_account_id, extract_session_token, install_cookie_session,
+};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
 /// Liveness response.
@@ -318,8 +320,14 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-async fn require_auth(session: &Session) -> Result<SessionToken, Response> {
-    extract_session_token(session).await.ok_or_else(|| {
+async fn require_auth(
+    session: &Session,
+    store: &tanren_app_services::Store,
+) -> Result<SessionToken, Response> {
+    if let Some(token) = extract_session_token(session).await {
+        return Ok(token);
+    }
+    let unauthenticated = || {
         (
             StatusCode::UNAUTHORIZED,
             Json(AccountFailureBody {
@@ -328,7 +336,15 @@ async fn require_auth(session: &Session) -> Result<SessionToken, Response> {
             }),
         )
             .into_response()
-    })
+    };
+    let Some(account_id) = extract_account_id(session).await else {
+        return Err(unauthenticated());
+    };
+    let now = chrono::Utc::now();
+    match store.find_latest_session_for_account(account_id, now).await {
+        Ok(Some(record)) => Ok(record.token),
+        _ => Err(unauthenticated()),
+    }
 }
 
 /// Create a new organization. The authenticated caller becomes the
@@ -351,7 +367,7 @@ pub(crate) async fn create_organization_route(
     session: Session,
     ValidatedJson(request): ValidatedJson<CreateOrganizationRequest>,
 ) -> Response {
-    let token = match require_auth(&session).await {
+    let token = match require_auth(&session, state.store.as_ref()).await {
         Ok(t) => t,
         Err(response) => return response,
     };
@@ -379,7 +395,7 @@ pub(crate) async fn list_organizations_route(
     State(state): State<AppState>,
     session: Session,
 ) -> Response {
-    let token = match require_auth(&session).await {
+    let token = match require_auth(&session, state.store.as_ref()).await {
         Ok(t) => t,
         Err(response) => return response,
     };

@@ -29,6 +29,7 @@ pub use traits::{
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::ExprTrait;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
@@ -103,6 +104,23 @@ impl Store {
     #[must_use]
     pub fn connection(&self) -> &DatabaseConnection {
         &self.conn
+    }
+
+    /// Look up the most recent unexpired session for a given account.
+    /// Used by the API layer to recover a `SessionToken` from legacy
+    /// cookies that carry only `account_id` + `expires_at`.
+    pub async fn find_latest_session_for_account(
+        &self,
+        account_id: AccountId,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find()
+            .filter(entity::account_sessions::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::account_sessions::Column::ExpiresAt.gt(now))
+            .order_by_desc(entity::account_sessions::Column::CreatedAt)
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
     }
 
     /// Apply all pending migrations.
@@ -355,9 +373,14 @@ impl AccountStore for Store {
         org_id: OrgId,
         admin_permissions_mask: u32,
     ) -> Result<u64, StoreError> {
+        let mask_i64 = i64::from(admin_permissions_mask);
         let count = entity::memberships::Entity::find()
             .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
-            .filter(entity::memberships::Column::Permissions.eq(i64::from(admin_permissions_mask)))
+            .filter(
+                sea_orm::sea_query::Expr::col(entity::memberships::Column::Permissions)
+                    .bit_and(mask_i64)
+                    .eq(mask_i64),
+            )
             .count(&self.conn)
             .await?;
         Ok(count)

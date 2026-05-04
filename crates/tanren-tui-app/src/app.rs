@@ -126,20 +126,23 @@ impl App {
             _ => None,
         }
     }
-
     pub(crate) fn set_session_token(&mut self, token: SessionToken) {
         self.session_token = Some(token);
     }
-
     pub(crate) fn session_token_ref(&self) -> Option<&SessionToken> {
         self.session_token.as_ref()
     }
-
     #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) fn navigate_to_dashboard(&mut self) {
         self.screen = Screen::Dashboard { selected: 0 };
     }
-
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub(crate) fn org_list_data(&self) -> Vec<OrganizationView> {
+        match &self.screen {
+            Screen::OrgList { orgs, .. } => orgs.clone(),
+            _ => Vec::new(),
+        }
+    }
     pub(crate) fn run(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
             terminal
@@ -446,26 +449,21 @@ impl App {
             };
             return;
         };
-        let handlers = &self.handlers;
         let result = self
             .runtime
-            .block_on(handlers.list_organizations(store.as_ref(), &session));
-        match result {
-            Ok(response) => {
-                self.screen = Screen::OrgList {
-                    orgs: response.organizations,
-                    selected: 0,
-                    error: None,
-                };
-            }
-            Err(reason) => {
-                self.screen = Screen::OrgList {
-                    orgs: Vec::new(),
-                    selected: 0,
-                    error: Some(render_error(reason)),
-                };
-            }
-        }
+            .block_on(self.handlers.list_organizations(store.as_ref(), &session));
+        self.screen = match result {
+            Ok(response) => Screen::OrgList {
+                orgs: response.organizations,
+                selected: 0,
+                error: None,
+            },
+            Err(reason) => Screen::OrgList {
+                orgs: Vec::new(),
+                selected: 0,
+                error: Some(render_error(reason)),
+            },
+        };
     }
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {

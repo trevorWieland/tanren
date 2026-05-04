@@ -138,3 +138,11 @@ pub(crate) async fn extract_session_token(session: &Session) -> Option<SessionTo
         .ok()
         .flatten()
 }
+
+pub(crate) async fn extract_account_id(session: &Session) -> Option<AccountId> {
+    session
+        .get::<AccountId>(SESSION_KEY_ACCOUNT)
+        .await
+        .ok()
+        .flatten()
+}

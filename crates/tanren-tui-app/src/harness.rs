@@ -108,4 +108,11 @@ impl TuiDriver {
     pub fn navigate_to_dashboard(&mut self) {
         self.app.navigate_to_dashboard();
     }
+
+    /// Read back the organization list from the current `OrgList`
+    /// screen. Returns an empty vec when the screen is not `OrgList`.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn org_list_data(&self) -> Vec<tanren_contract::OrganizationView> {
+        self.app.org_list_data()
+    }
 }

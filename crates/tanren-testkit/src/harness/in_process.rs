@@ -72,6 +72,18 @@ impl InProcessHarness {
         })
     }
 
+    /// Construct a harness from pre-built parts. Exposed so the
+    /// `@tui` harness can share a file-backed `Store` between the
+    /// in-process core and the TUI driver's separate connection.
+    pub fn from_parts(store: Arc<Store>, handlers: Handlers, kind: HarnessKind) -> Self {
+        Self {
+            store: Arc::try_unwrap(store).unwrap_or_else(|arc| (*arc).clone()),
+            handlers,
+            kind,
+            session_token: None,
+        }
+    }
+
     /// Borrow the handle of the underlying store. Exposed so the
     /// fallback `@tui` / `@web` paths can read events out alongside
     /// the trait-driven path. Production-shape callers must go
