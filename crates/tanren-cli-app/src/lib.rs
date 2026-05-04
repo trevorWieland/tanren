@@ -25,6 +25,8 @@ use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
+mod org;
+
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
@@ -63,6 +65,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Organization commands: create, list.
+    Org {
+        #[command(subcommand)]
+        action: OrgAction,
     },
 }
 
@@ -112,6 +119,25 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum OrgAction {
+    /// Create a new organization. The caller receives bootstrap admin permissions.
+    Create {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Organization name.
+        #[arg(long)]
+        name: String,
+    },
+    /// List organizations the caller is a member of.
+    List {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +148,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Org { action }) => dispatch_org(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -286,7 +313,33 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
     }
 }
 
-fn session_path() -> PathBuf {
+fn dispatch_org(action: OrgAction) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(run_org(action))
+}
+
+async fn run_org(action: OrgAction) -> Result<()> {
+    let handlers = Handlers::new();
+    match action {
+        OrgAction::Create { database_url, name } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            org::run_create(&handlers, &store, &name).await
+        }
+        OrgAction::List { database_url } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            org::run_list(&handlers, &store).await
+        }
+    }
+}
+
+pub(crate) fn session_path() -> PathBuf {
     if let Ok(explicit) = env::var(SESSION_FILE_ENV) {
         if !explicit.is_empty() {
             return PathBuf::from(explicit);
