@@ -14,10 +14,8 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::{Handlers, posture};
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, GetPostureResponse, ListPosturesResponse,
-    PostureFailureReason, SessionEnvelope, SetPostureRequest, SetPostureResponse, SignInRequest,
-    SignUpRequest,
+    SessionEnvelope, SetPostureResponse, SignInRequest, SignUpRequest,
 };
-use tanren_domain::Posture;
 use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
@@ -26,9 +24,7 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SESSION_KEY_POSTURE_ADMIN, SessionWrite, install_cookie_session};
-use crate::errors::{
-    AccountFailureBody, ValidatedJson, map_app_error, posture_failure_body, session_install_error,
-};
+use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -411,14 +407,9 @@ pub(crate) async fn set_posture_route(
         Err(resp) => return resp,
     };
 
-    let Ok(posture) = Posture::parse(&body.posture) else {
-        return posture_failure_body(PostureFailureReason::UnsupportedPosture);
-    };
-
-    let request = SetPostureRequest { posture };
     match state
         .handlers
-        .set_posture(state.store.as_ref(), actor, request)
+        .set_posture_raw(state.store.as_ref(), actor, &body.posture)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),

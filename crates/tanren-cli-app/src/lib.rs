@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SetPostureRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_domain::{CapabilityAvailability, CapabilityCategory};
 use tanren_identity_policy::{AccountId, Email, InvitationToken};
 
@@ -360,11 +360,6 @@ async fn run_posture_async(action: PostureAction) -> Result<()> {
             account_id,
             posture_admin,
         } => {
-            let posture = tanren_domain::Posture::parse(&value).map_err(|_| {
-                anyhow::anyhow!(
-                    "error: unsupported_posture — The requested deployment posture is not supported."
-                )
-            })?;
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
@@ -374,9 +369,8 @@ async fn run_posture_async(action: PostureAction) -> Result<()> {
                 account_id: AccountId::new(parsed_id),
                 permissions: tanren_app_services::posture::Permissions { posture_admin },
             };
-            let request = SetPostureRequest { posture };
             let response = handlers
-                .set_posture(&store, actor, request)
+                .set_posture_raw(&store, actor, &value)
                 .await
                 .map_err(posture_error)?;
             let stdout = std::io::stdout();
