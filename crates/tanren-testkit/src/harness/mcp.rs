@@ -15,7 +15,11 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, GetPostureResponse, ListPosturesResponse,
+    SetPostureResponse, SignInRequest, SignUpRequest,
+};
+use tanren_domain::Posture;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -23,7 +27,7 @@ use tokio::task::JoinHandle;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, PostureHarness, PostureHarnessActor,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -201,6 +205,42 @@ impl AccountHarness for McpHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+}
+
+#[async_trait]
+impl PostureHarness for McpHarness {
+    fn kind(&self) -> HarnessKind {
+        HarnessKind::Mcp
+    }
+
+    async fn list_postures(&mut self) -> HarnessResult<ListPosturesResponse> {
+        let payload = self
+            .call_tool("posture.list", serde_json::json!({}))
+            .await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode list_postures: {e}")))
+    }
+
+    async fn get_posture(&mut self) -> HarnessResult<GetPostureResponse> {
+        let payload = self.call_tool("posture.get", serde_json::json!({})).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode get_posture: {e}")))
+    }
+
+    async fn set_posture(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture: Posture,
+    ) -> HarnessResult<SetPostureResponse> {
+        let body = serde_json::json!({
+            "posture": posture.to_string(),
+            "account_id": actor.account_id.to_string(),
+            "posture_admin": actor.posture_admin,
+        });
+        let payload = self.call_tool("posture.set", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode set_posture: {e}")))
     }
 }
 

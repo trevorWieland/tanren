@@ -18,15 +18,17 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, GetPostureResponse,
+    ListPosturesResponse, SetPostureResponse, SignInRequest, SignUpRequest,
 };
+use tanren_domain::Posture;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, PostureHarness, PostureHarnessActor,
 };
 
 /// `@api` wire harness.
@@ -369,6 +371,90 @@ impl AccountHarness for ApiHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+}
+
+#[async_trait]
+impl PostureHarness for ApiHarness {
+    fn kind(&self) -> HarnessKind {
+        HarnessKind::Api
+    }
+
+    async fn list_postures(&mut self) -> HarnessResult<ListPosturesResponse> {
+        let url = format!("{}/v0/postures", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("GET /v0/postures: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode list_postures: {e}")))
+    }
+
+    async fn get_posture(&mut self) -> HarnessResult<GetPostureResponse> {
+        let url = format!("{}/v0/posture", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("GET /v0/posture: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode get_posture: {e}")))
+    }
+
+    async fn set_posture(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture: Posture,
+    ) -> HarnessResult<SetPostureResponse> {
+        if actor.posture_admin {
+            let grant_url = format!("{}/test-hooks/grant-posture-admin", self.base_url);
+            let grant_response = self.client.post(&grant_url).send().await.map_err(|e| {
+                HarnessError::Transport(format!("POST /test-hooks/grant-posture-admin: {e}"))
+            })?;
+            if !grant_response.status().is_success() {
+                return Err(HarnessError::Transport(
+                    "grant-posture-admin failed".to_owned(),
+                ));
+            }
+        }
+        let body = serde_json::json!({ "posture": posture.to_string() });
+        let url = format!("{}/v0/posture", self.base_url);
+        let response = self
+            .client
+            .put(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("PUT /v0/posture: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode set_posture: {e}")))
     }
 }
 

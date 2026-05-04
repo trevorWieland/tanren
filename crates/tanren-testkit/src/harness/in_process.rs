@@ -9,13 +9,17 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, GetPostureResponse, ListPosturesResponse, SetPostureRequest,
+    SetPostureResponse, SignInRequest, SignUpRequest,
+};
+use tanren_domain::Posture;
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, PostureHarness, PostureHarnessActor,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -152,5 +156,41 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
         }
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+    }
+}
+
+#[async_trait]
+impl PostureHarness for InProcessHarness {
+    fn kind(&self) -> HarnessKind {
+        self.kind
+    }
+
+    async fn list_postures(&mut self) -> HarnessResult<ListPosturesResponse> {
+        Ok(self.handlers.list_postures())
+    }
+
+    async fn get_posture(&mut self) -> HarnessResult<GetPostureResponse> {
+        self.handlers
+            .get_posture(&self.store)
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn set_posture(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture: Posture,
+    ) -> HarnessResult<SetPostureResponse> {
+        let app_actor = tanren_app_services::posture::Actor {
+            account_id: actor.account_id,
+            permissions: tanren_app_services::posture::Permissions {
+                posture_admin: actor.posture_admin,
+            },
+        };
+        let request = SetPostureRequest { posture };
+        self.handlers
+            .set_posture(&self.store, app_actor, request)
+            .await
+            .map_err(translate_app_error)
     }
 }

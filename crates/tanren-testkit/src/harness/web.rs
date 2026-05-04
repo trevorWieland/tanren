@@ -21,13 +21,17 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, GetPostureResponse, ListPosturesResponse, SetPostureResponse,
+    SignInRequest, SignUpRequest,
+};
+use tanren_domain::Posture;
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, PostureHarness, PostureHarnessActor,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -79,5 +83,28 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+}
+
+#[async_trait]
+impl PostureHarness for WebHarness {
+    fn kind(&self) -> HarnessKind {
+        HarnessKind::Web
+    }
+
+    async fn list_postures(&mut self) -> HarnessResult<ListPosturesResponse> {
+        self.inner.list_postures().await
+    }
+
+    async fn get_posture(&mut self) -> HarnessResult<GetPostureResponse> {
+        self.inner.get_posture().await
+    }
+
+    async fn set_posture(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture: Posture,
+    ) -> HarnessResult<SetPostureResponse> {
+        self.inner.set_posture(actor, posture).await
     }
 }

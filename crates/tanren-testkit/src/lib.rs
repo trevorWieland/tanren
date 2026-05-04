@@ -16,8 +16,8 @@ pub mod harness;
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
     HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
-    HarnessSession, InProcessHarness, McpHarness, TuiHarness, WebHarness, event_kinds,
-    record_failure,
+    HarnessSession, HarnessWrapper, InProcessHarness, McpHarness, PostureHarness,
+    PostureHarnessActor, TuiHarness, WebHarness, event_kinds, record_failure,
 };
 
 use chrono::{DateTime, Duration, Utc};

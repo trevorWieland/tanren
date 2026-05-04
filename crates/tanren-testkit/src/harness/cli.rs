@@ -16,16 +16,20 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, GetPostureResponse, ListPosturesResponse,
+    PostureChangeView, PostureView, SetPostureResponse, SignInRequest, SignUpRequest,
+};
+use tanren_domain::Posture;
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_store::{AccountStore, EventEnvelope, NewInvitation, PostureStore};
 use tokio::process::Command;
 use uuid::Uuid;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, PostureHarness, PostureHarnessActor,
 };
 
 /// `@cli` wire harness.
@@ -326,4 +330,125 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
     Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
         HarnessError::Transport(format!("parse org id: {e}"))
     })?))
+}
+
+#[async_trait]
+impl PostureHarness for CliHarness {
+    fn kind(&self) -> HarnessKind {
+        HarnessKind::Cli
+    }
+
+    async fn list_postures(&mut self) -> HarnessResult<ListPosturesResponse> {
+        let output = Command::new(&self.binary)
+            .args(["posture", "list"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture list: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let postures = parse_posture_list(&stdout)?;
+        Ok(ListPosturesResponse { postures })
+    }
+
+    async fn get_posture(&mut self) -> HarnessResult<GetPostureResponse> {
+        let output = Command::new(&self.binary)
+            .args(["posture", "show", "--database-url", &self.db_url])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture show: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let posture = parse_single_posture(&stdout)?;
+        Ok(GetPostureResponse {
+            current: super::posture_view_without_capabilities(posture),
+        })
+    }
+
+    async fn set_posture(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture: Posture,
+    ) -> HarnessResult<SetPostureResponse> {
+        let output = Command::new(&self.binary)
+            .args([
+                "posture",
+                "set",
+                "--database-url",
+                &self.db_url,
+                "--value",
+                &posture.to_string(),
+                "--account-id",
+                &actor.account_id.to_string(),
+                if actor.posture_admin {
+                    "--posture-admin"
+                } else {
+                    "--no-posture-admin"
+                },
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture set: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let set_posture = parse_single_posture(&stdout)?;
+        let from: Posture = self
+            .store
+            .current_posture()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("current_posture: {e}")))?
+            .map_or(set_posture, |r| r.posture);
+        let current = super::posture_view_without_capabilities(set_posture);
+        Ok(SetPostureResponse {
+            current: current.clone(),
+            change: PostureChangeView {
+                actor: actor.account_id,
+                at: Utc::now(),
+                from,
+                to: set_posture,
+            },
+        })
+    }
+}
+
+fn parse_posture_list(stdout: &str) -> HarnessResult<Vec<PostureView>> {
+    let re = Regex::new(r"posture=(\S+)").expect("constant regex");
+    let mut postures = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(captures) = re.captures(line) {
+            let raw = captures.get(1).map_or("", |m| m.as_str());
+            let posture = Posture::parse(raw).map_err(|e| {
+                HarnessError::Transport(format!("parse posture from cli list: {e}"))
+            })?;
+            postures.push(super::posture_view_without_capabilities(posture));
+        }
+    }
+    Ok(postures)
+}
+
+fn parse_single_posture(stdout: &str) -> HarnessResult<Posture> {
+    let re = Regex::new(r"posture=(\S+)").expect("constant regex");
+    let captures = re.captures(stdout).ok_or_else(|| {
+        HarnessError::Transport(format!("could not parse posture from cli stdout: {stdout}"))
+    })?;
+    let raw = captures.get(1).map_or("", |m| m.as_str());
+    Posture::parse(raw).map_err(|e| HarnessError::Transport(format!("parse posture: {e}")))
 }

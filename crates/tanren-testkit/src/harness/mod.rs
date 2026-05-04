@@ -57,8 +57,11 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, GetPostureResponse,
+    ListPosturesResponse, PostureFailureReason, PostureView, SetPostureResponse, SignInRequest,
+    SignUpRequest,
 };
+use tanren_domain::Posture;
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
 
@@ -154,6 +157,9 @@ pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A posture-flow taxonomy failure with a known `code`.
+    #[error("{0:?}: {1}")]
+    Posture(PostureFailureReason, String),
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +172,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::Posture(reason, _) => reason.code().to_owned(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -309,6 +316,9 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::Posture(reason, _) => {
+            HarnessOutcome::Other(format!("posture: {}", reason.code()))
+        }
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -350,6 +360,10 @@ impl ConcurrentAcceptanceTally {
                 let code = reason.code().to_owned();
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }
+            Err(HarnessError::Posture(reason, _)) => {
+                let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
             Err(HarnessError::Transport(msg)) => self.other.push(msg),
         }
     }
@@ -358,5 +372,129 @@ impl ConcurrentAcceptanceTally {
     #[must_use]
     pub fn failures_with_code(&self, code: &str) -> usize {
         self.failures_by_code.get(code).copied().unwrap_or(0)
+    }
+}
+
+/// Actor identity for posture-flow harness operations. Surfaces
+/// construct this from the current session or test parameters before
+/// invoking the harness.
+#[derive(Debug, Clone)]
+pub struct PostureHarnessActor {
+    /// Account invoking the posture operation.
+    pub account_id: AccountId,
+    /// Whether the actor has permission to change the deployment posture.
+    pub posture_admin: bool,
+}
+
+/// Per-interface seam for posture BDD scenarios. Parallel to
+/// [`AccountHarness`]; every implementation drives the matching real
+/// surface end-to-end. Step bodies dispatch through this trait — never
+/// `tanren_app_services::Handlers::*` directly — so `xtask
+/// check-bdd-wire-coverage` accepts the posture steps.
+#[async_trait]
+pub trait PostureHarness: Send + std::fmt::Debug {
+    /// Identifier for diagnostic output.
+    fn kind(&self) -> HarnessKind;
+
+    /// List all available deployment postures with capability summaries.
+    async fn list_postures(&mut self) -> HarnessResult<ListPosturesResponse>;
+
+    /// Get the current deployment posture. Returns the full response on
+    /// success; callers map [`HarnessError::Posture`] to detect
+    /// `not_configured`.
+    async fn get_posture(&mut self) -> HarnessResult<GetPostureResponse>;
+
+    /// Set the deployment posture. The actor must have `posture_admin`
+    /// permission for the operation to succeed.
+    async fn set_posture(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture: Posture,
+    ) -> HarnessResult<SetPostureResponse>;
+}
+
+/// Concrete harness wrapper that stores a single harness instance and
+/// provides both [`AccountHarness`] (via [`Deref`]/[`DerefMut`]) and
+/// [`PostureHarness`] (via [`HarnessWrapper::posture`]) access.
+/// This avoids creating two separate harness instances with separate
+/// backing stores — the same store is shared for both trait dispatches.
+pub enum HarnessWrapper {
+    /// In-process direct-`Handlers` dispatch.
+    InProcess(InProcessHarness),
+    /// Live axum server + reqwest client.
+    Api(ApiHarness),
+    /// CLI subprocess harness.
+    Cli(CliHarness),
+    /// MCP rmcp client harness.
+    Mcp(McpHarness),
+    /// TUI harness (delegates to in-process).
+    Tui(TuiHarness),
+    /// Web harness (delegates to in-process).
+    Web(WebHarness),
+}
+
+impl std::fmt::Debug for HarnessWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InProcess(h) => write!(f, "HarnessWrapper({h:?})"),
+            Self::Api(h) => write!(f, "HarnessWrapper({h:?})"),
+            Self::Cli(h) => write!(f, "HarnessWrapper({h:?})"),
+            Self::Mcp(h) => write!(f, "HarnessWrapper({h:?})"),
+            Self::Tui(h) => write!(f, "HarnessWrapper({h:?})"),
+            Self::Web(h) => write!(f, "HarnessWrapper({h:?})"),
+        }
+    }
+}
+
+impl std::ops::Deref for HarnessWrapper {
+    type Target = dyn AccountHarness;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::InProcess(h) => h,
+            Self::Api(h) => h,
+            Self::Cli(h) => h,
+            Self::Mcp(h) => h,
+            Self::Tui(h) => h,
+            Self::Web(h) => h,
+        }
+    }
+}
+
+impl std::ops::DerefMut for HarnessWrapper {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::InProcess(h) => h as &mut dyn AccountHarness,
+            Self::Api(h) => h as &mut dyn AccountHarness,
+            Self::Cli(h) => h as &mut dyn AccountHarness,
+            Self::Mcp(h) => h as &mut dyn AccountHarness,
+            Self::Tui(h) => h as &mut dyn AccountHarness,
+            Self::Web(h) => h as &mut dyn AccountHarness,
+        }
+    }
+}
+
+impl HarnessWrapper {
+    /// Borrow the harness as `&mut dyn PostureHarness` for posture step
+    /// dispatch.
+    pub fn posture(&mut self) -> &mut dyn PostureHarness {
+        match self {
+            Self::InProcess(h) => h as &mut dyn PostureHarness,
+            Self::Api(h) => h as &mut dyn PostureHarness,
+            Self::Cli(h) => h as &mut dyn PostureHarness,
+            Self::Mcp(h) => h as &mut dyn PostureHarness,
+            Self::Tui(h) => h as &mut dyn PostureHarness,
+            Self::Web(h) => h as &mut dyn PostureHarness,
+        }
+    }
+}
+
+/// Build a [`PostureView`] without capability details. Used by harness
+/// implementations that parse a posture identifier from stdout but do not
+/// receive capability summaries in the same output format (e.g. CLI).
+pub(crate) fn posture_view_without_capabilities(posture: Posture) -> PostureView {
+    PostureView {
+        posture,
+        capabilities: Vec::new(),
     }
 }
