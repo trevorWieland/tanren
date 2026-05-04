@@ -8,6 +8,7 @@
 //! across the dependency boundary.
 
 mod accept_invitation;
+mod create_organization;
 mod entity;
 mod migration;
 mod records;
@@ -15,19 +16,22 @@ mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
+    OrganizationRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, CreateOrganizationAtomicOutput,
+    CreateOrganizationAtomicRequest, CreateOrganizationError, CreateOrganizationEventContext,
+    CreateOrganizationEventsBuilder,
 };
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
@@ -168,6 +172,7 @@ impl AccountStore for Store {
             account_id: Set(account_id.as_uuid()),
             org_id: Set(org_id.as_uuid()),
             created_at: Set(now),
+            permissions: Set(0i64),
         };
         model.insert(&self.conn).await?;
         Ok(id)
@@ -307,6 +312,68 @@ impl AccountStore for Store {
             .all(&self.conn)
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
+    }
+
+    async fn create_organization_atomic(
+        &self,
+        request: CreateOrganizationAtomicRequest,
+    ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError> {
+        create_organization::run(&self.conn, request).await
+    }
+
+    async fn find_organization_by_id(
+        &self,
+        org_id: OrgId,
+    ) -> Result<Option<OrganizationRecord>, StoreError> {
+        let row = entity::organizations::Entity::find_by_id(org_id.as_uuid())
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(OrganizationRecord::from))
+    }
+
+    async fn list_organizations_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrganizationRecord>, StoreError> {
+        let membership_rows = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+        let org_ids: Vec<Uuid> = membership_rows.iter().map(|m| m.org_id).collect();
+        if org_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let org_rows = entity::organizations::Entity::find()
+            .filter(entity::organizations::Column::Id.is_in(org_ids))
+            .all(&self.conn)
+            .await?;
+        Ok(org_rows.into_iter().map(OrganizationRecord::from).collect())
+    }
+
+    async fn count_admins_for_org(
+        &self,
+        org_id: OrgId,
+        admin_permissions_mask: u32,
+    ) -> Result<u64, StoreError> {
+        let count = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+            .filter(entity::memberships::Column::Permissions.eq(i64::from(admin_permissions_mask)))
+            .count(&self.conn)
+            .await?;
+        Ok(count)
+    }
+
+    async fn find_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Option<MembershipRecord>, StoreError> {
+        let row = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(MembershipRecord::from))
     }
 }
 

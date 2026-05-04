@@ -32,7 +32,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, MembershipRecord, NewAccount,
+    OrganizationRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -252,6 +253,44 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    /// Atomically create an organization and an admin membership for the
+    /// creator in one transaction, then append the success-path
+    /// `organization_created` event. If any step fails the transaction
+    /// rolls back.
+    async fn create_organization_atomic(
+        &self,
+        request: CreateOrganizationAtomicRequest,
+    ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError>;
+
+    /// Look up an organization by its stable id.
+    async fn find_organization_by_id(
+        &self,
+        org_id: OrgId,
+    ) -> Result<Option<OrganizationRecord>, StoreError>;
+
+    /// List all organizations the given account is a member of.
+    async fn list_organizations_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrganizationRecord>, StoreError>;
+
+    /// Count memberships that carry the full admin bitfield for the
+    /// given organization. Used by R-0007 to enforce the "last admin
+    /// cannot remove themselves" invariant.
+    async fn count_admins_for_org(
+        &self,
+        org_id: OrgId,
+        admin_permissions_mask: u32,
+    ) -> Result<u64, StoreError>;
+
+    /// Look up a single membership by account + org. Returns `None` if
+    /// the account is not a member of the organization.
+    async fn find_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Option<MembershipRecord>, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].
@@ -280,6 +319,83 @@ pub enum ConsumeInvitationError {
     /// The invitation exists but `expires_at <= now`.
     #[error("invitation expired")]
     Expired,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Context the store passes back to the caller's event-builder so
+/// the caller can stamp the newly-created org id into the success-path
+/// event payloads it owns.
+#[derive(Debug, Clone)]
+pub struct CreateOrganizationEventContext {
+    /// The id of the freshly inserted organization row.
+    pub org_id: OrgId,
+    /// The account that created the organization (receives bootstrap admin).
+    pub creator_account_id: AccountId,
+    /// `now` from the request, threaded through so event payloads
+    /// can carry the same instant as the row writes.
+    pub now: DateTime<Utc>,
+}
+
+/// Closure the store invokes inside the transaction to build the
+/// success-path event envelopes for organization creation.
+pub type CreateOrganizationEventsBuilder =
+    Box<dyn FnOnce(&CreateOrganizationEventContext) -> Vec<serde_json::Value> + Send>;
+
+/// Input shape for [`AccountStore::create_organization_atomic`]. Bundles
+/// every input the atomic flow needs so the trait method runs as a single
+/// unit. The caller pre-derives the ids because the id generator lives in
+/// the app-service layer, not in the store.
+pub struct CreateOrganizationAtomicRequest {
+    /// Stable organization id pre-allocated by the caller.
+    pub org_id: OrgId,
+    /// Display name of the organization.
+    pub name: String,
+    /// Case-normalized name for the uniqueness constraint.
+    pub name_normalized: String,
+    /// Wall-clock instant the flow runs at.
+    pub now: DateTime<Utc>,
+    /// Account creating the organization (receives bootstrap admin).
+    pub creator_account_id: AccountId,
+    /// Stable membership id pre-allocated by the caller.
+    pub membership_id: MembershipId,
+    /// Permission bitfield for the creator's bootstrap admin membership.
+    pub permissions: u32,
+    /// Closure the store invokes inside the transaction to build the
+    /// success-path event envelopes.
+    pub events_builder: CreateOrganizationEventsBuilder,
+}
+
+impl std::fmt::Debug for CreateOrganizationAtomicRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateOrganizationAtomicRequest")
+            .field("org_id", &self.org_id)
+            .field("name", &self.name)
+            .field("name_normalized", &self.name_normalized)
+            .field("now", &self.now)
+            .field("creator_account_id", &self.creator_account_id)
+            .field("membership_id", &self.membership_id)
+            .field("permissions", &self.permissions)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Successful return from [`AccountStore::create_organization_atomic`].
+#[derive(Debug, Clone)]
+pub struct CreateOrganizationAtomicOutput {
+    /// The freshly inserted organization row.
+    pub organization: OrganizationRecord,
+    /// The freshly inserted admin membership row.
+    pub membership: MembershipRecord,
+}
+
+/// Failure taxonomy for [`AccountStore::create_organization_atomic`].
+#[derive(Debug, thiserror::Error)]
+pub enum CreateOrganizationError {
+    /// An organization with the same name (case-insensitive) already exists.
+    #[error("duplicate organization name")]
+    DuplicateName,
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),

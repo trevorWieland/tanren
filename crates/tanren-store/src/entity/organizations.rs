@@ -1,16 +1,16 @@
-//! `SeaORM` entity for the `memberships` table — links accounts to orgs.
+//! `SeaORM` entity for the `organizations` table.
 
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "memberships")]
+#[sea_orm(table_name = "organizations")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
-    pub account_id: Uuid,
-    pub org_id: Uuid,
+    pub name: String,
+    #[sea_orm(unique)]
+    pub name_normalized: String,
     pub created_at: DateTimeUtc,
-    pub permissions: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

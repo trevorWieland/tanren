@@ -93,6 +93,9 @@ pub struct MembershipRecord {
     pub org_id: OrgId,
     /// Wall-clock time the membership was created.
     pub created_at: DateTime<Utc>,
+    /// Permission bitfield. Bits map to [`tanren_identity_policy::OrgAdminPermissions`]
+    /// flags (invite=0, manage_access=1, configure=2, set_policy=3, delete=4).
+    pub permissions: u32,
 }
 
 impl From<entity::memberships::Model> for MembershipRecord {
@@ -101,6 +104,31 @@ impl From<entity::memberships::Model> for MembershipRecord {
             id: MembershipId::new(model.id),
             account_id: AccountId::new(model.account_id),
             org_id: OrgId::new(model.org_id),
+            created_at: model.created_at,
+            permissions: model.permissions as u32,
+        }
+    }
+}
+
+/// Persisted organization row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationRecord {
+    /// Stable organization id (UUIDv7).
+    pub id: OrgId,
+    /// Display name as entered by the creator.
+    pub name: String,
+    /// Case-normalized name used for the uniqueness constraint.
+    pub name_normalized: String,
+    /// Wall-clock time the organization was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::organizations::Model> for OrganizationRecord {
+    fn from(model: entity::organizations::Model) -> Self {
+        Self {
+            id: OrgId::new(model.id),
+            name: model.name,
+            name_normalized: model.name_normalized,
             created_at: model.created_at,
         }
     }
