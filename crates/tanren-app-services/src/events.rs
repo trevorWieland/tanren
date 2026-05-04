@@ -9,7 +9,8 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
+use tanren_contract::{AccountFailureReason, PostureFailureReason};
+use tanren_domain::Posture;
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
@@ -133,6 +134,74 @@ pub struct InvitationAcceptFailed {
 pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
     serde_json::json!({
         "family": EVENT_FAMILY,
+        "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+// --- Posture events -------------------------------------------------------
+
+/// Tag on the JSON envelope that disambiguates posture events from other
+/// event families.
+pub const POSTURE_EVENT_FAMILY: &str = "posture";
+
+/// Closed taxonomy of posture-flow event kinds.
+///
+/// `xtask check-event-coverage` cross-references every variant against
+/// BDD feature steps to ensure each kind has at least one assertion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PostureEventKind {
+    /// The deployment posture was changed successfully.
+    PostureSet,
+    /// A posture-change attempt was rejected (permission or validation).
+    PostureSetRejected,
+}
+
+impl PostureEventKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PostureSet => "posture_set",
+            Self::PostureSetRejected => "posture_set_rejected",
+        }
+    }
+}
+
+/// A deployment posture was changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostureSet {
+    /// Account that initiated the change.
+    pub actor: AccountId,
+    /// Previous posture (`None` for the initial selection).
+    pub from: Option<Posture>,
+    /// New posture.
+    pub to: Posture,
+    /// Wall-clock time the change was applied.
+    pub at: DateTime<Utc>,
+}
+
+/// A posture-change attempt was rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostureSetRejected {
+    /// Account that attempted the change.
+    pub actor: AccountId,
+    /// Why the attempt was rejected.
+    pub reason: PostureFailureReason,
+    /// Posture string the caller submitted.
+    pub requested_posture: String,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// Encode a typed posture event as the JSON envelope persisted in the
+/// event log.
+#[must_use]
+pub fn posture_envelope<T: Serialize>(kind: PostureEventKind, payload: &T) -> serde_json::Value {
+    serde_json::json!({
+        "family": POSTURE_EVENT_FAMILY,
         "kind": kind.as_str(),
         "payload": payload,
     })

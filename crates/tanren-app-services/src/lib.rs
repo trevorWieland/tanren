@@ -7,15 +7,17 @@
 
 pub mod account;
 pub mod events;
+pub mod posture;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    PostureFailureReason, SetPostureRequest, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+pub use tanren_store::{AccountStore, PostureStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -199,6 +201,32 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    pub fn list_postures(&self) -> tanren_contract::ListPosturesResponse {
+        posture::list_postures()
+    }
+
+    pub async fn get_posture<S>(
+        &self,
+        store: &S,
+    ) -> Result<tanren_contract::GetPostureResponse, AppServiceError>
+    where
+        S: PostureStore + ?Sized,
+    {
+        posture::get_posture(store).await
+    }
+
+    pub async fn set_posture<S>(
+        &self,
+        store: &S,
+        actor: posture::Actor,
+        request: SetPostureRequest,
+    ) -> Result<tanren_contract::SetPostureResponse, AppServiceError>
+    where
+        S: PostureStore + AccountStore + ?Sized,
+    {
+        posture::set_posture(store, &self.clock, &actor, &request.posture.to_string()).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +243,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A posture-flow taxonomy failure.
+    #[error("posture: {}", .0.code())]
+    Posture(PostureFailureReason),
 }
