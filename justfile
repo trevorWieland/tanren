@@ -495,10 +495,7 @@ docs-check:
 workflow-lint:
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! command -v actionlint &>/dev/null; then
-        echo "FAIL: actionlint is unavailable. Run 'just bootstrap'." >&2
-        exit 127
-    fi
+    bash scripts/install-actionlint.sh
     actionlint
 
 # Build documentation (warnings are errors).
