@@ -15,14 +15,17 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::SetPostureRequest;
+use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
     accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    parse_sign_up, render_error, render_posture_error, sign_in_fields, sign_in_outcome,
+    sign_up_fields, sign_up_outcome,
 };
-use crate::{FormState, MenuChoice};
+use crate::{FormState, MenuChoice, PostureScreenState};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
@@ -32,6 +35,7 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    Posture(PostureScreenState),
     Outcome(OutcomeView),
 }
 
@@ -108,6 +112,10 @@ impl App {
                     Effect::Exit
                 } else if let Some(screen) = next {
                     Effect::ReplaceScreen(screen)
+                } else if matches!(key.code, KeyCode::Enter)
+                    && MenuChoice::ALL[*selected] == MenuChoice::Posture
+                {
+                    Effect::EnterPosture
                 } else {
                     Effect::None
                 }
@@ -122,6 +130,7 @@ impl App {
                     Effect::None
                 }
             }
+            Screen::Posture(state) => handle_posture_key(state, key),
             Screen::SignUp(state) => match handle_form_key(state, key) {
                 Some(action) => Effect::Form(action, FormKind::SignUp),
                 None => Effect::None,
@@ -144,6 +153,14 @@ impl App {
             }
             Effect::Form(action, kind) => {
                 self.dispatch_form_action(action, kind);
+                false
+            }
+            Effect::EnterPosture => {
+                self.enter_posture_screen();
+                false
+            }
+            Effect::SetPosture => {
+                self.dispatch_set_posture();
                 false
             }
         }
@@ -276,7 +293,79 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::Posture(state) => draw::draw_posture_screen(frame, area, state),
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
+        }
+    }
+
+    fn enter_posture_screen(&mut self) {
+        let list = self.handlers.list_postures();
+        let current = self.store.as_ref().and_then(|store| {
+            self.runtime
+                .block_on(self.handlers.get_posture(store.as_ref()))
+                .ok()
+                .map(|r| r.current.posture)
+        });
+        self.screen = Screen::Posture(PostureScreenState {
+            postures: list.postures,
+            current,
+            selected: 0,
+            error: None,
+            attribution: None,
+        });
+    }
+
+    fn dispatch_set_posture(&mut self) {
+        let (target_posture, is_current) = {
+            let Screen::Posture(state) = &self.screen else {
+                return;
+            };
+            let target = state.postures[state.selected].posture;
+            (target, state.current == Some(target))
+        };
+        if is_current {
+            return;
+        }
+        let Some(store) = self.store.clone() else {
+            let message = self
+                .store_error
+                .clone()
+                .unwrap_or_else(|| "store unavailable".to_owned());
+            if let Screen::Posture(state) = &mut self.screen {
+                state.error = Some(message);
+            }
+            return;
+        };
+        let actor = tanren_app_services::posture::Actor {
+            account_id: AccountId::fresh(),
+            permissions: tanren_app_services::posture::Permissions {
+                posture_admin: true,
+            },
+        };
+        let request = SetPostureRequest {
+            posture: target_posture,
+        };
+        let result =
+            self.runtime
+                .block_on(self.handlers.set_posture(store.as_ref(), actor, request));
+        let Screen::Posture(state) = &mut self.screen else {
+            return;
+        };
+        match result {
+            Ok(response) => {
+                state.current = Some(response.current.posture);
+                state.attribution = Some(format!(
+                    "Changed by {} at {} ({} → {})",
+                    response.change.actor,
+                    response.change.at,
+                    response.change.from,
+                    response.change.to,
+                ));
+                state.error = None;
+            }
+            Err(err) => {
+                state.error = Some(render_posture_error(err));
+            }
         }
     }
 }
@@ -300,6 +389,8 @@ enum Effect {
     Exit,
     ReplaceScreen(Screen),
     Form(FormAction, FormKind),
+    EnterPosture,
+    SetPosture,
 }
 
 fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
@@ -317,13 +408,20 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
         }
         KeyCode::Enter => {
             let choice = MenuChoice::ALL[*selected];
-            *next = Some(match choice {
-                MenuChoice::SignUp => Screen::SignUp(FormState::new(sign_up_fields())),
-                MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
-                MenuChoice::AcceptInvitation => {
-                    Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+            match choice {
+                MenuChoice::SignUp => {
+                    *next = Some(Screen::SignUp(FormState::new(sign_up_fields())));
                 }
-            });
+                MenuChoice::SignIn => {
+                    *next = Some(Screen::SignIn(FormState::new(sign_in_fields())));
+                }
+                MenuChoice::AcceptInvitation => {
+                    *next = Some(Screen::AcceptInvitation(FormState::new(
+                        accept_invitation_fields(),
+                    )));
+                }
+                MenuChoice::Posture => {}
+            }
         }
         _ => {}
     }
@@ -351,6 +449,34 @@ fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
             None
         }
         _ => None,
+    }
+}
+
+fn handle_posture_key(state: &mut PostureScreenState, key: KeyEvent) -> Effect {
+    match key.code {
+        KeyCode::Char('q' | 'Q') | KeyCode::Esc => {
+            Effect::ReplaceScreen(Screen::Menu { selected: 0 })
+        }
+        KeyCode::Up => {
+            if state.postures.is_empty() {
+                return Effect::None;
+            }
+            if state.selected == 0 {
+                state.selected = state.postures.len() - 1;
+            } else {
+                state.selected -= 1;
+            }
+            Effect::None
+        }
+        KeyCode::Down => {
+            if state.postures.is_empty() {
+                return Effect::None;
+            }
+            state.selected = (state.selected + 1) % state.postures.len();
+            Effect::None
+        }
+        KeyCode::Enter => Effect::SetPosture,
+        _ => Effect::None,
     }
 }
 

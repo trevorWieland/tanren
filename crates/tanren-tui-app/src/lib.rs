@@ -92,18 +92,34 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    Posture,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 4] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::Posture,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::Posture => "Choose posture",
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct PostureScreenState {
+    pub(crate) postures: Vec<tanren_contract::PostureView>,
+    pub(crate) current: Option<tanren_domain::Posture>,
+    pub(crate) selected: usize,
+    pub(crate) error: Option<String>,
+    pub(crate) attribution: Option<String>,
 }
 
 #[derive(Debug)]
