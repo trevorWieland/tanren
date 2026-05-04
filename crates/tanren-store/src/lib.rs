@@ -15,12 +15,13 @@ mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
+    PostureChangeRecord, PostureRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, PostureStore,
 };
 
 use async_trait::async_trait;
@@ -32,6 +33,7 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_domain::Posture;
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
     ValidationError,
@@ -310,6 +312,101 @@ impl AccountStore for Store {
     }
 }
 
+#[async_trait]
+impl PostureStore for Store {
+    async fn current_posture(&self) -> Result<Option<PostureRecord>, StoreError> {
+        let row = entity::posture::Entity::find_by_id(1i32)
+            .one(&self.conn)
+            .await?;
+        row.map(PostureRecord::try_from).transpose()
+    }
+
+    async fn set_posture(
+        &self,
+        actor: AccountId,
+        posture: Posture,
+        expected_prev: Option<Posture>,
+    ) -> Result<PostureRecord, StoreError> {
+        let now = Utc::now();
+
+        let existing = entity::posture::Entity::find_by_id(1i32)
+            .one(&self.conn)
+            .await?;
+
+        let actual_prev: Option<Posture> = match &existing {
+            None => None,
+            Some(row) => Some(Posture::parse(&row.posture).map_err(StoreError::PostureInvariant)?),
+        };
+
+        if actual_prev != expected_prev {
+            return Err(StoreError::ConcurrentModification {
+                expected: expected_prev.map(|p| p.to_string()),
+                found: actual_prev.map(|p| p.to_string()),
+            });
+        }
+
+        let posture_str = posture.to_string();
+        let change_id = Uuid::now_v7();
+
+        match existing {
+            None => {
+                let model = entity::posture::ActiveModel {
+                    id: Set(1i32),
+                    posture: Set(posture_str.clone()),
+                    updated_at: Set(now),
+                    updated_by: Set(actor.as_uuid()),
+                };
+                model.insert(&self.conn).await?;
+            }
+            Some(_) => {
+                entity::posture::Entity::update_many()
+                    .col_expr(
+                        entity::posture::Column::Posture,
+                        sea_orm::sea_query::Expr::value(posture_str.clone()),
+                    )
+                    .col_expr(
+                        entity::posture::Column::UpdatedAt,
+                        sea_orm::sea_query::Expr::value(now),
+                    )
+                    .col_expr(
+                        entity::posture::Column::UpdatedBy,
+                        sea_orm::sea_query::Expr::value(actor.as_uuid()),
+                    )
+                    .filter(entity::posture::Column::Id.eq(1i32))
+                    .exec(&self.conn)
+                    .await?;
+            }
+        }
+
+        let audit = entity::posture_change::ActiveModel {
+            id: Set(change_id),
+            from_posture: Set(expected_prev.map(|p| p.to_string())),
+            to_posture: Set(posture_str),
+            actor: Set(actor.as_uuid()),
+            changed_at: Set(now),
+        };
+        audit.insert(&self.conn).await?;
+
+        Ok(PostureRecord {
+            posture,
+            updated_at: now,
+            updated_by: actor,
+        })
+    }
+
+    async fn posture_history(&self, limit: u64) -> Result<Vec<PostureChangeRecord>, StoreError> {
+        let rows = entity::posture_change::Entity::find()
+            .order_by_desc(entity::posture_change::Column::ChangedAt)
+            .order_by_desc(entity::posture_change::Column::Id)
+            .limit(limit)
+            .all(&self.conn)
+            .await?;
+        rows.into_iter()
+            .map(PostureChangeRecord::try_from)
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
 /// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
 /// so production binaries cannot accidentally seed test data; the testkit
 /// (and only the testkit) enables the feature.
@@ -382,5 +479,20 @@ pub enum StoreError {
         /// The underlying validation error.
         #[source]
         cause: ValidationError,
+    },
+    /// A posture string stored in the database does not map to any
+    /// known [`Posture`] variant. Indicates DB-side corruption.
+    #[error("posture invariant violation: {0}")]
+    PostureInvariant(#[from] tanren_domain::PostureParseError),
+    /// The posture row did not match `expected_prev`. The caller's view
+    /// of the current posture is stale — it should re-read and retry.
+    #[error("concurrent modification: expected {expected:?}, found {found:?}")]
+    ConcurrentModification {
+        /// The posture the caller expected (or `None` if the caller
+        /// expected no row).
+        expected: Option<String>,
+        /// The posture actually stored in the database (or `None` if
+        /// no row exists).
+        found: Option<String>,
     },
 }

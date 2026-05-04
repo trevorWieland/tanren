@@ -27,12 +27,14 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use tanren_domain::Posture;
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, PostureChangeRecord, PostureRecord,
+    SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +285,36 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Port for the installation-scoped deployment-posture persistence. The
+/// SeaORM-backed adapter is `impl PostureStore for Store` (see `lib.rs`).
+///
+/// Posture is a single-row-per-installation aggregate. The `set_posture`
+/// method uses optimistic concurrency via `expected_prev` so concurrent
+/// callers cannot silently overwrite each other's choice.
+#[async_trait]
+pub trait PostureStore: Send + Sync + std::fmt::Debug {
+    /// Return the current deployment posture, or `None` if no posture
+    /// has been selected yet (first-run state).
+    async fn current_posture(&self) -> Result<Option<PostureRecord>, StoreError>;
+
+    /// Set the deployment posture. `expected_prev` is the caller's view
+    /// of the current posture — `None` means "no posture set yet".
+    /// If the database row does not match, the call fails with
+    /// [`StoreError::ConcurrentModification`].
+    ///
+    /// On success the posture row is upserted and an audit row is
+    /// appended to `posture_change`. The timestamp is recorded
+    /// internally at the call site.
+    async fn set_posture(
+        &self,
+        actor: AccountId,
+        posture: Posture,
+        expected_prev: Option<Posture>,
+    ) -> Result<PostureRecord, StoreError>;
+
+    /// Return the posture-change audit trail, newest first, limited to
+    /// `limit` rows.
+    async fn posture_history(&self, limit: u64) -> Result<Vec<PostureChangeRecord>, StoreError>;
 }
