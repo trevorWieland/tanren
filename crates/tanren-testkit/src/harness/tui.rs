@@ -314,10 +314,16 @@ impl AccountHarness for TuiHarness {
                     .find(|o| o.name.as_str().eq_ignore_ascii_case(&name))
                     .cloned();
                 match found {
-                    Some(organization) => Ok(HarnessOrgCreation {
-                        organization,
-                        permissions: OrgAdminPermissions::bootstrap_creator(),
-                    }),
+                    Some(organization) => {
+                        let permissions = self
+                            .inner
+                            .admin_permissions_for_org(organization.id)
+                            .await?;
+                        Ok(HarnessOrgCreation {
+                            organization,
+                            permissions,
+                        })
+                    }
                     None => Err(HarnessError::Transport(format!(
                         "org '{name}' not found in TUI org list after creation"
                     ))),
