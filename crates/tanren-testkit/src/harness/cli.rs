@@ -211,6 +211,7 @@ impl AccountHarness for CliHarness {
             org: Some(joined_org),
             ..account
         };
+        self.current_account_id = Some(account.id);
         Ok(HarnessAcceptance {
             session: HarnessSession {
                 account_id: account.id,
