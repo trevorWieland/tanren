@@ -94,6 +94,20 @@ export default function NewOrganizationPage(): ReactNode {
       {created !== null ? (
         <div data-testid="created-organization">
           <p>{created.organization.name}</p>
+          <ul data-testid="membership-permissions">
+            {(
+              Object.entries(created.membership_permissions) as [
+                string,
+                boolean,
+              ][]
+            )
+              .filter(([, v]) => v)
+              .map(([flag]) => (
+                <li key={flag} data-testid={`permission-${flag}`}>
+                  {flag}
+                </li>
+              ))}
+          </ul>
         </div>
       ) : (
         <form

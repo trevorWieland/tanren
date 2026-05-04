@@ -31,7 +31,6 @@ async fn do_create_org(world: &mut TanrenWorld, actor: String, name: String) {
         Ok(creation) => {
             let org_id = creation.organization.id;
             ctx.orgs_by_name.insert(name.clone(), org_id);
-            entry.identifier = Some(name.clone());
             HarnessOutcome::OrgCreated(creation)
         }
         Err(err) => record_failure(err, entry),

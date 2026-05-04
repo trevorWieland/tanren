@@ -12,9 +12,17 @@ export interface CreateOrganizationRequest {
   name: string;
 }
 
+export interface OrgAdminPermissions {
+  invite: boolean;
+  manage_access: boolean;
+  configure: boolean;
+  set_policy: boolean;
+  delete: boolean;
+}
+
 export interface CreateOrganizationResponse {
   organization: OrganizationView;
-  membership_permissions: string[];
+  membership_permissions: OrgAdminPermissions;
 }
 
 export interface ListOrganizationsResponse {

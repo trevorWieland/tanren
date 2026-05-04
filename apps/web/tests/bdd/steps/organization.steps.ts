@@ -53,9 +53,19 @@ Given(
 );
 
 Then("the response includes full bootstrap permissions", async ({ page }) => {
-  await expect(
-    page.locator('[data-testid="created-organization"]'),
-  ).toBeVisible({ timeout: 5_000 });
+  const container = page.locator('[data-testid="membership-permissions"]');
+  await expect(container).toBeVisible({ timeout: 5_000 });
+  for (const flag of [
+    "invite",
+    "manage_access",
+    "configure",
+    "set_policy",
+    "delete",
+  ]) {
+    await expect(
+      container.locator(`[data-testid="permission-${flag}"]`),
+    ).toBeVisible({ timeout: 2_000 });
+  }
 });
 
 Then(
