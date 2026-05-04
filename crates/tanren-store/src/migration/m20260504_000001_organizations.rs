@@ -74,6 +74,23 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r"
+                INSERT INTO organizations (id, name, name_normalized, created_at)
+                SELECT i.inviting_org_id,
+                       'Migrated Org ' || CAST(i.inviting_org_id AS TEXT),
+                       'migrated-org-' || CAST(i.inviting_org_id AS TEXT),
+                       now()
+                FROM (SELECT DISTINCT inviting_org_id FROM invitations) AS i
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM organizations o WHERE o.id = i.inviting_org_id
+                )
+                ",
+            )
+            .await?;
+
         Ok(())
     }
 
