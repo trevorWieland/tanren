@@ -30,13 +30,15 @@ use super::{
     HarnessSession, PostureHarness, PostureHarnessActor,
 };
 
-const TEST_API_KEY: &str = "bdd-test-key";
+const TEST_ADMIN_KEY: &str = "bdd-test-admin-key";
+const TEST_OPERATOR_KEY: &str = "bdd-test-operator-key";
 
 /// `@mcp` wire harness.
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
-    client: Option<RunningService<RoleClient, ClientInfo>>,
+    admin_client: Option<RunningService<RoleClient, ClientInfo>>,
+    operator_client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
 }
 
@@ -46,6 +48,19 @@ impl std::fmt::Debug for McpHarness {
             .field("db_path", &self.db_path)
             .finish_non_exhaustive()
     }
+}
+
+async fn connect_client(
+    local_addr: std::net::SocketAddr,
+    api_key: &str,
+) -> HarnessResult<RunningService<RoleClient, ClientInfo>> {
+    let config = StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
+        .auth_header(api_key.to_owned());
+    let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+    ClientInfo::default()
+        .serve(transport)
+        .await
+        .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))
 }
 
 impl McpHarness {
@@ -76,7 +91,8 @@ impl McpHarness {
 
         let (router, cancellation) = tanren_mcp_app::build_router_with_store(
             store.clone(),
-            SecretString::from(TEST_API_KEY.to_owned()),
+            SecretString::from(TEST_ADMIN_KEY.to_owned()),
+            SecretString::from(TEST_OPERATOR_KEY.to_owned()),
         );
 
         let server = tokio::spawn(async move {
@@ -85,29 +101,31 @@ impl McpHarness {
                 .await;
         });
 
-        // Build the rmcp client transport with the bearer-token header.
-        let config =
-            StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
-                .auth_header(TEST_API_KEY.to_owned());
-        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
-        let client = ClientInfo::default()
-            .serve(transport)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))?;
+        let admin_client = connect_client(local_addr, TEST_ADMIN_KEY).await?;
+        let operator_client = connect_client(local_addr, TEST_OPERATOR_KEY).await?;
 
         Ok(Self {
             store,
             db_path,
-            client: Some(client),
+            admin_client: Some(admin_client),
+            operator_client: Some(operator_client),
             server: Some(server),
         })
     }
 
     async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
         let client = self
-            .client
+            .admin_client
             .as_ref()
-            .ok_or_else(|| HarnessError::Transport("rmcp client gone".to_owned()))?;
+            .ok_or_else(|| HarnessError::Transport("rmcp admin client gone".to_owned()))?;
+        Self::call_tool_on(client, name, body).await
+    }
+
+    async fn call_tool_on(
+        client: &RunningService<RoleClient, ClientInfo>,
+        name: &'static str,
+        body: Value,
+    ) -> HarnessResult<Value> {
         let args: serde_json::Map<String, Value> = match body {
             Value::Object(map) => map,
             other => {
@@ -134,7 +152,10 @@ impl McpHarness {
 
 impl Drop for McpHarness {
     fn drop(&mut self) {
-        if let Some(client) = self.client.take() {
+        if let Some(client) = self.admin_client.take() {
+            drop(client);
+        }
+        if let Some(client) = self.operator_client.take() {
             drop(client);
         }
         if let Some(handle) = self.server.take() {
@@ -243,10 +264,17 @@ impl PostureHarness for McpHarness {
     ) -> HarnessResult<SetPostureResponse> {
         let body = serde_json::json!({
             "posture": posture_str,
-            "account_id": actor.account_id.to_string(),
-            "posture_admin": actor.posture_admin,
         });
-        let payload = self.call_tool("posture.set", body).await?;
+        let client = if actor.posture_admin {
+            self.admin_client
+                .as_ref()
+                .ok_or_else(|| HarnessError::Transport("rmcp admin client gone".to_owned()))?
+        } else {
+            self.operator_client
+                .as_ref()
+                .ok_or_else(|| HarnessError::Transport("rmcp operator client gone".to_owned()))?
+        };
+        let payload = Self::call_tool_on(client, "posture.set", body).await?;
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode set_posture: {e}")))
     }
