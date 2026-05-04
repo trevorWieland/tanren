@@ -5,27 +5,22 @@
 //! the form/menu key handlers together; rendering still lives in
 //! `draw.rs`, form factories + outcome adapters in `ui.rs`.
 
-use std::env;
-use std::io::Stdout;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{env, io::Stdout, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{Handlers, Store, posture};
 use tanren_contract::SetPostureRequest;
-use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
-use crate::draw;
 use crate::ui::{
     accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
     parse_sign_up, render_error, render_posture_error, sign_in_fields, sign_in_outcome,
     sign_up_fields, sign_up_outcome,
 };
-use crate::{FormState, MenuChoice, PostureScreenState};
+use crate::{FormState, MenuChoice, PostureScreenState, draw};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
@@ -51,6 +46,7 @@ pub(crate) struct App {
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    current_actor: Option<posture::Actor>,
     screen: Screen,
 }
 
@@ -75,8 +71,13 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            current_actor: None,
             screen: Screen::Menu { selected: 0 },
         })
+    }
+
+    pub(crate) fn set_session(&mut self, actor: posture::Actor) {
+        self.current_actor = Some(actor);
     }
 
     pub(crate) fn run(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
@@ -91,7 +92,7 @@ impl App {
             let Event::Key(key) = event::read().context("read terminal event")? else {
                 continue;
             };
-            if !is_press(&key) {
+            if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                 continue;
             }
             if self.handle_key(key) {
@@ -208,7 +209,9 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_up(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+                    Ok(response) => {
+                        self.screen = Screen::Outcome(sign_up_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignUp(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -236,7 +239,9 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_in(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+                    Ok(response) => {
+                        self.screen = Screen::Outcome(sign_in_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignIn(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -336,11 +341,12 @@ impl App {
             }
             return;
         };
-        let actor = tanren_app_services::posture::Actor {
-            account_id: AccountId::fresh(),
-            permissions: tanren_app_services::posture::Permissions {
-                posture_admin: true,
-            },
+        let Some(actor) = self.current_actor.clone() else {
+            if let Screen::Posture(state) = &mut self.screen {
+                state.error =
+                    Some("authentication required: sign in before changing posture".to_owned());
+            }
+            return;
         };
         let request = SetPostureRequest {
             posture: target_posture,
@@ -478,9 +484,4 @@ fn handle_posture_key(state: &mut PostureScreenState, key: KeyEvent) -> Effect {
         KeyCode::Enter => Effect::SetPosture,
         _ => Effect::None,
     }
-}
-
-fn is_press(key: &KeyEvent) -> bool {
-    use crossterm::event::KeyEventKind;
-    matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
