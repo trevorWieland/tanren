@@ -5,10 +5,11 @@
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    CreateOrganizationRequest, OrganizationFailureReason, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Email, InvitationToken, ValidationError};
+use tanren_identity_policy::{Email, InvitationToken, OrgName, ValidationError};
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -104,15 +105,20 @@ pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> 
 }
 
 pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
-    format!("{}: {}", reason.code(), reason.summary())
+    format!("code: {} — {}", reason.code(), reason.summary())
+}
+
+pub(crate) fn format_org_failure(reason: OrganizationFailureReason) -> String {
+    format!("code: {} — {}", reason.code(), reason.summary())
 }
 
 pub(crate) fn render_error(err: AppServiceError) -> String {
     match err {
         AppServiceError::Account(reason) => format_failure(reason),
-        AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
-        AppServiceError::Store(err) => format!("internal_error: {err}"),
-        _ => "internal_error: unknown app-service failure".to_owned(),
+        AppServiceError::Organization(reason) => format_org_failure(reason),
+        AppServiceError::InvalidInput(message) => format!("code: validation_failed — {message}"),
+        AppServiceError::Store(err) => format!("code: internal_error — {err}"),
+        _ => "code: internal_error — unknown app-service failure".to_owned(),
     }
 }
 
@@ -142,11 +148,6 @@ pub(crate) fn parse_accept_invitation(
 ) -> Result<AcceptInvitationRequest, String> {
     let invitation_token =
         InvitationToken::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    // The user supplies the email directly; the previous implementation
-    // synthesised it from the invitation token, which broke any token
-    // containing `@` (the resulting "<token>@invitation.tanren" had two
-    // `@` characters and Email::parse rejected it before the request
-    // ever reached `accept_invitation`). Codex P2 review on PR #133.
     let email = Email::parse(state.value(1)).map_err(|e| validation_message(&e))?;
     let password = SecretString::from(state.value(2).to_owned());
     let display_name = state.value(3).to_owned();
@@ -156,4 +157,17 @@ pub(crate) fn parse_accept_invitation(
         password,
         display_name,
     })
+}
+
+pub(crate) fn org_create_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Organization name",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
+pub(crate) fn parse_org_create(state: &FormState) -> Result<CreateOrganizationRequest, String> {
+    let name = OrgName::parse(state.value(0)).map_err(|e| format!("validation_failed: {e}"))?;
+    Ok(CreateOrganizationRequest { name })
 }

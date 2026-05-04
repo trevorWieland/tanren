@@ -15,24 +15,38 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::OrganizationView;
+use tanren_identity_policy::SessionToken;
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, accept_invitation_outcome, org_create_fields,
+    parse_accept_invitation, parse_org_create, parse_sign_in, parse_sign_up, render_error,
+    sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
 };
-use crate::{FormState, MenuChoice};
+use crate::{DashboardChoice, FormState, MenuChoice};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
 #[derive(Debug)]
 pub(crate) enum Screen {
-    Menu { selected: usize },
+    Menu {
+        selected: usize,
+    },
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
     Outcome(OutcomeView),
+    Dashboard {
+        selected: usize,
+    },
+    OrgCreate(FormState),
+    OrgList {
+        orgs: Vec<OrganizationView>,
+        selected: usize,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -48,6 +62,7 @@ pub(crate) struct App {
     store: Option<Arc<Store>>,
     store_error: Option<String>,
     screen: Screen,
+    session_token: Option<SessionToken>,
 }
 
 impl App {
@@ -72,7 +87,59 @@ impl App {
             store,
             store_error,
             screen: Screen::Menu { selected: 0 },
+            session_token: None,
         })
+    }
+
+    pub(crate) fn with_store(store: Arc<Store>) -> Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("build tokio runtime")?;
+        Ok(Self {
+            runtime,
+            handlers: Handlers::new(),
+            store: Some(store),
+            store_error: None,
+            screen: Screen::Menu { selected: 0 },
+            session_token: None,
+        })
+    }
+
+    pub(crate) fn screen_kind(&self) -> crate::harness::ScreenKind {
+        match &self.screen {
+            Screen::Menu { .. } => crate::harness::ScreenKind::Menu,
+            Screen::SignUp(_) => crate::harness::ScreenKind::SignUp,
+            Screen::SignIn(_) => crate::harness::ScreenKind::SignIn,
+            Screen::AcceptInvitation(_) => crate::harness::ScreenKind::AcceptInvitation,
+            Screen::Outcome(_) => crate::harness::ScreenKind::Outcome,
+            Screen::Dashboard { .. } => crate::harness::ScreenKind::Dashboard,
+            Screen::OrgCreate(_) => crate::harness::ScreenKind::OrgCreate,
+            Screen::OrgList { .. } => crate::harness::ScreenKind::OrgList,
+        }
+    }
+
+    pub(crate) fn screen_banner(&self) -> Option<String> {
+        match &self.screen {
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::OrgCreate(s) => s.error.clone(),
+            Screen::OrgList { error, .. } => error.clone(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn set_session_token(&mut self, token: SessionToken) {
+        self.session_token = Some(token);
+    }
+
+    pub(crate) fn session_token_ref(&self) -> Option<&SessionToken> {
+        self.session_token.as_ref()
+    }
+
+    pub(crate) fn navigate_to_dashboard(&mut self) {
+        self.screen = Screen::Dashboard { selected: 0 };
     }
 
     pub(crate) fn run(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
@@ -96,7 +163,7 @@ impl App {
         }
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> bool {
+    pub(crate) fn handle_key(&mut self, key: KeyEvent) -> bool {
         if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
             return true;
         }
@@ -117,11 +184,59 @@ impl App {
                     key.code,
                     KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q' | 'Q')
                 ) {
-                    Effect::ReplaceScreen(Screen::Menu { selected: 0 })
+                    if self.session_token.is_some() {
+                        Effect::ReplaceScreen(Screen::Dashboard { selected: 0 })
+                    } else {
+                        Effect::ReplaceScreen(Screen::Menu { selected: 0 })
+                    }
                 } else {
                     Effect::None
                 }
             }
+            Screen::Dashboard { selected } => {
+                let session_present = self.session_token.is_some();
+                match handle_dashboard_key(selected, key, session_present) {
+                    DashboardOutcome::None => Effect::None,
+                    DashboardOutcome::Exit => Effect::Exit,
+                    DashboardOutcome::Screen(s) => Effect::ReplaceScreen(s),
+                    DashboardOutcome::NavigateToOrgList => Effect::NavigateToOrgList,
+                }
+            }
+            Screen::OrgCreate(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::OrgCreate),
+                None => Effect::None,
+            },
+            Screen::OrgList {
+                orgs,
+                selected,
+                error,
+            } => match key.code {
+                KeyCode::Esc => Effect::ReplaceScreen(Screen::Dashboard { selected: 0 }),
+                KeyCode::Char('q' | 'Q') => {
+                    Effect::ReplaceScreen(Screen::Dashboard { selected: 0 })
+                }
+                KeyCode::Up => {
+                    if !orgs.is_empty() {
+                        *selected = if *selected == 0 {
+                            orgs.len() - 1
+                        } else {
+                            *selected - 1
+                        };
+                    }
+                    Effect::None
+                }
+                KeyCode::Down => {
+                    if !orgs.is_empty() {
+                        *selected = (*selected + 1) % orgs.len();
+                    }
+                    Effect::None
+                }
+                KeyCode::Char('r') => {
+                    let _ = error;
+                    Effect::NavigateToOrgList
+                }
+                _ => Effect::None,
+            },
             Screen::SignUp(state) => match handle_form_key(state, key) {
                 Some(action) => Effect::Form(action, FormKind::SignUp),
                 None => Effect::None,
@@ -146,13 +261,21 @@ impl App {
                 self.dispatch_form_action(action, kind);
                 false
             }
+            Effect::NavigateToOrgList => {
+                self.navigate_to_org_list();
+                false
+            }
         }
     }
 
     fn dispatch_form_action(&mut self, action: FormAction, kind: FormKind) {
         match action {
             FormAction::Cancel => {
-                self.screen = Screen::Menu { selected: 0 };
+                if self.session_token.is_some() {
+                    self.screen = Screen::Dashboard { selected: 0 };
+                } else {
+                    self.screen = Screen::Menu { selected: 0 };
+                }
             }
             FormAction::Submit => self.submit(kind),
         }
@@ -191,7 +314,10 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_up(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+                    Ok(response) => {
+                        self.session_token = Some(response.session.token.clone());
+                        self.screen = Screen::Outcome(sign_up_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignUp(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -219,7 +345,10 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_in(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+                    Ok(response) => {
+                        self.session_token = Some(response.session.token.clone());
+                        self.screen = Screen::Outcome(sign_in_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignIn(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -248,6 +377,7 @@ impl App {
                     .block_on(handlers.accept_invitation(store.as_ref(), request));
                 match result {
                     Ok(response) => {
+                        self.session_token = Some(response.session.token.clone());
                         self.screen = Screen::Outcome(accept_invitation_outcome(&response));
                     }
                     Err(reason) => {
@@ -257,12 +387,95 @@ impl App {
                     }
                 }
             }
+            FormKind::OrgCreate => {
+                let Some(session) = self.session_token.clone() else {
+                    if let Screen::OrgCreate(state) = &mut self.screen {
+                        state.error = Some("not authenticated".to_owned());
+                    }
+                    return;
+                };
+                let parsed = {
+                    let Screen::OrgCreate(state) = &self.screen else {
+                        return;
+                    };
+                    parse_org_create(state)
+                };
+                let request = match parsed {
+                    Ok(req) => req,
+                    Err(message) => {
+                        if let Screen::OrgCreate(state) = &mut self.screen {
+                            state.error = Some(message);
+                        }
+                        return;
+                    }
+                };
+                let result = self.runtime.block_on(handlers.create_organization(
+                    store.as_ref(),
+                    &session,
+                    request,
+                ));
+                match result {
+                    Ok(_) => {
+                        self.navigate_to_org_list();
+                    }
+                    Err(reason) => {
+                        if let Screen::OrgCreate(state) = &mut self.screen {
+                            state.error = Some(render_error(reason));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn navigate_to_org_list(&mut self) {
+        let Some(store) = self.store.clone() else {
+            self.screen = Screen::OrgList {
+                orgs: Vec::new(),
+                selected: 0,
+                error: self
+                    .store_error
+                    .clone()
+                    .or_else(|| Some("store unavailable".to_owned())),
+            };
+            return;
+        };
+        let Some(session) = self.session_token.clone() else {
+            self.screen = Screen::OrgList {
+                orgs: Vec::new(),
+                selected: 0,
+                error: Some("not authenticated".to_owned()),
+            };
+            return;
+        };
+        let handlers = &self.handlers;
+        let result = self
+            .runtime
+            .block_on(handlers.list_organizations(store.as_ref(), &session));
+        match result {
+            Ok(response) => {
+                self.screen = Screen::OrgList {
+                    orgs: response.organizations,
+                    selected: 0,
+                    error: None,
+                };
+            }
+            Err(reason) => {
+                self.screen = Screen::OrgList {
+                    orgs: Vec::new(),
+                    selected: 0,
+                    error: Some(render_error(reason)),
+                };
+            }
         }
     }
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::OrgCreate(s) => Some(s),
             _ => None,
         }
     }
@@ -277,6 +490,13 @@ impl App {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
+            Screen::Dashboard { selected } => draw::draw_dashboard(frame, area, *selected),
+            Screen::OrgCreate(state) => draw::draw_form(frame, area, "Create organization", state),
+            Screen::OrgList {
+                orgs,
+                selected,
+                error,
+            } => draw::draw_org_list(frame, area, orgs, *selected, error.as_deref()),
         }
     }
 }
@@ -286,6 +506,7 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    OrgCreate,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -300,6 +521,14 @@ enum Effect {
     Exit,
     ReplaceScreen(Screen),
     Form(FormAction, FormKind),
+    NavigateToOrgList,
+}
+
+enum DashboardOutcome {
+    None,
+    Exit,
+    Screen(Screen),
+    NavigateToOrgList,
 }
 
 fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
@@ -328,6 +557,41 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
         _ => {}
     }
     false
+}
+
+fn handle_dashboard_key(
+    selected: &mut usize,
+    key: KeyEvent,
+    session_present: bool,
+) -> DashboardOutcome {
+    if !session_present {
+        return DashboardOutcome::Screen(Screen::Menu { selected: 0 });
+    }
+    match key.code {
+        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return DashboardOutcome::Exit,
+        KeyCode::Up => {
+            if *selected == 0 {
+                *selected = DashboardChoice::ALL.len() - 1;
+            } else {
+                *selected -= 1;
+            }
+        }
+        KeyCode::Down | KeyCode::Tab => {
+            *selected = (*selected + 1) % DashboardChoice::ALL.len();
+        }
+        KeyCode::Enter => {
+            let choice = DashboardChoice::ALL[*selected];
+            return match choice {
+                DashboardChoice::CreateOrganization => {
+                    DashboardOutcome::Screen(Screen::OrgCreate(FormState::new(org_create_fields())))
+                }
+                DashboardChoice::ListOrganizations => DashboardOutcome::NavigateToOrgList,
+                DashboardChoice::SignOut => DashboardOutcome::Exit,
+            };
+        }
+        _ => {}
+    }
+    DashboardOutcome::None
 }
 
 fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
