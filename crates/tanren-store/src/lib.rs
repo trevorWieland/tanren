@@ -348,6 +348,11 @@ impl PostureStore for Store {
         let posture_str = posture.to_string();
         let change_id = Uuid::now_v7();
 
+        let expected_prev_str = actual_prev
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+
         match existing {
             None => {
                 let model = entity::posture::ActiveModel {
@@ -359,7 +364,7 @@ impl PostureStore for Store {
                 model.insert(&self.conn).await?;
             }
             Some(_) => {
-                entity::posture::Entity::update_many()
+                let result = entity::posture::Entity::update_many()
                     .col_expr(
                         entity::posture::Column::Posture,
                         sea_orm::sea_query::Expr::value(posture_str.clone()),
@@ -373,8 +378,20 @@ impl PostureStore for Store {
                         sea_orm::sea_query::Expr::value(actor.as_uuid()),
                     )
                     .filter(entity::posture::Column::Id.eq(1i32))
+                    .filter(entity::posture::Column::Posture.eq(expected_prev_str.clone()))
                     .exec(&self.conn)
                     .await?;
+
+                if result.rows_affected == 0 {
+                    let current = entity::posture::Entity::find_by_id(1i32)
+                        .one(&self.conn)
+                        .await?;
+                    let found = current.as_ref().map(|r| r.posture.clone());
+                    return Err(StoreError::ConcurrentModification {
+                        expected: expected_prev.map(|p| p.to_string()),
+                        found,
+                    });
+                }
             }
         }
 
