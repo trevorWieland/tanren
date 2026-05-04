@@ -11,7 +11,7 @@ interface HealthReport {
   contract_version: number;
 }
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "";
 
 export default function Home(): ReactNode {
   const [report, setReport] = useState<HealthReport | null>(null);

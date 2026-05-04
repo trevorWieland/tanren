@@ -53,7 +53,7 @@ async function ensureSession(
 ): Promise<void> {
   emailCounter++;
   const email = `posture-${admin ? "admin" : "user"}-${emailCounter}@bdd.tanren`;
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "";
   await page.evaluate(
     async ({ url, emailAddress, isAdmin }) => {
       const res = await fetch(`${url}/accounts`, {
@@ -149,8 +149,7 @@ When(
         { timeout: 10_000 },
       );
     } else {
-      const apiUrl =
-        process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+      const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "";
       await page.evaluate(
         async ({ url, p }) => {
           const res = await fetch(`${url}/v0/posture`, {

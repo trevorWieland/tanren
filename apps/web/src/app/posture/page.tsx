@@ -8,7 +8,7 @@ import type {
 import { PosturePicker } from "@/components/posture/posture-picker";
 import * as m from "@/i18n/paraglide/messages";
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "";
 
 async function fetchPostures(): Promise<ListPosturesResponse> {
   const res = await fetch(`${API_URL}/v0/postures`, { cache: "no-store" });

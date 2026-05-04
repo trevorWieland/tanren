@@ -1,6 +1,6 @@
 import * as m from "@/i18n/paraglide/messages";
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "";
 
 export type Posture = "hosted" | "self_hosted" | "local_only";
 

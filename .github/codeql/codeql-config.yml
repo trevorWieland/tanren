@@ -18,6 +18,8 @@ paths-ignore:
   - "xtask/tests/**"
   # Web BDD step definitions + globalSetup (Playwright runner code)
   - "apps/web/tests/bdd/**"
+  # Playwright config (local test-server URLs, not production)
+  - "apps/web/playwright.config.ts"
   # Storybook story files (component visual contracts; not production)
   - "apps/web/src/**/*.stories.tsx"
   # Generated paraglide catalog

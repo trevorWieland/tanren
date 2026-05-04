@@ -227,7 +227,7 @@ async function seedInvitation(
   expiresAt: Date,
   context: { kind: "valid" | "expired" },
 ): Promise<void> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "";
   const res = await fetch(`${apiUrl}/test-hooks/invitations`, {
     method: "POST",
     headers: { "content-type": "application/json" },
