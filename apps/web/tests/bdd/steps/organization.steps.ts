@@ -81,12 +81,28 @@ Then(
 
 When(
   /^an unsigned-in attempt creates an organization named "([^"]+)"$/,
-  async ({ page, world }, _name: string) => {
+  async ({ page, world }, name: string) => {
     const a = actor(world, "anonymous");
     await page.goto("/organizations/new");
     await page.waitForURL(/\/sign-in/, { timeout: 10_000 });
     a.hasSession = false;
-    a.lastFailureCode = "unauthenticated";
+
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+    const res = await fetch(`${apiUrl}/organizations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+
+    if (res.ok) {
+      const body = await res.text();
+      throw new Error(
+        `unauthenticated POST /organizations unexpectedly succeeded (${res.status}): ${body}`,
+      );
+    }
+
+    a.lastFailureCode = mapHttpStatusToFailureCode(res.status);
   },
 );
 
@@ -129,3 +145,10 @@ Then(
     }
   },
 );
+
+function mapHttpStatusToFailureCode(status: number): string {
+  if (status === 401) return "unauthenticated";
+  if (status === 403) return "forbidden";
+  if (status === 422) return "validation_failed";
+  return `http_${status}`;
+}
