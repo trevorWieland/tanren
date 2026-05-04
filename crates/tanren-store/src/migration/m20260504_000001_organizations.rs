@@ -82,7 +82,7 @@ impl MigrationTrait for Migration {
                 SELECT i.inviting_org_id,
                        'Migrated Org ' || CAST(i.inviting_org_id AS TEXT),
                        'migrated-org-' || CAST(i.inviting_org_id AS TEXT),
-                       now()
+                        CURRENT_TIMESTAMP
                 FROM (SELECT DISTINCT inviting_org_id FROM invitations) AS i
                 WHERE NOT EXISTS (
                     SELECT 1 FROM organizations o WHERE o.id = i.inviting_org_id
