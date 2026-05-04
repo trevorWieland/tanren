@@ -13,16 +13,17 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, CreateOrganizationRequest, CreateOrganizationResponse,
+    ListOrganizationsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{Email, InvitationToken, OrgId, SessionToken};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
+use crate::cookies::{SessionWrite, extract_session_token, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
 /// Liveness response.
@@ -98,6 +99,8 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        create_organization_route,
+        list_organizations_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +112,14 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        CreateOrganizationRequest,
+        CreateOrganizationResponse,
+        ListOrganizationsResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "organizations", description = "Organization lifecycle: create, list."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -159,6 +166,7 @@ pub(crate) async fn sign_up_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -198,6 +206,7 @@ pub(crate) async fn sign_in_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -265,6 +274,7 @@ pub(crate) async fn accept_invitation_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -308,6 +318,81 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+async fn require_auth(session: &Session) -> Result<SessionToken, Response> {
+    extract_session_token(session).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(AccountFailureBody {
+                code: "unauthenticated".to_owned(),
+                summary: "Authentication required.".to_owned(),
+            }),
+        )
+            .into_response()
+    })
+}
+
+/// Create a new organization. The authenticated caller becomes the
+/// bootstrap administrator.
+#[utoipa::path(
+    post,
+    path = "/organizations",
+    request_body = CreateOrganizationRequest,
+    responses(
+        (status = 200, body = CreateOrganizationResponse, description = "Organization created"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "unauthenticated"),
+        (status = 403, body = AccountFailureBody, description = "not_authorized"),
+        (status = 409, body = AccountFailureBody, description = "duplicate_name"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn create_organization_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<CreateOrganizationRequest>,
+) -> Response {
+    let token = match require_auth(&session).await {
+        Ok(t) => t,
+        Err(response) => return response,
+    };
+    match state
+        .handlers
+        .create_organization(state.store.as_ref(), &token, request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// List organizations the authenticated caller is a member of.
+#[utoipa::path(
+    get,
+    path = "/organizations",
+    responses(
+        (status = 200, body = ListOrganizationsResponse, description = "List of caller's organizations"),
+        (status = 401, body = AccountFailureBody, description = "unauthenticated"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn list_organizations_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let token = match require_auth(&session).await {
+        Ok(t) => t,
+        Err(response) => return response,
+    };
+    match state
+        .handlers
+        .list_organizations(state.store.as_ref(), &token)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +405,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(create_organization_route))
+        .routes(routes!(list_organizations_route))
         .with_state(state)
 }
