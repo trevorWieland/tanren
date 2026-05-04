@@ -51,10 +51,11 @@ impl OrgName {
         if trimmed.is_empty() {
             return Err(ValidationError::EmptyOrgName.into());
         }
-        if trimmed.len() > ORG_NAME_MAX_LEN {
+        let canonical = trimmed.to_lowercase();
+        if canonical.len() > ORG_NAME_MAX_LEN {
             return Err(ValidationError::OrgNameTooLong.into());
         }
-        Ok(Self(trimmed.to_lowercase()))
+        Ok(Self(canonical))
     }
 
     /// Borrow the canonical (trimmed + lower-cased) organisation name.
