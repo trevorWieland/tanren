@@ -882,6 +882,7 @@ web-unit:
 # every `*.stories.tsx` file into a real-browser component test; the
 # play function asserts the DOM and `addon-a11y` runs axe-core afterwards.
 web-storybook-test:
+    bash scripts/install-playwright-browsers.sh
     pnpm --filter @tanren/web run storybook:test
 
 # Build a production Storybook bundle. Useful as a smoke check that
