@@ -7,14 +7,18 @@
 
 pub mod account;
 pub mod events;
+pub mod organization;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsResponse,
+    OrganizationFailureReason, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{
+    AccountId, Argon2idVerifier, CredentialVerifier, OrgAdminPermissions, OrgId, SessionToken,
+};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -199,6 +203,66 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// Organization-creation command: resolve the caller's session,
+    /// create a new organization, grant the creator bootstrap admin
+    /// permissions, and emit an `organization_created` event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::Unauthenticated`] when the session
+    /// does not resolve, or [`OrganizationFailureReason::DuplicateName`]
+    /// when a case-variant of the name already exists.
+    /// [`AppServiceError::Store`] for unexpected database failures.
+    pub async fn create_organization<S>(
+        &self,
+        store: &S,
+        session: &SessionToken,
+        request: CreateOrganizationRequest,
+    ) -> Result<CreateOrganizationResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::create_organization(store, &self.clock, session, request).await
+    }
+
+    /// List all organizations the caller is a member of.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::Unauthenticated`] when the session
+    /// does not resolve; [`AppServiceError::Store`] for unexpected
+    /// database failures.
+    pub async fn list_organizations<S>(
+        &self,
+        store: &S,
+        session: &SessionToken,
+    ) -> Result<ListOrganizationsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::list_organizations(store, &self.clock, session).await
+    }
+
+    /// Read the administrative permissions bitfield for an account on
+    /// an organization. Returns empty permissions for non-members.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn membership_permissions<S>(
+        store: &S,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<OrgAdminPermissions, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::membership_permissions(store, account_id, org_id).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +279,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// An organization-flow taxonomy failure.
+    #[error("organization: {}", .0.code())]
+    Organization(OrganizationFailureReason),
 }

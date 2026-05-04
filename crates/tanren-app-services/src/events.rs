@@ -1,8 +1,9 @@
 //! Typed event payloads written to the canonical Tanren event log on
-//! every account-flow side effect. Payloads are serialised into the
-//! existing `events.payload` JSON column — no migration is required.
+//! every account-flow and organization-flow side effect. Payloads are
+//! serialised into the existing `events.payload` JSON column — no
+//! migration is required.
 //!
-//! Newtype IDs flow through transparently: `AccountId` /  `OrgId`
+//! Newtype IDs flow through transparently: `AccountId` / `OrgId`
 //! serialise as the bare UUID via `#[serde(transparent)]`, so the
 //! on-disk JSON shape is unchanged across the type substitution that
 //! lands in PR 3.
@@ -10,11 +11,14 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::AccountFailureReason;
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgAdminPermissions, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
-pub const EVENT_FAMILY: &str = "account";
+pub const ACCOUNT_EVENT_FAMILY: &str = "account";
+
+/// Tag on the JSON envelope for organization events.
+pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
 
 /// Closed taxonomy of account-flow event kinds.
 ///
@@ -54,6 +58,25 @@ impl AccountEventKind {
             Self::SignUpRejected => "sign_up_rejected",
             Self::SignInFailed => "sign_in_failed",
             Self::InvitationAcceptFailed => "invitation_accept_failed",
+        }
+    }
+}
+
+/// Closed taxonomy of organization-flow event kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OrganizationEventKind {
+    /// A new organization was created.
+    OrganizationCreated,
+}
+
+impl OrganizationEventKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OrganizationCreated => "organization_created",
         }
     }
 }
@@ -128,11 +151,37 @@ pub struct InvitationAcceptFailed {
     pub at: DateTime<Utc>,
 }
 
-/// Encode a typed event as the JSON envelope persisted in the event log.
+/// A new organization was created.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationCreated {
+    /// Stable organization id.
+    pub org_id: OrgId,
+    /// Account that created the organization.
+    pub creator_account_id: AccountId,
+    /// Bootstrap administrative permissions granted to the creator.
+    pub permissions: OrgAdminPermissions,
+    /// Wall-clock time the organization was created.
+    pub at: DateTime<Utc>,
+}
+
+/// Encode a typed account event as the JSON envelope persisted in the event log.
 #[must_use]
 pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
     serde_json::json!({
-        "family": EVENT_FAMILY,
+        "family": ACCOUNT_EVENT_FAMILY,
+        "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+/// Encode a typed organization event as the JSON envelope persisted in the event log.
+#[must_use]
+pub fn organization_envelope<T: Serialize>(
+    kind: OrganizationEventKind,
+    payload: &T,
+) -> serde_json::Value {
+    serde_json::json!({
+        "family": ORGANIZATION_EVENT_FAMILY,
         "kind": kind.as_str(),
         "payload": payload,
     })
