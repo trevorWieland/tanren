@@ -188,6 +188,9 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
+        self.session_token = payload["session"]["token"]
+            .as_str()
+            .map(|s| SecretString::from(s.to_owned()));
         let session = decode_session(&payload)?;
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
