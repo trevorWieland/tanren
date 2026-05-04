@@ -18,15 +18,21 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, CreateOrganizationRequest, OrganizationFailureReason,
+    OrganizationView, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::{AccountId, OrgAdminPermissions, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+use super::api_helpers::{
+    accept_invitation_body, failure_from_body, scenario_db_path, sign_in_body, sign_up_body,
+    sqlite_url,
+};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrgCreation, HarnessResult, HarnessSession,
 };
 
 /// `@api` wire harness.
@@ -35,8 +41,8 @@ pub struct ApiHarness {
     client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
-    /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
+    current_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for ApiHarness {
@@ -105,6 +111,7 @@ impl ApiHarness {
             store,
             server: Some(server),
             db_path,
+            current_account_id: None,
         })
     }
 }
@@ -160,6 +167,7 @@ impl AccountHarness for ApiHarness {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
+        self.current_account_id = Some(account.id);
         Ok(HarnessSession {
             account_id: account.id,
             account,
@@ -202,6 +210,7 @@ impl AccountHarness for ApiHarness {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
+        self.current_account_id = Some(account.id);
         Ok(HarnessSession {
             account_id: account.id,
             account,
@@ -370,74 +379,82 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
-}
 
-pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    p.push(format!(
-        "tanren-bdd-{prefix}-{}-{}.db",
-        std::process::id(),
-        uuid::Uuid::new_v4().simple()
-    ));
-    p
-}
-
-pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
-    format!("sqlite://{}?mode=rwc", path.display())
-}
-
-fn sign_up_body(req: &SignUpRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
-fn sign_in_body(req: &SignInRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-    })
-}
-
-fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
-pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
-    let code = json
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or("transport_error")
-        .to_owned();
-    let summary = json
-        .get("summary")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown failure")
-        .to_owned();
-    if let Some(reason) = code_to_reason(&code) {
-        HarnessError::Account(reason, summary)
-    } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
+    async fn create_organization(
+        &mut self,
+        request: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrgCreation> {
+        let body = serde_json::json!({ "name": request.name.as_str() });
+        let url = format!("{}/organizations", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /organizations: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        let organization: OrganizationView =
+            serde_json::from_value(json["organization"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode organization: {e}")))?;
+        let permissions: OrgAdminPermissions =
+            serde_json::from_value(json["membership_permissions"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode permissions: {e}")))?;
+        Ok(HarnessOrgCreation {
+            organization,
+            permissions,
+        })
     }
-}
 
-pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
-    Some(match code {
-        "duplicate_identifier" => AccountFailureReason::DuplicateIdentifier,
-        "invalid_credential" => AccountFailureReason::InvalidCredential,
-        "validation_failed" => AccountFailureReason::ValidationFailed,
-        "invitation_not_found" => AccountFailureReason::InvitationNotFound,
-        "invitation_expired" => AccountFailureReason::InvitationExpired,
-        "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
-        _ => return None,
-    })
+    async fn list_organizations(&mut self) -> HarnessResult<Vec<OrganizationView>> {
+        let url = format!("{}/organizations", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("GET /organizations: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json["organizations"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode organizations: {e}")))
+    }
+
+    async fn admin_permissions_for_org(
+        &mut self,
+        org_id: OrgId,
+    ) -> HarnessResult<OrgAdminPermissions> {
+        let account_id = self.current_account_id.ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::Unauthenticated,
+                "no current account".to_owned(),
+            )
+        })?;
+        let membership = AccountStore::find_membership(self.store.as_ref(), account_id, org_id)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("find_membership: {e}")))?;
+        Ok(match membership {
+            Some(m) => OrgAdminPermissions::from_bits(m.permissions),
+            None => OrgAdminPermissions {
+                invite: false,
+                manage_access: false,
+                configure: false,
+                set_policy: false,
+                delete: false,
+            },
+        })
+    }
 }

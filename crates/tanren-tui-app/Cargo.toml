@@ -11,6 +11,10 @@ description = "Library crate that hosts the tanren-tui runtime — terminal setu
 [lints]
 workspace = true
 
+[features]
+default = []
+test-hooks = []
+
 [dependencies]
 anyhow = { workspace = true }
 crossterm = { workspace = true }

@@ -45,7 +45,7 @@ impl OrgName {
     /// Returns [`IdentityError::Validation`] wrapping
     /// [`ValidationError::EmptyOrgName`] when the input is empty after
     /// trimming, or [`ValidationError::OrgNameTooLong`] when it exceeds
-    /// [`ORG_NAME_MAX_LEN`] bytes.
+    /// the maximum allowed length.
     pub fn parse(raw: &str) -> Result<Self, IdentityError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -125,5 +125,51 @@ impl OrgAdminPermissions {
     #[must_use]
     pub fn is_empty(self) -> bool {
         !self.invite && !self.manage_access && !self.configure && !self.set_policy && !self.delete
+    }
+
+    /// Encode the five boolean flags into a `u32` bitfield.
+    ///
+    /// Bit mapping (matches the persistence-layer comment in
+    /// `tanren_store::records::MembershipRecord::permissions`):
+    ///
+    /// | bit | flag           |
+    /// |-----|----------------|
+    /// | 0   | invite         |
+    /// | 1   | manage_access  |
+    /// | 2   | configure      |
+    /// | 3   | set_policy     |
+    /// | 4   | delete         |
+    #[must_use]
+    pub fn to_bits(self) -> u32 {
+        let mut bits = 0u32;
+        if self.invite {
+            bits |= 1 << 0;
+        }
+        if self.manage_access {
+            bits |= 1 << 1;
+        }
+        if self.configure {
+            bits |= 1 << 2;
+        }
+        if self.set_policy {
+            bits |= 1 << 3;
+        }
+        if self.delete {
+            bits |= 1 << 4;
+        }
+        bits
+    }
+
+    /// Decode a `u32` bitfield back into the five boolean flags.
+    /// Unknown bits are silently ignored.
+    #[must_use]
+    pub fn from_bits(bits: u32) -> Self {
+        Self {
+            invite: (bits & (1 << 0)) != 0,
+            manage_access: (bits & (1 << 1)) != 0,
+            configure: (bits & (1 << 2)) != 0,
+            set_policy: (bits & (1 << 3)) != 0,
+            delete: (bits & (1 << 4)) != 0,
+        }
     }
 }

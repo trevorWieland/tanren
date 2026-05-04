@@ -8,14 +8,18 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use secrecy::SecretString;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_contract::{
+    AcceptInvitationRequest, CreateOrganizationRequest, OrganizationFailureReason,
+    OrganizationView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{Argon2idVerifier, OrgAdminPermissions, SessionToken};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrgCreation, HarnessResult, HarnessSession,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -26,6 +30,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    session_token: Option<SecretString>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -63,6 +68,7 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            session_token: None,
         })
     }
 
@@ -74,6 +80,14 @@ impl InProcessHarness {
     pub fn store(&self) -> &Store {
         &self.store
     }
+
+    /// Borrow the underlying handlers. Exposed so `TuiHarness` can
+    /// call handlers directly to obtain raw session tokens for the
+    /// TUI driver.
+    #[must_use]
+    pub fn handlers(&self) -> &Handlers {
+        &self.handlers
+    }
 }
 
 #[async_trait]
@@ -84,24 +98,34 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.session_token = Some(SecretString::from(
+                    response.session.token.expose_secret().to_owned(),
+                ));
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.session_token = Some(SecretString::from(
+                    response.session.token.expose_secret().to_owned(),
+                ));
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -141,12 +165,94 @@ impl AccountHarness for InProcessHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn create_organization(
+        &mut self,
+        request: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrgCreation> {
+        let token = self.session_token.as_ref().ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::Unauthenticated,
+                "no session token stored".to_owned(),
+            )
+        })?;
+        let session_token = SessionToken::from_secret(token.clone());
+        match self
+            .handlers
+            .create_organization(&self.store, &session_token, request)
+            .await
+        {
+            Ok(response) => Ok(HarnessOrgCreation {
+                organization: response.organization,
+                permissions: response.membership_permissions,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn list_organizations(&mut self) -> HarnessResult<Vec<OrganizationView>> {
+        let token = self.session_token.as_ref().ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::Unauthenticated,
+                "no session token stored".to_owned(),
+            )
+        })?;
+        let session_token = SessionToken::from_secret(token.clone());
+        match self
+            .handlers
+            .list_organizations(&self.store, &session_token)
+            .await
+        {
+            Ok(response) => Ok(response.organizations),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn admin_permissions_for_org(
+        &mut self,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> HarnessResult<OrgAdminPermissions> {
+        let token_str = self.session_token.as_ref().ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::Unauthenticated,
+                "no session token stored".to_owned(),
+            )
+        })?;
+        let session_token = SessionToken::from_secret(token_str.clone());
+        let session = self
+            .store
+            .find_session_by_token(&session_token)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("find_session: {e}")))?
+            .ok_or_else(|| {
+                HarnessError::Organization(
+                    OrganizationFailureReason::Unauthenticated,
+                    "session not found".to_owned(),
+                )
+            })?;
+        let membership = AccountStore::find_membership(&self.store, session.account_id, org_id)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("find_membership: {e}")))?;
+        Ok(match membership {
+            Some(m) => OrgAdminPermissions::from_bits(m.permissions),
+            None => OrgAdminPermissions {
+                invite: false,
+                manage_access: false,
+                configure: false,
+                set_policy: false,
+                delete: false,
+            },
+        })
+    }
 }
 
-fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
+pub(super) fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Organization(reason) => {
+            HarnessError::Organization(reason, reason.code().to_owned())
+        }
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }

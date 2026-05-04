@@ -48,7 +48,7 @@ export const test = base.extend<{ world: WebWorld }>({
 
 const { Given, When, Then } = createBdd(test);
 
-function actor(world: WebWorld, name: string): ActorState {
+export function actor(world: WebWorld, name: string): ActorState {
   let state = world.actors.get(name);
   if (!state) {
     state = {};
@@ -72,6 +72,7 @@ When(
     const a = actor(world, name);
     a.email = email;
     a.password = password;
+    await page.context().clearCookies();
     await page.goto("/sign-up");
     await waitForHydration(page);
     await page.getByLabel(/email/i).fill(email);
@@ -110,9 +111,6 @@ Given(
     await page.getByRole("button", { name: /create account/i }).click();
     await page.waitForURL("/", { timeout: 10_000 });
     a.hasSession = true;
-    // Sign out for the next step by clearing cookies — the alternative
-    // (a real sign-out UI) lives in a future PR.
-    await page.context().clearCookies();
   },
 );
 

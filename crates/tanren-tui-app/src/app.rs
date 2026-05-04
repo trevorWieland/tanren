@@ -1,10 +1,4 @@
-//! TUI screen state machine and submit dispatch.
-//!
-//! Split out of `lib.rs` so the tui-app crate stays under the workspace
-//! 500-line line-budget. Keeps the screen enum, the `App` struct, and
-//! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
-
+//! TUI screen state machine; key handlers in `app_input.rs`, rendering in `draw.rs`.
 use std::env;
 use std::io::Stdout;
 use std::sync::Arc;
@@ -19,13 +13,16 @@ use tanren_contract::OrganizationView;
 use tanren_identity_policy::SessionToken;
 use tokio::runtime::Runtime;
 
+use crate::FormState;
+use crate::app_input::{
+    DashboardOutcome, Effect, FormAction, FormKind, handle_dashboard_key, handle_form_key,
+    handle_menu_key, is_press,
+};
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, org_create_fields,
-    parse_accept_invitation, parse_org_create, parse_sign_in, parse_sign_up, render_error,
-    sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_outcome, parse_accept_invitation, parse_org_create, parse_sign_in,
+    parse_sign_up, render_error, sign_in_outcome, sign_up_outcome,
 };
-use crate::{DashboardChoice, FormState, MenuChoice};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
@@ -138,6 +135,7 @@ impl App {
         self.session_token.as_ref()
     }
 
+    #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) fn navigate_to_dashboard(&mut self) {
         self.screen = Screen::Dashboard { selected: 0 };
     }
@@ -499,126 +497,4 @@ impl App {
             } => draw::draw_org_list(frame, area, orgs, *selected, error.as_deref()),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FormKind {
-    SignUp,
-    SignIn,
-    AcceptInvitation,
-    OrgCreate,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FormAction {
-    Submit,
-    Cancel,
-}
-
-#[derive(Debug)]
-enum Effect {
-    None,
-    Exit,
-    ReplaceScreen(Screen),
-    Form(FormAction, FormKind),
-    NavigateToOrgList,
-}
-
-enum DashboardOutcome {
-    None,
-    Exit,
-    Screen(Screen),
-    NavigateToOrgList,
-}
-
-fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
-    match key.code {
-        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return true,
-        KeyCode::Up => {
-            if *selected == 0 {
-                *selected = MenuChoice::ALL.len() - 1;
-            } else {
-                *selected -= 1;
-            }
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            *selected = (*selected + 1) % MenuChoice::ALL.len();
-        }
-        KeyCode::Enter => {
-            let choice = MenuChoice::ALL[*selected];
-            *next = Some(match choice {
-                MenuChoice::SignUp => Screen::SignUp(FormState::new(sign_up_fields())),
-                MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
-                MenuChoice::AcceptInvitation => {
-                    Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
-                }
-            });
-        }
-        _ => {}
-    }
-    false
-}
-
-fn handle_dashboard_key(
-    selected: &mut usize,
-    key: KeyEvent,
-    session_present: bool,
-) -> DashboardOutcome {
-    if !session_present {
-        return DashboardOutcome::Screen(Screen::Menu { selected: 0 });
-    }
-    match key.code {
-        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return DashboardOutcome::Exit,
-        KeyCode::Up => {
-            if *selected == 0 {
-                *selected = DashboardChoice::ALL.len() - 1;
-            } else {
-                *selected -= 1;
-            }
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            *selected = (*selected + 1) % DashboardChoice::ALL.len();
-        }
-        KeyCode::Enter => {
-            let choice = DashboardChoice::ALL[*selected];
-            return match choice {
-                DashboardChoice::CreateOrganization => {
-                    DashboardOutcome::Screen(Screen::OrgCreate(FormState::new(org_create_fields())))
-                }
-                DashboardChoice::ListOrganizations => DashboardOutcome::NavigateToOrgList,
-                DashboardChoice::SignOut => DashboardOutcome::Exit,
-            };
-        }
-        _ => {}
-    }
-    DashboardOutcome::None
-}
-
-fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
-    match key.code {
-        KeyCode::Esc => Some(FormAction::Cancel),
-        KeyCode::Enter => Some(FormAction::Submit),
-        KeyCode::Tab | KeyCode::Down => {
-            state.cycle_focus(true);
-            None
-        }
-        KeyCode::BackTab | KeyCode::Up => {
-            state.cycle_focus(false);
-            None
-        }
-        KeyCode::Backspace => {
-            state.pop_char();
-            None
-        }
-        KeyCode::Char(c) => {
-            state.push_char(c);
-            None
-        }
-        _ => None,
-    }
-}
-
-fn is_press(key: &KeyEvent) -> bool {
-    use crossterm::event::KeyEventKind;
-    matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }

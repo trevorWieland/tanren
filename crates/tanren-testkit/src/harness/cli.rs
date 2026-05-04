@@ -16,17 +16,22 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CreateOrganizationRequest, OrganizationView,
+    SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Identifier, OrgAdminPermissions, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api_helpers::{code_to_reason, org_code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrgCreation, HarnessResult, HarnessSession,
 };
+
+const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
 /// `@cli` wire harness.
 pub struct CliHarness {
@@ -34,6 +39,8 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    session_file: PathBuf,
+    current_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -68,11 +75,19 @@ impl CliHarness {
 
         let binary = locate_workspace_binary("tanren-cli")?;
 
+        let session_file = std::env::temp_dir().join(format!(
+            "tanren-bdd-cli-session-{}-{}",
+            std::process::id(),
+            Uuid::new_v4().simple()
+        ));
+
         Ok(Self {
             store,
             db_path,
             db_url,
             binary,
+            session_file,
+            current_account_id: None,
         })
     }
 }
@@ -80,6 +95,7 @@ impl CliHarness {
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_file);
     }
 }
 
@@ -103,6 +119,7 @@ impl AccountHarness for CliHarness {
                 "--display-name",
                 &req.display_name,
             ])
+            .env(SESSION_FILE_ENV, &self.session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -114,6 +131,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
+            self.current_account_id = Some(account.id);
             HarnessSession {
                 account_id: account.id,
                 account,
@@ -135,6 +153,7 @@ impl AccountHarness for CliHarness {
                 "--password",
                 req.password.expose_secret(),
             ])
+            .env(SESSION_FILE_ENV, &self.session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -145,11 +164,14 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| {
+            self.current_account_id = Some(account.id);
+            HarnessSession {
+                account_id: account.id,
+                account,
+                expires_at: Utc::now() + Duration::days(30),
+                has_token,
+            }
         })
     }
 
@@ -172,6 +194,7 @@ impl AccountHarness for CliHarness {
                 "--invitation",
                 req.invitation_token.as_str(),
             ])
+            .env(SESSION_FILE_ENV, &self.session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -184,10 +207,6 @@ impl AccountHarness for CliHarness {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
         let joined_org = parse_joined_org(&stdout)?;
-        // The CLI binary returns the AccountView reconstituted from
-        // the row; re-decorate it with `org = Some(joined_org)` to
-        // mirror the api/in-process surface where the account view
-        // already carries the org id.
         let account = AccountView {
             org: Some(joined_org),
             ..account
@@ -219,6 +238,75 @@ impl AccountHarness for CliHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn create_organization(
+        &mut self,
+        request: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrgCreation> {
+        let output = Command::new(&self.binary)
+            .args([
+                "org",
+                "create",
+                "--database-url",
+                &self.db_url,
+                "--name",
+                request.name.as_str(),
+            ])
+            .env(SESSION_FILE_ENV, &self.session_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli org create: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_org_create_response(&stdout)
+    }
+
+    async fn list_organizations(&mut self) -> HarnessResult<Vec<OrganizationView>> {
+        let output = Command::new(&self.binary)
+            .args(["org", "list", "--database-url", &self.db_url])
+            .env(SESSION_FILE_ENV, &self.session_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli org list: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_org_list_response(&stdout)
+    }
+
+    async fn admin_permissions_for_org(
+        &mut self,
+        org_id: OrgId,
+    ) -> HarnessResult<OrgAdminPermissions> {
+        let account_id = self.current_account_id.ok_or_else(|| {
+            HarnessError::Organization(
+                tanren_contract::OrganizationFailureReason::Unauthenticated,
+                "no current account".to_owned(),
+            )
+        })?;
+        let membership = AccountStore::find_membership(self.store.as_ref(), account_id, org_id)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("find_membership: {e}")))?;
+        Ok(match membership {
+            Some(m) => OrgAdminPermissions::from_bits(m.permissions),
+            None => OrgAdminPermissions {
+                invite: false,
+                manage_access: false,
+                configure: false,
+                set_policy: false,
+                delete: false,
+            },
+        })
     }
 }
 
@@ -270,14 +358,25 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
     let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
+        }
+        if let Some(reason) = org_code_to_reason(code) {
+            return HarnessError::Organization(reason, summary);
+        }
+    }
+    let session_re = Regex::new(r"code:\s*([a-z_]+)").expect("constant regex");
+    if let Some(captures) = session_re.captures(&text) {
+        let code = captures.get(1).map_or("", |m| m.as_str());
+        if let Some(reason) = org_code_to_reason(code) {
+            return HarnessError::Organization(reason, code.to_owned());
+        }
+        if let Some(reason) = code_to_reason(code) {
+            return HarnessError::Account(reason, code.to_owned());
         }
     }
     HarnessError::Transport(text.into_owned())
@@ -326,4 +425,39 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
     Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
         HarnessError::Transport(format!("parse org id: {e}"))
     })?))
+}
+
+fn parse_org_create_response(stdout: &str) -> HarnessResult<HarnessOrgCreation> {
+    let line = stdout
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .ok_or_else(|| {
+            HarnessError::Transport(format!("no JSON line in org create stdout: {stdout}"))
+        })?;
+    let response: serde_json::Value = serde_json::from_str(line.trim())
+        .map_err(|e| HarnessError::Transport(format!("parse org create JSON: {e}")))?;
+    let organization: OrganizationView =
+        serde_json::from_value(response["organization"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode organization: {e}")))?;
+    let permissions: OrgAdminPermissions =
+        serde_json::from_value(response["membership_permissions"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode permissions: {e}")))?;
+    Ok(HarnessOrgCreation {
+        organization,
+        permissions,
+    })
+}
+
+fn parse_org_list_response(stdout: &str) -> HarnessResult<Vec<OrganizationView>> {
+    let mut orgs = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('{') {
+            continue;
+        }
+        let org: OrganizationView = serde_json::from_str(trimmed)
+            .map_err(|e| HarnessError::Transport(format!("parse org list JSON: {e}")))?;
+        orgs.push(org);
+    }
+    Ok(orgs)
 }

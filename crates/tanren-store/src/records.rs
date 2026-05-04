@@ -94,7 +94,7 @@ pub struct MembershipRecord {
     /// Wall-clock time the membership was created.
     pub created_at: DateTime<Utc>,
     /// Permission bitfield. Bits map to [`tanren_identity_policy::OrgAdminPermissions`]
-    /// flags (invite=0, manage_access=1, configure=2, set_policy=3, delete=4).
+    /// flags (invite=0, `manage_access=1`, configure=2, `set_policy=3`, delete=4).
     pub permissions: u32,
 }
 
@@ -113,7 +113,7 @@ impl From<entity::memberships::Model> for MembershipRecord {
 /// Persisted organization row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrganizationRecord {
-    /// Stable organization id (UUIDv7).
+    /// Stable organization id (`UUIDv7`).
     pub id: OrgId,
     /// Display name as entered by the creator.
     pub name: String,

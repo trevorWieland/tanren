@@ -173,6 +173,7 @@ async fn insert_membership_in_txn(
         account_id: Set(account_uuid),
         org_id: Set(inviting_org_id.as_uuid()),
         created_at: Set(now),
+        permissions: Set(0i64),
     };
     model.insert(txn).await.map_err(StoreError::from)?;
     Ok(())

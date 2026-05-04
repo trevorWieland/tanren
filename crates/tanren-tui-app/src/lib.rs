@@ -19,7 +19,9 @@
 //! `tanren-app-services` (no cookie jar to use).
 
 mod app;
+mod app_input;
 mod draw;
+pub mod harness;
 mod ui;
 
 use std::io::{Stdout, stdout};
@@ -102,6 +104,29 @@ impl MenuChoice {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DashboardChoice {
+    CreateOrganization,
+    ListOrganizations,
+    SignOut,
+}
+
+impl DashboardChoice {
+    pub(crate) const ALL: [Self; 3] = [
+        Self::CreateOrganization,
+        Self::ListOrganizations,
+        Self::SignOut,
+    ];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::CreateOrganization => "Create organization",
+            Self::ListOrganizations => "List organizations",
+            Self::SignOut => "Sign out",
         }
     }
 }

@@ -375,6 +375,16 @@ impl AccountStore for Store {
             .await?;
         Ok(row.map(MembershipRecord::from))
     }
+
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
+    }
 }
 
 /// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature

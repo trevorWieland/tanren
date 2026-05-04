@@ -19,6 +19,7 @@ Feature: Create an organization
       When alice creates an organization named "Acme-api"
       Then the response includes full bootstrap permissions
       And "Acme-api" appears in alice's organization list
+      And a "organization_created" event is recorded
 
     @falsification @api
     Scenario: API rejects unsigned-in organization creation
@@ -36,7 +37,7 @@ Feature: Create an organization
 
     @positive @web
     Scenario: Web org creation grants full bootstrap permissions and lists the org
-      Given alice has signed up with email "alice-web@example.com" and password "p4ssw0rd"
+      Given alice has signed up with email "alice-web-66@example.com" and password "p4ssw0rd"
       When alice creates an organization named "Acme-web"
       Then the response includes full bootstrap permissions
       And "Acme-web" appears in alice's organization list
@@ -48,9 +49,9 @@ Feature: Create an organization
 
     @falsification @web
     Scenario: Web other account has empty admin permissions on a freshly created org
-      Given alice has signed up with email "alice-web-other@example.com" and password "p4ssw0rd"
+      Given alice has signed up with email "alice-web-66a@example.com" and password "p4ssw0rd"
       And alice has created an organization named "Acme-web-other"
-      When bob self-signs up with email "bob-web-other@example.com" and password "p4ssw0rd"
+      When bob self-signs up with email "bob-web-66b@example.com" and password "p4ssw0rd"
       Then bob's admin permissions on "Acme-web-other" are empty
 
   Rule: CLI surface

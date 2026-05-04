@@ -14,4 +14,5 @@ allowed_files = [
   "crates/tanren-store/src/entity/events.rs",
   "crates/tanren-store/src/entity/invitations.rs",
   "crates/tanren-store/src/entity/memberships.rs",
+  "crates/tanren-store/src/entity/organizations.rs",
 ]

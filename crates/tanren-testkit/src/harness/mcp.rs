@@ -15,15 +15,19 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CreateOrganizationRequest, OrganizationFailureReason,
+    OrganizationView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{OrgAdminPermissions, SessionToken};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api_helpers::{code_to_reason, org_code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrgCreation, HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -34,6 +38,7 @@ pub struct McpHarness {
     db_path: PathBuf,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    session_token: Option<SecretString>,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -96,6 +101,7 @@ impl McpHarness {
             db_path,
             client: Some(client),
             server: Some(server),
+            session_token: None,
         })
     }
 
@@ -153,6 +159,9 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
+        self.session_token = payload["session"]["token"]
+            .as_str()
+            .map(|s| SecretString::from(s.to_owned()));
         decode_session(&payload)
     }
 
@@ -162,6 +171,9 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
+        self.session_token = payload["session"]["token"]
+            .as_str()
+            .map(|s| SecretString::from(s.to_owned()));
         decode_session(&payload)
     }
 
@@ -201,6 +213,85 @@ impl AccountHarness for McpHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn create_organization(
+        &mut self,
+        request: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrgCreation> {
+        let token = self
+            .session_token
+            .as_ref()
+            .map(|t| t.expose_secret().to_owned())
+            .unwrap_or_default();
+        let body = serde_json::json!({
+            "session_token": token,
+            "name": request.name.as_str(),
+        });
+        let payload = self.call_tool("create_organization", body).await?;
+        let organization: OrganizationView =
+            serde_json::from_value(payload["organization"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode organization: {e}")))?;
+        let permissions: OrgAdminPermissions =
+            serde_json::from_value(payload["membership_permissions"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode permissions: {e}")))?;
+        Ok(HarnessOrgCreation {
+            organization,
+            permissions,
+        })
+    }
+
+    async fn list_organizations(&mut self) -> HarnessResult<Vec<OrganizationView>> {
+        let token = self
+            .session_token
+            .as_ref()
+            .map(|t| t.expose_secret().to_owned())
+            .unwrap_or_default();
+        let body = serde_json::json!({
+            "session_token": token,
+        });
+        let payload = self.call_tool("list_organizations", body).await?;
+        let orgs: Vec<OrganizationView> = serde_json::from_value(payload["organizations"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode organizations: {e}")))?;
+        Ok(orgs)
+    }
+
+    async fn admin_permissions_for_org(
+        &mut self,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> HarnessResult<OrgAdminPermissions> {
+        let token_str = self.session_token.as_ref().ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::Unauthenticated,
+                "no session token stored".to_owned(),
+            )
+        })?;
+        let session_token = SessionToken::from_secret(token_str.clone());
+        let session = self
+            .store
+            .find_session_by_token(&session_token)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("find_session: {e}")))?
+            .ok_or_else(|| {
+                HarnessError::Organization(
+                    OrganizationFailureReason::Unauthenticated,
+                    "session not found".to_owned(),
+                )
+            })?;
+        let membership =
+            AccountStore::find_membership(self.store.as_ref(), session.account_id, org_id)
+                .await
+                .map_err(|e| HarnessError::Transport(format!("find_membership: {e}")))?;
+        Ok(match membership {
+            Some(m) => OrgAdminPermissions::from_bits(m.permissions),
+            None => OrgAdminPermissions {
+                invite: false,
+                manage_access: false,
+                configure: false,
+                set_policy: false,
+                delete: false,
+            },
+        })
     }
 }
 
@@ -245,6 +336,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = org_code_to_reason(&code) {
+        HarnessError::Organization(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }

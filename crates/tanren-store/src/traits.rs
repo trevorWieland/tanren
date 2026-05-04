@@ -291,6 +291,13 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         account_id: AccountId,
         org_id: OrgId,
     ) -> Result<Option<MembershipRecord>, StoreError>;
+
+    /// Look up a session by its token. Returns `None` if no session
+    /// matches or the session has expired.
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].

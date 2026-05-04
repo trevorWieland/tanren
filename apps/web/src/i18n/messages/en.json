@@ -42,5 +42,18 @@
   "failure_invitation_expired": "This invitation has expired.",
   "failure_unavailable": "Tanren is temporarily unavailable. Please try again shortly.",
   "failure_internal_error": "Something went wrong. Please try again.",
-  "failure_fallback": "Request failed."
+  "failure_fallback": "Request failed.",
+  "orgs_title": "Your organizations",
+  "orgs_empty": "You are not a member of any organizations yet.",
+  "orgs_createNew": "Create organization",
+  "orgCreate_title": "Create a new organization",
+  "orgCreate_name": "Organization name",
+  "orgCreate_submit": "Create organization",
+  "orgCreate_submitting": "Creating…",
+  "orgCreate_required": "Organization name is required.",
+  "orgCreate_failed": "Could not create organization.",
+  "orgCreate_formLabel": "Create organization form",
+  "failure_duplicate_name": "An organization with this name already exists.",
+  "failure_unauthenticated": "You must be signed in to perform this action.",
+  "failure_not_authorized": "You are not authorized to perform this action."
 }

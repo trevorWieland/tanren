@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use tanren_identity_policy::AccountId;
+use tanren_identity_policy::{AccountId, SessionToken};
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, Session, SessionManagerLayer};
@@ -19,14 +19,16 @@ const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
 const SESSION_KEY_ACCOUNT: &str = "account_id";
 const SESSION_KEY_EXPIRES: &str = "expires_at";
+const SESSION_KEY_TOKEN: &str = "session_token";
 
 /// `(account_id, expires_at)` projection of a freshly minted session.
 /// All three account-flow handlers pass this into
 /// [`install_cookie_session`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct SessionWrite {
     pub(crate) account_id: AccountId,
     pub(crate) expires_at: DateTime<Utc>,
+    pub(crate) token: SessionToken,
 }
 
 /// Insert the account id and expiry into the tower-sessions row backing
@@ -41,6 +43,10 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .insert(SESSION_KEY_EXPIRES, write.expires_at)
         .await
         .context("insert expires_at into session")?;
+    session
+        .insert(SESSION_KEY_TOKEN, write.token.clone())
+        .await
+        .context("insert session token into session")?;
     Ok(())
 }
 
@@ -123,4 +129,12 @@ pub(crate) fn session_layer_with_secure(store: CookieStore, secure: bool) -> Ses
 pub(crate) enum SessionLayerEnum {
     Sqlite(SessionManagerLayer<SqliteStore>),
     Postgres(SessionManagerLayer<PostgresStore>),
+}
+
+pub(crate) async fn extract_session_token(session: &Session) -> Option<SessionToken> {
+    session
+        .get::<SessionToken>(SESSION_KEY_TOKEN)
+        .await
+        .ok()
+        .flatten()
 }

@@ -16,6 +16,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_identity_policy::OrgId;
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -69,6 +70,10 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Organization name → id map, populated when an org is created
+    /// within the scenario so that subsequent permission-introspection
+    /// steps can resolve the org by name.
+    pub orgs_by_name: HashMap<String, OrgId>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -80,6 +85,10 @@ impl std::fmt::Debug for AccountContext {
             .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
+            )
+            .field(
+                "orgs_by_name",
+                &self.orgs_by_name.keys().collect::<Vec<_>>(),
             )
             .finish()
     }
@@ -119,6 +128,7 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            orgs_by_name: HashMap::new(),
         }
     }
 }
@@ -128,7 +138,9 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::SignedUp(_) => "SignedUp",
         HarnessOutcome::SignedIn(_) => "SignedIn",
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
+        HarnessOutcome::OrgCreated(_) => "OrgCreated",
         HarnessOutcome::Failure(_) => "Failure",
+        HarnessOutcome::OrgFailure(_) => "OrgFailure",
         HarnessOutcome::Other(_) => "Other",
     }
 }

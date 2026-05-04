@@ -25,6 +25,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
+crossterm = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["cookies"] }
 rmcp = { workspace = true, features = [
@@ -43,6 +44,7 @@ tanren-identity-policy = { path = "../tanren-identity-policy", features = [
 ] }
 tanren-mcp-app = { path = "../tanren-mcp-app", features = ["test-hooks"] }
 tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
+tanren-tui-app = { path = "../tanren-tui-app", features = ["test-hooks"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
 uuid = { workspace = true }

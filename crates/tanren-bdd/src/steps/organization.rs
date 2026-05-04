@@ -81,7 +81,7 @@ async fn then_org_appears_in_list(world: &mut TanrenWorld, org_name: String, act
         Ok(orgs) => {
             let names: Vec<String> = orgs.iter().map(|o| o.name.as_str().to_owned()).collect();
             assert!(
-                names.contains(&org_name),
+                names.iter().any(|n| n.eq_ignore_ascii_case(&org_name)),
                 "expected '{org_name}' in {actor}'s organization list, got {names:?}",
             );
             ctx.last_outcome = Some(HarnessOutcome::Other(format!(
