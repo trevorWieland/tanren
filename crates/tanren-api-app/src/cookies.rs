@@ -146,3 +146,11 @@ pub(crate) async fn extract_account_id(session: &Session) -> Option<AccountId> {
         .ok()
         .flatten()
 }
+
+pub(crate) async fn extract_session_expires_at(session: &Session) -> Option<DateTime<Utc>> {
+    session
+        .get::<DateTime<Utc>>(SESSION_KEY_EXPIRES)
+        .await
+        .ok()
+        .flatten()
+}

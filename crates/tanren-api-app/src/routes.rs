@@ -24,7 +24,8 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{
-    SessionWrite, extract_account_id, extract_session_token, install_cookie_session,
+    SessionWrite, extract_account_id, extract_session_expires_at, extract_session_token,
+    install_cookie_session,
 };
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
@@ -340,6 +341,12 @@ async fn require_auth(
     let Some(account_id) = extract_account_id(session).await else {
         return Err(unauthenticated());
     };
+    let Some(expires_at) = extract_session_expires_at(session).await else {
+        return Err(unauthenticated());
+    };
+    if expires_at <= chrono::Utc::now() {
+        return Err(unauthenticated());
+    }
     let now = chrono::Utc::now();
     match store.find_latest_session_for_account(account_id, now).await {
         Ok(Some(record)) => Ok(record.token),
