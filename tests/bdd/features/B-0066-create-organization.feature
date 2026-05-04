@@ -68,6 +68,14 @@ Feature: Create an organization
       When an unsigned-in attempt creates an organization named "Ghost-cli"
       Then the request fails with code "unauthenticated"
 
+    @positive @cli
+    Scenario: CLI invitation-accepted account tracks current identity for admin permission checks
+      Given alice has signed up with email "alice-cli-inv@example.com" and password "p4ssw0rd"
+      And alice has created an organization named "Acme-cli-inv"
+      And a pending invitation token "cli-inv-org-token-padpad"
+      When bob accepts invitation "cli-inv-org-token-padpad" with password "team-pw"
+      Then bob's admin permissions on "Acme-cli-inv" are empty
+
     @falsification @cli
     Scenario: CLI other account has empty admin permissions on a freshly created org
       Given alice has signed up with email "alice-cli-other@example.com" and password "p4ssw0rd"

@@ -369,6 +369,8 @@ check:
 # registry) is exercised by Rust unit tests inside tanren-bdd — those are
 # the only `#[test]` items in the workspace, enforced by
 # `just check-rust-test-surface`.
+alias bdd := tests
+
 tests:
     #!/usr/bin/env bash
     set -euo pipefail
