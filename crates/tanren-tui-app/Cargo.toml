@@ -12,11 +12,12 @@ description = "Library crate that hosts the tanren-tui runtime — terminal setu
 workspace = true
 
 [dependencies]
-anyhow = { workspace = true }
-crossterm = { workspace = true }
-ratatui = { workspace = true }
-secrecy = { workspace = true }
-tanren-app-services = { path = "../tanren-app-services" }
-tanren-contract = { path = "../tanren-contract" }
-tanren-identity-policy = { path = "../tanren-identity-policy" }
-tokio = { workspace = true }
+ anyhow = { workspace = true }
+ crossterm = { workspace = true }
+ ratatui = { workspace = true }
+ secrecy = { workspace = true }
+ tanren-app-services = { path = "../tanren-app-services" }
+ tanren-contract = { path = "../tanren-contract" }
+ tanren-domain = { path = "../tanren-domain" }
+ tanren-identity-policy = { path = "../tanren-identity-policy" }
+ tokio = { workspace = true }

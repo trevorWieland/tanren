@@ -17,5 +17,7 @@ clap = { workspace = true }
 secrecy = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
+tanren-domain = { path = "../tanren-domain" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 tokio = { workspace = true }
+uuid = { workspace = true }

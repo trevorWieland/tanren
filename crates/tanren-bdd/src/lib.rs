@@ -3,7 +3,7 @@
 //! This is the only crate in the workspace permitted to define `#[test]`
 //! items — `xtask check-rust-test-surface` mechanically rejects them
 //! anywhere else. R-0001 sub-9 rewires the step bodies to dispatch
-//! through the per-interface [`AccountHarness`] trait in
+//! through the per-interface `AccountHarness` trait in
 //! `tanren-testkit`, so the surface under proof matches the scenario's
 //! interface tag — `@api` drives reqwest, `@cli` drives the binary,
 //! `@mcp` drives the rmcp client, etc. `xtask check-bdd-wire-coverage`
@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use tanren_testkit::{
-    AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
+    ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome, HarnessWrapper,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
 };
 
@@ -61,7 +61,7 @@ impl TanrenWorld {
 /// state lives inside the harness implementation.
 pub struct AccountContext {
     /// Active wire harness for the current scenario.
-    pub harness: Box<dyn AccountHarness>,
+    pub harness: HarnessWrapper,
     /// Registry of actors by display name.
     pub actors: HashMap<String, ActorState>,
     /// The most recent action's outcome.
@@ -69,6 +69,10 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Last posture list result from `When the actor lists available postures`.
+    pub last_posture_list: Option<Vec<tanren_contract::PostureView>>,
+    /// Last single-posture result from get/set posture steps.
+    pub last_posture: Option<tanren_contract::PostureView>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -81,6 +85,8 @@ impl std::fmt::Debug for AccountContext {
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
             )
+            .field("last_posture_list", &self.last_posture_list.is_some())
+            .field("last_posture", &self.last_posture)
             .finish()
     }
 }
@@ -99,26 +105,35 @@ impl AccountContext {
     /// so it surfaces during the first step rather than blocking
     /// scenario discovery.
     pub async fn new_for(kind: HarnessKind) -> Self {
-        let harness: Box<dyn AccountHarness> = match kind {
-            HarnessKind::InProcess => Box::new(
+        let harness = match kind {
+            HarnessKind::InProcess => HarnessWrapper::InProcess(
                 InProcessHarness::new(kind)
                     .await
                     .expect("ephemeral SQLite must connect for BDD"),
             ),
-            HarnessKind::Api => Box::new(ApiHarness::spawn().await.expect("ApiHarness::spawn")),
-            HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
-            HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
-            HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
-            HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
+            HarnessKind::Api => {
+                HarnessWrapper::Api(ApiHarness::spawn().await.expect("ApiHarness::spawn"))
+            }
+            HarnessKind::Cli => {
+                HarnessWrapper::Cli(CliHarness::spawn().await.expect("CliHarness::spawn"))
+            }
+            HarnessKind::Mcp => {
+                HarnessWrapper::Mcp(McpHarness::spawn().await.expect("McpHarness::spawn"))
+            }
+            HarnessKind::Tui => {
+                HarnessWrapper::Tui(TuiHarness::spawn().await.expect("TuiHarness::spawn"))
+            }
+            HarnessKind::Web => {
+                HarnessWrapper::Web(WebHarness::spawn().await.expect("WebHarness::spawn"))
+            }
         };
         Self {
             harness,
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            last_posture_list: None,
+            last_posture: None,
         }
     }
 }

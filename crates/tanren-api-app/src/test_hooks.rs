@@ -27,7 +27,10 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tanren_identity_policy::{InvitationToken, OrgId};
 use tanren_store::{NewInvitation, Store};
+use tower_sessions::Session;
 use uuid::Uuid;
+
+use crate::cookies::SESSION_KEY_POSTURE_ADMIN;
 
 /// Request body for `POST /test-hooks/invitations`.
 #[derive(Debug, Deserialize)]
@@ -64,10 +67,24 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+pub(crate) async fn grant_posture_admin_route(
+    session: Session,
+) -> Result<StatusCode, (StatusCode, String)> {
+    session
+        .insert(SESSION_KEY_POSTURE_ADMIN, true)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route(
+            "/test-hooks/grant-posture-admin",
+            post(grant_posture_admin_route),
+        )
         .with_state(store)
 }

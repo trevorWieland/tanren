@@ -386,35 +386,33 @@ pub struct PostureHarnessActor {
     pub posture_admin: bool,
 }
 
-/// Per-interface seam for posture BDD scenarios. Parallel to
-/// [`AccountHarness`]; every implementation drives the matching real
-/// surface end-to-end. Step bodies dispatch through this trait — never
-/// `tanren_app_services::Handlers::*` directly — so `xtask
-/// check-bdd-wire-coverage` accepts the posture steps.
+/// Per-interface seam for posture BDD scenarios. Every implementation
+/// drives the matching real surface end-to-end.
 #[async_trait]
 pub trait PostureHarness: Send + std::fmt::Debug {
-    /// Identifier for diagnostic output.
     fn kind(&self) -> HarnessKind;
 
-    /// List all available deployment postures with capability summaries.
     async fn list_postures(&mut self) -> HarnessResult<ListPosturesResponse>;
 
-    /// Get the current deployment posture. Returns the full response on
-    /// success; callers map [`HarnessError::Posture`] to detect
-    /// `not_configured`.
     async fn get_posture(&mut self) -> HarnessResult<GetPostureResponse>;
 
-    /// Set the deployment posture. The actor must have `posture_admin`
-    /// permission for the operation to succeed.
     async fn set_posture(
         &mut self,
         actor: PostureHarnessActor,
         posture: Posture,
     ) -> HarnessResult<SetPostureResponse>;
+
+    /// Set posture using a raw string so unsupported values flow through
+    /// the real surface and exercise the actual rejection path.
+    async fn set_posture_raw(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture_str: String,
+    ) -> HarnessResult<SetPostureResponse>;
 }
 
 /// Concrete harness wrapper that stores a single harness instance and
-/// provides both [`AccountHarness`] (via [`Deref`]/[`DerefMut`]) and
+/// provides both `AccountHarness` (via `Deref`/`DerefMut`) and
 /// [`PostureHarness`] (via [`HarnessWrapper::posture`]) access.
 /// This avoids creating two separate harness instances with separate
 /// backing stores — the same store is shared for both trait dispatches.

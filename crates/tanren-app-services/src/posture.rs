@@ -41,36 +41,12 @@ pub struct Actor {
 
 fn capabilities_for_posture(posture: Posture) -> Vec<CapabilitySummary> {
     use CapabilityAvailability::{Available, Unavailable};
-    use CapabilityCategory::*;
+    use CapabilityCategory::{
+        Collaboration, Compute, Networking, ProviderIntegration, Secrets, Storage,
+    };
 
     match posture {
-        Posture::Hosted => vec![
-            CapabilitySummary {
-                category: Compute,
-                availability: Available,
-            },
-            CapabilitySummary {
-                category: Storage,
-                availability: Available,
-            },
-            CapabilitySummary {
-                category: Networking,
-                availability: Available,
-            },
-            CapabilitySummary {
-                category: Collaboration,
-                availability: Available,
-            },
-            CapabilitySummary {
-                category: Secrets,
-                availability: Available,
-            },
-            CapabilitySummary {
-                category: ProviderIntegration,
-                availability: Available,
-            },
-        ],
-        Posture::SelfHosted => vec![
+        Posture::Hosted | Posture::SelfHosted => vec![
             CapabilitySummary {
                 category: Compute,
                 availability: Available,
@@ -186,21 +162,18 @@ where
         ));
     }
 
-    let posture = match Posture::parse(posture_str) {
-        Ok(p) => p,
-        Err(_) => {
-            emit_rejected(
-                store,
-                actor.account_id,
-                PostureFailureReason::UnsupportedPosture,
-                posture_str,
-                now,
-            )
-            .await?;
-            return Err(AppServiceError::Posture(
-                PostureFailureReason::UnsupportedPosture,
-            ));
-        }
+    let Ok(posture) = Posture::parse(posture_str) else {
+        emit_rejected(
+            store,
+            actor.account_id,
+            PostureFailureReason::UnsupportedPosture,
+            posture_str,
+            now,
+        )
+        .await?;
+        return Err(AppServiceError::Posture(
+            PostureFailureReason::UnsupportedPosture,
+        ));
     };
 
     let current = store.current_posture().await?;

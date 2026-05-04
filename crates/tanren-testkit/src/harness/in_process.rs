@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, GetPostureResponse, ListPosturesResponse, SetPostureRequest,
-    SetPostureResponse, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, GetPostureResponse, ListPosturesResponse, SetPostureResponse,
+    SignInRequest, SignUpRequest,
 };
 use tanren_domain::Posture;
 use tanren_identity_policy::Argon2idVerifier;
@@ -151,6 +151,7 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Posture(reason) => HarnessError::Posture(reason, reason.code().to_owned()),
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }
@@ -181,15 +182,22 @@ impl PostureHarness for InProcessHarness {
         actor: PostureHarnessActor,
         posture: Posture,
     ) -> HarnessResult<SetPostureResponse> {
+        self.set_posture_raw(actor, posture.to_string()).await
+    }
+
+    async fn set_posture_raw(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture_str: String,
+    ) -> HarnessResult<SetPostureResponse> {
         let app_actor = tanren_app_services::posture::Actor {
             account_id: actor.account_id,
             permissions: tanren_app_services::posture::Permissions {
                 posture_admin: actor.posture_admin,
             },
         };
-        let request = SetPostureRequest { posture };
         self.handlers
-            .set_posture(&self.store, app_actor, request)
+            .set_posture_raw(&self.store, app_actor, &posture_str)
             .await
             .map_err(translate_app_error)
     }

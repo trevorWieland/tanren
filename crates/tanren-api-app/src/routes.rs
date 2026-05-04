@@ -337,18 +337,15 @@ const SESSION_KEY_ACCOUNT: &str = "account_id";
 
 async fn extract_actor(session: &Session) -> Result<posture::Actor, Response> {
     let account_id: Option<AccountId> = session.get(SESSION_KEY_ACCOUNT).await.ok().flatten();
-    let account_id = match account_id {
-        Some(id) => id,
-        None => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(AccountFailureBody {
-                    code: "unauthorized".to_owned(),
-                    summary: "Authentication required.".to_owned(),
-                }),
-            )
-                .into_response());
-        }
+    let Some(account_id) = account_id else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(AccountFailureBody {
+                code: "unauthorized".to_owned(),
+                summary: "Authentication required.".to_owned(),
+            }),
+        )
+            .into_response());
     };
     Ok(posture::Actor {
         account_id,
@@ -414,11 +411,8 @@ pub(crate) async fn set_posture_route(
         Err(resp) => return resp,
     };
 
-    let posture = match Posture::parse(&body.posture) {
-        Ok(p) => p,
-        Err(_) => {
-            return posture_failure_body(PostureFailureReason::UnsupportedPosture);
-        }
+    let Ok(posture) = Posture::parse(&body.posture) else {
+        return posture_failure_body(PostureFailureReason::UnsupportedPosture);
     };
 
     let request = SetPostureRequest { posture };

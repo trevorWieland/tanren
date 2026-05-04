@@ -8,9 +8,11 @@
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_domain::Posture;
 use tanren_identity_policy::{
     AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
 };
+use uuid::Uuid;
 
 use crate::entity;
 use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
@@ -164,4 +166,66 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted posture row — the current deployment posture for this
+/// installation. There is at most one row (id = 1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostureRecord {
+    /// Current deployment posture.
+    pub posture: Posture,
+    /// Wall-clock time the posture was last changed.
+    pub updated_at: DateTime<Utc>,
+    /// Account that last changed the posture.
+    pub updated_by: AccountId,
+}
+
+impl TryFrom<entity::posture::Model> for PostureRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::posture::Model) -> Result<Self, Self::Error> {
+        let posture = Posture::parse(&model.posture).map_err(StoreError::PostureInvariant)?;
+        Ok(Self {
+            posture,
+            updated_at: model.updated_at,
+            updated_by: AccountId::new(model.updated_by),
+        })
+    }
+}
+
+/// Persisted posture-change audit row. Every successful transition
+/// appends one row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostureChangeRecord {
+    /// Stable row id (`UUIDv7`).
+    pub id: Uuid,
+    /// Previous posture (`None` for the initial selection).
+    pub from_posture: Option<Posture>,
+    /// New posture.
+    pub to_posture: Posture,
+    /// Account that initiated the change.
+    pub actor: AccountId,
+    /// Wall-clock time the change was applied.
+    pub changed_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::posture_change::Model> for PostureChangeRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::posture_change::Model) -> Result<Self, Self::Error> {
+        let from_posture = model
+            .from_posture
+            .as_deref()
+            .map(Posture::parse)
+            .transpose()
+            .map_err(StoreError::PostureInvariant)?;
+        let to_posture = Posture::parse(&model.to_posture).map_err(StoreError::PostureInvariant)?;
+        Ok(Self {
+            id: model.id,
+            from_posture,
+            to_posture,
+            actor: AccountId::new(model.actor),
+            changed_at: model.changed_at,
+        })
+    }
 }

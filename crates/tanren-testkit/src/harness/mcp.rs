@@ -233,8 +233,16 @@ impl PostureHarness for McpHarness {
         actor: PostureHarnessActor,
         posture: Posture,
     ) -> HarnessResult<SetPostureResponse> {
+        self.set_posture_raw(actor, posture.to_string()).await
+    }
+
+    async fn set_posture_raw(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture_str: String,
+    ) -> HarnessResult<SetPostureResponse> {
         let body = serde_json::json!({
-            "posture": posture.to_string(),
+            "posture": posture_str,
             "account_id": actor.account_id.to_string(),
             "posture_admin": actor.posture_admin,
         });
@@ -283,7 +291,9 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .and_then(Value::as_str)
         .unwrap_or("unknown failure")
         .to_owned();
-    if let Some(reason) = code_to_reason(&code) {
+    if let Some(reason) = super::api::posture_code_to_reason(&code) {
+        HarnessError::Posture(reason, summary)
+    } else if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))

@@ -129,12 +129,11 @@ async fn then_posture_fails_with(world: &mut TanrenWorld, code: String) {
 
 async fn do_set_posture(world: &mut TanrenWorld, value: String, admin: bool) {
     let ctx = world.ensure_account_ctx().await;
-    let posture = Posture::parse(&value).expect("scenario posture names must parse");
     let actor = PostureHarnessActor {
         account_id: AccountId::fresh(),
         posture_admin: admin,
     };
-    let result = ctx.harness.posture().set_posture(actor, posture).await;
+    let result = ctx.harness.posture().set_posture_raw(actor, value).await;
     match result {
         Ok(response) => {
             ctx.last_posture = Some(response.current);

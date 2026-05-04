@@ -19,6 +19,7 @@ const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
 const SESSION_KEY_ACCOUNT: &str = "account_id";
 const SESSION_KEY_EXPIRES: &str = "expires_at";
+pub(crate) const SESSION_KEY_POSTURE_ADMIN: &str = "posture_admin";
 
 /// `(account_id, expires_at)` projection of a freshly minted session.
 /// All three account-flow handlers pass this into
@@ -27,6 +28,7 @@ const SESSION_KEY_EXPIRES: &str = "expires_at";
 pub(crate) struct SessionWrite {
     pub(crate) account_id: AccountId,
     pub(crate) expires_at: DateTime<Utc>,
+    pub(crate) posture_admin: bool,
 }
 
 /// Insert the account id and expiry into the tower-sessions row backing
@@ -41,6 +43,10 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .insert(SESSION_KEY_EXPIRES, write.expires_at)
         .await
         .context("insert expires_at into session")?;
+    session
+        .insert(SESSION_KEY_POSTURE_ADMIN, write.posture_admin)
+        .await
+        .context("insert posture_admin into session")?;
     Ok(())
 }
 

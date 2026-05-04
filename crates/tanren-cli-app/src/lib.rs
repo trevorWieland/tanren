@@ -136,7 +136,7 @@ enum PostureAction {
         /// Posture value to set (hosted, `self_hosted`, `local_only`).
         value: String,
         /// Account ID of the actor performing the change.
-        #[arg(long)]
+        #[arg(long, default_value_t = String::from("00000000-0000-0000-0000-000000000000"))]
         account_id: String,
         /// Grant the actor posture-admin permission.
         #[arg(long, default_value_t = false)]
@@ -360,6 +360,11 @@ async fn run_posture_async(action: PostureAction) -> Result<()> {
             account_id,
             posture_admin,
         } => {
+            let posture = tanren_domain::Posture::parse(&value).map_err(|_| {
+                anyhow::anyhow!(
+                    "error: unsupported_posture — The requested deployment posture is not supported."
+                )
+            })?;
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
@@ -369,13 +374,7 @@ async fn run_posture_async(action: PostureAction) -> Result<()> {
                 account_id: AccountId::new(parsed_id),
                 permissions: tanren_app_services::posture::Permissions { posture_admin },
             };
-            let request = SetPostureRequest {
-                posture: tanren_domain::Posture::parse(&value).map_err(|_| {
-                    anyhow::anyhow!(
-                        "error: unsupported_posture — The requested deployment posture is not supported."
-                    )
-                })?,
-            };
+            let request = SetPostureRequest { posture };
             let response = handlers
                 .set_posture(&store, actor, request)
                 .await

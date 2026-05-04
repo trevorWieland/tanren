@@ -274,14 +274,15 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
     let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
+        }
+        if let Some(reason) = super::api::posture_code_to_reason(code) {
+            return HarnessError::Posture(reason, summary);
         }
     }
     HarnessError::Transport(text.into_owned())
@@ -379,22 +380,28 @@ impl PostureHarness for CliHarness {
         actor: PostureHarnessActor,
         posture: Posture,
     ) -> HarnessResult<SetPostureResponse> {
+        self.set_posture_raw(actor, posture.to_string()).await
+    }
+
+    async fn set_posture_raw(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture_str: String,
+    ) -> HarnessResult<SetPostureResponse> {
+        let mut args = vec![
+            "posture".to_owned(),
+            "set".to_owned(),
+            "--database-url".to_owned(),
+            self.db_url.clone(),
+            posture_str,
+            "--account-id".to_owned(),
+            actor.account_id.to_string(),
+        ];
+        if actor.posture_admin {
+            args.push("--posture-admin".to_owned());
+        }
         let output = Command::new(&self.binary)
-            .args([
-                "posture",
-                "set",
-                "--database-url",
-                &self.db_url,
-                "--value",
-                &posture.to_string(),
-                "--account-id",
-                &actor.account_id.to_string(),
-                if actor.posture_admin {
-                    "--posture-admin"
-                } else {
-                    "--no-posture-admin"
-                },
-            ])
+            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

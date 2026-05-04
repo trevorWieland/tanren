@@ -12,5 +12,7 @@ description = "Canonical Tanren domain entities. Foundation crate — depends on
 workspace = true
 
 [dependencies]
+schemars = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+utoipa = { workspace = true }

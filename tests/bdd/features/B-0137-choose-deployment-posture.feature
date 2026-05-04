@@ -37,6 +37,7 @@ Feature: Choose a deployment posture
     Scenario: API rejects posture change from non-admin
       When a non-admin sets the posture to "hosted"
       Then the posture request fails with code "permission_denied"
+      And a "posture_set_rejected" event is recorded
 
     @falsification @api
     Scenario: API rejects an unsupported posture value
@@ -68,6 +69,7 @@ Feature: Choose a deployment posture
     Scenario: Web rejects posture change from non-admin
       When a non-admin sets the posture to "hosted"
       Then the posture request fails with code "permission_denied"
+      And a "posture_set_rejected" event is recorded
 
     @falsification @web
     Scenario: Web rejects an unsupported posture value
@@ -99,6 +101,7 @@ Feature: Choose a deployment posture
     Scenario: CLI rejects posture change from non-admin
       When a non-admin sets the posture to "hosted"
       Then the posture request fails with code "permission_denied"
+      And a "posture_set_rejected" event is recorded
 
     @falsification @cli
     Scenario: CLI rejects an unsupported posture value
@@ -130,6 +133,7 @@ Feature: Choose a deployment posture
     Scenario: MCP rejects posture change from non-admin
       When a non-admin sets the posture to "hosted"
       Then the posture request fails with code "permission_denied"
+      And a "posture_set_rejected" event is recorded
 
     @falsification @mcp
     Scenario: MCP rejects an unsupported posture value
@@ -161,6 +165,7 @@ Feature: Choose a deployment posture
     Scenario: TUI rejects posture change from non-admin
       When a non-admin sets the posture to "hosted"
       Then the posture request fails with code "permission_denied"
+      And a "posture_set_rejected" event is recorded
 
     @falsification @tui
     Scenario: TUI rejects an unsupported posture value

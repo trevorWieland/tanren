@@ -227,6 +227,18 @@ impl Handlers {
     {
         posture::set_posture(store, &self.clock, &actor, &request.posture.to_string()).await
     }
+
+    pub async fn set_posture_raw<S>(
+        &self,
+        store: &S,
+        actor: posture::Actor,
+        posture_str: &str,
+    ) -> Result<tanren_contract::SetPostureResponse, AppServiceError>
+    where
+        S: PostureStore + AccountStore + ?Sized,
+    {
+        posture::set_posture(store, &self.clock, &actor, posture_str).await
+    }
 }
 
 /// Errors raised by app-service handlers.

@@ -101,4 +101,12 @@ impl PostureHarness for TuiHarness {
     ) -> HarnessResult<SetPostureResponse> {
         self.inner.set_posture(actor, posture).await
     }
+
+    async fn set_posture_raw(
+        &mut self,
+        actor: PostureHarnessActor,
+        posture_str: String,
+    ) -> HarnessResult<SetPostureResponse> {
+        self.inner.set_posture_raw(actor, posture_str).await
+    }
 }
