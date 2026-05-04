@@ -93,21 +93,38 @@ When(
 Then(
   /^(\w+)'s admin permissions on "([^"]+)" are empty$/,
   async ({ page }, _actorName: string, orgName: string) => {
-    await page.goto("/organizations");
-    await waitForHydration(page);
-    const items = page.getByRole("listitem");
-    const count = await items.count();
-    if (count === 0) return;
-    const matched = items.filter({ hasText: new RegExp(orgName, "i") });
-    const matchCount = await matched.count();
-    if (matchCount === 0) return;
-    const orgText = await matched.first().innerText();
-    const hasPermissionMention = /invite|manage|configure|delete|admin/i.test(
-      orgText,
-    );
-    if (hasPermissionMention) {
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+    const cookies = await page.context().cookies();
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+
+    const res = await fetch(`${apiUrl}/organizations`, {
+      method: "GET",
+      headers: { cookie: cookieHeader },
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
       throw new Error(
-        `expected no admin permissions for ${orgName}, but found permission flags`,
+        `GET ${apiUrl}/organizations returned ${res.status}: ${body}`,
+      );
+    }
+
+    const data = (await res.json()) as {
+      organizations: Array<{
+        id: string;
+        name: string;
+        created_at: string;
+      }>;
+    };
+
+    const found = data.organizations.find(
+      (org) => org.name.toLowerCase() === orgName.toLowerCase(),
+    );
+
+    if (found) {
+      throw new Error(
+        `expected "${orgName}" to be absent from the actor's organization list, but found it (id=${found.id})`,
       );
     }
   },
