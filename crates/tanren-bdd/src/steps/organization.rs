@@ -128,6 +128,36 @@ async fn then_org_appears_in_list(world: &mut TanrenWorld, org_name: String, act
 
 #[then(expr = "{word}'s admin permissions on {string} are empty")]
 async fn then_admin_permissions_empty(world: &mut TanrenWorld, actor: String, org_name: String) {
+    {
+        use secrecy::ExposeSecret;
+        let (email_raw, password_raw) = {
+            let ctx = world.ensure_account_ctx().await;
+            let entry = ctx
+                .actors
+                .get(&actor)
+                .expect("actor must have signed up before checking admin permissions");
+            (
+                entry
+                    .identifier
+                    .clone()
+                    .expect("actor identifier captured during sign-up"),
+                entry
+                    .password
+                    .as_ref()
+                    .map(|s| s.expose_secret().to_owned())
+                    .expect("actor password captured during sign-up"),
+            )
+        };
+        let email = Email::parse(&email_raw).expect("stored identifier must be a valid email");
+        let ctx = world.ensure_account_ctx().await;
+        ctx.harness
+            .sign_in(SignInRequest {
+                email,
+                password: SecretString::from(password_raw),
+            })
+            .await
+            .expect("re-authentication must succeed");
+    }
     let ctx = world.ensure_account_ctx().await;
     let org_id = ctx
         .orgs_by_name

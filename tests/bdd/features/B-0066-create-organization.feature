@@ -26,6 +26,14 @@ Feature: Create an organization
       When an unsigned-in attempt creates an organization named "Ghost-api"
       Then the request fails with code "unauthenticated"
 
+    @positive @api
+    Scenario: API invitation-accepted account tracks current identity for admin permission checks
+      Given alice has signed up with email "alice-api-inv@example.com" and password "p4ssw0rd"
+      And alice has created an organization named "Acme-api-inv"
+      And a pending invitation token "api-inv-org-token-padpad"
+      When bob accepts invitation "api-inv-org-token-padpad" with password "team-pw"
+      Then bob's admin permissions on "Acme-api-inv" are empty
+
     @falsification @api
     Scenario: API other account has empty admin permissions on a freshly created org
       Given alice has signed up with email "alice-api-other@example.com" and password "p4ssw0rd"
