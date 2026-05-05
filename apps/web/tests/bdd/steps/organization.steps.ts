@@ -70,7 +70,25 @@ Then("the response includes full bootstrap permissions", async ({ page }) => {
 
 Then(
   /^"([^"]+)" appears in (\w+)'s organization list$/,
-  async ({ page }, orgName: string, _actorName: string) => {
+  async ({ page, world }, orgName: string, actorName: string) => {
+    const a = actor(world, actorName);
+    if (!a.hasSession) {
+      throw new Error(
+        `${actorName} has no active session; cannot verify organization list`,
+      );
+    }
+    if (!a.email || !a.password) {
+      throw new Error(
+        `${actorName} has no recorded credentials; cannot re-authenticate`,
+      );
+    }
+    await page.context().clearCookies();
+    await page.goto("/sign-in");
+    await waitForHydration(page);
+    await page.getByLabel(/email/i).fill(a.email);
+    await page.getByLabel(/password/i).fill(a.password);
+    await page.getByRole("button", { name: /^sign in$/i }).click();
+    await page.waitForURL("/", { timeout: 10_000 });
     await page.goto("/organizations");
     await waitForHydration(page);
     await expect(page.getByText(new RegExp(orgName, "i")).first()).toBeVisible({
