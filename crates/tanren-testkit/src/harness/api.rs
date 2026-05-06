@@ -41,11 +41,8 @@ pub struct ApiHarness {
     client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
-    /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
-    /// Per-actor tower-sessions cookie values, keyed by `AccountId`.
-    /// Populated during `sign_up`/`sign_in` so `join_organization`
-    /// can re-authenticate the correct actor in multi-actor scenarios.
+    cookie_db_path: Option<PathBuf>,
     session_cookies: HashMap<AccountId, String>,
 }
 
@@ -68,7 +65,9 @@ impl ApiHarness {
     /// the listener cannot bind, or the api app cannot be constructed.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
+        let cookie_db_path = scenario_db_path("api-cookie");
         let database_url = sqlite_url(&db_path);
+        let cookie_database_url = sqlite_url(&cookie_db_path);
         let store = Store::connect(&database_url)
             .await
             .map_err(|e| HarnessError::Transport(format!("connect store: {e}")))?;
@@ -90,7 +89,7 @@ impl ApiHarness {
             .map_err(|e| HarnessError::Transport(format!("cors header: {e}")))?;
         let app = tanren_api_app::build_app_with_store(
             store.clone(),
-            &database_url,
+            &cookie_database_url,
             vec![cors_origin],
             false,
         )
@@ -115,6 +114,7 @@ impl ApiHarness {
             store,
             server: Some(server),
             db_path,
+            cookie_db_path: Some(cookie_db_path),
             session_cookies: HashMap::new(),
         })
     }
@@ -125,9 +125,10 @@ impl Drop for ApiHarness {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
-        // Best-effort cleanup of the per-scenario DB file. Errors are
-        // intentionally ignored — temp dir cleanup will catch any stragglers.
         let _ = std::fs::remove_file(&self.db_path);
+        if let Some(cookie_path) = &self.cookie_db_path {
+            let _ = std::fs::remove_file(cookie_path);
+        }
     }
 }
 

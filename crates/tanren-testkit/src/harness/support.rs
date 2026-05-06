@@ -65,13 +65,14 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
 }
 
 pub(crate) async fn wait_for_server_ready(port: u16) {
-    for _ in 0..50 {
+    for _ in 0..200 {
         if tokio::net::TcpStream::connect(("127.0.0.1", port))
             .await
             .is_ok()
         {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             return;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
 }

@@ -1,5 +1,6 @@
-import { useId, useState, useTransition } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { useId, useState } from "react";
+import type { ReactNode } from "react";
+import { useMutation } from "@tanstack/react-query";
 import * as v from "valibot";
 
 import {
@@ -27,6 +28,28 @@ const inputClass =
 const buttonClass =
   "rounded-md border border-[--color-border] bg-[--color-accent] px-4 py-2 text-base font-medium text-[--color-accent-fg] transition-colors hover:bg-[--color-accent-hover] disabled:opacity-60";
 
+function joinMutationFn({
+  email,
+  password,
+  token,
+}: {
+  email: string;
+  password: string;
+  token: string;
+}): Promise<JoinOrganizationResult> {
+  return signIn({ email, password }).then(() => joinOrganization(token));
+}
+
+function toErrorMessage(cause: unknown): string {
+  if (cause instanceof AccountRequestError) {
+    return describeFailure(cause.failure);
+  }
+  if (cause instanceof Error) {
+    return cause.message;
+  }
+  return m.joinOrg_failed();
+}
+
 export function JoinOrganizationForm({
   token,
   onSuccess,
@@ -38,34 +61,31 @@ export function JoinOrganizationForm({
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  function onSubmit(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault();
-    setErrorMessage(null);
+  const mutation = useMutation({
+    mutationFn: joinMutationFn,
+    onSuccess: (result) => {
+      onSuccess?.(result);
+    },
+  });
+
+  const pending = mutation.isPending;
+  const apiError = mutation.error ? toErrorMessage(mutation.error) : null;
+  const errorMessage = validationError ?? apiError;
+
+  function onSubmit(): void {
+    setValidationError(null);
+    mutation.reset();
     const parsed = v.safeParse(JoinOrgInput, { email, password });
     if (!parsed.success) {
-      setErrorMessage(m.joinOrg_required());
+      setValidationError(m.joinOrg_required());
       return;
     }
-    startTransition(async () => {
-      try {
-        await signIn({
-          email: parsed.output.email,
-          password: parsed.output.password,
-        });
-        const result = await joinOrganization(token);
-        onSuccess?.(result);
-      } catch (cause: unknown) {
-        if (cause instanceof AccountRequestError) {
-          setErrorMessage(describeFailure(cause.failure));
-        } else if (cause instanceof Error) {
-          setErrorMessage(cause.message);
-        } else {
-          setErrorMessage(m.joinOrg_failed());
-        }
-      }
+    mutation.mutate({
+      email: parsed.output.email,
+      password: parsed.output.password,
+      token,
     });
   }
 
@@ -73,7 +93,10 @@ export function JoinOrganizationForm({
 
   return (
     <form
-      onSubmit={onSubmit}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
       noValidate
       aria-label={m.joinOrg_formLabel()}
       className="flex w-full max-w-md flex-col gap-4"

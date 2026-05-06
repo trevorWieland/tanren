@@ -42,3 +42,4 @@ catalog:
   "react-router-dom": "7.15.0"
   "openapi-typescript": "7.8.0"
   "openapi-fetch": "0.14.0"
+  "@tanstack/react-query": "5.83.0"

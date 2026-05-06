@@ -27,6 +27,9 @@ catalogs:
     '@tailwindcss/postcss':
       specifier: 4.2.4
       version: 4.2.4
+    '@tanstack/react-query':
+      specifier: 5.83.0
+      version: 5.83.0
     '@types/node':
       specifier: 25.6.0
       version: 25.6.0
@@ -106,6 +109,9 @@ importers:
       '@inlang/paraglide-js':
         specifier: catalog:default
         version: 2.18.0(typescript@6.0.3)
+      '@tanstack/react-query':
+        specifier: catalog:default
+        version: 5.83.0(react@19.2.5)
       next:
         specifier: catalog:default
         version: 16.2.4(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -1347,6 +1353,14 @@ packages:
 
   '@tailwindcss/postcss@4.2.4':
     resolution: {integrity: sha512-wgAVj6nUWAolAu8YFvzT2cTBIElWHkjZwFYovF+xsqKsW2ADxM/X2opxj5NsF/qVccAOjRNe8X2IdPzMsWyHTg==}
+
+  '@tanstack/query-core@5.83.0':
+    resolution: {integrity: sha512-0M8dA+amXUkyz5cVUm/B+zSk3xkQAcuXuz5/Q/LveT4ots2rBpPTZOzd7yJa2Utsf8D2Upl5KyjhHRY+9lB/XA==}
+
+  '@tanstack/react-query@5.83.0':
+    resolution: {integrity: sha512-/XGYhZ3foc5H0VM2jLSD/NyBRIOK4q9kfeml4+0x2DlL6xVuAcVEW+hTlTapAmejObg0i3eNqhkr2dT+eciwoQ==}
+    peerDependencies:
+      react: ^18 || ^19
 
   '@teppeis/multimaps@3.0.0':
     resolution: {integrity: sha512-ID7fosbc50TbT0MK0EG12O+gAP3W3Aa/Pz4DaTtQtEvlc9Odaqi0de+xuZ7Li2GtK4HzEX7IuRWS/JmZLksR3Q==}
@@ -3637,6 +3651,13 @@ snapshots:
       '@tailwindcss/oxide': 4.2.4
       postcss: 8.5.13
       tailwindcss: 4.2.4
+
+  '@tanstack/query-core@5.83.0': {}
+
+  '@tanstack/react-query@5.83.0(react@19.2.5)':
+    dependencies:
+      '@tanstack/query-core': 5.83.0
+      react: 19.2.5
 
   '@teppeis/multimaps@3.0.0': {}
 

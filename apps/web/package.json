@@ -28,6 +28,7 @@
     "react": "catalog:default",
     "react-dom": "catalog:default",
     "react-router-dom": "catalog:default",
+    "@tanstack/react-query": "catalog:default",
     "tailwindcss": "catalog:default",
     "valibot": "catalog:default"
   },
