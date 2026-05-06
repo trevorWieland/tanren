@@ -154,4 +154,16 @@ impl ProjectFailureReason {
             }
         }
     }
+
+    /// Recommended HTTP status for the failure when projected over the
+    /// api / mcp surfaces. Centralized so every transport reports the
+    /// same status for the same failure code.
+    #[must_use]
+    pub const fn http_status(self) -> u16 {
+        match self {
+            Self::ProjectNotFound => 404,
+            Self::ActiveLoopExists | Self::RepositoryUnavailable => 409,
+            Self::ValidationFailed => 400,
+        }
+    }
 }

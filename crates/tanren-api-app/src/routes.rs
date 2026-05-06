@@ -13,7 +13,9 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, ConnectProjectRequest, ConnectProjectResponse,
+    DisconnectProjectResponse, ListProjectsResponse, ProjectDependencyResponse, ProjectView,
+    SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -23,7 +25,13 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::errors::{
+    AccountFailureBody, ProjectFailureBody, ValidatedJson, map_app_error, session_install_error,
+};
+use crate::project_routes::{
+    ApiDependencyView, ApiSpecView, DisconnectProjectBody, ProjectDependenciesResponse,
+    ProjectSpecsResponse,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -98,6 +106,11 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        crate::project_routes::connect_project_route,
+        crate::project_routes::list_projects_route,
+        crate::project_routes::disconnect_project_route,
+        crate::project_routes::project_specs_route,
+        crate::project_routes::project_dependencies_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +122,23 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        ConnectProjectRequest,
+        ConnectProjectResponse,
+        ListProjectsResponse,
+        ProjectView,
+        DisconnectProjectBody,
+        DisconnectProjectResponse,
+        ProjectDependencyResponse,
+        ProjectSpecsResponse,
+        ApiSpecView,
+        ProjectDependenciesResponse,
+        ApiDependencyView,
+        ProjectFailureBody,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "projects", description = "Project flow: connect, reconnect, list, disconnect, specs, dependencies."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -320,5 +346,10 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(crate::project_routes::connect_project_route))
+        .routes(routes!(crate::project_routes::list_projects_route))
+        .routes(routes!(crate::project_routes::disconnect_project_route))
+        .routes(routes!(crate::project_routes::project_specs_route))
+        .routes(routes!(crate::project_routes::project_dependencies_route))
         .with_state(state)
 }

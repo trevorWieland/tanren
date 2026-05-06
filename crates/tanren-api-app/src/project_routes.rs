@@ -1,0 +1,289 @@
+//! Project-flow API route handlers.
+//!
+//! Split out of `routes.rs` so both modules stay under the workspace
+//! 500-line line-budget. The connect endpoint also handles reconnecting
+//! a previously disconnected project — the handler decides based on
+//! existing state.
+
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use tanren_contract::{
+    ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
+    DisconnectProjectResponse, ListProjectsResponse,
+};
+use tanren_identity_policy::{AccountId, ProjectId, SpecId};
+
+use crate::AppState;
+use crate::errors::{ProjectFailureBody, ValidatedJson, map_app_error};
+
+/// Query parameter for `GET /projects`.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct AccountIdQuery {
+    /// Account whose projects to list.
+    pub account_id: AccountId,
+}
+
+/// Request body for `POST /projects/{id}/disconnect`.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct DisconnectProjectBody {
+    /// Account requesting the disconnect.
+    pub account_id: AccountId,
+}
+
+/// API-facing spec view with `OpenAPI` schema support.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiSpecView {
+    /// Stable spec id.
+    pub id: SpecId,
+    /// Owning project.
+    pub project_id: ProjectId,
+    /// Human-readable title.
+    pub title: String,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Response for `GET /projects/{id}/specs`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProjectSpecsResponse {
+    /// Specs attached to the project.
+    pub specs: Vec<ApiSpecView>,
+}
+
+/// API-facing dependency view with `OpenAPI` schema support.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiDependencyView {
+    /// Project that owns the dependency reference.
+    pub source_project_id: ProjectId,
+    /// Spec within the source project carrying the reference.
+    pub source_spec_id: SpecId,
+    /// Target project of the dependency.
+    pub target_project_id: ProjectId,
+    /// Whether the dependency is resolved.
+    pub resolved: bool,
+    /// When the link was detected.
+    pub detected_at: DateTime<Utc>,
+}
+
+/// Response for `GET /projects/{id}/dependencies`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProjectDependenciesResponse {
+    /// Cross-project dependency links.
+    pub dependencies: Vec<ApiDependencyView>,
+}
+
+/// Connect (or reconnect) a repository as a Tanren project.
+#[utoipa::path(
+    post,
+    path = "/projects",
+    request_body = ConnectProjectRequest,
+    responses(
+        (status = 201, body = ConnectProjectResponse, description = "Project connected (or reconnected)"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
+        (status = 409, body = ProjectFailureBody, description = "repository_unavailable or active_loop_exists"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn connect_project_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<ConnectProjectRequest>,
+) -> Response {
+    match state
+        .handlers
+        .connect_project(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// List projects accessible to the caller.
+#[utoipa::path(
+    get,
+    path = "/projects",
+    params(
+        ("account_id" = AccountId, Query, description = "Account whose projects to list"),
+    ),
+    responses(
+        (status = 200, body = ListProjectsResponse, description = "Project list"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn list_projects_route(
+    State(state): State<AppState>,
+    Query(query): Query<AccountIdQuery>,
+) -> Response {
+    match state
+        .handlers
+        .list_projects(state.store.as_ref(), query.account_id)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Disconnect a project from Tanren. The underlying repository is not
+/// modified. Returns unresolved inbound dependency signals for any
+/// cross-project links that pointed into the disconnected project.
+#[utoipa::path(
+    post,
+    path = "/projects/{id}/disconnect",
+    request_body = DisconnectProjectBody,
+    params(
+        ("id" = String, Path, description = "Project id to disconnect"),
+    ),
+    responses(
+        (status = 200, body = DisconnectProjectResponse, description = "Project disconnected, unresolved dependencies signalled"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
+        (status = 404, body = ProjectFailureBody, description = "project_not_found"),
+        (status = 409, body = ProjectFailureBody, description = "active_loop_exists"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn disconnect_project_route(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ValidatedJson(body): ValidatedJson<DisconnectProjectBody>,
+) -> Response {
+    let project_id = match id.parse() {
+        Ok(uuid) => ProjectId::new(uuid),
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ProjectFailureBody {
+                    code: "validation_failed".to_owned(),
+                    summary: "project_id must be a valid UUID".to_owned(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let request = DisconnectProjectRequest {
+        project_id,
+        account_id: body.account_id,
+    };
+    match state
+        .handlers
+        .disconnect_project(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// List specs attached to a project.
+#[utoipa::path(
+    get,
+    path = "/projects/{id}/specs",
+    params(
+        ("id" = String, Path, description = "Project whose specs to list"),
+    ),
+    responses(
+        (status = 200, body = ProjectSpecsResponse, description = "Project specs"),
+        (status = 404, body = ProjectFailureBody, description = "project_not_found"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn project_specs_route(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    let project_id = match id.parse() {
+        Ok(uuid) => ProjectId::new(uuid),
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ProjectFailureBody {
+                    code: "validation_failed".to_owned(),
+                    summary: "project_id must be a valid UUID".to_owned(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    match state
+        .handlers
+        .project_specs(state.store.as_ref(), project_id)
+        .await
+    {
+        Ok(specs) => {
+            let views = specs
+                .into_iter()
+                .map(|s| ApiSpecView {
+                    id: s.id,
+                    project_id: s.project_id,
+                    title: s.title,
+                    created_at: s.created_at,
+                })
+                .collect();
+            (StatusCode::OK, Json(ProjectSpecsResponse { specs: views })).into_response()
+        }
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// List cross-project dependency links for a project.
+#[utoipa::path(
+    get,
+    path = "/projects/{id}/dependencies",
+    params(
+        ("id" = String, Path, description = "Project whose dependencies to list"),
+    ),
+    responses(
+        (status = 200, body = ProjectDependenciesResponse, description = "Project dependencies"),
+        (status = 404, body = ProjectFailureBody, description = "project_not_found"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn project_dependencies_route(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    let project_id = match id.parse() {
+        Ok(uuid) => ProjectId::new(uuid),
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ProjectFailureBody {
+                    code: "validation_failed".to_owned(),
+                    summary: "project_id must be a valid UUID".to_owned(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    match state
+        .handlers
+        .project_dependencies(state.store.as_ref(), project_id)
+        .await
+    {
+        Ok(deps) => {
+            let views = deps
+                .into_iter()
+                .map(|d| ApiDependencyView {
+                    source_project_id: d.source_project_id,
+                    source_spec_id: d.source_spec_id,
+                    target_project_id: d.target_project_id,
+                    resolved: d.resolved,
+                    detected_at: d.detected_at,
+                })
+                .collect();
+            (
+                StatusCode::OK,
+                Json(ProjectDependenciesResponse {
+                    dependencies: views,
+                }),
+            )
+                .into_response()
+        }
+        Err(err) => map_app_error(err),
+    }
+}

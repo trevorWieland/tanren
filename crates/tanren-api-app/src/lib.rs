@@ -38,6 +38,7 @@
 
 mod cookies;
 mod errors;
+mod project_routes;
 mod routes;
 // test_hooks must be visible in any compilation that exposes
 // `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition
@@ -62,7 +63,11 @@ use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
-pub use crate::errors::AccountFailureBody;
+pub use crate::errors::{AccountFailureBody, ProjectFailureBody};
+pub use crate::project_routes::{
+    AccountIdQuery, ApiDependencyView, ApiSpecView, DisconnectProjectBody,
+    ProjectDependenciesResponse, ProjectSpecsResponse,
+};
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,
