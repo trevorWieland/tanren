@@ -22,9 +22,11 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use serde::Deserialize;
+use tanren_app_services::install::evaluate_drift;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, InstallDriftResponse, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, DriftPolicy, InstallDriftResponse, PreservationPolicy, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken};
 
@@ -127,8 +129,11 @@ enum InstallAction {
     /// Check installed assets for drift without modifying the repository.
     Drift {
         /// Project identifier (UUID) of the installed repository.
-        #[arg(long)]
-        project: String,
+        #[arg(long, group = "target")]
+        project: Option<String>,
+        /// Local repository path for direct drift check (no API required).
+        #[arg(long, group = "target")]
+        repo: Option<PathBuf>,
         /// Output format.
         #[arg(long, value_parser = validate_report_kind, default_value = "json")]
         format: ReportKind,
@@ -349,10 +354,53 @@ fn dispatch_install(action: InstallAction) -> Result<()> {
         .build()
         .context("build tokio runtime")?;
     match action {
-        InstallAction::Drift { project, format } => {
-            runtime.block_on(run_install_drift(&project, format))
+        InstallAction::Drift {
+            project: Some(project),
+            format,
+            ..
+        } => runtime.block_on(run_install_drift(&project, format)),
+        InstallAction::Drift {
+            repo: Some(repo),
+            format,
+            ..
+        } => run_local_drift(&repo, format),
+        InstallAction::Drift {
+            project: None,
+            repo: None,
+            ..
+        } => anyhow::bail!(
+            "error: validation_failed — exactly one of --project or --repo is required"
+        ),
+    }
+}
+
+fn run_local_drift(repo: &std::path::Path, kind: ReportKind) -> Result<()> {
+    let result = evaluate_drift(
+        repo,
+        DriftPolicy::AllAssets,
+        PreservationPolicy::AcceptUserEdits,
+    )
+    .map_err(|err| anyhow::anyhow!("error: internal_error — {err}"))?;
+    let report = InstallDriftResponse {
+        has_drift: result.has_drift,
+        entries: result.entries,
+        config_source: tanren_contract::DriftConfigSource {
+            drift_policy: DriftPolicy::AllAssets,
+            preservation_policy: PreservationPolicy::AcceptUserEdits,
+        },
+    };
+    match kind {
+        ReportKind::Json => {
+            let json = serde_json::to_string(&report).context("serialize drift report")?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(handle, "{json}").context("write drift report")?;
         }
     }
+    if report.has_drift {
+        anyhow::bail!("drift detected");
+    }
+    Ok(())
 }
 
 async fn run_install_drift(project: &str, kind: ReportKind) -> Result<()> {

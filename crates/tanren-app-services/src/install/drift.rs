@@ -5,10 +5,11 @@ use tanren_contract::{
     DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftState, PreservationPolicy,
 };
 
-use super::{EntryDriftPolicy, PROJECTION_MANIFEST};
+use super::{PRESERVED_INPUTS, PROJECTION_MANIFEST};
 use crate::AppServiceError;
 
-pub(crate) struct DriftEvalResult {
+#[derive(Debug)]
+pub struct DriftEvalResult {
     pub has_drift: bool,
     pub entries: Vec<InstallDriftEntry>,
     pub drift_count: usize,
@@ -17,7 +18,7 @@ pub(crate) struct DriftEvalResult {
     pub matches_count: usize,
 }
 
-pub(crate) fn evaluate_drift(
+pub fn evaluate_drift(
     repo_path: &Path,
     drift_policy: DriftPolicy,
     preservation_policy: PreservationPolicy,
@@ -51,14 +52,8 @@ pub(crate) fn evaluate_drift(
     let mut matches_count = 0usize;
 
     for entry in PROJECTION_MANIFEST {
-        if drift_policy == DriftPolicy::GeneratedOnly
-            && entry.kind == InstallDriftAssetKind::PreservedStandard
-        {
-            continue;
-        }
-
         let full_path = repo_path.join(entry.rel_path);
-        let state = classify_entry(&full_path, entry, preservation_policy);
+        let state = classify_generated(&full_path, entry);
 
         match state {
             InstallDriftState::Drifted => {
@@ -84,6 +79,36 @@ pub(crate) fn evaluate_drift(
         });
     }
 
+    if drift_policy == DriftPolicy::AllAssets {
+        for entry in PRESERVED_INPUTS {
+            let full_path = repo_path.join(entry.rel_path);
+            let state = classify_preserved(&full_path, preservation_policy);
+
+            match state {
+                InstallDriftState::Drifted => {
+                    has_drift = true;
+                    drift_count += 1;
+                }
+                InstallDriftState::Missing => {
+                    has_drift = true;
+                    missing_count += 1;
+                }
+                InstallDriftState::Accepted => {
+                    accepted_count += 1;
+                }
+                InstallDriftState::Matches => {
+                    matches_count += 1;
+                }
+            }
+
+            entries.push(InstallDriftEntry {
+                relative_path: entry.rel_path.to_owned(),
+                asset_kind: InstallDriftAssetKind::PreservedStandard,
+                state,
+            });
+        }
+    }
+
     entries.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
 
     tracing::info!(
@@ -106,24 +131,13 @@ pub(crate) fn evaluate_drift(
     })
 }
 
-fn classify_entry(
-    path: &Path,
-    entry: &super::ProjectionEntry,
-    preservation_policy: PreservationPolicy,
-) -> InstallDriftState {
+fn classify_generated(path: &Path, entry: &super::ProjectionEntry) -> InstallDriftState {
     let Ok(meta) = fs::symlink_metadata(path) else {
         return InstallDriftState::Missing;
     };
 
     if !meta.is_file() {
         return InstallDriftState::Drifted;
-    }
-
-    let strict_preserved = entry.kind == InstallDriftAssetKind::PreservedStandard
-        && preservation_policy == PreservationPolicy::Strict;
-
-    if entry.drift_policy == EntryDriftPolicy::PresenceOnly && !strict_preserved {
-        return InstallDriftState::Accepted;
     }
 
     let Some(expected) = entry.expected_content else {
@@ -134,4 +148,16 @@ fn classify_entry(
         Ok(bytes) if bytes == expected.as_bytes() => InstallDriftState::Matches,
         _ => InstallDriftState::Drifted,
     }
+}
+
+fn classify_preserved(path: &Path, _preservation_policy: PreservationPolicy) -> InstallDriftState {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return InstallDriftState::Missing;
+    };
+
+    if !meta.is_file() {
+        return InstallDriftState::Missing;
+    }
+
+    InstallDriftState::Accepted
 }

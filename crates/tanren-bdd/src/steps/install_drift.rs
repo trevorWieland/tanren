@@ -247,6 +247,15 @@ fn then_generated_missing(world: &mut TanrenWorld) {
     );
 }
 
+#[then(expr = "the 'drift_evaluated' event was recorded")]
+fn then_drift_evaluated_event_recorded(world: &mut TanrenWorld) {
+    let ctx = world.install_drift.as_ref().expect("fixture must exist");
+    assert!(
+        ctx.report.is_some(),
+        "expected a drift_evaluated event but no drift report was produced"
+    );
+}
+
 pub struct InstallDriftContext {
     pub fixture: InstallDriftFixture,
     pub report: Option<DriftReport>,

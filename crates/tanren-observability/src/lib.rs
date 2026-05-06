@@ -44,6 +44,7 @@ pub fn init(default_filter: impl Into<String>) -> Result<(), ObservabilityError>
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .with_writer(std::io::stderr)
         .try_init()
         .map_err(|err| ObservabilityError::SubscriberInstall(err.to_string()))
 }

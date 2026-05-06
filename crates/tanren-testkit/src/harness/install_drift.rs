@@ -5,7 +5,7 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
-use tanren_app_services::install::PROJECTION_MANIFEST;
+use tanren_app_services::install::{PRESERVED_INPUTS, PROJECTION_MANIFEST};
 use tanren_contract::{InstallDriftAssetKind, InstallDriftState};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -64,7 +64,13 @@ impl InstallDriftFixture {
     }
 
     pub fn all_manifest_rel_paths() -> Vec<&'static str> {
-        PROJECTION_MANIFEST.iter().map(|e| e.rel_path).collect()
+        let mut paths: Vec<&'static str> = PROJECTION_MANIFEST
+            .iter()
+            .map(|e| e.rel_path)
+            .chain(PRESERVED_INPUTS.iter().map(|e| e.rel_path))
+            .collect();
+        paths.sort_unstable();
+        paths
     }
 
     pub fn modify_generated_asset(&self) -> Result<()> {
@@ -154,6 +160,14 @@ impl InstallDriftFixture {
                 snapshots.insert(entry.rel_path.to_string(), bytes);
             }
         }
+        for entry in PRESERVED_INPUTS {
+            let full_path = self.repo_dir.join(entry.rel_path);
+            if full_path.exists() {
+                let bytes = fs::read(&full_path)
+                    .with_context(|| format!("snapshot {}", full_path.display()))?;
+                snapshots.insert(entry.rel_path.to_string(), bytes);
+            }
+        }
         Ok(snapshots)
     }
 
@@ -164,19 +178,20 @@ impl InstallDriftFixture {
                 fs::create_dir_all(parent)
                     .with_context(|| format!("create {}", parent.display()))?;
             }
-            match entry.kind {
-                InstallDriftAssetKind::Generated => {
-                    let content = entry
-                        .expected_content
-                        .expect("generated entries carry expected content");
-                    fs::write(&full_path, content)
-                        .with_context(|| format!("write {}", full_path.display()))?;
-                }
-                InstallDriftAssetKind::PreservedStandard => {
-                    fs::write(&full_path, "# Tech Stack\nPlaceholder standard.\n")
-                        .with_context(|| format!("write {}", full_path.display()))?;
-                }
+            let content = entry
+                .expected_content
+                .expect("generated entries carry expected content");
+            fs::write(&full_path, content)
+                .with_context(|| format!("write {}", full_path.display()))?;
+        }
+        for entry in PRESERVED_INPUTS {
+            let full_path = self.repo_dir.join(entry.rel_path);
+            if let Some(parent) = full_path.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("create {}", parent.display()))?;
             }
+            fs::write(&full_path, "# Tech Stack\nPlaceholder standard.\n")
+                .with_context(|| format!("write {}", full_path.display()))?;
         }
         Ok(())
     }
@@ -195,9 +210,8 @@ fn first_generated() -> &'static tanren_app_services::install::ProjectionEntry {
         .expect("manifest must contain at least one generated asset")
 }
 
-fn first_preserved() -> &'static tanren_app_services::install::ProjectionEntry {
-    PROJECTION_MANIFEST
-        .iter()
-        .find(|e| e.kind == InstallDriftAssetKind::PreservedStandard)
-        .expect("manifest must contain at least one preserved standard")
+fn first_preserved() -> &'static tanren_app_services::install::PreservedInputEntry {
+    PRESERVED_INPUTS
+        .first()
+        .expect("preserved inputs must contain at least one entry")
 }
