@@ -1,11 +1,10 @@
 @B-0045
 Feature: Join an organization with an existing account
   A person with an existing Tanren account can accept an invitation
-  (B-0044) to join an organization. The account gains org-level
-  permissions from the invitation; other memberships are unaffected.
-  Project access is NOT auto-granted (B-0031). Each interface
-  (`web`, `api`, `mcp`, `cli`, `tui`) provides positive and
-  falsification witnesses per the DAG evidence for R-0006.
+  to join an organization. The account gains org-level permissions
+  from the invitation; other memberships are unaffected. Project
+  access is NOT auto-granted. After acceptance the joined
+  organization appears in the account's selectable organizations.
 
   Background:
     Given a clean Tanren environment
@@ -13,13 +12,15 @@ Feature: Join an organization with an existing account
   Rule: API surface
 
     @positive @api
-    Scenario: Existing account joins an organization over the API
+    Scenario: Existing account joins an organization over the API with granted permissions
       Given alice has signed up with email "alice-join-api@example.com" and password "p4ssw0rd"
-      And a pending invitation for "alice-join-api@example.com" with token "join-api-token-1-padpad"
+      And a pending invitation for "alice-join-api@example.com" with token "join-api-token-1-padpad" and "member" permissions
       When alice joins organization with invitation "join-api-token-1-padpad"
       Then alice is a member of the inviting organization
-      And a "organization_joined" event is recorded
+      And alice can select the inviting organization
+      And alice has been granted "member" organization permissions
       And alice has no project access grants
+      And alice is a member of 1 organizations
 
     @positive @api
     Scenario: Other org memberships are unaffected after API join
@@ -48,13 +49,23 @@ Feature: Join an organization with an existing account
       And a "join_failed" event is recorded
 
     @falsification @api
+    Scenario: API rejects joining with a revoked invitation
+      Given alice has signed up with email "alice-rev-api@example.com" and password "p4ssw0rd"
+      And a revoked invitation for "alice-rev-api@example.com" with token "rev-api-token-padpad"
+      When alice joins organization with invitation "rev-api-token-padpad"
+      Then the request fails with code "invitation_already_consumed"
+      And a "join_failed" event is recorded
+
+    @falsification @api
     Scenario: API rejects duplicate join of the same organization
       Given alice has signed up with email "alice-dup-api@example.com" and password "p4ssw0rd"
       And a pending invitation for "alice-dup-api@example.com" with token "dup-api-token-padpad"
       When alice joins organization with invitation "dup-api-token-padpad"
       Then alice is a member of the inviting organization
+      And alice is a member of 1 organizations
       When alice joins organization with invitation "dup-api-token-padpad"
       Then the request fails with code "invitation_already_consumed"
+      And alice is a member of 1 organizations
 
   Rule: Web surface
 
@@ -64,7 +75,9 @@ Feature: Join an organization with an existing account
       And a pending invitation for "alice-join-web@example.com" with token "join-web-token-1-padpad"
       When alice joins organization with invitation "join-web-token-1-padpad"
       Then alice is a member of the inviting organization
+      And alice can select the inviting organization
       And a "organization_joined" event is recorded
+      And alice is a member of 1 organizations
 
     @positive @web
     Scenario: Other org memberships are unaffected after web join
@@ -98,7 +111,9 @@ Feature: Join an organization with an existing account
       And a pending invitation for "alice-join-cli@example.com" with token "join-cli-token-1-padpad"
       When alice joins organization with invitation "join-cli-token-1-padpad"
       Then alice is a member of the inviting organization
+      And alice can select the inviting organization
       And a "organization_joined" event is recorded
+      And alice is a member of 1 organizations
 
     @positive @cli
     Scenario: Other org memberships are unaffected after CLI join
@@ -132,7 +147,9 @@ Feature: Join an organization with an existing account
       And a pending invitation for "alice-join-mcp@example.com" with token "join-mcp-token-1-padpad"
       When alice joins organization with invitation "join-mcp-token-1-padpad"
       Then alice is a member of the inviting organization
+      And alice can select the inviting organization
       And a "organization_joined" event is recorded
+      And alice is a member of 1 organizations
 
     @positive @mcp
     Scenario: Other org memberships are unaffected after MCP join
@@ -166,7 +183,9 @@ Feature: Join an organization with an existing account
       And a pending invitation for "alice-join-tui@example.com" with token "join-tui-token-1-padpad"
       When alice joins organization with invitation "join-tui-token-1-padpad"
       Then alice is a member of the inviting organization
+      And alice can select the inviting organization
       And a "organization_joined" event is recorded
+      And alice is a member of 1 organizations
 
     @positive @tui
     Scenario: Other org memberships are unaffected after TUI join

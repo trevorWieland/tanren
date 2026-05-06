@@ -136,6 +136,28 @@ async fn then_member_of_inviting_org(world: &mut TanrenWorld, actor: String) {
     );
 }
 
+#[then(expr = "{word} can select the inviting organization")]
+async fn then_can_select_inviting_org(world: &mut TanrenWorld, actor: String) {
+    let ctx = world.ensure_account_ctx().await;
+    let entry = ctx
+        .actors
+        .get(&actor)
+        .expect("actor must have an outcome recorded");
+    let join_result = entry
+        .join_organization
+        .as_ref()
+        .expect("actor must have joined an organization");
+    let selectable = &join_result.selectable_organizations;
+    let found = selectable
+        .iter()
+        .any(|m| m.org_id == join_result.joined_org);
+    assert!(
+        found,
+        "expected joined org {} in selectable organizations: {:?}",
+        join_result.joined_org, selectable
+    );
+}
+
 #[then(expr = "{word} has been granted {string} organization permissions")]
 async fn then_granted_org_permissions(world: &mut TanrenWorld, actor: String, permissions: String) {
     let ctx = world.ensure_account_ctx().await;
