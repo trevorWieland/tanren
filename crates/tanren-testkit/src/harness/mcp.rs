@@ -20,7 +20,7 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{code_to_project_reason, code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -99,7 +99,16 @@ impl McpHarness {
         })
     }
 
-    async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
+    #[must_use]
+    pub(crate) fn store_handle(&self) -> &Arc<Store> {
+        &self.store
+    }
+
+    pub(crate) async fn call_tool(
+        &mut self,
+        name: &'static str,
+        body: Value,
+    ) -> HarnessResult<Value> {
         let client = self
             .client
             .as_ref()
@@ -245,6 +254,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = code_to_project_reason(&code) {
+        HarnessError::Project(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }

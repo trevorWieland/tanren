@@ -18,7 +18,8 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ProjectFailureReason,
+    SignInRequest, SignUpRequest,
 };
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
@@ -117,6 +118,21 @@ impl Drop for ApiHarness {
         // Best-effort cleanup of the per-scenario DB file. Errors are
         // intentionally ignored — temp dir cleanup will catch any stragglers.
         let _ = std::fs::remove_file(&self.db_path);
+    }
+}
+
+impl ApiHarness {
+    #[must_use]
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+    #[must_use]
+    pub(crate) fn http_client(&self) -> &Client {
+        &self.client
+    }
+    #[must_use]
+    pub(crate) fn store_handle(&self) -> &Arc<Store> {
+        &self.store
     }
 }
 
@@ -397,19 +413,11 @@ fn sign_up_body(req: &SignUpRequest) -> Value {
 
 fn sign_in_body(req: &SignInRequest) -> Value {
     use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-    })
+    serde_json::json!({"email": req.email.as_str(), "password": req.password.expose_secret()})
 }
-
 fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
     use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
+    serde_json::json!({"email": req.email.as_str(), "password": req.password.expose_secret(), "display_name": req.display_name})
 }
 
 pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
@@ -425,6 +433,8 @@ pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = code_to_project_reason(&code) {
+        HarnessError::Project(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
@@ -438,6 +448,16 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "invitation_not_found" => AccountFailureReason::InvitationNotFound,
         "invitation_expired" => AccountFailureReason::InvitationExpired,
         "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
+        _ => return None,
+    })
+}
+
+pub(crate) fn code_to_project_reason(code: &str) -> Option<ProjectFailureReason> {
+    Some(match code {
+        "active_loop_exists" => ProjectFailureReason::ActiveLoopExists,
+        "project_not_found" => ProjectFailureReason::ProjectNotFound,
+        "repository_unavailable" => ProjectFailureReason::RepositoryUnavailable,
+        "validation_failed" => ProjectFailureReason::ValidationFailed,
         _ => return None,
     })
 }

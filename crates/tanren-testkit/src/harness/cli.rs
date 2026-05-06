@@ -22,7 +22,7 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{code_to_project_reason, code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -80,6 +80,23 @@ impl CliHarness {
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+    }
+}
+
+impl CliHarness {
+    #[must_use]
+    pub(crate) fn store_handle(&self) -> &Arc<Store> {
+        &self.store
+    }
+
+    #[must_use]
+    pub(crate) fn db_url(&self) -> &str {
+        &self.db_url
+    }
+
+    #[must_use]
+    pub(crate) fn binary_path(&self) -> &PathBuf {
+        &self.binary
     }
 }
 
@@ -268,16 +285,17 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     )))
 }
 
-fn translate_cli_error(stderr: &[u8]) -> HarnessError {
+pub(crate) fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
     let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
+        }
+        if let Some(reason) = code_to_project_reason(code) {
+            return HarnessError::Project(reason, summary);
         }
     }
     HarnessError::Transport(text.into_owned())

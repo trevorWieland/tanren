@@ -46,6 +46,10 @@ mod api;
 mod cli;
 mod in_process;
 mod mcp;
+mod project;
+mod project_api;
+mod project_cli;
+mod project_mcp;
 mod tui;
 mod web;
 
@@ -57,7 +61,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ProjectFailureReason,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -66,6 +71,13 @@ pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
+pub use project::{
+    ProjectHarness, ProjectInProcessHarness, ProjectOutcome, ProjectTuiHarness, ProjectWebHarness,
+    ProjectWorldState, RepositoryFixture, record_project_failure,
+};
+pub use project_api::ProjectApiHarness;
+pub use project_cli::ProjectCliHarness;
+pub use project_mcp::ProjectMcpHarness;
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 
@@ -154,6 +166,9 @@ pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A project-flow taxonomy failure with a known `code`.
+    #[error("{0:?}: {1}")]
+    Project(ProjectFailureReason, String),
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +181,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::Project(reason, _) => reason.code().to_owned(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -309,6 +325,9 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::Project(reason, _) => {
+            HarnessOutcome::Other(format!("project: {}", reason.code()))
+        }
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -350,11 +369,14 @@ impl ConcurrentAcceptanceTally {
                 let code = reason.code().to_owned();
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }
+            Err(HarnessError::Project(reason, _)) => {
+                let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
             Err(HarnessError::Transport(msg)) => self.other.push(msg),
         }
     }
 
-    /// Number of failures matching `code`.
     #[must_use]
     pub fn failures_with_code(&self, code: &str) -> usize {
         self.failures_by_code.get(code).copied().unwrap_or(0)

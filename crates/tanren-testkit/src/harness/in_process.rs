@@ -74,6 +74,15 @@ impl InProcessHarness {
     pub fn store(&self) -> &Store {
         &self.store
     }
+
+    #[must_use]
+    pub(crate) fn handlers(&self) -> &Handlers {
+        &self.handlers
+    }
+
+    pub(crate) fn store_mut(&mut self) -> &mut Store {
+        &mut self.store
+    }
 }
 
 #[async_trait]
@@ -147,6 +156,7 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Project(reason) => HarnessError::Project(reason, reason.code().to_owned()),
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }

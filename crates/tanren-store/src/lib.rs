@@ -37,8 +37,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
-    ValidationError,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
+    SpecId, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -338,6 +338,104 @@ impl Store {
         };
         let inserted = model.insert(&self.conn).await?;
         InvitationRecord::try_from(inserted)
+    }
+
+    pub async fn seed_project(
+        &self,
+        project_id: ProjectId,
+        org_id: OrgId,
+        name: String,
+        repository_url: String,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectRecord, StoreError> {
+        let model = entity::projects::ActiveModel {
+            id: Set(project_id.as_uuid()),
+            org_id: Set(org_id.as_uuid()),
+            name: Set(name),
+            repository_url: Set(repository_url),
+            connected_at: Set(now),
+            disconnected_at: Set(None),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        Ok(ProjectRecord::from(inserted))
+    }
+
+    pub async fn seed_project_spec(
+        &self,
+        spec_id: SpecId,
+        project_id: ProjectId,
+        title: String,
+        body: String,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectSpecRecord, StoreError> {
+        let model = entity::project_specs::ActiveModel {
+            id: Set(spec_id.as_uuid()),
+            project_id: Set(project_id.as_uuid()),
+            title: Set(title),
+            body: Set(body),
+            created_at: Set(now),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        Ok(ProjectSpecRecord::from(inserted))
+    }
+
+    pub async fn seed_project_dependency(
+        &self,
+        source_project_id: ProjectId,
+        source_spec_id: SpecId,
+        target_project_id: ProjectId,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectDependencyRecord, StoreError> {
+        let model = entity::project_dependencies::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            source_project_id: Set(source_project_id.as_uuid()),
+            source_spec_id: Set(source_spec_id.as_uuid()),
+            target_project_id: Set(target_project_id.as_uuid()),
+            detected_at: Set(now),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        Ok(ProjectDependencyRecord::from(inserted))
+    }
+
+    pub async fn seed_loop_fixture(
+        &self,
+        project_id: ProjectId,
+        is_active: bool,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectLoopFixtureRecord, StoreError> {
+        let model = entity::project_loop_fixtures::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            project_id: Set(project_id.as_uuid()),
+            is_active: Set(is_active),
+            created_at: Set(now),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        Ok(ProjectLoopFixtureRecord::from(inserted))
+    }
+
+    pub async fn seed_account_with_org(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        let email_raw = format!("project-{}@tanren.test", account_id.as_uuid().simple());
+        let email = Email::parse(&email_raw).map_err(|e| StoreError::DataInvariant {
+            column: "email",
+            cause: e,
+        })?;
+        let identifier = Identifier::from_email(&email);
+        self.insert_account(NewAccount {
+            id: account_id,
+            identifier,
+            display_name: "Project Test Account".to_owned(),
+            password_phc: "$argon2id$v=19$m=65536,t=3,p=4$dGVzdA$dGVzdA".to_owned(),
+            created_at: now,
+            org_id: Some(org_id),
+        })
+        .await?;
+        self.insert_membership(account_id, org_id, now).await?;
+        Ok(())
     }
 }
 

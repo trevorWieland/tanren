@@ -14,24 +14,25 @@ pub mod steps;
 
 use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    InProcessHarness, McpHarness, ProjectApiHarness, ProjectCliHarness, ProjectHarness,
+    ProjectInProcessHarness, ProjectMcpHarness, ProjectOutcome, ProjectTuiHarness,
+    ProjectWebHarness, RepositoryFixture, TuiHarness, WebHarness,
 };
 
-/// Cucumber `World` shared across all Tanren BDD scenarios.
+use tanren_contract::{ProjectDependencyResponse, ProjectFailureReason, ProjectView};
+use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
+
 #[derive(Debug, Default, CucumberWorld)]
 pub struct TanrenWorld {
-    /// Deterministic fixture seed.
     pub seed: FixtureSeed,
-    /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    pub project: Option<ProjectContext>,
 }
 
 impl TanrenWorld {
-    /// Construct (or return) the lazy account context.
     pub async fn ensure_account_ctx(&mut self) -> &mut AccountContext {
         if self.account.is_none() {
             self.account = Some(AccountContext::new_in_process().await);
@@ -41,33 +42,32 @@ impl TanrenWorld {
             .expect("account context just initialized")
     }
 
-    /// Refresh the account context with the harness chosen for the
-    /// supplied scenario tags. Cucumber-rs does not give step bodies
-    /// access to the active scenario's tags, so the BDD bin invokes
-    /// this from a `Before` hook.
+    pub async fn ensure_project_ctx(&mut self) -> &mut ProjectContext {
+        if self.project.is_none() {
+            self.project = Some(ProjectContext::new_in_process().await);
+        }
+        self.project
+            .as_mut()
+            .expect("project context just initialized")
+    }
+
     pub async fn install_harness_for_tags<I, S>(&mut self, tags: I)
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
         let kind = HarnessKind::from_tags(tags);
-        let ctx = AccountContext::new_for(kind).await;
-        self.account = Some(ctx);
+        let account_ctx = AccountContext::new_for(kind).await;
+        self.account = Some(account_ctx);
+        let project_ctx = ProjectContext::new_for(kind).await;
+        self.project = Some(project_ctx);
     }
 }
 
-/// Per-scenario state carried by the cucumber world. Tracks per-actor
-/// outcomes plus the active wire harness — all transport-specific
-/// state lives inside the harness implementation.
 pub struct AccountContext {
-    /// Active wire harness for the current scenario.
     pub harness: Box<dyn AccountHarness>,
-    /// Registry of actors by display name.
     pub actors: HashMap<String, ActorState>,
-    /// The most recent action's outcome.
     pub last_outcome: Option<HarnessOutcome>,
-    /// Per-scenario invitation tokens recorded by `Given a pending
-    /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
 }
 
@@ -86,18 +86,10 @@ impl std::fmt::Debug for AccountContext {
 }
 
 impl AccountContext {
-    /// Build a context with the in-process harness — used for
-    /// untagged scenarios.
     pub async fn new_in_process() -> Self {
         Self::new_for(HarnessKind::InProcess).await
     }
 
-    /// Build a context with the harness matching the supplied tag
-    /// kind. Falls back to the in-process harness if the requested
-    /// transport fails to come up (e.g. a missing CLI binary on a
-    /// fresh checkout) — the failure is recorded in `last_outcome`
-    /// so it surfaces during the first step rather than blocking
-    /// scenario discovery.
     pub async fn new_for(kind: HarnessKind) -> Self {
         let harness: Box<dyn AccountHarness> = match kind {
             HarnessKind::InProcess => Box::new(
@@ -109,9 +101,6 @@ impl AccountContext {
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
             HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {
@@ -133,10 +122,110 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
     }
 }
 
-/// Run the cucumber harness against the supplied features directory.
-/// The harness installs a `Before` hook that selects the per-interface
-/// wire harness from the active scenario's tags.
-pub async fn run_features(features_dir: impl Into<PathBuf>) {
+pub struct ProjectContext {
+    pub harness: Box<dyn ProjectHarness>,
+    pub account_id: AccountId,
+    pub org_id: OrgId,
+    pub last_outcome: Option<ProjectOutcome>,
+    pub last_failure: Option<ProjectFailureReason>,
+    pub connected_project_id: Option<ProjectId>,
+    pub connected_project: Option<ProjectView>,
+    pub temp_repo: Option<RepositoryFixture>,
+    pub checksum_before: Option<String>,
+    pub seeded_spec_ids: Vec<SpecId>,
+    pub last_disconnect_unresolved: Vec<ProjectDependencyResponse>,
+    pub last_listed_projects: Vec<ProjectView>,
+    pub spec_count_before_disconnect: Option<usize>,
+}
+
+impl std::fmt::Debug for ProjectContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProjectContext")
+            .field("harness_kind", &self.harness.kind())
+            .field("account_id", &self.account_id)
+            .field("org_id", &self.org_id)
+            .field("connected_project", &self.connected_project)
+            .field("seeded_spec_ids", &self.seeded_spec_ids)
+            .field(
+                "last_outcome",
+                &self.last_outcome.as_ref().map(short_project_outcome_label),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl ProjectContext {
+    pub async fn new_in_process() -> Self {
+        Self::new_for(HarnessKind::InProcess).await
+    }
+
+    pub async fn new_for(kind: HarnessKind) -> Self {
+        let mut harness: Box<dyn ProjectHarness> = match kind {
+            HarnessKind::InProcess => Box::new(
+                ProjectInProcessHarness::new(kind)
+                    .await
+                    .expect("ephemeral SQLite must connect for BDD project harness"),
+            ),
+            HarnessKind::Api => Box::new(
+                ProjectApiHarness::spawn()
+                    .await
+                    .expect("ProjectApiHarness::spawn"),
+            ),
+            HarnessKind::Cli => Box::new(
+                ProjectCliHarness::spawn()
+                    .await
+                    .expect("ProjectCliHarness::spawn"),
+            ),
+            HarnessKind::Mcp => Box::new(
+                ProjectMcpHarness::spawn()
+                    .await
+                    .expect("ProjectMcpHarness::spawn"),
+            ),
+            HarnessKind::Tui => Box::new(
+                ProjectTuiHarness::spawn()
+                    .await
+                    .expect("ProjectTuiHarness::spawn"),
+            ),
+            HarnessKind::Web => Box::new(
+                ProjectWebHarness::spawn()
+                    .await
+                    .expect("ProjectWebHarness::spawn"),
+            ),
+        };
+        let (account_id, org_id) = harness
+            .seed_account()
+            .await
+            .expect("seed project test account");
+        Self {
+            harness,
+            account_id,
+            org_id,
+            last_outcome: None,
+            last_failure: None,
+            connected_project_id: None,
+            connected_project: None,
+            temp_repo: None,
+            checksum_before: None,
+            seeded_spec_ids: Vec::new(),
+            last_disconnect_unresolved: Vec::new(),
+            last_listed_projects: Vec::new(),
+            spec_count_before_disconnect: None,
+        }
+    }
+}
+
+fn short_project_outcome_label(outcome: &ProjectOutcome) -> &'static str {
+    match outcome {
+        ProjectOutcome::Connected(_) => "Connected",
+        ProjectOutcome::Disconnected(_) => "Disconnected",
+        ProjectOutcome::Listed(_) => "Listed",
+        ProjectOutcome::Reconnected(_) => "Reconnected",
+        ProjectOutcome::Failure(_) => "Failure",
+        ProjectOutcome::Other(_) => "Other",
+    }
+}
+
+pub async fn run_features(features_dir: impl Into<std::path::PathBuf>) {
     TanrenWorld::cucumber()
         .before(|_feature, _rule, scenario, world| {
             let tags = scenario.tags.clone();
@@ -151,8 +240,6 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    //! Unit-test guards for the BDD harness machinery itself.
-
     use super::TanrenWorld;
     use tanren_testkit::FixtureSeed;
 
@@ -167,6 +254,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            project: None,
         };
         assert_eq!(world.seed.value(), 42);
     }
