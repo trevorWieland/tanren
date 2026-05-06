@@ -7,15 +7,18 @@
 
 pub mod account;
 pub mod events;
+pub mod project;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ActiveProjectView,
+    ConnectProjectRequest, ContractVersion, CreateProjectRequest, ProjectFailureReason,
+    ProjectView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
+pub use tanren_provider_integrations::SourceControlProvider;
+pub use tanren_store::{AccountStore, ProjectStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -199,6 +202,78 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// Connect an existing repository the caller already controls
+    /// (B-0025). Verifies repo access via the SCM provider, registers
+    /// one project backed by that repository, sets it active, and
+    /// returns the project view with empty content counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] with
+    /// [`ProjectFailureReason::AccessDenied`] when the caller lacks
+    /// access, [`ProjectFailureReason::DuplicateRepository`] when the
+    /// repository is already registered, or
+    /// [`ProjectFailureReason::ValidationFailed`] for invalid input.
+    pub async fn connect_project<S, P>(
+        &self,
+        store: &S,
+        scm: &P,
+        account_id: AccountId,
+        request: ConnectProjectRequest,
+    ) -> Result<ProjectView, AppServiceError>
+    where
+        S: ProjectStore + AccountStore + ?Sized,
+        P: SourceControlProvider + ?Sized,
+    {
+        project::connect_project(store, scm, &self.clock, account_id, request).await
+    }
+
+    /// Create a new project and its backing repository (B-0026).
+    /// Delegates repository creation to the SCM provider, registers
+    /// the project, sets it active, and returns the project view with
+    /// empty content counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] with
+    /// [`ProjectFailureReason::AccessDenied`] when the caller lacks
+    /// host access, [`ProjectFailureReason::ProviderFailure`] when the
+    /// upstream SCM call fails, or
+    /// [`ProjectFailureReason::ValidationFailed`] for invalid input.
+    pub async fn create_project<S, P>(
+        &self,
+        store: &S,
+        scm: &P,
+        account_id: AccountId,
+        request: CreateProjectRequest,
+    ) -> Result<ProjectView, AppServiceError>
+    where
+        S: ProjectStore + AccountStore + ?Sized,
+        P: SourceControlProvider + ?Sized,
+    {
+        project::create_project(store, scm, &self.clock, account_id, request).await
+    }
+
+    /// Read back the caller's currently active project.
+    ///
+    /// Returns `Ok(Some(..))` with the active project view, or
+    /// `Ok(None)` when the account has no active project.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn active_project<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+    ) -> Result<Option<ActiveProjectView>, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::active_project(store, account_id).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +290,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A project-flow taxonomy failure.
+    #[error("project: {}", .0.code())]
+    Project(ProjectFailureReason),
 }

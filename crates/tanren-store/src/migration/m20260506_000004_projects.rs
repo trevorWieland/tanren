@@ -27,6 +27,8 @@ impl MigrationTrait for Migration {
                     .table(Projects::Table)
                     .if_not_exists()
                     .col(ColumnDef::new(Projects::Id).uuid().not_null().primary_key())
+                    .col(ColumnDef::new(Projects::Name).string().not_null())
+                    .col(ColumnDef::new(Projects::RepositoryId).uuid().not_null())
                     .col(ColumnDef::new(Projects::OwnerAccountId).uuid().not_null())
                     .col(ColumnDef::new(Projects::OwnerOrgId).uuid())
                     .col(
@@ -102,6 +104,8 @@ impl MigrationTrait for Migration {
 enum Projects {
     Table,
     Id,
+    Name,
+    RepositoryId,
     OwnerAccountId,
     OwnerOrgId,
     RepositoryIdentity,

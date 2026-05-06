@@ -36,6 +36,8 @@ async fn run_in_txn(
 ) -> Result<RegisterProjectOutput, RegisterProjectError> {
     let project_model = entity::projects::ActiveModel {
         id: Set(new.id.as_uuid()),
+        name: Set(new.name),
+        repository_id: Set(new.repository_id.as_uuid()),
         owner_account_id: Set(new.owner_account_id.as_uuid()),
         owner_org_id: Set(new.owner_org_id.map(OrgId::as_uuid)),
         repository_identity: Set(new.repository_identity.clone()),

@@ -176,23 +176,16 @@ pub struct NewInvitation {
 /// queries; until then they are derived constants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectRecord {
-    /// Stable project id.
     pub id: ProjectId,
-    /// Account that owns the project.
+    pub name: String,
+    pub repository_id: RepositoryId,
     pub owner_account_id: AccountId,
-    /// Organization that owns the project, if applicable.
     pub owner_org_id: Option<OrgId>,
-    /// Normalized repository identity (e.g. `github.com/org/repo`).
     pub repository_identity: String,
-    /// Canonical repository URL.
     pub repository_url: String,
-    /// Wall-clock time the project was created.
     pub created_at: DateTime<Utc>,
-    /// Number of specs in this project (always 0 at R-0019).
     pub spec_count: u32,
-    /// Number of milestones in this project (always 0 at R-0019).
     pub milestone_count: u32,
-    /// Number of initiatives in this project (always 0 at R-0019).
     pub initiative_count: u32,
 }
 
@@ -200,6 +193,8 @@ impl From<entity::projects::Model> for ProjectRecord {
     fn from(model: entity::projects::Model) -> Self {
         Self {
             id: ProjectId::new(model.id),
+            name: model.name,
+            repository_id: RepositoryId::new(model.repository_id),
             owner_account_id: AccountId::new(model.owner_account_id),
             owner_org_id: model.owner_org_id.map(OrgId::new),
             repository_identity: model.repository_identity,
@@ -215,19 +210,13 @@ impl From<entity::projects::Model> for ProjectRecord {
 /// Input shape for [`crate::ProjectStore::register_project_atomic`].
 #[derive(Debug, Clone)]
 pub struct NewProject {
-    /// Stable project id allocated by the caller (`UUIDv7`).
     pub id: ProjectId,
-    /// Repository id allocated by the caller (`UUIDv7`).
+    pub name: String,
     pub repository_id: RepositoryId,
-    /// Account that owns the project.
     pub owner_account_id: AccountId,
-    /// Organization that owns the project, if applicable.
     pub owner_org_id: Option<OrgId>,
-    /// Normalized repository identity (e.g. `github.com/org/repo`).
     pub repository_identity: String,
-    /// Canonical repository URL.
     pub repository_url: String,
-    /// Wall-clock creation time.
     pub created_at: DateTime<Utc>,
 }
 
