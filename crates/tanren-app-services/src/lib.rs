@@ -18,10 +18,13 @@ use tanren_contract::{
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
+use uuid::Uuid;
 
 use std::sync::Arc;
 use tanren_store::StoreError;
 use thiserror::Error;
+
+use crate::events::{DriftEvaluated, DriftEventKind, DriftRemediationStatus, drift_envelope};
 
 /// Stable response shape for the cross-interface health/liveness query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,8 +139,9 @@ impl Handlers {
     /// Resolves the repository location and effective drift/preservation
     /// policies from the supplied [`install::ProjectDriftContext`] using
     /// the project identity carried on the request, then compares every
-    /// asset in the projection manifest against the filesystem and reports
-    /// drift without modifying anything.
+    /// asset in the projection manifest against the filesystem, reports
+    /// drift without modifying anything, and appends a typed
+    /// `drift_evaluated` event to the event log.
     ///
     /// # Errors
     ///
@@ -145,11 +149,24 @@ impl Handlers {
     /// cannot resolve the repository path. Returns
     /// [`AppServiceError::InvalidInput`] when the resolved repository path
     /// does not exist or is not a directory.
-    pub fn install_drift(
+    pub async fn install_drift<S>(
         &self,
+        store: &S,
         ctx: &dyn install::ProjectDriftContext,
         request: &InstallDriftRequest,
-    ) -> Result<InstallDriftResponse, AppServiceError> {
+    ) -> Result<InstallDriftResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        let run_id = Uuid::now_v7();
+        let project_id = request.project_id;
+        let span = tracing::info_span!(
+            "install_drift",
+            project_id = %project_id,
+            run_id = %run_id,
+        );
+        let _enter = span.enter();
+
         let repo_path = ctx
             .resolve_repo_path(request.project_id)
             .map_err(AppServiceError::ProjectDrift)?;
@@ -158,13 +175,62 @@ impl Handlers {
 
         let result = install::drift::evaluate_drift(&repo_path, drift_policy, preservation_policy)?;
 
+        let config_source = DriftConfigSource {
+            drift_policy,
+            preservation_policy,
+        };
+
+        let remediation_status = if result.has_drift {
+            DriftRemediationStatus::DriftDetected
+        } else {
+            DriftRemediationStatus::NoDrift
+        };
+
+        let checked_asset_paths: Vec<String> = result
+            .entries
+            .iter()
+            .map(|e| e.relative_path.clone())
+            .collect();
+
+        let asset_count = checked_asset_paths.len();
+        let drift_count = result.drift_count;
+        let missing_count = result.missing_count;
+        let accepted_count = result.accepted_count;
+
+        let now = self.clock.now();
+        store
+            .append_event(
+                drift_envelope(
+                    DriftEventKind::DriftEvaluated,
+                    &DriftEvaluated {
+                        project_id,
+                        run_id,
+                        checked_asset_paths,
+                        drift_count,
+                        missing_count,
+                        accepted_count,
+                        matches_count: result.matches_count,
+                        config_source,
+                        remediation_status,
+                    },
+                ),
+                now,
+            )
+            .await?;
+
+        tracing::info!(
+            asset_count,
+            drift_count,
+            missing_count,
+            accepted_count,
+            policy_source = ?config_source,
+            "drift run recorded"
+        );
+
         Ok(InstallDriftResponse {
             has_drift: result.has_drift,
             entries: result.entries,
-            config_source: DriftConfigSource {
-                drift_policy,
-                preservation_policy,
-            },
+            config_source,
         })
     }
 

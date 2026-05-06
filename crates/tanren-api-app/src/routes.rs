@@ -398,7 +398,11 @@ pub(crate) async fn install_drift_route(
         projects_dir: state.projects_dir.clone(),
     };
     let request = InstallDriftRequest { project_id };
-    match state.handlers.install_drift(&ctx, &request) {
+    match state
+        .handlers
+        .install_drift(&*state.store, &ctx, &request)
+        .await
+    {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(err) => map_app_error(err),
     }

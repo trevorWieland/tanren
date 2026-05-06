@@ -12,6 +12,7 @@ Feature: Detect installer drift without mutating files
     Scenario: Fresh installed repo reports no drift
       When the drift check runs against the repository
       Then the drift report shows no drift
+      And the 'drift_evaluated' event was recorded
 
     @positive @cli
     Scenario: Modified generated asset reports drift

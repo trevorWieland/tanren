@@ -9,8 +9,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_contract::{AccountFailureReason, DriftConfigSource};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId, ProjectId};
+use uuid::Uuid;
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
@@ -133,6 +134,84 @@ pub struct InvitationAcceptFailed {
 pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
     serde_json::json!({
         "family": EVENT_FAMILY,
+        "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Projection drift events
+// ---------------------------------------------------------------------------
+
+/// Tag on the JSON envelope that disambiguates drift events from other
+/// event families.
+pub const DRIFT_EVENT_FAMILY: &str = "projection_drift";
+
+/// Closed taxonomy of drift event kinds.
+///
+/// `xtask check-event-coverage` cross-references every variant against
+/// BDD feature steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DriftEventKind {
+    /// A projection drift evaluation completed.
+    DriftEvaluated,
+}
+
+impl DriftEventKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DriftEvaluated => "drift_evaluated",
+        }
+    }
+}
+
+/// Whether the drift run detected actionable drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DriftRemediationStatus {
+    /// All checked assets match or are accepted.
+    NoDrift,
+    /// At least one asset is drifted or missing.
+    DriftDetected,
+}
+
+/// A projection drift evaluation completed. Carries project scope,
+/// checked asset identities, per-state counts, the effective policy
+/// source, and whether remediation is required.
+///
+/// Relative paths only — no host-local absolute paths. No secrets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriftEvaluated {
+    /// Project whose repository was checked.
+    pub project_id: ProjectId,
+    /// Unique id for this evaluation run (UUID v7, time-ordered).
+    pub run_id: Uuid,
+    /// Relative paths of every asset that was checked.
+    pub checked_asset_paths: Vec<String>,
+    /// Number of assets whose content differs from the canonical source.
+    pub drift_count: usize,
+    /// Number of assets absent from the repository.
+    pub missing_count: usize,
+    /// Number of preserved-standard assets accepted with user edits.
+    pub accepted_count: usize,
+    /// Number of assets matching the canonical content exactly.
+    pub matches_count: usize,
+    /// Effective drift and preservation policies applied during the check.
+    pub config_source: DriftConfigSource,
+    /// Whether the run detected actionable drift.
+    pub remediation_status: DriftRemediationStatus,
+}
+
+/// Encode a typed drift event as the JSON envelope persisted in the
+/// event log.
+#[must_use]
+pub fn drift_envelope<T: Serialize>(kind: DriftEventKind, payload: &T) -> serde_json::Value {
+    serde_json::json!({
+        "family": DRIFT_EVENT_FAMILY,
         "kind": kind.as_str(),
         "payload": payload,
     })
