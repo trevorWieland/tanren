@@ -12,8 +12,6 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
-mod install;
-
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -24,7 +22,10 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, DriftPolicy, InstallDriftRequest, PreservationPolicy, SignInRequest,
+    SignUpRequest,
+};
 use tanren_identity_policy::{Email, InvitationToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
@@ -127,9 +128,21 @@ enum InstallAction {
         #[arg(long)]
         repo: PathBuf,
         /// Output format.
-        #[arg(long, value_parser = ["json"])]
-        format: String,
+        #[arg(long, value_parser = validate_report_kind)]
+        format: ReportKind,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReportKind {
+    Json,
+}
+
+fn validate_report_kind(s: &str) -> Result<ReportKind, String> {
+    match s {
+        "json" => Ok(ReportKind::Json),
+        other => Err(format!("unsupported format: {other}")),
+    }
 }
 
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
@@ -330,18 +343,37 @@ fn session_path() -> PathBuf {
 
 fn dispatch_install(action: InstallAction) -> Result<()> {
     match action {
-        InstallAction::Drift { repo, format } => run_install_drift(&repo, &format),
+        InstallAction::Drift { repo, format } => run_install_drift(&repo, format),
     }
 }
 
-fn run_install_drift(repo: &Path, _format: &str) -> Result<()> {
-    let report = install::check_drift(repo)
-        .with_context(|| format!("check drift for {}", repo.display()))?;
-    let json = serde_json::to_string(&report).context("serialize drift report")?;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    writeln!(handle, "{json}").context("write drift report")?;
-    if report.has_drift {
+fn run_install_drift(repo: &Path, kind: ReportKind) -> Result<()> {
+    let repo_path = repo
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("repository path is not valid UTF-8: {}", repo.display()))
+        .context("resolve repo path")?;
+    let request = InstallDriftRequest {
+        repo_path: repo_path.to_owned(),
+        preservation_policy: PreservationPolicy::AcceptUserEdits,
+        drift_policy: DriftPolicy::AllAssets,
+    };
+    let response = Handlers::new()
+        .install_drift(&request)
+        .map_err(|err| match err {
+            AppServiceError::InvalidInput(msg) => {
+                anyhow::anyhow!("error: validation_failed — {msg}")
+            }
+            other => anyhow::anyhow!("error: internal_error — {other}"),
+        })?;
+    match kind {
+        ReportKind::Json => {
+            let json = serde_json::to_string(&response).context("serialize drift report")?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(handle, "{json}").context("write drift report")?;
+        }
+    }
+    if response.has_drift {
         anyhow::bail!("drift detected");
     }
     Ok(())

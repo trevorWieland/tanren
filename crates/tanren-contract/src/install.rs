@@ -35,16 +35,6 @@ pub enum InstallDriftState {
     Accepted,
 }
 
-/// Output format for the drift report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum InstallDriftOutputFormat {
-    /// Human-readable plain text.
-    Text,
-    /// Machine-readable JSON.
-    Json,
-}
-
 /// Policy governing how preserved standards are evaluated for drift.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -72,8 +62,6 @@ pub enum DriftPolicy {
 pub struct InstallDriftRequest {
     /// Repository root path to check.
     pub repo_path: String,
-    /// Output format for the drift report.
-    pub output_format: InstallDriftOutputFormat,
     /// Policy for evaluating preserved standards.
     pub preservation_policy: PreservationPolicy,
     /// Policy for what asset categories to include in the check.

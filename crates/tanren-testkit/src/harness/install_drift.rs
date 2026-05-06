@@ -20,7 +20,7 @@ pub struct DriftReport {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DriftEntry {
-    pub path: String,
+    pub relative_path: String,
     pub state: String,
 }
 

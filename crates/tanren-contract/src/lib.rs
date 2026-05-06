@@ -14,8 +14,8 @@ pub use account::{
 };
 
 pub use install::{
-    DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftOutputFormat,
-    InstallDriftRequest, InstallDriftResponse, InstallDriftState, PreservationPolicy,
+    DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftRequest,
+    InstallDriftResponse, InstallDriftState, PreservationPolicy,
 };
 
 use serde::{Deserialize, Serialize};
