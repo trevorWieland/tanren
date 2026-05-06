@@ -227,3 +227,9 @@ impl From<standards::StandardsResolutionError> for AppServiceError {
         Self::Standards(StandardsFailureReason::from(err))
     }
 }
+
+impl From<standards::projection::ProjectionError> for AppServiceError {
+    fn from(err: standards::projection::ProjectionError) -> Self {
+        Self::Standards(StandardsFailureReason::from(err))
+    }
+}

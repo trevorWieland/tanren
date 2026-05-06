@@ -229,6 +229,10 @@ pub enum StandardsFailureReason {
     StandardsEmpty,
     /// The standards configuration uses an unsupported schema version.
     InvalidSchema,
+    /// A path violated security constraints (absolute, escaping, or symlink).
+    PathViolation,
+    /// The standards tree exceeded structural bounds (size, count, or depth).
+    TreeBoundsExceeded,
 }
 
 impl StandardsFailureReason {
@@ -240,6 +244,8 @@ impl StandardsFailureReason {
             Self::StandardsFileMalformed => "standards_file_malformed",
             Self::StandardsEmpty => "standards_empty",
             Self::InvalidSchema => "invalid_schema",
+            Self::PathViolation => "path_violation",
+            Self::TreeBoundsExceeded => "tree_bounds_exceeded",
         }
     }
 
@@ -251,12 +257,14 @@ impl StandardsFailureReason {
                 "The configured standards root directory does not exist."
             }
             Self::StandardsFileMalformed => "A standards file could not be parsed.",
-            Self::StandardsEmpty => {
-                "The configured standards root exists but contains no valid standards."
-            }
+            Self::StandardsEmpty => "The configured root exists but contains no valid standards.",
             Self::InvalidSchema => {
                 "The standards configuration uses an unsupported schema version."
             }
+            Self::PathViolation => {
+                "A path violated security constraints (absolute, escaping, or symlink)."
+            }
+            Self::TreeBoundsExceeded => "The standards tree exceeded structural bounds.",
         }
     }
 
@@ -267,8 +275,8 @@ impl StandardsFailureReason {
     pub const fn http_status(self) -> u16 {
         match self {
             Self::StandardsRootNotFound | Self::StandardsEmpty => 404,
-            Self::StandardsFileMalformed => 422,
-            Self::InvalidSchema => 400,
+            Self::StandardsFileMalformed | Self::TreeBoundsExceeded => 422,
+            Self::InvalidSchema | Self::PathViolation => 400,
         }
     }
 }

@@ -1,6 +1,11 @@
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use sha2::{Digest, Sha256};
+use tanren_app_services::standards::projection::{
+    DriftStatus, ProjectionBounds, ProjectionEntry, ProjectionInspector, ProjectionManifest,
+};
 use tanren_app_services::standards::{
     StandardsReadModel, clear_standards_root, configure_standards_root,
 };
@@ -116,4 +121,63 @@ pub fn replay_standards_events(events: &[serde_json::Value]) -> StandardsReadMod
     let mut rm = StandardsReadModel::default();
     rm.apply_events(events);
     rm
+}
+
+fn compute_digest(data: &[u8]) -> String {
+    let hash = Sha256::digest(data);
+    let mut hex = String::with_capacity(hash.len() * 2);
+    for byte in &hash {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+pub fn make_projection_entry(relative_path: PathBuf, content: &[u8]) -> ProjectionEntry {
+    ProjectionEntry {
+        content_digest: compute_digest(content),
+        size_bytes: content.len() as u64,
+        relative_path,
+    }
+}
+
+pub fn make_projection_manifest(entries: Vec<ProjectionEntry>) -> ProjectionManifest {
+    ProjectionManifest { entries }
+}
+
+pub fn make_inspector_with_bounds(bounds: ProjectionBounds) -> ProjectionInspector {
+    ProjectionInspector::new(bounds)
+}
+
+pub fn make_default_inspector() -> ProjectionInspector {
+    ProjectionInspector::with_default_bounds()
+}
+
+pub fn write_projection_entry(
+    standards_dir: &Path,
+    entry: &ProjectionEntry,
+    content: &[u8],
+) -> HarnessResult<()> {
+    let file_path = standards_dir.join(&entry.relative_path);
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| HarnessError::Transport(format!("create dir: {e}")))?;
+    }
+    std::fs::write(&file_path, content)
+        .map_err(|e| HarnessError::Transport(format!("write projection entry: {e}")))?;
+    Ok(())
+}
+
+pub fn run_projection_inspection(
+    root: &Path,
+    manifest: &ProjectionManifest,
+) -> Result<Vec<(PathBuf, DriftStatus)>, HarnessError> {
+    let inspector = ProjectionInspector::with_default_bounds();
+    let report = inspector
+        .inspect(root, manifest)
+        .map_err(|e| HarnessError::Transport(format!("projection inspection failed: {e}")))?;
+    Ok(report
+        .items
+        .into_iter()
+        .map(|item| (item.relative_path, item.status))
+        .collect())
 }

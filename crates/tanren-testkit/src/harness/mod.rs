@@ -69,9 +69,10 @@ pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
 pub use standards::{
     StandardsCliRunner, StandardsInspectResult, build_standards_cleared_event,
-    build_standards_configured_event, create_temp_project_dir, replay_standards_events,
-    seed_standards_read_model, write_malformed_standard, write_project_config,
-    write_valid_standard,
+    build_standards_configured_event, create_temp_project_dir, make_default_inspector,
+    make_inspector_with_bounds, make_projection_entry, make_projection_manifest,
+    replay_standards_events, run_projection_inspection, seed_standards_read_model,
+    write_malformed_standard, write_project_config, write_projection_entry, write_valid_standard,
 };
 pub use tui::TuiHarness;
 pub use web::WebHarness;

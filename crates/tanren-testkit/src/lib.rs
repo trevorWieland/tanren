@@ -18,9 +18,10 @@ pub use harness::{
     HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
     HarnessSession, InProcessHarness, McpHarness, StandardsCliRunner, StandardsInspectResult,
     TuiHarness, WebHarness, build_standards_cleared_event, build_standards_configured_event,
-    create_temp_project_dir, event_kinds, record_failure, replay_standards_events,
-    seed_standards_read_model, write_malformed_standard, write_project_config,
-    write_valid_standard,
+    create_temp_project_dir, event_kinds, make_default_inspector, make_inspector_with_bounds,
+    make_projection_entry, make_projection_manifest, record_failure, replay_standards_events,
+    run_projection_inspection, seed_standards_read_model, write_malformed_standard,
+    write_project_config, write_projection_entry, write_valid_standard,
 };
 
 use chrono::{DateTime, Duration, Utc};

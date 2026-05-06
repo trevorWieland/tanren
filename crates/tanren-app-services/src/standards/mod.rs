@@ -33,6 +33,8 @@
 //! assert!(rm.effective_root().is_ok());
 //! ```
 
+pub mod projection;
+
 use std::path::{Path, PathBuf};
 
 use tanren_contract::{StandardSchema, StandardsFailureReason};

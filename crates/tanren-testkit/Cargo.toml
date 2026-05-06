@@ -35,6 +35,7 @@ rmcp = { workspace = true, features = [
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tanren-api-app = { path = "../tanren-api-app", features = ["test-hooks"] }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
