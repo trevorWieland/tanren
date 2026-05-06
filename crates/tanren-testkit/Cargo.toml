@@ -41,6 +41,7 @@ tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }
+tanren-provider-integrations = { path = "../tanren-provider-integrations" }
 tanren-mcp-app = { path = "../tanren-mcp-app", features = ["test-hooks"] }
 tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
 thiserror = { workspace = true }

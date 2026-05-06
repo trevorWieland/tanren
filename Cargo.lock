@@ -4459,6 +4459,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-mcp-app",
+ "tanren-provider-integrations",
  "tanren-store",
  "thiserror 2.0.18",
  "tokio",

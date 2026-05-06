@@ -11,8 +11,10 @@
 
 #![cfg(feature = "test-hooks")]
 
+pub mod fixture_provider;
 pub mod harness;
 
+pub use fixture_provider::FixtureSourceControlProvider;
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
     HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
