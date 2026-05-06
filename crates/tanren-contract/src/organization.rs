@@ -58,7 +58,7 @@ pub struct OrganizationMembershipView {
 
 /// Administrative operation on an organization.
 ///
-/// Mirrors [`OrgPermission`](tanren_identity_policy::OrgPermission)
+/// Mirrors [`OrgPermission`]
 /// variants at the wire level so callers can refer to operations by
 /// name without importing the domain enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]

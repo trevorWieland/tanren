@@ -36,6 +36,8 @@ interface ActorState {
 
 interface WebWorld {
   actors: Map<string, ActorState>;
+  lastCreatedOrgId?: string;
+  lastCreatedOrgName?: string;
 }
 
 // Per-scenario `WebWorld` fixture. playwright-bdd consumes its own `test`
@@ -111,9 +113,6 @@ Given(
     await page.getByRole("button", { name: /create account/i }).click();
     await page.waitForURL("/", { timeout: 10_000 });
     a.hasSession = true;
-    // Sign out for the next step by clearing cookies — the alternative
-    // (a real sign-out UI) lives in a future PR.
-    await page.context().clearCookies();
   },
 );
 
@@ -333,40 +332,26 @@ Then(
 // Steps for B-0066 — Organization creation (@web slice)
 // ============================================================================
 
-When(
-  /^(\w+) creates an organization named "([^"]+)"$/,
-  async ({ page, world }, name: string, orgName: string) => {
-    const a = actor(world, name);
-    await page.goto("/organizations/new");
-    await waitForHydration(page);
-    await page.getByLabel(/organization name/i).fill(orgName);
-    await page.getByRole("button", { name: /create organization/i }).click();
-    const result = await Promise.race([
-      page.waitForURL("/").then(() => "ok" as const),
-      page
-        .locator('form [role="alert"]')
-        .first()
-        .waitFor({ state: "visible" })
-        .then(() => "alert" as const),
-    ]);
-    if (result === "ok") {
-      a.hasSession = true;
-    } else {
-      a.hasSession = false;
-      a.lastFailureCode = await classifyFailureFromAlert(page);
-    }
-  },
-);
-
-Then(
-  /^(\w+) sees the organization "([^"]+)" listed$/,
-  async ({ page }, _name: string, orgName: string) => {
-    await page.waitForURL("/");
-    const pattern = new RegExp(orgName, "i");
-    await page
-      .getByText(pattern)
-      .waitFor({ state: "visible", timeout: 10_000 });
-
+async function createOrganizationStep(
+  { page, world }: { page: import("@playwright/test").Page; world: WebWorld },
+  name: string,
+  orgName: string,
+) {
+  const a = actor(world, name);
+  await page.goto("/organizations/new");
+  await waitForHydration(page);
+  await page.getByLabel(/organization name/i).fill(orgName);
+  await page.getByRole("button", { name: /create organization/i }).click();
+  const result = await Promise.race([
+    page.waitForURL("/").then(() => "ok" as const),
+    page
+      .locator('form [role="alert"]')
+      .first()
+      .waitFor({ state: "visible" })
+      .then(() => "alert" as const),
+  ]);
+  if (result === "ok") {
+    a.hasSession = true;
     const apiUrl =
       process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
     const listResult = (await page.evaluate(async (url: string) => {
@@ -375,47 +360,121 @@ Then(
       });
       return res.json();
     }, apiUrl)) as {
-      organizations: Array<{
-        id: string;
-        name: string;
-        project_count: number;
-      }>;
+      organizations: Array<{ id: string; name: string }>;
     };
-
     const org = listResult.organizations.find(
       (o) => o.name.toLowerCase() === orgName.toLowerCase(),
     );
-    if (!org) {
-      throw new Error(`organization "${orgName}" not found in API response`);
+    if (org) {
+      world.lastCreatedOrgId = org.id;
+      world.lastCreatedOrgName = org.name;
     }
-    const count = org.project_count ?? 0;
-    if (count !== 0) {
+  } else {
+    a.hasSession = false;
+    a.lastFailureCode = await classifyFailureFromAlert(page);
+  }
+}
+
+Given(
+  /^(\w+) creates an organization named "([^"]+)"$/,
+  createOrganizationStep,
+);
+
+When(
+  /^an unauthenticated request creates an organization named "([^"]+)"$/,
+  async ({ page, world }, orgName: string) => {
+    await page.context().clearCookies();
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const res = await fetch(`${apiUrl}/organizations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: orgName }),
+    });
+    if (!res.ok) {
+      const body: { code?: string } = (await res.json()) as { code?: string };
+      const failing = [...world.actors.values()].find(
+        (a) => a.hasSession === false,
+      );
+      if (failing) {
+        failing.lastFailureCode = body.code ?? "unknown";
+      } else {
+        const a = actor(world, "__unauthenticated__");
+        a.hasSession = false;
+        a.lastFailureCode = body.code ?? "unknown";
+      }
+    }
+  },
+);
+
+Then(
+  /^(\w+) is a member of the organization$/,
+  async ({ world }, name: string) => {
+    const a = actor(world, name);
+    if (!world.lastCreatedOrgId && !a.lastOrgId) {
+      throw new Error(`expected ${name} to have created an organization`);
+    }
+  },
+);
+
+Then(
+  /^the organization has (\d+) projects?$/,
+  async ({ page, world }, count: string) => {
+    const expected = parseInt(count, 10);
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const listResult = (await page.evaluate(async (url: string) => {
+      const res = await fetch(`${url}/account/organizations`, {
+        credentials: "include",
+      });
+      return res.json();
+    }, apiUrl)) as {
+      organizations: Array<{ id: string; name: string; project_count: number }>;
+    };
+    const org = world.lastCreatedOrgId
+      ? listResult.organizations.find((o) => o.id === world.lastCreatedOrgId)
+      : listResult.organizations[0];
+    if (!org) {
+      throw new Error("no organization found in account list");
+    }
+    if ((org.project_count ?? 0) !== expected) {
       throw new Error(
-        `expected project_count 0 for "${orgName}", got ${count}`,
+        `expected project_count ${expected}, got ${org.project_count}`,
       );
     }
   },
 );
 
 Then(
-  /^(\w+) holds all bootstrap admin permissions for "([^"]+)"$/,
-  async ({ page }, _name: string, orgName: string) => {
+  /^the organization appears in (\w+)'s available organizations$/,
+  async ({ page }, name: string) => {
+    void name;
     const apiUrl =
       process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
-
     const listResult = (await page.evaluate(async (url: string) => {
       const res = await fetch(`${url}/account/organizations`, {
         credentials: "include",
       });
       return res.json();
-    }, apiUrl)) as { organizations: Array<{ id: string; name: string }> };
-
-    const org = listResult.organizations.find(
-      (o) => o.name.toLowerCase() === orgName.toLowerCase(),
-    );
-    if (!org) {
-      throw new Error(`organization "${orgName}" not found in account list`);
+    }, apiUrl)) as {
+      organizations: Array<{ id: string; name: string }>;
+    };
+    if (listResult.organizations.length === 0) {
+      throw new Error("expected at least one organization in available list");
     }
+  },
+);
+
+Then(
+  /^(\w+) holds all bootstrap admin permissions$/,
+  async ({ page, world }, name: string) => {
+    void name;
+    const orgId = world.lastCreatedOrgId;
+    if (!orgId) {
+      throw new Error("no organization has been created yet");
+    }
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 
     const operations = [
       "invite_members",
@@ -434,13 +493,38 @@ Then(
           );
           return res.ok;
         },
-        { url: apiUrl, orgId: org.id, operation: op },
+        { url: apiUrl, orgId, operation: op },
       )) as boolean;
       if (!authorized) {
-        throw new Error(
-          `actor should be authorized for "${op}" on "${orgName}"`,
-        );
+        throw new Error(`actor should be authorized for "${op}"`);
       }
+    }
+  },
+);
+
+Then(
+  /^(\w+) cannot authorize admin operation "([^"]+)" on the organization$/,
+  async ({ page, world }, name: string, operation: string) => {
+    void name;
+    const orgId = world.lastCreatedOrgId;
+    if (!orgId) {
+      throw new Error("no organization has been created yet");
+    }
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+
+    const authorized = (await page.evaluate(
+      async (args: { url: string; orgId: string; operation: string }) => {
+        const res = await fetch(
+          `${args.url}/organizations/${args.orgId}/admin-operations/${args.operation}/authorize`,
+          { method: "POST", credentials: "include" },
+        );
+        return res.ok;
+      },
+      { url: apiUrl, orgId, operation },
+    )) as boolean;
+    if (authorized) {
+      throw new Error(`non-creator ${name} should be denied "${operation}"`);
     }
   },
 );

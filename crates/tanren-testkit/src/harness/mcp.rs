@@ -17,7 +17,7 @@ use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CreateOrganizationRequest, OrganizationAdminOperation,
-    SignInRequest, SignUpRequest,
+    OrganizationFailureReason, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrgPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -221,10 +221,12 @@ impl AccountHarness for McpHarness {
         &mut self,
         req: CreateOrganizationRequest,
     ) -> HarnessResult<HarnessOrganization> {
-        let token = self
-            .current_session_token
-            .clone()
-            .ok_or_else(|| HarnessError::Transport("no session token".to_owned()))?;
+        let token = self.current_session_token.clone().ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::AuthRequired,
+                "no session token".to_owned(),
+            )
+        })?;
         let body = serde_json::json!({
             "session_token": token,
             "name": req.name.as_str(),
@@ -236,13 +238,13 @@ impl AccountHarness for McpHarness {
             .as_str()
             .unwrap_or("")
             .to_owned();
-        let granted_permissions: Vec<OrgPermission> =
+        let perms: Vec<OrgPermission> =
             serde_json::from_value(payload["membership"]["permissions"].clone())
                 .map_err(|e| HarnessError::Transport(format!("decode permissions: {e}")))?;
         Ok(HarnessOrganization {
             org_id,
             name,
-            granted_permissions,
+            granted_permissions: perms,
             project_count: 0,
         })
     }
@@ -254,19 +256,18 @@ impl AccountHarness for McpHarness {
             .ok_or_else(|| HarnessError::Transport("no session token".to_owned()))?;
         let body = serde_json::json!({ "session_token": token });
         let payload = self.call_tool("organization.list", body).await?;
-        let orgs = payload
+        Ok(payload
             .as_array()
             .map(|a| {
                 a.iter()
                     .filter_map(|v| {
-                        let id: Option<OrgId> = serde_json::from_value(v["id"].clone()).ok();
+                        let id: OrgId = serde_json::from_value(v["id"].clone()).ok()?;
                         let name = v["name"].as_str().unwrap_or("").to_owned();
-                        id.map(|id| HarnessOrgSummary { id, name })
+                        Some(HarnessOrgSummary { id, name })
                     })
                     .collect()
             })
-            .unwrap_or_default();
-        Ok(orgs)
+            .unwrap_or_default())
     }
 
     async fn authorize_admin_operation(

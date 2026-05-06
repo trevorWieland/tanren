@@ -100,6 +100,7 @@ async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, pas
     ctx.last_outcome = Some(outcome);
 }
 
+#[given(expr = "{word} signs in with the same credentials")]
 #[when(expr = "{word} signs in with the same credentials")]
 async fn when_sign_in_same(world: &mut TanrenWorld, actor: String) {
     use secrecy::ExposeSecret;

@@ -36,6 +36,7 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    session_file: PathBuf,
     current_account_id: Option<AccountId>,
 }
 
@@ -63,11 +64,22 @@ impl CliHarness {
 
         let binary = locate_workspace_binary("tanren-cli")?;
 
+        let session_file = {
+            let mut p = std::env::temp_dir();
+            p.push(format!(
+                "tanren-bdd-cli-session-{}-{}.txt",
+                std::process::id(),
+                Uuid::new_v4().simple()
+            ));
+            p
+        };
+
         Ok(Self {
             store,
             db_path,
             db_url,
             binary,
+            session_file,
             current_account_id: None,
         })
     }
@@ -76,6 +88,7 @@ impl CliHarness {
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_file);
     }
 }
 
@@ -87,6 +100,7 @@ impl AccountHarness for CliHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "account",
                 "create",
@@ -122,6 +136,7 @@ impl AccountHarness for CliHarness {
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "account",
                 "sign-in",
@@ -158,6 +173,7 @@ impl AccountHarness for CliHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "account",
                 "create",
@@ -222,6 +238,7 @@ impl AccountHarness for CliHarness {
         req: CreateOrganizationRequest,
     ) -> HarnessResult<HarnessOrganization> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "organization",
                 "create",
@@ -245,6 +262,7 @@ impl AccountHarness for CliHarness {
 
     async fn list_available_organizations(&mut self) -> HarnessResult<Vec<HarnessOrgSummary>> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args(["organization", "list", "--database-url", &self.db_url])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -266,6 +284,7 @@ impl AccountHarness for CliHarness {
     ) -> HarnessResult<()> {
         let op_str = operation_to_str(operation);
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "organization",
                 "authorize-admin-operation",

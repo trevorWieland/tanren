@@ -1,13 +1,13 @@
 use cucumber::{given, then, when};
-use secrecy::SecretString;
 use tanren_contract::{
     CreateOrganizationRequest, OrganizationAdminOperation, OrganizationFailureReason,
 };
-use tanren_identity_policy::{Email, OrgPermission, OrganizationName};
+use tanren_identity_policy::{OrgPermission, OrganizationName};
 use tanren_testkit::{HarnessOrganization, HarnessOutcome, record_failure};
 
 use crate::TanrenWorld;
 
+#[given(expr = "{word} creates an organization named {string}")]
 #[when(expr = "{word} creates an organization named {string}")]
 async fn when_create_org(world: &mut TanrenWorld, actor: String, name: String) {
     let org_name = OrganizationName::parse(&name).expect("scenario org names must parse");
@@ -40,7 +40,7 @@ async fn when_try_create_org(world: &mut TanrenWorld, actor: String, name: Strin
     when_create_org(world, actor, name).await;
 }
 
-#[when(expr = "an unsigned-in request creates an organization named {string}")]
+#[when(expr = "an unauthenticated request creates an organization named {string}")]
 async fn when_unsigned_create_org(world: &mut TanrenWorld, name: String) {
     let org_name = OrganizationName::parse(&name).expect("scenario org names must parse");
     let ctx = world.ensure_account_ctx().await;
@@ -160,75 +160,6 @@ async fn then_last_admin_triggers(world: &mut TanrenWorld, permission: String) {
         "expected last_admin_holder, got {}",
         err.code()
     );
-}
-
-#[given(expr = "{word} has signed up with email {string} and password {string}")]
-async fn given_signed_up(world: &mut TanrenWorld, actor: String, email: String, password: String) {
-    do_sign_up(world, actor, email, password).await;
-    let ctx = world.account.as_mut().expect("ctx initialized");
-    assert!(
-        matches!(ctx.last_outcome, Some(HarnessOutcome::SignedUp(_))),
-        "background sign-up must succeed (got {:?})",
-        ctx.last_outcome
-    );
-}
-
-#[given(expr = "{word} has signed in with email {string} and password {string}")]
-async fn given_signed_in(world: &mut TanrenWorld, actor: String, email: String, password: String) {
-    do_sign_in(world, actor, email, password).await;
-    let ctx = world.account.as_mut().expect("ctx initialized");
-    assert!(
-        matches!(ctx.last_outcome, Some(HarnessOutcome::SignedIn(_))),
-        "background sign-in must succeed (got {:?})",
-        ctx.last_outcome
-    );
-}
-
-async fn do_sign_up(world: &mut TanrenWorld, actor: String, email: String, password: String) {
-    let ctx = world.ensure_account_ctx().await;
-    let parsed_email = Email::parse(&email).expect("scenario emails must parse");
-    let result = ctx
-        .harness
-        .sign_up(tanren_contract::SignUpRequest {
-            email: parsed_email,
-            password: SecretString::from(password.clone()),
-            display_name: format!("{actor} org-user"),
-        })
-        .await;
-    let entry = ctx.actors.entry(actor.clone()).or_default();
-    entry.identifier = Some(email);
-    entry.password = Some(SecretString::from(password));
-    let outcome = match result {
-        Ok(session) => {
-            entry.sign_up = Some(session.clone());
-            HarnessOutcome::SignedUp(session)
-        }
-        Err(err) => record_failure(err, entry),
-    };
-    ctx.last_outcome = Some(outcome);
-}
-
-async fn do_sign_in(world: &mut TanrenWorld, actor: String, email: String, password: String) {
-    let ctx = world.ensure_account_ctx().await;
-    let parsed_email = Email::parse(&email).expect("scenario emails must parse");
-    let result = ctx
-        .harness
-        .sign_in(tanren_contract::SignInRequest {
-            email: parsed_email,
-            password: SecretString::from(password.clone()),
-        })
-        .await;
-    let entry = ctx.actors.entry(actor.clone()).or_default();
-    entry.identifier = Some(email);
-    entry.password = Some(SecretString::from(password));
-    let outcome = match result {
-        Ok(session) => {
-            entry.sign_in = Some(session.clone());
-            HarnessOutcome::SignedIn(session)
-        }
-        Err(err) => record_failure(err, entry),
-    };
-    ctx.last_outcome = Some(outcome);
 }
 
 fn extract_last_org(ctx: &mut crate::AccountContext) -> HarnessOrganization {

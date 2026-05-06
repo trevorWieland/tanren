@@ -4484,7 +4484,6 @@ name = "tanren-tui-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "chrono",
  "crossterm",
  "ratatui",
  "secrecy",
