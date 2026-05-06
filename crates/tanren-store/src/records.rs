@@ -246,7 +246,7 @@ impl From<entity::project_specs::Model> for ProjectSpecRecord {
 /// Cross-project dependency link. When the target project is disconnected
 /// or unknown, the dependency surfaces as an unresolved-link signal
 /// (M-0007 owns the lookup; the wire shape is
-/// [`ProjectDependencyResponse`](tanren_contract::ProjectDependencyResponse)).
+/// `ProjectDependencyResponse` in the `tanren-contract` crate).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectDependencyRecord {
     /// Project that owns the dependency reference.
