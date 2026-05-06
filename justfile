@@ -900,10 +900,17 @@ web-storybook-build:
 web-e2e:
     pnpm --filter @tanren/web run e2e
 
+# Ensure the Chromium Playwright browser is installed (idempotent).
+# Runs before browser-dependent web tests so `just web-test` / `just ci`
+# succeed without a prior manual `playwright install`.
+web-playwright-ensure:
+    cd apps/web && pnpm exec playwright install --with-deps chromium
+
 # Aggregate web test gate — every layer Storybook 9 + Vitest + Playwright
 # adds in PR 11. CI's `just ci` invokes this; locally the three child
 # recipes are usable independently.
 web-test:
+    @just web-playwright-ensure
     @just web-unit
     @just web-storybook-test
     @just web-e2e
