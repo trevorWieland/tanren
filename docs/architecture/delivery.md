@@ -308,6 +308,71 @@ Manual edits to Tanren-owned projections are drift. Changes should happen
 through Tanren actions, imports, or approved editing surfaces that emit typed
 events and regenerate projections.
 
+## Install Manifest (v1)
+
+The install manifest is a JSON file that records every Tanren-managed file in a
+repository at install time. It enables safe uninstall by distinguishing
+generated assets from user-owned work.
+
+### Location
+
+The manifest is stored at `.tanren/install-manifest.json` relative to the
+repository root. The `.tanren/` directory is created by install and removed by
+uninstall when empty.
+
+### Schema
+
+The manifest is a JSON object with these fields:
+
+- `version` (integer): schema version. Currently always `1`.
+- `entries` (array of objects): one per tracked file.
+- `created_at` (ISO 8601 datetime): when the manifest was written.
+
+Each entry contains:
+
+- `path` (string): forward-slash relative path from the repo root.
+- `ownership` (string): `"tanren_generated"` or `"user_owned"`.
+  - `tanren_generated`: file was produced by Tanren. Eligible for removal
+    during uninstall when the current content hash matches the recorded hash.
+  - `user_owned`: file belongs to the user (specs, source signals, edited
+    standards). Never removed by uninstall.
+- `content_hash` (string): SHA-256 hex digest of the file at install time.
+  Used to detect post-install modifications. If the on-disk hash differs, the
+  file is preserved even if ownership is `tanren_generated`.
+- `generated_at` (ISO 8601 datetime): when the file was generated.
+
+### Uninstall Semantics
+
+Repo uninstall reads the manifest and classifies each entry:
+
+1. **User-owned files** are always preserved.
+2. **Tanren-generated files whose on-disk hash matches** are removed.
+3. **Tanren-generated files whose on-disk hash differs** are preserved (user
+   edited them after install).
+4. **Tanren-generated files already absent from disk** are reported as
+   preserved (already removed).
+5. The manifest file itself is removed after all file deletions complete.
+6. The `.tanren/` directory is removed if empty after manifest deletion.
+
+Uninstall always shows a preview before applying changes. The preview lists
+files to remove and files to preserve with reasons. No filesystem mutation
+occurs until the caller explicitly confirms.
+
+When no manifest exists, uninstall exits successfully with a nothing-to-
+uninstall message.
+
+### Contract Types
+
+The manifest and uninstall wire shapes are defined in
+`tanren-contract::project_uninstall`:
+
+- `InstallManifest`: top-level manifest structure.
+- `ManifestEntry`: per-file record with path, ownership, hash, and timestamp.
+- `FileOwnership`: ownership discriminator (`TanrenGenerated` | `UserOwned`).
+- `UninstallPreview`: preview of planned removals and preserved files.
+- `PreservedFile` / `PreserveReason`: preserved-file detail with reason.
+- `UninstallResult`: outcome of an applied uninstall.
+
 ## Harness Asset Generation
 
 Tanren generates harness-specific assets for Codex, Claude Code, and OpenCode.

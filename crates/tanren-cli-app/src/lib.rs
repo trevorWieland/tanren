@@ -15,12 +15,13 @@
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
+use tanren_app_services::project_uninstall;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
@@ -63,6 +64,15 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Remove Tanren-generated assets from a repository.
+    Uninstall {
+        /// Path to the local repository checkout.
+        #[arg(long)]
+        repo: PathBuf,
+        /// Confirm removal. Without this flag only a preview is shown.
+        #[arg(long)]
+        confirm: bool,
     },
 }
 
@@ -122,6 +132,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Uninstall { repo, confirm }) => run_uninstall(&repo, confirm),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -163,6 +174,72 @@ fn run_migrate_up(database_url: &str) -> Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(handle, "migrations: applied").context("write migrate report to stdout")?;
+    Ok(())
+}
+
+fn run_uninstall(repo: &Path, confirm: bool) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+
+    let preview_result = match project_uninstall::preview(repo) {
+        Ok(p) => p,
+        Err(project_uninstall::UninstallError::NoManifest { path }) => {
+            writeln!(
+                handle,
+                "nothing to uninstall: no install manifest found at {path}"
+            )
+            .context("write nothing-to-uninstall message")?;
+            return Ok(());
+        }
+        Err(e) => return Err(anyhow::anyhow!("{e}")),
+    };
+
+    if preview_result.to_remove.is_empty() && preview_result.preserved.is_empty() {
+        writeln!(handle, "nothing to uninstall: manifest is empty")
+            .context("write empty-manifest message")?;
+        return Ok(());
+    }
+
+    writeln!(handle, "uninstall preview for {}", repo.display()).context("write preview header")?;
+
+    if !preview_result.to_remove.is_empty() {
+        writeln!(handle, "  will remove:").context("write remove header")?;
+        for path in &preview_result.to_remove {
+            writeln!(handle, "    - {path}").context("write remove entry")?;
+        }
+    }
+
+    if !preview_result.preserved.is_empty() {
+        writeln!(handle, "  will preserve:").context("write preserve header")?;
+        for file in &preview_result.preserved {
+            let reason = match file.reason {
+                tanren_contract::PreserveReason::UserOwned => "user-owned",
+                tanren_contract::PreserveReason::ModifiedSinceInstall => "modified since install",
+                tanren_contract::PreserveReason::AlreadyRemoved => "already removed",
+            };
+            writeln!(handle, "    - {} ({reason})", file.path).context("write preserve entry")?;
+        }
+    }
+
+    if !confirm {
+        writeln!(
+            handle,
+            "run with --confirm to apply these changes. no files were modified."
+        )
+        .context("write confirm hint")?;
+        return Ok(());
+    }
+
+    let result = project_uninstall::apply(repo).context("apply uninstall")?;
+
+    writeln!(
+        handle,
+        "uninstall applied: {} file(s) removed, {} file(s) preserved, manifest_removed={}",
+        result.removed.len(),
+        result.preserved.len(),
+        result.manifest_removed,
+    )
+    .context("write uninstall result")?;
     Ok(())
 }
 

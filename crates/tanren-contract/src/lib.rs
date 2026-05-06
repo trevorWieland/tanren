@@ -6,10 +6,16 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod project_uninstall;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use project_uninstall::{
+    FileOwnership, InstallManifest, MANIFEST_V1_PATH, MANIFEST_V1_VERSION, ManifestEntry,
+    PreserveReason, PreservedFile, UninstallPreview, UninstallResult,
 };
 
 use serde::{Deserialize, Serialize};
