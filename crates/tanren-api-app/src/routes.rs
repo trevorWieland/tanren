@@ -1,9 +1,5 @@
-//! Axum route handlers + per-handler `#[utoipa::path(...)]` annotations
-//! + the top-level `ApiDoc` struct that the `OpenApi` derive walks.
-//!
-//! Split out of `lib.rs` so the api-app crate stays under the workspace
-//! 500-line line-budget. The wiring (router, openapi-json route,
-//! tower-sessions layer) lives in `lib.rs::build_app`.
+//! Axum route handlers, `#[utoipa::path(...)]` annotations, and the
+//! top-level `ApiDoc` struct. Split from `lib.rs` for line-budget.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -13,17 +9,22 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, CreateOrganizationRequest, CreateOrganizationResponse,
+    OrganizationAdminOperation, OrganizationMembershipView, OrganizationView, SessionEnvelope,
+    SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{Email, InvitationToken, OrgId, OrganizationName};
+use tanren_store::{MembershipRecord, OrganizationRecord};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::cookies::{SessionWrite, extract_account_id, install_cookie_session};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, auth_required_response, map_app_error, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -36,10 +37,7 @@ pub struct HealthResponse {
     pub contract_version: u32,
 }
 
-/// Cookie-transport response shape for the api surface. Mirrors
-/// `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` but
-/// projects the session into [`SessionEnvelope::Cookie`] (no token in
-/// body — it ships in the `Set-Cookie` header).
+/// Cookie-transport response for sign-up. Session ships via `Set-Cookie`.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignUpResponseCookie {
     /// View of the freshly created account.
@@ -68,10 +66,8 @@ pub struct AcceptInvitationResponseCookie {
     pub joined_org: OrgId,
 }
 
-/// Path body for `POST /invitations/{token}/accept`. Splits the password
-/// into a `String` here (then re-wraps as `SecretString` before handing
-/// off to app-services) so utoipa can document the schema; the secret
-/// stays in memory only for the lifetime of this function.
+/// Body for `POST /invitations/{token}/accept`. Password is re-wrapped as
+/// `SecretString` before reaching app-services so utoipa can document it.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationBody {
     /// Email the invitee chose.
@@ -81,6 +77,19 @@ pub struct AcceptInvitationBody {
     pub password: String,
     /// Display name.
     pub display_name: String,
+}
+
+/// Response for `GET /account/organizations`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListOrganizationsResponse {
+    /// Organizations the authenticated account belongs to.
+    pub organizations: Vec<OrganizationView>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct AuthorizePath {
+    pub(crate) org_id: OrgId,
+    pub(crate) operation: OrganizationAdminOperation,
 }
 
 /// Top-level `OpenAPI` doc. Each handler is annotated with
@@ -98,6 +107,9 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        create_organization_route,
+        list_account_organizations_route,
+        authorize_admin_operation_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +121,17 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        CreateOrganizationRequest,
+        CreateOrganizationResponse,
+        OrganizationView,
+        OrganizationMembershipView,
+        OrganizationAdminOperation,
+        ListOrganizationsResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "organizations", description = "Organization creation, listing, and admin authorization."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,11 +327,165 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Build the `OpenApiRouter` carrying every account-flow route. Called
-/// from `lib.rs::build_app` after the cookie/CORS layers are
-/// constructed; the macros that `routes!()` expands need to live in the
-/// same module as the `#[utoipa::path]`-annotated handlers, so the
-/// router constructor lives here too.
+fn org_view(record: &OrganizationRecord) -> Result<OrganizationView, Box<Response>> {
+    let name = OrganizationName::parse(&record.canonical_name).map_err(|err| {
+        tracing::error!(target: "tanren_api", error = %err, "canonical_name revalidation failed");
+        Box::new(
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AccountFailureBody {
+                    code: "internal_error".to_owned(),
+                    summary: "Tanren encountered an internal error.".to_owned(),
+                }),
+            )
+                .into_response(),
+        )
+    })?;
+    Ok(OrganizationView {
+        id: record.id,
+        name,
+        created_at: record.created_at,
+    })
+}
+
+fn membership_view(
+    record: &MembershipRecord,
+    permissions: Vec<tanren_identity_policy::OrgPermission>,
+) -> OrganizationMembershipView {
+    OrganizationMembershipView {
+        id: record.id,
+        account_id: record.account_id,
+        org_id: record.org_id,
+        permissions,
+        created_at: record.created_at,
+    }
+}
+
+/// Create a new organization. The cookie-authenticated account becomes the
+/// creator and receives all five bootstrap admin permissions.
+#[utoipa::path(
+    post,
+    path = "/organizations",
+    request_body = CreateOrganizationRequest,
+    responses(
+        (status = 201, body = CreateOrganizationResponse, description = "Organization created"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 409, body = AccountFailureBody, description = "duplicate_organization_name"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn create_organization_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<CreateOrganizationRequest>,
+) -> Response {
+    let Some(account_id) = extract_account_id(&session).await else {
+        return auth_required_response();
+    };
+    match state
+        .handlers
+        .create_organization_for_account(state.store.as_ref(), account_id, request)
+        .await
+    {
+        Ok(output) => {
+            let organization = match org_view(&output.organization) {
+                Ok(v) => v,
+                Err(r) => return *r,
+            };
+            (
+                StatusCode::CREATED,
+                Json(CreateOrganizationResponse {
+                    organization,
+                    membership: membership_view(&output.membership, output.granted_permissions),
+                }),
+            )
+                .into_response()
+        }
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// List organizations the cookie-authenticated account belongs to.
+#[utoipa::path(
+    get,
+    path = "/account/organizations",
+    responses(
+        (status = 200, body = ListOrganizationsResponse, description = "Organizations listed"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn list_account_organizations_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let Some(account_id) = extract_account_id(&session).await else {
+        return auth_required_response();
+    };
+    match state
+        .handlers
+        .list_account_organizations(state.store.as_ref(), account_id)
+        .await
+    {
+        Ok(records) => {
+            let organizations: Vec<OrganizationView> =
+                match records.iter().map(org_view).collect::<Result<Vec<_>, _>>() {
+                    Ok(v) => v,
+                    Err(r) => return *r,
+                };
+            (
+                StatusCode::OK,
+                Json(ListOrganizationsResponse { organizations }),
+            )
+                .into_response()
+        }
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// No-op authorization probe: returns 204 when the authenticated account
+/// holds the permission matching the requested admin operation on the
+/// specified organization.
+#[utoipa::path(
+    post,
+    path = "/organizations/{org_id}/admin-operations/{operation}/authorize",
+    params(
+        ("org_id" = OrgId, Path, description = "Organization id"),
+        ("operation" = OrganizationAdminOperation, Path, description = "Admin operation to probe"),
+    ),
+    responses(
+        (status = 204, description = "Operation authorized"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn authorize_admin_operation_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path(params): Path<AuthorizePath>,
+) -> Response {
+    let Some(account_id) = extract_account_id(&session).await else {
+        return auth_required_response();
+    };
+    match state
+        .handlers
+        .authorize_org_admin_operation(
+            state.store.as_ref(),
+            account_id,
+            params.org_id,
+            params.operation,
+        )
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Build the `OpenApiRouter` carrying every route. Called from
+/// `lib.rs::build_app`; must live here for `routes!()` macro expansion.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(health_route))
@@ -320,5 +493,8 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(create_organization_route))
+        .routes(routes!(list_account_organizations_route))
+        .routes(routes!(authorize_admin_operation_route))
         .with_state(state)
 }

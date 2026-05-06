@@ -44,6 +44,15 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
     Ok(())
 }
 
+pub(crate) async fn extract_account_id(session: &Session) -> Option<AccountId> {
+    let account_id: Option<AccountId> = session.get(SESSION_KEY_ACCOUNT).await.ok().flatten();
+    let expires_at: Option<DateTime<Utc>> = session.get(SESSION_KEY_EXPIRES).await.ok().flatten();
+    match (account_id, expires_at) {
+        (Some(id), Some(exp)) if exp > Utc::now() => Some(id),
+        _ => None,
+    }
+}
+
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships
 /// `SqliteStore` and `PostgresStore`; we dispatch on the URL scheme so
 /// the same `serve` entry point covers both backends.
