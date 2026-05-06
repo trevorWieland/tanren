@@ -4319,7 +4319,6 @@ dependencies = [
  "clap",
  "include_dir",
  "secrecy",
- "serde",
  "serde_json",
  "sha2 0.11.0",
  "tanren-app-services",

@@ -1,8 +1,9 @@
 //! Install-flow step definitions for B-0068 / B-0070.
 //!
-//! Step bodies dispatch through the [`InstallHarness`] in
-//! `tanren-testkit`, which shells out to the compiled `tanren-cli`
-//! binary — never in-process installer functions.
+//! Step bodies dispatch through the
+//! [`InstallHarness`](tanren_testkit::InstallHarness) in `tanren-testkit`,
+//! which shells out to the compiled `tanren-cli` binary — never in-process
+//! installer functions.
 
 use cucumber::{given, then, when};
 
