@@ -143,6 +143,9 @@ function ProjectList({ projects, loading }: ProjectListProps): ReactNode {
         {visible.map((project) => (
           <li
             key={project.id}
+            data-testid="project-item"
+            data-project-id={project.id}
+            data-org-id={project.org}
             className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-3 py-2 text-sm"
           >
             {project.name}

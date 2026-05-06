@@ -627,23 +627,32 @@ When(
     await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const trigger = page.locator(
-      'section[aria-label*="Organization" i] [data-testid="org-select-trigger"]',
+    const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
+    const result = await page.evaluate(
+      async ({ apiUrl, orgId }) => {
+        const res = await fetch(`${apiUrl}/account/organizations/active`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ org_id: orgId }),
+          credentials: "include",
+        });
+        let code: string | undefined;
+        try {
+          const body = (await res.json()) as { code?: string };
+          code = body.code;
+        } catch {
+          // keep code undefined
+        }
+        return { ok: res.ok, code };
+      },
+      { apiUrl, orgId },
     );
-    const hasTrigger = (await trigger.count()) > 0;
-    if (hasTrigger) {
-      await trigger.click();
-      const item = page.locator(
-        `[data-testid="org-select-content"] [data-testid="org-option-${orgId}"]`,
-      );
-      const optionExists = await item.isVisible().catch(() => false);
-      if (optionExists) {
-        await item.click();
-      } else {
-        a.lastFailureCode = "organization-not-member";
-      }
+    if (!result.ok) {
+      a.lastFailureCode = result.code ?? "unknown";
+      a.hasSession = false;
     } else {
-      a.lastFailureCode = "organization-not-member";
+      delete a.lastFailureCode;
+      a.activeOrg = orgId;
     }
   },
 );
@@ -677,17 +686,23 @@ Then(
 
 Then(
   /^(\w+) sees only projects belonging to "([^"]+)"$/,
-  async ({ page, world }, name: string, _orgId: string) => {
+  async ({ page, world }, name: string, orgId: string) => {
     actor(world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const projectItems = page.getByTestId(/project-item/i);
+    const projectItems = page.locator('[data-testid="project-item"]');
     const count = await projectItems.count();
+    if (count === 0) {
+      throw new Error(
+        `expected at least one project for org ${orgId} but found none`,
+      );
+    }
     for (let i = 0; i < count; i++) {
-      const text = await projectItems.nth(i).innerText();
-      if (!text.includes(_orgId)) {
+      const itemOrgId = await projectItems.nth(i).getAttribute("data-org-id");
+      if (itemOrgId !== orgId) {
+        const text = await projectItems.nth(i).innerText();
         throw new Error(
-          `project item "${text}" does not belong to org ${_orgId}`,
+          `project item "${text}" has org ${itemOrgId}, expected ${orgId}`,
         );
       }
     }
@@ -700,7 +715,7 @@ Then(
     actor(world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const projectItems = page.getByTestId(/project-item/i);
+    const projectItems = page.locator('[data-testid="project-item"]');
     const actual = await projectItems.count();
     const expected = parseInt(count, 10);
     if (actual !== expected) {
