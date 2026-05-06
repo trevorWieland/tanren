@@ -71,9 +71,10 @@ enum Command {
         /// Repository root directory containing `.tanren/`.
         #[arg(long)]
         root: PathBuf,
-        /// Preview changes without writing files.
+        /// Confirm and apply the upgrade. Without this flag the command
+        /// only previews what would change.
         #[arg(long)]
-        preview: bool,
+        confirm: bool,
     },
 }
 
@@ -133,7 +134,14 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
-        Some(Command::Upgrade { root, preview: _ }) => assets::run_preview(&root),
+        Some(Command::Upgrade {
+            root,
+            confirm: false,
+        }) => assets::run_preview(&root),
+        Some(Command::Upgrade {
+            root,
+            confirm: true,
+        }) => assets::run_apply(&root),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

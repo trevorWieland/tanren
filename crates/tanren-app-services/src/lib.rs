@@ -18,7 +18,10 @@ use tanren_contract::{
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
-pub use assets::{AssetBundle, BundledAsset, PreviewError, current_bundle, preview_upgrade};
+pub use assets::{
+    ApplyError, AssetBundle, BundledAsset, PreviewError, apply_upgrade, current_bundle,
+    preview_upgrade,
+};
 
 use std::sync::Arc;
 use tanren_store::StoreError;

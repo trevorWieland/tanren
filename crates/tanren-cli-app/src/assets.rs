@@ -1,15 +1,12 @@
-//! CLI output formatting for the asset upgrade preview.
+//! CLI output formatting for the asset upgrade preview and confirmed apply.
 
 use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use tanren_app_services::preview_upgrade;
-use tanren_contract::{AssetAction, UpgradePreviewResponse};
+use tanren_app_services::{apply_upgrade, preview_upgrade};
+use tanren_contract::AssetAction;
 
-/// Run the upgrade preview and write the report to stdout.
-///
-/// Read-only: no files in `root` are modified.
 pub(crate) fn run_preview(root: &Path) -> Result<()> {
     let response = preview_upgrade(root).context("upgrade preview")?;
     let stdout = std::io::stdout();
@@ -18,7 +15,24 @@ pub(crate) fn run_preview(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn format_response(handle: &mut std::io::StdoutLock, resp: &UpgradePreviewResponse) -> Result<()> {
+pub(crate) fn run_apply(root: &Path) -> Result<()> {
+    let response = apply_upgrade(root).context("upgrade apply")?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(
+        handle,
+        "Upgrade applied: {} -> {}",
+        response.source_version, response.target_version
+    )
+    .context("write apply header")?;
+    format_response(&mut handle, &response)?;
+    Ok(())
+}
+
+fn format_response(
+    handle: &mut std::io::StdoutLock,
+    resp: &tanren_contract::UpgradePreviewResponse,
+) -> Result<()> {
     writeln!(
         handle,
         "Upgrade preview: {} -> {}",
