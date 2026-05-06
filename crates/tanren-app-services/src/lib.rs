@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, StandardsFailureReason,
+    StandardsInspectionRequest, StandardsInspectionResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
@@ -199,6 +200,20 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Standards inspection query: resolve the standards root from the
+    /// project configuration and return the installed standards.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Standards`] when the standards root
+    /// is missing, empty, or contains malformed files.
+    pub fn inspect_standards(
+        &self,
+        request: &StandardsInspectionRequest,
+    ) -> Result<StandardsInspectionResponse, AppServiceError> {
+        standards::inspection::inspect(request)
     }
 }
 

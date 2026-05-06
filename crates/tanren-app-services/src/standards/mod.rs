@@ -33,6 +33,7 @@
 //! assert!(rm.effective_root().is_ok());
 //! ```
 
+pub mod inspection;
 pub mod projection;
 
 use std::path::{Path, PathBuf};

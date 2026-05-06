@@ -67,6 +67,7 @@ pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,
 };
+pub use tanren_contract::StandardsInspectionResponse;
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
 const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";

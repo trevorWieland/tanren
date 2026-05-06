@@ -31,7 +31,9 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, SignInRequest, SignUpRequest, StandardsInspectionRequest,
+};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -144,6 +146,24 @@ impl TanrenMcp {
         }
     }
 
+    /// Standards inspection tool. Mirrors the api
+    /// `POST /standards/inspect` shape via
+    /// `tanren_contract::StandardsInspectionRequest` /
+    /// `StandardsInspectionResponse`.
+    #[rmcp::tool(
+        name = "standards.inspect",
+        description = "Inspect the standards installed in a repository. Provide the project directory path; returns the standards root and discovered standards. Failure codes: standards_root_not_found, standards_empty, standards_file_malformed, invalid_schema, path_violation, tree_bounds_exceeded."
+    )]
+    async fn standards_inspect(
+        &self,
+        Parameters(request): Parameters<StandardsInspectionRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        match self.handlers.inspect_standards(&request) {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
     /// Borrow the cached `ToolRouter`. Exists so the dead-code lint can
     /// see the field as read even on rmcp macro versions whose
     /// `#[tool_handler]` expansion path does not access the field
@@ -186,6 +206,9 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
+        AppServiceError::Standards(reason) => {
+            (reason.code().to_owned(), reason.summary().to_owned())
+        }
         AppServiceError::Store(err) => (
             "internal_error".to_owned(),
             format!("Tanren encountered an internal error: {err}"),

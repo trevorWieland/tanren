@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    StandardsInspectionRequest, StandardsInspectionResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -98,6 +99,7 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        standards_inspect_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +111,13 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        StandardsInspectionRequest,
+        StandardsInspectionResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "standards", description = "Standards inspection: load and validate installed standards."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,6 +313,28 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/standards/inspect",
+    request_body = StandardsInspectionRequest,
+    responses(
+        (status = 200, body = StandardsInspectionResponse, description = "Standards inspection succeeded"),
+        (status = 400, body = AccountFailureBody, description = "invalid_schema or path_violation"),
+        (status = 404, body = AccountFailureBody, description = "standards_root_not_found or standards_empty"),
+        (status = 422, body = AccountFailureBody, description = "standards_file_malformed or tree_bounds_exceeded"),
+    ),
+    tag = "standards",
+)]
+pub(crate) async fn standards_inspect_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<StandardsInspectionRequest>,
+) -> Response {
+    match state.handlers.inspect_standards(&request) {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +347,6 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(standards_inspect_route))
         .with_state(state)
 }
