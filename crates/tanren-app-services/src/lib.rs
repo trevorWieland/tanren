@@ -7,15 +7,18 @@
 
 pub mod account;
 pub mod events;
+pub mod project;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ConnectProjectRequest,
+    ConnectProjectResponse, ContractVersion, DisconnectProjectRequest, DisconnectProjectResponse,
+    ListProjectsResponse, ProjectFailureReason, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier, ProjectId};
+pub use tanren_store::{AccountStore, ProjectStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -199,6 +202,61 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    pub async fn connect_project<S>(
+        &self,
+        store: &S,
+        request: ConnectProjectRequest,
+    ) -> Result<ConnectProjectResponse, AppServiceError>
+    where
+        S: AccountStore + ProjectStore + ?Sized,
+    {
+        project::connect_project(store, &self.clock, request).await
+    }
+
+    pub async fn list_projects<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+    ) -> Result<ListProjectsResponse, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::list_projects(store, account_id).await
+    }
+
+    pub async fn disconnect_project<S>(
+        &self,
+        store: &S,
+        request: DisconnectProjectRequest,
+    ) -> Result<DisconnectProjectResponse, AppServiceError>
+    where
+        S: AccountStore + ProjectStore + ?Sized,
+    {
+        project::disconnect_project(store, &self.clock, request).await
+    }
+
+    pub async fn project_specs<S>(
+        &self,
+        store: &S,
+        project_id: ProjectId,
+    ) -> Result<Vec<project::ProjectSpecView>, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::project_specs(store, project_id).await
+    }
+
+    pub async fn project_dependencies<S>(
+        &self,
+        store: &S,
+        project_id: ProjectId,
+    ) -> Result<Vec<project::ProjectDependencyView>, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::project_dependencies(store, project_id).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +273,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A project-flow taxonomy failure.
+    #[error("project: {}", .0.code())]
+    Project(ProjectFailureReason),
 }

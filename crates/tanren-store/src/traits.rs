@@ -402,6 +402,16 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         project_id: ProjectId,
     ) -> Result<Vec<ProjectDependencyLink>, StoreError>;
 
+    /// Read all dependency links whose target is the supplied project,
+    /// annotating each with whether the target is resolved, disconnected,
+    /// or unknown. Used by disconnect to surface inbound unresolved-link
+    /// signals from other projects that depend on the project being
+    /// disconnected.
+    async fn read_inbound_dependencies(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectDependencyLink>, StoreError>;
+
     /// Insert a loop-fixture row. M-0003 fixture seam for the
     /// no-active-loops precondition; replaced when M-0011 lands.
     async fn set_loop_fixture(

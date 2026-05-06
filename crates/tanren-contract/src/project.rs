@@ -48,10 +48,21 @@ pub struct DisconnectProjectRequest {
 }
 
 /// Successful project-disconnect response.
+///
+/// Carries the disconnected project id, the post-disconnect account project
+/// view (so callers can verify the project is absent), and any inbound
+/// cross-project dependency links that are now unresolved because their
+/// target was just disconnected.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct DisconnectProjectResponse {
     /// The project that was disconnected.
     pub project_id: ProjectId,
+    /// Projects still visible to the requesting account after the
+    /// disconnect — the disconnected project is absent from this list.
+    pub account_projects: Vec<ProjectView>,
+    /// Inbound cross-project dependencies that are now unresolved because
+    /// their target project was just disconnected.
+    pub unresolved_inbound_dependencies: Vec<ProjectDependencyResponse>,
 }
 
 /// Cross-project dependency signal emitted when a dependency points into a

@@ -9,8 +9,8 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_contract::{AccountFailureReason, ProjectFailureReason};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId, ProjectId, SpecId};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
@@ -133,6 +133,81 @@ pub struct InvitationAcceptFailed {
 pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
     serde_json::json!({
         "family": EVENT_FAMILY,
+        "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+// -- project events ----------------------------------------------------------
+
+/// Tag on the JSON envelope that disambiguates project events from account
+/// events.
+pub const PROJECT_EVENT_FAMILY: &str = "project";
+
+/// Closed taxonomy of project-flow event kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ProjectEventKind {
+    ProjectConnected,
+    ProjectDisconnected,
+    ProjectDisconnectRejected,
+    CrossProjectDependencyUnresolved,
+}
+
+impl ProjectEventKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ProjectConnected => "project_connected",
+            Self::ProjectDisconnected => "project_disconnected",
+            Self::ProjectDisconnectRejected => "project_disconnect_rejected",
+            Self::CrossProjectDependencyUnresolved => "cross_project_dependency_unresolved",
+        }
+    }
+}
+
+/// A project was connected to a Tanren account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectConnected {
+    pub project_id: ProjectId,
+    pub org_id: OrgId,
+    pub name: String,
+    pub repository_url: String,
+    pub at: DateTime<Utc>,
+}
+
+/// A project was disconnected from its Tanren account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectDisconnected {
+    pub project_id: ProjectId,
+    pub at: DateTime<Utc>,
+}
+
+/// A project disconnect was rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectDisconnectRejected {
+    pub project_id: ProjectId,
+    pub reason: ProjectFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+/// A cross-project dependency points into a disconnected or unknown target.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossProjectDependencyUnresolved {
+    pub source_project_id: ProjectId,
+    pub source_spec_id: SpecId,
+    pub unresolved_target_project_id: ProjectId,
+    pub detected_at: DateTime<Utc>,
+}
+
+/// Encode a typed project event as the JSON envelope persisted in the
+/// event log.
+#[must_use]
+pub fn project_envelope<T: Serialize>(kind: ProjectEventKind, payload: &T) -> serde_json::Value {
+    serde_json::json!({
+        "family": PROJECT_EVENT_FAMILY,
         "kind": kind.as_str(),
         "payload": payload,
     })

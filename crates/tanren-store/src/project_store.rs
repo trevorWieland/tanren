@@ -137,25 +137,19 @@ impl ProjectStore for Store {
             .all(&self.conn)
             .await?;
 
-        let mut links = Vec::with_capacity(deps.len());
-        for dep in deps {
-            let target = entity::projects::Entity::find_by_id(dep.target_project_id)
-                .one(&self.conn)
-                .await?;
+        resolve_dep_statuses(&self.conn, deps).await
+    }
 
-            let status = match target {
-                Some(p) if p.disconnected_at.is_none() => DependencyLinkStatus::Resolved,
-                Some(_) => DependencyLinkStatus::TargetDisconnected,
-                None => DependencyLinkStatus::TargetUnknown,
-            };
+    async fn read_inbound_dependencies(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectDependencyLink>, StoreError> {
+        let deps = entity::project_dependencies::Entity::find()
+            .filter(entity::project_dependencies::Column::TargetProjectId.eq(project_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
 
-            links.push(ProjectDependencyLink {
-                dependency: ProjectDependencyRecord::from(dep),
-                status,
-            });
-        }
-
-        Ok(links)
+        resolve_dep_statuses(&self.conn, deps).await
     }
 
     async fn set_loop_fixture(
@@ -199,4 +193,29 @@ async fn read_specs(
         .all(conn)
         .await?;
     Ok(rows.into_iter().map(ProjectSpecRecord::from).collect())
+}
+
+async fn resolve_dep_statuses(
+    conn: &DatabaseConnection,
+    deps: Vec<entity::project_dependencies::Model>,
+) -> Result<Vec<ProjectDependencyLink>, StoreError> {
+    let mut links = Vec::with_capacity(deps.len());
+    for dep in deps {
+        let target = entity::projects::Entity::find_by_id(dep.target_project_id)
+            .one(conn)
+            .await?;
+
+        let status = match target {
+            Some(p) if p.disconnected_at.is_none() => DependencyLinkStatus::Resolved,
+            Some(_) => DependencyLinkStatus::TargetDisconnected,
+            None => DependencyLinkStatus::TargetUnknown,
+        };
+
+        links.push(ProjectDependencyLink {
+            dependency: ProjectDependencyRecord::from(dep),
+            status,
+        });
+    }
+
+    Ok(links)
 }
