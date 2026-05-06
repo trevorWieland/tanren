@@ -4218,6 +4218,7 @@ dependencies = [
  "tanren-identity-policy",
  "tanren-testkit",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

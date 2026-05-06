@@ -30,8 +30,8 @@ use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessOrganization,
+    HarnessProject, HarnessResult, HarnessSession,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -105,5 +105,17 @@ impl AccountHarness for WebHarness {
         account_id: AccountId,
     ) -> HarnessResult<ListOrganizationProjectsResponse> {
         self.inner.list_active_org_projects(account_id).await
+    }
+
+    async fn seed_organization(&mut self, fixture: HarnessOrganization) -> HarnessResult<()> {
+        self.inner.seed_organization(fixture).await
+    }
+
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        self.inner.seed_membership(account_id, org_id).await
+    }
+
+    async fn seed_project(&mut self, fixture: HarnessProject) -> HarnessResult<()> {
+        self.inner.seed_project(fixture).await
     }
 }

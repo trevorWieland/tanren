@@ -17,8 +17,8 @@ use tanren_identity_policy::{AccountId, Argon2idVerifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrganization, HarnessProject, HarnessResult, HarnessSession,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -175,6 +175,16 @@ impl AccountHarness for InProcessHarness {
             .list_active_org_projects(&self.store, account_id)
             .await
             .map_err(translate_app_error)
+    }
+
+    async fn seed_organization(&mut self, fixture: HarnessOrganization) -> HarnessResult<()> {
+        super::seed_org_via_store(&self.store, &fixture).await
+    }
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        super::seed_membership_via_store(&self.store, account_id, org_id).await
+    }
+    async fn seed_project(&mut self, fixture: HarnessProject) -> HarnessResult<()> {
+        super::seed_project_via_store(&self.store, &fixture).await
     }
 }
 

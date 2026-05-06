@@ -60,7 +60,7 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, ListOrganizationProjectsResponse,
     OrganizationSwitcher, SignInRequest, SignUpRequest, SwitchActiveOrganizationResponse,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId, ProjectId};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -188,6 +188,28 @@ pub struct HarnessInvitation {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Specification for an organization seeded into the harness's backing
+/// store. Used by `Given ... organization ...` fixture steps.
+#[derive(Debug, Clone)]
+pub struct HarnessOrganization {
+    /// Organization id.
+    pub org_id: OrgId,
+    /// Human-readable organization name.
+    pub org_name: String,
+}
+
+/// Specification for a project seeded into the harness's backing store.
+/// Used by `Given ... project ...` fixture steps.
+#[derive(Debug, Clone)]
+pub struct HarnessProject {
+    /// Project id.
+    pub project_id: ProjectId,
+    /// Owning organization id.
+    pub org_id: OrgId,
+    /// Human-readable project name.
+    pub project_name: String,
+}
+
 /// Per-interface seam used by the BDD step-definition crate. Every
 /// implementation drives the matching real surface end-to-end: api
 /// scenarios go through reqwest, cli scenarios through subprocess,
@@ -271,10 +293,78 @@ pub trait AccountHarness: Send + std::fmt::Debug {
             "org operations not implemented for this harness".to_owned(),
         ))
     }
+
+    /// Seed an organization into the harness's backing store.
+    async fn seed_organization(&mut self, _fixture: HarnessOrganization) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "org seeding not implemented for this harness".to_owned(),
+        ))
+    }
+
+    /// Seed a membership linking an account to an organization.
+    async fn seed_membership(
+        &mut self,
+        _account_id: AccountId,
+        _org_id: OrgId,
+    ) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "org seeding not implemented for this harness".to_owned(),
+        ))
+    }
+
+    /// Seed a project into the harness's backing store.
+    async fn seed_project(&mut self, _fixture: HarnessProject) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "org seeding not implemented for this harness".to_owned(),
+        ))
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.
 pub(crate) const HARNESS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
+
+pub(crate) async fn seed_org_via_store(
+    store: &tanren_store::Store,
+    fixture: &HarnessOrganization,
+) -> HarnessResult<()> {
+    store
+        .seed_organization(tanren_store::NewOrganization {
+            id: fixture.org_id,
+            name: fixture.org_name.clone(),
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|e| HarnessError::Transport(format!("seed_organization: {e}")))?;
+    Ok(())
+}
+
+pub(crate) async fn seed_membership_via_store(
+    store: &tanren_store::Store,
+    account_id: AccountId,
+    org_id: OrgId,
+) -> HarnessResult<()> {
+    store
+        .seed_membership(account_id, org_id, Utc::now())
+        .await
+        .map_err(|e| HarnessError::Transport(format!("seed_membership: {e}")))?;
+    Ok(())
+}
+
+pub(crate) async fn seed_project_via_store(
+    store: &tanren_store::Store,
+    fixture: &HarnessProject,
+) -> HarnessResult<()> {
+    store
+        .seed_project(tanren_store::NewProject {
+            id: fixture.project_id,
+            org_id: fixture.org_id,
+            name: fixture.project_name.clone(),
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|e| HarnessError::Transport(format!("seed_project: {e}")))?;
+    Ok(())
+}
 
 /// Per-actor state captured by `Given <actor> has signed up ...` steps
 /// so subsequent steps can sign them in or assert on the prior outcome.
@@ -300,6 +390,12 @@ pub struct ActorState {
     pub accept_invitation: Option<HarnessAcceptance>,
     /// Last failure (taxonomy code), if any.
     pub last_failure: Option<AccountFailureReason>,
+    /// Last successful organization-list result.
+    pub last_org_list: Option<OrganizationSwitcher>,
+    /// Last successful organization-switch result.
+    pub last_org_switch: Option<SwitchActiveOrganizationResponse>,
+    /// Last successful project-list result.
+    pub last_project_list: Option<ListOrganizationProjectsResponse>,
 }
 
 /// Outcome of the most recent action.
@@ -311,6 +407,12 @@ pub enum HarnessOutcome {
     SignedIn(HarnessSession),
     /// Successful invitation acceptance.
     AcceptedInvitation(HarnessAcceptance),
+    /// Successful organization list.
+    OrganizationsListed(OrganizationSwitcher),
+    /// Successful organization switch.
+    OrganizationSwitched(SwitchActiveOrganizationResponse),
+    /// Successful project list for active org.
+    OrgProjectsListed(ListOrganizationProjectsResponse),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
     /// Non-taxonomy infrastructure failure.
@@ -328,6 +430,9 @@ impl HarnessOutcome {
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
+            | Self::OrganizationsListed(_)
+            | Self::OrganizationSwitched(_)
+            | Self::OrgProjectsListed(_)
             | Self::Other(_) => None,
         }
     }

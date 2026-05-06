@@ -34,6 +34,9 @@ interface ActorState {
   lastFailureCode?: string;
   accountId?: string;
   activeOrg?: string | undefined;
+  orgCount?: number;
+  projectCount?: number;
+  lastProjectOrgs?: string[];
 }
 
 interface WebWorld {
@@ -385,6 +388,186 @@ Then(
         `${name} should hold a session after their second account flow`,
       );
     }
+  },
+);
+
+// ============================================================================
+// Organization fixture seeding — backed by the `/test-hooks/*`
+// HTTP endpoints.
+// ============================================================================
+
+async function seedOrganization(orgId: string, name: string): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const res = await fetch(`${apiUrl}/test-hooks/organizations`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ org_id: orgId, name }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `seed organization '${name}' failed: ${res.status} ${body}`,
+    );
+  }
+}
+
+async function seedMembership(accountId: string, orgId: string): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const res = await fetch(`${apiUrl}/test-hooks/memberships`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ account_id: accountId, org_id: orgId }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`seed membership failed: ${res.status} ${body}`);
+  }
+}
+
+async function seedProject(
+  projectId: string,
+  orgId: string,
+  name: string,
+): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const res = await fetch(`${apiUrl}/test-hooks/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_id: projectId, org_id: orgId, name }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`seed project '${name}' failed: ${res.status} ${body}`);
+  }
+}
+
+Given(
+  /^(\w+) has signed up and belongs to organization "([^"]+)" named "([^"]+)" and organization "([^"]+)" named "([^"]+)"$/,
+  async (
+    { world },
+    name: string,
+    orgXId: string,
+    orgXName: string,
+    orgYId: string,
+    orgYName: string,
+  ) => {
+    const a = actor(world, name);
+    if (!a.accountId) {
+      throw new Error(
+        `actor ${name} must have signed up before org fixture steps`,
+      );
+    }
+    await seedOrganization(orgXId, orgXName);
+    await seedOrganization(orgYId, orgYName);
+    await seedMembership(a.accountId, orgXId);
+    await seedMembership(a.accountId, orgYId);
+  },
+);
+
+Given(
+  /^organization "([^"]+)" has project "([^"]+)" named "([^"]+)"$/,
+  async (
+    { world: _world },
+    orgId: string,
+    projectId: string,
+    projectName: string,
+  ) => {
+    await seedProject(projectId, orgId, projectName);
+  },
+);
+
+Given(
+  /^(\w+) is a personal account with zero organizations$/,
+  async ({ page, world }, name: string) => {
+    const a = actor(world, name);
+    if (a.hasSession !== true) {
+      throw new Error(`actor ${name} must have signed up first`);
+    }
+    await page.goto("/");
+    await waitForHydration(page);
+    const personalLabel = page.getByText(/personal account/i);
+    await expect(personalLabel).toBeVisible({ timeout: 5_000 });
+  },
+);
+
+When(
+  /^(\w+) tries to switch active organization to "([^"]+)"$/,
+  async ({ page, world }, name: string, orgName: string) => {
+    const a = actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const switcher = page.getByLabel(/organization/i);
+    const options = await switcher.locator("option").allInnerTexts();
+    const match = options.find((opt) => opt.includes(orgName));
+    if (match) {
+      await switcher.selectOption({ label: match });
+    } else {
+      a.lastFailureCode = "organization-not-member";
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees (\d+) organization memberships$/,
+  async ({ page, world }, name: string, count: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const switcher = page.getByLabel(/organization/i);
+    if (count === "0") {
+      await expect(switcher).not.toBeVisible({ timeout: 5_000 });
+    } else {
+      const options = await switcher.locator("option").allInnerTexts();
+      if (options.length !== parseInt(count, 10)) {
+        throw new Error(
+          `expected ${count} org memberships, got ${options.length}`,
+        );
+      }
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees only projects belonging to "([^"]+)"$/,
+  async ({ page, world }, name: string, _orgId: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const projectItems = page.getByTestId(/project-item/i);
+    const count = await projectItems.count();
+    for (let i = 0; i < count; i++) {
+      const text = await projectItems.nth(i).innerText();
+      if (!text.includes(_orgId)) {
+        throw new Error(
+          `project item "${text}" does not belong to org ${_orgId}`,
+        );
+      }
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees (\d+) projects$/,
+  async ({ page, world }, name: string, count: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const projectItems = page.getByTestId(/project-item/i);
+    const actual = await projectItems.count();
+    const expected = parseInt(count, 10);
+    if (actual !== expected) {
+      throw new Error(`expected ${expected} projects, got ${actual}`);
+    }
+  },
+);
+
+Then(
+  /^the active organization is "([^"]+)"$/,
+  async ({ page, world: _world }, _orgId: string) => {
+    await page.goto("/");
+    await waitForHydration(page);
+    const switcher = page.getByLabel(/organization/i);
+    await expect(switcher).toBeVisible({ timeout: 5_000 });
   },
 );
 

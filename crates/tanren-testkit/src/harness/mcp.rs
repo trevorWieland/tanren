@@ -26,8 +26,8 @@ use tokio::task::JoinHandle;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrganization, HarnessProject, HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -236,6 +236,18 @@ impl AccountHarness for McpHarness {
         let payload = self.call_tool("organization.list_projects", body).await?;
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode org projects: {e}")))
+    }
+
+    async fn seed_organization(&mut self, fixture: HarnessOrganization) -> HarnessResult<()> {
+        super::seed_org_via_store(&self.store, &fixture).await
+    }
+
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        super::seed_membership_via_store(&self.store, account_id, org_id).await
+    }
+
+    async fn seed_project(&mut self, fixture: HarnessProject) -> HarnessResult<()> {
+        super::seed_project_via_store(&self.store, &fixture).await
     }
 }
 

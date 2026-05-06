@@ -23,6 +23,7 @@ tanren-identity-policy = { path = "../tanren-identity-policy", features = [
 ] }
 tanren-testkit = { path = "../tanren-testkit" }
 tokio = { workspace = true }
+uuid = { workspace = true }
 
 [[bin]]
 name = "tanren-bdd-runner"

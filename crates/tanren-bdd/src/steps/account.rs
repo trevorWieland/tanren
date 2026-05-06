@@ -316,6 +316,13 @@ async fn then_fails_with(world: &mut TanrenWorld, code: String) {
         Some(HarnessOutcome::AcceptedInvitation(_)) => {
             "accepted_invitation_unexpectedly".to_owned()
         }
+        Some(HarnessOutcome::OrganizationsListed(_)) => {
+            "organizations_listed_unexpectedly".to_owned()
+        }
+        Some(HarnessOutcome::OrganizationSwitched(_)) => {
+            "organization_switched_unexpectedly".to_owned()
+        }
+        Some(HarnessOutcome::OrgProjectsListed(_)) => "org_projects_listed_unexpectedly".to_owned(),
         Some(HarnessOutcome::Other(s)) => format!("other:{s}"),
         None => "no_outcome".to_owned(),
     };

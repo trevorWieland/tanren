@@ -1,11 +1,5 @@
 //! `@cli` harness — shells out to the `tanren-cli` binary against a
 //! per-scenario `SQLite` file.
-//!
-//! The harness owns the database file, applies migrations once at
-//! construction, and reads recent events directly via its own
-//! `Store` handle. Each sign-up / sign-in / accept-invitation step
-//! spawns a `tanren-cli account ...` subprocess and parses the
-//! `account_id=... session=...` line from stdout.
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -22,17 +16,16 @@ use tanren_contract::{
     SwitchActiveOrganizationResponse,
 };
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewOrganization, NewProject};
 use tokio::process::Command;
 use uuid::Uuid;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrganization, HarnessProject, HarnessResult, HarnessSession,
 };
 
-/// `@cli` wire harness.
 pub struct CliHarness {
     store: Arc<Store>,
     db_path: PathBuf,
@@ -51,14 +44,6 @@ impl std::fmt::Debug for CliHarness {
 }
 
 impl CliHarness {
-    /// Construct a fresh CLI harness. Connects + migrates a per-
-    /// scenario `SQLite` database and locates the `tanren-cli` binary
-    /// alongside the running BDD executable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be initialized or the
-    /// binary is missing from the expected target directory.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("cli");
         let db_url = sqlite_url(&db_path);
@@ -195,10 +180,6 @@ impl AccountHarness for CliHarness {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
         let joined_org = parse_joined_org(&stdout)?;
-        // The CLI binary returns the AccountView reconstituted from
-        // the row; re-decorate it with `org = Some(joined_org)` to
-        // mirror the api/in-process surface where the account view
-        // already carries the org id.
         let account = AccountView {
             org: Some(joined_org),
             ..account
@@ -248,8 +229,7 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_org_list(&stdout)
+        parse_org_list(&String::from_utf8_lossy(&output.stdout))
     }
 
     async fn switch_active_org(
@@ -276,8 +256,7 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_switch_result(&stdout)
+        parse_switch_result(&String::from_utf8_lossy(&output.stdout))
     }
 
     async fn list_active_org_projects(
@@ -296,19 +275,46 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_project_list(&stdout)
+        parse_project_list(&String::from_utf8_lossy(&output.stdout))
+    }
+
+    async fn seed_organization(&mut self, fixture: HarnessOrganization) -> HarnessResult<()> {
+        self.store
+            .seed_organization(NewOrganization {
+                id: fixture.org_id,
+                name: fixture.org_name,
+                created_at: Utc::now(),
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_organization: {e}")))?;
+        Ok(())
+    }
+
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        self.store
+            .seed_membership(account_id, org_id, Utc::now())
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_membership: {e}")))?;
+        Ok(())
+    }
+
+    async fn seed_project(&mut self, fixture: HarnessProject) -> HarnessResult<()> {
+        self.store
+            .seed_project(NewProject {
+                id: fixture.project_id,
+                org_id: fixture.org_id,
+                name: fixture.project_name,
+                created_at: Utc::now(),
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_project: {e}")))?;
+        Ok(())
     }
 }
 
-/// Locate a workspace binary by name. The BDD runner is at
-/// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
-/// the same directory.
 pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
-    if let Ok(explicit) = std::env::var(format!(
-        "TANREN_BIN_{}",
-        name.replace('-', "_").to_uppercase()
-    )) {
+    let env_key = format!("TANREN_BIN_{}", name.replace('-', "_").to_uppercase());
+    if let Ok(explicit) = std::env::var(&env_key) {
         let p = PathBuf::from(explicit);
         if p.exists() {
             return Ok(p);
@@ -326,8 +332,6 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if candidate.exists() {
         return Ok(candidate);
     }
-    // Fallback: walk up to the workspace root and check
-    // `target/{debug,release}/<bin>`.
     let mut cursor = dir;
     while let Some(parent) = cursor.parent() {
         for profile in ["debug", "release"] {
@@ -347,10 +351,12 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     )))
 }
 
+fn parse_uuid(raw: &str) -> HarnessResult<Uuid> {
+    Uuid::parse_str(raw).map_err(|e| HarnessError::Transport(format!("parse uuid: {e}")))
+}
+
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
     let re = Regex::new(r"error:\s*([a-z_-]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
@@ -371,12 +377,8 @@ fn parse_session(
     let captures = re
         .captures(stdout)
         .ok_or_else(|| HarnessError::Transport(format!("could not parse cli stdout: {stdout}")))?;
-    let id_raw = captures.get(1).map_or("", |m| m.as_str());
+    let id = AccountId::from(parse_uuid(captures.get(1).map_or("", |m| m.as_str()))?);
     let token = captures.get(2).map_or("", |m| m.as_str());
-    let id = AccountId::from(
-        Uuid::parse_str(id_raw)
-            .map_err(|e| HarnessError::Transport(format!("parse account id: {e}")))?,
-    );
     let identifier = Identifier::from_email(
         &tanren_identity_policy::Email::parse(email)
             .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?,
@@ -401,10 +403,9 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
             "could not parse joined_org from cli stdout: {stdout}"
         ))
     })?;
-    let raw = captures.get(1).map_or("", |m| m.as_str());
-    Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
-        HarnessError::Transport(format!("parse org id: {e}"))
-    })?))
+    Ok(OrgId::from(parse_uuid(
+        captures.get(1).map_or("", |m| m.as_str()),
+    )?))
 }
 
 fn parse_org_list(stdout: &str) -> HarnessResult<OrganizationSwitcher> {
@@ -419,13 +420,9 @@ fn parse_org_list(stdout: &str) -> HarnessResult<OrganizationSwitcher> {
     let mut memberships = Vec::new();
     let mut active_org = None;
     for cap in re.captures_iter(stdout) {
-        let org_id = OrgId::from(
-            Uuid::parse_str(cap.get(1).map_or("", |m| m.as_str()))
-                .map_err(|e| HarnessError::Transport(format!("parse org_id: {e}")))?,
-        );
+        let org_id = OrgId::from(parse_uuid(cap.get(1).map_or("", |m| m.as_str()))?);
         let org_name = cap.get(2).map_or("", |m| m.as_str()).to_owned();
-        let is_active = cap.get(3).map_or("", |m| m.as_str()) == "true";
-        if is_active {
+        if cap.get(3).map_or("", |m| m.as_str()) == "true" {
             active_org = Some(org_id);
         }
         memberships.push(OrganizationMembershipView { org_id, org_name });
@@ -445,9 +442,7 @@ fn parse_switch_result(stdout: &str) -> HarnessResult<SwitchActiveOrganizationRe
     let org = if raw == "none" {
         None
     } else {
-        Some(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
-            HarnessError::Transport(format!("parse active_org: {e}"))
-        })?))
+        Some(OrgId::from(parse_uuid(raw)?))
     };
     Ok(SwitchActiveOrganizationResponse {
         account: AccountView {
@@ -472,15 +467,11 @@ fn parse_project_list(stdout: &str) -> HarnessResult<ListOrganizationProjectsRes
         .expect("constant regex");
     let mut projects = Vec::new();
     for cap in re.captures_iter(stdout) {
-        let id = tanren_identity_policy::ProjectId::from(
-            Uuid::parse_str(cap.get(1).map_or("", |m| m.as_str()))
-                .map_err(|e| HarnessError::Transport(format!("parse project_id: {e}")))?,
-        );
+        let id = tanren_identity_policy::ProjectId::from(parse_uuid(
+            cap.get(1).map_or("", |m| m.as_str()),
+        )?);
         let name = cap.get(2).map_or("", |m| m.as_str()).to_owned();
-        let org = OrgId::from(
-            Uuid::parse_str(cap.get(3).map_or("", |m| m.as_str()))
-                .map_err(|e| HarnessError::Transport(format!("parse org_id: {e}")))?,
-        );
+        let org = OrgId::from(parse_uuid(cap.get(3).map_or("", |m| m.as_str()))?);
         projects.push(tanren_contract::ProjectView { id, name, org });
     }
     Ok(ListOrganizationProjectsResponse { projects })
