@@ -1,13 +1,12 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use chrono::Utc;
 use clap::Subcommand;
-use tanren_app_services::{AppServiceError, Handlers, OrganizationStore, Store};
+use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     CreateOrganizationRequest, ListOrganizationsRequest, OrganizationAdminOperation,
 };
-use tanren_identity_policy::{OrgId, OrganizationName};
+use tanren_identity_policy::OrganizationName;
 use uuid::Uuid;
 
 use crate::load_session;
@@ -50,8 +49,9 @@ async fn run(action: OrganizationAction) -> Result<()> {
                 .await
                 .context("connect to store")?;
             let token = load_session()?;
-            let org_name =
-                OrganizationName::parse(&name).context("parse --name as organization name")?;
+            let org_name = OrganizationName::parse(&name).map_err(|_| {
+                anyhow::anyhow!("error: validation_failed — Organization name must not be empty.")
+            })?;
             let response = handlers
                 .create_organization_with_session(
                     &store,
@@ -84,9 +84,13 @@ async fn run(action: OrganizationAction) -> Result<()> {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
-            let account_id = resolve_session_account(&store).await?;
+            let token = load_session()?;
             let orgs = handlers
-                .list_account_organizations(&store, account_id, ListOrganizationsRequest::default())
+                .list_account_organizations_with_session(
+                    &store,
+                    &token,
+                    ListOrganizationsRequest::default(),
+                )
                 .await
                 .map_err(org_error)?;
             let stdout = std::io::stdout();
@@ -114,12 +118,16 @@ async fn run(action: OrganizationAction) -> Result<()> {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
-            let account_id = resolve_session_account(&store).await?;
+            let token = load_session()?;
             let org_uuid = Uuid::parse_str(&org_id).context("parse --org-id as UUID")?;
-            let org = OrgId::new(org_uuid);
             let op = parse_admin_operation(&operation)?;
             handlers
-                .authorize_org_admin_operation(&store, account_id, org, op)
+                .authorize_org_admin_operation_with_session(
+                    &store,
+                    &token,
+                    tanren_identity_policy::OrgId::new(org_uuid),
+                    op,
+                )
                 .await
                 .map_err(org_error)?;
             let stdout = std::io::stdout();
@@ -128,22 +136,6 @@ async fn run(action: OrganizationAction) -> Result<()> {
         }
     }
     Ok(())
-}
-
-async fn resolve_session_account(store: &Store) -> Result<tanren_identity_policy::AccountId> {
-    let token = load_session()?;
-    let now = Utc::now();
-    let session = store
-        .resolve_bearer_session(&token, now)
-        .await
-        .context("resolve session")?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "error: auth_required — {}",
-                "Session is expired or invalid."
-            )
-        })?;
-    Ok(session.account_id)
 }
 
 fn org_error(err: AppServiceError) -> anyhow::Error {

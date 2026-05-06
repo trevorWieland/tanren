@@ -4243,7 +4243,6 @@ name = "tanren-cli-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "chrono",
  "clap",
  "secrecy",
  "tanren-app-services",

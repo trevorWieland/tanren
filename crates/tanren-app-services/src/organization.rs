@@ -134,6 +134,51 @@ where
     create_organization_for_account(store, clock, account_id, request).await
 }
 
+pub(crate) async fn list_account_organizations_with_session<S>(
+    store: &S,
+    clock: &Clock,
+    bearer_token: &str,
+    request: ListOrganizationsRequest,
+) -> Result<ListOrganizationsResponse, AppServiceError>
+where
+    S: AccountStore + OrganizationStore + ?Sized,
+{
+    let now = clock.now();
+    let session = store.resolve_bearer_session(bearer_token, now).await?;
+    let account_id = match session {
+        Some(s) => s.account_id,
+        None => {
+            return Err(AppServiceError::Organization(
+                OrganizationFailureReason::AuthRequired,
+            ));
+        }
+    };
+    list_account_organizations(store, account_id, request).await
+}
+
+pub(crate) async fn authorize_org_admin_operation_with_session<S>(
+    store: &S,
+    clock: &Clock,
+    bearer_token: &str,
+    org_id: OrgId,
+    operation: OrganizationAdminOperation,
+) -> Result<(), AppServiceError>
+where
+    S: AccountStore + OrganizationStore + ?Sized,
+{
+    let now = clock.now();
+    let session = store.resolve_bearer_session(bearer_token, now).await?;
+    let account_id = match session {
+        Some(s) => s.account_id,
+        None => {
+            return Err(AppServiceError::Organization(
+                OrganizationFailureReason::AuthRequired,
+            ));
+        }
+    };
+    authorize_org_admin_operation(store, account_id, org_id, operation).await
+}
+
 pub(crate) async fn list_account_organizations<S>(
     store: &S,
     account_id: AccountId,

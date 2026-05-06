@@ -83,8 +83,10 @@ pub(crate) fn code_to_org_reason(code: &str) -> Option<OrganizationFailureReason
         "auth_required" => OrganizationFailureReason::AuthRequired,
         "permission_denied" => OrganizationFailureReason::PermissionDenied,
         "duplicate_organization_name" => OrganizationFailureReason::DuplicateOrganizationName,
+        "validation_failed" => OrganizationFailureReason::ValidationFailed,
         "last_admin_holder" => OrganizationFailureReason::LastAdminHolder,
         "not_found" => OrganizationFailureReason::NotFound,
+        "idempotency_conflict" => OrganizationFailureReason::IdempotencyConflict,
         _ => return None,
     })
 }

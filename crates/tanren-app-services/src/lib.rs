@@ -251,6 +251,33 @@ impl Handlers {
             .await
     }
 
+    /// Session-backed organization listing: resolve the bearer token to
+    /// an account, then delegate to [`Handlers::list_account_organizations`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::AuthRequired`] when the session is
+    /// missing or expired; delegates all other failure modes to the
+    /// account-based variant.
+    pub async fn list_account_organizations_with_session<S>(
+        &self,
+        store: &S,
+        bearer_token: &str,
+        request: ListOrganizationsRequest,
+    ) -> Result<ListOrganizationsResponse, AppServiceError>
+    where
+        S: AccountStore + OrganizationStore + ?Sized,
+    {
+        organization::list_account_organizations_with_session(
+            store,
+            &self.clock,
+            bearer_token,
+            request,
+        )
+        .await
+    }
+
     /// List organizations the supplied account is a member of, with
     /// bounded pagination.
     ///
@@ -268,6 +295,36 @@ impl Handlers {
         S: OrganizationStore + ?Sized,
     {
         organization::list_account_organizations(store, account_id, request).await
+    }
+
+    /// Session-backed admin authorization probe: resolve the bearer
+    /// token to an account, then delegate to
+    /// [`Handlers::authorize_org_admin_operation`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::AuthRequired`] when the session is
+    /// missing or expired; delegates all other failure modes to the
+    /// account-based variant.
+    pub async fn authorize_org_admin_operation_with_session<S>(
+        &self,
+        store: &S,
+        bearer_token: &str,
+        org_id: OrgId,
+        operation: OrganizationAdminOperation,
+    ) -> Result<(), AppServiceError>
+    where
+        S: AccountStore + OrganizationStore + ?Sized,
+    {
+        organization::authorize_org_admin_operation_with_session(
+            store,
+            &self.clock,
+            bearer_token,
+            org_id,
+            operation,
+        )
+        .await
     }
 
     /// No-op authorization probe: returns `Ok(())` when the account

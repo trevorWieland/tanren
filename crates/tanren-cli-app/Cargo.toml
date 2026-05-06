@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-chrono = { workspace = true }
 clap = { workspace = true }
 secrecy = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
