@@ -7,19 +7,43 @@
 
 pub mod account;
 pub mod events;
+pub mod user_configuration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    ConfigurationFailureReason, ContractVersion, CreateCredentialRequest, CreateCredentialResponse,
+    GetUserConfigRequest, GetUserConfigResponse, ListCredentialsResponse, ListUserConfigResponse,
+    RemoveCredentialRequest, RemoveCredentialResponse, RemoveUserConfigRequest,
+    RemoveUserConfigResponse, SetUserConfigRequest, SetUserConfigResponse, SignInRequest,
+    SignInResponse, SignUpRequest, SignUpResponse, UpdateCredentialRequest,
+    UpdateCredentialResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier, SessionToken};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
+use tanren_identity_policy::AccountId;
 use tanren_store::StoreError;
 use thiserror::Error;
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatedActor {
+    account_id: AccountId,
+}
+
+impl AuthenticatedActor {
+    #[must_use]
+    pub fn from_account_id(id: AccountId) -> Self {
+        Self { account_id: id }
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+}
 
 /// Stable response shape for the cross-interface health/liveness query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +223,116 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    pub async fn resolve_actor<S>(
+        &self,
+        store: &S,
+        token: &SessionToken,
+    ) -> Result<AuthenticatedActor, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        let now = self.clock.now();
+        let account_id = store
+            .find_account_id_by_session_token(token, now)
+            .await?
+            .ok_or_else(|| AppServiceError::InvalidInput("invalid or expired session".into()))?;
+        Ok(AuthenticatedActor::from_account_id(account_id))
+    }
+
+    pub async fn list_user_config<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+    ) -> Result<ListUserConfigResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::list_user_config(store, actor).await
+    }
+
+    pub async fn get_user_config<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: GetUserConfigRequest,
+    ) -> Result<GetUserConfigResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::get_user_config(store, actor, request).await
+    }
+
+    pub async fn set_user_config<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: SetUserConfigRequest,
+    ) -> Result<SetUserConfigResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::set_user_config(store, &self.clock, actor, request).await
+    }
+
+    pub async fn remove_user_config<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: RemoveUserConfigRequest,
+    ) -> Result<RemoveUserConfigResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::remove_user_config(store, &self.clock, actor, request).await
+    }
+
+    pub async fn list_credentials<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+    ) -> Result<ListCredentialsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::list_credentials(store, actor).await
+    }
+
+    pub async fn create_credential<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: CreateCredentialRequest,
+    ) -> Result<CreateCredentialResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::create_credential(store, &self.clock, actor, request).await
+    }
+
+    pub async fn update_credential<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: UpdateCredentialRequest,
+    ) -> Result<UpdateCredentialResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::update_credential(store, &self.clock, actor, request).await
+    }
+
+    pub async fn remove_credential<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: RemoveCredentialRequest,
+    ) -> Result<RemoveCredentialResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        user_configuration::remove_credential(store, &self.clock, actor, request).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +349,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A configuration or credential-flow taxonomy failure.
+    #[error("configuration: {}", .0.code())]
+    Configuration(ConfigurationFailureReason),
 }

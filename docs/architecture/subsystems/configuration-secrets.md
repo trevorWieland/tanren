@@ -485,8 +485,10 @@ declares allowed ownership scopes:
 
 ### Redacted credential metadata
 
-The `RedactedCredentialMetadata` type carries all metadata a user needs to
-identify, govern, and audit a credential. It intentionally omits the stored
-secret value — the value is write-only/use-only after storage (core invariant
-2). No response or view type in the R-0008 contract surface exposes a raw
-secret-value field.
+The `RedactedCredentialMetadata` type carries only `kind`, `scope`,
+`updated_at`, and `present` — the minimal governance metadata required to
+audit a credential without exposing identifying or descriptive fields. It
+intentionally omits the stored secret value, `id`, `name`, `description`,
+`provider`, and `created_at`. The value is write-only/use-only after storage
+(core invariant 2). No response or view type in the R-0008 contract surface
+exposes a raw secret-value field.

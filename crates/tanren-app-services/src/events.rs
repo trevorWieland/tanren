@@ -9,7 +9,8 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
+use tanren_configuration_secrets::{CredentialId, CredentialKind, UserSettingKey};
+use tanren_contract::{AccountFailureReason, ConfigurationFailureReason};
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
@@ -134,6 +135,55 @@ pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json
     serde_json::json!({
         "family": EVENT_FAMILY,
         "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+pub const CONFIGURATION_EVENT_FAMILY: &str = "configuration";
+
+pub const USER_CONFIG_SET_REJECTED_KIND: &str = "user_config_set_rejected";
+pub const CREDENTIAL_ADD_REJECTED_KIND: &str = "credential_add_rejected";
+pub const CREDENTIAL_UPDATE_REJECTED_KIND: &str = "credential_update_rejected";
+pub const CREDENTIAL_REMOVE_REJECTED_KIND: &str = "credential_remove_rejected";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserConfigSetRejected {
+    pub account_id: AccountId,
+    pub key: UserSettingKey,
+    pub reason: ConfigurationFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialAddRejected {
+    pub account_id: AccountId,
+    pub name: String,
+    pub kind: CredentialKind,
+    pub reason: ConfigurationFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialUpdateRejected {
+    pub id: CredentialId,
+    pub account_id: AccountId,
+    pub reason: ConfigurationFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialRemoveRejected {
+    pub id: CredentialId,
+    pub account_id: AccountId,
+    pub reason: ConfigurationFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+#[must_use]
+pub fn configuration_envelope<T: Serialize>(kind: &str, payload: &T) -> serde_json::Value {
+    serde_json::json!({
+        "family": CONFIGURATION_EVENT_FAMILY,
+        "kind": kind,
         "payload": payload,
     })
 }

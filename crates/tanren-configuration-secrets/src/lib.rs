@@ -209,25 +209,18 @@ pub struct SecretMetadata {
 
 /// Redacted credential metadata view.
 ///
-/// Contains every piece of metadata a user needs to identify, govern, and
-/// audit a credential. The stored secret value is **never** included — it
-/// is write-only/use-only after storage per core invariant 2.
+/// Carries only `kind`, `scope`, `updated_at`, and `present`. Identifying
+/// fields such as `id`, `name`, `description`, `provider`, and `created_at`
+/// are intentionally omitted so that credential management responses never
+/// expose more than the minimal governance metadata required by R-0008.
+/// The stored secret value is **never** included — it is write-only/use-only
+/// after storage per core invariant 2.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct RedactedCredentialMetadata {
-    /// Stable credential identifier.
-    pub id: CredentialId,
     /// Credential kind from the typed registry.
     pub kind: CredentialKind,
     /// Ownership scope.
     pub scope: CredentialScope,
-    /// Human-readable name chosen by the user.
-    pub name: String,
-    /// Optional longer description.
-    pub description: Option<String>,
-    /// Provider or adapter this credential is associated with.
-    pub provider: Option<String>,
-    /// Wall-clock time the credential was first stored.
-    pub created_at: DateTime<Utc>,
     /// Wall-clock time the credential value was last replaced.
     pub updated_at: Option<DateTime<Utc>>,
     /// True once a value has been written; false until the first set.
