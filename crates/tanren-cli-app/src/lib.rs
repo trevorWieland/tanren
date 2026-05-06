@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod standards;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -64,6 +66,11 @@ enum Command {
         #[command(subcommand)]
         action: AccountAction,
     },
+    /// Standards inspection commands.
+    Standards {
+        #[command(subcommand)]
+        action: StandardsAction,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -112,6 +119,16 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum StandardsAction {
+    /// Inspect the standards installed in a repository.
+    Inspect {
+        /// Path to the project directory.
+        #[arg(long)]
+        project_dir: String,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +139,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Standards { action }) => dispatch_standards(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -172,6 +190,12 @@ fn dispatch_account(action: AccountAction) -> Result<()> {
         .build()
         .context("build tokio runtime")?;
     runtime.block_on(run_account(action))
+}
+
+fn dispatch_standards(action: StandardsAction) -> Result<()> {
+    match action {
+        StandardsAction::Inspect { project_dir } => standards::run_inspect(&project_dir),
+    }
 }
 
 async fn run_account(action: AccountAction) -> Result<()> {
