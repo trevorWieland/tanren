@@ -42,5 +42,19 @@
   "failure_invitation_expired": "This invitation has expired.",
   "failure_unavailable": "Tanren is temporarily unavailable. Please try again shortly.",
   "failure_internal_error": "Something went wrong. Please try again.",
-  "failure_fallback": "Request failed."
+  "failure_fallback": "Request failed.",
+  "orgCreate_title": "Create an organization",
+  "orgCreate_name": "Organization name",
+  "orgCreate_submit": "Create organization",
+  "orgCreate_submitting": "Creating organization…",
+  "orgCreate_required": "Organization name is required.",
+  "orgCreate_failed": "Could not create organization.",
+  "orgCreate_formLabel": "Create organization form",
+  "orgDashboard_title": "Your organizations",
+  "orgDashboard_empty": "You don't belong to any organizations yet.",
+  "orgDashboard_createLink": "Create an organization",
+  "orgDashboard_projectCount": "{count} projects",
+  "failure_auth_required": "Authentication is required for this operation.",
+  "failure_permission_denied": "You do not have permission to perform this operation.",
+  "failure_duplicate_organization_name": "An organization with this name already exists."
 }

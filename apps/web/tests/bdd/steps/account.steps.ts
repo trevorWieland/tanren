@@ -31,6 +31,7 @@ interface ActorState {
   password?: string;
   hasSession?: boolean;
   lastFailureCode?: string;
+  lastOrgId?: string;
 }
 
 interface WebWorld {
@@ -329,6 +330,122 @@ Then(
 );
 
 // ============================================================================
+// Steps for B-0066 — Organization creation (@web slice)
+// ============================================================================
+
+When(
+  /^(\w+) creates an organization named "([^"]+)"$/,
+  async ({ page, world }, name: string, orgName: string) => {
+    const a = actor(world, name);
+    await page.goto("/organizations/new");
+    await waitForHydration(page);
+    await page.getByLabel(/organization name/i).fill(orgName);
+    await page.getByRole("button", { name: /create organization/i }).click();
+    const result = await Promise.race([
+      page.waitForURL("/").then(() => "ok" as const),
+      page
+        .locator('form [role="alert"]')
+        .first()
+        .waitFor({ state: "visible" })
+        .then(() => "alert" as const),
+    ]);
+    if (result === "ok") {
+      a.hasSession = true;
+    } else {
+      a.hasSession = false;
+      a.lastFailureCode = await classifyFailureFromAlert(page);
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees the organization "([^"]+)" listed$/,
+  async ({ page }, _name: string, orgName: string) => {
+    await page.waitForURL("/");
+    const pattern = new RegExp(orgName, "i");
+    await page
+      .getByText(pattern)
+      .waitFor({ state: "visible", timeout: 10_000 });
+
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const listResult = (await page.evaluate(async (url: string) => {
+      const res = await fetch(`${url}/account/organizations`, {
+        credentials: "include",
+      });
+      return res.json();
+    }, apiUrl)) as {
+      organizations: Array<{
+        id: string;
+        name: string;
+        project_count: number;
+      }>;
+    };
+
+    const org = listResult.organizations.find(
+      (o) => o.name.toLowerCase() === orgName.toLowerCase(),
+    );
+    if (!org) {
+      throw new Error(`organization "${orgName}" not found in API response`);
+    }
+    const count = org.project_count ?? 0;
+    if (count !== 0) {
+      throw new Error(
+        `expected project_count 0 for "${orgName}", got ${count}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) holds all bootstrap admin permissions for "([^"]+)"$/,
+  async ({ page }, _name: string, orgName: string) => {
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+
+    const listResult = (await page.evaluate(async (url: string) => {
+      const res = await fetch(`${url}/account/organizations`, {
+        credentials: "include",
+      });
+      return res.json();
+    }, apiUrl)) as { organizations: Array<{ id: string; name: string }> };
+
+    const org = listResult.organizations.find(
+      (o) => o.name.toLowerCase() === orgName.toLowerCase(),
+    );
+    if (!org) {
+      throw new Error(`organization "${orgName}" not found in account list`);
+    }
+
+    const operations = [
+      "invite_members",
+      "manage_access",
+      "configure",
+      "set_policy",
+      "delete",
+    ];
+
+    for (const op of operations) {
+      const authorized = (await page.evaluate(
+        async (args: { url: string; orgId: string; operation: string }) => {
+          const res = await fetch(
+            `${args.url}/organizations/${args.orgId}/admin-operations/${args.operation}/authorize`,
+            { method: "POST", credentials: "include" },
+          );
+          return res.ok;
+        },
+        { url: apiUrl, orgId: org.id, operation: op },
+      )) as boolean;
+      if (!authorized) {
+        throw new Error(
+          `actor should be authorized for "${op}" on "${orgName}"`,
+        );
+      }
+    }
+  },
+);
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -387,6 +504,10 @@ async function classifyFailureFromAlert(
     return "invitation_not_found";
   if (text.includes("invitation") && text.includes("already been accepted"))
     return "invitation_already_consumed";
+  if (text.includes("authentication is required")) return "auth_required";
+  if (text.includes("do not have permission")) return "permission_denied";
+  if (text.includes("organization") && text.includes("already exists"))
+    return "duplicate_organization_name";
   if (text.includes("account already exists")) return "duplicate_identifier";
   if (text.includes("email or password is invalid"))
     return "invalid_credential";

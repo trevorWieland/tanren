@@ -53,6 +53,37 @@ export interface AcceptInvitationResult {
   joined_org: string;
 }
 
+export interface OrganizationView {
+  id: string;
+  name: string;
+  project_count: number;
+  created_at: string;
+}
+
+export type OrgPermission =
+  | "invite_members"
+  | "manage_access"
+  | "configure"
+  | "set_policy"
+  | "delete";
+
+export interface OrganizationMembershipView {
+  id: string;
+  account_id: string;
+  org_id: string;
+  permissions: OrgPermission[];
+  created_at: string;
+}
+
+export interface CreateOrganizationResult {
+  organization: OrganizationView;
+  membership: OrganizationMembershipView;
+}
+
+export interface ListOrganizationsResult {
+  organizations: OrganizationView[];
+}
+
 /**
  * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
  * Kept in lock-step with the Rust enum so BDD web steps can match on the
@@ -141,6 +172,88 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method: "GET",
+      credentials: "include",
+    });
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  if (!response.ok) {
+    let parsed: FailureBody = {};
+    try {
+      parsed = (await response.json()) as FailureBody;
+    } catch {
+      parsed = {};
+    }
+    const code =
+      typeof parsed.code === "string" ? parsed.code : "internal_error";
+    const summary =
+      typeof parsed.summary === "string"
+        ? parsed.summary
+        : `HTTP ${response.status}`;
+    throw new AccountRequestError({ code, summary });
+  }
+
+  return (await response.json()) as T;
+}
+
+async function postEmpty(path: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  if (!response.ok) {
+    let parsed: FailureBody = {};
+    try {
+      parsed = (await response.json()) as FailureBody;
+    } catch {
+      parsed = {};
+    }
+    const code =
+      typeof parsed.code === "string" ? parsed.code : "internal_error";
+    const summary =
+      typeof parsed.summary === "string"
+        ? parsed.summary
+        : `HTTP ${response.status}`;
+    throw new AccountRequestError({ code, summary });
+  }
+}
+
+export function createOrganization(
+  name: string,
+): Promise<CreateOrganizationResult> {
+  return postJson<CreateOrganizationResult>("/organizations", { name });
+}
+
+export function listAccountOrganizations(): Promise<ListOrganizationsResult> {
+  return getJson<ListOrganizationsResult>("/account/organizations");
+}
+
+export function authorizeAdminOperation(
+  orgId: string,
+  operation: string,
+): Promise<void> {
+  const path = `/organizations/${encodeURIComponent(orgId)}/admin-operations/${encodeURIComponent(operation)}/authorize`;
+  return postEmpty(path);
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
