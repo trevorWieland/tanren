@@ -28,11 +28,12 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, ActiveProjectRecord, EventEnvelope, InvitationRecord, NewAccount, NewProject,
+    ProjectRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +284,63 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Successful return from [`ProjectStore::register_project_atomic`].
+/// Contains the freshly inserted project row and the active-project
+/// selection that was set in the same transaction.
+#[derive(Debug, Clone)]
+pub struct RegisterProjectOutput {
+    /// The freshly inserted project row.
+    pub project: ProjectRecord,
+    /// The active-project selection for the owning account.
+    pub active_project: ActiveProjectRecord,
+}
+
+/// Failure taxonomy for [`ProjectStore::register_project_atomic`].
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterProjectError {
+    /// A project already exists for the given repository identity.
+    #[error("a project already exists for this repository")]
+    DuplicateRepository,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Port the project-registration handlers consume. The SeaORM-backed
+/// adapter is `impl ProjectStore for Store` (see `lib.rs`).
+#[async_trait]
+pub trait ProjectStore: Send + Sync + std::fmt::Debug {
+    /// Atomically register a new project and set it as the active
+    /// project for the owning account. The entire operation runs inside
+    /// a single transaction — if the project insert fails (e.g. due to
+    /// a duplicate repository identity) the active-project selection is
+    /// not modified.
+    ///
+    /// Returns the freshly inserted project row and the active-project
+    /// selection on success; returns
+    /// [`RegisterProjectError::DuplicateRepository`] when the
+    /// normalized repository identity already has a project row.
+    async fn register_project_atomic(
+        &self,
+        new: NewProject,
+        now: DateTime<Utc>,
+    ) -> Result<RegisterProjectOutput, RegisterProjectError>;
+
+    /// Look up a project by its stable id.
+    async fn find_project_by_id(&self, id: ProjectId) -> Result<Option<ProjectRecord>, StoreError>;
+
+    /// Look up a project by its normalized repository identity.
+    async fn find_project_by_repository_identity(
+        &self,
+        repository_identity: &str,
+    ) -> Result<Option<ProjectRecord>, StoreError>;
+
+    /// Get the active-project selection for an account. Returns `None`
+    /// if the account has no active project.
+    async fn get_active_project(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<ActiveProjectRecord>, StoreError>;
 }

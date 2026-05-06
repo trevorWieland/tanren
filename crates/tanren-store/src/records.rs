@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, RepositoryId,
+    SessionToken,
 };
 
 use crate::entity;
@@ -164,4 +165,89 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted project row. Exposed as a typed envelope so other crates
+/// never see `SeaORM` `Model` types directly.
+///
+/// New projects start with zero specs, zero milestones, and zero
+/// initiatives. When spec / milestone / initiative tables are added
+/// by later behavior slices these counts will be computed from actual
+/// queries; until then they are derived constants.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRecord {
+    /// Stable project id.
+    pub id: ProjectId,
+    /// Account that owns the project.
+    pub owner_account_id: AccountId,
+    /// Organization that owns the project, if applicable.
+    pub owner_org_id: Option<OrgId>,
+    /// Normalized repository identity (e.g. `github.com/org/repo`).
+    pub repository_identity: String,
+    /// Canonical repository URL.
+    pub repository_url: String,
+    /// Wall-clock time the project was created.
+    pub created_at: DateTime<Utc>,
+    /// Number of specs in this project (always 0 at R-0019).
+    pub spec_count: u32,
+    /// Number of milestones in this project (always 0 at R-0019).
+    pub milestone_count: u32,
+    /// Number of initiatives in this project (always 0 at R-0019).
+    pub initiative_count: u32,
+}
+
+impl From<entity::projects::Model> for ProjectRecord {
+    fn from(model: entity::projects::Model) -> Self {
+        Self {
+            id: ProjectId::new(model.id),
+            owner_account_id: AccountId::new(model.owner_account_id),
+            owner_org_id: model.owner_org_id.map(OrgId::new),
+            repository_identity: model.repository_identity,
+            repository_url: model.repository_url,
+            created_at: model.created_at,
+            spec_count: 0,
+            milestone_count: 0,
+            initiative_count: 0,
+        }
+    }
+}
+
+/// Input shape for [`crate::ProjectStore::register_project_atomic`].
+#[derive(Debug, Clone)]
+pub struct NewProject {
+    /// Stable project id allocated by the caller (`UUIDv7`).
+    pub id: ProjectId,
+    /// Repository id allocated by the caller (`UUIDv7`).
+    pub repository_id: RepositoryId,
+    /// Account that owns the project.
+    pub owner_account_id: AccountId,
+    /// Organization that owns the project, if applicable.
+    pub owner_org_id: Option<OrgId>,
+    /// Normalized repository identity (e.g. `github.com/org/repo`).
+    pub repository_identity: String,
+    /// Canonical repository URL.
+    pub repository_url: String,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Persisted active-project selection row — per-account singleton.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveProjectRecord {
+    /// Account this selection belongs to.
+    pub account_id: AccountId,
+    /// Currently selected project.
+    pub project_id: ProjectId,
+    /// Wall-clock time the selection was made.
+    pub selected_at: DateTime<Utc>,
+}
+
+impl From<entity::active_projects::Model> for ActiveProjectRecord {
+    fn from(model: entity::active_projects::Model) -> Self {
+        Self {
+            account_id: AccountId::new(model.account_id),
+            project_id: ProjectId::new(model.project_id),
+            selected_at: model.selected_at,
+        }
+    }
 }

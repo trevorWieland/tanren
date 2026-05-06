@@ -11,16 +11,19 @@ mod accept_invitation;
 mod entity;
 mod migration;
 mod records;
+mod register_project;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, ActiveProjectRecord, InvitationRecord, MembershipRecord, NewAccount,
+    NewInvitation, NewProject, ProjectRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, ProjectStore, RegisterProjectError,
+    RegisterProjectOutput,
 };
 
 use async_trait::async_trait;
@@ -33,7 +36,7 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
     ValidationError,
 };
 use thiserror::Error;
@@ -307,6 +310,45 @@ impl AccountStore for Store {
             .all(&self.conn)
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
+    }
+}
+
+#[async_trait]
+impl ProjectStore for Store {
+    async fn register_project_atomic(
+        &self,
+        new: NewProject,
+        now: DateTime<Utc>,
+    ) -> Result<RegisterProjectOutput, RegisterProjectError> {
+        register_project::run(&self.conn, new, now).await
+    }
+
+    async fn find_project_by_id(&self, id: ProjectId) -> Result<Option<ProjectRecord>, StoreError> {
+        let row = entity::projects::Entity::find_by_id(id.as_uuid())
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(ProjectRecord::from))
+    }
+
+    async fn find_project_by_repository_identity(
+        &self,
+        repository_identity: &str,
+    ) -> Result<Option<ProjectRecord>, StoreError> {
+        let row = entity::projects::Entity::find()
+            .filter(entity::projects::Column::RepositoryIdentity.eq(repository_identity))
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(ProjectRecord::from))
+    }
+
+    async fn get_active_project(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<ActiveProjectRecord>, StoreError> {
+        let row = entity::active_projects::Entity::find_by_id(account_id.as_uuid())
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(ActiveProjectRecord::from))
     }
 }
 
