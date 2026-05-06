@@ -78,8 +78,7 @@ Given(
     const a = actor(world, name);
     a.email = email;
     a.password = password;
-    const apiUrl =
-      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
     const res = await fetch(`${apiUrl}/accounts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -276,7 +275,7 @@ async function seedInvitation(
   expiresAt: Date,
   context: { kind: "valid" | "expired" },
 ): Promise<void> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
   const res = await fetch(`${apiUrl}/test-hooks/invitations`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -455,7 +454,7 @@ Then(
 // ============================================================================
 
 async function seedOrganization(orgId: string, name: string): Promise<void> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
   const res = await fetch(`${apiUrl}/test-hooks/organizations`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -471,7 +470,7 @@ async function seedOrganization(orgId: string, name: string): Promise<void> {
 }
 
 async function seedMembership(accountId: string, orgId: string): Promise<void> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
   const res = await fetch(`${apiUrl}/test-hooks/memberships`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -489,7 +488,7 @@ async function seedProject(
   orgId: string,
   name: string,
 ): Promise<void> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
   const res = await fetch(`${apiUrl}/test-hooks/projects`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -503,7 +502,7 @@ async function seedProject(
 }
 
 async function lookupAccountByEmail(email: string): Promise<string> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
   const res = await fetch(
     `${apiUrl}/test-hooks/accounts?email=${encodeURIComponent(email)}`,
   );
@@ -535,6 +534,20 @@ Given(
     await seedOrganization(orgYId, orgYName);
     await seedMembership(a.accountId, orgXId);
     await seedMembership(a.accountId, orgYId);
+  },
+);
+
+Given(
+  /^(\w+) has signed up and belongs to organization "([^"]+)" named "([^"]+)"$/,
+  async ({ world }, name: string, orgId: string, orgName: string) => {
+    const a = actor(world, name);
+    if (!a.accountId) {
+      throw new Error(
+        `actor ${name} must have signed up before org fixture steps`,
+      );
+    }
+    await seedOrganization(orgId, orgName);
+    await seedMembership(a.accountId, orgId);
   },
 );
 

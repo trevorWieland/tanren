@@ -6,7 +6,6 @@ packages:
 # in the workspace references `catalog:default` rather than pinning versions
 # individually, so dependency upgrades land in one place.
 catalog:
-  next: "16.2.4"
   react: "19.2.5"
   react-dom: "19.2.5"
   "@types/react": "19.2.14"
@@ -22,9 +21,13 @@ catalog:
   tailwindcss: "4.2.4"
   "@tailwindcss/postcss": "4.2.4"
   concurrently: "9.2.1"
+  # Data fetching and remote state management.
+  "@tanstack/react-query": "5.81.5"
+  # Client-side routing (react-router v7 merged react-router-dom).
+  "react-router": "7.6.3"
   # Component testing + visual contract (Storybook 9 + Vitest addon + a11y).
   storybook: "9.1.20"
-  "@storybook/nextjs-vite": "9.1.20"
+  "@storybook/react-vite": "9.1.20"
   "@storybook/addon-vitest": "9.1.20"
   "@storybook/addon-a11y": "9.1.20"
   # Browser test runner used by @storybook/addon-vitest under the hood.
@@ -34,8 +37,9 @@ catalog:
   "@playwright/test": "1.59.1"
   "playwright-bdd": "8.5.0"
   "@axe-core/playwright": "4.11.3"
-  # Vite is pinned to ^7 because Storybook 9.1's `@storybook/nextjs-vite`
-  # declares a `^5 || ^6 || ^7` peer range and vitest 4.1's transitive
+  # Vite is pinned to ^7 because Storybook 9.1's framework packages
+  # declare a `^5 || ^6 || ^7` peer range and vitest 4.1's transitive
   # `vite` bump to 8 trips that constraint. Drop this once Storybook 9
   # widens its vite peer.
   vite: "7.3.2"
+  "@vitejs/plugin-react": "4.6.0"

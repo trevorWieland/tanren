@@ -841,11 +841,12 @@ ci:
 # Web frontend (apps/web/)
 # ============================================================================
 
-# Install pnpm workspace dependencies. Lockfile must be up to date.
+# Install pnpm workspace dependencies and Playwright browsers.
 web-install:
     pnpm install --frozen-lockfile
+    pnpm --filter @tanren/web exec playwright install --with-deps chromium
 
-# Build the web frontend (Next.js + Turbopack).
+# Build the web frontend (Vite).
 web-build:
     pnpm --filter @tanren/web build
 
@@ -894,7 +895,7 @@ web-storybook-build:
 
 # Run the playwright-bdd `@web` slice end-to-end. Boots the Tanren API
 # binary on a free port (against an ephemeral SQLite DB) via Playwright's
-# globalSetup, then spawns a Next.js dev server pointing at it. The
+# globalSetup, then spawns a Vite dev server pointing at it. The
 # Gherkin source is shared with the Rust BDD runner via the symlink at
 # `apps/web/tests/bdd/features` → `tests/bdd/features`.
 web-e2e:

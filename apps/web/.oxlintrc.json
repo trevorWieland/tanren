@@ -3,7 +3,6 @@
   "plugins": [
     "react",
     "react-perf",
-    "nextjs",
     "jsx-a11y",
     "import",
     "unicorn",
@@ -27,10 +26,5 @@
     "jsx-a11y/aria-role": "error",
     "jsx-a11y/click-events-have-key-events": "error"
   },
-  "ignorePatterns": [
-    "src/i18n/paraglide/**",
-    ".next/**",
-    "next-env.d.ts",
-    "node_modules/**"
-  ]
+  "ignorePatterns": ["src/i18n/paraglide/**", "dist/**", "node_modules/**"]
 }

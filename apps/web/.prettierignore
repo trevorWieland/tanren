@@ -18,5 +18,5 @@ playwright-report/
 test-results/
 storybook-static/
 
-# Next.js build cache
-.next/
+# Vite build output
+dist/

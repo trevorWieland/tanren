@@ -1,5 +1,3 @@
-"use client";
-
 import { useId, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 

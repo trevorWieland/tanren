@@ -1,13 +1,8 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import * as m from "@/i18n/paraglide/messages";
-import {
-  type OrganizationSwitcher as OrgSwitcherState,
-  listOrganizations,
-} from "@/app/lib/account-client";
+import { listOrganizations } from "@/app/lib/account-client";
 import { OrganizationSwitcher } from "@/components/account/OrganizationSwitcher";
 
 interface HealthReport {
@@ -16,54 +11,30 @@ interface HealthReport {
   contract_version: number;
 }
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+
+async function fetchHealth(): Promise<HealthReport> {
+  const response = await fetch(`${API_URL}/health`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return (await response.json()) as HealthReport;
+}
 
 export default function Home(): ReactNode {
-  const [report, setReport] = useState<HealthReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [orgState, setOrgState] = useState<OrgSwitcherState | null>(null);
+  const healthQuery = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${API_URL}/health`, { credentials: "include" })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        return (await response.json()) as HealthReport;
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setReport(data);
-        }
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const orgQuery = useQuery({
+    queryKey: ["organizations"],
+    queryFn: listOrganizations,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    listOrganizations()
-      .then((data) => {
-        if (!cancelled) {
-          setOrgState(data);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setOrgState(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const report = healthQuery.data ?? null;
+  const healthError = healthQuery.error;
+  const orgState = orgQuery.data ?? null;
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
@@ -74,10 +45,8 @@ export default function Home(): ReactNode {
         <div className="flex w-full max-w-lg flex-col gap-6">
           <OrganizationSwitcher
             data={orgState}
-            onSwitched={(activeOrg) => {
-              setOrgState((prev) =>
-                prev ? { ...prev, active_org: activeOrg } : prev,
-              );
+            onSwitched={() => {
+              orgQuery.refetch();
             }}
           />
         </div>
@@ -85,9 +54,12 @@ export default function Home(): ReactNode {
         <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
           {report !== null ? (
             <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
-          ) : error !== null ? (
+          ) : healthError !== null ? (
             <span className="text-[--color-error]">
-              {m.app_health_unreachable()}: {error}
+              {m.app_health_unreachable()}:{" "}
+              {healthError instanceof Error
+                ? healthError.message
+                : String(healthError)}
             </span>
           ) : (
             <span className="text-[--color-fg-muted]">

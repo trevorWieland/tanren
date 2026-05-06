@@ -67,6 +67,34 @@ async fn given_account_with_two_orgs(
         .expect("seed membership org Y");
 }
 
+#[given(expr = "{word} has signed up and belongs to organization {string} named {string}")]
+async fn given_account_with_one_org(
+    world: &mut TanrenWorld,
+    actor: String,
+    org_id_str: String,
+    org_name: String,
+) {
+    let ctx = world.ensure_account_ctx().await;
+    let entry = ctx.actors.entry(actor.clone()).or_default();
+    let account_id = entry
+        .sign_up
+        .as_ref()
+        .map(|s| s.account_id)
+        .or_else(|| entry.sign_in.as_ref().map(|s| s.account_id))
+        .expect("actor must have signed up before org fixture steps");
+
+    let org_id = parse_org_id(&org_id_str);
+
+    ctx.harness
+        .seed_organization(HarnessOrganization { org_id, org_name })
+        .await
+        .expect("seed org");
+    ctx.harness
+        .seed_membership(account_id, org_id)
+        .await
+        .expect("seed membership");
+}
+
 #[given(expr = "organization {string} has project {string} named {string}")]
 async fn given_org_has_project(
     world: &mut TanrenWorld,

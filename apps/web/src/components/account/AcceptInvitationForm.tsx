@@ -1,5 +1,3 @@
-"use client";
-
 import { useId, useState, useTransition } from "react";
 import type { FormEvent, ReactNode } from "react";
 import * as v from "valibot";
