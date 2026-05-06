@@ -1,5 +1,5 @@
-//! R-0021 migration: create `projects`, `project_specs`,
-//! `project_dependencies`, and `project_loop_fixtures` tables.
+//! R-0021 migration: create `projects`, `project_specs`, and
+//! `project_dependencies` tables.
 //!
 //! Disconnected projects and their specs are retained (soft-delete via
 //! `disconnected_at`) so that reconnection via B-0025 can restore access
@@ -154,6 +154,7 @@ impl Migration {
         Ok(())
     }
 
+    #[cfg(feature = "test-hooks")]
     async fn create_project_loop_fixtures_table(
         &self,
         manager: &SchemaManager<'_>,
@@ -208,11 +209,13 @@ impl MigrationTrait for Migration {
         self.create_projects_table(manager).await?;
         self.create_project_specs_table(manager).await?;
         self.create_project_dependencies_table(manager).await?;
+        #[cfg(feature = "test-hooks")]
         self.create_project_loop_fixtures_table(manager).await?;
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        #[cfg(feature = "test-hooks")]
         manager
             .drop_table(Table::drop().table(ProjectLoopFixtures::Table).to_owned())
             .await?;
@@ -271,6 +274,7 @@ enum ProjectDependencies {
     DetectedAt,
 }
 
+#[cfg(feature = "test-hooks")]
 #[derive(DeriveIden)]
 enum ProjectLoopFixtures {
     Table,

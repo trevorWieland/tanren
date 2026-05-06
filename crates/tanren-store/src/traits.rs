@@ -414,13 +414,22 @@ pub struct DisconnectProjectAtomicOutput {
     pub project: ProjectRecord,
 }
 
-/// Port for project lifecycle persistence. The SeaORM-backed adapter is
-/// `impl ProjectStore for Store` (see `project_store.rs`).
+/// Read-only precondition port for the no-active-loops check.
 ///
-/// Connect and disconnect are exposed *only* as atomic methods that
-/// append lifecycle events before updating projection rows — there is
-/// no public API to mutate `projects` rows without an accompanying
-/// event.
+/// At M-0003 time the production implementation always returns `Ok(false)`.
+/// When M-0011 lands, the production impl backs this with real loop state.
+/// The `test-hooks` feature provides a fixture-backed impl that reads from
+/// the `project_loop_fixtures` table.
+#[async_trait]
+pub trait ActiveLoopRead: Send + Sync + std::fmt::Debug {
+    /// Return `true` when at least one active loop exists for the project.
+    async fn has_active_loop(&self, project_id: ProjectId) -> Result<bool, StoreError>;
+}
+
+/// Port for project lifecycle persistence. The SeaORM-backed adapter is
+/// `impl ProjectStore for Store` (see `project_store.rs`). Connect and
+/// disconnect are exposed *only* as atomic methods that append lifecycle
+/// events before updating projection rows.
 #[async_trait]
 pub trait ProjectStore: Send + Sync + std::fmt::Debug {
     /// Append the supplied lifecycle events, then insert the project
@@ -449,9 +458,8 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         project_id: ProjectId,
     ) -> Result<ReconnectedProject, ReconnectProjectError>;
 
-    /// Append the supplied lifecycle events, then clear
-    /// `disconnected_at` on the project row, all in one transaction.
-    /// Returns the updated project record.
+    /// Append the supplied lifecycle events, then clear `disconnected_at`
+    /// on the project row, all in one transaction.
     async fn reconnect_project_atomic(
         &self,
         request: ReconnectProjectAtomicRequest,
@@ -472,10 +480,6 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         &self,
         request: DisconnectProjectAtomicRequest,
     ) -> Result<DisconnectProjectAtomicOutput, DisconnectProjectError>;
-
-    /// Return `true` when at least one active loop fixture exists for
-    /// the project.
-    async fn has_active_loop_fixtures(&self, project_id: ProjectId) -> Result<bool, StoreError>;
 
     /// Return `true` when the account is a member of the org that owns
     /// the project. Used by the policy path to enforce project-level

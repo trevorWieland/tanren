@@ -16,14 +16,15 @@ mod records;
 mod traits;
 
 pub use migration::Migrator;
+#[cfg(feature = "test-hooks")]
+pub use records::ProjectLoopFixtureRecord;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, NewProject,
-    ProjectDependencyRecord, ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord,
-    ProjectStatus, SessionRecord,
+    ProjectDependencyRecord, ProjectRecord, ProjectSpecRecord, ProjectStatus, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
-    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
+    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore, ActiveLoopRead,
     ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, ConsumeInvitationError,
     ConsumedInvitation, DependencyLinkStatus, DependencyProjection, DisconnectProjectAtomicOutput,
     DisconnectProjectAtomicRequest, DisconnectProjectError, ProjectDependencyLink, ProjectStore,
@@ -40,12 +41,12 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "test-hooks")]
+use tanren_identity_policy::SpecId;
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
     ValidationError,
 };
-#[cfg(feature = "test-hooks")]
-use tanren_identity_policy::{ProjectId, SpecId};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -93,11 +94,7 @@ pub struct EventEnvelope {
 
 impl Store {
     /// Connect to a database by URL (e.g. `postgres://...`).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the underlying `SeaORM` connect call
-    /// fails.
+    /// Returns [`StoreError::Database`] if the `SeaORM` connect call fails.
     pub async fn connect(url: &str) -> Result<Self, StoreError> {
         let conn = Database::connect(url).await?;
         Ok(Self { conn })

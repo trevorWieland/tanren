@@ -14,12 +14,32 @@ use uuid::Uuid;
 use crate::Store;
 use crate::entity;
 use crate::traits::{
-    ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, DependencyLinkStatus,
+    ActiveLoopRead, ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, DependencyLinkStatus,
     DependencyProjection, DisconnectProjectAtomicOutput, DisconnectProjectAtomicRequest,
     DisconnectProjectError, ProjectDependencyLink, ProjectStore, ReconnectProjectAtomicOutput,
     ReconnectProjectAtomicRequest, ReconnectProjectError, ReconnectedProject, SpecProjection,
 };
 use crate::{ProjectDependencyRecord, ProjectRecord, ProjectSpecRecord, StoreError};
+
+#[async_trait]
+impl ActiveLoopRead for Store {
+    async fn has_active_loop(&self, project_id: ProjectId) -> Result<bool, StoreError> {
+        #[cfg(feature = "test-hooks")]
+        {
+            let count = entity::project_loop_fixtures::Entity::find()
+                .filter(entity::project_loop_fixtures::Column::ProjectId.eq(project_id.as_uuid()))
+                .filter(entity::project_loop_fixtures::Column::IsActive.eq(true))
+                .count(&self.conn)
+                .await?;
+            Ok(count > 0)
+        }
+        #[cfg(not(feature = "test-hooks"))]
+        {
+            let _ = project_id;
+            Ok(false)
+        }
+    }
+}
 
 #[async_trait]
 impl ProjectStore for Store {
@@ -102,15 +122,6 @@ impl ProjectStore for Store {
         request: DisconnectProjectAtomicRequest,
     ) -> Result<DisconnectProjectAtomicOutput, DisconnectProjectError> {
         crate::project_lifecycle::disconnect_atomic(&self.conn, request).await
-    }
-
-    async fn has_active_loop_fixtures(&self, project_id: ProjectId) -> Result<bool, StoreError> {
-        let count = entity::project_loop_fixtures::Entity::find()
-            .filter(entity::project_loop_fixtures::Column::ProjectId.eq(project_id.as_uuid()))
-            .filter(entity::project_loop_fixtures::Column::IsActive.eq(true))
-            .count(&self.conn)
-            .await?;
-        Ok(count > 0)
     }
 
     async fn account_can_see_project(

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
     AccountId, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken, SpecId,
 };
+#[cfg(feature = "test-hooks")]
 use uuid::Uuid;
 
 use crate::entity;
@@ -304,18 +305,19 @@ impl From<entity::project_dependencies::Model> for ProjectDependencyRecord {
 /// real implementation loops; this record is replaced when that module
 /// lands. The fixture exists so disconnect can enforce the precondition
 /// without depending on M-0011's table shape.
+///
+/// Only available when the `test-hooks` feature is enabled. Production
+/// code uses the [`crate::traits::ActiveLoopRead`] port instead.
+#[cfg(feature = "test-hooks")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectLoopFixtureRecord {
-    /// Stable fixture row id.
     pub id: Uuid,
-    /// Project this fixture is attached to.
     pub project_id: ProjectId,
-    /// Whether the fixture simulates an active loop.
     pub is_active: bool,
-    /// Wall-clock time the fixture was created.
     pub created_at: DateTime<Utc>,
 }
 
+#[cfg(feature = "test-hooks")]
 impl From<entity::project_loop_fixtures::Model> for ProjectLoopFixtureRecord {
     fn from(model: entity::project_loop_fixtures::Model) -> Self {
         Self {

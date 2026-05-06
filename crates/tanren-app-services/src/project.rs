@@ -22,9 +22,10 @@ use tanren_identity_policy::{ProjectId, ProviderConnectionId, SpecId};
 use tanren_policy::{ActorContext, Decision, ProjectAction, evaluate_project_policy};
 use tanren_provider_integrations::ProviderRegistry;
 use tanren_store::{
-    AccountStore, ConnectProjectAtomicRequest, DependencyLinkStatus, DependencyProjection,
-    DisconnectProjectAtomicRequest, DisconnectProjectError, NewProject, ProjectStatus,
-    ProjectStore, ReconnectProjectAtomicRequest, ReconnectProjectError, SpecProjection,
+    AccountStore, ActiveLoopRead, ConnectProjectAtomicRequest, DependencyLinkStatus,
+    DependencyProjection, DisconnectProjectAtomicRequest, DisconnectProjectError, NewProject,
+    ProjectStatus, ProjectStore, ReconnectProjectAtomicRequest, ReconnectProjectError,
+    SpecProjection,
 };
 
 use crate::events::{
@@ -220,7 +221,7 @@ pub(crate) async fn disconnect_project<S>(
     request: DisconnectProjectRequest,
 ) -> Result<DisconnectProjectResponse, AppServiceError>
 where
-    S: AccountStore + ProjectStore + DependencyProjection + ?Sized,
+    S: AccountStore + ActiveLoopRead + ProjectStore + DependencyProjection + ?Sized,
 {
     let now = clock.now();
 
@@ -232,7 +233,7 @@ where
         return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
     }
 
-    if store.has_active_loop_fixtures(request.project_id).await? {
+    if store.has_active_loop(request.project_id).await? {
         store
             .append_event(
                 project_envelope(
