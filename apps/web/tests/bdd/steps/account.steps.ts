@@ -33,12 +33,9 @@
 
 import { createBdd, test as base } from "playwright-bdd";
 
-interface JoinResult {
-  joined_org: string;
-  membership_permissions: string;
-  selectable_organizations: Array<{ org_id: string; permissions: string }>;
-  project_access_grants: Array<Record<string, never>>;
-}
+import type { components } from "@/generated/api";
+
+type JoinResult = components["schemas"]["JoinOrganizationResponseCookie"];
 
 interface ActorState {
   email?: string;
