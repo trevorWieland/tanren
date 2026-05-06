@@ -1,9 +1,7 @@
 //! TUI screen state machine and submit dispatch.
 //!
-//! Split out of `lib.rs` so the tui-app crate stays under the workspace
-//! 500-line line-budget. Keeps the screen enum, the `App` struct, and
-//! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
+//! Split out of `lib.rs` to keep this crate under the 500-line budget.
+//! Rendering lives in `draw.rs`; form factories + outcome adapters in `ui.rs`.
 
 use std::env;
 use std::io::Stdout;
@@ -19,8 +17,11 @@ use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, accept_invitation_outcome, create_invitation_fields,
+    create_invitation_outcome, list_invitations_fields, list_invitations_outcome,
+    parse_accept_invitation, parse_create_invitation, parse_list_invitation_inputs,
+    parse_revoke_invitation, parse_sign_in, parse_sign_up, render_error, revoke_invitation_fields,
+    revoke_invitation_outcome, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
 };
 use crate::{FormState, MenuChoice};
 
@@ -32,6 +33,9 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    CreateInvitation(FormState),
+    ListInvitations(FormState),
+    RevokeInvitation(FormState),
     Outcome(OutcomeView),
 }
 
@@ -122,18 +126,20 @@ impl App {
                     Effect::None
                 }
             }
-            Screen::SignUp(state) => match handle_form_key(state, key) {
-                Some(action) => Effect::Form(action, FormKind::SignUp),
-                None => Effect::None,
-            },
-            Screen::SignIn(state) => match handle_form_key(state, key) {
-                Some(action) => Effect::Form(action, FormKind::SignIn),
-                None => Effect::None,
-            },
-            Screen::AcceptInvitation(state) => match handle_form_key(state, key) {
-                Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
-                None => Effect::None,
-            },
+            Screen::SignUp(state) => form_effect(handle_form_key(state, key), FormKind::SignUp),
+            Screen::SignIn(state) => form_effect(handle_form_key(state, key), FormKind::SignIn),
+            Screen::AcceptInvitation(state) => {
+                form_effect(handle_form_key(state, key), FormKind::AcceptInvitation)
+            }
+            Screen::CreateInvitation(state) => {
+                form_effect(handle_form_key(state, key), FormKind::CreateInvitation)
+            }
+            Screen::ListInvitations(state) => {
+                form_effect(handle_form_key(state, key), FormKind::ListInvitations)
+            }
+            Screen::RevokeInvitation(state) => {
+                form_effect(handle_form_key(state, key), FormKind::RevokeInvitation)
+            }
         };
         match effect {
             Effect::None => false,
@@ -159,7 +165,7 @@ impl App {
     }
 
     fn submit(&mut self, kind: FormKind) {
-        let Some(store) = self.store.clone() else {
+        let Some(arc) = self.store.clone() else {
             let message = self
                 .store_error
                 .clone()
@@ -169,92 +175,193 @@ impl App {
             }
             return;
         };
-        let handlers = &self.handlers;
+        let store = arc.as_ref();
         match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+            FormKind::SignUp => self.submit_sign_up(store),
+            FormKind::SignIn => self.submit_sign_in(store),
+            FormKind::AcceptInvitation => self.submit_accept_invitation(store),
+            FormKind::CreateInvitation => self.submit_create_invitation(store),
+            FormKind::ListInvitations => self.submit_list_invitations(store),
+            FormKind::RevokeInvitation => self.submit_revoke_invitation(store),
+        }
+    }
+
+    fn submit_sign_up(&mut self, store: &Store) {
+        let parsed = {
+            let Screen::SignUp(state) = &self.screen else {
+                return;
+            };
+            parse_sign_up(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::SignUp(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        match self.runtime.block_on(self.handlers.sign_up(store, request)) {
+            Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+            Err(reason) => {
+                if let Screen::SignUp(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+        }
+    }
+
+    fn submit_sign_in(&mut self, store: &Store) {
+        let parsed = {
+            let Screen::SignIn(state) = &self.screen else {
+                return;
+            };
+            parse_sign_in(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::SignIn(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        match self.runtime.block_on(self.handlers.sign_in(store, request)) {
+            Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+            Err(reason) => {
+                if let Screen::SignIn(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+        }
+    }
+
+    fn submit_accept_invitation(&mut self, store: &Store) {
+        let parsed = {
+            let Screen::AcceptInvitation(state) = &self.screen else {
+                return;
+            };
+            parse_accept_invitation(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        match self
+            .runtime
+            .block_on(self.handlers.accept_invitation(store, request))
+        {
+            Ok(response) => {
+                self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
+                }
+            }
+        }
+    }
+
+    fn submit_create_invitation(&mut self, store: &Store) {
+        let parsed = {
+            let Screen::CreateInvitation(state) = &self.screen else {
+                return;
+            };
+            parse_create_invitation(state)
+        };
+        let inputs = match parsed {
+            Ok(inp) => inp,
+            Err(message) => {
+                if let Screen::CreateInvitation(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        match self.runtime.block_on(self.handlers.create_invitation(
+            store,
+            inputs.caller_account_id,
+            inputs.caller_org_context,
+            inputs.request,
+        )) {
+            Ok(response) => {
+                self.screen = Screen::Outcome(create_invitation_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::CreateInvitation(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
+                }
+            }
+        }
+    }
+
+    fn submit_list_invitations(&mut self, store: &Store) {
+        let parsed = {
+            let Screen::ListInvitations(state) = &self.screen else {
+                return;
+            };
+            parse_list_invitation_inputs(state)
+        };
+        let inputs = match parsed {
+            Ok(inp) => inp,
+            Err(message) => {
+                if let Screen::ListInvitations(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        match self.runtime.block_on(self.handlers.list_org_invitations(
+            store,
+            inputs.caller_account_id,
+            inputs.org_id,
+        )) {
+            Ok(response) => {
+                self.screen = Screen::Outcome(list_invitations_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::ListInvitations(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
+                }
+            }
+        }
+    }
+
+    fn submit_revoke_invitation(&mut self, store: &Store) {
+        let parsed = {
+            let Screen::RevokeInvitation(state) = &self.screen else {
+                return;
+            };
+            parse_revoke_invitation(state)
+        };
+        let inputs = match parsed {
+            Ok(inp) => inp,
+            Err(message) => {
+                if let Screen::RevokeInvitation(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        match self.runtime.block_on(self.handlers.revoke_invitation(
+            store,
+            inputs.caller_account_id,
+            inputs.caller_org_context,
+            inputs.request,
+        )) {
+            Ok(response) => {
+                self.screen = Screen::Outcome(revoke_invitation_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::RevokeInvitation(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
         }
@@ -262,7 +369,12 @@ impl App {
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::CreateInvitation(s)
+            | Screen::ListInvitations(s)
+            | Screen::RevokeInvitation(s) => Some(s),
             _ => None,
         }
     }
@@ -276,6 +388,15 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::CreateInvitation(state) => {
+                draw::draw_form(frame, area, "Create invitation", state);
+            }
+            Screen::ListInvitations(state) => {
+                draw::draw_form(frame, area, "List invitations", state);
+            }
+            Screen::RevokeInvitation(state) => {
+                draw::draw_form(frame, area, "Revoke invitation", state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
@@ -286,6 +407,9 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    CreateInvitation,
+    ListInvitations,
+    RevokeInvitation,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -323,6 +447,15 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
                 }
+                MenuChoice::CreateInvitation => {
+                    Screen::CreateInvitation(FormState::new(create_invitation_fields()))
+                }
+                MenuChoice::ListInvitations => {
+                    Screen::ListInvitations(FormState::new(list_invitations_fields()))
+                }
+                MenuChoice::RevokeInvitation => {
+                    Screen::RevokeInvitation(FormState::new(revoke_invitation_fields()))
+                }
             });
         }
         _ => {}
@@ -357,4 +490,11 @@ fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
 fn is_press(key: &KeyEvent) -> bool {
     use crossterm::event::KeyEventKind;
     matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+}
+
+fn form_effect(action: Option<FormAction>, kind: FormKind) -> Effect {
+    match action {
+        Some(a) => Effect::Form(a, kind),
+        None => Effect::None,
+    }
 }
