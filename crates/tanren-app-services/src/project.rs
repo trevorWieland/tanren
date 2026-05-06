@@ -31,11 +31,13 @@ use tanren_policy::{ActorContext, Decision, ScopeTarget, authorize_project_regis
 use tanren_provider_integrations::{
     HostId, ProviderAction, ProviderConnectionContext, SourceControlProvider,
 };
-use tanren_store::{AccountStore, NewProject, ProjectRecord, ProjectStore, RegisterProjectError};
+use tanren_store::{
+    AccountStore, ProjectRecord, ProjectStore, RegisterProjectAtomicRequest, RegisterProjectError,
+};
 
 use crate::events::{
-    ProjectConnectRejected, ProjectConnected, ProjectCreateRejected, ProjectCreated,
-    ProjectEventKinds, project_envelope,
+    ActiveProjectSelected, ProjectConnectRejected, ProjectConnected, ProjectCreateRejected,
+    ProjectCreated, ProjectEventKinds, project_envelope,
 };
 use crate::{AppServiceError, Clock};
 
@@ -91,15 +93,6 @@ where
     let now = clock.now();
 
     let identity = normalize_repository_identity(url.as_str());
-    if store
-        .find_project_by_repository_identity(&identity)
-        .await?
-        .is_some()
-    {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::DuplicateRepository,
-        ));
-    }
 
     let Some(host_str) = url.host() else {
         return Err(AppServiceError::Project(
@@ -124,9 +117,10 @@ where
     let project_id = ProjectId::fresh();
     let repository_id = RepositoryId::fresh();
 
+    let events_builder = build_connect_events();
     let output = match store
-        .register_project_atomic(
-            NewProject {
+        .register_project_atomic(RegisterProjectAtomicRequest {
+            new: tanren_store::NewProject {
                 id: project_id,
                 name: name.as_str().to_owned(),
                 repository_id,
@@ -137,7 +131,8 @@ where
                 created_at: now,
             },
             now,
-        )
+            events_builder,
+        })
         .await
     {
         Ok(o) => o,
@@ -150,21 +145,6 @@ where
             return Err(AppServiceError::Store(err));
         }
     };
-
-    store
-        .append_event(
-            project_envelope(
-                ProjectEventKinds::PROJECT_CONNECTED,
-                &ProjectConnected {
-                    project_id: output.project.id,
-                    repository_id: output.project.repository_id,
-                    owner: account_id,
-                    at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
 
     Ok(project_view(&output.project))
 }
@@ -213,9 +193,10 @@ where
     let project_id = ProjectId::fresh();
     let repository_id = RepositoryId::fresh();
 
+    let events_builder = build_create_events();
     let output = match store
-        .register_project_atomic(
-            NewProject {
+        .register_project_atomic(RegisterProjectAtomicRequest {
+            new: tanren_store::NewProject {
                 id: project_id,
                 name: name.as_str().to_owned(),
                 repository_id,
@@ -226,7 +207,8 @@ where
                 created_at: now,
             },
             now,
-        )
+            events_builder,
+        })
         .await
     {
         Ok(o) => o,
@@ -239,21 +221,6 @@ where
             return Err(AppServiceError::Store(err));
         }
     };
-
-    store
-        .append_event(
-            project_envelope(
-                ProjectEventKinds::PROJECT_CREATED,
-                &ProjectCreated {
-                    project_id: output.project.id,
-                    repository_id: output.project.repository_id,
-                    owner: account_id,
-                    at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
 
     Ok(project_view(&output.project))
 }
@@ -356,4 +323,52 @@ where
         )
         .await?;
     Ok(())
+}
+
+fn build_connect_events() -> tanren_store::RegisterProjectEventsBuilder {
+    Box::new(|ctx| {
+        vec![
+            project_envelope(
+                ProjectEventKinds::PROJECT_CONNECTED,
+                &ProjectConnected {
+                    project_id: ctx.project_id,
+                    repository_id: ctx.repository_id,
+                    owner: ctx.owner_account_id,
+                    at: ctx.now,
+                },
+            ),
+            project_envelope(
+                ProjectEventKinds::ACTIVE_PROJECT_SELECTED,
+                &ActiveProjectSelected {
+                    account_id: ctx.owner_account_id,
+                    project_id: ctx.project_id,
+                    at: ctx.now,
+                },
+            ),
+        ]
+    })
+}
+
+fn build_create_events() -> tanren_store::RegisterProjectEventsBuilder {
+    Box::new(|ctx| {
+        vec![
+            project_envelope(
+                ProjectEventKinds::PROJECT_CREATED,
+                &ProjectCreated {
+                    project_id: ctx.project_id,
+                    repository_id: ctx.repository_id,
+                    owner: ctx.owner_account_id,
+                    at: ctx.now,
+                },
+            ),
+            project_envelope(
+                ProjectEventKinds::ACTIVE_PROJECT_SELECTED,
+                &ActiveProjectSelected {
+                    account_id: ctx.owner_account_id,
+                    project_id: ctx.project_id,
+                    at: ctx.now,
+                },
+            ),
+        ]
+    })
 }

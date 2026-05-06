@@ -28,13 +28,63 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, RepositoryId,
+    SessionToken,
 };
 
 use crate::{
     AccountRecord, ActiveProjectRecord, EventEnvelope, InvitationRecord, NewAccount, NewProject,
     ProjectRecord, SessionRecord, StoreError,
 };
+
+/// Context the store passes back to the caller's event-builder so
+/// the caller can stamp the newly created project id into the
+/// success-path event payloads it owns.
+#[derive(Debug, Clone)]
+pub struct RegisterProjectEventContext {
+    /// The id of the freshly inserted project row.
+    pub project_id: ProjectId,
+    /// The repository id of the freshly inserted project row.
+    pub repository_id: RepositoryId,
+    /// The account that owns the new project.
+    pub owner_account_id: AccountId,
+    /// `now` from the request, threaded through so event payloads
+    /// can carry the same instant as the row writes.
+    pub now: DateTime<Utc>,
+}
+
+/// Closure the store invokes inside the transaction to build the
+/// success-path event envelopes. The store crate does not know the
+/// concrete event payload shape — that lives in `tanren-app-services`
+/// — so the caller hands in an event-builder closure and the store
+/// invokes it once the project and active-project rows are committed
+/// inside the transaction.
+pub type RegisterProjectEventsBuilder =
+    Box<dyn FnOnce(&RegisterProjectEventContext) -> Vec<serde_json::Value> + Send>;
+
+/// Input shape for [`ProjectStore::register_project_atomic`]. Bundles
+/// every input the atomic flow needs so the trait method runs as a
+/// single unit.
+pub struct RegisterProjectAtomicRequest {
+    /// The new project row to insert.
+    pub new: NewProject,
+    /// Wall-clock instant the flow runs at. Used for the project row,
+    /// the active-project row, and every emitted event envelope.
+    pub now: DateTime<Utc>,
+    /// Closure the store invokes inside the transaction to build the
+    /// success-path event envelopes. See
+    /// [`RegisterProjectEventsBuilder`].
+    pub events_builder: RegisterProjectEventsBuilder,
+}
+
+impl std::fmt::Debug for RegisterProjectAtomicRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisterProjectAtomicRequest")
+            .field("new", &self.new)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Context the store passes back to the caller's event-builder so
 /// the caller can stamp the inviting org id (only known after the
@@ -315,11 +365,17 @@ pub enum RegisterProjectError {
 /// adapter is `impl ProjectStore for Store` (see `lib.rs`).
 #[async_trait]
 pub trait ProjectStore: Send + Sync + std::fmt::Debug {
-    /// Atomically register a new project and set it as the active
-    /// project for the owning account. The entire operation runs inside
-    /// a single transaction — if the project insert fails (e.g. due to
-    /// a duplicate repository identity) the active-project selection is
-    /// not modified.
+    /// Atomically register a new project, set it as the active
+    /// project for the owning account, and append the success-path
+    /// events — all inside a single transaction. If any step fails
+    /// the transaction rolls back: no project row, no active-project
+    /// row, and no events are persisted.
+    ///
+    /// The caller pre-allocates the project id, repository id, and
+    /// `now`. The events-builder closure is invoked inside the
+    /// transaction after the project and active-project rows are
+    /// committed, so the event append cannot fail after a committed
+    /// project row.
     ///
     /// Returns the freshly inserted project row and the active-project
     /// selection on success; returns
@@ -327,8 +383,7 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
     /// normalized repository identity already has a project row.
     async fn register_project_atomic(
         &self,
-        new: NewProject,
-        now: DateTime<Utc>,
+        request: RegisterProjectAtomicRequest,
     ) -> Result<RegisterProjectOutput, RegisterProjectError>;
 
     /// Look up a project by its stable id.

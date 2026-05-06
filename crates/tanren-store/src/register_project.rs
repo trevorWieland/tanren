@@ -2,28 +2,31 @@
 //! flow. Lives in its own module so the lib.rs core file stays under
 //! the workspace per-file line budget.
 //!
-//! Wraps the insert project + upsert active-project selection sequence
-//! in one DB transaction. Failure on any step rolls the whole flow
-//! back. Duplicate repository identity constraint violations are
-//! mapped to [`RegisterProjectError::DuplicateRepository`].
+//! Wraps the insert project + upsert active-project selection + append
+//! success-events sequence in one DB transaction. Failure on any step
+//! rolls the whole flow back. Duplicate repository identity constraint
+//! violations are mapped to [`RegisterProjectError::DuplicateRepository`].
 
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter, Set, TransactionTrait,
 };
 use tanren_identity_policy::OrgId;
+use uuid::Uuid;
 
 use crate::entity;
-use crate::traits::{RegisterProjectError, RegisterProjectOutput};
-use crate::{ActiveProjectRecord, NewProject, ProjectRecord, StoreError};
+use crate::traits::{
+    RegisterProjectAtomicRequest, RegisterProjectError, RegisterProjectEventContext,
+    RegisterProjectEventsBuilder, RegisterProjectOutput,
+};
+use crate::{ActiveProjectRecord, ProjectRecord, StoreError};
 
 pub(crate) async fn run(
     conn: &DatabaseConnection,
-    new: NewProject,
-    now: chrono::DateTime<chrono::Utc>,
+    request: RegisterProjectAtomicRequest,
 ) -> Result<RegisterProjectOutput, RegisterProjectError> {
     conn.transaction::<_, RegisterProjectOutput, RegisterProjectError>(|txn| {
-        Box::pin(async move { run_in_txn(txn, new, now).await })
+        Box::pin(async move { run_in_txn(txn, request).await })
     })
     .await
     .map_err(map_transaction_error)
@@ -31,9 +34,14 @@ pub(crate) async fn run(
 
 async fn run_in_txn(
     txn: &DatabaseTransaction,
-    new: NewProject,
-    now: chrono::DateTime<chrono::Utc>,
+    request: RegisterProjectAtomicRequest,
 ) -> Result<RegisterProjectOutput, RegisterProjectError> {
+    let RegisterProjectAtomicRequest {
+        new,
+        now,
+        events_builder,
+    } = request;
+
     let project_model = entity::projects::ActiveModel {
         id: Set(new.id.as_uuid()),
         name: Set(new.name),
@@ -59,23 +67,28 @@ async fn run_in_txn(
     upsert_active_project_in_txn(txn, new.owner_account_id.as_uuid(), new.id.as_uuid(), now)
         .await?;
 
+    let ctx = RegisterProjectEventContext {
+        project_id: new.id,
+        repository_id: new.repository_id,
+        owner_account_id: new.owner_account_id,
+        now,
+    };
+    append_success_events_in_txn(txn, events_builder, &ctx).await?;
+
     Ok(RegisterProjectOutput {
         project: project_record,
         active_project: ActiveProjectRecord {
-            account_id: new.owner_account_id,
-            project_id: new.id,
+            account_id: ctx.owner_account_id,
+            project_id: ctx.project_id,
             selected_at: now,
         },
     })
 }
 
-/// Upsert the active-project selection for the account. Uses a
-/// delete-then-insert strategy so the row is always replaced with the
-/// latest selection.
 async fn upsert_active_project_in_txn(
     txn: &DatabaseTransaction,
-    account_uuid: uuid::Uuid,
-    project_uuid: uuid::Uuid,
+    account_uuid: Uuid,
+    project_uuid: Uuid,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), RegisterProjectError> {
     entity::active_projects::Entity::delete_many()
@@ -90,6 +103,22 @@ async fn upsert_active_project_in_txn(
         selected_at: Set(now),
     };
     model.insert(txn).await.map_err(StoreError::from)?;
+    Ok(())
+}
+
+async fn append_success_events_in_txn(
+    txn: &DatabaseTransaction,
+    events_builder: RegisterProjectEventsBuilder,
+    ctx: &RegisterProjectEventContext,
+) -> Result<(), RegisterProjectError> {
+    for payload in (events_builder)(ctx) {
+        let model = entity::events::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            occurred_at: Set(ctx.now),
+            payload: Set(payload),
+        };
+        model.insert(txn).await.map_err(StoreError::from)?;
+    }
     Ok(())
 }
 

@@ -22,7 +22,8 @@ pub use records::{
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation, ProjectStore, RegisterProjectError,
+    ConsumeInvitationError, ConsumedInvitation, ProjectStore, RegisterProjectAtomicRequest,
+    RegisterProjectError, RegisterProjectEventContext, RegisterProjectEventsBuilder,
     RegisterProjectOutput,
 };
 
@@ -324,10 +325,9 @@ impl AccountStore for Store {
 impl ProjectStore for Store {
     async fn register_project_atomic(
         &self,
-        new: NewProject,
-        now: DateTime<Utc>,
+        request: RegisterProjectAtomicRequest,
     ) -> Result<RegisterProjectOutput, RegisterProjectError> {
-        register_project::run(&self.conn, new, now).await
+        register_project::run(&self.conn, request).await
     }
 
     async fn find_project_by_id(&self, id: ProjectId) -> Result<Option<ProjectRecord>, StoreError> {

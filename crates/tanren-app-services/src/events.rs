@@ -138,6 +138,8 @@ impl ProjectEventKinds {
     pub const PROJECT_CONNECTED: &str = "project_connected";
     /// A new project and its backing repository were created (B-0026).
     pub const PROJECT_CREATED: &str = "project_created";
+    /// A project was selected as the caller's active project.
+    pub const ACTIVE_PROJECT_SELECTED: &str = "active_project_selected";
     /// A connect attempt was rejected.
     pub const PROJECT_CONNECT_REJECTED: &str = "project_connect_rejected";
     /// A create attempt was rejected.
@@ -159,6 +161,14 @@ pub struct ProjectCreated {
     pub project_id: ProjectId,
     pub repository_id: RepositoryId,
     pub owner: AccountId,
+    pub at: DateTime<Utc>,
+}
+
+/// A project was selected as the caller's active project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveProjectSelected {
+    pub account_id: AccountId,
+    pub project_id: ProjectId,
     pub at: DateTime<Utc>,
 }
 
