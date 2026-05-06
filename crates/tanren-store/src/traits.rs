@@ -28,11 +28,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, LoopId, MembershipId, MilestoneId, OrgId,
+    ProjectId, SessionToken, SpecId,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, ActiveProjectRecord, EventEnvelope, InvitationRecord, NewAccount, ProjectRecord,
+    SessionRecord, SpecRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +285,53 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectScopedViewRecord {
+    pub project_id: ProjectId,
+    pub spec_ids: Vec<SpecId>,
+    pub loop_ids: Vec<LoopId>,
+    pub milestone_ids: Vec<MilestoneId>,
+}
+
+#[async_trait]
+pub trait ProjectStore: Send + Sync + std::fmt::Debug {
+    async fn list_projects(&self, account_id: AccountId) -> Result<Vec<ProjectRecord>, StoreError>;
+
+    async fn find_attention_specs(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<SpecRecord>, StoreError>;
+
+    async fn read_active_project(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<ActiveProjectRecord>, StoreError>;
+
+    async fn write_active_project(
+        &self,
+        account_id: AccountId,
+        project_id: ProjectId,
+        now: DateTime<Utc>,
+    ) -> Result<ActiveProjectRecord, StoreError>;
+
+    async fn read_scoped_views(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<ProjectScopedViewRecord, StoreError>;
+
+    async fn read_view_state(
+        &self,
+        account_id: AccountId,
+        project_id: ProjectId,
+    ) -> Result<Option<serde_json::Value>, StoreError>;
+
+    async fn write_view_state(
+        &self,
+        account_id: AccountId,
+        project_id: ProjectId,
+        view_state: serde_json::Value,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
 }

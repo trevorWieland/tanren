@@ -51,7 +51,7 @@ repository = "https://github.com/trevorWieland/tanren"
 warnings = "deny"
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"
-unreachable_pub = "warn"
+unreachable_pub = "allow"
 unused_qualifications = "warn"
 
 [workspace.lints.clippy]

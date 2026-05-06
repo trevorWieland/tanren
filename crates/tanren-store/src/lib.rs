@@ -10,17 +10,23 @@
 mod accept_invitation;
 mod entity;
 mod migration;
+mod project_store;
 mod records;
 mod traits;
 
+#[cfg(feature = "test-hooks")]
+mod project_fixtures;
+
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, ActiveProjectRecord, InvitationRecord, LoopRecord, MembershipRecord,
+    MilestoneRecord, NewAccount, NewInvitation, NewLoop, NewMilestone, NewProject, NewSpec,
+    ProjectRecord, SessionRecord, SpecRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, ProjectScopedViewRecord, ProjectStore,
 };
 
 use async_trait::async_trait;
@@ -383,4 +389,8 @@ pub enum StoreError {
         #[source]
         cause: ValidationError,
     },
+    /// The caller attempted to activate a project that does not belong
+    /// to their account.
+    #[error("unauthorized project access")]
+    UnauthorizedProjectAccess,
 }

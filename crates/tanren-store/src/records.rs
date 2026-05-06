@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, LoopId, MembershipId, MilestoneId, OrgId, ProjectId,
+    SessionToken, SpecId,
 };
 
 use crate::entity;
@@ -164,4 +165,132 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRecord {
+    pub id: ProjectId,
+    pub account_id: AccountId,
+    pub name: String,
+    pub state: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::projects::Model> for ProjectRecord {
+    fn from(model: entity::projects::Model) -> Self {
+        Self {
+            id: ProjectId::new(model.id),
+            account_id: AccountId::new(model.account_id),
+            name: model.name,
+            state: model.state,
+            created_at: model.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpecRecord {
+    pub id: SpecId,
+    pub project_id: ProjectId,
+    pub name: String,
+    pub needs_attention: bool,
+    pub attention_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::specs::Model> for SpecRecord {
+    fn from(model: entity::specs::Model) -> Self {
+        Self {
+            id: SpecId::new(model.id),
+            project_id: ProjectId::new(model.project_id),
+            name: model.name,
+            needs_attention: model.needs_attention,
+            attention_reason: model.attention_reason,
+            created_at: model.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoopRecord {
+    pub id: LoopId,
+    pub project_id: ProjectId,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::loops::Model> for LoopRecord {
+    fn from(model: entity::loops::Model) -> Self {
+        Self {
+            id: LoopId::new(model.id),
+            project_id: ProjectId::new(model.project_id),
+            created_at: model.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MilestoneRecord {
+    pub id: MilestoneId,
+    pub project_id: ProjectId,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::milestones::Model> for MilestoneRecord {
+    fn from(model: entity::milestones::Model) -> Self {
+        Self {
+            id: MilestoneId::new(model.id),
+            project_id: ProjectId::new(model.project_id),
+            created_at: model.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActiveProjectRecord {
+    pub account_id: AccountId,
+    pub project_id: ProjectId,
+    pub switched_at: DateTime<Utc>,
+}
+
+impl From<entity::active_projects::Model> for ActiveProjectRecord {
+    fn from(model: entity::active_projects::Model) -> Self {
+        Self {
+            account_id: AccountId::new(model.account_id),
+            project_id: ProjectId::new(model.project_id),
+            switched_at: model.switched_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NewProject {
+    pub id: ProjectId,
+    pub account_id: AccountId,
+    pub name: String,
+    pub state: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewSpec {
+    pub id: SpecId,
+    pub project_id: ProjectId,
+    pub name: String,
+    pub needs_attention: bool,
+    pub attention_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewLoop {
+    pub id: LoopId,
+    pub project_id: ProjectId,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewMilestone {
+    pub id: MilestoneId,
+    pub project_id: ProjectId,
+    pub created_at: DateTime<Utc>,
 }
