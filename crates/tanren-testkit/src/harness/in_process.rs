@@ -4,13 +4,15 @@
 //! PR 11 wires `playwright-bdd`) and `@tui` (until expectrl scraping
 //! is hardened).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, JoinOrganizationRequest, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, JoinOrganizationRequest, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -28,6 +30,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    expired_sessions: HashSet<AccountId>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -65,6 +68,7 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            expired_sessions: HashSet::new(),
         })
     }
 
@@ -154,6 +158,12 @@ impl AccountHarness for InProcessHarness {
         account_id: AccountId,
         req: JoinOrganizationRequest,
     ) -> HarnessResult<HarnessJoinResult> {
+        if self.expired_sessions.contains(&account_id) {
+            return Err(HarnessError::Account(
+                AccountFailureReason::Unauthenticated,
+                "session expired".to_owned(),
+            ));
+        }
         match self
             .handlers
             .join_organization(&self.store, account_id, req)
@@ -173,6 +183,11 @@ impl AccountHarness for InProcessHarness {
         AccountStore::recent_events(&self.store, limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()> {
+        self.expired_sessions.insert(account_id);
+        Ok(())
     }
 }
 

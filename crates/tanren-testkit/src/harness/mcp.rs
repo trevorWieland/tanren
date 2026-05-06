@@ -276,6 +276,14 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()> {
+        if let Some(token) = self.sessions.get_mut(&account_id) {
+            token.clear();
+            token.push_str("expired");
+        }
+        Ok(())
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {

@@ -13,6 +13,25 @@ use tanren_testkit::{HarnessInvitation, HarnessOutcome, record_failure};
 
 use crate::TanrenWorld;
 
+#[given(expr = "{word}'s session has expired")]
+async fn given_session_expired(world: &mut TanrenWorld, actor: String) {
+    let ctx = world.ensure_account_ctx().await;
+    let entry = ctx
+        .actors
+        .get(&actor)
+        .expect("actor must have signed up first");
+    let account_id = entry
+        .sign_up
+        .as_ref()
+        .map(|s| s.account_id)
+        .or_else(|| entry.sign_in.as_ref().map(|s| s.account_id))
+        .expect("actor must have a session");
+    ctx.harness
+        .expire_session(account_id)
+        .await
+        .expect("expire session");
+}
+
 #[given(expr = "a pending invitation for {string} with token {string}")]
 async fn given_addressed_pending_invitation(world: &mut TanrenWorld, email: String, token: String) {
     let ctx = world.ensure_account_ctx().await;

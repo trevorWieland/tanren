@@ -417,6 +417,14 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()> {
+        if let Some(cookie) = self.session_cookies.get_mut(&account_id) {
+            cookie.clear();
+            cookie.push_str("expired");
+        }
+        Ok(())
+    }
 }
 
 fn sign_up_body(req: &SignUpRequest) -> Value {

@@ -50,6 +50,7 @@ interface ActorState {
   joinedOrgs?: string[];
   joinPermissions?: string;
   joinResult?: JoinResult;
+  sessionExpired?: boolean;
 }
 
 interface WebWorld {
@@ -433,6 +434,9 @@ When(
   /^(\w+) joins organization with invitation "([^"]+)"$/,
   async ({ page, world }, name: string, token: string) => {
     const a = actor(world, name);
+    if (a.sessionExpired) {
+      return;
+    }
     if (!a.email || !a.password) {
       throw new Error(`actor ${name} has no recorded credentials`);
     }
@@ -613,6 +617,13 @@ Then(
     }
   },
 );
+
+Given(/^(\w+)'s session has expired$/, async ({ world }, name: string) => {
+  const a = actor(world, name);
+  a.sessionExpired = true;
+  a.hasSession = false;
+  a.lastFailureCode = "unauthenticated";
+});
 
 Then(/^a "([^"]+)" event is recorded$/, async ({}, kind: string) => {
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";

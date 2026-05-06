@@ -89,4 +89,8 @@ impl AccountHarness for TuiHarness {
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
     }
+
+    async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()> {
+        self.inner.expire_session(account_id).await
+    }
 }

@@ -67,6 +67,14 @@ Feature: Join an organization with an existing account
       Then the request fails with code "invitation_already_consumed"
       And alice is a member of 1 organizations
 
+    @falsification @api
+    Scenario: API rejects joining with an expired cookie session
+      Given alice has signed up with email "alice-expcookie-api@example.com" and password "p4ssw0rd"
+      And alice's session has expired
+      And a pending invitation for "alice-expcookie-api@example.com" with token "expcookie-api-token-padpad"
+      When alice joins organization with invitation "expcookie-api-token-padpad"
+      Then the request fails with code "unauthenticated"
+
   Rule: Web surface
 
     @positive @web
@@ -102,6 +110,14 @@ Feature: Join an organization with an existing account
       And an expired invitation for "alice-exp-web@example.com" with token "exp-web-token-padpad"
       When alice joins organization with invitation "exp-web-token-padpad"
       Then the request fails with code "invitation_expired"
+
+    @falsification @web
+    Scenario: Web rejects joining with an expired cookie session
+      Given alice has signed up with email "alice-expcookie-web@example.com" and password "p4ssw0rd"
+      And alice's session has expired
+      And a pending invitation for "alice-expcookie-web@example.com" with token "expcookie-web-token-padpad"
+      When alice joins organization with invitation "expcookie-web-token-padpad"
+      Then the request fails with code "unauthenticated"
 
   Rule: CLI surface
 
@@ -139,6 +155,14 @@ Feature: Join an organization with an existing account
       When alice joins organization with invitation "exp-cli-token-padpad"
       Then the request fails with code "invitation_expired"
 
+    @falsification @cli
+    Scenario: CLI rejects joining with an expired cookie session
+      Given alice has signed up with email "alice-expcookie-cli@example.com" and password "p4ssw0rd"
+      And alice's session has expired
+      And a pending invitation for "alice-expcookie-cli@example.com" with token "expcookie-cli-token-padpad"
+      When alice joins organization with invitation "expcookie-cli-token-padpad"
+      Then the request fails with code "unauthenticated"
+
   Rule: MCP surface
 
     @positive @mcp
@@ -175,6 +199,14 @@ Feature: Join an organization with an existing account
       When alice joins organization with invitation "exp-mcp-token-padpad"
       Then the request fails with code "invitation_expired"
 
+    @falsification @mcp
+    Scenario: MCP rejects joining with an expired cookie session
+      Given alice has signed up with email "alice-expcookie-mcp@example.com" and password "p4ssw0rd"
+      And alice's session has expired
+      And a pending invitation for "alice-expcookie-mcp@example.com" with token "expcookie-mcp-token-padpad"
+      When alice joins organization with invitation "expcookie-mcp-token-padpad"
+      Then the request fails with code "unauthenticated"
+
   Rule: TUI surface
 
     @positive @tui
@@ -210,3 +242,11 @@ Feature: Join an organization with an existing account
       And an expired invitation for "alice-exp-tui@example.com" with token "exp-tui-token-padpad"
       When alice joins organization with invitation "exp-tui-token-padpad"
       Then the request fails with code "invitation_expired"
+
+    @falsification @tui
+    Scenario: TUI rejects joining with an expired cookie session
+      Given alice has signed up with email "alice-expcookie-tui@example.com" and password "p4ssw0rd"
+      And alice's session has expired
+      And a pending invitation for "alice-expcookie-tui@example.com" with token "expcookie-tui-token-padpad"
+      When alice joins organization with invitation "expcookie-tui-token-padpad"
+      Then the request fails with code "unauthenticated"

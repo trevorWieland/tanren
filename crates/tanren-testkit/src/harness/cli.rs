@@ -312,6 +312,14 @@ impl AccountHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()> {
+        if let Some(token) = self.sessions.get_mut(&account_id) {
+            token.clear();
+            token.push_str("expired");
+        }
+        Ok(())
+    }
 }
 
 /// Locate a workspace binary by name. The BDD runner is at

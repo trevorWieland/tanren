@@ -45,15 +45,36 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
     Ok(())
 }
 
-/// Read the `account_id` from an existing tower-sessions row. Returns
-/// `Err` if the session has no `account_id` — the caller maps this to
-/// 401 Unauthenticated.
+/// Read the `account_id` from an existing tower-sessions row, checking
+/// the embedded `expires_at` against the current wall clock. Returns
+/// `Err` if the session has no `account_id`, no `expires_at`, the
+/// `expires_at` is unparsable, or the session has expired. The caller
+/// maps any `Err` to 401 Unauthenticated. On expiry the tower-sessions
+/// row is flushed so the cookie is cleared on the next response.
 pub(crate) async fn read_cookie_session(session: &Session) -> Result<AccountId> {
-    session
+    let account_id = session
         .get::<AccountId>(SESSION_KEY_ACCOUNT)
         .await
         .context("read account_id from session")?
-        .context("no account_id in session")
+        .context("no account_id in session")?;
+
+    let expires_at = session
+        .get::<DateTime<Utc>>(SESSION_KEY_EXPIRES)
+        .await
+        .context("read expires_at from session")?
+        .context("no expires_at in session");
+
+    let Ok(expires_at) = expires_at else {
+        let _ = session.flush().await;
+        return Err(anyhow::anyhow!("session expires_at missing or unparsable"));
+    };
+
+    if expires_at < Utc::now() {
+        let _ = session.flush().await;
+        return Err(anyhow::anyhow!("session expired at {expires_at}"));
+    }
+
+    Ok(account_id)
 }
 
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships

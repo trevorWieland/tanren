@@ -279,6 +279,10 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    /// Mark an existing session as expired so subsequent operations
+    /// fail with `Unauthenticated`.
+    async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()>;
 }
 
 /// Default short-window timeout used by the wire harnesses.
