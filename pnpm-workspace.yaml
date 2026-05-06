@@ -39,5 +39,6 @@ catalog:
   # `vite` bump to 8 trips that constraint. Drop this once Storybook 9
   # widens its vite peer.
   vite: "7.3.2"
+  "react-router-dom": "7.15.0"
   "openapi-typescript": "7.8.0"
   "openapi-fetch": "0.14.0"

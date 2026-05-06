@@ -27,6 +27,7 @@
     "openapi-fetch": "catalog:default",
     "react": "catalog:default",
     "react-dom": "catalog:default",
+    "react-router-dom": "catalog:default",
     "tailwindcss": "catalog:default",
     "valibot": "catalog:default"
   },
