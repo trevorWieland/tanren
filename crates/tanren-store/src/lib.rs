@@ -10,6 +10,7 @@
 mod accept_invitation;
 mod entity;
 mod migration;
+mod project_store;
 mod records;
 mod traits;
 
@@ -22,7 +23,8 @@ pub use records::{
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, DependencyLinkStatus, DisconnectProjectError,
+    ProjectDependencyLink, ProjectStore, ReconnectProjectError, ReconnectedProject,
 };
 
 use async_trait::async_trait;

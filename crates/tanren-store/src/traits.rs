@@ -28,11 +28,12 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, ProjectDependencyRecord,
+    ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +284,134 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Status of a cross-project dependency link's target. Used by
+/// [`ProjectStore::read_project_dependencies`] to surface
+/// unresolved-link signals without requiring M-0007's lookup module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DependencyLinkStatus {
+    /// Target project exists and is connected.
+    Resolved,
+    /// Target project exists but is currently disconnected.
+    TargetDisconnected,
+    /// Target project does not exist in the store.
+    TargetUnknown,
+}
+
+/// A cross-project dependency link annotated with the resolution status
+/// of its target project. Disconnected or unknown targets surface as
+/// unresolved-link signals that upstream callers can render.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectDependencyLink {
+    /// The dependency record itself.
+    pub dependency: ProjectDependencyRecord,
+    /// Whether the target project is resolved, disconnected, or unknown.
+    pub status: DependencyLinkStatus,
+}
+
+/// Return shape for [`ProjectStore::reconnect_project`]. Carries the
+/// restored project record alongside the retained spec history so the
+/// reconnection path (B-0025) can restore access to prior specs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReconnectedProject {
+    /// The reconnected project record (status is now `Connected`).
+    pub project: ProjectRecord,
+    /// Spec records retained from before the disconnection.
+    pub specs: Vec<ProjectSpecRecord>,
+}
+
+/// Failure taxonomy for [`ProjectStore::disconnect_project`].
+#[derive(Debug, thiserror::Error)]
+pub enum DisconnectProjectError {
+    /// No project matches the supplied id.
+    #[error("project not found")]
+    NotFound,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`ProjectStore::reconnect_project`].
+#[derive(Debug, thiserror::Error)]
+pub enum ReconnectProjectError {
+    /// No project matches the supplied id.
+    #[error("project not found")]
+    NotFound,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Port for project lifecycle persistence. The SeaORM-backed adapter is
+/// `impl ProjectStore for Store` (see `project_store.rs`).
+#[async_trait]
+pub trait ProjectStore: Send + Sync + std::fmt::Debug {
+    /// Insert a new project row (initial connection).
+    async fn insert_project(
+        &self,
+        project_id: ProjectId,
+        org_id: OrgId,
+        name: String,
+        repository_url: String,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectRecord, StoreError>;
+
+    /// Find a project by org and repository URL, regardless of
+    /// connection status. Returns `None` when no matching row exists.
+    async fn find_project_by_org_and_repo(
+        &self,
+        org_id: OrgId,
+        repository_url: &str,
+    ) -> Result<Option<ProjectRecord>, StoreError>;
+
+    /// Clear the disconnected state on an existing project and return
+    /// the restored record alongside its retained spec history.
+    async fn reconnect_project(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<ReconnectedProject, ReconnectProjectError>;
+
+    /// List all connected (non-disconnected) projects visible to an
+    /// account through its org memberships.
+    async fn list_connected_projects_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<ProjectRecord>, StoreError>;
+
+    /// Disconnect a project by setting `disconnected_at`. Does not
+    /// delete any project, spec, dependency, or repository metadata
+    /// rows.
+    async fn disconnect_project(
+        &self,
+        project_id: ProjectId,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectRecord, DisconnectProjectError>;
+
+    /// Read all specs for a project, regardless of connection status.
+    async fn read_project_specs(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectSpecRecord>, StoreError>;
+
+    /// Read all dependency links originating from a project, annotating
+    /// each with whether the target is resolved, disconnected, or
+    /// unknown.
+    async fn read_project_dependencies(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectDependencyLink>, StoreError>;
+
+    /// Insert a loop-fixture row. M-0003 fixture seam for the
+    /// no-active-loops precondition; replaced when M-0011 lands.
+    async fn set_loop_fixture(
+        &self,
+        project_id: ProjectId,
+        is_active: bool,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectLoopFixtureRecord, StoreError>;
+
+    /// Return `true` when at least one active loop fixture exists for
+    /// the project.
+    async fn has_active_loop_fixtures(&self, project_id: ProjectId) -> Result<bool, StoreError>;
 }
