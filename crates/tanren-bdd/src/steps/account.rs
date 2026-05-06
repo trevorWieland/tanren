@@ -311,6 +311,7 @@ async fn then_fails_with(world: &mut TanrenWorld, code: String) {
     let ctx = world.ensure_account_ctx().await;
     let actual = match &ctx.last_outcome {
         Some(HarnessOutcome::Failure(reason)) => reason.code().to_owned(),
+        Some(HarnessOutcome::ConfigFailure(reason)) => reason.code().to_owned(),
         Some(HarnessOutcome::SignedUp(_)) => "signed_up_unexpectedly".to_owned(),
         Some(HarnessOutcome::SignedIn(_)) => "signed_in_unexpectedly".to_owned(),
         Some(HarnessOutcome::AcceptedInvitation(_)) => {

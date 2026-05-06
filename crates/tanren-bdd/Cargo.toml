@@ -17,6 +17,7 @@ cucumber = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tanren-configuration-secrets = { path = "../tanren-configuration-secrets" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",

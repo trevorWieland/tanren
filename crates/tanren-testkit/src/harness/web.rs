@@ -21,13 +21,18 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
+use secrecy::SecretString;
+use tanren_configuration_secrets::{
+    CredentialId, CredentialKind, UserSettingKey, UserSettingValue,
+};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessConfigEntry, HarnessCredential, HarnessInvitation,
+    HarnessKind, HarnessResult, HarnessSession,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -79,5 +84,80 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn set_user_config(
+        &mut self,
+        account_id: AccountId,
+        key: UserSettingKey,
+        value: UserSettingValue,
+    ) -> HarnessResult<HarnessConfigEntry> {
+        self.inner.set_user_config(account_id, key, value).await
+    }
+
+    async fn get_user_config(
+        &mut self,
+        account_id: AccountId,
+        key: UserSettingKey,
+    ) -> HarnessResult<Option<HarnessConfigEntry>> {
+        self.inner.get_user_config(account_id, key).await
+    }
+
+    async fn list_user_config(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Vec<HarnessConfigEntry>> {
+        self.inner.list_user_config(account_id).await
+    }
+
+    async fn attempt_get_other_user_config(
+        &mut self,
+        actor_account_id: AccountId,
+        target_account_id: AccountId,
+        key: UserSettingKey,
+    ) -> HarnessResult<Option<HarnessConfigEntry>> {
+        self.inner
+            .attempt_get_other_user_config(actor_account_id, target_account_id, key)
+            .await
+    }
+
+    async fn create_credential(
+        &mut self,
+        account_id: AccountId,
+        kind: CredentialKind,
+        name: String,
+        secret: SecretString,
+    ) -> HarnessResult<HarnessCredential> {
+        self.inner
+            .create_credential(account_id, kind, name, secret)
+            .await
+    }
+
+    async fn list_credentials(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Vec<HarnessCredential>> {
+        self.inner.list_credentials(account_id).await
+    }
+
+    async fn attempt_update_credential(
+        &mut self,
+        account_id: AccountId,
+        credential_id: CredentialId,
+        secret: SecretString,
+    ) -> HarnessResult<HarnessCredential> {
+        self.inner
+            .attempt_update_credential(account_id, credential_id, secret)
+            .await
+    }
+
+    async fn attempt_remove_credential(
+        &mut self,
+        account_id: AccountId,
+        credential_id: CredentialId,
+    ) -> HarnessResult<bool> {
+        self.inner
+            .attempt_remove_credential(account_id, credential_id)
+            .await
     }
 }

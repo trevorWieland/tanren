@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,15 +16,19 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
+use tanren_configuration_secrets::{
+    CredentialId, CredentialKind, CredentialScope, UserSettingKey, UserSettingValue,
+};
 use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::shared::{failure_from_body, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessConfigEntry, HarnessCredential, HarnessError,
+    HarnessInvitation, HarnessKind, HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -34,6 +39,7 @@ pub struct McpHarness {
     db_path: PathBuf,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    sessions: HashMap<AccountId, String>,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -96,6 +102,7 @@ impl McpHarness {
             db_path,
             client: Some(client),
             server: Some(server),
+            sessions: HashMap::new(),
         })
     }
 
@@ -122,7 +129,7 @@ impl McpHarness {
         let payload: Value = serde_json::from_str(&text)
             .map_err(|e| HarnessError::Transport(format!("decode tool result: {e}")))?;
         if result.is_error == Some(true) {
-            return Err(failure_from_payload(&payload));
+            return Err(failure_from_body(&payload));
         }
         Ok(payload)
     }
@@ -153,7 +160,11 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        if let Some(token) = extract_session_token(&payload) {
+            self.sessions.insert(session.account_id, token);
+        }
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +173,11 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        if let Some(token) = extract_session_token(&payload) {
+            self.sessions.insert(session.account_id, token);
+        }
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -177,6 +192,9 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
         let session = decode_session(&payload)?;
+        if let Some(token) = extract_session_token(&payload) {
+            self.sessions.insert(session.account_id, token);
+        }
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
@@ -201,6 +219,133 @@ impl AccountHarness for McpHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn set_user_config(
+        &mut self,
+        account_id: AccountId,
+        key: UserSettingKey,
+        value: UserSettingValue,
+    ) -> HarnessResult<HarnessConfigEntry> {
+        let token = self.session_token_for(account_id)?;
+        let body = serde_json::json!({
+            "session_token": token,
+            "key": key.to_string(),
+            "value": value.as_str(),
+        });
+        let payload = self.call_tool("user_config.set", body).await?;
+        decode_config_entry(&payload["entry"])
+    }
+
+    async fn get_user_config(
+        &mut self,
+        account_id: AccountId,
+        key: UserSettingKey,
+    ) -> HarnessResult<Option<HarnessConfigEntry>> {
+        let token = self.session_token_for(account_id)?;
+        let body = serde_json::json!({
+            "session_token": token,
+            "key": key.to_string(),
+        });
+        let payload = self.call_tool("user_config.get", body).await?;
+        let entry_val = &payload["entry"];
+        if entry_val.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(decode_config_entry(entry_val)?))
+    }
+
+    async fn list_user_config(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Vec<HarnessConfigEntry>> {
+        let token = self.session_token_for(account_id)?;
+        let body = serde_json::json!({"session_token": token});
+        let payload = self.call_tool("user_config.list", body).await?;
+        let entries = payload["entries"]
+            .as_array()
+            .ok_or_else(|| HarnessError::Transport("entries not an array".to_owned()))?;
+        let mut out = Vec::with_capacity(entries.len());
+        for e in entries {
+            out.push(decode_config_entry(e)?);
+        }
+        Ok(out)
+    }
+
+    async fn attempt_get_other_user_config(
+        &mut self,
+        actor_account_id: AccountId,
+        _target_account_id: AccountId,
+        key: UserSettingKey,
+    ) -> HarnessResult<Option<HarnessConfigEntry>> {
+        self.get_user_config(actor_account_id, key).await
+    }
+
+    async fn create_credential(
+        &mut self,
+        account_id: AccountId,
+        kind: CredentialKind,
+        name: String,
+        secret: SecretString,
+    ) -> HarnessResult<HarnessCredential> {
+        let token = self.session_token_for(account_id)?;
+        let body = serde_json::json!({
+            "session_token": token,
+            "kind": kind.to_string(),
+            "name": name,
+            "value": secret.expose_secret(),
+        });
+        let payload = self.call_tool("credential.add", body).await?;
+        decode_harness_credential(&payload["credential"])
+    }
+
+    async fn list_credentials(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Vec<HarnessCredential>> {
+        let token = self.session_token_for(account_id)?;
+        let body = serde_json::json!({"session_token": token});
+        let payload = self.call_tool("credential.list", body).await?;
+        let creds = payload["credentials"]
+            .as_array()
+            .ok_or_else(|| HarnessError::Transport("credentials not an array".to_owned()))?;
+        let mut out = Vec::with_capacity(creds.len());
+        for c in creds {
+            out.push(decode_harness_credential(c)?);
+        }
+        Ok(out)
+    }
+
+    async fn attempt_update_credential(
+        &mut self,
+        account_id: AccountId,
+        credential_id: CredentialId,
+        secret: SecretString,
+    ) -> HarnessResult<HarnessCredential> {
+        let token = self.session_token_for(account_id)?;
+        let body = serde_json::json!({
+            "session_token": token,
+            "id": credential_id.to_string(),
+            "value": secret.expose_secret(),
+        });
+        let payload = self.call_tool("credential.update", body).await?;
+        decode_harness_credential(&payload["credential"])
+    }
+
+    async fn attempt_remove_credential(
+        &mut self,
+        account_id: AccountId,
+        credential_id: CredentialId,
+    ) -> HarnessResult<bool> {
+        let token = self.session_token_for(account_id)?;
+        let body = serde_json::json!({
+            "session_token": token,
+            "id": credential_id.to_string(),
+        });
+        let payload = self.call_tool("credential.remove", body).await?;
+        payload["removed"]
+            .as_bool()
+            .ok_or_else(|| HarnessError::Transport("missing removed".to_owned()))
     }
 }
 
@@ -232,20 +377,58 @@ fn decode_session(payload: &Value) -> HarnessResult<HarnessSession> {
     })
 }
 
-fn failure_from_payload(payload: &Value) -> HarnessError {
-    let code = payload
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or("transport_error")
-        .to_owned();
-    let summary = payload
-        .get("summary")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown failure")
-        .to_owned();
-    if let Some(reason) = code_to_reason(&code) {
-        HarnessError::Account(reason, summary)
-    } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
+impl McpHarness {
+    fn session_token_for(&self, account_id: AccountId) -> HarnessResult<String> {
+        self.sessions
+            .get(&account_id)
+            .cloned()
+            .ok_or_else(|| HarnessError::Transport("no session for account".to_owned()))
     }
+}
+
+fn extract_session_token(payload: &Value) -> Option<String> {
+    payload["session"]["token"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+fn decode_config_entry(val: &Value) -> HarnessResult<HarnessConfigEntry> {
+    let key: UserSettingKey = serde_json::from_value(val["key"].clone())
+        .map_err(|e| HarnessError::Transport(format!("decode config key: {e}")))?;
+    let value: UserSettingValue = serde_json::from_value(val["value"].clone())
+        .map_err(|e| HarnessError::Transport(format!("decode config value: {e}")))?;
+    let updated_at = val["updated_at"]
+        .as_str()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .ok_or_else(|| HarnessError::Transport("missing updated_at".to_owned()))?;
+    Ok(HarnessConfigEntry {
+        key,
+        value,
+        updated_at,
+    })
+}
+
+fn decode_harness_credential(val: &Value) -> HarnessResult<HarnessCredential> {
+    let id: CredentialId = serde_json::from_value(val["id"].clone())
+        .map_err(|e| HarnessError::Transport(format!("decode cred id: {e}")))?;
+    let name = val["name"]
+        .as_str()
+        .ok_or_else(|| HarnessError::Transport("missing cred name".to_owned()))?
+        .to_owned();
+    let kind: CredentialKind = serde_json::from_value(val["kind"].clone())
+        .map_err(|e| HarnessError::Transport(format!("decode cred kind: {e}")))?;
+    let scope: CredentialScope = serde_json::from_value(val["scope"].clone())
+        .map_err(|e| HarnessError::Transport(format!("decode cred scope: {e}")))?;
+    let present = val["present"]
+        .as_bool()
+        .ok_or_else(|| HarnessError::Transport("missing cred present".to_owned()))?;
+    Ok(HarnessCredential {
+        id,
+        name,
+        kind,
+        scope,
+        present,
+    })
 }

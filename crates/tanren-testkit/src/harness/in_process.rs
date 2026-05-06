@@ -8,14 +8,22 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use secrecy::SecretString;
+use tanren_app_services::{AuthenticatedActor, Clock, Handlers, Store};
+use tanren_configuration_secrets::{
+    CredentialId, CredentialKind, UserSettingKey, UserSettingValue,
+};
+use tanren_contract::{
+    AcceptInvitationRequest, CreateCredentialRequest, GetUserConfigRequest,
+    RemoveCredentialRequest, SetUserConfigRequest, SignInRequest, SignUpRequest,
+    UpdateCredentialRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessConfigEntry, HarnessCredential, HarnessError,
+    HarnessInvitation, HarnessKind, HarnessResult, HarnessSession,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -141,12 +149,206 @@ impl AccountHarness for InProcessHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn set_user_config(
+        &mut self,
+        account_id: AccountId,
+        key: UserSettingKey,
+        value: UserSettingValue,
+    ) -> HarnessResult<HarnessConfigEntry> {
+        let actor = AuthenticatedActor::from_account_id(account_id);
+        match self
+            .handlers
+            .set_user_config(&self.store, &actor, SetUserConfigRequest { key, value })
+            .await
+        {
+            Ok(resp) => Ok(HarnessConfigEntry {
+                key: resp.entry.key,
+                value: resp.entry.value,
+                updated_at: resp.entry.updated_at,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn get_user_config(
+        &mut self,
+        account_id: AccountId,
+        key: UserSettingKey,
+    ) -> HarnessResult<Option<HarnessConfigEntry>> {
+        let actor = AuthenticatedActor::from_account_id(account_id);
+        match self
+            .handlers
+            .get_user_config(&self.store, &actor, GetUserConfigRequest { key })
+            .await
+        {
+            Ok(resp) => Ok(resp.entry.map(|e| HarnessConfigEntry {
+                key: e.key,
+                value: e.value,
+                updated_at: e.updated_at,
+            })),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn list_user_config(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Vec<HarnessConfigEntry>> {
+        let actor = AuthenticatedActor::from_account_id(account_id);
+        match self.handlers.list_user_config(&self.store, &actor).await {
+            Ok(resp) => Ok(resp
+                .entries
+                .into_iter()
+                .map(|e| HarnessConfigEntry {
+                    key: e.key,
+                    value: e.value,
+                    updated_at: e.updated_at,
+                })
+                .collect()),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn attempt_get_other_user_config(
+        &mut self,
+        actor_account_id: AccountId,
+        target_account_id: AccountId,
+        key: UserSettingKey,
+    ) -> HarnessResult<Option<HarnessConfigEntry>> {
+        let actor = AuthenticatedActor::from_account_id(actor_account_id);
+        match self
+            .handlers
+            .get_user_config(&self.store, &actor, GetUserConfigRequest { key })
+            .await
+        {
+            Ok(resp) => {
+                let _ = target_account_id;
+                Ok(resp.entry.map(|e| HarnessConfigEntry {
+                    key: e.key,
+                    value: e.value,
+                    updated_at: e.updated_at,
+                }))
+            }
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn create_credential(
+        &mut self,
+        account_id: AccountId,
+        kind: CredentialKind,
+        name: String,
+        secret: SecretString,
+    ) -> HarnessResult<HarnessCredential> {
+        let actor = AuthenticatedActor::from_account_id(account_id);
+        match self
+            .handlers
+            .create_credential(
+                &self.store,
+                &actor,
+                CreateCredentialRequest {
+                    kind,
+                    name,
+                    description: None,
+                    provider: None,
+                    value: secret,
+                },
+            )
+            .await
+        {
+            Ok(resp) => Ok(HarnessCredential {
+                id: resp.credential.id,
+                name: resp.credential.name,
+                kind: resp.credential.kind,
+                scope: resp.credential.scope,
+                present: resp.credential.present,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn list_credentials(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Vec<HarnessCredential>> {
+        let actor = AuthenticatedActor::from_account_id(account_id);
+        match self.handlers.list_credentials(&self.store, &actor).await {
+            Ok(resp) => Ok(resp
+                .credentials
+                .into_iter()
+                .map(|c| HarnessCredential {
+                    id: c.id,
+                    name: c.name,
+                    kind: c.kind,
+                    scope: c.scope,
+                    present: c.present,
+                })
+                .collect()),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn attempt_update_credential(
+        &mut self,
+        account_id: AccountId,
+        credential_id: CredentialId,
+        secret: SecretString,
+    ) -> HarnessResult<HarnessCredential> {
+        let actor = AuthenticatedActor::from_account_id(account_id);
+        match self
+            .handlers
+            .update_credential(
+                &self.store,
+                &actor,
+                UpdateCredentialRequest {
+                    id: credential_id,
+                    name: None,
+                    description: None,
+                    value: secret,
+                },
+            )
+            .await
+        {
+            Ok(resp) => Ok(HarnessCredential {
+                id: resp.credential.id,
+                name: resp.credential.name,
+                kind: resp.credential.kind,
+                scope: resp.credential.scope,
+                present: resp.credential.present,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn attempt_remove_credential(
+        &mut self,
+        account_id: AccountId,
+        credential_id: CredentialId,
+    ) -> HarnessResult<bool> {
+        let actor = AuthenticatedActor::from_account_id(account_id);
+        match self
+            .handlers
+            .remove_credential(
+                &self.store,
+                &actor,
+                RemoveCredentialRequest { id: credential_id },
+            )
+            .await
+        {
+            Ok(resp) => Ok(resp.removed),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
 }
 
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Configuration(reason) => {
+            HarnessError::Configuration(reason, reason.code().to_owned())
+        }
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }
