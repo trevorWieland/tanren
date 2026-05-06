@@ -13,30 +13,32 @@ supersedes: []
 
 ## Intent
 
-The web frontend's account client imports organization and project
-request/response shapes from the OpenAPI-generated type module instead
-of maintaining handwritten duplicates. The generated types ensure the
-client and server wire contract stays in sync without manual maintenance.
+The web frontend's account client uses TypeScript types generated from
+the API's OpenAPI specification rather than handwritten duplicates, so
+the client and server wire contract stays in sync without manual
+maintenance.
 
 ## Preconditions
 
-- The API server is running with a valid backing store.
-- An account exists with organization memberships.
+- The API server exposes an OpenAPI spec at `/openapi.json`.
+- The `openapi-typescript` tool is configured in the web workspace.
 
 ## Observable outcomes
 
-- The web client lists organizations using generated OpenAPI types.
-- The web client switches the active organization using generated types.
-- The web client lists projects using generated types.
-- Error responses are parsed via a shared response/error parser shared
-  between `postJson` and `getJson`.
+- Organization and project request/response shapes are imported from
+  the generated type module.
+- No handwritten interface duplicates of `OrganizationSwitcher`,
+  `ProjectView`, or `ListOrganizationProjects` exist in the client
+  module.
+- The web client successfully lists organizations, switches the active
+  organization, and lists projects using the generated types.
 
 ## Out of scope
 
-- Generating the OpenAPI schema itself (that is owned by the API binary).
-- UI state or layout concerns.
+- UI layout or state management changes.
+- Generation pipeline automation (CI hook).
 
 ## Related
 
-- B-0047
 - B-0043
+- B-0047
