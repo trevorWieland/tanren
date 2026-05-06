@@ -10,6 +10,8 @@
   "orgSwitcher_active": "(active)",
   "orgProjects_title": "Projects",
   "orgProjects_none": "No projects in this organization.",
+  "orgProjects_loading": "Loading projects\u2026",
+  "orgProjects_showMore": "Show more",
   "orgProjects_personal": "No organization selected.",
   "signUp_title": "Create a Tanren account",
   "signUp_email": "Email",

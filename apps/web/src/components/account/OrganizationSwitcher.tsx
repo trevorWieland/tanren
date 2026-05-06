@@ -1,13 +1,14 @@
-import { useId, useState, useTransition } from "react";
+import { useId, useState } from "react";
 import type { ReactNode } from "react";
 
 import * as m from "@/i18n/paraglide/messages";
-import {
-  type OrganizationSwitcher as OrgSwitcherState,
-  type ProjectView,
-  listActiveOrgProjects,
-  switchActiveOrganization,
+import type {
+  OrganizationSwitcher as OrgSwitcherState,
+  ProjectView,
 } from "@/app/lib/account-client";
+import { useOrganizationSwitcher } from "./useOrganizationSwitcher";
+
+const PAGE_SIZE = 20;
 
 export interface OrganizationSwitcherProps {
   data: OrgSwitcherState;
@@ -24,40 +25,16 @@ export function OrganizationSwitcher({
   const baseId = useId();
   const selectId = `${baseId}-org`;
 
-  const [projects, setProjects] = useState<ProjectView[]>([]);
-  const [projectsLoaded, setProjectsLoaded] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const {
+    activeOrg,
+    memberships,
+    projects,
+    projectsLoading,
+    switching,
+    switchOrg,
+  } = useOrganizationSwitcher(data, onSwitched);
 
-  function loadProjects(): void {
-    startTransition(async () => {
-      try {
-        const result = await listActiveOrgProjects();
-        setProjects(result.projects);
-        setProjectsLoaded(true);
-      } catch {
-        setProjects([]);
-        setProjectsLoaded(true);
-      }
-    });
-  }
-
-  function onChange(orgId: string): void {
-    if (orgId === "") {
-      return;
-    }
-    startTransition(async () => {
-      try {
-        const result = await switchActiveOrganization({ org_id: orgId });
-        onSwitched?.(result.account.org ?? null);
-        setProjectsLoaded(false);
-        loadProjects();
-      } catch {
-        // error handled silently; switcher retains current state
-      }
-    });
-  }
-
-  const hasOrgs = data.memberships.length > 0;
+  const hasOrgs = memberships.length > 0;
 
   if (!hasOrgs) {
     return (
@@ -80,35 +57,33 @@ export function OrganizationSwitcher({
         </label>
         <select
           id={selectId}
-          value={data.active_org ?? ""}
+          value={activeOrg ?? ""}
           onChange={(event) => {
-            onChange(event.target.value);
+            switchOrg(event.target.value);
           }}
-          disabled={pending}
+          disabled={switching}
           className={selectClass}
         >
-          {data.memberships.map((org) => (
+          {memberships.map((org) => (
             <option key={org.org_id} value={org.org_id}>
               {org.org_name}
-              {data.active_org === org.org_id
-                ? ` ${m.orgSwitcher_active()}`
-                : ""}
+              {activeOrg === org.org_id ? ` ${m.orgSwitcher_active()}` : ""}
             </option>
           ))}
         </select>
       </div>
 
-      {pending && (
+      {switching && (
         <p className="text-sm text-[--color-fg-muted]">
           {m.orgSwitcher_switching()}
         </p>
       )}
 
-      {data.active_org !== null && (
+      {activeOrg !== null && (
         <ProjectList
+          key={activeOrg}
           projects={projects}
-          loaded={projectsLoaded}
-          onLoad={loadProjects}
+          loading={projectsLoading}
         />
       )}
     </section>
@@ -117,21 +92,21 @@ export function OrganizationSwitcher({
 
 interface ProjectListProps {
   projects: ProjectView[];
-  loaded: boolean;
-  onLoad: () => void;
+  loading: boolean;
 }
 
-function ProjectList({
-  projects,
-  loaded,
-  onLoad,
-}: ProjectListProps): ReactNode {
-  if (!loaded) {
-    onLoad();
-  }
+function ProjectList({ projects, loading }: ProjectListProps): ReactNode {
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  if (!loaded) {
-    return null;
+  if (loading) {
+    return (
+      <div>
+        <h3 className="text-sm font-medium">{m.orgProjects_title()}</h3>
+        <p className="text-sm text-[--color-fg-muted]">
+          {m.orgProjects_loading()}
+        </p>
+      </div>
+    );
   }
 
   if (projects.length === 0) {
@@ -145,11 +120,14 @@ function ProjectList({
     );
   }
 
+  const visible = projects.slice(0, visibleCount);
+  const hasMore = visibleCount < projects.length;
+
   return (
     <div>
       <h3 className="mb-2 text-sm font-medium">{m.orgProjects_title()}</h3>
       <ul className="m-0 list-none space-y-1 p-0">
-        {projects.map((project) => (
+        {visible.map((project) => (
           <li
             key={project.id}
             className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-3 py-2 text-sm"
@@ -158,6 +136,15 @@ function ProjectList({
           </li>
         ))}
       </ul>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+          className="mt-2 text-sm text-[--color-accent] hover:underline"
+        >
+          {m.orgProjects_showMore()}
+        </button>
+      )}
     </div>
   );
 }
