@@ -53,6 +53,38 @@ export interface AcceptInvitationResult {
   joined_org: string;
 }
 
+export type InvitationStatus = "pending" | "accepted" | "revoked";
+
+export interface OrgInvitationView {
+  token: string;
+  org_id: string;
+  recipient_identifier: string;
+  permissions: string[];
+  status: InvitationStatus;
+  creator: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+}
+
+export interface CreateOrgInvitationInput {
+  recipient_identifier: string;
+  permissions: string[];
+  expires_at: string;
+}
+
+export interface CreateOrgInvitationResult {
+  invitation: OrgInvitationView;
+}
+
+export interface ListOrgInvitationsResult {
+  invitations: OrgInvitationView[];
+}
+
+export interface RevokeOrgInvitationResult {
+  invitation: OrgInvitationView;
+}
+
 /**
  * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
  * Kept in lock-step with the Rust enum so BDD web steps can match on the
@@ -64,6 +96,8 @@ export type AccountFailureCode =
   | "invitation_not_found"
   | "invitation_already_consumed"
   | "invitation_expired"
+  | "invitation_revoked"
+  | "permission_denied"
   | "validation_failed"
   | "unavailable"
   | "internal_error";
@@ -143,6 +177,39 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function getJson<T>(path: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method: "GET",
+      credentials: "include",
+    });
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  if (!response.ok) {
+    let parsed: FailureBody = {};
+    try {
+      parsed = (await response.json()) as FailureBody;
+    } catch {
+      parsed = {};
+    }
+    const code =
+      typeof parsed.code === "string" ? parsed.code : "internal_error";
+    const summary =
+      typeof parsed.summary === "string"
+        ? parsed.summary
+        : `HTTP ${response.status}`;
+    throw new AccountRequestError({ code, summary });
+  }
+
+  return (await response.json()) as T;
+}
+
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
   return postJson<SignUpResult>("/accounts", input);
 }
@@ -186,4 +253,34 @@ export async function signOut(): Promise<void> {
       summary: `HTTP ${response.status}`,
     });
   }
+}
+
+export function createOrgInvitation(
+  orgId: string,
+  input: CreateOrgInvitationInput,
+): Promise<CreateOrgInvitationResult> {
+  const path = `/organizations/${encodeURIComponent(orgId)}/invitations`;
+  return postJson<CreateOrgInvitationResult>(path, input);
+}
+
+export function listOrgInvitations(
+  orgId: string,
+): Promise<ListOrgInvitationsResult> {
+  const path = `/organizations/${encodeURIComponent(orgId)}/invitations`;
+  return getJson<ListOrgInvitationsResult>(path);
+}
+
+export function listRecipientInvitations(
+  recipientIdentifier: string,
+): Promise<ListOrgInvitationsResult> {
+  const path = `/invitations?recipient_identifier=${encodeURIComponent(recipientIdentifier)}`;
+  return getJson<ListOrgInvitationsResult>(path);
+}
+
+export function revokeOrgInvitation(
+  orgId: string,
+  token: string,
+): Promise<RevokeOrgInvitationResult> {
+  const path = `/organizations/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(token)}/revoke`;
+  return postJson<RevokeOrgInvitationResult>(path, {});
 }

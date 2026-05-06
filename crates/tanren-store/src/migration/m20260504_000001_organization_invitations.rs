@@ -36,24 +36,56 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(""),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(
                         ColumnDef::new(Invitations::GrantedPermissions)
                             .json_binary()
                             .not_null()
                             .default(serde_json::Value::Array(Vec::new())),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(
                         ColumnDef::new(Invitations::CreatedByAccountId)
                             .uuid()
                             .not_null()
                             .default("00000000-0000-0000-0000-000000000000"),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(
                         ColumnDef::new(Invitations::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
                             .default(Expr::current_timestamp()),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(ColumnDef::new(Invitations::RevokedAt).timestamp_with_time_zone())
                     .to_owned(),
             )
@@ -91,9 +123,41 @@ impl MigrationTrait for Migration {
                 Table::alter()
                     .table(Invitations::Table)
                     .drop_column(Invitations::RevokedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::CreatedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::CreatedByAccountId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::GrantedPermissions)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::RecipientIdentifier)
                     .to_owned(),
             )
