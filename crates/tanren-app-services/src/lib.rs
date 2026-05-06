@@ -7,14 +7,17 @@
 
 pub mod account;
 pub mod events;
+pub mod organization;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    ListOrganizationProjectsResponse, OrganizationSwitcher, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse, SwitchActiveOrganizationRequest,
+    SwitchActiveOrganizationResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -198,6 +201,49 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Query the organization-switcher state for the given account.
+    /// Personal accounts with zero org memberships receive an empty
+    /// memberships vector and `active_org: None`.
+    pub async fn list_organizations<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+    ) -> Result<OrganizationSwitcher, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::list_organizations(store, account_id).await
+    }
+
+    /// Switch the active organization for the given account. Fails with
+    /// [`AccountFailureReason::OrganizationNotMember`] when the account
+    /// has no membership in the target organization.
+    pub async fn switch_active_org<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+        request: SwitchActiveOrganizationRequest,
+    ) -> Result<SwitchActiveOrganizationResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::switch_active_org(store, account_id, request).await
+    }
+
+    /// List projects for the account's currently active organization.
+    /// Returns an empty list when the account has no active organization
+    /// (personal accounts with no memberships).
+    pub async fn list_active_org_projects<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+    ) -> Result<ListOrganizationProjectsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::list_active_org_projects(store, account_id).await
     }
 }
 

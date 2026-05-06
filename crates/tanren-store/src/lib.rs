@@ -307,6 +307,17 @@ impl AccountStore for Store {
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
     }
 
+    async fn find_account_by_id(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<AccountRecord>, StoreError> {
+        entity::accounts::Entity::find_by_id(account_id.as_uuid())
+            .one(&self.conn)
+            .await?
+            .map(AccountRecord::try_from)
+            .transpose()
+    }
+
     async fn list_account_org_memberships(
         &self,
         account_id: AccountId,
@@ -316,6 +327,24 @@ impl AccountStore for Store {
             .all(&self.conn)
             .await?;
         Ok(rows.into_iter().map(|r| OrgId::new(r.org_id)).collect())
+    }
+
+    async fn list_account_organizations(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrganizationRecord>, StoreError> {
+        let org_ids = AccountStore::list_account_org_memberships(self, account_id).await?;
+        if org_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let uuids: Vec<_> = org_ids.iter().map(|id| id.as_uuid()).collect();
+        Ok(entity::organizations::Entity::find()
+            .filter(entity::organizations::Column::Id.is_in(uuids))
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(OrganizationRecord::from)
+            .collect())
     }
 
     async fn set_active_org(
@@ -369,13 +398,6 @@ impl AccountStore for Store {
 /// (and only the testkit) enables the feature.
 #[cfg(feature = "test-hooks")]
 impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
     pub async fn seed_invitation(
         &self,
         new: NewInvitation,
@@ -432,11 +454,8 @@ impl Store {
     }
 }
 
-/// Convert a DB-stored identifier string into an [`Identifier`]. Any
-/// failure is a DB-invariant violation (we wrote the row through our
-/// own validated path), so it surfaces as a distinct
-/// [`StoreError::DataInvariant`] for triage rather than masquerading as
-/// a query failure.
+/// Convert a DB-stored identifier string into an [`Identifier`].
+/// Returns [`StoreError::DataInvariant`] on validation failure.
 pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
     Identifier::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "identifier",

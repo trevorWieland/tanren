@@ -32,8 +32,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, ProjectRecord, SessionRecord,
-    StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, ProjectRecord,
+    SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -254,12 +254,26 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
 
+    /// Look up an account by its stable id.
+    async fn find_account_by_id(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<AccountRecord>, StoreError>;
+
     /// List all organization ids the given account is a member of.
     /// Returns an empty vec for personal accounts with no memberships.
     async fn list_account_org_memberships(
         &self,
         account_id: AccountId,
     ) -> Result<Vec<OrgId>, StoreError>;
+
+    /// List full organization records for every org the account is a
+    /// member of. Returns an empty vec for personal accounts with no
+    /// memberships.
+    async fn list_account_organizations(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrganizationRecord>, StoreError>;
 
     /// Set the active organization for an account. Fails with
     /// [`SetActiveOrgError::NotAMember`] if the account has no
