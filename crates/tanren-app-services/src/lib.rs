@@ -245,6 +245,24 @@ impl Handlers {
     {
         organization::list_active_org_projects(store, account_id).await
     }
+
+    /// Resolve an opaque session token to the owning account id.
+    /// Returns [`AppServiceError::InvalidInput`] when the token does not
+    /// match any session or the session has expired.
+    pub async fn resolve_session(
+        &self,
+        store: &Store,
+        token: &str,
+    ) -> Result<AccountId, AppServiceError> {
+        let session = store
+            .find_session_by_token(token)
+            .await?
+            .ok_or_else(|| AppServiceError::InvalidInput("session not found".to_owned()))?;
+        if session.expires_at < self.clock.now() {
+            return Err(AppServiceError::InvalidInput("session expired".to_owned()));
+        }
+        Ok(session.account_id)
+    }
 }
 
 /// Errors raised by app-service handlers.

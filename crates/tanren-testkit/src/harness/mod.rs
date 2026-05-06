@@ -57,7 +57,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ListOrganizationProjectsResponse,
+    OrganizationSwitcher, SignInRequest, SignUpRequest, SwitchActiveOrganizationResponse,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -238,6 +239,38 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    /// List organizations for the given account. Default returns
+    /// a transport error — per-interface harnesses override.
+    async fn list_organizations(
+        &mut self,
+        _account_id: AccountId,
+    ) -> HarnessResult<OrganizationSwitcher> {
+        Err(HarnessError::Transport(
+            "org operations not implemented for this harness".to_owned(),
+        ))
+    }
+
+    /// Switch the active organization for the given account.
+    async fn switch_active_org(
+        &mut self,
+        _account_id: AccountId,
+        _org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrganizationResponse> {
+        Err(HarnessError::Transport(
+            "org operations not implemented for this harness".to_owned(),
+        ))
+    }
+
+    /// List projects for the account's currently active organization.
+    async fn list_active_org_projects(
+        &mut self,
+        _account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationProjectsResponse> {
+        Err(HarnessError::Transport(
+            "org operations not implemented for this harness".to_owned(),
+        ))
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.

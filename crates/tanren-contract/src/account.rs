@@ -290,7 +290,7 @@ impl AccountFailureReason {
             Self::InvitationNotFound => "invitation_not_found",
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
-            Self::OrganizationNotMember => "organization_not_member",
+            Self::OrganizationNotMember => "organization-not-member",
         }
     }
 

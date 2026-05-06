@@ -22,8 +22,11 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_contract::{
+    AcceptInvitationRequest, SignInRequest, SignUpRequest, SwitchActiveOrganizationRequest,
+};
+use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use uuid::Uuid;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +66,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Organization operations: list, switch active, list projects.
+    Org {
+        #[command(subcommand)]
+        action: OrgAction,
     },
 }
 
@@ -112,6 +120,31 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum OrgAction {
+    /// List organizations the current account belongs to.
+    List {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+    /// Switch the active organization for the current account.
+    Switch {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Target organization id.
+        #[arg(long)]
+        org_id: String,
+    },
+    /// List projects for the currently active organization.
+    Projects {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +155,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Org { action }) => dispatch_org(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -314,5 +348,109 @@ fn persist_session(token: &str) -> Result<()> {
             .with_context(|| format!("create session dir {}", parent.display()))?;
     }
     fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
+    Ok(())
+}
+
+fn load_session() -> Result<String> {
+    let path = session_path();
+    fs::read_to_string(&path).with_context(|| format!("read session from {}", path.display()))
+}
+
+fn dispatch_org(action: OrgAction) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(run_org(action))
+}
+
+async fn run_org(action: OrgAction) -> Result<()> {
+    let handlers = Handlers::new();
+    let token = load_session()?;
+    match action {
+        OrgAction::List { database_url } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let account_id = handlers
+                .resolve_session(&store, &token)
+                .await
+                .map_err(account_error)?;
+            let response = handlers
+                .list_organizations(&store, account_id)
+                .await
+                .map_err(account_error)?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            if response.memberships.is_empty() {
+                writeln!(handle, "organizations: none").context("write result")?;
+            } else {
+                for m in &response.memberships {
+                    let active = response.active_org == Some(m.org_id);
+                    writeln!(
+                        handle,
+                        "org_id={} name=\"{}\" active={}",
+                        m.org_id, m.org_name, active
+                    )
+                    .context("write result")?;
+                }
+            }
+        }
+        OrgAction::Switch {
+            database_url,
+            org_id,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let account_id = handlers
+                .resolve_session(&store, &token)
+                .await
+                .map_err(account_error)?;
+            let org = OrgId::from(Uuid::parse_str(&org_id).context("parse --org-id as UUID")?);
+            let response = handlers
+                .switch_active_org(
+                    &store,
+                    account_id,
+                    SwitchActiveOrganizationRequest { org_id: org },
+                )
+                .await
+                .map_err(account_error)?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            let active = response
+                .account
+                .org
+                .map_or("none".to_owned(), |id| id.to_string());
+            writeln!(handle, "active_org={active}").context("write result")?;
+        }
+        OrgAction::Projects { database_url } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let account_id = handlers
+                .resolve_session(&store, &token)
+                .await
+                .map_err(account_error)?;
+            let response = handlers
+                .list_active_org_projects(&store, account_id)
+                .await
+                .map_err(account_error)?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            if response.projects.is_empty() {
+                writeln!(handle, "projects: none").context("write result")?;
+            } else {
+                for p in &response.projects {
+                    writeln!(
+                        handle,
+                        "project_id={} name=\"{}\" org_id={}",
+                        p.id, p.name, p.org
+                    )
+                    .context("write result")?;
+                }
+            }
+        }
+    }
     Ok(())
 }

@@ -15,7 +15,11 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ListOrganizationProjectsResponse, OrganizationSwitcher,
+    SignInRequest, SignUpRequest, SwitchActiveOrganizationResponse,
+};
+use tanren_identity_policy::{AccountId, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -201,6 +205,37 @@ impl AccountHarness for McpHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<OrganizationSwitcher> {
+        let body = serde_json::json!({ "account_id": account_id.to_string() });
+        let payload = self.call_tool("organization.list", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode org list: {e}")))
+    }
+
+    async fn switch_active_org(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrganizationResponse> {
+        let body = serde_json::json!({ "account_id": account_id.to_string(), "org_id": org_id.to_string() });
+        let payload = self.call_tool("organization.switch", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode org switch: {e}")))
+    }
+
+    async fn list_active_org_projects(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationProjectsResponse> {
+        let body = serde_json::json!({ "account_id": account_id.to_string() });
+        let payload = self.call_tool("organization.list_projects", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode org projects: {e}")))
     }
 }
 

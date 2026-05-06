@@ -16,7 +16,11 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ListOrganizationProjectsResponse,
+    OrganizationMembershipView, OrganizationSwitcher, SignInRequest, SignUpRequest,
+    SwitchActiveOrganizationResponse,
+};
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
@@ -34,6 +38,7 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    session_file: PathBuf,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -67,12 +72,14 @@ impl CliHarness {
         let store = Arc::new(store);
 
         let binary = locate_workspace_binary("tanren-cli")?;
+        let session_file = db_path.with_extension("session");
 
         Ok(Self {
             store,
             db_path,
             db_url,
             binary,
+            session_file,
         })
     }
 }
@@ -80,6 +87,7 @@ impl CliHarness {
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_file);
     }
 }
 
@@ -103,6 +111,7 @@ impl AccountHarness for CliHarness {
                 "--display-name",
                 &req.display_name,
             ])
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -135,6 +144,7 @@ impl AccountHarness for CliHarness {
                 "--password",
                 req.password.expose_secret(),
             ])
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -172,6 +182,7 @@ impl AccountHarness for CliHarness {
                 "--invitation",
                 req.invitation_token.as_str(),
             ])
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -219,6 +230,74 @@ impl AccountHarness for CliHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn list_organizations(
+        &mut self,
+        _account_id: AccountId,
+    ) -> HarnessResult<OrganizationSwitcher> {
+        let output = Command::new(&self.binary)
+            .args(["org", "list", "--database-url", &self.db_url])
+            .env("TANREN_SESSION_FILE", &self.session_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_org_list(&stdout)
+    }
+
+    async fn switch_active_org(
+        &mut self,
+        _account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrganizationResponse> {
+        let output = Command::new(&self.binary)
+            .args([
+                "org",
+                "switch",
+                "--database-url",
+                &self.db_url,
+                "--org-id",
+                &org_id.to_string(),
+            ])
+            .env("TANREN_SESSION_FILE", &self.session_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_switch_result(&stdout)
+    }
+
+    async fn list_active_org_projects(
+        &mut self,
+        _account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationProjectsResponse> {
+        let output = Command::new(&self.binary)
+            .args(["org", "projects", "--database-url", &self.db_url])
+            .env("TANREN_SESSION_FILE", &self.session_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_project_list(&stdout)
     }
 }
 
@@ -272,7 +351,7 @@ fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
     // CLI emits `error: <code> — <summary>` per
     // crates/tanren-cli-app/src/lib.rs::account_error.
-    let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
+    let re = Regex::new(r"error:\s*([a-z_-]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
@@ -326,4 +405,83 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
     Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
         HarnessError::Transport(format!("parse org id: {e}"))
     })?))
+}
+
+fn parse_org_list(stdout: &str) -> HarnessResult<OrganizationSwitcher> {
+    if stdout.trim().starts_with("organizations: none") {
+        return Ok(OrganizationSwitcher {
+            memberships: Vec::new(),
+            active_org: None,
+        });
+    }
+    let re = Regex::new(r#"org_id=([0-9a-fA-F-]+)\s+name="([^"]*)"\s+active=(true|false)"#)
+        .expect("constant regex");
+    let mut memberships = Vec::new();
+    let mut active_org = None;
+    for cap in re.captures_iter(stdout) {
+        let org_id = OrgId::from(
+            Uuid::parse_str(cap.get(1).map_or("", |m| m.as_str()))
+                .map_err(|e| HarnessError::Transport(format!("parse org_id: {e}")))?,
+        );
+        let org_name = cap.get(2).map_or("", |m| m.as_str()).to_owned();
+        let is_active = cap.get(3).map_or("", |m| m.as_str()) == "true";
+        if is_active {
+            active_org = Some(org_id);
+        }
+        memberships.push(OrganizationMembershipView { org_id, org_name });
+    }
+    Ok(OrganizationSwitcher {
+        memberships,
+        active_org,
+    })
+}
+
+fn parse_switch_result(stdout: &str) -> HarnessResult<SwitchActiveOrganizationResponse> {
+    let re = Regex::new(r"active_org=([0-9a-fA-F-]+|none)").expect("constant regex");
+    let captures = re.captures(stdout).ok_or_else(|| {
+        HarnessError::Transport(format!("could not parse switch result: {stdout}"))
+    })?;
+    let raw = captures.get(1).map_or("", |m| m.as_str());
+    let org = if raw == "none" {
+        None
+    } else {
+        Some(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
+            HarnessError::Transport(format!("parse active_org: {e}"))
+        })?))
+    };
+    Ok(SwitchActiveOrganizationResponse {
+        account: AccountView {
+            id: AccountId::from(Uuid::nil()),
+            identifier: Identifier::from_email(
+                &tanren_identity_policy::Email::parse("harness@cli")
+                    .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?,
+            ),
+            display_name: String::new(),
+            org,
+        },
+    })
+}
+
+fn parse_project_list(stdout: &str) -> HarnessResult<ListOrganizationProjectsResponse> {
+    if stdout.trim().starts_with("projects: none") {
+        return Ok(ListOrganizationProjectsResponse {
+            projects: Vec::new(),
+        });
+    }
+    let re = Regex::new(r#"project_id=([0-9a-fA-F-]+)\s+name="([^"]*)"\s+org_id=([0-9a-fA-F-]+)"#)
+        .expect("constant regex");
+    let mut projects = Vec::new();
+    for cap in re.captures_iter(stdout) {
+        let id = tanren_identity_policy::ProjectId::from(
+            Uuid::parse_str(cap.get(1).map_or("", |m| m.as_str()))
+                .map_err(|e| HarnessError::Transport(format!("parse project_id: {e}")))?,
+        );
+        let name = cap.get(2).map_or("", |m| m.as_str()).to_owned();
+        let org = OrgId::from(
+            Uuid::parse_str(cap.get(3).map_or("", |m| m.as_str()))
+                .map_err(|e| HarnessError::Transport(format!("parse org_id: {e}")))?,
+        );
+        projects.push(tanren_contract::ProjectView { id, name, org });
+    }
+    Ok(ListOrganizationProjectsResponse { projects })
 }
