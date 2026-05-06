@@ -306,10 +306,11 @@ When(
     await page.context().clearCookies();
     await page.goto(`/invitations/${token}`);
     await waitForHydration(page);
-    await page.getByLabel(/email/i).fill(email);
-    await page.getByLabel(/password/i).fill(password);
-    await page.getByLabel(/display name/i).fill(displayName);
-    await page.getByRole("button", { name: /accept and join/i }).click();
+    const acceptForm = page.getByRole("form", { name: /accept invitation/i });
+    await acceptForm.getByLabel(/email/i).fill(email);
+    await acceptForm.getByLabel(/password/i).fill(password);
+    await acceptForm.getByLabel(/display name/i).fill(displayName);
+    await acceptForm.getByRole("button", { name: /accept and join/i }).click();
     const result = await Promise.race([
       page.waitForURL("/").then(() => "ok" as const),
       page
@@ -438,8 +439,9 @@ When(
     await page.context().clearCookies();
     await page.goto(`/invitations/${token}`);
     await waitForHydration(page);
-    await page.getByLabel(/email/i).fill(a.email);
-    await page.getByLabel(/password/i).fill(a.password);
+    const joinForm = page.getByRole("form", { name: /join organization/i });
+    await joinForm.getByLabel(/email/i).fill(a.email);
+    await joinForm.getByLabel(/password/i).fill(a.password);
     const joinResponsePromise = page
       .waitForResponse(
         (resp) =>
@@ -447,7 +449,7 @@ When(
         { timeout: 10_000 },
       )
       .catch(() => null);
-    await page.getByRole("button", { name: /join organization/i }).click();
+    await joinForm.getByRole("button", { name: /sign in and join/i }).click();
     const result = await Promise.race([
       page.waitForURL("/").then(() => "ok" as const),
       page
@@ -577,6 +579,27 @@ Given(
 );
 
 Then(
+  /^(\w+) can select the inviting organization$/,
+  async ({ world }, name: string) => {
+    const a = actor(world, name);
+    if (!a.joinResult) {
+      throw new Error(`${name} has no join result recorded`);
+    }
+    if (!world.orgId) {
+      throw new Error("no org id recorded in world");
+    }
+    const found = a.joinResult.selectable_organizations.some(
+      (m: { org_id: string }) => m.org_id === world.orgId,
+    );
+    if (!found) {
+      throw new Error(
+        `inviting org ${world.orgId} not found in selectable organizations: ${a.joinResult.selectable_organizations.map((m) => m.org_id).join(", ")}`,
+      );
+    }
+  },
+);
+
+Then(
   /^(\w+) has been granted "([^"]+)" organization permissions$/,
   async ({ world }, name: string, permissions: string) => {
     const a = actor(world, name);
@@ -644,7 +667,11 @@ async function classifyFailureFromAlert(
     return "invitation_already_consumed";
   if (text.includes("invitation") && text.includes("revoked"))
     return "invitation_already_consumed";
-  if (text.includes("wrong account") || text.includes("not addressed to you"))
+  if (
+    text.includes("wrong account") ||
+    text.includes("not addressed to you") ||
+    text.includes("different account")
+  )
     return "wrong_account";
   if (text.includes("account already exists")) return "duplicate_identifier";
   if (text.includes("email or password is invalid"))
