@@ -6,7 +6,7 @@ use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
     DisconnectProjectResponse, ListProjectsResponse, ReconnectProjectResponse,
 };
-use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
+use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId, SpecId};
 use tanren_store::EventEnvelope;
 
 use super::project::{ProjectHarness, translate_project_error};
@@ -41,6 +41,10 @@ fn make_actor(account_id: AccountId) -> ActorContext {
 impl ProjectHarness for ProjectWebHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Web
+    }
+
+    fn provider_connection_id(&self) -> ProviderConnectionId {
+        self.inner.provider_connection_id()
     }
 
     async fn connect_project(

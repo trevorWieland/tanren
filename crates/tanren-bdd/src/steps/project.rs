@@ -8,14 +8,16 @@ use crate::TanrenWorld;
 #[given(expr = "a connected project {string}")]
 async fn given_connected_project(world: &mut TanrenWorld, name: String) {
     let ctx = world.project.as_mut().expect("project context required");
-    let repo_url = format!("https://example.com/{name}");
+    let provider_connection_id = ctx.harness.provider_connection_id();
+    let resource_id = name.replace(' ', "-");
     let result = ctx
         .harness
         .connect_project(ConnectProjectRequest {
             account_id: None,
             org_id: ctx.org_id,
             name: name.clone(),
-            repository_url: repo_url,
+            provider_connection_id,
+            resource_id,
         })
         .await;
     match result {

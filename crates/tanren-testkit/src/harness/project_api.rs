@@ -8,7 +8,7 @@ use tanren_contract::{
     DisconnectProjectResponse, ListProjectsResponse, ProjectView, ReconnectProjectResponse,
     SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, Email, OrgId, ProjectId, SpecId};
+use tanren_identity_policy::{AccountId, Email, OrgId, ProjectId, ProviderConnectionId, SpecId};
 use tanren_store::{AccountStore as _, EventEnvelope};
 
 use super::api::ApiHarness;
@@ -76,6 +76,10 @@ impl ProjectApiHarness {
 impl ProjectHarness for ProjectApiHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Api
+    }
+
+    fn provider_connection_id(&self) -> ProviderConnectionId {
+        ProviderConnectionId::fresh()
     }
 
     async fn connect_project(

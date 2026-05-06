@@ -167,6 +167,28 @@ pub struct NewInvitation {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Input shape for [`crate::ProjectStore::insert_project`] and
+/// [`crate::Store::seed_project`]. Bundles every field needed to
+/// persist a new project row so the trait and seeder stay under
+/// clippy's too-many-arguments threshold.
+#[derive(Debug, Clone)]
+pub struct NewProject {
+    /// Stable project id (allocated by the caller, `UUIDv7`).
+    pub id: ProjectId,
+    /// Owning organization.
+    pub org_id: OrgId,
+    /// Human-readable name.
+    pub name: String,
+    /// Source-control provider connection the project is connected through.
+    pub provider_connection_id: tanren_identity_policy::ProviderConnectionId,
+    /// Opaque repository resource identifier within the provider connection.
+    pub resource_id: String,
+    /// Redacted display reference (never contains credentials).
+    pub display_ref: String,
+    /// Wall-clock time the project was connected.
+    pub connected_at: DateTime<Utc>,
+}
+
 /// Connection status of a project. `Disconnected` carries the wall-clock
 /// instant the disconnect was applied so callers can render it without
 /// needing a separate field.
@@ -190,8 +212,12 @@ pub struct ProjectRecord {
     pub org_id: OrgId,
     /// Human-readable name.
     pub name: String,
-    /// Repository URL or path.
-    pub repository_url: String,
+    /// Source-control provider connection the project is connected through.
+    pub provider_connection_id: tanren_identity_policy::ProviderConnectionId,
+    /// Opaque repository resource identifier within the provider connection.
+    pub resource_id: String,
+    /// Redacted display reference (never contains credentials).
+    pub display_ref: String,
     /// Wall-clock time the project was originally connected.
     pub connected_at: DateTime<Utc>,
     /// Current connection status.
@@ -204,7 +230,11 @@ impl From<entity::projects::Model> for ProjectRecord {
             id: ProjectId::new(model.id),
             org_id: OrgId::new(model.org_id),
             name: model.name,
-            repository_url: model.repository_url,
+            provider_connection_id: tanren_identity_policy::ProviderConnectionId::new(
+                model.provider_connection_id,
+            ),
+            resource_id: model.resource_id,
+            display_ref: model.display_ref,
             connected_at: model.connected_at,
             status: match model.disconnected_at {
                 Some(ts) => ProjectStatus::Disconnected(ts),

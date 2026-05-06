@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use tanren_app_services::{ActorContext, AppServiceError, Handlers, Store};
 use tanren_contract::{ProjectFailureReason, ProjectView};
-use tanren_identity_policy::{AccountId, ProjectId};
+use tanren_identity_policy::{AccountId, ProjectId, ProviderConnectionId};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
@@ -35,7 +35,12 @@ pub(crate) fn connect_project_fields() -> Vec<FormField> {
             value: String::new(),
         },
         FormField {
-            label: "Repository URL",
+            label: "Provider Connection ID",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Resource ID",
             secret: false,
             value: String::new(),
         },
@@ -82,22 +87,33 @@ pub(crate) fn project_dependencies_fields() -> Vec<FormField> {
 
 pub(crate) fn parse_connect_project(
     state: &FormState,
-) -> Result<(AccountId, tanren_identity_policy::OrgId, String, String), String> {
+) -> Result<
+    (
+        AccountId,
+        tanren_identity_policy::OrgId,
+        String,
+        ProviderConnectionId,
+        String,
+    ),
+    String,
+> {
     let account_id = parse_uuid_field(state.value(0), "Account ID")?;
     let org_id = parse_uuid_field(state.value(1), "Org ID")?;
     let name = state.value(2).trim().to_owned();
-    let repository_url = state.value(3).trim().to_owned();
+    let provider_connection_id = parse_uuid_field(state.value(3), "Provider Connection ID")?;
+    let resource_id = state.value(4).trim().to_owned();
     if name.is_empty() {
         return Err("validation_failed: project name is required".to_owned());
     }
-    if repository_url.is_empty() {
-        return Err("validation_failed: repository URL is required".to_owned());
+    if resource_id.is_empty() {
+        return Err("validation_failed: resource ID is required".to_owned());
     }
     Ok((
         AccountId::new(account_id),
         tanren_identity_policy::OrgId::new(org_id),
         name,
-        repository_url,
+        ProviderConnectionId::new(provider_connection_id),
+        resource_id,
     ))
 }
 
@@ -127,7 +143,7 @@ pub(crate) fn connect_project_outcome(project: &ProjectView) -> OutcomeView {
             format!("project_id: {}", project.id),
             format!("name: {}", project.name),
             format!("org_id: {}", project.org_id),
-            format!("repository_url: {}", project.repository_url),
+            format!("display_ref: {}", project.display_ref),
             format!("connected_at: {}", project.connected_at),
         ],
     }
@@ -141,7 +157,7 @@ pub(crate) fn list_projects_outcome(projects: &[ProjectView]) -> OutcomeView {
         for p in projects {
             lines.push(format!(
                 "{} | {} | {} | {}",
-                p.id, p.name, p.org_id, p.repository_url
+                p.id, p.name, p.org_id, p.display_ref
             ));
         }
     }
@@ -221,16 +237,18 @@ pub(crate) fn dispatch_connect_project(
     store: &Arc<Store>,
     state: &FormState,
 ) -> ProjectActionResult {
-    let (account_id, org_id, name, repository_url) = match parse_connect_project(state) {
-        Ok(vals) => vals,
-        Err(message) => return ProjectActionResult::Error(message),
-    };
+    let (account_id, org_id, name, provider_connection_id, resource_id) =
+        match parse_connect_project(state) {
+            Ok(vals) => vals,
+            Err(message) => return ProjectActionResult::Error(message),
+        };
     let actor = ActorContext::from_account_id(account_id);
     let request = tanren_contract::ConnectProjectRequest {
         account_id: None,
         org_id,
         name,
-        repository_url,
+        provider_connection_id,
+        resource_id,
     };
     match runtime.block_on(handlers.connect_project(store.as_ref(), &actor, request)) {
         Ok(response) => ProjectActionResult::Outcome(connect_project_outcome(&response.project)),

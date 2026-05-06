@@ -8,7 +8,7 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
+use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId, SpecId};
 use utoipa::ToSchema;
 
 /// External-facing view of a spec attached to a project.
@@ -107,6 +107,8 @@ impl ProjectFailureBody {
 }
 
 /// Request to connect an existing repository as a Tanren project.
+/// References a configured source-control provider connection and
+/// repository resource — never a raw authority-bearing URL.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConnectProjectRequest {
     /// Account initiating the connection. Ignored by all interfaces —
@@ -118,8 +120,13 @@ pub struct ConnectProjectRequest {
     pub org_id: OrgId,
     /// Human-readable name for the project.
     pub name: String,
-    /// URL or path of the repository to connect.
-    pub repository_url: String,
+    /// Configured source-control provider connection to resolve the
+    /// repository through.
+    pub provider_connection_id: ProviderConnectionId,
+    /// Opaque repository resource identifier within the provider
+    /// connection (e.g. `"acme/tanren-app"` for a GitHub connection,
+    /// a local name for the fixture provider).
+    pub resource_id: String,
 }
 
 /// Successful project-connection response.
@@ -197,8 +204,10 @@ pub struct ProjectView {
     pub name: String,
     /// Owning organization.
     pub org_id: OrgId,
-    /// Repository URL or path the project is connected to.
-    pub repository_url: String,
+    /// Redacted display reference for the connected repository (e.g.
+    /// `github.com/acme/tanren-app`, `local://bdd-temp`). Never contains
+    /// credentials or secret-bearing URLs.
+    pub display_ref: String,
     /// Wall-clock time the project was originally connected.
     pub connected_at: DateTime<Utc>,
     /// Wall-clock time the project was disconnected, if applicable.
@@ -229,6 +238,12 @@ pub enum ProjectFailureReason {
     /// action on the project. Returned when the policy layer denies access
     /// based on org membership or project visibility.
     Unauthorized,
+    /// No configured source-control provider connection matches the
+    /// supplied identifier.
+    ProviderConnectionNotFound,
+    /// The provider connection exists but lacks the capabilities required
+    /// to connect a project (read access, merge permission assessment).
+    InsufficientProviderCapabilities,
 }
 
 impl ProjectFailureReason {
@@ -241,6 +256,8 @@ impl ProjectFailureReason {
             Self::RepositoryUnavailable => "repository_unavailable",
             Self::ValidationFailed => "validation_failed",
             Self::Unauthorized => "unauthorized",
+            Self::ProviderConnectionNotFound => "provider_connection_not_found",
+            Self::InsufficientProviderCapabilities => "insufficient_provider_capabilities",
         }
     }
 
@@ -261,6 +278,12 @@ impl ProjectFailureReason {
             Self::Unauthorized => {
                 "The authenticated actor is not authorized to perform this action."
             }
+            Self::ProviderConnectionNotFound => {
+                "No configured source-control provider connection matches the supplied identifier."
+            }
+            Self::InsufficientProviderCapabilities => {
+                "The provider connection lacks the capabilities required to connect a project."
+            }
         }
     }
 
@@ -271,8 +294,10 @@ impl ProjectFailureReason {
     pub const fn http_status(self) -> u16 {
         match self {
             Self::ProjectNotFound => 404,
-            Self::ActiveLoopExists | Self::RepositoryUnavailable => 409,
-            Self::ValidationFailed => 400,
+            Self::ActiveLoopExists
+            | Self::RepositoryUnavailable
+            | Self::InsufficientProviderCapabilities => 409,
+            Self::ValidationFailed | Self::ProviderConnectionNotFound => 400,
             Self::Unauthorized => 403,
         }
     }

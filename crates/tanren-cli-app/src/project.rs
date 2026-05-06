@@ -16,23 +16,24 @@ use tanren_contract::{
     ConnectProjectRequest, DependencyView, DisconnectProjectRequest, ProjectDependenciesResponse,
     ProjectFailureBody, ProjectSpecsResponse, SpecView,
 };
-use tanren_identity_policy::{AccountId, OrgId, ProjectId};
+use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId};
 
 pub(crate) async fn connect_project(
     handlers: &Handlers,
     store: &Store,
-    _database_url: &str,
     account_id: AccountId,
     org_id: OrgId,
     name: String,
-    repository_url: String,
+    provider_connection_id: ProviderConnectionId,
+    resource_id: String,
 ) -> Result<()> {
     let actor = ActorContext::from_account_id(account_id);
     let request = ConnectProjectRequest {
         account_id: None,
         org_id,
         name,
-        repository_url,
+        provider_connection_id,
+        resource_id,
     };
     let response = handlers
         .connect_project(store, &actor, request)

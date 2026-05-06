@@ -28,12 +28,14 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId,
+    ProviderConnectionId, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, ProjectDependencyRecord,
-    ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, NewProject,
+    ProjectDependencyRecord, ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord,
+    SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -348,21 +350,15 @@ pub enum ReconnectProjectError {
 #[async_trait]
 pub trait ProjectStore: Send + Sync + std::fmt::Debug {
     /// Insert a new project row (initial connection).
-    async fn insert_project(
-        &self,
-        project_id: ProjectId,
-        org_id: OrgId,
-        name: String,
-        repository_url: String,
-        now: DateTime<Utc>,
-    ) -> Result<ProjectRecord, StoreError>;
+    async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError>;
 
-    /// Find a project by org and repository URL, regardless of
-    /// connection status. Returns `None` when no matching row exists.
-    async fn find_project_by_org_and_repo(
+    /// Find a project by org, provider connection, and resource, regardless
+    /// of connection status. Returns `None` when no matching row exists.
+    async fn find_project_by_org_and_resource(
         &self,
         org_id: OrgId,
-        repository_url: &str,
+        provider_connection_id: ProviderConnectionId,
+        resource_id: &str,
     ) -> Result<Option<ProjectRecord>, StoreError>;
 
     /// Clear the disconnected state on an existing project and return

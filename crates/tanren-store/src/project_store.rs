@@ -9,9 +9,10 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
     Set,
 };
-use tanren_identity_policy::{AccountId, OrgId, ProjectId};
+use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId};
 use uuid::Uuid;
 
+use crate::NewProject;
 use crate::Store;
 use crate::entity;
 use crate::traits::{
@@ -24,34 +25,33 @@ use crate::{
 
 #[async_trait]
 impl ProjectStore for Store {
-    async fn insert_project(
-        &self,
-        project_id: ProjectId,
-        org_id: OrgId,
-        name: String,
-        repository_url: String,
-        now: DateTime<Utc>,
-    ) -> Result<ProjectRecord, StoreError> {
+    async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError> {
         let model = entity::projects::ActiveModel {
-            id: Set(project_id.as_uuid()),
-            org_id: Set(org_id.as_uuid()),
-            name: Set(name),
-            repository_url: Set(repository_url),
-            connected_at: Set(now),
+            id: Set(new.id.as_uuid()),
+            org_id: Set(new.org_id.as_uuid()),
+            name: Set(new.name),
+            provider_connection_id: Set(new.provider_connection_id.as_uuid()),
+            resource_id: Set(new.resource_id),
+            display_ref: Set(new.display_ref),
+            connected_at: Set(new.connected_at),
             disconnected_at: Set(None),
         };
         let inserted = model.insert(&self.conn).await?;
         Ok(ProjectRecord::from(inserted))
     }
 
-    async fn find_project_by_org_and_repo(
+    async fn find_project_by_org_and_resource(
         &self,
         org_id: OrgId,
-        repository_url: &str,
+        provider_connection_id: ProviderConnectionId,
+        resource_id: &str,
     ) -> Result<Option<ProjectRecord>, StoreError> {
         let row = entity::projects::Entity::find()
             .filter(entity::projects::Column::OrgId.eq(org_id.as_uuid()))
-            .filter(entity::projects::Column::RepositoryUrl.eq(repository_url))
+            .filter(
+                entity::projects::Column::ProviderConnectionId.eq(provider_connection_id.as_uuid()),
+            )
+            .filter(entity::projects::Column::ResourceId.eq(resource_id))
             .one(&self.conn)
             .await?;
         Ok(row.map(ProjectRecord::from))

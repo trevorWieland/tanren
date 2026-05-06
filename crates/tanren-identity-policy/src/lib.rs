@@ -13,7 +13,7 @@ pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
-pub use project::{ProjectId, SpecId};
+pub use project::{ProjectId, ProviderConnectionId, SpecId};
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};

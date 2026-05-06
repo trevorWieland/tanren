@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tanren_app_services::{Clock, Handlers, Store};
+use tanren_app_services::{Clock, Handlers, LocalProviderRegistry, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -25,6 +25,7 @@ use super::{
 pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
+    provider_registry: LocalProviderRegistry,
     kind: HarnessKind,
 }
 
@@ -58,10 +59,16 @@ impl InProcessHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("ephemeral store: {e}")))?;
         let clock = Clock::from_fn(Utc::now);
-        let handlers = Handlers::with_verifier(clock, Arc::new(Argon2idVerifier::fast_for_tests()));
+        let provider_registry = LocalProviderRegistry::new();
+        let handlers = Handlers::with_providers(
+            clock,
+            Arc::new(Argon2idVerifier::fast_for_tests()),
+            Arc::new(provider_registry.clone()),
+        );
         Ok(Self {
             store,
             handlers,
+            provider_registry,
             kind,
         })
     }
@@ -82,6 +89,14 @@ impl InProcessHarness {
 
     pub(crate) fn store_mut(&mut self) -> &mut Store {
         &mut self.store
+    }
+
+    /// The provider connection id the local provider is registered
+    /// under. Callers use this to construct `ConnectProjectRequest`s
+    /// that route through the local provider.
+    #[must_use]
+    pub fn provider_connection_id(&self) -> tanren_identity_policy::ProviderConnectionId {
+        self.provider_registry.connection_id()
     }
 }
 

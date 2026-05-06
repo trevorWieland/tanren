@@ -11,7 +11,7 @@ use tanren_contract::{
     DisconnectProjectResponse, ListProjectsResponse, ProjectFailureReason, ProjectView,
     ReconnectProjectResponse,
 };
-use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
+use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId, SpecId};
 use tanren_store::{EventEnvelope, ProjectRecord, ProjectStatus};
 
 use super::in_process::InProcessHarness;
@@ -50,6 +50,7 @@ pub trait ProjectHarness: Send + std::fmt::Debug {
     ) -> HarnessResult<()>;
     async fn seed_active_loop(&mut self, project_id: ProjectId) -> HarnessResult<()>;
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+    fn provider_connection_id(&self) -> ProviderConnectionId;
 }
 
 pub struct ProjectInProcessHarness {
@@ -81,6 +82,10 @@ fn make_actor(account_id: AccountId) -> ActorContext {
 impl ProjectHarness for ProjectInProcessHarness {
     fn kind(&self) -> HarnessKind {
         self.inner.kind()
+    }
+
+    fn provider_connection_id(&self) -> ProviderConnectionId {
+        self.inner.provider_connection_id()
     }
 
     async fn connect_project(
@@ -333,7 +338,7 @@ pub(crate) fn record_to_view(record: &ProjectRecord) -> ProjectView {
         id: record.id,
         name: record.name.clone(),
         org_id: record.org_id,
-        repository_url: record.repository_url.clone(),
+        display_ref: record.display_ref.clone(),
         connected_at: record.connected_at,
         disconnected_at: match record.status {
             ProjectStatus::Disconnected(at) => Some(at),

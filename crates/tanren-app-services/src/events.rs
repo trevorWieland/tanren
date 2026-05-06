@@ -174,7 +174,7 @@ pub struct ProjectConnected {
     pub project_id: ProjectId,
     pub org_id: OrgId,
     pub name: String,
-    pub repository_url: String,
+    pub display_ref: String,
     pub at: DateTime<Utc>,
 }
 

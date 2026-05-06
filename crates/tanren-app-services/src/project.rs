@@ -20,9 +20,10 @@ use tanren_contract::{
 };
 use tanren_identity_policy::{ProjectId, SpecId};
 use tanren_policy::{ActorContext, Decision, ProjectAction, evaluate_project_policy};
+use tanren_provider_integrations::ProviderRegistry;
 use tanren_store::{
-    AccountStore, DependencyLinkStatus, DisconnectProjectError, ProjectStatus, ProjectStore,
-    ReconnectProjectError,
+    AccountStore, DependencyLinkStatus, DisconnectProjectError, NewProject, ProjectStatus,
+    ProjectStore, ReconnectProjectError,
 };
 
 use crate::events::{
@@ -51,20 +52,22 @@ pub struct ProjectDependencyView {
     pub detected_at: DateTime<Utc>,
 }
 
-pub(crate) async fn connect_project<S>(
+pub(crate) async fn connect_project<S, P>(
     store: &S,
     clock: &Clock,
     actor: &ActorContext,
+    providers: &P,
     request: ConnectProjectRequest,
 ) -> Result<ConnectProjectResponse, AppServiceError>
 where
     S: AccountStore + ProjectStore + ?Sized,
+    P: ProviderRegistry + ?Sized,
 {
     let name = request.name.trim().to_owned();
-    let repository_url = request.repository_url.trim().to_owned();
+    let resource_id = request.resource_id.trim().to_owned();
     let now = clock.now();
 
-    if name.is_empty() || repository_url.is_empty() {
+    if name.is_empty() || resource_id.is_empty() {
         return Err(AppServiceError::Project(
             ProjectFailureReason::ValidationFailed,
         ));
@@ -82,8 +85,42 @@ where
         return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
     }
 
+    let provider =
+        providers
+            .get(request.provider_connection_id)
+            .await
+            .ok_or(AppServiceError::Project(
+                ProjectFailureReason::ProviderConnectionNotFound,
+            ))?;
+
+    let caps = provider.capabilities();
+    if !caps.can_read || !caps.can_assess_merge_permissions {
+        return Err(AppServiceError::Project(
+            ProjectFailureReason::InsufficientProviderCapabilities,
+        ));
+    }
+
+    let resource = provider
+        .resolve_resource(&resource_id)
+        .await
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::RepositoryUnavailable))?;
+
+    let merge_perms = provider
+        .merge_permissions(&resource)
+        .await
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::RepositoryUnavailable))?;
+    if !merge_perms.can_push_to_default {
+        return Err(AppServiceError::Project(
+            ProjectFailureReason::RepositoryUnavailable,
+        ));
+    }
+
     if let Some(existing) = store
-        .find_project_by_org_and_repo(request.org_id, &repository_url)
+        .find_project_by_org_and_resource(
+            request.org_id,
+            request.provider_connection_id,
+            &resource_id,
+        )
         .await?
     {
         if matches!(existing.status, ProjectStatus::Connected) {
@@ -95,13 +132,15 @@ where
 
     let project_id = ProjectId::fresh();
     let record = store
-        .insert_project(
-            project_id,
-            request.org_id,
-            name.clone(),
-            repository_url.clone(),
-            now,
-        )
+        .insert_project(NewProject {
+            id: project_id,
+            org_id: request.org_id,
+            name: name.clone(),
+            provider_connection_id: request.provider_connection_id,
+            resource_id,
+            display_ref: resource.display_ref.clone(),
+            connected_at: now,
+        })
         .await?;
 
     store
@@ -112,7 +151,7 @@ where
                     project_id: record.id,
                     org_id: record.org_id,
                     name,
-                    repository_url,
+                    display_ref: record.display_ref.clone(),
                     at: now,
                 },
             ),
@@ -330,7 +369,7 @@ fn project_view(record: &tanren_store::ProjectRecord) -> ProjectView {
         id: record.id,
         name: record.name.clone(),
         org_id: record.org_id,
-        repository_url: record.repository_url.clone(),
+        display_ref: record.display_ref.clone(),
         connected_at: record.connected_at,
         disconnected_at: match record.status {
             ProjectStatus::Disconnected(at) => Some(at),

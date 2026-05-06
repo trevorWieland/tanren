@@ -89,3 +89,47 @@ impl std::fmt::Display for SpecId {
         self.0.fmt(f)
     }
 }
+
+/// Stable identifier for a configured source-control provider connection.
+/// References a pre-registered integration (GitHub org, GitLab group, local
+/// filesystem fixture, etc.) rather than embedding authority-bearing URLs in
+/// request payloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(transparent)]
+#[schema(value_type = String, format = "uuid")]
+pub struct ProviderConnectionId(Uuid);
+
+impl ProviderConnectionId {
+    #[must_use]
+    pub const fn new(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub fn fresh() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    #[must_use]
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for ProviderConnectionId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl AsRef<Uuid> for ProviderConnectionId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ProviderConnectionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}

@@ -3,7 +3,7 @@
 //!
 //! Disconnected projects and their specs are retained (soft-delete via
 //! `disconnected_at`) so that reconnection via B-0025 can restore access
-//! to prior specs. A partial unique index on `(org_id, repository_url)`
+//! to prior specs. A partial unique index on `(org_id, provider_connection_id, resource_id)`
 //! filtered to `disconnected_at IS NULL` ensures at most one active
 //! connection per repository per organisation while allowing the same
 //! repository to reconnect after disconnect.
@@ -30,7 +30,13 @@ impl Migration {
                     .col(ColumnDef::new(Projects::Id).uuid().not_null().primary_key())
                     .col(ColumnDef::new(Projects::OrgId).uuid().not_null())
                     .col(ColumnDef::new(Projects::Name).string().not_null())
-                    .col(ColumnDef::new(Projects::RepositoryUrl).string().not_null())
+                    .col(
+                        ColumnDef::new(Projects::ProviderConnectionId)
+                            .uuid()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(Projects::ResourceId).string().not_null())
+                    .col(ColumnDef::new(Projects::DisplayRef).string().not_null())
                     .col(
                         ColumnDef::new(Projects::ConnectedAt)
                             .timestamp_with_time_zone()
@@ -45,7 +51,7 @@ impl Migration {
         let backend = db.get_database_backend();
         db.execute(Statement::from_string(
                 backend,
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_active_repo_per_org ON projects (org_id, repository_url) WHERE disconnected_at IS NULL".to_owned(),
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_active_repo_per_org ON projects (org_id, provider_connection_id, resource_id) WHERE disconnected_at IS NULL".to_owned(),
             ))
             .await?;
         Ok(())
@@ -238,7 +244,9 @@ enum Projects {
     Id,
     OrgId,
     Name,
-    RepositoryUrl,
+    ProviderConnectionId,
+    ResourceId,
+    DisplayRef,
     ConnectedAt,
     DisconnectedAt,
 }

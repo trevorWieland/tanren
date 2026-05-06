@@ -24,11 +24,6 @@ upcoming_spec = "F-0001"
 reason = "tanren-harness Harness trait — first impl lands with the harness families feature work."
 
 [[allowed]]
-name = "ProviderAdapter"
-upcoming_spec = "F-0001"
-reason = "tanren-provider-integrations ProviderAdapter — first impl lands with the upstream-adapter feature work (e.g. xhealth GCP/Linear adapters)."
-
-[[allowed]]
 name = "Scheduler"
 upcoming_spec = "F-0001"
 reason = "tanren-scheduler Scheduler trait — first impl lands with the scheduler feature work."

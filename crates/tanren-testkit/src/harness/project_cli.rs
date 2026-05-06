@@ -8,7 +8,7 @@ use tanren_contract::{
     ListProjectsResponse, ProjectDependenciesResponse, ProjectSpecsResponse,
     ReconnectProjectResponse,
 };
-use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
+use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId, SpecId};
 use tanren_store::{EventEnvelope, ProjectStore as _};
 use tokio::process::Command;
 
@@ -66,6 +66,10 @@ impl ProjectHarness for ProjectCliHarness {
         HarnessKind::Cli
     }
 
+    fn provider_connection_id(&self) -> ProviderConnectionId {
+        ProviderConnectionId::fresh()
+    }
+
     async fn connect_project(
         &mut self,
         req: tanren_contract::ConnectProjectRequest,
@@ -80,8 +84,10 @@ impl ProjectHarness for ProjectCliHarness {
                 &req.org_id.to_string(),
                 "--name",
                 &req.name,
-                "--repository-url",
-                &req.repository_url,
+                "--provider-connection-id",
+                &req.provider_connection_id.to_string(),
+                "--resource-id",
+                &req.resource_id,
             ])
             .await?;
         let response: ConnectProjectResponse = parse_json_line(&stdout)?;

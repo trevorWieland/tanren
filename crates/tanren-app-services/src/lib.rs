@@ -19,7 +19,11 @@ use tanren_contract::{
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier, ProjectId};
 pub use tanren_policy::ActorContext;
-pub use tanren_store::{AccountStore, ProjectStore, Store};
+pub use tanren_provider_integrations::{
+    LocalProviderRegistry, LocalSourceControlProvider, ProviderRegistry, SourceControlProvider,
+    VoidProviderRegistry,
+};
+pub use tanren_store::{AccountStore, NewProject, ProjectStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -77,20 +81,24 @@ impl Clock {
     }
 }
 
-/// Stateless handler facade. Holds an injectable [`Clock`] and
-/// [`CredentialVerifier`] so account flow handlers stay deterministic —
-/// and cheaply hashed — under the BDD harness.
+/// Stateless handler facade. Holds an injectable [`Clock`],
+/// [`CredentialVerifier`], and [`ProviderRegistry`] so account and project
+/// flow handlers stay deterministic — and cheaply hashed — under the BDD
+/// harness.
 #[derive(Debug, Clone)]
 pub struct Handlers {
     clock: Clock,
     verifier: Arc<dyn CredentialVerifier>,
+    providers: Arc<dyn ProviderRegistry>,
 }
 
 impl Default for Handlers {
     fn default() -> Self {
+        let providers = Arc::new(LocalProviderRegistry::new());
         Self {
             clock: Clock::default(),
             verifier: Arc::new(Argon2idVerifier::production()),
+            providers,
         }
     }
 }
@@ -104,12 +112,15 @@ impl Handlers {
     }
 
     /// Construct a handler facade backed by an explicit clock. Uses the
-    /// production-strength [`Argon2idVerifier`] for hashing.
+    /// production-strength [`Argon2idVerifier`] for hashing and a
+    /// [`LocalProviderRegistry`] for source-control provider resolution.
     #[must_use]
     pub fn with_clock(clock: Clock) -> Self {
+        let providers = Arc::new(LocalProviderRegistry::new());
         Self {
             clock,
             verifier: Arc::new(Argon2idVerifier::production()),
+            providers,
         }
     }
 
@@ -119,7 +130,28 @@ impl Handlers {
     /// implementation) thread it in here.
     #[must_use]
     pub fn with_verifier(clock: Clock, verifier: Arc<dyn CredentialVerifier>) -> Self {
-        Self { clock, verifier }
+        let providers = Arc::new(LocalProviderRegistry::new());
+        Self {
+            clock,
+            verifier,
+            providers,
+        }
+    }
+
+    /// Construct a handler facade with an explicit provider registry.
+    /// Production binaries inject a real registry here; the BDD harness
+    /// injects a [`LocalProviderRegistry`].
+    #[must_use]
+    pub fn with_providers(
+        clock: Clock,
+        verifier: Arc<dyn CredentialVerifier>,
+        providers: Arc<dyn ProviderRegistry>,
+    ) -> Self {
+        Self {
+            clock,
+            verifier,
+            providers,
+        }
     }
 
     /// Liveness query. Returns the same shape regardless of which interface
@@ -213,7 +245,7 @@ impl Handlers {
     where
         S: AccountStore + ProjectStore + ?Sized,
     {
-        project::connect_project(store, &self.clock, actor, request).await
+        project::connect_project(store, &self.clock, actor, self.providers.as_ref(), request).await
     }
 
     pub async fn list_projects<S>(

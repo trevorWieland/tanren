@@ -9,7 +9,9 @@ pub struct Model {
     pub id: Uuid,
     pub org_id: Uuid,
     pub name: String,
-    pub repository_url: String,
+    pub provider_connection_id: Uuid,
+    pub resource_id: String,
+    pub display_ref: String,
     pub connected_at: DateTimeUtc,
     pub disconnected_at: Option<DateTimeUtc>,
 }

@@ -59,6 +59,11 @@ impl TuiHarness {
     pub(crate) fn handlers(&self) -> &Handlers {
         self.inner.handlers()
     }
+
+    #[must_use]
+    pub(crate) fn provider_connection_id(&self) -> tanren_identity_policy::ProviderConnectionId {
+        self.inner.provider_connection_id()
+    }
 }
 
 #[async_trait]
