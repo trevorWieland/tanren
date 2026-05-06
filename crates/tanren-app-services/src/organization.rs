@@ -12,7 +12,6 @@ use crate::organization_events::{
     OrganizationCreatedEvent, OrganizationCreationRejectedEvent, OrganizationEventKind, envelope,
 };
 use crate::{AppServiceError, Clock};
-
 const BOOTSTRAP_PERMISSIONS: [OrgPermission; 5] = [
     OrgPermission::InviteMembers,
     OrgPermission::ManageAccess,
@@ -41,9 +40,23 @@ where
 {
     let now = clock.now();
     let canonical_name = request.name.as_str().to_owned();
+    let idempotency_key = request
+        .idempotency_key
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
 
     let org_id = OrgId::fresh();
     let membership_id = MembershipId::fresh();
+
+    let event_payload = envelope(
+        OrganizationEventKind::OrganizationCreated,
+        &OrganizationCreatedEvent {
+            org_id,
+            creator_account_id: account_id,
+            canonical_name: canonical_name.clone(),
+            granted_permissions: BOOTSTRAP_PERMISSIONS.to_vec(),
+            at: now,
+        },
+    );
 
     let outcome = match store
         .create_organization(CreateOrganizationAtomicRequest {
@@ -57,6 +70,8 @@ where
             membership_id,
             bootstrap_permissions: BOOTSTRAP_PERMISSIONS.to_vec(),
             now,
+            request_id: idempotency_key,
+            event_payload,
         })
         .await
     {
@@ -80,24 +95,13 @@ where
                 OrganizationFailureReason::DuplicateOrganizationName,
             ));
         }
+        Err(CreateOrganizationError::IdempotencyConflict) => {
+            return Err(AppServiceError::Organization(
+                OrganizationFailureReason::IdempotencyConflict,
+            ));
+        }
         Err(CreateOrganizationError::Store(err)) => return Err(AppServiceError::Store(err)),
     };
-
-    store
-        .append_event(
-            envelope(
-                OrganizationEventKind::OrganizationCreated,
-                &OrganizationCreatedEvent {
-                    org_id: outcome.organization.id,
-                    creator_account_id: account_id,
-                    canonical_name: outcome.organization.canonical_name.clone(),
-                    granted_permissions: BOOTSTRAP_PERMISSIONS.to_vec(),
-                    at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
 
     let available_organizations = store.list_account_organizations(account_id).await?;
     let available_organizations = convert_org_list(available_organizations)?;

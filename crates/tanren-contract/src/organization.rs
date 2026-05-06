@@ -18,6 +18,13 @@ pub struct CreateOrganizationRequest {
     /// Human-readable name for the new organization. Trimmed and
     /// case-folded during validation.
     pub name: OrganizationName,
+    /// Caller-supplied idempotency key. Two requests that share the
+    /// same key, account, and canonical name return the same result
+    /// without duplicate projection rows or duplicate canonical events.
+    /// When `None` the handler generates a fresh key so the request
+    /// proceeds normally but is not retry-safe.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 /// Successful create-organization response.
@@ -103,6 +110,8 @@ pub enum OrganizationFailureReason {
     /// holder, violating the invariant that every organization must
     /// retain at least one admin.
     LastAdminHolder,
+    /// An idempotency key was reused with a different account or name.
+    IdempotencyConflict,
 }
 
 /// Closed taxonomy of organization-flow event kinds.
@@ -180,6 +189,7 @@ impl OrganizationFailureReason {
             Self::ValidationFailed => "validation_failed",
             Self::NotFound => "not_found",
             Self::LastAdminHolder => "last_admin_holder",
+            Self::IdempotencyConflict => "idempotency_conflict",
         }
     }
 
@@ -197,6 +207,9 @@ impl OrganizationFailureReason {
             Self::LastAdminHolder => {
                 "This operation would leave the organization without an administrative-permission holder."
             }
+            Self::IdempotencyConflict => {
+                "The idempotency key was already used with a different account or organization name."
+            }
         }
     }
 
@@ -208,7 +221,9 @@ impl OrganizationFailureReason {
         match self {
             Self::AuthRequired => 401,
             Self::PermissionDenied => 403,
-            Self::DuplicateOrganizationName | Self::LastAdminHolder => 409,
+            Self::DuplicateOrganizationName | Self::LastAdminHolder | Self::IdempotencyConflict => {
+                409
+            }
             Self::ValidationFailed => 400,
             Self::NotFound => 404,
         }

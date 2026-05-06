@@ -205,7 +205,10 @@ pub(crate) fn parse_create_organization(
     state: &FormState,
 ) -> Result<CreateOrganizationRequest, String> {
     let name = OrganizationName::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    Ok(CreateOrganizationRequest { name })
+    Ok(CreateOrganizationRequest {
+        name,
+        idempotency_key: None,
+    })
 }
 
 pub(crate) fn org_admin_probe_fields() -> Vec<FormField> {

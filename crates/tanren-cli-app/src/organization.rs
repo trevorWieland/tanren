@@ -54,7 +54,10 @@ async fn run(action: OrganizationAction) -> Result<()> {
                 .create_organization_with_session(
                     &store,
                     &token,
-                    CreateOrganizationRequest { name: org_name },
+                    CreateOrganizationRequest {
+                        name: org_name,
+                        idempotency_key: None,
+                    },
                 )
                 .await
                 .map_err(org_error)?;

@@ -289,7 +289,8 @@ pub enum ConsumeInvitationError {
 /// Input shape for [`OrganizationStore::create_organization`]. Bundles
 /// every input the atomic flow needs so the trait method runs as a
 /// single unit of work: insert the organization row, link a membership
-/// for the creator, and grant the bootstrap admin permissions.
+/// for the creator, grant the bootstrap admin permissions, append the
+/// typed `organization_created` event, and record the idempotency key.
 pub struct CreateOrganizationAtomicRequest {
     /// The organization to create.
     pub organization: NewOrganization,
@@ -299,6 +300,13 @@ pub struct CreateOrganizationAtomicRequest {
     pub bootstrap_permissions: Vec<OrgPermission>,
     /// Wall-clock instant the flow runs at.
     pub now: DateTime<Utc>,
+    /// Caller-supplied idempotency key. When the same key is retried
+    /// with matching account and canonical name the stored result is
+    /// returned without duplicate rows or events.
+    pub request_id: String,
+    /// Pre-built `organization_created` event envelope to append
+    /// atomically inside the creation transaction.
+    pub event_payload: serde_json::Value,
 }
 
 impl std::fmt::Debug for CreateOrganizationAtomicRequest {
@@ -308,12 +316,13 @@ impl std::fmt::Debug for CreateOrganizationAtomicRequest {
             .field("membership_id", &self.membership_id)
             .field("bootstrap_permissions", &self.bootstrap_permissions)
             .field("now", &self.now)
-            .finish()
+            .field("request_id", &self.request_id)
+            .finish_non_exhaustive()
     }
 }
 
 /// Successful return from [`OrganizationStore::create_organization`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateOrganizationAtomicOutput {
     /// The freshly created organization.
     pub organization: OrganizationRecord,
@@ -328,6 +337,10 @@ pub enum CreateOrganizationError {
     /// this creator account.
     #[error("duplicate organization name")]
     DuplicateName,
+    /// The idempotency key was already used with a different account
+    /// or canonical name.
+    #[error("idempotency key conflict")]
+    IdempotencyConflict,
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),

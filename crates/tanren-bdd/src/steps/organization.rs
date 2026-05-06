@@ -14,7 +14,10 @@ async fn when_create_org(world: &mut TanrenWorld, actor: String, name: String) {
     let ctx = world.ensure_account_ctx().await;
     let result = ctx
         .harness
-        .create_organization(CreateOrganizationRequest { name: org_name })
+        .create_organization(CreateOrganizationRequest {
+            name: org_name,
+            idempotency_key: None,
+        })
         .await;
     let entry = ctx.actors.entry(actor.clone()).or_default();
     let outcome = match result {
@@ -46,7 +49,10 @@ async fn when_unsigned_create_org(world: &mut TanrenWorld, name: String) {
     let ctx = world.ensure_account_ctx().await;
     let result = ctx
         .harness
-        .create_organization(CreateOrganizationRequest { name: org_name })
+        .create_organization(CreateOrganizationRequest {
+            name: org_name,
+            idempotency_key: None,
+        })
         .await;
     let outcome = match result {
         Ok(org) => HarnessOutcome::OrganizationCreated(org),

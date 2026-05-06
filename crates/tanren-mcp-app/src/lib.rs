@@ -126,7 +126,10 @@ impl TanrenMcp {
             .create_organization_with_session(
                 self.store.as_ref(),
                 token,
-                CreateOrganizationRequest { name: req.name },
+                CreateOrganizationRequest {
+                    name: req.name,
+                    idempotency_key: None,
+                },
             )
             .await
         {
