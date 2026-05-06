@@ -43,7 +43,8 @@ different language, architecture, runtime, or test suite.
 - `docs/product/vision.md`, `docs/product/personas.md`, and
   `docs/product/concepts.md`.
 - Existing behavior files and `docs/behaviors/index.md`.
-- Interface and runtime actor IDs from architecture docs.
+- Surface IDs from `docs/experience/surfaces.yml`.
+- Runtime actor IDs from architecture docs.
 - Implementation and verification projections, if present.
 - User feedback, bug reports, client requests, audit findings, or planning
   notes supplied by the user.
@@ -70,7 +71,7 @@ title: <imperative user-visible capability>
 area: <stable area>
 personas: []
 runtime_actors: []
-interfaces: []
+surfaces: []
 contexts: []
 product_status: draft | accepted | deprecated | removed
 verification_status: unimplemented | implemented | asserted | retired
@@ -100,7 +101,10 @@ supersedes: []
 8. Use `asserted` only when active BDD evidence exists.
 9. Deprecate or remove accepted behavior IDs instead of silently repurposing
    them.
-10. Summarize added behaviors, revised behaviors, status changes, unresolved
+10. Keep `interfaces:` only as a migration alias for existing Tanren behavior
+    files; new adopting projects should write `surfaces:` IDs from the active
+    surface registry.
+11. Summarize added behaviors, revised behaviors, status changes, unresolved
     decisions, and evidence gaps.
 
 ## Out of Scope

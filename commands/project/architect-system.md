@@ -38,6 +38,7 @@ details.
 ## Inputs
 
 - Product projections from `docs/product/**`.
+- Surface registry and experience projections from `docs/experience/**`.
 - Accepted behavior catalog from `docs/behaviors/**`.
 - Existing architecture, technical overview, deployment, operations, API, or
   security docs.
@@ -63,7 +64,7 @@ This command owns:
 2. Identify architecture decisions already implied by the product and behavior
    catalog.
 3. Ask targeted questions for decisions that materially affect roadmap shape:
-   service boundaries, storage, runtime, deployment, interfaces, security,
+   service boundaries, storage, runtime, deployment, public surfaces, security,
    operations, testing posture, and integration strategy.
 4. Separate accepted decisions, open questions, constraints, and rejected
    alternatives.
@@ -77,6 +78,8 @@ This command owns:
 ## Out of Scope
 
 - Editing product vision, personas, or concepts. Use `plan-product`.
+- Defining project surface IDs. Use `define-surfaces`.
+- Designing behavior-surface flows and states. Use `design-experience`.
 - Editing behavior files. Use `identify-behaviors`.
 - Assessing whether current code already implements behaviors. Use
   `assess-implementation`.

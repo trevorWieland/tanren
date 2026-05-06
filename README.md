@@ -144,10 +144,11 @@ no principled spec queue; without behavior proof and walks, completed specs do
 not prove product progress.
 
 This repo currently has the real spec-loop commands installed and temporary
-project-method bootstrap commands for `plan-product`, `identify-behaviors`,
-`architect-system`, `assess-implementation`, and `craft-roadmap`. The
-project-method commands write owned planning projections for now; they are not
-yet native typed Tanren phases.
+project-method bootstrap commands for `plan-product`, `define-surfaces`,
+`identify-behaviors`, `design-experience`, `architect-system`,
+`assess-implementation`, and `craft-roadmap`. The project-method commands write
+owned planning projections for now; they are not yet native typed Tanren
+phases.
 
 The first major product milestone is Tanren-in-Tanren: using Tanren to plan,
 shape, execute, prove, walk, and update Tanren itself, including harness and

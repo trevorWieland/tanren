@@ -13,17 +13,18 @@ match.
   `tests/bdd/features/B-XXXX-<slug>.feature`.
 - Feature-level tag: exactly `@B-XXXX` matching the filename.
 - Each scenario carries exactly one of `@positive` / `@falsification`
-  and 1–2 interface tags from `@web | @api | @mcp | @cli | @tui`.
-- Two-interface scenarios require `# rationale: <one line>` immediately
+  and 1–2 surface tags loaded from `docs/experience/surfaces.yml`
+  (`@web | @api | @mcp | @cli | @tui` in this repository).
+- Two-surface scenarios require `# rationale: <one line>` immediately
   above the scenario's tags.
 - `Scenario Outline` and `Examples:` are forbidden. `Background:` and
   `Rule:` are allowed.
 - Closed tag allowlist — `@skip`, `@wip`, `@ignore`, and phase/wave
   tags are rejected.
-- Coverage is strict-equality: every interface in the behavior's
-  frontmatter `interfaces:` must have a `@positive` scenario, and a
+- Coverage is strict-equality: every surface in the behavior's
+  frontmatter `surfaces:` must have a `@positive` scenario, and a
   `@falsification` scenario when the R-* node lists falsification
-  witnesses.
+  witnesses. Existing `interfaces:` fields are accepted as a migration alias.
 
 ## Validators
 

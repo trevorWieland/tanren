@@ -26,8 +26,8 @@ Gherkin quality is enforceable and part of the Rust testing standard.
   - `@B-XXXX` — feature-level only (one per `.feature` file). The
     behavior ID is NEVER applied at the scenario level.
   - `@positive` or `@falsification` — exactly one per scenario.
-  - `@web | @api | @mcp | @cli | @tui` — one or two per scenario, each
-    naming an interface the scenario actually drives.
+  - Project surface tags from `docs/experience/surfaces.yml` — one or two per
+    scenario, each naming a surface the scenario actually drives.
 - `Scenario Outline` and `Examples:` blocks are FORBIDDEN. Write each
   variation as its own `Scenario` so the witness is unambiguous.
 - Do not use phase, wave, proof, tier, skip, ignore, pending, or WIP tags

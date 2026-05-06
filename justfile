@@ -606,8 +606,8 @@ check-rust-test-surface:
     @{{ cargo }} run --quiet -p tanren-xtask -- check-rust-test-surface
 
 # Enforce the F-0002 BDD `.feature` convention: filename↔@B-XXXX, closed
-# tag allowlist, strict-equality interface coverage against
-# docs/behaviors and docs/roadmap/dag.json. See
+# tag allowlist, strict-equality surface coverage against
+# docs/experience, docs/behaviors, and docs/roadmap/dag.json. See
 # docs/architecture/subsystems/behavior-proof.md (BDD Tagging And File
 # Convention).
 check-bdd-tags:

@@ -1,0 +1,105 @@
+schema: tanren.experience_surfaces.v0
+updated_at: 2026-05-05
+owner_command: define-surfaces
+surfaces:
+  - id: web
+    kind: responsive_gui
+    personas:
+      - solo-builder
+      - team-builder
+      - observer
+      - operator
+    devices:
+      - phone
+      - low-power-laptop
+      - full-laptop
+    inputs:
+      - keyboard
+      - pointer
+      - touch
+    outputs:
+      - responsive-layout
+      - readable-text
+      - status-feedback
+    proof:
+      - playwright_bdd
+      - storybook_component_state
+      - accessibility_scan
+      - responsive_screenshot
+
+  - id: api
+    kind: machine_contract
+    personas:
+      - integration-client
+    devices:
+      - any
+    inputs:
+      - http
+    outputs:
+      - json
+      - event-stream
+      - openapi
+    proof:
+      - contract_bdd
+      - openapi_schema
+      - machine_readable_error_case
+
+  - id: mcp
+    kind: agent_tool_contract
+    personas:
+      - integration-client
+    devices:
+      - any
+    inputs:
+      - mcp-tool-call
+      - http
+    outputs:
+      - tool-result
+      - structured-error
+    proof:
+      - mcp_tool_contract
+      - tool_visibility_case
+      - permission_boundary_case
+
+  - id: cli
+    kind: command_line
+    personas:
+      - solo-builder
+      - team-builder
+      - operator
+    devices:
+      - low-power-laptop
+      - full-laptop
+    inputs:
+      - shell-command
+      - stdin
+    outputs:
+      - stdout
+      - stderr
+      - exit-code
+      - json
+    proof:
+      - process_execution
+      - golden_transcript
+      - exit_code_case
+
+  - id: tui
+    kind: terminal_ui
+    personas:
+      - solo-builder
+      - team-builder
+      - operator
+    devices:
+      - low-power-laptop
+      - full-laptop
+    inputs:
+      - keyboard
+      - terminal-resize
+    outputs:
+      - terminal-screen
+      - focus-state
+      - status-feedback
+    proof:
+      - pty_session
+      - screen_snapshot
+      - keyboard_navigation_case

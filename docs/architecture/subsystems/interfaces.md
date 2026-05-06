@@ -10,10 +10,15 @@ updated_at: 2026-04-29
 
 ## Purpose
 
-This document defines Tanren's public interface architecture. It owns the
-contract rules for the responsive web UI, HTTP API, MCP service, CLI, and TUI
-so every surface exposes the same product state, command semantics, policy
+This document defines Tanren's own public interface architecture. It owns the
+contract rules for Tanren's responsive web UI, HTTP API, MCP service, CLI, and
+TUI so every surface exposes the same product state, command semantics, policy
 behavior, idempotency behavior, projection freshness, and audit trail.
+
+Project-general surface modeling lives in
+[`experience-surfaces.md`](experience-surfaces.md) and
+[`docs/experience/surfaces.yml`](../../experience/surfaces.yml). This document
+is intentionally scoped to Tanren's current first-party surfaces.
 
 Interfaces do not own Tanren truth. They authenticate actors, present
 capabilities, submit commands, read projections, subscribe to updates, and
@@ -65,10 +70,15 @@ workflow meaning. Those decisions belong to their owning subsystems.
    unsupported-action or permission-denied responses instead of silently
    hiding behavior or falling back to local assumptions.
 
-## Behavior Interface IDs
+## Tanren Surface IDs
 
-Behavior files use stable interface IDs to state which surfaces must support a
-behavior. The accepted IDs are:
+Tanren behavior files currently use stable interface IDs to state which
+surfaces must support a behavior. During the migration to project-defined
+surfaces, these IDs are also declared in `docs/experience/surfaces.yml`, and
+validators treat behavior `interfaces:` as a compatibility alias for
+`surfaces:`.
+
+The accepted Tanren IDs are:
 
 | ID | Description |
 |----|-------------|

@@ -278,7 +278,7 @@ Relevance inputs may include:
 - task scope;
 - project languages;
 - project domains;
-- behavior or interface tags;
+- behavior or surface tags;
 - standard applicability rules;
 - caller hints that broaden relevance.
 

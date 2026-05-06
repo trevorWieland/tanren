@@ -57,7 +57,8 @@ direction.
    product intent. Implementation, proof, assertion, and coverage are separate
    behavior-proof, assessment, or read-model state.
 5. **Bootstrapping order is strict.** A first project planning pass follows
-   `plan-product -> identify-behaviors -> architect-system -> craft-roadmap`.
+   `plan-product -> define-surfaces -> identify-behaviors ->
+   design-experience -> architect-system -> craft-roadmap`.
 6. **Subsequent planning can revisit earlier layers.** After bootstrap, an
    authorized planning change may revise behaviors, architecture, or roadmap
    directly when upstream context is already sufficient.
@@ -402,12 +403,13 @@ state subsystem.
 
 - Planning is project-scoped.
 - The first project bootstrap follows
-  `plan-product -> identify-behaviors -> architect-system -> craft-roadmap`.
+  `plan-product -> define-surfaces -> identify-behaviors ->
+  design-experience -> architect-system -> craft-roadmap`.
 - Subsequent planning may revisit layers out of order when accepted context is
   already sufficient.
 - Project-defined planning vocabularies are allowed and expected.
 - Tanren enforces method schemas and traceability without hard-coding one
-  project's personas, interfaces, or actors into every project.
+  project's personas, surfaces, or actors into every project.
 - Behavior records own product intent, not verification status.
 - Verification, assertion, implementation status, and proof coverage are
   separate state or read models.

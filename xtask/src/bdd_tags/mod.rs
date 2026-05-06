@@ -8,31 +8,31 @@
 //! - Feature-level `@B-XXXX` tag matches the filename. No other tags at
 //!   feature level.
 //! - Each `Scenario` carries exactly one of `@positive` / `@falsification`
-//!   and 1–2 interface tags drawn from `@web @api @mcp @cli @tui`.
-//! - Two-interface scenarios require a preceding `# rationale: …` comment.
+//!   and 1–2 surface tags drawn from the project surface registry.
+//! - Two-surface scenarios require a preceding `# rationale: …` comment.
 //! - `Scenario Outline` and `Examples` are forbidden.
 //! - The behavior file under `docs/behaviors/` must exist and be
 //!   `product_status: accepted`.
-//! - Strict-equality coverage: the union of interface tags across the
-//!   feature's scenarios equals the behavior's frontmatter `interfaces:`.
-//!   For each interface, ≥1 `@positive` scenario is required; when the
+//! - Strict-equality coverage: the union of surface tags across the
+//!   feature's scenarios equals the behavior's frontmatter `surfaces:`
+//!   declaration, with `interfaces:` accepted as a migration alias.
+//!   For each surface, ≥1 `@positive` scenario is required; when the
 //!   DAG node's `expected_evidence.witnesses` includes `falsification`,
-//!   ≥1 `@falsification` scenario per interface is also required.
+//!   ≥1 `@falsification` scenario per surface is also required.
 
 mod data;
 mod parser;
+mod surfaces;
 
 use anyhow::{Context, Result, bail};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use data::{BehaviorRecord, EvidenceRecord, load_behaviors, load_dag_evidence};
 use parser::{ParsedFeature, ParsedScenario, parse_feature, parse_filename};
-
-const INTERFACE_TAGS: &[&str] = &["@web", "@api", "@mcp", "@cli", "@tui"];
-const WITNESS_TAGS: &[&str] = &["@positive", "@falsification"];
+use surfaces::SurfaceRegistry;
 
 pub(crate) fn run(workspace_root: &Path) -> Result<()> {
     let features_dir = workspace_root.join("tests").join("bdd").join("features");
@@ -52,6 +52,7 @@ pub(crate) fn run(workspace_root: &Path) -> Result<()> {
 
     let behaviors = load_behaviors(&behaviors_dir)?;
     let dag_evidence = load_dag_evidence(&dag_path)?;
+    let surface_registry = SurfaceRegistry::load(workspace_root)?;
 
     let mut violations: Vec<String> = Vec::new();
     // Track which behavior IDs already have a feature file so the
@@ -66,6 +67,7 @@ pub(crate) fn run(workspace_root: &Path) -> Result<()> {
             workspace_root,
             &behaviors,
             &dag_evidence,
+            &surface_registry,
             &mut behavior_owners,
             &mut violations,
         );
@@ -122,6 +124,7 @@ fn validate_feature_file(
     workspace_root: &Path,
     behaviors: &HashMap<String, BehaviorRecord>,
     dag_evidence: &HashMap<String, EvidenceRecord>,
+    surface_registry: &SurfaceRegistry,
     behavior_owners: &mut HashMap<String, PathBuf>,
     violations: &mut Vec<String>,
 ) {
@@ -164,14 +167,21 @@ fn validate_feature_file(
     check_feature_tags(rel, &parsed, &expected_id, violations);
     let behavior = check_behavior_catalog(rel, &expected_id, behaviors, violations);
 
-    let coverage = check_scenarios(rel, &parsed, violations);
+    let coverage = check_scenarios(rel, &parsed, surface_registry, violations);
 
     if let Some(b) = behavior {
-        check_coverage_against_behavior(rel, &expected_id, b, &coverage, violations);
+        check_coverage_against_behavior(
+            rel,
+            &expected_id,
+            b,
+            &coverage,
+            surface_registry,
+            violations,
+        );
         check_coverage_against_dag(
             rel,
             &expected_id,
-            &b.interfaces,
+            &b.surfaces,
             &coverage,
             dag_evidence,
             violations,
@@ -181,8 +191,8 @@ fn validate_feature_file(
 
 #[derive(Default)]
 struct ScenarioCoverage {
-    positive_by_iface: BTreeMap<String, usize>,
-    falsification_by_iface: BTreeMap<String, usize>,
+    positive_by_surface: BTreeMap<String, usize>,
+    falsification_by_surface: BTreeMap<String, usize>,
 }
 
 fn check_forbidden_keywords(rel: &Path, parsed: &ParsedFeature, violations: &mut Vec<String>) {
@@ -251,12 +261,12 @@ fn check_behavior_catalog<'a>(
 fn check_scenarios(
     rel: &Path,
     parsed: &ParsedFeature,
+    surface_registry: &SurfaceRegistry,
     violations: &mut Vec<String>,
 ) -> ScenarioCoverage {
     let mut coverage = ScenarioCoverage::default();
-    let allowed = allowed_tag_set();
     for scenario in &parsed.scenarios {
-        check_scenario(rel, scenario, &allowed, &mut coverage, violations);
+        check_scenario(rel, scenario, surface_registry, &mut coverage, violations);
     }
     coverage
 }
@@ -264,32 +274,40 @@ fn check_scenarios(
 fn check_scenario(
     rel: &Path,
     scenario: &ParsedScenario,
-    allowed: &HashSet<&'static str>,
+    surface_registry: &SurfaceRegistry,
     coverage: &mut ScenarioCoverage,
     violations: &mut Vec<String>,
 ) {
     let line = scenario.keyword_line;
     let mut witness_count = 0;
-    let mut interface_tags: Vec<String> = Vec::new();
+    let mut surface_tags: Vec<String> = Vec::new();
     let mut is_positive = false;
     let mut is_falsification = false;
     for tag in &scenario.tags {
-        if !allowed.contains(tag.as_str()) {
-            violations.push(format!(
-                "{}:{line}: scenario tag {tag} is not in the closed allowlist (\
-                @positive, @falsification, @web, @api, @mcp, @cli, @tui)",
-                rel.display()
-            ));
-            continue;
-        }
         if tag == "@positive" {
             witness_count += 1;
             is_positive = true;
         } else if tag == "@falsification" {
             witness_count += 1;
             is_falsification = true;
-        } else if INTERFACE_TAGS.contains(&tag.as_str()) {
-            interface_tags.push(tag.clone());
+        } else if let Some(surface_id) = tag.strip_prefix('@') {
+            if surface_registry.contains(surface_id) {
+                surface_tags.push(tag.clone());
+            } else {
+                violations.push(format!(
+                    "{}:{line}: scenario tag {tag} is not in the closed allowlist (\
+                    @positive, @falsification, {})",
+                    rel.display(),
+                    surface_registry.tag_display()
+                ));
+            }
+        } else {
+            violations.push(format!(
+                "{}:{line}: scenario tag {tag} is not in the closed allowlist (\
+                @positive, @falsification, {})",
+                rel.display(),
+                surface_registry.tag_display()
+            ));
         }
     }
     if witness_count != 1 {
@@ -298,43 +316,50 @@ fn check_scenario(
             rel.display()
         ));
     }
-    if interface_tags.is_empty() {
+    if surface_tags.is_empty() {
         violations.push(format!(
-            "{}:{line}: scenario must carry at least one interface tag (@web/@api/@mcp/@cli/@tui)",
-            rel.display()
+            "{}:{line}: scenario must carry at least one surface tag ({})",
+            rel.display(),
+            surface_registry.tag_display()
         ));
     }
-    if interface_tags.len() > 2 {
+    if surface_tags.len() > 2 {
         violations.push(format!(
-            "{}:{line}: scenario carries {} interface tags; max 2 allowed",
+            "{}:{line}: scenario carries {} surface tags; max 2 allowed",
             rel.display(),
-            interface_tags.len()
+            surface_tags.len()
         ));
     }
     // Reject both missing rationale and empty `# rationale:` (the parser
     // captures `# rationale:` with no body as `Some("")` — without this
     // empty-string guard a bare `# rationale:` would silently satisfy
     // the convention that calls for a one-line justification).
-    if interface_tags.len() == 2
+    if surface_tags.len() == 2
         && scenario
             .rationale
             .as_deref()
             .is_none_or(|s| s.trim().is_empty())
     {
         violations.push(format!(
-            "{}:{line}: 2-interface scenario requires a non-empty preceding `# rationale: <one line>` comment",
+            "{}:{line}: 2-surface scenario requires a non-empty preceding `# rationale: <one line>` comment",
             rel.display()
         ));
     }
 
     if witness_count == 1 {
-        for tag in &interface_tags {
-            let iface = tag.trim_start_matches('@').to_owned();
+        for tag in &surface_tags {
+            let surface = tag.trim_start_matches('@').to_owned();
             if is_positive {
-                *coverage.positive_by_iface.entry(iface.clone()).or_insert(0) += 1;
+                *coverage
+                    .positive_by_surface
+                    .entry(surface.clone())
+                    .or_insert(0) += 1;
             }
             if is_falsification {
-                *coverage.falsification_by_iface.entry(iface).or_insert(0) += 1;
+                *coverage
+                    .falsification_by_surface
+                    .entry(surface)
+                    .or_insert(0) += 1;
             }
         }
     }
@@ -345,26 +370,42 @@ fn check_coverage_against_behavior(
     expected_id: &str,
     b: &BehaviorRecord,
     coverage: &ScenarioCoverage,
+    surface_registry: &SurfaceRegistry,
     violations: &mut Vec<String>,
 ) {
-    let declared = &b.interfaces;
-    let scenario_iface_union: BTreeSet<String> = coverage
-        .positive_by_iface
+    let declared = &b.surfaces;
+    for surface in declared {
+        if !surface_registry.contains(surface) {
+            violations.push(format!(
+                "{}: behavior {expected_id} declares unknown surface {surface:?}; docs/experience/surfaces.yml allows [{}]",
+                rel.display(),
+                surface_registry.tag_display()
+            ));
+        }
+    }
+    let scenario_surface_union: BTreeSet<String> = coverage
+        .positive_by_surface
         .keys()
-        .chain(coverage.falsification_by_iface.keys())
+        .chain(coverage.falsification_by_surface.keys())
         .cloned()
         .collect();
-    for iface in scenario_iface_union.difference(declared) {
+    for surface in scenario_surface_union.difference(declared) {
         violations.push(format!(
-            "{}: interface tag @{iface} is not in behavior {expected_id} frontmatter `interfaces:` {:?}",
+            "{}: surface tag @{surface} is not in behavior {expected_id} frontmatter `surfaces:`/`interfaces:` {:?}",
             rel.display(),
             declared
         ));
     }
-    for iface in declared {
-        if coverage.positive_by_iface.get(iface).copied().unwrap_or(0) == 0 {
+    for surface in declared {
+        if coverage
+            .positive_by_surface
+            .get(surface)
+            .copied()
+            .unwrap_or(0)
+            == 0
+        {
             violations.push(format!(
-                "{}: behavior {expected_id} declares interface @{iface} but no @positive scenario covers it",
+                "{}: behavior {expected_id} declares surface @{surface} but no @positive scenario covers it",
                 rel.display()
             ));
         }
@@ -387,39 +428,28 @@ fn check_coverage_against_dag(
         return;
     };
     if ev.witnesses.contains("falsification") {
-        for iface in declared {
+        for surface in declared {
             if coverage
-                .falsification_by_iface
-                .get(iface)
+                .falsification_by_surface
+                .get(surface)
                 .copied()
                 .unwrap_or(0)
                 == 0
             {
                 violations.push(format!(
-                    "{}: DAG node {} for behavior {expected_id} lists falsification witnesses; interface @{iface} has no @falsification scenario",
+                    "{}: DAG node {} for behavior {expected_id} lists falsification witnesses; surface @{surface} has no @falsification scenario",
                     rel.display(),
                     ev.node_id
                 ));
             }
         }
     }
-    if &ev.interfaces != declared {
+    if &ev.surfaces != declared {
         violations.push(format!(
-            "{}: DAG evidence interfaces {:?} disagree with behavior frontmatter {:?}",
+            "{}: DAG evidence surfaces {:?} disagree with behavior frontmatter {:?}",
             rel.display(),
-            ev.interfaces,
+            ev.surfaces,
             declared
         ));
     }
-}
-
-fn allowed_tag_set() -> HashSet<&'static str> {
-    let mut set: HashSet<&'static str> = HashSet::new();
-    for w in WITNESS_TAGS {
-        set.insert(w);
-    }
-    for i in INTERFACE_TAGS {
-        set.insert(i);
-    }
-    set
 }

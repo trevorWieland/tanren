@@ -78,6 +78,15 @@ fn check_bdd_wire_coverage_rejects_direct_handler_dispatch() {
 }
 
 #[test]
+fn check_bdd_tags_rejects_unknown_surface_tag() {
+    assert_check_fails(
+        "check-bdd-tags",
+        "regression-bdd-unknown-surface",
+        "scenario tag @gameplay",
+    );
+}
+
+#[test]
 fn check_test_hooks_rejects_ungated_pub_seed_fn() {
     assert_check_fails(
         "check-test-hooks",

@@ -30,15 +30,18 @@ Checks:
   - No behavior is completed by more than one node
   - DAG is acyclic
   - Every behavior node has the foundation spec as a transitive ancestor
-  - Each `expected_evidence[].interfaces` matches the behavior's frontmatter
-    `interfaces:` declaration (catches drift between catalog and DAG)
+  - Each `expected_evidence[].surfaces` matches the behavior's frontmatter
+    `surfaces:` declaration, with `interfaces:` accepted as a migration alias
+    (catches drift between catalog and DAG)
+  - Optional `surface_scope` and `experience_risk` fields use known surface
+    IDs and the allowed risk vocabulary
   - Each `tests/bdd/features/B-XXXX-*.feature` file references a behavior
     that has a corresponding R-* node `expected_evidence` entry
     (inverse of the `xtask check-bdd-tags` cross-check; catches deletes
     or renames that orphan a feature file from the DAG)
   - (Warn) No transitively redundant `depends_on` edges
-  - (Warn) Playbook count vs. declared interfaces — flags suspiciously thin
-    playbooks for nodes with 5 declared interfaces
+  - (Warn) Playbook count vs. declared surfaces — flags suspiciously thin
+    playbooks for nodes with broad surface scope
 """
 
 from __future__ import annotations
@@ -55,6 +58,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DAG_PATH = REPO_ROOT / "docs" / "roadmap" / "dag.json"
 BEHAVIORS_DIR = REPO_ROOT / "docs" / "behaviors"
 FEATURES_DIR = REPO_ROOT / "tests" / "bdd" / "features"
+SURFACES_PATH = REPO_ROOT / "docs" / "experience" / "surfaces.yml"
+DEFAULT_SURFACES = {"web", "api", "mcp", "cli", "tui"}
 
 NODE_REQUIRED = (
     "id",
@@ -66,6 +71,7 @@ NODE_REQUIRED = (
 )
 MILESTONE_REQUIRED = ("id", "title", "goal", "status")
 NODE_KINDS = {"behavior", "foundation"}
+EXPERIENCE_RISKS = {"low", "medium", "high"}
 
 
 def load_dag(path: Path) -> dict[str, Any]:
@@ -73,19 +79,36 @@ def load_dag(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
+def collect_surface_ids() -> set[str]:
+    """Parse docs/experience/surfaces.yml for surface IDs."""
+    if not SURFACES_PATH.exists():
+        return set(DEFAULT_SURFACES)
+    text = SURFACES_PATH.read_text()
+    ids = {
+        m.group(1)
+        for m in re.finditer(
+            r"^\s*-\s*id:\s*[\"']?([a-z][a-z0-9_-]*)[\"']?\s*$",
+            text,
+            re.MULTILINE,
+        )
+    }
+    return ids or set(DEFAULT_SURFACES)
+
+
 def collect_behaviors() -> tuple[set[str], set[str], dict[str, set[str]]]:
     """Parse docs/behaviors/B-*.md.
 
-    Returns (accepted_ids, deprecated_ids, interfaces_by_id) where
-    interfaces_by_id is the frontmatter `interfaces:` list per behavior, used
-    by the evidence/interface-alignment check.
+    Returns (accepted_ids, deprecated_ids, surfaces_by_id) where surfaces_by_id
+    is the frontmatter `surfaces:` list per behavior, using `interfaces:` as a
+    migration alias.
     """
     accepted: set[str] = set()
     deprecated: set[str] = set()
-    interfaces: dict[str, set[str]] = {}
+    surfaces: dict[str, set[str]] = {}
     id_re = re.compile(r"^id:\s*(B-\d{4})", re.MULTILINE)
     status_re = re.compile(r"^product_status:\s*(\w+)", re.MULTILINE)
-    iface_re = re.compile(r"^interfaces:\s*\[([^\]]*)\]", re.MULTILINE)
+    surface_re = re.compile(r"^surfaces:\s*\[([^\]]*)\]", re.MULTILINE)
+    interface_re = re.compile(r"^interfaces:\s*\[([^\]]*)\]", re.MULTILINE)
     for f in sorted(BEHAVIORS_DIR.glob("B-*.md")):
         text = f.read_text()
         id_m = id_re.search(text)
@@ -97,11 +120,15 @@ def collect_behaviors() -> tuple[set[str], set[str], dict[str, set[str]]]:
             accepted.add(bid)
         elif st_m.group(1) == "deprecated":
             deprecated.add(bid)
-        if_m = iface_re.search(text)
-        if if_m:
-            items = {p.strip() for p in if_m.group(1).split(",") if p.strip()}
-            interfaces[bid] = items
-    return accepted, deprecated, interfaces
+        surface_m = surface_re.search(text) or interface_re.search(text)
+        if surface_m:
+            items = {
+                p.strip().strip('"').strip("'")
+                for p in surface_m.group(1).split(",")
+                if p.strip()
+            }
+            surfaces[bid] = items
+    return accepted, deprecated, surfaces
 
 
 def check_schema(dag: dict, errors: list[str]) -> tuple[set[str], set[str]]:
@@ -145,20 +172,38 @@ def check_schema(dag: dict, errors: list[str]) -> tuple[set[str], set[str]]:
     return milestone_ids, node_ids
 
 
-def check_evidence_interfaces(
+def evidence_surfaces(ev: dict[str, Any]) -> set[str]:
+    return set(ev.get("surfaces") or ev.get("interfaces") or [])
+
+
+def check_evidence_surfaces(
     dag: dict,
-    behavior_interfaces: dict[str, set[str]],
+    behavior_surfaces: dict[str, set[str]],
+    surface_ids: set[str],
     errors: list[str],
 ) -> None:
-    """Each evidence item's `interfaces` must equal the behavior's frontmatter."""
+    """Each evidence item's surfaces must equal the behavior's frontmatter."""
+    for bid, declared in behavior_surfaces.items():
+        unknown = declared - surface_ids
+        if unknown:
+            errors.append(
+                f"{bid}: behavior declares unknown surfaces {sorted(unknown)}; "
+                f"registry allows {sorted(surface_ids)}"
+            )
     for n in dag.get("nodes", []):
         nid = n.get("id", "<?>")
         for ev in n.get("expected_evidence", []) or []:
             bid = ev.get("behavior_id")
-            if not bid or bid not in behavior_interfaces:
+            if not bid or bid not in behavior_surfaces:
                 continue
-            declared = behavior_interfaces[bid]
-            claimed = set(ev.get("interfaces") or [])
+            declared = behavior_surfaces[bid]
+            claimed = evidence_surfaces(ev)
+            unknown = claimed - surface_ids
+            if unknown:
+                errors.append(
+                    f"{nid}: evidence for {bid} references unknown surfaces "
+                    f"{sorted(unknown)}; registry allows {sorted(surface_ids)}"
+                )
             if declared != claimed:
                 missing = declared - claimed
                 extra = claimed - declared
@@ -168,10 +213,37 @@ def check_evidence_interfaces(
                 if extra:
                     parts.append(f"unexpected {sorted(extra)}")
                 errors.append(
-                    f"{nid}: evidence for {bid} interfaces {sorted(claimed)} "
+                    f"{nid}: evidence for {bid} surfaces {sorted(claimed)} "
                     f"do not match behavior frontmatter {sorted(declared)} "
                     f"({'; '.join(parts)})"
                 )
+
+
+def check_node_experience_metadata(
+    dag: dict,
+    surface_ids: set[str],
+    errors: list[str],
+) -> None:
+    """Validate optional roadmap surface-scope and experience-risk metadata."""
+    for n in dag.get("nodes", []):
+        nid = n.get("id", "<?>")
+        raw_scope = n.get("surface_scope") or []
+        if not isinstance(raw_scope, list):
+            errors.append(f"{nid}: surface_scope must be a list")
+            raw_scope = []
+        surface_scope = set(raw_scope)
+        unknown = surface_scope - surface_ids
+        if unknown:
+            errors.append(
+                f"{nid}: surface_scope references unknown surfaces "
+                f"{sorted(unknown)}; registry allows {sorted(surface_ids)}"
+            )
+        risk = n.get("experience_risk")
+        if risk is not None and risk not in EXPERIENCE_RISKS:
+            errors.append(
+                f"{nid}: experience_risk must be one of "
+                f"{sorted(EXPERIENCE_RISKS)}, got {risk!r}"
+            )
 
 
 def check_feature_files(
@@ -223,12 +295,11 @@ def check_feature_files(
 
 def find_thin_playbooks(
     dag: dict,
-    behavior_interfaces: dict[str, set[str]],
 ) -> list[tuple[str, int, int]]:
-    """Flag nodes whose playbook is suspiciously thin for their interface span.
+    """Flag nodes whose playbook is suspiciously thin for their surface span.
 
-    Returns (node_id, playbook_count, distinct_interface_count) for each node
-    where the playbook has fewer entries than the count of distinct interfaces
+    Returns (node_id, playbook_count, distinct_surface_count) for each node
+    where the playbook has fewer entries than the count of distinct surfaces
     spanned by its `expected_evidence` AND the average playbook entry length
     is under 30 characters. Foundation nodes are exempt.
     """
@@ -239,15 +310,14 @@ def find_thin_playbooks(
         pb = n.get("playbook") or []
         if not pb:
             continue
-        ifaces: set[str] = set()
+        surfaces: set[str] = set()
         for ev in n.get("expected_evidence", []) or []:
-            for i in ev.get("interfaces") or []:
-                ifaces.add(i)
-        if not ifaces:
+            surfaces.update(evidence_surfaces(ev))
+        if not surfaces:
             continue
         avg_len = sum(len(p) for p in pb) / len(pb)
-        if len(pb) < len(ifaces) and avg_len < 30:
-            thin.append((n["id"], len(pb), len(ifaces)))
+        if len(pb) < len(surfaces) and avg_len < 30:
+            thin.append((n["id"], len(pb), len(surfaces)))
     return thin
 
 
@@ -561,12 +631,14 @@ def main() -> int:
         return 2
 
     dag = load_dag(path)
-    accepted, deprecated, behavior_interfaces = collect_behaviors()
+    accepted, deprecated, behavior_surfaces = collect_behaviors()
+    surface_ids = collect_surface_ids()
 
     errors: list[str] = []
     milestone_ids, node_ids = check_schema(dag, errors)
     check_references(dag, accepted, deprecated, node_ids, errors)
-    check_evidence_interfaces(dag, behavior_interfaces, errors)
+    check_evidence_surfaces(dag, behavior_surfaces, surface_ids, errors)
+    check_node_experience_metadata(dag, surface_ids, errors)
     check_feature_files(dag, accepted, errors)
 
     nodes_by_id = {n["id"]: n for n in dag.get("nodes", []) if "id" in n}
@@ -574,7 +646,7 @@ def main() -> int:
     depths = compute_depths(nodes_by_id, topo) if topo else {}
     ancestors = compute_ancestors(nodes_by_id, topo) if topo else {}
     redundant = find_redundant_edges(nodes_by_id, ancestors) if topo else []
-    thin_playbooks = find_thin_playbooks(dag, behavior_interfaces)
+    thin_playbooks = find_thin_playbooks(dag)
 
     # Foundation reachability: every behavior node should transitively
     # depend on the foundation spec (if one is declared).
@@ -667,12 +739,12 @@ def main() -> int:
     if thin_playbooks:
         print(
             f"\nThin playbooks ({len(thin_playbooks)}): "
-            "playbook count < distinct interface count and avg entry < 30 chars"
+            "playbook count < distinct surface count and avg entry < 30 chars"
         )
         if args.verbose:
-            for nid, pb_count, iface_count in thin_playbooks[:20]:
+            for nid, pb_count, surface_count in thin_playbooks[:20]:
                 print(
-                    f"  {nid}  playbook={pb_count} interfaces={iface_count}"
+                    f"  {nid}  playbook={pb_count} surfaces={surface_count}"
                 )
             if len(thin_playbooks) > 20:
                 print(f"  … {len(thin_playbooks) - 20} more")
