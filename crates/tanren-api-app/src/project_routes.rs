@@ -9,72 +9,16 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
-    DisconnectProjectResponse, ListProjectsResponse,
+    ConnectProjectRequest, ConnectProjectResponse, DependencyView, DisconnectProjectBody,
+    DisconnectProjectRequest, DisconnectProjectResponse, ListProjectsParams, ListProjectsResponse,
+    ProjectDependenciesResponse, ProjectSpecsResponse, SpecView,
 };
-use tanren_identity_policy::{AccountId, ProjectId, SpecId};
+use tanren_identity_policy::ProjectId;
 
 use crate::AppState;
-use crate::errors::{ProjectFailureBody, ValidatedJson, map_app_error};
-
-/// Query parameter for `GET /projects`.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct AccountIdQuery {
-    /// Account whose projects to list.
-    pub account_id: AccountId,
-}
-
-/// Request body for `POST /projects/{id}/disconnect`.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct DisconnectProjectBody {
-    /// Account requesting the disconnect.
-    pub account_id: AccountId,
-}
-
-/// API-facing spec view with `OpenAPI` schema support.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ApiSpecView {
-    /// Stable spec id.
-    pub id: SpecId,
-    /// Owning project.
-    pub project_id: ProjectId,
-    /// Human-readable title.
-    pub title: String,
-    /// Wall-clock creation time.
-    pub created_at: DateTime<Utc>,
-}
-
-/// Response for `GET /projects/{id}/specs`.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ProjectSpecsResponse {
-    /// Specs attached to the project.
-    pub specs: Vec<ApiSpecView>,
-}
-
-/// API-facing dependency view with `OpenAPI` schema support.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ApiDependencyView {
-    /// Project that owns the dependency reference.
-    pub source_project_id: ProjectId,
-    /// Spec within the source project carrying the reference.
-    pub source_spec_id: SpecId,
-    /// Target project of the dependency.
-    pub target_project_id: ProjectId,
-    /// Whether the dependency is resolved.
-    pub resolved: bool,
-    /// When the link was detected.
-    pub detected_at: DateTime<Utc>,
-}
-
-/// Response for `GET /projects/{id}/dependencies`.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ProjectDependenciesResponse {
-    /// Cross-project dependency links.
-    pub dependencies: Vec<ApiDependencyView>,
-}
+use crate::errors::{ValidatedJson, map_app_error};
+use tanren_contract::ProjectFailureBody;
 
 /// Connect (or reconnect) a repository as a Tanren project.
 #[utoipa::path(
@@ -107,7 +51,7 @@ pub(crate) async fn connect_project_route(
     get,
     path = "/projects",
     params(
-        ("account_id" = AccountId, Query, description = "Account whose projects to list"),
+        ("account_id" = String, Query, description = "Account whose projects to list"),
     ),
     responses(
         (status = 200, body = ListProjectsResponse, description = "Project list"),
@@ -117,7 +61,7 @@ pub(crate) async fn connect_project_route(
 )]
 pub(crate) async fn list_projects_route(
     State(state): State<AppState>,
-    Query(query): Query<AccountIdQuery>,
+    Query(query): Query<ListProjectsParams>,
 ) -> Response {
     match state
         .handlers
@@ -217,7 +161,7 @@ pub(crate) async fn project_specs_route(
         Ok(specs) => {
             let views = specs
                 .into_iter()
-                .map(|s| ApiSpecView {
+                .map(|s| SpecView {
                     id: s.id,
                     project_id: s.project_id,
                     title: s.title,
@@ -268,7 +212,7 @@ pub(crate) async fn project_dependencies_route(
         Ok(deps) => {
             let views = deps
                 .into_iter()
-                .map(|d| ApiDependencyView {
+                .map(|d| DependencyView {
                     source_project_id: d.source_project_id,
                     source_spec_id: d.source_spec_id,
                     target_project_id: d.target_project_id,

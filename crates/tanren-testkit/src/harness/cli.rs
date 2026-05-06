@@ -287,6 +287,24 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 pub(crate) fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
+    let trimmed = text.trim();
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let code = json
+            .get("code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("transport_error");
+        let summary = json
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown failure")
+            .to_owned();
+        if let Some(reason) = code_to_reason(code) {
+            return HarnessError::Account(reason, summary);
+        }
+        if let Some(reason) = code_to_project_reason(code) {
+            return HarnessError::Project(reason, summary);
+        }
+    }
     let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());

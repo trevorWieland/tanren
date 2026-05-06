@@ -11,6 +11,93 @@ use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
 use utoipa::ToSchema;
 
+/// External-facing view of a spec attached to a project.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SpecView {
+    /// Stable spec id.
+    pub id: SpecId,
+    /// Owning project.
+    pub project_id: ProjectId,
+    /// Human-readable title.
+    pub title: String,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Response for listing specs attached to a project.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectSpecsResponse {
+    /// Specs attached to the project.
+    pub specs: Vec<SpecView>,
+}
+
+/// External-facing view of a cross-project dependency link annotated with
+/// resolution status.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct DependencyView {
+    /// Project that owns the dependency reference.
+    pub source_project_id: ProjectId,
+    /// Spec within the source project carrying the reference.
+    pub source_spec_id: SpecId,
+    /// Target project of the dependency.
+    pub target_project_id: ProjectId,
+    /// Whether the dependency is resolved.
+    pub resolved: bool,
+    /// When the link was detected.
+    pub detected_at: DateTime<Utc>,
+}
+
+/// Response for listing cross-project dependency links for a project.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectDependenciesResponse {
+    /// Cross-project dependency links.
+    pub dependencies: Vec<DependencyView>,
+}
+
+/// Parameter type for the `project.list` MCP tool and the API
+/// `GET /projects` query string.
+#[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
+pub struct ListProjectsParams {
+    /// Account whose projects to list.
+    pub account_id: AccountId,
+}
+
+/// Parameter type for the `project.specs` and `project.dependencies` MCP
+/// tools.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct ProjectIdParams {
+    /// Project to query.
+    pub project_id: ProjectId,
+}
+
+/// Request body for `POST /projects/{id}/disconnect`.
+#[derive(Debug, Deserialize, JsonSchema, ToSchema)]
+pub struct DisconnectProjectBody {
+    /// Account requesting the disconnect.
+    pub account_id: AccountId,
+}
+
+/// Wire body for project-flow failures. Follows the shared `{code, summary}`
+/// taxonomy from `docs/architecture/subsystems/interfaces.md`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectFailureBody {
+    /// Stable error code from the closed taxonomy.
+    pub code: String,
+    /// Human-readable summary.
+    pub summary: String,
+}
+
+impl ProjectFailureBody {
+    /// Construct a failure body from a [`ProjectFailureReason`].
+    #[must_use]
+    pub fn from_reason(reason: ProjectFailureReason) -> Self {
+        Self {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        }
+    }
+}
+
 /// Request to connect an existing repository as a Tanren project.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConnectProjectRequest {

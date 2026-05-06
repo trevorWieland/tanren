@@ -14,9 +14,11 @@ pub use account::{
 };
 
 pub use project::{
-    ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
-    DisconnectProjectResponse, ListProjectsResponse, ProjectDependencyResponse,
-    ProjectFailureReason, ProjectView, ReconnectProjectResponse,
+    ConnectProjectRequest, ConnectProjectResponse, DependencyView, DisconnectProjectBody,
+    DisconnectProjectRequest, DisconnectProjectResponse, ListProjectsParams, ListProjectsResponse,
+    ProjectDependenciesResponse, ProjectDependencyResponse, ProjectFailureBody,
+    ProjectFailureReason, ProjectIdParams, ProjectSpecsResponse, ProjectView,
+    ReconnectProjectResponse, SpecView,
 };
 
 use serde::{Deserialize, Serialize};

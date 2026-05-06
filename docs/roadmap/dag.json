@@ -1396,6 +1396,19 @@
             "falsification"
           ],
           "description": "Per declared interface \u2014 Positive: disconnect a project with no active loops; project disappears from account views; underlying repo is byte-identical. Positive: cross-project dependencies pointing into the disconnected project surface as unresolved. Positive: reconnect the same repo via R-0019; the prior specs reappear. Falsification: cannot disconnect a project with active loops. Falsification: disconnect does not delete the underlying repo."
+        },
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0041",
+          "interfaces": [
+            "api",
+            "mcp",
+            "cli"
+          ],
+          "witnesses": [
+            "positive"
+          ],
+          "description": "Per api, mcp, cli interface - Positive: connect, list, disconnect, list specs, list dependencies all use the same contract wire shapes. Failure responses use the shared {code, summary} taxonomy."
         }
       ],
       "playbook": [

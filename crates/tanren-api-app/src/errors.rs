@@ -13,21 +13,12 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
-use tanren_contract::{AccountFailureReason, ProjectFailureReason};
+use tanren_contract::{AccountFailureReason, ProjectFailureBody, ProjectFailureReason};
 
-/// Shared `{code, summary}` failure body.
+/// Shared `{code, summary}` failure body for account-flow errors.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AccountFailureBody {
     /// Stable error code from the closed taxonomy.
-    pub code: String,
-    /// Human-readable summary.
-    pub summary: String,
-}
-
-/// Shared `{code, summary}` failure body for project-flow errors.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ProjectFailureBody {
-    /// Stable error code from the closed project taxonomy.
     pub code: String,
     /// Human-readable summary.
     pub summary: String,
@@ -93,11 +84,8 @@ fn failure_body(reason: AccountFailureReason) -> Response {
 fn project_failure_body(reason: ProjectFailureReason) -> Response {
     let status =
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
-        status,
-        Json(json!({"code": reason.code(), "summary": reason.summary()})),
-    )
-        .into_response()
+    let body = ProjectFailureBody::from_reason(reason);
+    (status, Json(body)).into_response()
 }
 
 /// Custom `Json` extractor that maps any deserialize-time failure

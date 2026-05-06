@@ -2,11 +2,10 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use tanren_app_services::project::{ProjectDependencyView, ProjectSpecView};
 use tanren_contract::{
-    ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
-    DisconnectProjectResponse, ListProjectsResponse, ProjectDependencyResponse, ProjectView,
+    ConnectProjectResponse, DisconnectProjectRequest, DisconnectProjectResponse,
+    ListProjectsResponse, ProjectDependenciesResponse, ProjectSpecsResponse,
     ReconnectProjectResponse,
 };
 use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
@@ -67,7 +66,7 @@ impl ProjectHarness for ProjectCliHarness {
 
     async fn connect_project(
         &mut self,
-        req: ConnectProjectRequest,
+        req: tanren_contract::ConnectProjectRequest,
     ) -> HarnessResult<ConnectProjectResponse> {
         let stdout = self
             .exec_cli(&[
@@ -82,8 +81,8 @@ impl ProjectHarness for ProjectCliHarness {
                 &req.repository_url,
             ])
             .await?;
-        let project = parse_cli_project(&stdout)?;
-        Ok(ConnectProjectResponse { project })
+        let response: ConnectProjectResponse = parse_json_line(&stdout)?;
+        Ok(response)
     }
 
     async fn disconnect_project(
@@ -99,22 +98,8 @@ impl ProjectHarness for ProjectCliHarness {
                 &req.account_id.to_string(),
             ])
             .await?;
-        let re = regex::Regex::new(r"disconnected project_id=([0-9a-f-]+)").expect("regex");
-        let caps = re
-            .captures(&stdout)
-            .ok_or_else(|| HarnessError::Transport(format!("parse disconnect: {stdout}")))?;
-        let id_raw = caps.get(1).map_or("", |m| m.as_str());
-        let project_id = id_raw
-            .parse()
-            .map(ProjectId::new)
-            .map_err(|e| HarnessError::Transport(format!("parse id: {e}")))?;
-        let remaining = self.list_projects(req.account_id).await?;
-        let unresolved = parse_cli_unresolved(&stdout);
-        Ok(DisconnectProjectResponse {
-            project_id,
-            account_projects: remaining.projects,
-            unresolved_inbound_dependencies: unresolved,
-        })
+        let response: DisconnectProjectResponse = parse_json_line(&stdout)?;
+        Ok(response)
     }
 
     async fn list_projects(
@@ -124,8 +109,8 @@ impl ProjectHarness for ProjectCliHarness {
         let stdout = self
             .exec_cli(&["list", "--account-id", &account_id.to_string()])
             .await?;
-        let projects = parse_cli_project_list(&stdout);
-        Ok(ListProjectsResponse { projects })
+        let response: ListProjectsResponse = parse_json_line(&stdout)?;
+        Ok(response)
     }
 
     async fn reconnect_project(
@@ -148,7 +133,17 @@ impl ProjectHarness for ProjectCliHarness {
         let stdout = self
             .exec_cli(&["specs", "--project-id", &project_id.to_string()])
             .await?;
-        Ok(parse_cli_specs(&stdout))
+        let response: ProjectSpecsResponse = parse_json_line(&stdout)?;
+        Ok(response
+            .specs
+            .into_iter()
+            .map(|s| ProjectSpecView {
+                id: s.id,
+                project_id: s.project_id,
+                title: s.title,
+                created_at: s.created_at,
+            })
+            .collect())
     }
 
     async fn project_dependencies(
@@ -158,7 +153,18 @@ impl ProjectHarness for ProjectCliHarness {
         let stdout = self
             .exec_cli(&["dependencies", "--project-id", &project_id.to_string()])
             .await?;
-        Ok(parse_cli_deps(&stdout))
+        let response: ProjectDependenciesResponse = parse_json_line(&stdout)?;
+        Ok(response
+            .dependencies
+            .into_iter()
+            .map(|d| ProjectDependencyView {
+                source_project_id: d.source_project_id,
+                source_spec_id: d.source_spec_id,
+                target_project_id: d.target_project_id,
+                resolved: d.resolved,
+                detected_at: d.detected_at,
+            })
+            .collect())
     }
 
     async fn seed_account(&mut self) -> HarnessResult<(AccountId, OrgId)> {
@@ -192,122 +198,10 @@ impl ProjectHarness for ProjectCliHarness {
     }
 }
 
-fn parse_cli_project(stdout: &str) -> HarnessResult<ProjectView> {
-    let re = regex::Regex::new(
-        r"project_id=([0-9a-f-]+)\s+name=([^\s]+)\s+org_id=([0-9a-f-]+)\s+repository_url=([^\s]+)\s+connected_at=([^\s]+)"
-    ).expect("regex");
-    let caps = re
-        .captures(stdout)
-        .ok_or_else(|| HarnessError::Transport(format!("parse project: {stdout}")))?;
-    let id: uuid::Uuid = caps
-        .get(1)
-        .expect("regex group 1")
-        .as_str()
-        .parse()
-        .map_err(|e| HarnessError::Transport(format!("parse id: {e}")))?;
-    let name = caps.get(2).expect("regex group 2").as_str().to_owned();
-    let org_id: uuid::Uuid = caps
-        .get(3)
-        .expect("regex group 3")
-        .as_str()
-        .parse()
-        .map_err(|e| HarnessError::Transport(format!("parse org: {e}")))?;
-    let repo = caps.get(4).expect("regex group 4").as_str().to_owned();
-    let at_str = caps.get(5).expect("regex group 5").as_str();
-    let at = chrono::DateTime::parse_from_rfc3339(at_str)
-        .map_err(|e| HarnessError::Transport(format!("parse date: {e}")))?;
-    Ok(ProjectView {
-        id: ProjectId::new(id),
-        name,
-        org_id: OrgId::new(org_id),
-        repository_url: repo,
-        connected_at: at.with_timezone(&Utc),
-        disconnected_at: None,
-    })
-}
-
-fn parse_cli_project_list(stdout: &str) -> Vec<ProjectView> {
-    let re = regex::Regex::new(
-        r"project_id=([0-9a-f-]+)\s+name=([^\s]+)\s+org_id=([0-9a-f-]+)\s+repository_url=([^\s]+)\s+connected_at=([^\s]+)"
-    ).expect("regex");
-    re.captures_iter(stdout)
-        .filter_map(|caps| {
-            let id: uuid::Uuid = caps.get(1)?.as_str().parse().ok()?;
-            let name = caps.get(2)?.as_str().to_owned();
-            let org_id: uuid::Uuid = caps.get(3)?.as_str().parse().ok()?;
-            let repo = caps.get(4)?.as_str().to_owned();
-            let at_str = caps.get(5)?.as_str();
-            let at = chrono::DateTime::parse_from_rfc3339(at_str).ok()?;
-            Some(ProjectView {
-                id: ProjectId::new(id),
-                name,
-                org_id: OrgId::new(org_id),
-                repository_url: repo,
-                connected_at: at.with_timezone(&Utc),
-                disconnected_at: None,
-            })
-        })
-        .collect()
-}
-
-fn parse_cli_unresolved(stdout: &str) -> Vec<ProjectDependencyResponse> {
-    let re = regex::Regex::new(
-        r"unresolved source_project_id=([0-9a-f-]+)\s+source_spec_id=([0-9a-f-]+)\s+target_project_id=([0-9a-f-]+)"
-    ).expect("regex");
-    re.captures_iter(stdout)
-        .filter_map(|caps| {
-            let src: uuid::Uuid = caps.get(1)?.as_str().parse().ok()?;
-            let spec: uuid::Uuid = caps.get(2)?.as_str().parse().ok()?;
-            let tgt: uuid::Uuid = caps.get(3)?.as_str().parse().ok()?;
-            Some(ProjectDependencyResponse {
-                source_project_id: ProjectId::new(src),
-                source_spec_id: SpecId::new(spec),
-                unresolved_target_project_id: ProjectId::new(tgt),
-                detected_at: Utc::now(),
-            })
-        })
-        .collect()
-}
-
-fn parse_cli_specs(stdout: &str) -> Vec<ProjectSpecView> {
-    let re = regex::Regex::new(
-        r"spec_id=([0-9a-f-]+)\s+project_id=([0-9a-f-]+)\s+title=([^\s]+)\s+created_at=([^\s]+)",
-    )
-    .expect("regex");
-    re.captures_iter(stdout)
-        .filter_map(|caps| {
-            let id: uuid::Uuid = caps.get(1)?.as_str().parse().ok()?;
-            let pid: uuid::Uuid = caps.get(2)?.as_str().parse().ok()?;
-            let title = caps.get(3)?.as_str().to_owned();
-            let at_str = caps.get(4)?.as_str();
-            let at = chrono::DateTime::parse_from_rfc3339(at_str).ok()?;
-            Some(ProjectSpecView {
-                id: SpecId::new(id),
-                project_id: ProjectId::new(pid),
-                title,
-                created_at: at.with_timezone(&Utc),
-            })
-        })
-        .collect()
-}
-
-fn parse_cli_deps(stdout: &str) -> Vec<ProjectDependencyView> {
-    let re = regex::Regex::new(
-        r"source_project_id=([0-9a-f-]+)\s+source_spec_id=([0-9a-f-]+)\s+target_project_id=([0-9a-f-]+)\s+status=(resolved|unresolved)"
-    ).expect("regex");
-    re.captures_iter(stdout)
-        .filter_map(|caps| {
-            let src: uuid::Uuid = caps.get(1)?.as_str().parse().ok()?;
-            let spec: uuid::Uuid = caps.get(2)?.as_str().parse().ok()?;
-            let tgt: uuid::Uuid = caps.get(3)?.as_str().parse().ok()?;
-            let status = caps.get(4)?.as_str();
-            Some(ProjectDependencyView {
-                source_project_id: ProjectId::new(src),
-                source_spec_id: SpecId::new(spec),
-                target_project_id: ProjectId::new(tgt),
-                resolved: status == "resolved",
-                detected_at: Utc::now(),
-            })
-        })
-        .collect()
+fn parse_json_line<T: serde::de::DeserializeOwned>(stdout: &str) -> HarnessResult<T> {
+    let line = stdout
+        .lines()
+        .next()
+        .ok_or_else(|| HarnessError::Transport("empty stdout".to_owned()))?;
+    serde_json::from_str(line).map_err(|e| HarnessError::Transport(format!("parse JSON: {e}")))
 }

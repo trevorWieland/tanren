@@ -14,8 +14,9 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, ConnectProjectRequest, ConnectProjectResponse,
-    DisconnectProjectResponse, ListProjectsResponse, ProjectDependencyResponse, ProjectView,
-    SessionEnvelope, SignInRequest, SignUpRequest,
+    DependencyView, DisconnectProjectBody, DisconnectProjectResponse, ListProjectsResponse,
+    ProjectDependenciesResponse, ProjectDependencyResponse, ProjectFailureBody,
+    ProjectSpecsResponse, ProjectView, SessionEnvelope, SignInRequest, SignUpRequest, SpecView,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -25,13 +26,7 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{
-    AccountFailureBody, ProjectFailureBody, ValidatedJson, map_app_error, session_install_error,
-};
-use crate::project_routes::{
-    ApiDependencyView, ApiSpecView, DisconnectProjectBody, ProjectDependenciesResponse,
-    ProjectSpecsResponse,
-};
+use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -130,9 +125,9 @@ pub struct AcceptInvitationBody {
         DisconnectProjectResponse,
         ProjectDependencyResponse,
         ProjectSpecsResponse,
-        ApiSpecView,
+        SpecView,
         ProjectDependenciesResponse,
-        ApiDependencyView,
+        DependencyView,
         ProjectFailureBody,
     )),
     tags(

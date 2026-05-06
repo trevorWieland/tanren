@@ -4244,6 +4244,8 @@ dependencies = [
  "anyhow",
  "clap",
  "secrecy",
+ "serde",
+ "serde_json",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
