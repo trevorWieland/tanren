@@ -7,15 +7,16 @@
 
 pub mod account;
 pub mod events;
+pub mod project;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    ProjectFailureReason, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+pub use tanren_store::{AccountStore, ProjectStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -199,6 +200,86 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// List every project for the active account, with per-project
+    /// attention aggregation (project-level `needs_attention` is `true`
+    /// iff any spec in that project needs attention).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Store`] for unexpected database failures.
+    pub async fn list_projects<S>(
+        &self,
+        store: &S,
+        account_id: tanren_identity_policy::AccountId,
+    ) -> Result<Vec<tanren_contract::ProjectView>, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::list_projects(store, account_id).await
+    }
+
+    /// Return a single flagged attention spec, but only when the spec's
+    /// project belongs to the supplied account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] with
+    /// [`ProjectFailureReason::UnauthorizedProjectAccess`] when the
+    /// project is not in the account, or [`ProjectFailureReason::UnknownSpec`]
+    /// when the spec is not flagged for attention.
+    pub async fn attention_spec<S>(
+        &self,
+        store: &S,
+        account_id: tanren_identity_policy::AccountId,
+        project_id: tanren_identity_policy::ProjectId,
+        spec_id: tanren_identity_policy::SpecId,
+    ) -> Result<tanren_contract::AttentionSpecView, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::attention_spec(store, account_id, project_id, spec_id).await
+    }
+
+    /// Switch the active project for the given account. Rejects projects
+    /// outside the account. Emits a `project_switched` event and returns
+    /// the new project view with scoped data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] with
+    /// [`ProjectFailureReason::UnauthorizedProjectAccess`] when the
+    /// project does not belong to the account.
+    pub async fn switch_active_project<S>(
+        &self,
+        store: &S,
+        account_id: tanren_identity_policy::AccountId,
+        project_id: tanren_identity_policy::ProjectId,
+    ) -> Result<tanren_contract::SwitchProjectResponse, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::switch_active_project(store, &self.clock, account_id, project_id).await
+    }
+
+    /// Return specs, loops, milestones, and persisted view state for the
+    /// currently active project. The previous project's view state is not
+    /// mutated by this call.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::InvalidInput`] when no active project
+    /// is set for the account.
+    pub async fn project_scoped_views<S>(
+        &self,
+        store: &S,
+        account_id: tanren_identity_policy::AccountId,
+    ) -> Result<project::ProjectScopedViewsResponse, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::project_scoped_views(store, account_id).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +296,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A project-flow taxonomy failure.
+    #[error("project: {}", .0.code())]
+    Project(ProjectFailureReason),
 }
