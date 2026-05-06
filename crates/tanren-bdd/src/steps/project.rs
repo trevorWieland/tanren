@@ -12,7 +12,7 @@ use std::mem::drop;
 
 use cucumber::{given, then, when};
 use tanren_contract::{ConnectProjectRequest, CreateProjectRequest, ProjectContentCounts};
-use tanren_identity_policy::AccountId;
+use tanren_identity_policy::{AccountId, OrgId};
 use tanren_testkit::{HarnessOutcome, normalize_repository_identity, record_failure};
 
 use crate::TanrenWorld;
@@ -112,6 +112,32 @@ async fn when_connect_repo_over_interface(
     do_connect(world, actor, &slug).await;
 }
 
+#[when(expr = "{word} connects the repository {string} to an org she is not a member of")]
+async fn when_connect_repo_to_foreign_org(world: &mut TanrenWorld, actor: String, slug: String) {
+    let account_id = require_account_id(world, &actor).await;
+    let url = fixture_url(&slug);
+    let ctx = world.ensure_account_ctx().await;
+    let request = ConnectProjectRequest {
+        name: slug,
+        repository_url: url,
+        org: Some(OrgId::fresh()),
+    };
+    let result = ctx.harness.connect_project(account_id, request).await;
+    let outcome = match result {
+        Ok(view) => {
+            ctx.last_project_account_id = Some(account_id);
+            ctx.last_project = Some(view.clone());
+            ctx.projects.push(view.clone());
+            HarnessOutcome::ProjectConnected(view)
+        }
+        Err(err) => {
+            let entry = ctx.actors.entry(actor.clone()).or_default();
+            record_failure(err, entry)
+        }
+    };
+    ctx.last_outcome = Some(outcome);
+}
+
 async fn do_connect(world: &mut TanrenWorld, actor: String, slug: &str) {
     let account_id = require_account_id(world, &actor).await;
     let url = fixture_url(slug);
@@ -157,6 +183,38 @@ async fn when_create_project_over_interface(
 ) {
     drop(interface);
     do_create(world, actor, name, provider_host).await;
+}
+
+#[when(
+    expr = "{word} creates a new project named {string} at host {string} under an org she is not a member of"
+)]
+async fn when_create_project_under_foreign_org(
+    world: &mut TanrenWorld,
+    actor: String,
+    name: String,
+    provider_host: String,
+) {
+    let account_id = require_account_id(world, &actor).await;
+    let ctx = world.ensure_account_ctx().await;
+    let request = CreateProjectRequest {
+        name,
+        provider_host,
+        org: Some(OrgId::fresh()),
+    };
+    let result = ctx.harness.create_project(account_id, request).await;
+    let outcome = match result {
+        Ok(view) => {
+            ctx.last_project_account_id = Some(account_id);
+            ctx.last_project = Some(view.clone());
+            ctx.projects.push(view.clone());
+            HarnessOutcome::ProjectCreated(view)
+        }
+        Err(err) => {
+            let entry = ctx.actors.entry(actor.clone()).or_default();
+            record_failure(err, entry)
+        }
+    };
+    ctx.last_outcome = Some(outcome);
 }
 
 async fn do_create(world: &mut TanrenWorld, actor: String, name: String, provider_host: String) {
@@ -300,13 +358,16 @@ async fn then_second_fails_with(world: &mut TanrenWorld, code: String) {
 async fn then_new_repo_exists(world: &mut TanrenWorld, name: String, host: String) {
     let ctx = world.ensure_account_ctx().await;
     let expected_url = format!("https://{host}/{name}");
-    let found = ctx
+    let matching: Vec<_> = ctx
         .projects
         .iter()
-        .find(|p| p.repository.url == expected_url);
-    assert!(
-        found.is_some(),
-        "expected new repository at '{expected_url}', projects: {:?}",
+        .filter(|p| p.repository.url == expected_url)
+        .collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "expected exactly 1 repository at '{expected_url}', found {}: {:?}",
+        matching.len(),
         ctx.projects
             .iter()
             .map(|p| &p.repository.url)

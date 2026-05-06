@@ -102,6 +102,8 @@ impl ApiHarness {
             let _ = axum::serve(listener, app).await;
         });
 
+        wait_ready(&base_url).await?;
+
         let client = Client::builder()
             .cookie_store(true)
             .timeout(super::HARNESS_DEFAULT_TIMEOUT)
@@ -124,13 +126,11 @@ impl ApiHarness {
         body: &Value,
     ) -> HarnessResult<(reqwest::StatusCode, Value, bool)> {
         let url = format!("{}{path}", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("POST {path}: {e}")))?;
+        let response = retry(
+            || self.client.post(&url).json(body),
+            &format!("POST {path}"),
+        )
+        .await?;
         let status = response.status();
         let cookies = has_session_cookie(response.headers());
         let json: Value = response
@@ -142,12 +142,7 @@ impl ApiHarness {
 
     async fn get_json(&self, path: &str) -> HarnessResult<(reqwest::StatusCode, Value)> {
         let url = format!("{}{path}", self.base_url);
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("GET {path}: {e}")))?;
+        let response = retry(|| self.client.get(&url), &format!("GET {path}")).await?;
         let status = response.status();
         let json: Value = response
             .json()
@@ -467,4 +462,38 @@ pub(crate) fn code_to_project_reason(code: &str) -> Option<ProjectFailureReason>
         "validation_failed" => ProjectFailureReason::ValidationFailed,
         _ => return None,
     })
+}
+
+async fn wait_ready(url: &str) -> HarnessResult<()> {
+    let p = Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .map_err(|e| HarnessError::Transport(format!("probe: {e}")))?;
+    for _ in 0..100 {
+        if p.get(format!("{url}/health")).send().await.is_ok() {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Err(HarnessError::Transport(format!("{url} never ready")))
+}
+
+async fn retry(
+    f: impl Fn() -> reqwest::RequestBuilder,
+    label: &str,
+) -> HarnessResult<reqwest::Response> {
+    let mut last: Option<reqwest::Error> = None;
+    for i in 0..10u32 {
+        match f().send().await {
+            Ok(r) => return Ok(r),
+            Err(e) if i < 9 => {
+                last = Some(e);
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(e) => return Err(HarnessError::Transport(format!("{label}: {e}"))),
+        }
+    }
+    let msg = last.map_or("unknown".to_owned(), |e| e.to_string());
+    Err(HarnessError::Transport(format!("{label}: {msg}")))
 }

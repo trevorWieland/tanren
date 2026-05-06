@@ -40,11 +40,12 @@ Feature: Connect Tanren to an existing repository
       Then the request fails with code "access_denied"
 
     @falsification @api
-    Scenario: Connecting the same repo twice over the API produces a duplicate error
+    Scenario: Connecting the same repo twice over the API produces a duplicate error without duplicate project rows
       Given an existing repository "acme-api-dup-repo" that alice can access
       When alice connects the repository "acme-api-dup-repo" to her account
       And alice connects the repository "acme-api-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
+      And alice has 1 projects in her account
 
   Rule: Web surface
 
@@ -78,11 +79,12 @@ Feature: Connect Tanren to an existing repository
       Then the request fails with code "access_denied"
 
     @falsification @web
-    Scenario: Connecting the same repo twice over the web produces a duplicate error
+    Scenario: Connecting the same repo twice over the web produces a duplicate error without duplicate project rows
       Given an existing repository "acme-web-dup-repo" that alice can access
       When alice connects the repository "acme-web-dup-repo" to her account
       And alice connects the repository "acme-web-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
+      And alice has 1 projects in her account
 
   Rule: CLI surface
 
@@ -116,11 +118,12 @@ Feature: Connect Tanren to an existing repository
       Then the request fails with code "access_denied"
 
     @falsification @cli
-    Scenario: Connecting the same repo twice over the CLI produces a duplicate error
+    Scenario: Connecting the same repo twice over the CLI produces a duplicate error without duplicate project rows
       Given an existing repository "acme-cli-dup-repo" that alice can access
       When alice connects the repository "acme-cli-dup-repo" to her account
       And alice connects the repository "acme-cli-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
+      And alice has 1 projects in her account
 
   Rule: MCP surface
 
@@ -154,11 +157,12 @@ Feature: Connect Tanren to an existing repository
       Then the request fails with code "access_denied"
 
     @falsification @mcp
-    Scenario: Connecting the same repo twice over MCP produces a duplicate error
+    Scenario: Connecting the same repo twice over MCP produces a duplicate error without duplicate project rows
       Given an existing repository "acme-mcp-dup-repo" that alice can access
       When alice connects the repository "acme-mcp-dup-repo" to her account
       And alice connects the repository "acme-mcp-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
+      And alice has 1 projects in her account
 
   Rule: TUI surface
 
@@ -192,11 +196,12 @@ Feature: Connect Tanren to an existing repository
       Then the request fails with code "access_denied"
 
     @falsification @tui
-    Scenario: Connecting the same repo twice over the TUI produces a duplicate error
+    Scenario: Connecting the same repo twice over the TUI produces a duplicate error without duplicate project rows
       Given an existing repository "acme-tui-dup-repo" that alice can access
       When alice connects the repository "acme-tui-dup-repo" to her account
       And alice connects the repository "acme-tui-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
+      And alice has 1 projects in her account
 
   Rule: Cross-interface verification
 

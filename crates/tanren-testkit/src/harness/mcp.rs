@@ -242,6 +242,7 @@ impl AccountHarness for McpHarness {
         let body = serde_json::json!({
             "name": request.name,
             "repository_url": request.repository_url,
+            "org": request.org,
         });
         let payload = self.call_tool("project.connect", body).await?;
         serde_json::from_value(payload)
@@ -257,6 +258,7 @@ impl AccountHarness for McpHarness {
         let body = serde_json::json!({
             "name": request.name,
             "provider_host": request.provider_host,
+            "org": request.org,
         });
         let payload = self.call_tool("project.create", body).await?;
         serde_json::from_value(payload)

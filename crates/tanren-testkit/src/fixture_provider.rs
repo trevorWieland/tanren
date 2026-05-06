@@ -40,8 +40,7 @@ impl FixtureState {
 /// Hosts not explicitly registered via [`with_accessible_host`](Self::with_accessible_host)
 /// or [`with_actor_connection`](Self::with_actor_connection) are treated as
 /// inaccessible and produce
-/// [`ProviderError::HostAccess`](tanren_provider_integrations::ProviderError::HostAccess)
-/// on every call.
+/// [`ProviderError::HostAccess`] on every call.
 ///
 /// # Access model
 ///
@@ -127,7 +126,7 @@ impl FixtureSourceControlProvider {
 
     /// Mark the provider as not configured. All subsequent calls to
     /// [`SourceControlProvider`] methods return
-    /// [`ProviderError::NotConfigured`](tanren_provider_integrations::ProviderError::NotConfigured).
+    /// [`ProviderError::NotConfigured`].
     #[must_use]
     pub fn with_not_configured(self) -> Self {
         self.inner
