@@ -307,8 +307,13 @@ fn config_entry(record: UserConfigRecord) -> UserConfigEntry {
 
 fn redacted_credential(record: &CredentialRecord) -> RedactedCredentialMetadata {
     RedactedCredentialMetadata {
+        id: record.id,
+        name: record.name.clone(),
         kind: record.kind,
         scope: record.scope,
+        description: record.description.clone(),
+        provider: record.provider.clone(),
+        created_at: record.created_at,
         updated_at: record.updated_at,
         present: record.present,
     }

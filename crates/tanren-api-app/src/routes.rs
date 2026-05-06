@@ -13,7 +13,10 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, CreateCredentialRequest, CreateCredentialResponse,
+    GetUserConfigResponse, ListCredentialsResponse, ListUserConfigResponse,
+    RemoveUserConfigResponse, SessionEnvelope, SetUserConfigRequest, SetUserConfigResponse,
+    SignInRequest, SignUpRequest, UpdateCredentialResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -22,6 +25,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
+use crate::config_routes;
 use crate::cookies::{SessionWrite, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
@@ -98,6 +102,14 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        config_routes::list_user_config_route,
+        config_routes::get_user_config_route,
+        config_routes::set_user_config_route,
+        config_routes::remove_user_config_route,
+        config_routes::list_credentials_route,
+        config_routes::create_credential_route,
+        config_routes::update_credential_route,
+        config_routes::remove_credential_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +121,23 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        SetUserConfigRequest,
+        SetUserConfigResponse,
+        GetUserConfigResponse,
+        ListUserConfigResponse,
+        RemoveUserConfigResponse,
+        config_routes::RemoveResult,
+        CreateCredentialRequest,
+        CreateCredentialResponse,
+        UpdateCredentialResponse,
+        ListCredentialsResponse,
+        config_routes::UpdateCredentialBody,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "user-config", description = "User-tier configuration: list, get, set, remove."),
+        (name = "credentials", description = "User-owned credentials: list, create, update, remove."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -320,5 +345,13 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(config_routes::list_user_config_route))
+        .routes(routes!(config_routes::get_user_config_route))
+        .routes(routes!(config_routes::set_user_config_route))
+        .routes(routes!(config_routes::remove_user_config_route))
+        .routes(routes!(config_routes::list_credentials_route))
+        .routes(routes!(config_routes::create_credential_route))
+        .routes(routes!(config_routes::update_credential_route))
+        .routes(routes!(config_routes::remove_credential_route))
         .with_state(state)
 }

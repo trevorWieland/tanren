@@ -8,12 +8,18 @@
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
+use axum::Json;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
+use tanren_app_services::AuthenticatedActor;
 use tanren_identity_policy::AccountId;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, Session, SessionManagerLayer};
 use tower_sessions_sqlx_store::{PostgresStore, SqliteStore};
+
+use crate::errors::AccountFailureBody;
 
 const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
@@ -123,4 +129,28 @@ pub(crate) fn session_layer_with_secure(store: CookieStore, secure: bool) -> Ses
 pub(crate) enum SessionLayerEnum {
     Sqlite(SessionManagerLayer<SqliteStore>),
     Postgres(SessionManagerLayer<PostgresStore>),
+}
+
+pub(crate) async fn require_authenticated(
+    session: &Session,
+) -> Result<AuthenticatedActor, Response> {
+    match session.get::<AccountId>(SESSION_KEY_ACCOUNT).await {
+        Ok(Some(account_id)) => Ok(AuthenticatedActor::from_account_id(account_id)),
+        Ok(None) => Err(unauthenticated()),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read");
+            Err(unauthenticated())
+        }
+    }
+}
+
+fn unauthenticated() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(AccountFailureBody {
+            code: "unauthenticated".to_owned(),
+            summary: "Authentication required.".to_owned(),
+        }),
+    )
+        .into_response()
 }

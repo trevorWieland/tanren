@@ -25,8 +25,12 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, Store};
+use tanren_app_services::AccountStore;
+use tanren_configuration_secrets::{
+    CredentialKind, CredentialScope, UserSettingKey, UserSettingValue,
+};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_store::{NewCredential, NewInvitation, NewUserConfigValue, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -69,5 +73,62 @@ pub(crate) async fn seed_invitation_route(
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route("/test-hooks/user-config", post(seed_user_config_route))
+        .route("/test-hooks/credentials", post(seed_credential_route))
         .with_state(store)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedUserConfigBody {
+    pub account_id: AccountId,
+    pub key: UserSettingKey,
+    pub value: UserSettingValue,
+}
+
+pub(crate) async fn seed_user_config_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedUserConfigBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    store
+        .set_user_config(NewUserConfigValue {
+            account_id: body.account_id,
+            key: body.key,
+            value: body.value,
+            now: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedCredentialBody {
+    pub account_id: AccountId,
+    pub kind: CredentialKind,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    pub secret_value: String,
+}
+
+pub(crate) async fn seed_credential_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedCredentialBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    store
+        .add_credential(NewCredential {
+            account_id: body.account_id,
+            kind: body.kind,
+            scope: CredentialScope::User,
+            name: body.name,
+            description: body.description,
+            provider: body.provider,
+            encrypted_value: body.secret_value.as_bytes().to_vec(),
+            now: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
 }

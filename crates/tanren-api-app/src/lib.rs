@@ -36,6 +36,7 @@
 //! - **Sign-out.** `POST /sessions/revoke` clears the cookie via
 //!   `Session::flush` and returns 204.
 
+mod config_routes;
 mod cookies;
 mod errors;
 mod routes;
@@ -170,6 +171,8 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::DELETE,
+            axum::http::Method::PATCH,
             axum::http::Method::OPTIONS,
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
@@ -250,6 +253,8 @@ pub async fn build_app_with_store(
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::DELETE,
+            axum::http::Method::PATCH,
             axum::http::Method::OPTIONS,
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
