@@ -88,19 +88,29 @@ fn teardown_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Resul
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DepartureKind {
+    Leave,
+    Remove,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
     JoinOrganization,
+    LeaveOrganization,
+    RemoveMember,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 4] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::SignUp,
         Self::SignIn,
         Self::AcceptInvitation,
         Self::JoinOrganization,
+        Self::LeaveOrganization,
+        Self::RemoveMember,
     ];
 
     pub(crate) fn label(self) -> &'static str {
@@ -109,6 +119,8 @@ impl MenuChoice {
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
             Self::JoinOrganization => "Join organization",
+            Self::LeaveOrganization => "Leave organization",
+            Self::RemoveMember => "Remove member",
         }
     }
 }

@@ -1,9 +1,6 @@
 //! TUI screen state machine and submit dispatch.
 //!
-//! Split out of `lib.rs` so the tui-app crate stays under the workspace
-//! 500-line line-budget. Keeps the screen enum, the `App` struct, and
-//! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
+//! Rendering in `draw.rs`, form factories + outcome adapters in `ui.rs`.
 
 use std::env;
 use std::io::Stdout;
@@ -15,20 +12,21 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
-use tanren_contract::JoinOrganizationRequest;
-use tanren_identity_policy::AccountId;
+use tanren_contract::{JoinOrganizationRequest, LeaveOrganizationRequest, RemoveMemberRequest};
+use tanren_identity_policy::{AccountId, OrgId};
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, join_organization_fields,
-    join_organization_outcome, parse_accept_invitation, parse_join_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, accept_invitation_outcome, departure_outcome,
+    join_organization_fields, join_organization_outcome, leave_organization_fields,
+    parse_accept_invitation, parse_departure_leave, parse_departure_remove, parse_join_invitation,
+    parse_sign_in, parse_sign_up, remove_member_fields, render_error, sign_in_fields,
+    sign_in_outcome, sign_up_fields, sign_up_outcome, unauthenticated_error,
 };
-use crate::{FormState, MenuChoice};
+use crate::{DepartureKind, FormState, MenuChoice};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
-
 #[derive(Debug)]
 pub(crate) enum Screen {
     Menu { selected: usize },
@@ -36,15 +34,14 @@ pub(crate) enum Screen {
     SignIn(FormState),
     AcceptInvitation(FormState),
     JoinOrganization(FormState),
+    Departure(DepartureKind, FormState),
     Outcome(OutcomeView),
 }
-
 #[derive(Debug)]
 pub(crate) struct OutcomeView {
     pub(crate) title: &'static str,
     pub(crate) lines: Vec<String>,
 }
-
 #[derive(Debug)]
 pub(crate) struct App {
     runtime: Runtime,
@@ -54,7 +51,6 @@ pub(crate) struct App {
     screen: Screen,
     account_id: Option<AccountId>,
 }
-
 impl App {
     pub(crate) fn new() -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -142,6 +138,10 @@ impl App {
             },
             Screen::JoinOrganization(state) => match handle_form_key(state, key) {
                 Some(action) => Effect::Form(action, FormKind::JoinOrganization),
+                None => Effect::None,
+            },
+            Screen::Departure(dk, state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::Departure(*dk)),
                 None => Effect::None,
             },
         };
@@ -245,6 +245,7 @@ impl App {
             }
             FormKind::AcceptInvitation => self.submit_accept_invitation(&store),
             FormKind::JoinOrganization => self.submit_join(&store),
+            FormKind::Departure(dk) => self.submit_departure(dk, &store),
         }
     }
 
@@ -320,12 +321,65 @@ impl App {
         }
     }
 
+    fn submit_departure(&mut self, dk: DepartureKind, store: &Arc<Store>) {
+        let Some(account_id) = self.account_id else {
+            self.set_departure_error(&unauthenticated_error());
+            return;
+        };
+        let parsed: Result<(OrgId, Option<AccountId>, bool), String> = {
+            let Screen::Departure(_, st) = &self.screen else {
+                return;
+            };
+            match dk {
+                DepartureKind::Leave => parse_departure_leave(st).map(|(o, a)| (o, None, a)),
+                DepartureKind::Remove => {
+                    parse_departure_remove(st).map(|(o, t, a)| (o, Some(t), a))
+                }
+            }
+        };
+        let parsed = match parsed {
+            Ok(p) => p,
+            Err(e) => {
+                self.set_departure_error(&e);
+                return;
+            }
+        };
+        let result = match parsed {
+            (org_id, None, ack) => self.runtime.block_on(self.handlers.leave_organization(
+                store.as_ref(),
+                account_id,
+                LeaveOrganizationRequest { org_id },
+                ack,
+            )),
+            (org_id, Some(target), ack) => self.runtime.block_on(self.handlers.remove_member(
+                store.as_ref(),
+                account_id,
+                RemoveMemberRequest {
+                    org_id,
+                    member_account_id: target,
+                },
+                ack,
+            )),
+        };
+        match result {
+            Ok(r) => self.screen = Screen::Outcome(departure_outcome(&r, dk)),
+            Err(e) => self.set_departure_error(&render_error(e)),
+        }
+    }
+
+    fn set_departure_error(&mut self, message: &str) {
+        if let Screen::Departure(_, state) = &mut self.screen {
+            state.error = Some(message.to_owned());
+        }
+    }
+
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
             Screen::SignUp(s)
             | Screen::SignIn(s)
             | Screen::AcceptInvitation(s)
-            | Screen::JoinOrganization(s) => Some(s),
+            | Screen::JoinOrganization(s)
+            | Screen::Departure(_, s) => Some(s),
             _ => None,
         }
     }
@@ -342,6 +396,13 @@ impl App {
             Screen::JoinOrganization(state) => {
                 draw::draw_form(frame, area, "Join organization", state);
             }
+            Screen::Departure(dk, state) => {
+                let title = match dk {
+                    DepartureKind::Leave => "Leave organization",
+                    DepartureKind::Remove => "Remove member",
+                };
+                draw::draw_form(frame, area, title, state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
@@ -353,6 +414,7 @@ enum FormKind {
     SignIn,
     AcceptInvitation,
     JoinOrganization,
+    Departure(DepartureKind),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -393,6 +455,14 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::JoinOrganization => {
                     Screen::JoinOrganization(FormState::new(join_organization_fields()))
                 }
+                MenuChoice::LeaveOrganization => Screen::Departure(
+                    DepartureKind::Leave,
+                    FormState::new(leave_organization_fields()),
+                ),
+                MenuChoice::RemoveMember => Screen::Departure(
+                    DepartureKind::Remove,
+                    FormState::new(remove_member_fields()),
+                ),
             });
         }
         _ => {}
