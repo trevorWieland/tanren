@@ -1,5 +1,11 @@
 import * as m from "@/i18n/paraglide/messages";
 
+import { apiClient } from "@/generated/client";
+import type { components } from "@/generated/api";
+
+export type JoinOrganizationResult =
+  components["schemas"]["JoinOrganizationResponseCookie"];
+
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
 export interface SignUpInput {
@@ -165,21 +171,45 @@ export function acceptInvitation(
   });
 }
 
-export interface JoinOrganizationResult {
-  joined_org: string;
-  membership_permissions: string;
-  selectable_organizations: Array<{
-    org_id: string;
-    permissions: string;
-  }>;
-  project_access_grants: Array<Record<string, never>>;
-}
-
-export function joinOrganization(
+export async function joinOrganization(
   token: string,
 ): Promise<JoinOrganizationResult> {
-  const path = `/invitations/${encodeURIComponent(token)}/join`;
-  return postJson<JoinOrganizationResult>(path, {});
+  try {
+    const result = await apiClient.POST("/invitations/{token}/join", {
+      params: { path: { token } },
+    });
+    if (result.error || !result.data) {
+      throw new AccountRequestError(
+        normalizeFailureBody(result.error, result.response.status),
+      );
+    }
+    return result.data;
+  } catch (cause: unknown) {
+    if (cause instanceof AccountRequestError) {
+      throw cause;
+    }
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+}
+
+function normalizeFailureBody(body: unknown, status: number): AccountFailure {
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    "code" in body &&
+    "summary" in body
+  ) {
+    const record = body as Record<string, unknown>;
+    const code = record["code"];
+    const summary = record["summary"];
+    if (typeof code === "string" && typeof summary === "string") {
+      return { code, summary };
+    }
+  }
+  return { code: "internal_error", summary: `HTTP ${status}` };
 }
 
 /**

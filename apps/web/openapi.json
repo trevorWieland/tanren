@@ -1,0 +1,580 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Tanren API",
+    "description": "Tanren control plane for agentic software delivery.",
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Liveness probe.",
+        "operationId": "health_route",
+        "responses": {
+          "200": {
+            "description": "Service is live",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts": {
+      "post": {
+        "tags": ["accounts"],
+        "summary": "Self-signup: create a new personal account and mint a cookie-bound session.",
+        "operationId": "sign_up_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignUpResponseCookie"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "duplicate_identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions": {
+      "post": {
+        "tags": ["accounts"],
+        "summary": "Sign-in: mint a cookie-bound session for an existing account.",
+        "operationId": "sign_in_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Sign-in succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInResponseCookie"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invitations/{token}/accept": {
+      "post": {
+        "tags": ["accounts"],
+        "summary": "Accept an organization invitation and mint a cookie-bound session.",
+        "operationId": "accept_invitation_route",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Opaque invitation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Invitation accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptInvitationResponseCookie"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "invitation_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "invitation_expired or invitation_already_consumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invitations/{token}/join": {
+      "post": {
+        "tags": ["accounts"],
+        "summary": "Join an organization with an existing account. Reads the signed-in account from the cookie session; no request body required.",
+        "operationId": "join_organization_route",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Opaque invitation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Joined organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinOrganizationResponseCookie"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "wrong_account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "invitation_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "invitation_expired or invitation_already_consumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/revoke": {
+      "post": {
+        "tags": ["accounts"],
+        "summary": "Revoke (sign out) the current session. Clears the cookie via `Session::flush` and returns 204.",
+        "operationId": "revoke_route",
+        "responses": {
+          "204": {
+            "description": "Session revoked"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "description": "Liveness response.",
+        "required": ["status", "version", "contract_version"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Static \"ok\" string."
+          },
+          "version": {
+            "type": "string",
+            "description": "Build-time package version."
+          },
+          "contract_version": {
+            "type": "integer",
+            "description": "Wire-contract version.",
+            "format": "int32"
+          }
+        }
+      },
+      "SignUpRequest": {
+        "type": "object",
+        "description": "Self-signup request.",
+        "required": ["email", "password", "display_name"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address that will own the new account."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "Plaintext password."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable display name for the new account."
+          }
+        }
+      },
+      "SignUpResponseCookie": {
+        "type": "object",
+        "description": "Cookie-transport response shape for the api surface.",
+        "required": ["account", "session"],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountView"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionEnvelope"
+          }
+        }
+      },
+      "SignInRequest": {
+        "type": "object",
+        "description": "Sign-in request.",
+        "required": ["email", "password"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email of the account being signed in to."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "Plaintext password — verified against the stored hash."
+          }
+        }
+      },
+      "SignInResponseCookie": {
+        "type": "object",
+        "description": "Cookie-transport projection of a sign-in response.",
+        "required": ["account", "session"],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountView"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionEnvelope"
+          }
+        }
+      },
+      "AcceptInvitationBody": {
+        "type": "object",
+        "description": "Path body for `POST /invitations/{token}/accept`.",
+        "required": ["email", "password", "display_name"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email the invitee chose."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "Plaintext password."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Display name."
+          }
+        }
+      },
+      "AcceptInvitationResponseCookie": {
+        "type": "object",
+        "description": "Cookie-transport projection of an invitation-acceptance response.",
+        "required": ["account", "session", "joined_org"],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountView"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionEnvelope"
+          },
+          "joined_org": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization the new account joined."
+          }
+        }
+      },
+      "JoinOrganizationResponseCookie": {
+        "type": "object",
+        "description": "Response shape for `POST /invitations/{token}/join`.",
+        "required": [
+          "joined_org",
+          "membership_permissions",
+          "selectable_organizations",
+          "project_access_grants"
+        ],
+        "properties": {
+          "joined_org": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization the account joined."
+          },
+          "membership_permissions": {
+            "type": "string",
+            "description": "Organization-level permissions granted by the new membership."
+          },
+          "selectable_organizations": {
+            "type": "array",
+            "description": "All organization memberships selectable by this account.",
+            "items": {
+              "$ref": "#/components/schemas/OrgMembershipView"
+            }
+          },
+          "project_access_grants": {
+            "type": "array",
+            "description": "Project-level access grants (always empty on join).",
+            "items": {
+              "$ref": "#/components/schemas/ProjectAccessGrant"
+            }
+          }
+        }
+      },
+      "OrgMembershipView": {
+        "type": "object",
+        "description": "View of one organization membership.",
+        "required": ["org_id", "permissions"],
+        "properties": {
+          "org_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization the account is a member of."
+          },
+          "permissions": {
+            "type": "string",
+            "description": "Organization-level permissions for this membership."
+          }
+        }
+      },
+      "ProjectAccessGrant": {
+        "type": "object",
+        "description": "Placeholder for a project-level access grant."
+      },
+      "AccountView": {
+        "type": "object",
+        "description": "External-facing view of a Tanren account.",
+        "required": ["id", "identifier", "display_name"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable account id."
+          },
+          "identifier": {
+            "type": "string",
+            "description": "User-facing identifier (email)."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Display name."
+          },
+          "org": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Owning organization id — null for personal accounts.",
+            "nullable": true
+          }
+        }
+      },
+      "SessionEnvelope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Cookie-bound session for @web + @api.",
+            "required": ["transport", "account_id", "expires_at"],
+            "properties": {
+              "transport": {
+                "type": "string",
+                "enum": ["cookie"]
+              },
+              "account_id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Account this session is bound to."
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Wall-clock time at which the session expires."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Bearer-token session for @cli + @mcp + @tui.",
+            "required": ["transport", "account_id", "expires_at", "token"],
+            "properties": {
+              "transport": {
+                "type": "string",
+                "enum": ["bearer"]
+              },
+              "account_id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Account this session is bound to."
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Wall-clock time at which the session expires."
+              },
+              "token": {
+                "type": "string",
+                "description": "Opaque session token."
+              }
+            }
+          }
+        ],
+        "description": "Transport-aware projection of a freshly minted session."
+      },
+      "AccountFailureBody": {
+        "type": "object",
+        "description": "Shared {code, summary} failure body.",
+        "required": ["code", "summary"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable error code from the closed taxonomy."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary."
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Liveness probe."
+    },
+    {
+      "name": "accounts",
+      "description": "Account flow: self-signup, sign-in, accept-invitation, join-organization, sign-out."
+    }
+  ]
+}
