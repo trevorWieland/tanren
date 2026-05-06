@@ -84,7 +84,7 @@ pub(crate) fn list_organizations(ctx: &mut Ctx<'_>, store: &Store) {
                 for org in &orgs {
                     lines.push(format!(
                         "org_id={} name={} project_count={}",
-                        org.id, org.display_name, org.project_count
+                        org.id, org.name, 0
                     ));
                 }
             }

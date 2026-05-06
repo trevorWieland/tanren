@@ -130,7 +130,7 @@ pub(crate) fn create_organization_outcome(output: &CreateOrganizationOutput) -> 
         title: "Organization created",
         lines: vec![
             format!("organization_id: {}", output.organization.id),
-            format!("name: {}", output.organization.display_name),
+            format!("name: {}", output.organization.name),
             format!("project_count: {}", output.project_count),
             format!("permissions: {}", permission_labels.join(", ")),
         ],

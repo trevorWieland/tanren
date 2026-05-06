@@ -1,7 +1,8 @@
 use tanren_contract::{
     CreateOrganizationRequest, OrganizationAdminOperation, OrganizationFailureReason,
+    OrganizationMembershipView, OrganizationView,
 };
-use tanren_identity_policy::{AccountId, MembershipId, OrgId, OrgPermission};
+use tanren_identity_policy::{AccountId, MembershipId, OrgId, OrgPermission, OrganizationName};
 use tanren_store::{
     AccountStore, CreateOrganizationAtomicRequest, CreateOrganizationError, MembershipRecord,
     NewOrganization, OrganizationRecord, OrganizationStore,
@@ -22,11 +23,11 @@ const BOOTSTRAP_PERMISSIONS: [OrgPermission; 5] = [
 
 #[derive(Debug)]
 pub struct CreateOrganizationOutput {
-    pub organization: OrganizationRecord,
-    pub membership: MembershipRecord,
+    pub organization: OrganizationView,
+    pub membership: OrganizationMembershipView,
     pub granted_permissions: Vec<OrgPermission>,
     pub project_count: u64,
-    pub available_organizations: Vec<OrganizationRecord>,
+    pub available_organizations: Vec<OrganizationView>,
 }
 
 pub(crate) async fn create_organization_for_account<S>(
@@ -99,10 +100,11 @@ where
         .await?;
 
     let available_organizations = store.list_account_organizations(account_id).await?;
+    let available_organizations = convert_org_list(available_organizations)?;
 
     Ok(CreateOrganizationOutput {
-        organization: outcome.organization,
-        membership: outcome.membership,
+        organization: org_record_to_view(&outcome.organization)?,
+        membership: membership_record_to_view(&outcome.membership, BOOTSTRAP_PERMISSIONS.to_vec()),
         granted_permissions: BOOTSTRAP_PERMISSIONS.to_vec(),
         project_count: 0,
         available_organizations,
@@ -134,12 +136,12 @@ where
 pub(crate) async fn list_account_organizations<S>(
     store: &S,
     account_id: AccountId,
-) -> Result<Vec<OrganizationRecord>, AppServiceError>
+) -> Result<Vec<OrganizationView>, AppServiceError>
 where
     S: OrganizationStore + ?Sized,
 {
     let orgs = store.list_account_organizations(account_id).await?;
-    Ok(orgs)
+    convert_org_list(orgs)
 }
 
 pub(crate) async fn authorize_org_admin_operation<S>(
@@ -208,4 +210,40 @@ pub(crate) fn admin_operation_to_permission(
         OrganizationAdminOperation::Delete => Some(OrgPermission::Delete),
         _ => None,
     }
+}
+
+fn org_record_to_view(record: &OrganizationRecord) -> Result<OrganizationView, AppServiceError> {
+    let name = OrganizationName::parse(&record.canonical_name).map_err(|_| {
+        AppServiceError::InvalidInput(format!(
+            "data integrity: canonical_name {:?} failed re-validation",
+            record.canonical_name
+        ))
+    })?;
+    Ok(OrganizationView {
+        id: record.id,
+        name,
+        created_at: record.created_at,
+    })
+}
+
+fn membership_record_to_view(
+    record: &MembershipRecord,
+    permissions: Vec<OrgPermission>,
+) -> OrganizationMembershipView {
+    OrganizationMembershipView {
+        id: record.id,
+        account_id: record.account_id,
+        org_id: record.org_id,
+        permissions,
+        created_at: record.created_at,
+    }
+}
+
+fn convert_org_list(
+    records: Vec<OrganizationRecord>,
+) -> Result<Vec<OrganizationView>, AppServiceError> {
+    records
+        .into_iter()
+        .map(|r| org_record_to_view(&r))
+        .collect()
 }

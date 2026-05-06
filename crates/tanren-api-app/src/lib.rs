@@ -59,13 +59,14 @@ use tower_http::cors::CorsLayer;
 
 #[cfg(any(test, feature = "test-hooks"))]
 use crate::cookies::session_layer_with_secure;
+
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
 pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
-    AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse,
-    ListOrganizationsResponse, SignInResponseCookie, SignUpResponseCookie,
+    AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
+    SignUpResponseCookie,
 };
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";

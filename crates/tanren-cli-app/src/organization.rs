@@ -69,7 +69,7 @@ async fn run(action: OrganizationAction) -> Result<()> {
                 handle,
                 "org_id={id} name={name} project_count={count} permissions=[{perms}]",
                 id = response.organization.id,
-                name = response.organization.display_name,
+                name = response.organization.name,
                 count = response.project_count,
                 perms = permissions.join(", "),
             )
@@ -94,8 +94,8 @@ async fn run(action: OrganizationAction) -> Result<()> {
                         handle,
                         "org_id={id} name={name} project_count={count}",
                         id = org.id,
-                        name = org.display_name,
-                        count = org.project_count,
+                        name = org.name,
+                        count = 0u64,
                     )
                     .context("write list result")?;
                 }

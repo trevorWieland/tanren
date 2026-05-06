@@ -24,10 +24,9 @@ use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, CreateOrganizationRequest, CreateOrganizationResponse,
-    OrganizationMembershipView, OrganizationView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, CreateOrganizationRequest, CreateOrganizationResponse, SignInRequest,
+    SignUpRequest,
 };
-use tanren_identity_policy::OrganizationName;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -132,25 +131,9 @@ impl TanrenMcp {
             .await
         {
             Ok(out) => {
-                let org_view = OrganizationView {
-                    id: out.organization.id,
-                    name: match OrganizationName::parse(&out.organization.canonical_name) {
-                        Ok(n) => n,
-                        Err(e) => {
-                            return Ok(map_failure(AppServiceError::InvalidInput(e.to_string())));
-                        }
-                    },
-                    created_at: out.organization.created_at,
-                };
                 let response = CreateOrganizationResponse {
-                    organization: org_view,
-                    membership: OrganizationMembershipView {
-                        id: out.membership.id,
-                        account_id: out.membership.account_id,
-                        org_id: out.membership.org_id,
-                        permissions: out.granted_permissions,
-                        created_at: out.membership.created_at,
-                    },
+                    organization: out.organization,
+                    membership: out.membership,
                 };
                 Ok(success(&response))
             }
@@ -178,25 +161,7 @@ impl TanrenMcp {
             .list_account_organizations(self.store.as_ref(), aid)
             .await
         {
-            Ok(recs) => {
-                let views: Vec<OrganizationView> = match recs
-                    .iter()
-                    .map(|r| {
-                        OrganizationName::parse(&r.canonical_name)
-                            .map(|name| OrganizationView {
-                                id: r.id,
-                                name,
-                                created_at: r.created_at,
-                            })
-                            .map_err(|e| AppServiceError::InvalidInput(e.to_string()))
-                    })
-                    .collect::<Result<_, AppServiceError>>()
-                {
-                    Ok(v) => v,
-                    Err(e) => return Ok(map_failure(e)),
-                };
-                Ok(success(&views))
-            }
+            Ok(views) => Ok(success(&views)),
             Err(e) => Ok(map_failure(e)),
         }
     }

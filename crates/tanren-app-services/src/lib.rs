@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
     CreateOrganizationRequest, OrganizationAdminOperation, OrganizationFailureReason,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    OrganizationView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
     AccountId, Argon2idVerifier, CredentialVerifier, OrgId, OrgPermission,
@@ -260,7 +260,7 @@ impl Handlers {
         &self,
         store: &S,
         account_id: AccountId,
-    ) -> Result<Vec<tanren_store::OrganizationRecord>, AppServiceError>
+    ) -> Result<Vec<OrganizationView>, AppServiceError>
     where
         S: OrganizationStore + ?Sized,
     {

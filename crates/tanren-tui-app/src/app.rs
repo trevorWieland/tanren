@@ -328,7 +328,7 @@ impl App {
             Ok(orgs) => {
                 let summary: Vec<_> = orgs
                     .iter()
-                    .map(|o| (o.id.to_string(), o.display_name.clone(), o.project_count))
+                    .map(|o| (o.id.to_string(), o.name.to_string(), 0u64))
                     .collect();
                 self.screen = Screen::Outcome(list_organizations_outcome(&summary));
             }

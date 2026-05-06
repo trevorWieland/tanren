@@ -170,7 +170,7 @@ impl AccountHarness for InProcessHarness {
         {
             Ok(out) => Ok(HarnessOrganization {
                 org_id: out.organization.id,
-                name: out.organization.canonical_name,
+                name: out.organization.name.to_string(),
                 granted_permissions: out.granted_permissions,
                 project_count: out.project_count,
             }),
@@ -192,9 +192,9 @@ impl AccountHarness for InProcessHarness {
             .map_err(translate_app_error)?;
         Ok(orgs
             .into_iter()
-            .map(|r| HarnessOrgSummary {
-                id: r.id,
-                name: r.canonical_name,
+            .map(|v| HarnessOrgSummary {
+                id: v.id,
+                name: v.name.to_string(),
             })
             .collect())
     }

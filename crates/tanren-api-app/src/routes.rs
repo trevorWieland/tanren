@@ -10,11 +10,10 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CreateOrganizationRequest, CreateOrganizationResponse,
-    OrganizationAdminOperation, OrganizationMembershipView, OrganizationView, SessionEnvelope,
-    SignInRequest, SignUpRequest,
+    ListOrganizationsResponse, OrganizationAdminOperation, OrganizationMembershipView,
+    OrganizationView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId, OrganizationName};
-use tanren_store::{MembershipRecord, OrganizationRecord};
+use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -77,13 +76,6 @@ pub struct AcceptInvitationBody {
     pub password: String,
     /// Display name.
     pub display_name: String,
-}
-
-/// Response for `GET /account/organizations`.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ListOrganizationsResponse {
-    /// Organizations the authenticated account belongs to.
-    pub organizations: Vec<OrganizationView>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -327,40 +319,6 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-fn org_view(record: &OrganizationRecord) -> Result<OrganizationView, Box<Response>> {
-    let name = OrganizationName::parse(&record.canonical_name).map_err(|err| {
-        tracing::error!(target: "tanren_api", error = %err, "canonical_name revalidation failed");
-        Box::new(
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
-                    code: "internal_error".to_owned(),
-                    summary: "Tanren encountered an internal error.".to_owned(),
-                }),
-            )
-                .into_response(),
-        )
-    })?;
-    Ok(OrganizationView {
-        id: record.id,
-        name,
-        created_at: record.created_at,
-    })
-}
-
-fn membership_view(
-    record: &MembershipRecord,
-    permissions: Vec<tanren_identity_policy::OrgPermission>,
-) -> OrganizationMembershipView {
-    OrganizationMembershipView {
-        id: record.id,
-        account_id: record.account_id,
-        org_id: record.org_id,
-        permissions,
-        created_at: record.created_at,
-    }
-}
-
 /// Create a new organization. The cookie-authenticated account becomes the
 /// creator and receives all five bootstrap admin permissions.
 #[utoipa::path(
@@ -388,20 +346,14 @@ pub(crate) async fn create_organization_route(
         .create_organization_for_account(state.store.as_ref(), account_id, request)
         .await
     {
-        Ok(output) => {
-            let organization = match org_view(&output.organization) {
-                Ok(v) => v,
-                Err(r) => return *r,
-            };
-            (
-                StatusCode::CREATED,
-                Json(CreateOrganizationResponse {
-                    organization,
-                    membership: membership_view(&output.membership, output.granted_permissions),
-                }),
-            )
-                .into_response()
-        }
+        Ok(output) => (
+            StatusCode::CREATED,
+            Json(CreateOrganizationResponse {
+                organization: output.organization,
+                membership: output.membership,
+            }),
+        )
+            .into_response(),
         Err(err) => map_app_error(err),
     }
 }
@@ -428,18 +380,11 @@ pub(crate) async fn list_account_organizations_route(
         .list_account_organizations(state.store.as_ref(), account_id)
         .await
     {
-        Ok(records) => {
-            let organizations: Vec<OrganizationView> =
-                match records.iter().map(org_view).collect::<Result<Vec<_>, _>>() {
-                    Ok(v) => v,
-                    Err(r) => return *r,
-                };
-            (
-                StatusCode::OK,
-                Json(ListOrganizationsResponse { organizations }),
-            )
-                .into_response()
-        }
+        Ok(organizations) => (
+            StatusCode::OK,
+            Json(ListOrganizationsResponse { organizations }),
+        )
+            .into_response(),
         Err(err) => map_app_error(err),
     }
 }
