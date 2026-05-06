@@ -416,20 +416,13 @@ pub fn event_kinds(events: &[EventEnvelope]) -> Vec<String> {
 
 /// Normalize a repository URL into a canonical byte identity string.
 /// Steps use this to compute the expected identity before/after connect
-/// and to assert the one-project-per-repository invariant. Mirrors the
-/// private `normalize_repository_identity` in `tanren_app_services::project`.
+/// and to assert the one-project-per-repository invariant. Delegates to
+/// the shared implementation in `tanren_contract` so app services and
+/// test fixtures use the same logic.
+#[cfg(feature = "test-hooks")]
 #[must_use]
 pub fn normalize_repository_identity(url: &str) -> String {
-    let stripped = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .or_else(|| url.strip_prefix("ssh://"))
-        .or_else(|| url.strip_prefix("git@"))
-        .unwrap_or(url);
-    let replaced = stripped.replace(':', "/");
-    let trimmed = replaced.strip_suffix(".git").unwrap_or(replaced.as_str());
-    let trimmed = trimmed.strip_suffix('/').unwrap_or(trimmed);
-    trimmed.to_lowercase()
+    tanren_contract::normalize_repository_identity(url)
 }
 
 /// Track concurrent invitation-acceptance outcomes for the falsification

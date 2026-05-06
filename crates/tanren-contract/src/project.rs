@@ -5,6 +5,10 @@
 //! one repository; the content counts start at zero (no specs, milestones,
 //! or initiatives are scaffolded).
 
+pub use crate::project_input::{
+    ProjectInputError, ProjectName, ProviderHost, RepositoryUrl, normalize_repository_identity,
+};
+
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -12,10 +16,6 @@ use tanren_identity_policy::{AccountId, OrgId, ProjectId, RepositoryId};
 use utoipa::ToSchema;
 
 /// Connect an existing repository the caller already controls (B-0025).
-///
-/// The caller supplies the repository URL on a designated SCM host; Tanren
-/// registers the project and links it to that repository. The repository
-/// is not created or modified — only registered as the backing store.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConnectProjectRequest {
     /// Human-readable name for the new project.
@@ -30,10 +30,6 @@ pub struct ConnectProjectRequest {
 }
 
 /// Create a new project and its backing repository in one step (B-0026).
-///
-/// The handler delegates repository creation to the designated SCM provider
-/// (M-0009) using the caller's existing provider connection (R-0016), then
-/// registers the project.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateProjectRequest {
     /// Human-readable name for the new project.
@@ -76,8 +72,7 @@ pub struct RepositoryView {
 }
 
 /// Summary of content counts for a project. A freshly registered project
-/// starts with all counts at zero — no specs, milestones, or initiatives
-/// are scaffolded.
+/// starts with all counts at zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ProjectContentCounts {
     /// Number of specs in the project.
@@ -100,11 +95,7 @@ impl ProjectContentCounts {
     }
 }
 
-/// External-facing view of the caller's currently active project.
-///
-/// Returned by the "get active project" and "set active project" endpoints
-/// (R-0020). Carries the full project view plus metadata about when the
-/// project was activated in the caller's session.
+/// External-facing view of the caller's currently active project (R-0020).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ActiveProjectView {
     /// The active project.
@@ -127,8 +118,7 @@ pub enum ProjectFailureReason {
     /// The caller does not have access to the target repository or
     /// provider connection.
     AccessDenied,
-    /// The repository is already registered to another project (one
-    /// project = one repository).
+    /// The repository is already registered to another project.
     DuplicateRepository,
     /// User-supplied input failed validation before any provider or
     /// persistence operations could run.

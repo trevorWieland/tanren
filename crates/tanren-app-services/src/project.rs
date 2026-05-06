@@ -12,12 +12,19 @@
 //! `P: SourceControlProvider` (the SCM provider trait defined in
 //! `tanren_provider_integrations`). The SeaORM-backed `Store` and a
 //! concrete provider adapter are injected by interface binaries.
+//!
+//! Input validation uses the bounded typed inputs from
+//! `tanren_contract` ([`ProjectName`], [`ProviderHost`],
+//! [`RepositoryUrl`]) to enforce length limits and reject URLs with
+//! credentials, query strings, or fragments *before* any provider or
+//! store call.
 
 use chrono::{DateTime, Utc};
 use tanren_contract::project::RepositoryView;
 use tanren_contract::{
     ActiveProjectView, ConnectProjectRequest, CreateProjectRequest, ProjectContentCounts,
-    ProjectFailureReason, ProjectView,
+    ProjectFailureReason, ProjectName, ProjectView, ProviderHost, RepositoryUrl,
+    normalize_repository_identity,
 };
 use tanren_identity_policy::{AccountId, ProjectId, RepositoryId};
 use tanren_provider_integrations::{HostId, SourceControlProvider};
@@ -40,17 +47,13 @@ where
     S: ProjectStore + AccountStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
-    let name = request.name.trim().to_owned();
-    let url = request.repository_url.trim().to_owned();
+    let name = ProjectName::parse(&request.name)
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
+    let url = RepositoryUrl::parse(&request.repository_url)
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
     let now = clock.now();
 
-    if name.is_empty() || url.is_empty() {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::ValidationFailed,
-        ));
-    }
-
-    let identity = normalize_repository_identity(&url);
+    let identity = normalize_repository_identity(url.as_str());
     if store
         .find_project_by_repository_identity(&identity)
         .await?
@@ -61,17 +64,16 @@ where
         ));
     }
 
-    let Some(host) = extract_host(&url) else {
-        emit_connect_rejected(store, ProjectFailureReason::ValidationFailed, &url, now).await?;
+    let Some(host_str) = url.host() else {
         return Err(AppServiceError::Project(
             ProjectFailureReason::ValidationFailed,
         ));
     };
-    let host_id = HostId::new(host);
+    let host_id = HostId::new(host_str.to_owned());
 
-    if let Err(err) = scm.check_repo_access(&host_id, &url).await {
+    if let Err(err) = scm.check_repo_access(&host_id, url.as_str()).await {
         let reason = map_provider_error(&err);
-        emit_connect_rejected(store, reason, &url, now).await?;
+        emit_connect_rejected(store, reason, &url.redacted(), now).await?;
         return Err(AppServiceError::Project(reason));
     }
 
@@ -82,12 +84,12 @@ where
         .register_project_atomic(
             NewProject {
                 id: project_id,
-                name,
+                name: name.as_str().to_owned(),
                 repository_id,
                 owner_account_id: account_id,
                 owner_org_id: request.org,
                 repository_identity: identity,
-                repository_url: url.clone(),
+                repository_url: url.as_str().to_owned(),
                 created_at: now,
             },
             now,
@@ -134,28 +136,26 @@ where
     S: ProjectStore + AccountStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
-    let name = request.name.trim().to_owned();
-    let host_str = request.provider_host.trim().to_owned();
+    let name = ProjectName::parse(&request.name)
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
+    let host = ProviderHost::parse(&request.provider_host)
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
     let now = clock.now();
 
-    if name.is_empty() || host_str.is_empty() {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::ValidationFailed,
-        ));
-    }
+    let host_id = HostId::new(host.as_str().to_owned());
 
-    let host_id = HostId::new(host_str.clone());
-
-    let repo_info = match scm.create_repository(&host_id, &name).await {
+    let repo_info = match scm.create_repository(&host_id, name.as_str()).await {
         Ok(info) => info,
         Err(err) => {
             let reason = map_provider_error(&err);
-            emit_create_rejected(store, reason, &host_str, now).await?;
+            emit_create_rejected(store, reason, host.as_str(), now).await?;
             return Err(AppServiceError::Project(reason));
         }
     };
 
-    let identity = normalize_repository_identity(&repo_info.url);
+    let url = RepositoryUrl::parse(&repo_info.url)
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
+    let identity = normalize_repository_identity(url.as_str());
     let project_id = ProjectId::fresh();
     let repository_id = RepositoryId::fresh();
 
@@ -163,12 +163,12 @@ where
         .register_project_atomic(
             NewProject {
                 id: project_id,
-                name,
+                name: name.as_str().to_owned(),
                 repository_id,
                 owner_account_id: account_id,
                 owner_org_id: request.org,
                 repository_identity: identity,
-                repository_url: repo_info.url.clone(),
+                repository_url: url.as_str().to_owned(),
                 created_at: now,
             },
             now,
@@ -239,32 +239,6 @@ fn project_view(record: &ProjectRecord) -> ProjectView {
     }
 }
 
-fn normalize_repository_identity(url: &str) -> String {
-    let stripped = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .or_else(|| url.strip_prefix("ssh://"))
-        .or_else(|| url.strip_prefix("git@"))
-        .unwrap_or(url);
-    let replaced = stripped.replace(':', "/");
-    let trimmed = replaced.strip_suffix(".git").unwrap_or(replaced.as_str());
-    let trimmed = trimmed.strip_suffix('/').unwrap_or(trimmed);
-    trimmed.to_lowercase()
-}
-
-fn extract_host(url: &str) -> Option<String> {
-    let stripped = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .or_else(|| url.strip_prefix("ssh://"))
-        .or_else(|| url.strip_prefix("git@"))?;
-    let host = stripped.split(['/', ':']).next()?;
-    if host.is_empty() {
-        return None;
-    }
-    Some(host.to_lowercase())
-}
-
 fn map_provider_error(err: &tanren_provider_integrations::ProviderError) -> ProjectFailureReason {
     match err {
         tanren_provider_integrations::ProviderError::HostAccess(_) => {
@@ -280,7 +254,7 @@ fn map_provider_error(err: &tanren_provider_integrations::ProviderError) -> Proj
 async fn emit_connect_rejected<S>(
     store: &S,
     reason: ProjectFailureReason,
-    repository_url: &str,
+    redacted_url: &str,
     now: DateTime<Utc>,
 ) -> Result<(), AppServiceError>
 where
@@ -292,7 +266,7 @@ where
                 ProjectEventKinds::PROJECT_CONNECT_REJECTED,
                 &ProjectConnectRejected {
                     reason,
-                    repository_url: repository_url.to_owned(),
+                    repository_url: redacted_url.to_owned(),
                     at: now,
                 },
             ),

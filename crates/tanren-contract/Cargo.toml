@@ -31,3 +31,4 @@ thiserror = { workspace = true }
 # OpenAPI document). Both derives stay on the same struct definition so
 # the contract layer remains the single source of truth.
 utoipa = { workspace = true }
+url = { workspace = true }

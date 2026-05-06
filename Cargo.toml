@@ -277,3 +277,4 @@ utoipa-axum = "0.2"
 # `test-hooks` feature.
 expectrl = "0.7"
 regex = "1"
+url = "2"

@@ -4282,6 +4282,7 @@ dependencies = [
  "serde",
  "tanren-identity-policy",
  "thiserror 2.0.18",
+ "url",
  "utoipa",
 ]
 

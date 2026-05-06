@@ -228,6 +228,33 @@ Feature: Connect Tanren to an existing repository
       When alice connects the repository "acme-tui-no-provider-repo" to her account
       Then the request fails with code "provider_not_configured"
 
+  Rule: Input validation
+
+    @falsification @api
+    Scenario: Connecting a repository with a URL containing credentials over the API is rejected
+      When alice connects a repository with URL "https://user:pass@github.com/org/repo" to her account
+      Then the request fails with code "validation_failed"
+
+    @falsification @mcp
+    Scenario: Connecting a repository with a URL containing a query string over MCP is rejected
+      When alice connects a repository with URL "https://github.com/org/repo?token=secret" to her account
+      Then the request fails with code "validation_failed"
+
+    @falsification @cli
+    Scenario: Connecting a repository with a URL containing a fragment over the CLI is rejected
+      When alice connects a repository with URL "https://github.com/org/repo#section" to her account
+      Then the request fails with code "validation_failed"
+
+    @falsification @tui
+    Scenario: Connecting a repository with an empty name over the TUI is rejected
+      When alice connects a repository with an empty name to her account
+      Then the request fails with code "validation_failed"
+
+    @falsification @web
+    Scenario: Connecting a repository with a name exceeding the maximum length over the web is rejected
+      When alice connects a repository with a name exceeding the maximum length to her account
+      Then the request fails with code "validation_failed"
+
   Rule: Cross-interface verification
 
     # rationale: project creation via one surface must be observable from another surface without discrepancy

@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod project;
+pub mod project_input;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
@@ -14,7 +15,8 @@ pub use account::{
 };
 pub use project::{
     ActiveProjectView, ConnectProjectRequest, CreateProjectRequest, ProjectContentCounts,
-    ProjectFailureReason, ProjectView,
+    ProjectFailureReason, ProjectInputError, ProjectName, ProjectView, ProviderHost, RepositoryUrl,
+    normalize_repository_identity,
 };
 
 use serde::{Deserialize, Serialize};
