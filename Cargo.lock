@@ -4243,6 +4243,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "reqwest",
  "secrecy",
  "serde",
  "serde_json",

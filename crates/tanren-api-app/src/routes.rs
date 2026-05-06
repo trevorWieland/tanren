@@ -5,6 +5,8 @@
 //! 500-line line-budget. The wiring (router, openapi-json route,
 //! tower-sessions layer) lives in `lib.rs::build_app`.
 
+use std::path::PathBuf;
+
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -12,14 +14,17 @@ use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
+use tanren_app_services::install::{ProjectDriftContext, ProjectDriftError};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, DriftPolicy, InstallDriftRequest, InstallDriftResponse,
+    PreservationPolicy, SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{Email, InvitationToken, OrgId, ProjectId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use uuid::Uuid;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
@@ -98,6 +103,7 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        install_drift_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +115,18 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        InstallDriftResponse,
+        tanren_contract::InstallDriftEntry,
+        tanren_contract::InstallDriftAssetKind,
+        tanren_contract::InstallDriftState,
+        tanren_contract::DriftConfigSource,
+        DriftPolicy,
+        PreservationPolicy,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "install", description = "Install drift checks for project repositories."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -320,5 +334,72 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(install_drift_route))
         .with_state(state)
+}
+
+#[derive(Debug)]
+struct ApiProjectDriftContext {
+    projects_dir: PathBuf,
+}
+
+impl ProjectDriftContext for ApiProjectDriftContext {
+    fn resolve_repo_path(&self, project_id: ProjectId) -> Result<PathBuf, ProjectDriftError> {
+        let path = self.projects_dir.join(project_id.to_string());
+        if path.is_dir() {
+            Ok(path)
+        } else {
+            Err(ProjectDriftError::ProjectNotFound(project_id))
+        }
+    }
+
+    fn effective_drift_policy(&self, _project_id: ProjectId) -> DriftPolicy {
+        DriftPolicy::AllAssets
+    }
+
+    fn effective_preservation_policy(&self, _project_id: ProjectId) -> PreservationPolicy {
+        PreservationPolicy::AcceptUserEdits
+    }
+}
+
+/// Read-only drift check for an installed project repository.
+#[utoipa::path(
+    get,
+    path = "/projects/{project_id}/install/drift",
+    params(
+        ("project_id" = String, Path, description = "Project identifier (UUID)"),
+    ),
+    responses(
+        (status = 200, body = InstallDriftResponse, description = "Drift check completed"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 404, body = AccountFailureBody, description = "project_not_found"),
+        (status = 500, body = AccountFailureBody, description = "internal_error"),
+    ),
+    tag = "install",
+)]
+pub(crate) async fn install_drift_route(
+    State(state): State<AppState>,
+    Path(project_id_str): Path<String>,
+) -> Response {
+    let project_id = match Uuid::parse_str(&project_id_str) {
+        Ok(uuid) => ProjectId::new(uuid),
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AccountFailureBody {
+                    code: "validation_failed".to_owned(),
+                    summary: format!("invalid project identifier: {project_id_str}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let ctx = ApiProjectDriftContext {
+        projects_dir: state.projects_dir.clone(),
+    };
+    let request = InstallDriftRequest { project_id };
+    match state.handlers.install_drift(&ctx, &request) {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
 }

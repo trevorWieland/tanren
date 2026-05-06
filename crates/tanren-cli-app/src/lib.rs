@@ -15,21 +15,22 @@
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
-use tanren_app_services::install::{ProjectDriftContext, ProjectDriftError};
+use serde::Deserialize;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, DriftPolicy, InstallDriftRequest, PreservationPolicy, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, InstallDriftResponse, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, ProjectId};
+use tanren_identity_policy::{Email, InvitationToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
+const API_URL_ENV: &str = "TANREN_API_URL";
+const DEFAULT_API_URL: &str = "http://localhost:8080";
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
 /// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
@@ -125,11 +126,11 @@ enum AccountAction {
 enum InstallAction {
     /// Check installed assets for drift without modifying the repository.
     Drift {
-        /// Path to the installed repository to check.
+        /// Project identifier (UUID) of the installed repository.
         #[arg(long)]
-        repo: PathBuf,
+        project: String,
         /// Output format.
-        #[arg(long, value_parser = validate_report_kind)]
+        #[arg(long, value_parser = validate_report_kind, default_value = "json")]
         format: ReportKind,
     },
 }
@@ -343,57 +344,60 @@ fn session_path() -> PathBuf {
 }
 
 fn dispatch_install(action: InstallAction) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
     match action {
-        InstallAction::Drift { repo, format } => run_install_drift(&repo, format),
-    }
-}
-
-fn run_install_drift(repo: &Path, kind: ReportKind) -> Result<()> {
-    let ctx = CliProjectDriftContext {
-        repo_path: repo.to_path_buf(),
-    };
-    let request = InstallDriftRequest {
-        project_id: ProjectId::fresh(),
-    };
-    let response = Handlers::new()
-        .install_drift(&ctx, &request)
-        .map_err(|err| match err {
-            AppServiceError::InvalidInput(msg) => {
-                anyhow::anyhow!("error: validation_failed — {msg}")
-            }
-            other => anyhow::anyhow!("error: internal_error — {other}"),
-        })?;
-    match kind {
-        ReportKind::Json => {
-            let json = serde_json::to_string(&response).context("serialize drift report")?;
-            let stdout = std::io::stdout();
-            let mut handle = stdout.lock();
-            writeln!(handle, "{json}").context("write drift report")?;
+        InstallAction::Drift { project, format } => {
+            runtime.block_on(run_install_drift(&project, format))
         }
     }
-    if response.has_drift {
-        anyhow::bail!("drift detected");
-    }
-    Ok(())
 }
 
-#[derive(Debug)]
-struct CliProjectDriftContext {
-    repo_path: PathBuf,
+async fn run_install_drift(project: &str, kind: ReportKind) -> Result<()> {
+    let api_url = env::var(API_URL_ENV).unwrap_or_else(|_| DEFAULT_API_URL.to_owned());
+    let url = format!("{api_url}/projects/{project}/install/drift");
+
+    let response = reqwest::get(&url)
+        .await
+        .with_context(|| format!("request drift check from {url}"))?;
+
+    let status = response.status();
+    if status.is_success() {
+        let drift: InstallDriftResponse = response.json().await.context("parse drift response")?;
+        match kind {
+            ReportKind::Json => {
+                let json = serde_json::to_string(&drift).context("serialize drift report")?;
+                let stdout = std::io::stdout();
+                let mut handle = stdout.lock();
+                writeln!(handle, "{json}").context("write drift report")?;
+            }
+        }
+        if drift.has_drift {
+            anyhow::bail!("drift detected");
+        }
+        Ok(())
+    } else {
+        let body: DriftApiError = response.json().await.context("parse error response")?;
+        match body.code.as_str() {
+            "validation_failed" => {
+                anyhow::bail!("error: validation_failed — {}", body.summary)
+            }
+            "project_not_found" => {
+                anyhow::bail!("error: project_not_found — {}", body.summary)
+            }
+            _ => {
+                anyhow::bail!("error: internal_error — {}", body.summary)
+            }
+        }
+    }
 }
 
-impl ProjectDriftContext for CliProjectDriftContext {
-    fn resolve_repo_path(&self, _project_id: ProjectId) -> Result<PathBuf, ProjectDriftError> {
-        Ok(self.repo_path.clone())
-    }
-
-    fn effective_drift_policy(&self, _project_id: ProjectId) -> DriftPolicy {
-        DriftPolicy::AllAssets
-    }
-
-    fn effective_preservation_policy(&self, _project_id: ProjectId) -> PreservationPolicy {
-        PreservationPolicy::AcceptUserEdits
-    }
+#[derive(Deserialize)]
+struct DriftApiError {
+    code: String,
+    summary: String,
 }
 
 fn persist_session(token: &str) -> Result<()> {

@@ -85,6 +85,7 @@ impl ApiHarness {
             &database_url,
             vec![cors_origin],
             false,
+            PathBuf::from("."),
         )
         .await
         .map_err(|e| HarnessError::Transport(format!("build app: {e}")))?;

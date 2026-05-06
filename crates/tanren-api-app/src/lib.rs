@@ -47,6 +47,7 @@ mod routes;
 mod test_hooks;
 
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -73,6 +74,7 @@ const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 const BIND_ADDRESS_ENV: &str = "TANREN_API_BIND";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 const CORS_ORIGINS_ENV: &str = "TANREN_API_CORS_ORIGINS";
+const PROJECTS_DIR_ENV: &str = "TANREN_PROJECTS_DIR";
 
 /// Configuration for the tanren-api runtime.
 #[derive(Debug, Clone)]
@@ -87,6 +89,10 @@ pub struct Config {
     /// Allowed `Origin` values for the CORS layer. `tower_http::cors::Any`
     /// is denied workspace-wide — set this explicitly.
     pub cors_allow_origins: Vec<HeaderValue>,
+    /// Base directory where project repositories are located. The drift
+    /// route resolves `<projects_dir>/<project_id>/` as the repository
+    /// path.
+    pub projects_dir: PathBuf,
 }
 
 impl Config {
@@ -107,10 +113,13 @@ impl Config {
             format!("{DATABASE_URL_ENV} must be set so tanren-api can connect to the event store")
         })?;
         let cors_allow_origins = parse_cors_origins(env::var(CORS_ORIGINS_ENV).ok().as_deref())?;
+        let projects_dir =
+            PathBuf::from(env::var(PROJECTS_DIR_ENV).unwrap_or_else(|_| ".".to_owned()));
         Ok(Self {
             bind,
             database_url: SecretString::from(database_url),
             cors_allow_origins,
+            projects_dir,
         })
     }
 }
@@ -140,6 +149,7 @@ fn parse_cors_origins(raw: Option<&str>) -> Result<Vec<HeaderValue>> {
 pub(crate) struct AppState {
     pub(crate) handlers: Handlers,
     pub(crate) store: Arc<Store>,
+    pub(crate) projects_dir: PathBuf,
 }
 
 /// Build the axum router and the `OpenAPI` document. Exposed for the BDD
@@ -160,6 +170,7 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
+        projects_dir: config.projects_dir.clone(),
     };
 
     let cookie_store = build_cookie_store(database_url).await?;
@@ -236,10 +247,12 @@ pub async fn build_app_with_store(
     cookie_database_url: &str,
     cors_allow_origins: Vec<HeaderValue>,
     secure_cookie: bool,
+    projects_dir: PathBuf,
 ) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
+        projects_dir,
     };
 
     let cookie_store = build_cookie_store(cookie_database_url).await?;

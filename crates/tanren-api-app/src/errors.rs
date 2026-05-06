@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
+use tanren_app_services::install::ProjectDriftError;
 use tanren_contract::AccountFailureReason;
 
 /// Shared `{code, summary}` failure body.
@@ -59,6 +60,35 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
             )
                 .into_response()
         }
+        AppServiceError::ProjectDrift(ref err) => match err {
+            ProjectDriftError::ProjectNotFound(_) => (
+                StatusCode::NOT_FOUND,
+                Json(json!({"code": "project_not_found", "summary": err.to_string()})),
+            )
+                .into_response(),
+            ProjectDriftError::RepoPathNotResolved(_) => {
+                tracing::error!(target: "tanren_api", error = %err, "repo path not resolved");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "code": "internal_error",
+                        "summary": "Tanren encountered an internal error.",
+                    })),
+                )
+                    .into_response()
+            }
+            _ => {
+                tracing::error!(target: "tanren_api", error = %err, "project drift error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "code": "internal_error",
+                        "summary": "Tanren encountered an internal error.",
+                    })),
+                )
+                    .into_response()
+            }
+        },
         _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
