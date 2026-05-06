@@ -6,10 +6,16 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod install;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use install::{
+    DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftOutputFormat,
+    InstallDriftRequest, InstallDriftResponse, InstallDriftState, PreservationPolicy,
 };
 
 use serde::{Deserialize, Serialize};
