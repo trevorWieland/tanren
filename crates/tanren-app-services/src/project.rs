@@ -22,7 +22,8 @@ use tanren_identity_policy::{ProjectId, SpecId};
 use tanren_policy::{ActorContext, Decision, ProjectAction, evaluate_project_policy};
 use tanren_provider_integrations::ProviderRegistry;
 use tanren_store::{
-    AccountStore, DependencyLinkStatus, DisconnectProjectError, NewProject, ProjectStatus,
+    AccountStore, ConnectProjectAtomicRequest, DependencyLinkStatus,
+    DisconnectProjectAtomicRequest, DisconnectProjectError, NewProject, ProjectStatus,
     ProjectStore, ReconnectProjectError,
 };
 
@@ -131,36 +132,35 @@ where
     }
 
     let project_id = ProjectId::fresh();
-    let record = store
-        .insert_project(NewProject {
-            id: project_id,
+    let connect_event = project_envelope(
+        ProjectEventKind::ProjectConnected,
+        &ProjectConnected {
+            project_id,
             org_id: request.org_id,
             name: name.clone(),
-            provider_connection_id: request.provider_connection_id,
-            resource_id,
             display_ref: resource.display_ref.clone(),
-            connected_at: now,
+            at: now,
+        },
+    );
+
+    let output = store
+        .connect_project_atomic(ConnectProjectAtomicRequest {
+            project: NewProject {
+                id: project_id,
+                org_id: request.org_id,
+                name,
+                provider_connection_id: request.provider_connection_id,
+                resource_id,
+                display_ref: resource.display_ref.clone(),
+                connected_at: now,
+            },
+            events: vec![connect_event],
+            now,
         })
         .await?;
 
-    store
-        .append_event(
-            project_envelope(
-                ProjectEventKind::ProjectConnected,
-                &ProjectConnected {
-                    project_id: record.id,
-                    org_id: record.org_id,
-                    name,
-                    display_ref: record.display_ref.clone(),
-                    at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
-
     Ok(ConnectProjectResponse {
-        project: project_view(&record),
+        project: project_view(&output.project),
     })
 }
 
@@ -218,33 +218,20 @@ where
         ));
     }
 
-    let record = match store.disconnect_project(request.project_id, now).await {
-        Ok(r) => r,
-        Err(DisconnectProjectError::NotFound) => {
-            return Err(AppServiceError::Project(
-                ProjectFailureReason::ProjectNotFound,
-            ));
-        }
-        Err(DisconnectProjectError::Store(e)) => return Err(AppServiceError::Store(e)),
-    };
-
     let inbound = store.read_inbound_dependencies(request.project_id).await?;
     let mut unresolved = Vec::with_capacity(inbound.len());
+    let mut events = Vec::with_capacity(inbound.len() + 1);
+
     for link in &inbound {
-        store
-            .append_event(
-                project_envelope(
-                    ProjectEventKind::CrossProjectDependencyUnresolved,
-                    &CrossProjectDependencyUnresolved {
-                        source_project_id: link.dependency.source_project_id,
-                        source_spec_id: link.dependency.source_spec_id,
-                        unresolved_target_project_id: link.dependency.target_project_id,
-                        detected_at: now,
-                    },
-                ),
-                now,
-            )
-            .await?;
+        events.push(project_envelope(
+            ProjectEventKind::CrossProjectDependencyUnresolved,
+            &CrossProjectDependencyUnresolved {
+                source_project_id: link.dependency.source_project_id,
+                source_spec_id: link.dependency.source_spec_id,
+                unresolved_target_project_id: link.dependency.target_project_id,
+                detected_at: now,
+            },
+        ));
         unresolved.push(ProjectDependencyResponse {
             source_project_id: link.dependency.source_project_id,
             source_spec_id: link.dependency.source_spec_id,
@@ -253,25 +240,37 @@ where
         });
     }
 
-    store
-        .append_event(
-            project_envelope(
-                ProjectEventKind::ProjectDisconnected,
-                &ProjectDisconnected {
-                    project_id: record.id,
-                    at: now,
-                },
-            ),
+    events.push(project_envelope(
+        ProjectEventKind::ProjectDisconnected,
+        &ProjectDisconnected {
+            project_id: request.project_id,
+            at: now,
+        },
+    ));
+
+    let output = match store
+        .disconnect_project_atomic(DisconnectProjectAtomicRequest {
+            project_id: request.project_id,
+            events,
             now,
-        )
-        .await?;
+        })
+        .await
+    {
+        Ok(o) => o,
+        Err(DisconnectProjectError::NotFound) => {
+            return Err(AppServiceError::Project(
+                ProjectFailureReason::ProjectNotFound,
+            ));
+        }
+        Err(DisconnectProjectError::Store(e)) => return Err(AppServiceError::Store(e)),
+    };
 
     let remaining = store
         .list_connected_projects_for_account(actor.account_id())
         .await?;
 
     Ok(DisconnectProjectResponse {
-        project_id: record.id,
+        project_id: output.project.id,
         account_projects: remaining.iter().map(project_view).collect(),
         unresolved_inbound_dependencies: unresolved,
     })

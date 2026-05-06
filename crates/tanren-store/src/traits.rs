@@ -345,12 +345,66 @@ pub enum ReconnectProjectError {
     Store(#[from] StoreError),
 }
 
+/// Input for [`ProjectStore::connect_project_atomic`]. Bundles the
+/// project row to insert with the lifecycle events to append so the
+/// store can execute both as one transaction. Events are appended
+/// *before* the projection row (audit-first semantics).
+#[derive(Debug, Clone)]
+pub struct ConnectProjectAtomicRequest {
+    /// Project row to insert.
+    pub project: NewProject,
+    /// Canonical lifecycle events to append before the projection write.
+    pub events: Vec<serde_json::Value>,
+    /// Wall-clock instant for event timestamps and row writes.
+    pub now: DateTime<Utc>,
+}
+
+/// Successful return from [`ProjectStore::connect_project_atomic`].
+#[derive(Debug, Clone)]
+pub struct ConnectProjectAtomicOutput {
+    /// The inserted project record.
+    pub project: ProjectRecord,
+}
+
+/// Input for [`ProjectStore::disconnect_project_atomic`]. Carries the
+/// pre-built lifecycle events (unresolved dependency signals +
+/// disconnection event) so the store can append them all and update
+/// the projection in one transaction.
+#[derive(Debug, Clone)]
+pub struct DisconnectProjectAtomicRequest {
+    /// Project to disconnect.
+    pub project_id: ProjectId,
+    /// Canonical lifecycle events to append before the projection write.
+    pub events: Vec<serde_json::Value>,
+    /// Wall-clock instant for event timestamps and the
+    /// `disconnected_at` column.
+    pub now: DateTime<Utc>,
+}
+
+/// Successful return from [`ProjectStore::disconnect_project_atomic`].
+#[derive(Debug, Clone)]
+pub struct DisconnectProjectAtomicOutput {
+    /// The updated project record (status is now `Disconnected`).
+    pub project: ProjectRecord,
+}
+
 /// Port for project lifecycle persistence. The SeaORM-backed adapter is
 /// `impl ProjectStore for Store` (see `project_store.rs`).
+///
+/// Connect and disconnect are exposed *only* as atomic methods that
+/// append lifecycle events before updating projection rows — there is
+/// no public API to mutate `projects` rows without an accompanying
+/// event.
 #[async_trait]
 pub trait ProjectStore: Send + Sync + std::fmt::Debug {
-    /// Insert a new project row (initial connection).
-    async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError>;
+    /// Append the supplied lifecycle events, then insert the project
+    /// row, all in one transaction. The event-first order guarantees
+    /// the canonical event log captures the connection even if a
+    /// transient failure rolls back the projection write.
+    async fn connect_project_atomic(
+        &self,
+        request: ConnectProjectAtomicRequest,
+    ) -> Result<ConnectProjectAtomicOutput, StoreError>;
 
     /// Find a project by org, provider connection, and resource, regardless
     /// of connection status. Returns `None` when no matching row exists.
@@ -375,14 +429,14 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         account_id: AccountId,
     ) -> Result<Vec<ProjectRecord>, StoreError>;
 
-    /// Disconnect a project by setting `disconnected_at`. Does not
-    /// delete any project, spec, dependency, or repository metadata
-    /// rows.
-    async fn disconnect_project(
+    /// Append the supplied lifecycle events, then set
+    /// `disconnected_at` on the project row, all in one transaction.
+    /// Does not delete any project, spec, dependency, or repository
+    /// metadata rows.
+    async fn disconnect_project_atomic(
         &self,
-        project_id: ProjectId,
-        now: DateTime<Utc>,
-    ) -> Result<ProjectRecord, DisconnectProjectError>;
+        request: DisconnectProjectAtomicRequest,
+    ) -> Result<DisconnectProjectAtomicOutput, DisconnectProjectError>;
 
     /// Read all specs for a project, regardless of connection status.
     async fn read_project_specs(

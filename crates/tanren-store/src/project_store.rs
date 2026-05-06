@@ -12,12 +12,12 @@ use sea_orm::{
 use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId};
 use uuid::Uuid;
 
-use crate::NewProject;
 use crate::Store;
 use crate::entity;
 use crate::traits::{
-    DependencyLinkStatus, DisconnectProjectError, ProjectDependencyLink, ProjectStore,
-    ReconnectProjectError, ReconnectedProject,
+    ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, DependencyLinkStatus,
+    DisconnectProjectAtomicOutput, DisconnectProjectAtomicRequest, DisconnectProjectError,
+    ProjectDependencyLink, ProjectStore, ReconnectProjectError, ReconnectedProject,
 };
 use crate::{
     ProjectDependencyRecord, ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord, StoreError,
@@ -25,19 +25,11 @@ use crate::{
 
 #[async_trait]
 impl ProjectStore for Store {
-    async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError> {
-        let model = entity::projects::ActiveModel {
-            id: Set(new.id.as_uuid()),
-            org_id: Set(new.org_id.as_uuid()),
-            name: Set(new.name),
-            provider_connection_id: Set(new.provider_connection_id.as_uuid()),
-            resource_id: Set(new.resource_id),
-            display_ref: Set(new.display_ref),
-            connected_at: Set(new.connected_at),
-            disconnected_at: Set(None),
-        };
-        let inserted = model.insert(&self.conn).await?;
-        Ok(ProjectRecord::from(inserted))
+    async fn connect_project_atomic(
+        &self,
+        request: ConnectProjectAtomicRequest,
+    ) -> Result<ConnectProjectAtomicOutput, StoreError> {
+        crate::project_lifecycle::connect_atomic(&self.conn, request).await
     }
 
     async fn find_project_by_org_and_resource(
@@ -103,22 +95,11 @@ impl ProjectStore for Store {
         Ok(rows.into_iter().map(ProjectRecord::from).collect())
     }
 
-    async fn disconnect_project(
+    async fn disconnect_project_atomic(
         &self,
-        project_id: ProjectId,
-        now: DateTime<Utc>,
-    ) -> Result<ProjectRecord, DisconnectProjectError> {
-        let row = entity::projects::Entity::find_by_id(project_id.as_uuid())
-            .one(&self.conn)
-            .await
-            .map_err(StoreError::from)?
-            .ok_or(DisconnectProjectError::NotFound)?;
-
-        let mut active: entity::projects::ActiveModel = row.into();
-        active.disconnected_at = Set(Some(now));
-        let updated = active.update(&self.conn).await.map_err(StoreError::from)?;
-
-        Ok(ProjectRecord::from(updated))
+        request: DisconnectProjectAtomicRequest,
+    ) -> Result<DisconnectProjectAtomicOutput, DisconnectProjectError> {
+        crate::project_lifecycle::disconnect_atomic(&self.conn, request).await
     }
 
     async fn read_project_specs(
