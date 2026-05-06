@@ -365,12 +365,12 @@ When(
     await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.locator(
-      'section[aria-label*="Organization" i] select',
+    const trigger = page.locator(
+      'section[aria-label*="Organization" i] [data-testid="org-select-trigger"]',
     );
-    const hasSwitcher = (await switcher.count()) > 0;
-    if (hasSwitcher) {
-      const value = await switcher.inputValue();
+    const hasTrigger = (await trigger.count()) > 0;
+    if (hasTrigger) {
+      const value = await trigger.getAttribute("data-value");
       if (value) {
         a.activeOrg = value;
       }
@@ -398,10 +398,15 @@ When(
     await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.locator(
-      'section[aria-label*="Organization" i] select',
+    const trigger = page.locator(
+      'section[aria-label*="Organization" i] [data-testid="org-select-trigger"]',
     );
-    await switcher.selectOption({ value: orgId });
+    await trigger.click();
+    const item = page.locator(
+      `[data-testid="org-select-content"] [data-testid="org-option-${orgId}"]`,
+    );
+    await expect(item).toBeVisible({ timeout: 5_000 });
+    await item.click();
     a.activeOrg = orgId;
   },
 );
@@ -585,14 +590,21 @@ When(
     await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.locator(
-      'section[aria-label*="Organization" i] select',
+    const trigger = page.locator(
+      'section[aria-label*="Organization" i] [data-testid="org-select-trigger"]',
     );
-    const optionExists = await switcher
-      .locator(`option[value="${orgId}"]`)
-      .count();
-    if (optionExists > 0) {
-      await switcher.selectOption({ value: orgId });
+    const hasTrigger = (await trigger.count()) > 0;
+    if (hasTrigger) {
+      await trigger.click();
+      const item = page.locator(
+        `[data-testid="org-select-content"] [data-testid="org-option-${orgId}"]`,
+      );
+      const optionExists = await item.isVisible().catch(() => false);
+      if (optionExists) {
+        await item.click();
+      } else {
+        a.lastFailureCode = "organization-not-member";
+      }
     } else {
       a.lastFailureCode = "organization-not-member";
     }
@@ -605,14 +617,18 @@ Then(
     actor(world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.locator(
-      'section[aria-label*="Organization" i] select',
+    const trigger = page.locator(
+      'section[aria-label*="Organization" i] [data-testid="org-select-trigger"]',
     );
     if (count === "0") {
-      await expect(switcher).not.toBeVisible({ timeout: 5_000 });
+      await expect(trigger).not.toBeVisible({ timeout: 5_000 });
     } else {
-      await expect(switcher).toBeVisible({ timeout: 5_000 });
-      const optionCount = await switcher.locator("option").count();
+      await expect(trigger).toBeVisible({ timeout: 5_000 });
+      await trigger.click();
+      const items = page.locator(
+        `[data-testid="org-select-content"] [data-testid^="org-option-"]`,
+      );
+      const optionCount = await items.count();
       if (optionCount !== parseInt(count, 10)) {
         throw new Error(
           `expected ${count} org memberships, got ${optionCount}`,
@@ -658,13 +674,17 @@ Then(
 
 Then(
   /^the active organization is "([^"]+)"$/,
-  async ({ page, world: _world }, _orgId: string) => {
+  async ({ page, world: _world }, orgId: string) => {
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.locator(
-      'section[aria-label*="Organization" i] select',
+    const trigger = page.locator(
+      'section[aria-label*="Organization" i] [data-testid="org-select-trigger"]',
     );
-    await expect(switcher).toBeVisible({ timeout: 5_000 });
+    await expect(trigger).toBeVisible({ timeout: 5_000 });
+    const value = await trigger.getAttribute("data-value");
+    if (value !== orgId) {
+      throw new Error(`expected active org ${orgId}, got ${value}`);
+    }
   },
 );
 
@@ -675,12 +695,12 @@ Then(
     await page.goto("/");
     await waitForHydration(page);
     const personalLabel = page.getByText(/personal account/i);
-    const selectEl = page.locator(
-      'section[aria-label*="Organization" i] select',
+    const trigger = page.locator(
+      'section[aria-label*="Organization" i] [data-testid="org-select-trigger"]',
     );
     const hasPersonal = await personalLabel.isVisible().catch(() => false);
-    const hasSelect = await selectEl.isVisible().catch(() => false);
-    if (!hasPersonal && !hasSelect) {
+    const hasTrigger = await trigger.isVisible().catch(() => false);
+    if (!hasPersonal && !hasTrigger) {
       throw new Error(
         "expected either a 'personal account' label or an organization switcher",
       );

@@ -24,6 +24,7 @@
   "dependencies": {
     "@inlang/paraglide-js": "catalog:default",
     "@tanstack/react-query": "catalog:default",
+    "@radix-ui/react-select": "catalog:default",
     "react": "catalog:default",
     "react-dom": "catalog:default",
     "react-router": "catalog:default",

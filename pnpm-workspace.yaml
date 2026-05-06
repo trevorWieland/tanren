@@ -37,6 +37,8 @@ catalog:
   "@playwright/test": "1.59.1"
   "playwright-bdd": "8.5.0"
   "@axe-core/playwright": "4.11.3"
+  # Radix UI primitives for accessible select components.
+  "@radix-ui/react-select": "2.2.5"
   # Vite is pinned to ^7 because Storybook 9.1's framework packages
   # declare a `^5 || ^6 || ^7` peer range and vitest 4.1's transitive
   # `vite` bump to 8 trips that constraint. Drop this once Storybook 9

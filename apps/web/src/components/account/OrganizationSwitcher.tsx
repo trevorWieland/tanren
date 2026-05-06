@@ -7,6 +7,13 @@ import type {
   ProjectView,
 } from "@/app/lib/account-client";
 import { useOrganizationSwitcher } from "./useOrganizationSwitcher";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const PAGE_SIZE = 20;
 
@@ -15,15 +22,12 @@ export interface OrganizationSwitcherProps {
   onSwitched?: (activeOrg: string | null) => void;
 }
 
-const selectClass =
-  "w-full rounded-md border border-[--color-border] bg-[--color-bg-surface] px-3 py-2 text-base text-[--color-fg-default] focus:outline-none focus:ring-2 focus:ring-[--color-accent] sm:w-auto";
-
 export function OrganizationSwitcher({
   data,
   onSwitched,
 }: OrganizationSwitcherProps): ReactNode {
   const baseId = useId();
-  const selectId = `${baseId}-org`;
+  const labelId = `${baseId}-org-label`;
 
   const {
     activeOrg,
@@ -52,25 +56,34 @@ export function OrganizationSwitcher({
       className="flex w-full max-w-md flex-col gap-4"
     >
       <div className="flex flex-col gap-1">
-        <label htmlFor={selectId} className="text-sm font-medium">
+        <span id={labelId} className="text-sm font-medium">
           {m.orgSwitcher_label()}
-        </label>
-        <select
-          id={selectId}
+        </span>
+        <Select
           value={activeOrg ?? ""}
-          onChange={(event) => {
-            switchOrg(event.target.value);
-          }}
+          onValueChange={switchOrg}
           disabled={switching}
-          className={selectClass}
         >
-          {memberships.map((org) => (
-            <option key={org.org_id} value={org.org_id}>
-              {org.org_name}
-              {activeOrg === org.org_id ? ` ${m.orgSwitcher_active()}` : ""}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            aria-labelledby={labelId}
+            data-testid="org-select-trigger"
+            data-value={activeOrg ?? ""}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent data-testid="org-select-content">
+            {memberships.map((org) => (
+              <SelectItem
+                key={org.org_id}
+                value={org.org_id}
+                data-testid={`org-option-${org.org_id}`}
+              >
+                {org.org_name}
+                {activeOrg === org.org_id ? ` ${m.orgSwitcher_active()}` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {switching && (
