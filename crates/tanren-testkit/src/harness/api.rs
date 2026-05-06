@@ -82,6 +82,22 @@ impl ApiHarness {
             .build()
             .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
 
+        let health_url = format!("{base_url}/health");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match client.get(&health_url).send().await {
+                Ok(resp) if resp.status().is_success() => break,
+                _ if std::time::Instant::now() < deadline => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                _ => {
+                    return Err(HarnessError::Transport(
+                        "API server did not become ready within 10s".to_owned(),
+                    ));
+                }
+            }
+        }
+
         Ok(Self {
             base_url,
             client,
@@ -276,12 +292,22 @@ impl AccountHarness for ApiHarness {
         super::seed_project_via_store(&self.store, &fixture).await
     }
     async fn unauthenticated_request(&mut self, method: &str, path: &str) -> HarnessResult<Value> {
+        self.unauthenticated_request_with_body(method, path, Value::Null)
+            .await
+    }
+
+    async fn unauthenticated_request_with_body(
+        &mut self,
+        method: &str,
+        path: &str,
+        body: Value,
+    ) -> HarnessResult<Value> {
         let client = Client::builder()
             .timeout(super::HARNESS_DEFAULT_TIMEOUT)
             .build()
             .map_err(|e| HarnessError::Transport(format!("build client: {e}")))?;
         let url = format!("{}{path}", self.base_url);
-        let response = match method {
+        let request = match method {
             "GET" => client.get(&url),
             "POST" => client.post(&url),
             "PUT" => client.put(&url),
@@ -291,10 +317,16 @@ impl AccountHarness for ApiHarness {
                     "unsupported method: {method}"
                 )));
             }
-        }
-        .send()
-        .await
-        .map_err(|e| HarnessError::Transport(format!("{method} {path}: {e}")))?;
+        };
+        let request = if body.is_null() {
+            request
+        } else {
+            request.json(&body)
+        };
+        let response = request
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("{method} {path}: {e}")))?;
         let json: Value = response
             .json()
             .await

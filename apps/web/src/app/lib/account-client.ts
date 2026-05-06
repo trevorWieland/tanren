@@ -1,4 +1,5 @@
 import * as m from "@/i18n/paraglide/messages";
+import type { components } from "./generated-api";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
@@ -20,37 +21,22 @@ export interface AcceptInvitationInput {
   display_name: string;
 }
 
-export interface OrganizationMembershipView {
-  org_id: string;
-  org_name: string;
-}
+export type OrganizationMembershipView =
+  components["schemas"]["OrganizationMembershipView"];
 
-export interface OrganizationSwitcher {
-  memberships: OrganizationMembershipView[];
-  active_org: string | null;
-}
+export type OrganizationSwitcher =
+  components["schemas"]["OrganizationSwitcher"];
 
-export interface SwitchActiveOrganizationInput {
-  org_id: string;
-}
+export type SwitchActiveOrganizationInput =
+  components["schemas"]["SwitchActiveOrganizationRequest"];
 
-export interface SwitchActiveOrganizationResult {
-  account: AccountView;
-}
+export type SwitchActiveOrganizationResult =
+  components["schemas"]["SwitchActiveOrganizationResponse"];
 
-export interface ListOrganizationProjectsInput {
-  org_id: string;
-}
+export type ProjectView = components["schemas"]["ProjectView"];
 
-export interface ProjectView {
-  id: string;
-  name: string;
-  org: string;
-}
-
-export interface ListOrganizationProjectsResult {
-  projects: ProjectView[];
-}
+export type ListOrganizationProjectsResult =
+  components["schemas"]["ListOrganizationProjectsResponse"];
 
 export interface AccountView {
   id: string;
@@ -139,22 +125,7 @@ export class AccountRequestError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      credentials: "include",
-    });
-  } catch (cause: unknown) {
-    throw new AccountRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
-  }
-
+async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let parsed: FailureBody = {};
     try {
@@ -174,6 +145,25 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: "include",
+    });
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  return parseJsonResponse<T>(response);
+}
+
 async function getJson<T>(path: string): Promise<T> {
   let response: Response;
   try {
@@ -188,23 +178,7 @@ async function getJson<T>(path: string): Promise<T> {
     });
   }
 
-  if (!response.ok) {
-    let parsed: FailureBody = {};
-    try {
-      parsed = (await response.json()) as FailureBody;
-    } catch {
-      parsed = {};
-    }
-    const code =
-      typeof parsed.code === "string" ? parsed.code : "internal_error";
-    const summary =
-      typeof parsed.summary === "string"
-        ? parsed.summary
-        : `HTTP ${response.status}`;
-    throw new AccountRequestError({ code, summary });
-  }
-
-  return (await response.json()) as T;
+  return parseJsonResponse<T>(response);
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {

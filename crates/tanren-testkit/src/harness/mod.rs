@@ -1,46 +1,15 @@
-//! Per-interface BDD wire-harness wiring (R-0001 sub-9).
+//! Per-interface BDD wire-harness wiring.
 //!
-//! Every account-flow BDD scenario tagged with one of the closed
-//! interface tags (`@api`, `@cli`, `@mcp`, `@tui`, `@web`) routes
-//! through the matching [`AccountHarness`] implementation rather than
-//! calling `tanren_app_services::Handlers::*` directly. The harness is
-//! the wire-level seam — `@api` drives a real axum server via
-//! reqwest with a cookie jar, `@cli` shells out to the `tanren-cli`
-//! binary, `@mcp` drives the rmcp server through the rmcp client, and
-//! `@tui` drives the `tanren-tui` binary in a pseudo-terminal. The
-//! `xtask check-bdd-wire-coverage` guard rejects any step body that
-//! references `Handlers::sign_up`/`sign_in`/`accept_invitation`
-//! directly, so adding a new step that bypasses this seam fails CI.
+//! Every account-flow BDD scenario tagged with a closed interface tag
+//! routes through the matching [`AccountHarness`] implementation.
+//! `xtask check-bdd-wire-coverage` rejects any step body that
+//! references `Handlers::*` directly.
 //!
-//! See `docs/architecture/subsystems/behavior-proof.md` §
-//! "Per-interface BDD wire-harness wiring (R-0001)" and
-//! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
-//!
-//! ## Status of each harness (PR 9)
-//!
-//! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
-//!   on an ephemeral port, drives via `reqwest::Client` with
-//!   `cookie_store(true)`. The "session token received" check passes
-//!   when the cookie jar contains a `tanren_session` cookie OR the
-//!   response body returned a bearer token.
-//! - `@cli` — full impl. Spawns the `tanren-cli` binary via
-//!   `tokio::process::Command` against a shared `SQLite` file. Parses
-//!   the `account_id=... session=...` stdout shape.
-//! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
-//!   on an ephemeral port and drives the three account-flow tools via
-//!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
-//! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
-//!   parallel Node-side Playwright harness for the same `@web` Gherkin
-//!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
-//! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
-//!   dispatch on an ephemeral `SQLite` store).
+//! - `@api` — full. axum on ephemeral port, reqwest cookie jar.
+//! - `@cli` — full. `tanren-cli` subprocess against shared `SQLite`.
+//! - `@mcp` — full. rmcp streamable-HTTP client.
+//! - `@tui` / `@web` — fall back to [`InProcessHarness`] (PR 11).
+//! - untagged — [`InProcessHarness`] (direct dispatch on `SQLite`).
 
 mod api;
 mod cli;
@@ -309,10 +278,16 @@ pub trait AccountHarness: Send + std::fmt::Debug {
             "org seeding not implemented for this harness".to_owned(),
         ))
     }
-    async fn unauthenticated_request(
+    async fn unauthenticated_request(&mut self, method: &str, path: &str) -> HarnessResult<Value> {
+        self.unauthenticated_request_with_body(method, path, Value::Null)
+            .await
+    }
+
+    async fn unauthenticated_request_with_body(
         &mut self,
         _method: &str,
         _path: &str,
+        _body: Value,
     ) -> HarnessResult<Value> {
         Err(HarnessError::Transport(
             "unauthenticated requests not implemented for this harness".to_owned(),

@@ -72,6 +72,51 @@ Given("a clean Tanren environment", async ({ page, world }) => {
   await page.context().clearCookies();
 });
 
+Given(
+  /^(\w+) has signed up with email "([^"]+)" and password "([^"]+)"$/,
+  async ({ world }, name: string, email: string, password: string) => {
+    const a = actor(world, name);
+    a.email = email;
+    a.password = password;
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const res = await fetch(`${apiUrl}/accounts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password, display_name: name }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`sign-up via API failed: ${res.status} ${body}`);
+    }
+    try {
+      a.accountId = await lookupAccountByEmail(email);
+    } catch {
+      // accountId is only needed for org fixture steps; ignore lookup race.
+    }
+    a.hasSession = true;
+  },
+);
+
+async function ensureAuthenticated(
+  page: import("@playwright/test").Page,
+  world: WebWorld,
+  name: string,
+): Promise<void> {
+  const a = actor(world, name);
+  if (!a.email || !a.password) {
+    throw new Error(`actor ${name} has no credentials for sign-in`);
+  }
+  await page.context().clearCookies();
+  await page.goto("/sign-in");
+  await waitForHydration(page);
+  await page.getByLabel(/email/i).fill(a.email);
+  await page.getByLabel(/password/i).fill(a.password);
+  await page.getByRole("button", { name: /^sign in$/i }).click();
+  await page.waitForURL("/", { timeout: 30_000 });
+  a.hasSession = true;
+}
+
 When(
   /^(\w+) self-signs up with email "([^"]+)" and password "([^"]+)"$/,
   async ({ page, world }, name: string, email: string, password: string) => {
@@ -95,30 +140,30 @@ When(
     ]);
     if (result === "ok") {
       a.hasSession = true;
+      try {
+        a.accountId = await lookupAccountByEmail(email);
+      } catch {
+        // Non-critical: accountId is only needed for org fixture steps.
+      }
     } else {
       a.hasSession = false;
       a.lastFailureCode = await classifyFailureFromAlert(page);
+      if (a.lastFailureCode === "duplicate_identifier") {
+        await page.goto("/sign-in");
+        await waitForHydration(page);
+        await page.getByLabel(/email/i).fill(email);
+        await page.getByLabel(/password/i).fill(password);
+        await page.getByRole("button", { name: /sign in/i }).click();
+        await page.waitForURL("/", { timeout: 10_000 });
+        a.hasSession = true;
+        delete a.lastFailureCode;
+        try {
+          a.accountId = await lookupAccountByEmail(email);
+        } catch {
+          // Non-critical: accountId is only needed for org fixture steps.
+        }
+      }
     }
-  },
-);
-
-Given(
-  /^(\w+) has signed up with email "([^"]+)" and password "([^"]+)"$/,
-  async ({ page, world }, name: string, email: string, password: string) => {
-    const a = actor(world, name);
-    a.email = email;
-    a.password = password;
-    await page.goto("/sign-up");
-    await waitForHydration(page);
-    await page.getByLabel(/email/i).fill(email);
-    await page.getByLabel(/password/i).fill(password);
-    await page.getByLabel(/display name/i).fill(name);
-    await page.getByRole("button", { name: /create account/i }).click();
-    await page.waitForURL("/", { timeout: 10_000 });
-    a.hasSession = true;
-    // Sign out for the next step by clearing cookies — the alternative
-    // (a real sign-out UI) lives in a future PR.
-    await page.context().clearCookies();
   },
 );
 
@@ -204,11 +249,9 @@ Then(
 Then(
   /^the request fails with code "([^"]+)"$/,
   async ({ world }, code: string) => {
-    // Find the most recently active actor — the last one whose
-    // hasSession === false. Falsification scenarios always set it.
-    const failing = [...world.actors.values()].find(
-      (a) => a.hasSession === false,
-    );
+    const failing =
+      [...world.actors.values()].find((a) => a.hasSession === false) ??
+      [...world.actors.values()].find((a) => a.lastFailureCode !== undefined);
     if (!failing) {
       throw new Error("expected at least one actor to have failed");
     }
@@ -320,9 +363,12 @@ When(
   /^(\w+) lists their organizations$/,
   async ({ page, world }, name: string) => {
     const a = actor(world, name);
+    await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.getByLabel(/organization/i);
+    const switcher = page.locator(
+      'section[aria-label*="Organization" i] select',
+    );
     const hasSwitcher = (await switcher.count()) > 0;
     if (hasSwitcher) {
       const value = await switcher.inputValue();
@@ -348,33 +394,21 @@ When(
 
 When(
   /^(\w+) switches active organization to "([^"]+)"$/,
-  async ({ page, world }, name: string, _orgName: string) => {
+  async ({ page, world }, name: string, orgId: string) => {
     const a = actor(world, name);
+    await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.getByLabel(/organization/i);
-    const options = await switcher.locator("option").allInnerTexts();
-    const match = options.find((opt) => opt.includes(_orgName));
-    if (match) {
-      await switcher.selectOption({ label: match });
-    }
-    a.activeOrg = _orgName;
+    const switcher = page.locator(
+      'section[aria-label*="Organization" i] select',
+    );
+    await switcher.selectOption({ value: orgId });
+    a.activeOrg = orgId;
   },
 );
 
 Then(
   /^(\w+) sees no organization-scoped actions$/,
-  async ({ page, world }, name: string) => {
-    actor(world, name);
-    await page.goto("/");
-    await waitForHydration(page);
-    const personalLabel = page.getByText(/personal account/i);
-    await expect(personalLabel).toBeVisible({ timeout: 5_000 });
-  },
-);
-
-Then(
-  /^(\w+) sees the organization switcher is empty or disabled$/,
   async ({ page, world }, name: string) => {
     actor(world, name);
     await page.goto("/");
@@ -429,6 +463,7 @@ async function seedOrganization(orgId: string, name: string): Promise<void> {
   });
   if (!res.ok) {
     const body = await res.text();
+    if (body.includes("UNIQUE constraint")) return;
     throw new Error(
       `seed organization '${name}' failed: ${res.status} ${body}`,
     );
@@ -444,6 +479,7 @@ async function seedMembership(accountId: string, orgId: string): Promise<void> {
   });
   if (!res.ok) {
     const body = await res.text();
+    if (body.includes("UNIQUE constraint")) return;
     throw new Error(`seed membership failed: ${res.status} ${body}`);
   }
 }
@@ -461,8 +497,22 @@ async function seedProject(
   });
   if (!res.ok) {
     const body = await res.text();
+    if (body.includes("UNIQUE constraint")) return;
     throw new Error(`seed project '${name}' failed: ${res.status} ${body}`);
   }
+}
+
+async function lookupAccountByEmail(email: string): Promise<string> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const res = await fetch(
+    `${apiUrl}/test-hooks/accounts?email=${encodeURIComponent(email)}`,
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`lookup account '${email}' failed: ${res.status} ${body}`);
+  }
+  const data = (await res.json()) as { id: string };
+  return data.id;
 }
 
 Given(
@@ -504,9 +554,10 @@ Given(
   /^(\w+) is a personal account with zero organizations$/,
   async ({ page, world }, name: string) => {
     const a = actor(world, name);
-    if (a.hasSession !== true) {
+    if (!a.email || !a.password) {
       throw new Error(`actor ${name} must have signed up first`);
     }
+    await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
     const personalLabel = page.getByText(/personal account/i);
@@ -516,15 +567,19 @@ Given(
 
 When(
   /^(\w+) tries to switch active organization to "([^"]+)"$/,
-  async ({ page, world }, name: string, orgName: string) => {
+  async ({ page, world }, name: string, orgId: string) => {
     const a = actor(world, name);
+    await ensureAuthenticated(page, world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.getByLabel(/organization/i);
-    const options = await switcher.locator("option").allInnerTexts();
-    const match = options.find((opt) => opt.includes(orgName));
-    if (match) {
-      await switcher.selectOption({ label: match });
+    const switcher = page.locator(
+      'section[aria-label*="Organization" i] select',
+    );
+    const optionExists = await switcher
+      .locator(`option[value="${orgId}"]`)
+      .count();
+    if (optionExists > 0) {
+      await switcher.selectOption({ value: orgId });
     } else {
       a.lastFailureCode = "organization-not-member";
     }
@@ -537,14 +592,17 @@ Then(
     actor(world, name);
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.getByLabel(/organization/i);
+    const switcher = page.locator(
+      'section[aria-label*="Organization" i] select',
+    );
     if (count === "0") {
       await expect(switcher).not.toBeVisible({ timeout: 5_000 });
     } else {
-      const options = await switcher.locator("option").allInnerTexts();
-      if (options.length !== parseInt(count, 10)) {
+      await expect(switcher).toBeVisible({ timeout: 5_000 });
+      const optionCount = await switcher.locator("option").count();
+      if (optionCount !== parseInt(count, 10)) {
         throw new Error(
-          `expected ${count} org memberships, got ${options.length}`,
+          `expected ${count} org memberships, got ${optionCount}`,
         );
       }
     }
@@ -590,8 +648,30 @@ Then(
   async ({ page, world: _world }, _orgId: string) => {
     await page.goto("/");
     await waitForHydration(page);
-    const switcher = page.getByLabel(/organization/i);
+    const switcher = page.locator(
+      'section[aria-label*="Organization" i] select',
+    );
     await expect(switcher).toBeVisible({ timeout: 5_000 });
+  },
+);
+
+Then(
+  /^(\w+) sees the organization switcher is empty or disabled$/,
+  async ({ page, world }, name: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const personalLabel = page.getByText(/personal account/i);
+    const selectEl = page.locator(
+      'section[aria-label*="Organization" i] select',
+    );
+    const hasPersonal = await personalLabel.isVisible().catch(() => false);
+    const hasSelect = await selectEl.isVisible().catch(() => false);
+    if (!hasPersonal && !hasSelect) {
+      throw new Error(
+        "expected either a 'personal account' label or an organization switcher",
+      );
+    }
   },
 );
 

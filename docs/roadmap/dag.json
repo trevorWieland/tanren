@@ -516,7 +516,9 @@
         "B-0047",
         "B-0289"
       ],
-      "supports_behaviors": [],
+      "supports_behaviors": [
+        "B-0041"
+      ],
       "depends_on": [
         "R-0002"
       ],
@@ -548,6 +550,19 @@
           ],
           "description": "Positive: unauthenticated request to protected endpoints returns structured unauthenticated code. Falsification: unauthenticated response does not leak internal details.",
           "interfaces": [
+            "api"
+          ]
+        },
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0041",
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Positive: the web client lists organizations using generated OpenAPI types. Positive: the web client switches active organization using generated types. Positive: the web client lists projects using generated types. Falsification: error responses are parsed via the shared response parser.",
+          "interfaces": [
+            "web",
             "api"
           ]
         }

@@ -277,13 +277,13 @@ pub enum AccountFailureReason {
     InvitationAlreadyConsumed,
     /// Caller is not a member of the target organization.
     OrganizationNotMember,
-    /// The request lacks a valid authenticated session.
+    /// No authenticated session was found.
     Unauthenticated,
-    /// The session store could not be read.
+    /// The session store failed to read the session.
     SessionReadFailed,
-    /// The session could not be persisted to the session store.
+    /// The session store failed to persist the session.
     SessionInstallFailed,
-    /// The session could not be cleared from the session store.
+    /// The session store failed to clear the session.
     SessionFlushFailed,
 }
 

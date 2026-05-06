@@ -20,13 +20,14 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
+use axum::extract::Query;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId, ProjectId};
-use tanren_store::{NewInvitation, NewOrganization, NewProject, Store};
+use serde::{Deserialize, Serialize};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId, ProjectId};
+use tanren_store::{AccountStore, NewInvitation, NewOrganization, NewProject, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -153,10 +154,44 @@ pub(crate) async fn seed_project_route(
     Ok(StatusCode::CREATED)
 }
 
+/// Query parameters for `GET /test-hooks/accounts`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct LookupAccountQuery {
+    pub email: String,
+}
+
+/// Response body for `GET /test-hooks/accounts`.
+#[derive(Debug, Serialize)]
+pub(crate) struct AccountLookupResponse {
+    pub id: Uuid,
+}
+
+pub(crate) async fn lookup_account_route(
+    State(store): State<Arc<Store>>,
+    Query(query): Query<LookupAccountQuery>,
+) -> Result<Json<AccountLookupResponse>, (StatusCode, String)> {
+    let email =
+        Email::parse(&query.email).map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+    let record = store
+        .find_account_by_email(&email)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let account = record.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("no account for {}", query.email),
+        )
+    })?;
+    Ok(Json(AccountLookupResponse {
+        id: account.id.as_uuid(),
+    }))
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
+        .route("/test-hooks/accounts", get(lookup_account_route))
         .route("/test-hooks/invitations", post(seed_invitation_route))
         .route("/test-hooks/organizations", post(seed_organization_route))
         .route("/test-hooks/memberships", post(seed_membership_route))
