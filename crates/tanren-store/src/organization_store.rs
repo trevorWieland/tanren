@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set,
+};
 use tanren_identity_policy::{AccountId, OrgId, OrgPermission};
 use uuid::Uuid;
 
@@ -25,6 +28,8 @@ impl OrganizationStore for Store {
     async fn list_account_organizations(
         &self,
         account_id: AccountId,
+        limit: u32,
+        after: Option<OrgId>,
     ) -> Result<Vec<OrganizationRecord>, StoreError> {
         let membership_rows = entity::memberships::Entity::find()
             .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
@@ -34,8 +39,15 @@ impl OrganizationStore for Store {
         if org_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let org_rows = entity::organizations::Entity::find()
-            .filter(entity::organizations::Column::Id.is_in(org_ids))
+        let mut query = entity::organizations::Entity::find()
+            .filter(entity::organizations::Column::Id.is_in(org_ids));
+        if let Some(after_id) = after {
+            query = query.filter(entity::organizations::Column::Id.lt(after_id.as_uuid()));
+        }
+        let org_rows = query
+            .order_by_desc(entity::organizations::Column::CreatedAt)
+            .order_by_desc(entity::organizations::Column::Id)
+            .limit(u64::from(limit) + 1)
             .all(&self.conn)
             .await?;
         org_rows

@@ -15,6 +15,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::ListOrganizationsRequest;
 use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
@@ -323,10 +324,14 @@ impl App {
         };
         match self
             .runtime
-            .block_on(self.handlers.list_account_organizations(store, account_id))
-        {
-            Ok(orgs) => {
-                let summary: Vec<_> = orgs
+            .block_on(self.handlers.list_account_organizations(
+                store,
+                account_id,
+                ListOrganizationsRequest::default(),
+            )) {
+            Ok(response) => {
+                let summary: Vec<_> = response
+                    .organizations
                     .iter()
                     .map(|o| (o.id.to_string(), o.name.to_string(), 0u64))
                     .collect();

@@ -14,8 +14,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    CreateOrganizationRequest, OrganizationAdminOperation, OrganizationFailureReason,
-    OrganizationView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CreateOrganizationRequest, ListOrganizationsRequest, ListOrganizationsResponse,
+    OrganizationAdminOperation, OrganizationFailureReason, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
     AccountId, Argon2idVerifier, CredentialVerifier, OrgId, OrgPermission,
@@ -250,7 +251,8 @@ impl Handlers {
             .await
     }
 
-    /// List organizations the supplied account is a member of.
+    /// List organizations the supplied account is a member of, with
+    /// bounded pagination.
     ///
     /// # Errors
     ///
@@ -260,11 +262,12 @@ impl Handlers {
         &self,
         store: &S,
         account_id: AccountId,
-    ) -> Result<Vec<OrganizationView>, AppServiceError>
+        request: ListOrganizationsRequest,
+    ) -> Result<ListOrganizationsResponse, AppServiceError>
     where
         S: OrganizationStore + ?Sized,
     {
-        organization::list_account_organizations(store, account_id).await
+        organization::list_account_organizations(store, account_id, request).await
     }
 
     /// No-op authorization probe: returns `Ok(())` when the account

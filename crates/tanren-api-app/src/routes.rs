@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CreateOrganizationRequest, CreateOrganizationResponse,
-    ListOrganizationsResponse, OrganizationAdminOperation, OrganizationMembershipView,
-    OrganizationView, SessionEnvelope, SignInRequest, SignUpRequest,
+    ListOrganizationsRequest, ListOrganizationsResponse, OrganizationAdminOperation,
+    OrganizationMembershipView, OrganizationView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -358,10 +358,22 @@ pub(crate) async fn create_organization_route(
     }
 }
 
+/// Query parameters for the organization listing endpoint.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub(crate) struct ListOrganizationsParams {
+    /// Maximum number of organizations to return.
+    pub limit: Option<u32>,
+    /// Opaque cursor from a previous page.
+    pub after: Option<String>,
+}
+
 /// List organizations the cookie-authenticated account belongs to.
 #[utoipa::path(
     get,
     path = "/account/organizations",
+    params(
+        ListOrganizationsParams,
+    ),
     responses(
         (status = 200, body = ListOrganizationsResponse, description = "Organizations listed"),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
@@ -371,20 +383,21 @@ pub(crate) async fn create_organization_route(
 pub(crate) async fn list_account_organizations_route(
     State(state): State<AppState>,
     session: Session,
+    axum::extract::Query(params): axum::extract::Query<ListOrganizationsParams>,
 ) -> Response {
     let Some(account_id) = extract_account_id(&session).await else {
         return auth_required_response();
     };
+    let request = ListOrganizationsRequest {
+        limit: params.limit,
+        after: params.after,
+    };
     match state
         .handlers
-        .list_account_organizations(state.store.as_ref(), account_id)
+        .list_account_organizations(state.store.as_ref(), account_id, request)
         .await
     {
-        Ok(organizations) => (
-            StatusCode::OK,
-            Json(ListOrganizationsResponse { organizations }),
-        )
-            .into_response(),
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(err) => map_app_error(err),
     }
 }

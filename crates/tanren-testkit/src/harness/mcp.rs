@@ -257,7 +257,8 @@ impl AccountHarness for McpHarness {
         let body = serde_json::json!({ "session_token": token });
         let payload = self.call_tool("organization.list", body).await?;
         Ok(payload
-            .as_array()
+            .get("organizations")
+            .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
                     .filter_map(|v| {

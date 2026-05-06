@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Subcommand;
 use tanren_app_services::{AppServiceError, Handlers, OrganizationStore, Store};
-use tanren_contract::{CreateOrganizationRequest, OrganizationAdminOperation};
+use tanren_contract::{
+    CreateOrganizationRequest, ListOrganizationsRequest, OrganizationAdminOperation,
+};
 use tanren_identity_policy::{OrgId, OrganizationName};
 use uuid::Uuid;
 
@@ -84,15 +86,15 @@ async fn run(action: OrganizationAction) -> Result<()> {
                 .context("connect to store")?;
             let account_id = resolve_session_account(&store).await?;
             let orgs = handlers
-                .list_account_organizations(&store, account_id)
+                .list_account_organizations(&store, account_id, ListOrganizationsRequest::default())
                 .await
                 .map_err(org_error)?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
-            if orgs.is_empty() {
+            if orgs.organizations.is_empty() {
                 writeln!(handle, "organizations: (none)").context("write list result")?;
             } else {
-                for org in &orgs {
+                for org in &orgs.organizations {
                     writeln!(
                         handle,
                         "org_id={id} name={name} project_count={count}",

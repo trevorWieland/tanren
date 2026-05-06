@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, CreateOrganizationRequest, OrganizationAdminOperation,
-    OrganizationFailureReason, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, CreateOrganizationRequest, ListOrganizationsRequest,
+    OrganizationAdminOperation, OrganizationFailureReason, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, OrgId, OrgPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -185,12 +185,17 @@ impl AccountHarness for InProcessHarness {
                 "no signed-in account".to_owned(),
             )
         })?;
-        let orgs = self
+        let response = self
             .handlers
-            .list_account_organizations(&self.store, account_id)
+            .list_account_organizations(
+                &self.store,
+                account_id,
+                ListOrganizationsRequest::default(),
+            )
             .await
             .map_err(translate_app_error)?;
-        Ok(orgs
+        Ok(response
+            .organizations
             .into_iter()
             .map(|v| HarnessOrgSummary {
                 id: v.id,

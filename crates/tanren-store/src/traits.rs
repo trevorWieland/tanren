@@ -358,10 +358,17 @@ pub trait OrganizationStore: Send + Sync + std::fmt::Debug {
         request: CreateOrganizationAtomicRequest,
     ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError>;
 
-    /// List organizations the supplied account is a member of.
+    /// List organizations the supplied account is a member of, bounded
+    /// by `limit`. Implementations fetch `limit + 1` rows so the caller
+    /// can detect whether another page exists (returned count >
+    /// `limit` means `has_more`). When `after` is `Some`, only
+    /// organizations with id strictly less than `after` are returned
+    /// (cursor-based pagination, newest-first by id).
     async fn list_account_organizations(
         &self,
         account_id: AccountId,
+        limit: u32,
+        after: Option<OrgId>,
     ) -> Result<Vec<OrganizationRecord>, StoreError>;
 
     /// Look up a membership linking an account to an organization.

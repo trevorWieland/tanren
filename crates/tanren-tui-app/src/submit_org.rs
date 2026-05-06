@@ -1,4 +1,5 @@
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::ListOrganizationsRequest;
 use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
@@ -74,14 +75,14 @@ pub(crate) fn list_organizations(ctx: &mut Ctx<'_>, store: &Store) {
     };
     match ctx
         .runtime
-        .block_on(ctx.handlers.list_account_organizations(store, account_id))
+        .block_on(ctx.handlers.list_account_organizations(store, account_id, ListOrganizationsRequest::default()))
     {
-        Ok(orgs) => {
+        Ok(response) => {
             let mut lines = vec!["Available organizations:".to_owned()];
-            if orgs.is_empty() {
+            if response.organizations.is_empty() {
                 lines.push("(none)".to_owned());
             } else {
-                for org in &orgs {
+                for org in &response.organizations {
                     lines.push(format!(
                         "org_id={} name={} project_count={}",
                         org.id, org.name, 0

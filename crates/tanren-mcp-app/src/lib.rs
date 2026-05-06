@@ -24,8 +24,8 @@ use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, CreateOrganizationRequest, CreateOrganizationResponse, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, CreateOrganizationRequest, CreateOrganizationResponse,
+    ListOrganizationsRequest, SignInRequest, SignUpRequest,
 };
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -161,10 +161,14 @@ impl TanrenMcp {
         };
         match self
             .handlers
-            .list_account_organizations(self.store.as_ref(), aid)
+            .list_account_organizations(
+                self.store.as_ref(),
+                aid,
+                ListOrganizationsRequest::default(),
+            )
             .await
         {
-            Ok(views) => Ok(success(&views)),
+            Ok(response) => Ok(success(&response)),
             Err(e) => Ok(map_failure(e)),
         }
     }

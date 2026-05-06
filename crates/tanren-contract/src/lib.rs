@@ -13,7 +13,8 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use organization::{
-    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsResponse,
+    CreateOrganizationRequest, CreateOrganizationResponse, DEFAULT_ORG_PAGE_SIZE,
+    DefaultOrgPageSize, ListOrganizationsRequest, ListOrganizationsResponse,
     OrganizationAdminOperation, OrganizationCreatedEvent, OrganizationCreationRejectedEvent,
     OrganizationEventKind, OrganizationFailureReason, OrganizationMembershipView, OrganizationView,
 };

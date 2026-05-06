@@ -196,11 +196,48 @@ pub struct OrganizationCreationRejectedEvent {
     pub at: DateTime<Utc>,
 }
 
-/// Response shape for listing organizations an account belongs to.
+/// Bounded request for listing organizations an account belongs to.
+///
+/// Callers that omit `limit` and `after` receive the default first
+/// page (up to [`DEFAULT_ORG_PAGE_SIZE`] items, newest first).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListOrganizationsRequest {
+    /// Maximum number of organizations to return. When `None` the
+    /// handler applies [`DEFAULT_ORG_PAGE_SIZE`].
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Opaque cursor from a prior [`ListOrganizationsResponse::next_cursor`].
+    /// When present the response starts after the page boundary identified
+    /// by the cursor.
+    #[serde(default)]
+    pub after: Option<String>,
+}
+
+/// Default page size used when the caller does not specify a limit.
+pub const DEFAULT_ORG_PAGE_SIZE: u32 = 100;
+
+/// Marker type to carry [`DEFAULT_ORG_PAGE_SIZE`] as a named associated
+/// constant through the re-export in [`crate::ListOrganizationsResponse`].
+#[derive(Debug)]
+pub struct DefaultOrgPageSize;
+
+impl DefaultOrgPageSize {
+    /// The numeric default page size.
+    #[must_use]
+    pub const fn value() -> u32 {
+        DEFAULT_ORG_PAGE_SIZE
+    }
+}
+
+/// Paginated response for listing organizations an account belongs to.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListOrganizationsResponse {
-    /// Organizations visible to the requesting account.
+    /// Organizations visible to the requesting account for this page.
     pub organizations: Vec<OrganizationView>,
+    /// Opaque cursor to pass as [`ListOrganizationsRequest::after`] to
+    /// fetch the next page. `None` when no more pages remain.
+    #[serde(default)]
+    pub next_cursor: Option<String>,
 }
 
 impl OrganizationFailureReason {

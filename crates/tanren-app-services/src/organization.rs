@@ -1,5 +1,6 @@
 use tanren_contract::{
-    CreateOrganizationRequest, OrganizationAdminOperation, OrganizationFailureReason,
+    CreateOrganizationRequest, DEFAULT_ORG_PAGE_SIZE, ListOrganizationsRequest,
+    ListOrganizationsResponse, OrganizationAdminOperation, OrganizationFailureReason,
     OrganizationMembershipView, OrganizationView,
 };
 use tanren_identity_policy::{AccountId, MembershipId, OrgId, OrgPermission, OrganizationName};
@@ -97,7 +98,9 @@ where
         Err(CreateOrganizationError::Store(err)) => return Err(AppServiceError::Store(err)),
     };
 
-    let available_organizations = store.list_account_organizations(account_id).await?;
+    let available_organizations = store
+        .list_account_organizations(account_id, DEFAULT_ORG_PAGE_SIZE, None)
+        .await?;
     let available_organizations = convert_org_list(available_organizations)?;
 
     Ok(CreateOrganizationOutput {
@@ -134,12 +137,32 @@ where
 pub(crate) async fn list_account_organizations<S>(
     store: &S,
     account_id: AccountId,
-) -> Result<Vec<OrganizationView>, AppServiceError>
+    request: ListOrganizationsRequest,
+) -> Result<ListOrganizationsResponse, AppServiceError>
 where
     S: OrganizationStore + ?Sized,
 {
-    let orgs = store.list_account_organizations(account_id).await?;
-    convert_org_list(orgs)
+    let limit = request.limit.unwrap_or(DEFAULT_ORG_PAGE_SIZE);
+    let after = request
+        .after
+        .as_deref()
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .map(OrgId::new);
+    let records = store
+        .list_account_organizations(account_id, limit, after)
+        .await?;
+    let has_more = records.len() > limit as usize;
+    let truncated: Vec<_> = records.into_iter().take(limit as usize).collect();
+    let organizations = convert_org_list(truncated)?;
+    let next_cursor = if has_more {
+        organizations.last().map(|last| last.id.to_string())
+    } else {
+        None
+    };
+    Ok(ListOrganizationsResponse {
+        organizations,
+        next_cursor,
+    })
 }
 
 pub(crate) async fn authorize_org_admin_operation<S>(
