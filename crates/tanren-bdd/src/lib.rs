@@ -16,9 +16,10 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_contract::UpgradePreviewResponse;
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    InProcessHarness, McpHarness, TuiHarness, UpgradeFixture, UpgradeHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -28,6 +29,8 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    /// Lazily initialized upgrade-flow context (B-0134).
+    pub upgrade: Option<UpgradeContext>,
 }
 
 impl TanrenWorld {
@@ -53,6 +56,59 @@ impl TanrenWorld {
         let kind = HarnessKind::from_tags(tags);
         let ctx = AccountContext::new_for(kind).await;
         self.account = Some(ctx);
+    }
+
+    /// Construct (or return) the lazy upgrade context. The harness kind
+    /// is derived from the account context set by the `Before` hook.
+    pub async fn ensure_upgrade_ctx(&mut self) -> &mut UpgradeContext {
+        if self.upgrade.is_none() {
+            let kind = self
+                .account
+                .as_ref()
+                .map_or(HarnessKind::InProcess, |ctx| ctx.harness.kind());
+            let fixture = UpgradeFixture::install();
+            let harness: Box<dyn UpgradeHarness> = match kind {
+                HarnessKind::InProcess => Box::new(
+                    InProcessHarness::new(kind)
+                        .await
+                        .expect("ephemeral SQLite must connect for BDD upgrade"),
+                ),
+                HarnessKind::Api => Box::new(
+                    ApiHarness::spawn()
+                        .await
+                        .expect("ApiHarness::spawn for upgrade"),
+                ),
+                HarnessKind::Cli => Box::new(
+                    CliHarness::spawn()
+                        .await
+                        .expect("CliHarness::spawn for upgrade"),
+                ),
+                HarnessKind::Mcp => Box::new(
+                    McpHarness::spawn()
+                        .await
+                        .expect("McpHarness::spawn for upgrade"),
+                ),
+                HarnessKind::Tui => Box::new(
+                    TuiHarness::spawn()
+                        .await
+                        .expect("TuiHarness::spawn for upgrade"),
+                ),
+                HarnessKind::Web => Box::new(
+                    WebHarness::spawn()
+                        .await
+                        .expect("WebHarness::spawn for upgrade"),
+                ),
+            };
+            self.upgrade = Some(UpgradeContext {
+                harness,
+                kind,
+                fixture,
+                last_preview: None,
+            });
+        }
+        self.upgrade
+            .as_mut()
+            .expect("upgrade context just initialized")
     }
 }
 
@@ -133,6 +189,33 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
     }
 }
 
+/// Per-scenario state for asset-upgrade BDD scenarios (B-0134). Owns
+/// the disposable fixture repo, the per-interface upgrade harness,
+/// and the most recent preview/apply response.
+pub struct UpgradeContext {
+    /// Active upgrade harness for the current scenario.
+    pub harness: Box<dyn UpgradeHarness>,
+    /// Harness kind cached for Debug.
+    pub kind: HarnessKind,
+    /// Disposable fixture repository root.
+    pub fixture: UpgradeFixture,
+    /// Most recent preview or apply response.
+    pub last_preview: Option<UpgradePreviewResponse>,
+}
+
+impl std::fmt::Debug for UpgradeContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpgradeContext")
+            .field("kind", &self.kind)
+            .field("fixture_root", &self.fixture.root())
+            .field(
+                "last_preview_source",
+                &self.last_preview.as_ref().map(|p| &p.source_version),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 /// Run the cucumber harness against the supplied features directory.
 /// The harness installs a `Before` hook that selects the per-interface
 /// wire harness from the active scenario's tags.
@@ -167,6 +250,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            upgrade: None,
         };
         assert_eq!(world.seed.value(), 42);
     }

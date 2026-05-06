@@ -17,7 +17,8 @@ use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, UpgradePreviewResponse,
+    AcceptInvitationRequest, AccountView, AssetAction, MigrationConcern, MigrationConcernKind,
+    SignInRequest, SignUpRequest, UpgradePreviewResponse,
 };
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -372,18 +373,104 @@ impl CliHarness {
 }
 
 fn parse_upgrade_response(stdout: &str) -> HarnessResult<UpgradePreviewResponse> {
-    let re =
+    let version_re =
         Regex::new(r"Upgrade (?:preview|applied): ([^ ]+) -> ([^ ]+)").expect("constant regex");
-    let captures = re.captures(stdout).ok_or_else(|| {
+    let captures = version_re.captures(stdout).ok_or_else(|| {
         HarnessError::Transport(format!("could not parse upgrade output: {stdout}"))
     })?;
     let source = captures.get(1).map_or("", |m| m.as_str()).to_owned();
     let target = captures.get(2).map_or("", |m| m.as_str()).to_owned();
+
+    let create_re = Regex::new(r"^\s{2}CREATE\s+(\S+)\s+\(([^)]+)\)$").expect("constant regex");
+    let update_re =
+        Regex::new(r"^\s{2}UPDATE\s+(\S+)\s+\(([^ ]+)\s*->\s*([^)]+)\)$").expect("constant regex");
+    let remove_re = Regex::new(r"^\s{2}REMOVE\s+(\S+)\s+\(([^)]+)\)$").expect("constant regex");
+    let preserve_re = Regex::new(r"^\s{2}PRESERVE\s+(\S+)\s+\(([^)]+)\)$").expect("constant regex");
+
+    let concern_re = Regex::new(r"^\s{2}([a-z_]+):\s+(.+)$").expect("constant regex");
+
+    let mut actions: Vec<AssetAction> = Vec::new();
+    let mut concerns: Vec<MigrationConcern> = Vec::new();
+    let mut preserved_user_paths: Vec<PathBuf> = Vec::new();
+    let mut section: Option<&str> = None;
+
+    for line in stdout.lines() {
+        if line.starts_with("Upgrade preview:")
+            || line.starts_with("Upgrade applied:")
+            || line.is_empty()
+        {
+            continue;
+        }
+        if line == "Actions:" {
+            section = Some("actions");
+            continue;
+        }
+        if line == "Concerns:" {
+            section = Some("concerns");
+            continue;
+        }
+        if line == "Preserved user paths:" {
+            section = Some("preserved");
+            continue;
+        }
+        match section {
+            Some("actions") => {
+                if let Some(c) = create_re.captures(line) {
+                    actions.push(AssetAction::Create {
+                        path: PathBuf::from(c.get(1).map_or("", |m| m.as_str())),
+                        hash: c.get(2).map_or("", |m| m.as_str()).to_owned(),
+                    });
+                } else if let Some(c) = update_re.captures(line) {
+                    actions.push(AssetAction::Update {
+                        path: PathBuf::from(c.get(1).map_or("", |m| m.as_str())),
+                        old_hash: c.get(2).map_or("", |m| m.as_str()).to_owned(),
+                        new_hash: c.get(3).map_or("", |m| m.as_str()).to_owned(),
+                    });
+                } else if let Some(c) = remove_re.captures(line) {
+                    actions.push(AssetAction::Remove {
+                        path: PathBuf::from(c.get(1).map_or("", |m| m.as_str())),
+                        old_hash: c.get(2).map_or("", |m| m.as_str()).to_owned(),
+                    });
+                } else if let Some(c) = preserve_re.captures(line) {
+                    actions.push(AssetAction::Preserve {
+                        path: PathBuf::from(c.get(1).map_or("", |m| m.as_str())),
+                        hash: c.get(2).map_or("", |m| m.as_str()).to_owned(),
+                    });
+                }
+            }
+            Some("concerns") => {
+                if let Some(c) = concern_re.captures(line) {
+                    let kind_str = c.get(1).map_or("", |m| m.as_str());
+                    let detail = c.get(2).map_or("", |m| m.as_str()).to_owned();
+                    let kind = match kind_str {
+                        "hash_mismatch" => MigrationConcernKind::HashMismatch,
+                        "removed_asset" => MigrationConcernKind::RemovedAsset,
+                        "legacy_manifest" => MigrationConcernKind::LegacyManifest,
+                        "user_asset_path_conflict" => MigrationConcernKind::UserAssetPathConflict,
+                        _ => continue,
+                    };
+                    concerns.push(MigrationConcern {
+                        kind,
+                        path: PathBuf::new(),
+                        detail,
+                    });
+                }
+            }
+            Some("preserved") => {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    preserved_user_paths.push(PathBuf::from(trimmed));
+                }
+            }
+            _ => {}
+        }
+    }
+
     Ok(UpgradePreviewResponse {
         source_version: source,
         target_version: target,
-        actions: Vec::new(),
-        concerns: Vec::new(),
-        preserved_user_paths: Vec::new(),
+        actions,
+        concerns,
+        preserved_user_paths,
     })
 }
