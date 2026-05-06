@@ -1,4 +1,8 @@
+mod apply;
+mod assets;
 mod model;
+mod profile;
+mod render;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -33,14 +37,27 @@ pub(crate) struct InstallArgs {
 
 pub(crate) fn run_install(args: InstallArgs) -> Result<()> {
     let input = validate(args)?;
+    let effective = input.effective_integrations();
+    let resolved = profile::resolve(&input.profile.to_string());
+    let commands = assets::command_files();
+    let rendered = render::render_all_integrations(&effective);
+    let manifest = apply::apply(
+        &input.repo,
+        &input.profile.to_string(),
+        &commands,
+        &rendered,
+        &resolved.standards,
+    )?;
+
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    let integration_count = input.integrations.len();
     writeln!(
         handle,
-        "install: validated profile={} repo={} integrations={integration_count}",
-        input.profile,
-        input.repo.display(),
+        "install: profile={} commands={} integrations={} standards={}",
+        manifest.profile,
+        commands.len(),
+        effective.len(),
+        manifest.standards.len(),
     )
     .context("write install result")?;
     Ok(())

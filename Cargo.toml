@@ -277,3 +277,6 @@ utoipa-axum = "0.2"
 # `test-hooks` feature.
 expectrl = "0.7"
 regex = "1"
+
+# Compile-time directory embedding for install assets.
+include_dir = "0.7"

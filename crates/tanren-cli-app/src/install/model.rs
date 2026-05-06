@@ -54,6 +54,20 @@ pub(crate) struct InstallInput {
     pub(crate) integrations: Vec<IntegrationName>,
 }
 
+impl InstallInput {
+    pub(crate) fn effective_integrations(&self) -> Vec<IntegrationName> {
+        if self.integrations.is_empty() {
+            vec![
+                IntegrationName::Claude,
+                IntegrationName::Codex,
+                IntegrationName::Opencode,
+            ]
+        } else {
+            self.integrations.clone()
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub(crate) enum InstallValidationError {
     #[error("unknown profile '{input}' — supported profiles: {supported}")]
