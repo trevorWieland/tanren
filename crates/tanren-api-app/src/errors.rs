@@ -13,7 +13,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
-use tanren_contract::AccountFailureReason;
+use tanren_contract::{AccountFailureReason, ProjectFailureReason};
+use tanren_store::StoreError;
 
 /// Shared `{code, summary}` failure body.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -43,11 +44,15 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     match err {
         AppServiceError::Account(reason) => failure_body(reason),
+        AppServiceError::Project(reason) => project_failure_body(reason),
         AppServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
             Json(json!({"code": "validation_failed", "summary": message})),
         )
             .into_response(),
+        AppServiceError::Store(StoreError::UnauthorizedProjectAccess) => {
+            project_failure_body(ProjectFailureReason::UnauthorizedProjectAccess)
+        }
         AppServiceError::Store(err) => {
             tracing::error!(target: "tanren_api", error = %err, "store error");
             (
@@ -68,6 +73,32 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
         )
             .into_response(),
     }
+}
+
+fn project_failure_body(reason: ProjectFailureReason) -> Response {
+    let status =
+        StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    (
+        status,
+        Json(AccountFailureBody {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        }),
+    )
+        .into_response()
+}
+
+/// Render the shared `unauthenticated` failure body for routes that
+/// require a cookie session but received none (or an expired one).
+pub(crate) fn unauthenticated_error() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(AccountFailureBody {
+            code: "unauthenticated".to_owned(),
+            summary: "Authentication is required.".to_owned(),
+        }),
+    )
+        .into_response()
 }
 
 fn failure_body(reason: AccountFailureReason) -> Response {

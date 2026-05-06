@@ -44,6 +44,17 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
     Ok(())
 }
 
+/// Read the `account_id` previously stored by [`install_cookie_session`].
+/// Returns `Err` when no authenticated session is present.
+pub(crate) async fn read_session_account_id(session: &Session) -> Result<AccountId> {
+    let account_id: AccountId = session
+        .get(SESSION_KEY_ACCOUNT)
+        .await
+        .context("read account_id from session")?
+        .context("no authenticated session")?;
+    Ok(account_id)
+}
+
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships
 /// `SqliteStore` and `PostgresStore`; we dispatch on the URL scheme so
 /// the same `serve` entry point covers both backends.

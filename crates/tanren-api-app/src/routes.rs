@@ -13,7 +13,9 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, AttentionSpecView, ProjectScopedViews,
+    ProjectStateSummary, ProjectView, SessionEnvelope, SignInRequest, SignUpRequest,
+    SwitchProjectResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -36,50 +38,34 @@ pub struct HealthResponse {
     pub contract_version: u32,
 }
 
-/// Cookie-transport response shape for the api surface. Mirrors
-/// `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` but
-/// projects the session into [`SessionEnvelope::Cookie`] (no token in
-/// body — it ships in the `Set-Cookie` header).
+/// Cookie-transport response shape for the api surface.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignUpResponseCookie {
-    /// View of the freshly created account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
 }
 
 /// Cookie-transport projection of a sign-in response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignInResponseCookie {
-    /// View of the signed-in account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
 }
 
 /// Cookie-transport projection of an invitation-acceptance response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationResponseCookie {
-    /// View of the newly created account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
-    /// Organization the new account joined.
     pub joined_org: OrgId,
 }
 
-/// Path body for `POST /invitations/{token}/accept`. Splits the password
-/// into a `String` here (then re-wraps as `SecretString` before handing
-/// off to app-services) so utoipa can document the schema; the secret
-/// stays in memory only for the lifetime of this function.
+/// Path body for `POST /invitations/{token}/accept`.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationBody {
-    /// Email the invitee chose.
     pub email: Email,
-    /// Plaintext password.
     #[schema(value_type = String, format = Password)]
     pub password: String,
-    /// Display name.
     pub display_name: String,
 }
 
@@ -93,37 +79,32 @@ pub struct AcceptInvitationBody {
         version = env!("CARGO_PKG_VERSION"),
     ),
     paths(
-        health_route,
-        sign_up_route,
-        sign_in_route,
-        accept_invitation_route,
-        revoke_route,
+        health_route, sign_up_route, sign_in_route,
+        accept_invitation_route, revoke_route,
+        crate::project::list_projects_route, crate::project::attention_spec_route,
+        crate::project::switch_project_route, crate::project::active_project_views_route,
     ),
     components(schemas(
-        HealthResponse,
-        SignUpRequest,
-        SignUpResponseCookie,
-        SignInRequest,
-        SignInResponseCookie,
-        AcceptInvitationBody,
-        AcceptInvitationResponseCookie,
-        AccountFailureBody,
-        SessionEnvelope,
+        HealthResponse, SignUpRequest, SignUpResponseCookie,
+        SignInRequest, SignInResponseCookie,
+        AcceptInvitationBody, AcceptInvitationResponseCookie,
+        AccountFailureBody, SessionEnvelope,
+        ProjectView, ProjectStateSummary, AttentionSpecView,
+        SwitchProjectResponse, ProjectScopedViews,
+        crate::project::ScopedViewsResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "projects", description = "Project list, active-project switch, scoped views."),
     )
 )]
 pub(crate) struct ApiDoc;
 
 /// Liveness probe.
 #[utoipa::path(
-    get,
-    path = "/health",
-    responses(
-        (status = 200, body = HealthResponse, description = "Service is live"),
-    ),
+    get, path = "/health",
+    responses((status = 200, body = HealthResponse, description = "Service is live")),
     tag = "health",
 )]
 pub(crate) async fn health_route() -> Json<HealthResponse> {
@@ -138,9 +119,7 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
 /// Self-signup: create a new personal account and mint a cookie-bound
 /// session.
 #[utoipa::path(
-    post,
-    path = "/accounts",
-    request_body = SignUpRequest,
+    post, path = "/accounts", request_body = SignUpRequest,
     responses(
         (status = 201, body = SignUpResponseCookie, description = "Account created"),
         (status = 400, body = AccountFailureBody, description = "validation_failed"),
@@ -178,9 +157,7 @@ pub(crate) async fn sign_up_route(
 
 /// Sign-in: mint a cookie-bound session for an existing account.
 #[utoipa::path(
-    post,
-    path = "/sessions",
-    request_body = SignInRequest,
+    post, path = "/sessions", request_body = SignInRequest,
     responses(
         (status = 200, body = SignInResponseCookie, description = "Sign-in succeeded"),
         (status = 400, body = AccountFailureBody, description = "validation_failed"),
@@ -217,12 +194,9 @@ pub(crate) async fn sign_in_route(
 
 /// Accept an organization invitation and mint a cookie-bound session.
 #[utoipa::path(
-    post,
-    path = "/invitations/{token}/accept",
+    post, path = "/invitations/{token}/accept",
     request_body = AcceptInvitationBody,
-    params(
-        ("token" = String, Path, description = "Opaque invitation token"),
-    ),
+    params(("token" = String, Path, description = "Opaque invitation token")),
     responses(
         (status = 201, body = AcceptInvitationResponseCookie, description = "Invitation accepted"),
         (status = 400, body = AccountFailureBody, description = "validation_failed"),
@@ -283,14 +257,10 @@ pub(crate) async fn accept_invitation_route(
     }
 }
 
-/// Revoke (sign out) the current session. Clears the cookie via
-/// `Session::flush` and returns 204.
+/// Revoke (sign out) the current session.
 #[utoipa::path(
-    post,
-    path = "/sessions/revoke",
-    responses(
-        (status = 204, description = "Session revoked"),
-    ),
+    post, path = "/sessions/revoke",
+    responses((status = 204, description = "Session revoked")),
     tag = "accounts",
 )]
 pub(crate) async fn revoke_route(session: Session) -> Response {
@@ -308,11 +278,8 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Build the `OpenApiRouter` carrying every account-flow route. Called
-/// from `lib.rs::build_app` after the cookie/CORS layers are
-/// constructed; the macros that `routes!()` expands need to live in the
-/// same module as the `#[utoipa::path]`-annotated handlers, so the
-/// router constructor lives here too.
+/// Build the `OpenApiRouter` carrying every route. Called from
+/// `lib.rs::build_app` after the cookie/CORS layers are constructed.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(health_route))
@@ -320,5 +287,9 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(crate::project::list_projects_route))
+        .routes(routes!(crate::project::active_project_views_route))
+        .routes(routes!(crate::project::attention_spec_route))
+        .routes(routes!(crate::project::switch_project_route))
         .with_state(state)
 }
