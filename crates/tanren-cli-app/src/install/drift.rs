@@ -2,8 +2,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-
-use super::assets::{AssetKind, asset_catalog};
+use tanren_app_services::install::PROJECTION_MANIFEST;
+use tanren_contract::InstallDriftAssetKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,21 +27,22 @@ pub(crate) struct DriftReport {
 }
 
 pub(crate) fn check_drift(repo: &Path) -> Result<DriftReport> {
-    let catalog = asset_catalog();
-    let mut entries = Vec::with_capacity(catalog.len());
+    let mut entries = Vec::with_capacity(PROJECTION_MANIFEST.len());
     let mut has_drift = false;
 
-    for spec in &catalog {
-        let full_path = repo.join(spec.rel_path);
-        let state = match spec.kind {
-            AssetKind::Generated => check_generated(&full_path, spec.expected_content)?,
-            AssetKind::PreservedStandard => check_preserved(&full_path)?,
+    for entry in PROJECTION_MANIFEST {
+        let full_path = repo.join(entry.rel_path);
+        let state = match entry.kind {
+            InstallDriftAssetKind::Generated => {
+                check_generated(&full_path, entry.expected_content)?
+            }
+            InstallDriftAssetKind::PreservedStandard => check_preserved(&full_path)?,
         };
         if !matches!(state, DriftState::Clean | DriftState::Accepted) {
             has_drift = true;
         }
         entries.push(DriftEntry {
-            path: spec.rel_path.to_owned(),
+            path: entry.rel_path.to_owned(),
             state,
         });
     }
