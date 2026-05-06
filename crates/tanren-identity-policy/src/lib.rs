@@ -8,10 +8,12 @@
 //! [`Argon2idVerifier`] as the canonical local-password implementation.
 
 mod argon2_verifier;
+pub mod project;
 pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
+pub use project::{ProjectId, SpecId};
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};
