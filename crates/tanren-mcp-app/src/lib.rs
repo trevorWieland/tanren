@@ -214,11 +214,20 @@ impl ServerHandler for TanrenMcp {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, schemars::JsonSchema)]
 struct JoinToolRequest {
     #[schemars(with = "String")]
     session_token: String,
     invitation_token: InvitationToken,
+}
+
+impl std::fmt::Debug for JoinToolRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JoinToolRequest")
+            .field("session_token", &"<redacted>")
+            .field("invitation_token", &self.invitation_token)
+            .finish()
+    }
 }
 
 /// Encode a successful handler response as a JSON-text `CallToolResult`.

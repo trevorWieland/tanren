@@ -483,6 +483,7 @@ witness and a falsification witness.
 - [B-0043](B-0043-create-account.md) — Create an account
 - [B-0044](B-0044-invite-to-organization.md) — Invite a person to an organization
 - [B-0045](B-0045-join-organization.md) — Join an organization with an existing account
+- [B-0289](B-0289-mcp-join-session-token-redaction.md) — MCP join tool redacts session token from debug output
 - [B-0046](B-0046-switch-active-account.md) — Switch the active account
 - [B-0047](B-0047-switch-active-organization.md) — Switch the active organization within an account
 - [B-0059](B-0059-leave-organization.md) — Leave an organization

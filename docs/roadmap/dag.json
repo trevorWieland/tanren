@@ -599,7 +599,8 @@
       "milestone": "M-0001",
       "title": "Join an organization with an existing account",
       "completes_behaviors": [
-        "B-0045"
+        "B-0045",
+        "B-0289"
       ],
       "supports_behaviors": [],
       "depends_on": [
@@ -622,6 +623,18 @@
             "mcp",
             "cli",
             "tui"
+          ]
+        },
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0289",
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Positive: MCP join tool processes session token without exposing it in debug output. Falsification: MCP join tool rejects an expired session token.",
+          "interfaces": [
+            "mcp"
           ]
         }
       ],
