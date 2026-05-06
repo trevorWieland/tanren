@@ -29,10 +29,10 @@
 //! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
 //!   on an ephemeral port and drives the three account-flow tools via
 //!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
+//! - `@tui` — full impl. Spawns `tanren-tui` in a pty via `expectrl`;
+//!   account-flow setup uses `Handlers` / `Store` directly, project-flow
+//!   actions navigate the real TUI screen, scrape the rendered output,
+//!   and parse it back into contract types.
 //! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
 //!   parallel Node-side Playwright harness for the same `@web` Gherkin
 //!   scenarios via `playwright-bdd`. The two layers prove themselves
@@ -43,10 +43,14 @@
 //!   dispatch on an ephemeral `SQLite` store).
 
 mod api;
+mod api_support;
 mod cli;
+mod cli_parse;
 mod in_process;
 mod mcp;
+mod project;
 mod tui;
+mod tui_support;
 mod web;
 
 use std::collections::HashMap;
@@ -57,7 +61,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ProjectFailureReason,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -66,6 +71,10 @@ pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
+pub use project::{
+    HarnessProjectFixture, HarnessSpecFixture, ProjectHarness, ProjectOutcome,
+    record_project_failure,
+};
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 
@@ -84,8 +93,9 @@ pub enum HarnessKind {
     /// Spawns the `tanren-mcp` server on an ephemeral port; rmcp
     /// streamable-HTTP client.
     Mcp,
-    /// Drives the `tanren-tui` binary inside a pty (deferred — falls
-    /// back to in-process for PR 9).
+    /// Spawns the `tanren-tui` binary in a pty and drives it via
+    /// `expectrl`. Account-flow setup uses `Handlers` / `Store`
+    /// directly; project-flow actions navigate the real TUI surface.
     Tui,
     /// Drives the web frontend via Playwright (deferred to PR 11 —
     /// falls back to in-process).
@@ -147,13 +157,17 @@ pub struct HarnessAcceptance {
 }
 
 /// Failure surface — every harness collapses transport-specific
-/// failures down to a [`AccountFailureReason`] (matched on the wire
-/// `code`) plus an opaque message used for diagnostic output.
+/// failures down to a [`AccountFailureReason`] or
+/// [`ProjectFailureReason`] (matched on the wire `code`) plus an
+/// opaque message used for diagnostic output.
 #[derive(Debug, thiserror::Error)]
 pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A project-flow taxonomy failure.
+    #[error("{0:?}: {1}")]
+    Project(ProjectFailureReason, String),
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +180,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::Project(reason, _) => reason.code().to_owned(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -309,6 +324,9 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::Project(reason, _) => {
+            HarnessOutcome::Other(format!("project: {}", reason.code()))
+        }
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -347,6 +365,10 @@ impl ConcurrentAcceptanceTally {
         match outcome {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
+                let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::Project(reason, _)) => {
                 let code = reason.code().to_owned();
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }

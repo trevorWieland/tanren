@@ -15,9 +15,10 @@ pub mod harness;
 
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
-    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
-    HarnessSession, InProcessHarness, McpHarness, TuiHarness, WebHarness, event_kinds,
-    record_failure,
+    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome,
+    HarnessProjectFixture, HarnessResult, HarnessSession, HarnessSpecFixture, InProcessHarness,
+    McpHarness, ProjectHarness, ProjectOutcome, TuiHarness, WebHarness, event_kinds,
+    record_failure, record_project_failure,
 };
 
 use chrono::{DateTime, Duration, Utc};

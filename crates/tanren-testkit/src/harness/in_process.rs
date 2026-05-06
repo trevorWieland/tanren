@@ -1,27 +1,27 @@
 //! Direct-`Handlers` harness — the legacy path the rest of the test
 //! suite ran on before R-0001 sub-9. Kept as the fallback for
 //! untagged scenarios and as the temporary stand-in for `@web` (until
-//! PR 11 wires `playwright-bdd`) and `@tui` (until expectrl scraping
-//! is hardened).
+//! PR 11 wires `playwright-bdd`). `@tui` now drives the real binary
+//! via `expectrl` (see `tui.rs`).
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_contract::{
+    AcceptInvitationRequest, AttentionSpecView, ProjectScopedViews, ProjectView, SignInRequest,
+    SignUpRequest, SwitchProjectResponse,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, ProjectId, SpecId};
+use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewProject, NewSpec, ProjectStore};
 
+use super::project::{HarnessProjectFixture, HarnessSpecFixture, ProjectHarness};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
 
-/// In-process harness that drives `tanren_app_services::Handlers`
-/// against an ephemeral `SQLite` store. Used for untagged scenarios and
-/// as the temporary stand-in for `@web` / `@tui` until those harnesses
-/// land their real wire drivers.
 pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
@@ -37,22 +37,6 @@ impl std::fmt::Debug for InProcessHarness {
 }
 
 impl InProcessHarness {
-    /// Construct a fresh in-process harness. Connects an in-memory
-    /// `SQLite` store, applies migrations, and drives handlers with a
-    /// live clock that calls `Utc::now()` on every invocation.
-    ///
-    /// A live clock matters because BDD scenarios interleave setup
-    /// steps with handler calls that depend on real time progression.
-    /// Invitation `expires_at` checks compare to the handler's
-    /// `clock.now()`, so a frozen clock captured at construction would
-    /// let an invitation registered with a past `expires_at` still
-    /// appear unexpired when the scenario runs the acceptance step
-    /// (Codex P2 review on PR #133).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the in-memory store cannot be connected or
-    /// migrated.
     pub async fn new(kind: HarnessKind) -> HarnessResult<Self> {
         let store = crate::ephemeral_store()
             .await
@@ -66,10 +50,6 @@ impl InProcessHarness {
         })
     }
 
-    /// Borrow the handle of the underlying store. Exposed so the
-    /// fallback `@tui` / `@web` paths can read events out alongside
-    /// the trait-driven path. Production-shape callers must go
-    /// through the [`AccountHarness`] trait.
     #[must_use]
     pub fn store(&self) -> &Store {
         &self.store
@@ -147,10 +127,109 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Project(reason) => HarnessError::Project(reason, reason.code().to_owned()),
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+    }
+}
+
+#[async_trait]
+impl ProjectHarness for InProcessHarness {
+    fn kind(&self) -> HarnessKind {
+        self.kind
+    }
+
+    async fn seed_project(&mut self, fixture: HarnessProjectFixture) -> HarnessResult<ProjectId> {
+        let id = fixture.id;
+        self.store
+            .seed_project(NewProject {
+                id,
+                account_id: fixture.account_id,
+                name: fixture.name,
+                state: fixture.state,
+                created_at: fixture.created_at,
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_project: {e}")))?;
+        Ok(id)
+    }
+
+    async fn seed_spec(&mut self, fixture: HarnessSpecFixture) -> HarnessResult<SpecId> {
+        let id = fixture.id;
+        self.store
+            .seed_spec(NewSpec {
+                id,
+                project_id: fixture.project_id,
+                name: fixture.name,
+                needs_attention: fixture.needs_attention,
+                attention_reason: fixture.attention_reason,
+                created_at: fixture.created_at,
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_spec: {e}")))?;
+        Ok(id)
+    }
+
+    async fn seed_view_state(
+        &mut self,
+        account_id: AccountId,
+        project_id: ProjectId,
+        state: serde_json::Value,
+    ) -> HarnessResult<()> {
+        self.store
+            .write_view_state(account_id, project_id, state, Utc::now())
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_view_state: {e}")))?;
+        Ok(())
+    }
+
+    async fn list_projects(&mut self, account_id: AccountId) -> HarnessResult<Vec<ProjectView>> {
+        self.handlers
+            .list_projects(&self.store, account_id)
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn switch_active_project(
+        &mut self,
+        account_id: AccountId,
+        project_id: ProjectId,
+    ) -> HarnessResult<SwitchProjectResponse> {
+        self.handlers
+            .switch_active_project(&self.store, account_id, project_id)
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn attention_spec(
+        &mut self,
+        account_id: AccountId,
+        project_id: ProjectId,
+        spec_id: SpecId,
+    ) -> HarnessResult<AttentionSpecView> {
+        self.handlers
+            .attention_spec(&self.store, account_id, project_id, spec_id)
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn project_scoped_views(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ProjectScopedViews> {
+        let resp = self
+            .handlers
+            .project_scoped_views(&self.store, account_id)
+            .await
+            .map_err(translate_app_error)?;
+        Ok(ProjectScopedViews {
+            project_id: resp.project_id,
+            specs: resp.specs,
+            loops: resp.loops,
+            milestones: resp.milestones,
+        })
     }
 }

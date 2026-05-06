@@ -15,12 +15,17 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, AttentionSpecView, ProjectScopedViews, ProjectView,
+    SignInRequest, SignUpRequest, SwitchProjectResponse,
+};
+use tanren_identity_policy::{AccountId, ProjectId, SpecId};
+use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewProject, NewSpec, ProjectStore};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api_support::{code_to_project_reason, code_to_reason, scenario_db_path, sqlite_url};
+use super::project::{HarnessProjectFixture, HarnessSpecFixture, ProjectHarness};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -46,11 +51,6 @@ impl std::fmt::Debug for McpHarness {
 
 impl McpHarness {
     /// Spawn an ephemeral `tanren-mcp-app` and connect a client to it.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database, listener, server, or rmcp
-    /// client handshake fails.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("mcp");
         let db_url = sqlite_url(&db_path);
@@ -81,7 +81,6 @@ impl McpHarness {
                 .await;
         });
 
-        // Build the rmcp client transport with the bearer-token header.
         let config =
             StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
                 .auth_header(TEST_API_KEY.to_owned());
@@ -204,6 +203,122 @@ impl AccountHarness for McpHarness {
     }
 }
 
+#[async_trait]
+impl ProjectHarness for McpHarness {
+    fn kind(&self) -> HarnessKind {
+        HarnessKind::Mcp
+    }
+
+    async fn seed_project(&mut self, fixture: HarnessProjectFixture) -> HarnessResult<ProjectId> {
+        let id = fixture.id;
+        self.store
+            .seed_project(NewProject {
+                id,
+                account_id: fixture.account_id,
+                name: fixture.name,
+                state: fixture.state,
+                created_at: fixture.created_at,
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_project: {e}")))?;
+        Ok(id)
+    }
+
+    async fn seed_spec(&mut self, fixture: HarnessSpecFixture) -> HarnessResult<SpecId> {
+        let id = fixture.id;
+        self.store
+            .seed_spec(NewSpec {
+                id,
+                project_id: fixture.project_id,
+                name: fixture.name,
+                needs_attention: fixture.needs_attention,
+                attention_reason: fixture.attention_reason,
+                created_at: fixture.created_at,
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_spec: {e}")))?;
+        Ok(id)
+    }
+
+    async fn seed_view_state(
+        &mut self,
+        account_id: AccountId,
+        project_id: ProjectId,
+        state: Value,
+    ) -> HarnessResult<()> {
+        self.store
+            .write_view_state(account_id, project_id, state, chrono::Utc::now())
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_view_state: {e}")))?;
+        Ok(())
+    }
+
+    async fn list_projects(&mut self, account_id: AccountId) -> HarnessResult<Vec<ProjectView>> {
+        let body = serde_json::json!({
+            "account_id": account_id.as_uuid().to_string(),
+        });
+        let payload = self.call_tool("project.list", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode project list: {e}")))
+    }
+
+    async fn switch_active_project(
+        &mut self,
+        account_id: AccountId,
+        project_id: ProjectId,
+    ) -> HarnessResult<SwitchProjectResponse> {
+        let body = serde_json::json!({
+            "account_id": account_id.as_uuid().to_string(),
+            "project_id": project_id.as_uuid().to_string(),
+        });
+        let payload = self.call_tool("project.switch_active", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode switch response: {e}")))
+    }
+
+    async fn attention_spec(
+        &mut self,
+        account_id: AccountId,
+        project_id: ProjectId,
+        spec_id: SpecId,
+    ) -> HarnessResult<AttentionSpecView> {
+        let body = serde_json::json!({
+            "account_id": account_id.as_uuid().to_string(),
+            "project_id": project_id.as_uuid().to_string(),
+            "spec_id": spec_id.as_uuid().to_string(),
+        });
+        let payload = self.call_tool("project.attention_spec", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode attention spec: {e}")))
+    }
+
+    async fn project_scoped_views(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ProjectScopedViews> {
+        let body = serde_json::json!({
+            "account_id": account_id.as_uuid().to_string(),
+        });
+        let payload = self.call_tool("project.scoped_views", body).await?;
+        let project_id: ProjectId = serde_json::from_value(payload["project_id"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode project_id: {e}")))?;
+        let specs: Vec<SpecId> = serde_json::from_value(payload["specs"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode specs: {e}")))?;
+        let loops: Vec<tanren_identity_policy::LoopId> =
+            serde_json::from_value(payload["loops"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode loops: {e}")))?;
+        let milestones: Vec<tanren_identity_policy::MilestoneId> =
+            serde_json::from_value(payload["milestones"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode milestones: {e}")))?;
+        Ok(ProjectScopedViews {
+            project_id,
+            specs,
+            loops,
+            milestones,
+        })
+    }
+}
+
 fn first_text(content: &[Content]) -> Option<String> {
     for item in content {
         if let RawContent::Text(text) = &item.raw {
@@ -245,6 +360,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = code_to_project_reason(&code) {
+        HarnessError::Project(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
