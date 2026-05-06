@@ -6,7 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
-use crate::{FormState, MenuChoice, OutcomeView};
+use crate::{FormState, MenuChoice, OutcomeView, UpgradePreviewData};
 
 pub(crate) fn draw_menu(frame: &mut ratatui::Frame<'_>, area: Rect, selected: usize) {
     let mut lines = vec![
@@ -102,4 +102,42 @@ pub(crate) fn draw_outcome(frame: &mut ratatui::Frame<'_>, area: Rect, view: &Ou
     lines.push(Line::from(""));
     lines.push(Line::from("Enter/Esc back to menu   q quit-to-menu"));
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+pub(crate) fn draw_upgrade_preview(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    data: &UpgradePreviewData,
+) {
+    use crate::ui::upgrade_summary_lines;
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Upgrade Preview ");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let summary_lines = upgrade_summary_lines(&data.preview);
+    let count = summary_lines.len();
+    let mut constraints: Vec<Constraint> = (0..count).map(|_| Constraint::Length(1)).collect();
+    constraints.push(Constraint::Length(1));
+    constraints.push(Constraint::Min(0));
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner);
+
+    for (idx, line) in summary_lines.iter().enumerate() {
+        let style = if line.starts_with("\u{26a0}") {
+            Style::default().add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(line.clone(), style)),
+            chunks[idx],
+        );
+    }
+    frame.render_widget(Paragraph::new("Enter apply   Esc cancel"), chunks[count]);
 }

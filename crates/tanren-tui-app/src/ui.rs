@@ -1,12 +1,13 @@
 //! Form factories, outcome adapters, and error-message helpers for
-//! the TUI. Split out of `main.rs` to keep that file under the
+//! the TUI. Split out of `main.rs` to keep this file under the
 //! workspace 500-line budget.
 
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
+use tanren_app_services::{ApplyError, PreviewError};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AssetAction,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UpgradePreviewResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, ValidationError};
 
@@ -156,4 +157,56 @@ pub(crate) fn parse_accept_invitation(
         password,
         display_name,
     })
+}
+
+pub(crate) fn upgrade_root_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Root path",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
+pub(crate) fn upgrade_apply_outcome(response: &UpgradePreviewResponse) -> OutcomeView {
+    OutcomeView {
+        title: "Upgrade applied",
+        lines: upgrade_summary_lines(response),
+    }
+}
+
+pub(crate) fn upgrade_summary_lines(response: &UpgradePreviewResponse) -> Vec<String> {
+    let mut lines = vec![format!(
+        "{} → {}",
+        response.source_version, response.target_version
+    )];
+    for action in &response.actions {
+        lines.push(format_action_label(action));
+    }
+    for concern in &response.concerns {
+        lines.push(format!("\u{26a0} {:?}: {}", concern.kind, concern.detail));
+    }
+    for path in &response.preserved_user_paths {
+        lines.push(format!("preserved: {}", path.display()));
+    }
+    lines
+}
+
+fn format_action_label(action: &AssetAction) -> String {
+    match action {
+        AssetAction::Create { path, .. } => format!("create: {}", path.display()),
+        AssetAction::Update { path, .. } => format!("update: {}", path.display()),
+        AssetAction::Remove { path, .. } => format!("remove: {}", path.display()),
+        AssetAction::Preserve { path, .. } => format!("preserve: {}", path.display()),
+    }
+}
+
+pub(crate) fn render_preview_error(err: &PreviewError) -> String {
+    format!("preview_failed: {err}")
+}
+
+pub(crate) fn render_apply_error(err: ApplyError) -> String {
+    match err {
+        ApplyError::Preview(preview_err) => render_preview_error(&preview_err),
+        _ => format!("apply_failed: {err}"),
+    }
 }
