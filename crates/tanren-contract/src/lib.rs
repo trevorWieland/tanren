@@ -13,8 +13,9 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use organization::{
-    CreateOrganizationRequest, CreateOrganizationResponse, OrganizationAdminOperation,
-    OrganizationFailureReason, OrganizationMembershipView, OrganizationView,
+    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsResponse,
+    OrganizationAdminOperation, OrganizationCreatedEvent, OrganizationCreationRejectedEvent,
+    OrganizationEventKind, OrganizationFailureReason, OrganizationMembershipView, OrganizationView,
 };
 
 use serde::{Deserialize, Serialize};

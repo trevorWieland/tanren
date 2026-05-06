@@ -8,8 +8,7 @@ use tanren_store::{
 };
 
 use crate::organization_events::{
-    ORGANIZATION_CREATED, ORGANIZATION_CREATION_REJECTED, OrganizationCreated,
-    OrganizationCreationRejected, envelope,
+    OrganizationCreatedEvent, OrganizationCreationRejectedEvent, OrganizationEventKind, envelope,
 };
 use crate::{AppServiceError, Clock};
 
@@ -65,8 +64,8 @@ where
             store
                 .append_event(
                     envelope(
-                        ORGANIZATION_CREATION_REJECTED,
-                        &OrganizationCreationRejected {
+                        OrganizationEventKind::OrganizationCreationRejected,
+                        &OrganizationCreationRejectedEvent {
                             reason: OrganizationFailureReason::DuplicateOrganizationName,
                             creator_account_id: account_id,
                             attempted_name: canonical_name,
@@ -86,8 +85,8 @@ where
     store
         .append_event(
             envelope(
-                ORGANIZATION_CREATED,
-                &OrganizationCreated {
+                OrganizationEventKind::OrganizationCreated,
+                &OrganizationCreatedEvent {
                     org_id: outcome.organization.id,
                     creator_account_id: account_id,
                     canonical_name: outcome.organization.canonical_name.clone(),

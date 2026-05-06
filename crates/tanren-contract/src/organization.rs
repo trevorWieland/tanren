@@ -84,7 +84,7 @@ pub enum OrganizationAdminOperation {
 /// interface (api/mcp/cli/tui/web) projects an `OrganizationFailureReason`
 /// into the same wire shape so callers can match on `code` regardless of
 /// transport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum OrganizationFailureReason {
@@ -103,6 +103,70 @@ pub enum OrganizationFailureReason {
     /// holder, violating the invariant that every organization must
     /// retain at least one admin.
     LastAdminHolder,
+}
+
+/// Closed taxonomy of organization-flow event kinds.
+///
+/// Each variant maps to a typed event payload struct in this module. The
+/// kind serialises to the JSON envelope's `kind` field so log consumers
+/// can filter without parsing the payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OrganizationEventKind {
+    /// An organization was created and bootstrap admin permissions were
+    /// granted to the creator.
+    OrganizationCreated,
+    /// An organization-creation attempt was rejected — duplicate name,
+    /// validation failure, or other taxonomy reason.
+    OrganizationCreationRejected,
+}
+
+impl OrganizationEventKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OrganizationCreated => "organization_created",
+            Self::OrganizationCreationRejected => "organization_creation_rejected",
+        }
+    }
+}
+
+/// Event payload emitted when an organization is created.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationCreatedEvent {
+    /// Stable organization id.
+    pub org_id: OrgId,
+    /// Account that created the organization.
+    pub creator_account_id: AccountId,
+    /// Canonical (trimmed + case-folded) organization name.
+    pub canonical_name: String,
+    /// Bootstrap admin permissions granted to the creator.
+    pub granted_permissions: Vec<OrgPermission>,
+    /// Wall-clock time the organization was created.
+    pub at: DateTime<Utc>,
+}
+
+/// Event payload emitted when an organization-creation attempt is
+/// rejected.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationCreationRejectedEvent {
+    /// Why the creation attempt was rejected.
+    pub reason: OrganizationFailureReason,
+    /// Account that attempted to create the organization.
+    pub creator_account_id: AccountId,
+    /// Name the caller submitted.
+    pub attempted_name: String,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// Response shape for listing organizations an account belongs to.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListOrganizationsResponse {
+    /// Organizations visible to the requesting account.
+    pub organizations: Vec<OrganizationView>,
 }
 
 impl OrganizationFailureReason {
