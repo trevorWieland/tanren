@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, OrgPermission, SessionToken,
 };
 
 use crate::entity;
@@ -164,4 +164,92 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted organization row, exposed as a typed envelope so other
+/// crates never see `SeaORM` `Model` types directly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationRecord {
+    /// Stable organization id.
+    pub id: OrgId,
+    /// Canonical (trimmed + case-folded) organization name used for
+    /// uniqueness checks.
+    pub canonical_name: String,
+    /// Display name of the organization.
+    pub display_name: String,
+    /// Account that created the organization.
+    pub creator_account_id: AccountId,
+    /// Wall-clock time the organization was created.
+    pub created_at: DateTime<Utc>,
+    /// Number of projects owned by this organization. Always zero
+    /// until project ownership lands.
+    pub project_count: u64,
+}
+
+impl TryFrom<entity::organizations::Model> for OrganizationRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::organizations::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: OrgId::new(model.id),
+            canonical_name: model.canonical_name,
+            display_name: model.display_name,
+            creator_account_id: AccountId::new(model.creator_account_id),
+            created_at: model.created_at,
+            project_count: 0,
+        })
+    }
+}
+
+/// Input shape for the atomic organization-creation flow.
+#[derive(Debug, Clone)]
+pub struct NewOrganization {
+    /// Stable id allocated by the caller (`UUIDv7`).
+    pub id: OrgId,
+    /// Canonical (trimmed + case-folded) organization name.
+    pub canonical_name: String,
+    /// Display name of the organization.
+    pub display_name: String,
+    /// Account creating the organization.
+    pub creator_account_id: AccountId,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+pub(crate) fn org_permission_to_str(perm: OrgPermission) -> &'static str {
+    match perm {
+        OrgPermission::InviteMembers => "invite_members",
+        OrgPermission::ManageAccess => "manage_access",
+        OrgPermission::Configure => "configure",
+        OrgPermission::SetPolicy => "set_policy",
+        OrgPermission::Delete => "delete",
+        _ => "",
+    }
+}
+
+/// Persisted organization permission grant row. Exposed as a typed
+/// envelope so other crates can inspect permission grants without
+/// seeing `SeaORM` model types directly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationPermissionGrantRecord {
+    /// Organization the permission applies to.
+    pub org_id: OrgId,
+    /// Account the permission is granted to.
+    pub account_id: AccountId,
+    /// Permission string (matches the serde representation of
+    /// [`OrgPermission`]).
+    pub permission: String,
+    /// Wall-clock time the grant was created.
+    pub granted_at: DateTime<Utc>,
+}
+
+impl From<entity::organization_permission_grants::Model> for OrganizationPermissionGrantRecord {
+    fn from(model: entity::organization_permission_grants::Model) -> Self {
+        Self {
+            org_id: OrgId::new(model.org_id),
+            account_id: AccountId::new(model.account_id),
+            permission: model.permission,
+            granted_at: model.granted_at,
+        }
+    }
 }

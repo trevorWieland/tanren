@@ -28,11 +28,12 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrgPermission, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, MembershipRecord, NewAccount, NewOrganization,
+    OrganizationRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +284,117 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Input shape for [`OrganizationStore::create_organization`]. Bundles
+/// every input the atomic flow needs so the trait method runs as a
+/// single unit of work: insert the organization row, link a membership
+/// for the creator, and grant the bootstrap admin permissions.
+pub struct CreateOrganizationAtomicRequest {
+    /// The organization to create.
+    pub organization: NewOrganization,
+    /// Stable membership id the caller pre-allocates for the creator.
+    pub membership_id: MembershipId,
+    /// Bootstrap admin permissions granted to the creator.
+    pub bootstrap_permissions: Vec<OrgPermission>,
+    /// Wall-clock instant the flow runs at.
+    pub now: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for CreateOrganizationAtomicRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateOrganizationAtomicRequest")
+            .field("organization", &self.organization)
+            .field("membership_id", &self.membership_id)
+            .field("bootstrap_permissions", &self.bootstrap_permissions)
+            .field("now", &self.now)
+            .finish()
+    }
+}
+
+/// Successful return from [`OrganizationStore::create_organization`].
+#[derive(Debug, Clone)]
+pub struct CreateOrganizationAtomicOutput {
+    /// The freshly created organization.
+    pub organization: OrganizationRecord,
+    /// The membership linking the creator to the organization.
+    pub membership: MembershipRecord,
+}
+
+/// Failure taxonomy for [`OrganizationStore::create_organization`].
+#[derive(Debug, thiserror::Error)]
+pub enum CreateOrganizationError {
+    /// An organization with the same canonical name already exists for
+    /// this creator account.
+    #[error("duplicate organization name")]
+    DuplicateName,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Port the organization-flow handlers consume. The SeaORM-backed
+/// adapter is `impl OrganizationStore for Store` (see `lib.rs`).
+#[async_trait]
+pub trait OrganizationStore: Send + Sync + std::fmt::Debug {
+    /// Atomically create an organization, link a membership for the
+    /// creator, and grant the bootstrap admin permissions. If any
+    /// step fails the transaction rolls back.
+    async fn create_organization(
+        &self,
+        request: CreateOrganizationAtomicRequest,
+    ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError>;
+
+    /// List organizations the supplied account is a member of.
+    async fn list_account_organizations(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrganizationRecord>, StoreError>;
+
+    /// Look up a membership linking an account to an organization.
+    async fn find_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Option<MembershipRecord>, StoreError>;
+
+    /// Grant an admin permission to an account within an organization.
+    async fn grant_organization_permission(
+        &self,
+        org_id: OrgId,
+        account_id: AccountId,
+        permission: OrgPermission,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
+
+    /// Check whether an account holds a specific permission in an
+    /// organization.
+    async fn has_organization_permission(
+        &self,
+        org_id: OrgId,
+        account_id: AccountId,
+        permission: OrgPermission,
+    ) -> Result<bool, StoreError>;
+
+    /// Count how many distinct accounts hold the specified permission
+    /// in an organization. Used by the last-admin-holder invariant
+    /// check to determine whether revoking a permission would leave the
+    /// organization without any remaining holder.
+    async fn count_permission_holders(
+        &self,
+        org_id: OrgId,
+        permission: OrgPermission,
+    ) -> Result<u64, StoreError>;
+
+    /// Count the number of projects owned by an organization. Returns
+    /// zero until project ownership lands.
+    async fn count_organization_projects(&self, org_id: OrgId) -> Result<u64, StoreError>;
+
+    /// Resolve an unexpired bearer session token. Returns `None` when
+    /// the token does not exist or has expired.
+    async fn resolve_bearer_session(
+        &self,
+        token: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError>;
 }

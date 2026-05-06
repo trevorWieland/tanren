@@ -8,19 +8,23 @@
 //! across the dependency boundary.
 
 mod accept_invitation;
+mod create_organization;
 mod entity;
 mod migration;
+mod organization_store;
 mod records;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, NewOrganization,
+    OrganizationPermissionGrantRecord, OrganizationRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, CreateOrganizationAtomicOutput,
+    CreateOrganizationAtomicRequest, CreateOrganizationError, OrganizationStore,
 };
 
 use async_trait::async_trait;
@@ -296,10 +300,6 @@ impl AccountStore for Store {
     }
 
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        // Order by `occurred_at` first, then by `id` (UUIDv7) as a stable
-        // tie-breaker. Without the secondary key, events landing inside the
-        // same timestamp bucket can come back in different orders across
-        // reads — replay correctness demands a total order.
         let rows = entity::events::Entity::find()
             .order_by_desc(entity::events::Column::OccurredAt)
             .order_by_desc(entity::events::Column::Id)
