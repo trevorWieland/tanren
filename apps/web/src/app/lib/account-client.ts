@@ -64,6 +64,8 @@ export type AccountFailureCode =
   | "invitation_not_found"
   | "invitation_already_consumed"
   | "invitation_expired"
+  | "wrong_account"
+  | "unauthenticated"
   | "validation_failed"
   | "unavailable"
   | "internal_error";
@@ -161,6 +163,23 @@ export function acceptInvitation(
     password: input.password,
     display_name: input.display_name,
   });
+}
+
+export interface JoinOrganizationResult {
+  joined_org: string;
+  membership_permissions: string;
+  selectable_organizations: Array<{
+    org_id: string;
+    permissions: string;
+  }>;
+  project_access_grants: Array<Record<string, never>>;
+}
+
+export function joinOrganization(
+  token: string,
+): Promise<JoinOrganizationResult> {
+  const path = `/invitations/${encodeURIComponent(token)}/join`;
+  return postJson<JoinOrganizationResult>(path, {});
 }
 
 /**

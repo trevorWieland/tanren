@@ -24,8 +24,9 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
+use sea_orm::{ConnectionTrait, Statement};
 use serde::Deserialize;
-use tanren_identity_policy::{InvitationToken, OrgId};
+use tanren_identity_policy::{Identifier, InvitationToken, OrgId, OrgPermissions};
 use tanren_store::{NewInvitation, Store};
 use uuid::Uuid;
 
@@ -44,6 +45,18 @@ pub(crate) struct SeedInvitationBody {
     /// Wall-clock expiry instant in ISO 8601. May be in the past for
     /// expired-invitation falsification scenarios.
     pub expires_at: DateTime<Utc>,
+    /// Target identifier (email) for addressed invitations. Omit for
+    /// open (new-account) invitations.
+    #[serde(default)]
+    pub target_identifier: Option<Identifier>,
+    /// Organization-level permissions granted on acceptance. Omit to
+    /// default to member permissions at the service layer.
+    #[serde(default)]
+    pub org_permissions: Option<OrgPermissions>,
+    /// When set, seeds the invitation in a revoked state so BDD
+    /// scenarios can exercise the revoked-invitation rejection path.
+    #[serde(default)]
+    pub revoked_at: Option<DateTime<Utc>>,
 }
 
 pub(crate) async fn seed_invitation_route(
@@ -58,11 +71,27 @@ pub(crate) async fn seed_invitation_route(
             token,
             inviting_org_id,
             expires_at: body.expires_at,
-            target_identifier: None,
-            org_permissions: None,
+            target_identifier: body.target_identifier,
+            org_permissions: body.org_permissions,
         })
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    if let Some(revoked_at) = body.revoked_at {
+        let conn = store.connection();
+        let backend = conn.get_database_backend();
+        conn.execute(Statement::from_string(
+            backend,
+            format!(
+                "UPDATE invitations SET revoked_at = '{}' WHERE token = '{}'",
+                revoked_at.to_rfc3339(),
+                body.token,
+            ),
+        ))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    }
+
     Ok(StatusCode::CREATED)
 }
 

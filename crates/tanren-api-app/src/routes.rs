@@ -11,18 +11,19 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::Handlers;
+use tanren_app_services::{AppServiceError, Handlers};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, JoinOrganizationRequest,
+    OrgMembershipView, ProjectAccessGrant, SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{Email, InvitationToken, OrgId, OrgPermissions};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
+use crate::cookies::{SessionWrite, install_cookie_session, read_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
 /// Liveness response.
@@ -83,6 +84,22 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
+/// Response shape for `POST /invitations/{token}/join`. The account is
+/// already authenticated (session set by a prior sign-in), so no
+/// session projection is needed — the response carries only the join
+/// result.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub(crate) struct JoinOrganizationResponseCookie {
+    /// Organization the account joined.
+    pub joined_org: OrgId,
+    /// Organization-level permissions granted by the new membership.
+    pub membership_permissions: OrgPermissions,
+    /// All organization memberships selectable by this account.
+    pub selectable_organizations: Vec<OrgMembershipView>,
+    /// Project-level access grants (always empty on join).
+    pub project_access_grants: Vec<ProjectAccessGrant>,
+}
+
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -97,6 +114,7 @@ pub struct AcceptInvitationBody {
         sign_up_route,
         sign_in_route,
         accept_invitation_route,
+        join_organization_route,
         revoke_route,
     ),
     components(schemas(
@@ -107,12 +125,15 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        JoinOrganizationResponseCookie,
+        OrgMembershipView,
+        ProjectAccessGrant,
         AccountFailureBody,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
-        (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, join-organization, sign-out."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -283,6 +304,70 @@ pub(crate) async fn accept_invitation_route(
     }
 }
 
+/// Join an organization with an existing account. Reads the signed-in
+/// account from the cookie session; no request body required.
+#[utoipa::path(
+    post,
+    path = "/invitations/{token}/join",
+    params(
+        ("token" = String, Path, description = "Opaque invitation token"),
+    ),
+    responses(
+        (status = 200, body = JoinOrganizationResponseCookie, description = "Joined organization"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "unauthenticated"),
+        (status = 403, body = AccountFailureBody, description = "wrong_account"),
+        (status = 404, body = AccountFailureBody, description = "invitation_not_found"),
+        (status = 410, body = AccountFailureBody, description = "invitation_expired or invitation_already_consumed"),
+    ),
+    tag = "accounts",
+)]
+pub(crate) async fn join_organization_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path(token): Path<String>,
+) -> Response {
+    let Ok(account_id) = read_cookie_session(&session).await else {
+        return map_app_error(AppServiceError::Account(
+            AccountFailureReason::Unauthenticated,
+        ));
+    };
+
+    let invitation_token = match InvitationToken::parse(&token) {
+        Ok(t) => t,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AccountFailureBody {
+                    code: "validation_failed".to_owned(),
+                    summary: err.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let request = JoinOrganizationRequest { invitation_token };
+
+    match state
+        .handlers
+        .join_organization(state.store.as_ref(), account_id, request)
+        .await
+    {
+        Ok(response) => (
+            StatusCode::OK,
+            Json(JoinOrganizationResponseCookie {
+                joined_org: response.joined_org,
+                membership_permissions: response.membership_permissions,
+                selectable_organizations: response.selectable_organizations,
+                project_access_grants: response.project_access_grants,
+            }),
+        )
+            .into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Revoke (sign out) the current session. Clears the cookie via
 /// `Session::flush` and returns 204.
 #[utoipa::path(
@@ -319,6 +404,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
+        .routes(routes!(join_organization_route))
         .routes(routes!(revoke_route))
         .with_state(state)
 }

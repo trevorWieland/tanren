@@ -10,9 +10,10 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::AccountId;
+use tower_sessions::Session;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
-use tower_sessions::{Expiry, Session, SessionManagerLayer};
+use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::{PostgresStore, SqliteStore};
 
 const SESSION_COOKIE_NAME: &str = "tanren_session";
@@ -42,6 +43,17 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .await
         .context("insert expires_at into session")?;
     Ok(())
+}
+
+/// Read the `account_id` from an existing tower-sessions row. Returns
+/// `Err` if the session has no `account_id` — the caller maps this to
+/// 401 Unauthenticated.
+pub(crate) async fn read_cookie_session(session: &Session) -> Result<AccountId> {
+    session
+        .get::<AccountId>(SESSION_KEY_ACCOUNT)
+        .await
+        .context("read account_id from session")?
+        .context("no account_id in session")
 }
 
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships
