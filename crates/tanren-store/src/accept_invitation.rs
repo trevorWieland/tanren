@@ -306,4 +306,20 @@ impl Store {
         let inserted = model.insert(&self.conn).await?;
         InvitationRecord::try_from(inserted)
     }
+
+    pub async fn seed_notification_channel(
+        &self,
+        channel: tanren_configuration_secrets::NotificationChannel,
+    ) -> Result<(), StoreError> {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        let id = Uuid::now_v7();
+        self.conn
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO notification_supported_channels (id, channel) VALUES ($1, $2)",
+                [id.into(), channel.to_string().into()],
+            ))
+            .await?;
+        Ok(())
+    }
 }

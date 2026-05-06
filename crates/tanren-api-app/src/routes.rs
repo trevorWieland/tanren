@@ -18,6 +18,12 @@ use tanren_contract::{
     RemoveUserConfigResponse, SessionEnvelope, SetUserConfigRequest, SetUserConfigResponse,
     SignInRequest, SignUpRequest, UpdateCredentialResponse,
 };
+use tanren_contract::{
+    EvaluateNotificationRouteRequest, ListNotificationPreferencesResponse,
+    ReadPendingRoutingSnapshotResponse, SetNotificationPreferencesRequest,
+    SetNotificationPreferencesResponse, SetOrganizationNotificationOverridesRequest,
+    SetOrganizationNotificationOverridesResponse,
+};
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
@@ -28,6 +34,7 @@ use crate::AppState;
 use crate::config_routes;
 use crate::cookies::{SessionWrite, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::notification_routes;
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -110,6 +117,11 @@ pub struct AcceptInvitationBody {
         config_routes::create_credential_route,
         config_routes::update_credential_route,
         config_routes::remove_credential_route,
+        notification_routes::list_notification_preferences_route,
+        notification_routes::set_notification_preferences_route,
+        notification_routes::set_organization_notification_overrides_route,
+        notification_routes::evaluate_notification_route_route,
+        notification_routes::read_pending_routing_snapshot_route,
     ),
     components(schemas(
         HealthResponse,
@@ -132,12 +144,21 @@ pub struct AcceptInvitationBody {
         UpdateCredentialResponse,
         ListCredentialsResponse,
         config_routes::UpdateCredentialBody,
+        SetNotificationPreferencesRequest,
+        SetNotificationPreferencesResponse,
+        ListNotificationPreferencesResponse,
+        SetOrganizationNotificationOverridesRequest,
+        SetOrganizationNotificationOverridesResponse,
+        EvaluateNotificationRouteRequest,
+        tanren_contract::EvaluateNotificationRouteResponse,
+        ReadPendingRoutingSnapshotResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
         (name = "user-config", description = "User-tier configuration: list, get, set, remove."),
         (name = "credentials", description = "User-owned credentials: list, create, update, remove."),
+        (name = "notifications", description = "Notification preferences: list, set, org overrides, evaluate, pending routes."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -353,5 +374,20 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(config_routes::create_credential_route))
         .routes(routes!(config_routes::update_credential_route))
         .routes(routes!(config_routes::remove_credential_route))
+        .routes(routes!(
+            notification_routes::list_notification_preferences_route
+        ))
+        .routes(routes!(
+            notification_routes::set_notification_preferences_route
+        ))
+        .routes(routes!(
+            notification_routes::set_organization_notification_overrides_route
+        ))
+        .routes(routes!(
+            notification_routes::evaluate_notification_route_route
+        ))
+        .routes(routes!(
+            notification_routes::read_pending_routing_snapshot_route
+        ))
         .with_state(state)
 }

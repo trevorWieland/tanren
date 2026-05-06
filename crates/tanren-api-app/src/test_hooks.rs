@@ -25,12 +25,11 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tanren_app_services::AccountStore;
 use tanren_configuration_secrets::{
-    CredentialKind, CredentialScope, UserSettingKey, UserSettingValue,
+    CredentialKind, CredentialScope, NotificationChannel, UserSettingKey, UserSettingValue,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
-use tanren_store::{NewCredential, NewInvitation, NewUserConfigValue, Store};
+use tanren_store::{AccountStore, NewCredential, NewInvitation, NewUserConfigValue, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -75,6 +74,11 @@ pub(crate) fn router(store: Arc<Store>) -> Router {
         .route("/test-hooks/invitations", post(seed_invitation_route))
         .route("/test-hooks/user-config", post(seed_user_config_route))
         .route("/test-hooks/credentials", post(seed_credential_route))
+        .route(
+            "/test-hooks/notification-channels",
+            post(seed_notification_channel_route),
+        )
+        .route("/test-hooks/memberships", post(seed_membership_route))
         .with_state(store)
 }
 
@@ -128,6 +132,39 @@ pub(crate) async fn seed_credential_route(
             encrypted_value: body.secret_value.as_bytes().to_vec(),
             now: Utc::now(),
         })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedNotificationChannelBody {
+    pub channel: NotificationChannel,
+}
+
+pub(crate) async fn seed_notification_channel_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedNotificationChannelBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    store
+        .seed_notification_channel(body.channel)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedMembershipBody {
+    pub account_id: AccountId,
+    pub org_id: OrgId,
+}
+
+pub(crate) async fn seed_membership_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedMembershipBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    store
+        .insert_membership(body.account_id, body.org_id, Utc::now())
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
     Ok(StatusCode::CREATED)

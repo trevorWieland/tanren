@@ -39,6 +39,7 @@
 mod config_routes;
 mod cookies;
 mod errors;
+mod notification_routes;
 mod routes;
 // test_hooks must be visible in any compilation that exposes
 // `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition

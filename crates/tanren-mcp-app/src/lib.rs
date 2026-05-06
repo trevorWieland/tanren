@@ -1,16 +1,5 @@
-//! Tanren MCP (Model Context Protocol) server — runtime library.
-//!
-//! R-0001 (sub-8) promotes the runtime out of `bin/tanren-mcp/src/main.rs`
-//! per the thin-binary-crate profile. The binary shrinks to a wiring shell
-//! that initializes tracing and calls [`serve`]; the rmcp tool surface,
-//! API-key middleware, and host-header allowlist live here so the BDD
-//! harness can exercise this code via the rmcp client crate without
-//! spinning up a child process.
-//!
-//! The MCP surface continues to return bearer-mode `SessionView`
-//! responses — there is no cookie jar between the rmcp client and server.
-
 mod server;
+mod tools_support;
 
 use std::sync::Arc;
 
@@ -18,20 +7,21 @@ use rmcp::ErrorData as McpError;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
-use schemars::JsonSchema;
+use rmcp::model::{CallToolResult, ServerCapabilities, ServerInfo};
 use secrecy::SecretString;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_configuration_secrets::{
-    CredentialId, CredentialKind, UserSettingKey, UserSettingValue,
-};
 use tanren_contract::{
     CreateCredentialRequest, GetUserConfigRequest, RemoveCredentialRequest,
     RemoveUserConfigRequest, SetUserConfigRequest, UpdateCredentialRequest,
 };
-use tanren_identity_policy::{SessionToken, secret_serde};
+use tanren_identity_policy::SessionToken;
+
+use tools_support::{
+    CreateCredentialParams, EvaluateNotificationRouteParams, RemoveCredentialParams,
+    RemoveUserConfigParams, SessionParams, SetNotificationPreferencesParams,
+    SetOrganizationNotificationOverridesParams, SetUserConfigParams, UpdateCredentialParams,
+    map_failure, success,
+};
 
 pub use server::{build_router_with_store, serve};
 
@@ -56,60 +46,6 @@ impl std::fmt::Debug for TanrenMcp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TanrenMcp").finish_non_exhaustive()
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct HealthResponse {
-    status: String,
-    version: String,
-    contract_version: u32,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct SessionParams {
-    session_token: String,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct SetUserConfigParams {
-    session_token: String,
-    key: UserSettingKey,
-    value: UserSettingValue,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct RemoveUserConfigParams {
-    session_token: String,
-    key: UserSettingKey,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct CreateCredentialParams {
-    session_token: String,
-    kind: CredentialKind,
-    name: String,
-    description: Option<String>,
-    provider: Option<String>,
-    #[schemars(with = "String")]
-    #[serde(deserialize_with = "secret_serde::deserialize_password")]
-    value: SecretString,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct UpdateCredentialParams {
-    session_token: String,
-    id: CredentialId,
-    name: Option<String>,
-    description: Option<String>,
-    #[schemars(with = "String")]
-    #[serde(deserialize_with = "secret_serde::deserialize_password")]
-    value: SecretString,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct RemoveCredentialParams {
-    session_token: String,
-    id: CredentialId,
 }
 
 #[rmcp::tool_router]
@@ -395,6 +331,116 @@ impl TanrenMcp {
             Err(err) => Ok(map_failure(err)),
         }
     }
+
+    #[rmcp::tool(
+        name = "notification.list_preferences",
+        description = "List all notification preferences for the authenticated user."
+    )]
+    async fn notification_list_preferences(
+        &self,
+        Parameters(params): Parameters<SessionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = match self.authenticate(&params.session_token).await {
+            Ok(a) => a,
+            Err(err) => return Ok(map_failure(err)),
+        };
+        match self
+            .handlers
+            .list_notification_preferences(self.store.as_ref(), &actor)
+            .await
+        {
+            Ok(resp) => Ok(success(&resp)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "notification.set_preferences",
+        description = "Set (upsert) notification preferences for the authenticated user."
+    )]
+    async fn notification_set_preferences(
+        &self,
+        Parameters(params): Parameters<SetNotificationPreferencesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = match self.authenticate(&params.session_token).await {
+            Ok(a) => a,
+            Err(err) => return Ok(map_failure(err)),
+        };
+        match self
+            .handlers
+            .set_notification_preferences(self.store.as_ref(), &actor, params.request)
+            .await
+        {
+            Ok(resp) => Ok(success(&resp)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "notification.set_org_overrides",
+        description = "Set (upsert) organization-level notification overrides."
+    )]
+    async fn notification_set_org_overrides(
+        &self,
+        Parameters(params): Parameters<SetOrganizationNotificationOverridesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = match self.authenticate(&params.session_token).await {
+            Ok(a) => a,
+            Err(err) => return Ok(map_failure(err)),
+        };
+        match self
+            .handlers
+            .set_organization_notification_overrides(self.store.as_ref(), &actor, params.request)
+            .await
+        {
+            Ok(resp) => Ok(success(&resp)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "notification.evaluate_route",
+        description = "Evaluate which channels an event would be routed through."
+    )]
+    async fn notification_evaluate_route(
+        &self,
+        Parameters(params): Parameters<EvaluateNotificationRouteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = match self.authenticate(&params.session_token).await {
+            Ok(a) => a,
+            Err(err) => return Ok(map_failure(err)),
+        };
+        match self
+            .handlers
+            .evaluate_notification_route(self.store.as_ref(), &actor, params.request)
+            .await
+        {
+            Ok(resp) => Ok(success(&resp)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "notification.read_pending_snapshot",
+        description = "Read the current pending routing snapshot for the authenticated user."
+    )]
+    async fn notification_read_pending_snapshot(
+        &self,
+        Parameters(params): Parameters<SessionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = match self.authenticate(&params.session_token).await {
+            Ok(a) => a,
+            Err(err) => return Ok(map_failure(err)),
+        };
+        match self
+            .handlers
+            .read_pending_routing_snapshot(self.store.as_ref(), &actor)
+            .await
+        {
+            Ok(resp) => Ok(success(&resp)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
 }
 
 #[rmcp::tool_handler]
@@ -408,30 +454,4 @@ impl ServerHandler for TanrenMcp {
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
-}
-
-fn success<T: Serialize>(value: &T) -> CallToolResult {
-    let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::success(vec![Content::text(text)])
-}
-
-fn map_failure(err: AppServiceError) -> CallToolResult {
-    let (code, summary) = match err {
-        AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
-        AppServiceError::Configuration(reason) => {
-            (reason.code().to_owned(), reason.summary().to_owned())
-        }
-        AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
-            "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
-        ),
-        _ => (
-            "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
-        ),
-    };
-    let body = json!({ "code": code, "summary": summary });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
 }

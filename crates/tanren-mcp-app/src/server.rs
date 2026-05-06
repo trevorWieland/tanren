@@ -168,9 +168,9 @@ fn streamable_http_config(
     base.with_allowed_hosts(hosts)
 }
 
-async fn health() -> Json<super::HealthResponse> {
+async fn health() -> Json<crate::tools_support::HealthResponse> {
     let report = Handlers::new().health(env!("CARGO_PKG_VERSION"));
-    Json(super::HealthResponse {
+    Json(crate::tools_support::HealthResponse {
         status: report.status.to_owned(),
         version: report.version.to_owned(),
         contract_version: report.contract_version.value(),
