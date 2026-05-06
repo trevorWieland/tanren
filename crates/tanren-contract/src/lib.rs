@@ -6,10 +6,15 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod assets;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use assets::{
+    AssetAction, AssetEntry, AssetManifest, AssetOwnership, MANIFEST_FORMAT_VERSION,
+    MigrationConcern, MigrationConcernKind, UpgradePreviewResponse,
 };
 
 use serde::{Deserialize, Serialize};

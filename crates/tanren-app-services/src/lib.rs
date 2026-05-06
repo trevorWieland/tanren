@@ -6,6 +6,7 @@
 //! they do not import domain, store, or runtime crates directly.
 
 pub mod account;
+pub mod assets;
 pub mod events;
 
 use chrono::{DateTime, Utc};
@@ -16,6 +17,8 @@ use tanren_contract::{
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
+
+pub use assets::{AssetBundle, BundledAsset, PreviewError, current_bundle, preview_upgrade};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
