@@ -117,6 +117,61 @@ self-hosted Tanren stack with additional external layers for billing, marketing,
 support operations, workspace scaling, and cost optimization. Those commercial
 layers are outside this repository's architecture.
 
+### User-Facing Posture Decision
+
+Although the system architecture is uniform, the user chooses a **deployment
+posture** that determines which capabilities are available. The posture is a
+top-level decision made during first-run setup and gates subsequent provider
+selection, runtime configuration, and project creation.
+
+Supported postures:
+
+| Posture | Description |
+|---------|-------------|
+| `hosted` | Tanren operates as a managed hosted service. All capabilities are available; operational overhead is managed externally. |
+| `self_hosted` | Tanren operates as self-hosted infrastructure. All local and remote capabilities are available; the operator manages infrastructure and operations. |
+| `local_only` | Tanren operates in a local-only mode with reduced capabilities. Remote execution, cloud providers, external secret stores, and team collaboration are unavailable. Suitable for individual evaluation and development. |
+
+Posture rules:
+
+- The posture is visible to the user before project work is dispatched.
+- Tanren explains which capabilities are available or unavailable for the
+  chosen posture through capability summaries with user-readable reasons for
+  each unavailable category.
+- Later runtime and credential choices inherit the selected posture unless a
+  user with permission explicitly changes it.
+- The posture is stored as domain state; the contract types in
+  `tanren-contract` define the wire shapes for selection requests, posture
+  views, capability summaries, runtime capability views, credential capability
+  views, and posture failure codes.
+- Selection requests carry raw posture input (an unvalidated string) so that
+  unsupported values reach shared service validation and return
+  `unsupported_posture` uniformly, rather than being rejected differently by
+  each interface's deserialization layer.
+
+### Capability Matrix
+
+The posture determines availability of capability categories aligned with
+subsystem boundaries:
+
+| Category | `hosted` | `self_hosted` | `local_only` |
+|----------|----------|---------------|--------------|
+| Execution targets | all | all | local containers only |
+| Harness adapters | all | all | all |
+| Remote providers | available | available | unavailable |
+| Team collaboration | available | available | unavailable |
+| External secret stores | available | available | unavailable |
+| Cloud credentials | available | available | unavailable |
+| Remote proof | available | available | unavailable |
+| Webhook integrations | available | available | unavailable |
+| Provider integrations | all | all | local only |
+| Service accounts | available | available | unavailable |
+
+Capability summaries returned by the posture view include user-readable reasons
+for each unavailable category. For example, `local_only` explains that remote
+providers are unavailable because the posture does not configure outbound cloud
+or VM provider access.
+
 Every install profile contains the same conceptual components:
 
 - a control-plane API service;

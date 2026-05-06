@@ -30,6 +30,25 @@ impl DomainVersion {
     }
 }
 
+/// Canonical deployment posture for a Tanren installation or account scope.
+///
+/// The posture determines which capabilities are available. It is a top-level
+/// decision that gates first-run progress to provider selection and runtime
+/// configuration.
+///
+/// The contract crate (`tanren-contract`) defines a parallel wire-shape type
+/// with schema derives; this is the canonical domain definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentPosture {
+    /// Tanren operates as a managed hosted service.
+    Hosted,
+    /// Tanren operates as self-hosted infrastructure.
+    SelfHosted,
+    /// Tanren operates in a local-only mode with reduced capabilities.
+    LocalOnly,
+}
+
 /// Errors raised when a domain-level invariant is violated.
 #[derive(Debug, Error)]
 #[non_exhaustive]

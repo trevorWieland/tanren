@@ -198,6 +198,31 @@ This lets adapters support new providers without requiring core Tanren to
 predefine every possible API key shape, while still preserving typed ownership,
 capability, intended-use, lifecycle, and redaction behavior.
 
+### Deployment Posture And Credential Capabilities
+
+Credential capabilities are gated by the deployment posture. The configuration
+and secrets subsystem must respect the active posture when determining which
+credential kinds and secret-store adapters are available.
+
+Posture-credential rules:
+
+- `hosted`: all credential kinds and external secret-store adapters are
+  available. Cloud credentials, VM provider keys, and managed secret stores
+  are fully supported.
+- `self_hosted`: all credential kinds and external secret-store adapters are
+  available. The operator manages secret-store configuration and provider
+  credential lifecycle.
+- `local_only`: external secret-store adapters are unavailable. Cloud and VM
+  credential kinds are unavailable. Only local secret storage (encrypted
+  Postgres) and local credential kinds are available. The subsystem must
+  reject credential management requests for unavailable kinds and report the
+  posture as the reason.
+
+The `CredentialCapabilityView` contract type describes available credential
+management features under the active posture. Configuration commands and
+credential management interfaces must consult this view before accepting
+credential or secret-store operations.
+
 ## Secret Storage
 
 Tanren stores secret metadata canonically through events and read models.

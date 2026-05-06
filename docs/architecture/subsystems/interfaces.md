@@ -210,6 +210,30 @@ MCP tool discovery is capability aware. An agent should only see tools that
 its credential is allowed to use in the current scope. API clients may receive
 unsupported-action or permission-denied responses even if a route exists.
 
+### Deployment Posture And Capability Discovery
+
+Capability discovery is posture-aware. The deployment posture gates which
+capability categories are available to the authenticated actor. Interfaces must
+surface the active posture and its capability summary before the user dispatches
+project work.
+
+Posture capability rules:
+
+- The posture view (`PostureView`) includes a `CapabilitySummary` listing
+  available and unavailable categories with user-readable reasons for each
+  unavailable category.
+- Interfaces must not offer actions that the active posture marks as
+  unavailable. Instead they return stable `unsupported_action` responses that
+  reference the capability category and the posture reason.
+- Runtime capability views (`RuntimeCapabilityView`) describe available
+  execution target classes, remote execution support, and parallelism under the
+  active posture.
+- Credential capability views (`CredentialCapabilityView`) describe available
+  credential management features (external secret stores, cloud credentials,
+  service accounts) under the active posture.
+- Capability summaries are recomputed when the posture changes; clients should
+  refresh capability state after posture selection or change events.
+
 ## Error Taxonomy
 
 All public interfaces use a shared machine-readable error taxonomy:

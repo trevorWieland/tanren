@@ -6,10 +6,17 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod deployment;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use deployment::{
+    ActorAttribution, CapabilityCategory, CapabilitySummary, CredentialCapabilityView,
+    DeploymentPosture, DeploymentScope, PostureFailureReason, PostureSelectionRequest,
+    PostureSelectionResponse, PostureView, RawPostureInput, RuntimeCapabilityView, TargetClass,
+    UnavailableCapability,
 };
 
 use serde::{Deserialize, Serialize};

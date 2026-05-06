@@ -156,6 +156,28 @@ Pooled targets are allowed only when they are treated as destructive sandboxes.
 They must be reset between assignments according to policy. They are not
 general-purpose long-lived infrastructure that agents carefully preserve.
 
+### Deployment Posture And Runtime Capabilities
+
+Runtime capabilities are gated by the deployment posture. The runtime subsystem
+must respect the active posture when evaluating placement policy and provisioning
+execution targets.
+
+Posture-runtime rules:
+
+- `hosted`: all execution target classes are available. Remote execution,
+  parallel strategies, and cloud/VM provider targets are fully supported.
+- `self_hosted`: all execution target classes are available. The operator
+  manages provider credentials and infrastructure.
+- `local_only`: only `local_container` target class is available. Remote
+  containers, remote VMs, and pooled destructive targets are unavailable. The
+  runtime must reject placement requests for unavailable target classes and
+  report the posture as the reason.
+
+The `RuntimeCapabilityView` contract type describes available target classes,
+remote execution support, and parallelism constraints under the active posture.
+Runtime workers and placement policy consumers must consult this view before
+provisioning.
+
 ## Execution Strategy
 
 Runtime supports these execution-target strategies:
