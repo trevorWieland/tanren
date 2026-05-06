@@ -85,6 +85,21 @@ pub(crate) fn project_dependencies_fields() -> Vec<FormField> {
     ]
 }
 
+pub(crate) fn reconnect_project_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Project ID",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Account ID",
+            secret: false,
+            value: String::new(),
+        },
+    ]
+}
+
 pub(crate) fn parse_connect_project(
     state: &FormState,
 ) -> Result<
@@ -189,6 +204,19 @@ pub(crate) fn disconnect_project_outcome(
     OutcomeView {
         title: "Project disconnected",
         lines,
+    }
+}
+
+pub(crate) fn reconnect_project_outcome(project: &ProjectView) -> OutcomeView {
+    OutcomeView {
+        title: "Project reconnected",
+        lines: vec![
+            format!("project_id: {}", project.id),
+            format!("name: {}", project.name),
+            format!("org_id: {}", project.org_id),
+            format!("display_ref: {}", project.display_ref),
+            format!("connected_at: {}", project.connected_at),
+        ],
     }
 }
 
@@ -310,6 +338,23 @@ pub(crate) fn dispatch_project_dependencies(
     let actor = ActorContext::from_account_id(account_id);
     match runtime.block_on(handlers.project_dependencies(store.as_ref(), &actor, project_id)) {
         Ok(deps) => ProjectActionResult::Outcome(project_dependencies_outcome(&deps)),
+        Err(reason) => ProjectActionResult::Error(render_project_error(reason)),
+    }
+}
+
+pub(crate) fn dispatch_reconnect_project(
+    runtime: &Runtime,
+    handlers: &Handlers,
+    store: &Arc<Store>,
+    state: &FormState,
+) -> ProjectActionResult {
+    let (project_id, account_id) = match parse_project_account_ids(state) {
+        Ok(vals) => vals,
+        Err(message) => return ProjectActionResult::Error(message),
+    };
+    let actor = ActorContext::from_account_id(account_id);
+    match runtime.block_on(handlers.reconnect_project(store.as_ref(), &actor, project_id)) {
+        Ok(response) => ProjectActionResult::Outcome(reconnect_project_outcome(&response.project)),
         Err(reason) => ProjectActionResult::Error(render_project_error(reason)),
     }
 }

@@ -1,12 +1,14 @@
 use sea_orm::{
-    ActiveModelTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
+    QueryFilter, Set, TransactionTrait,
 };
 use uuid::Uuid;
 
 use crate::entity;
 use crate::traits::{
     ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, DisconnectProjectAtomicOutput,
-    DisconnectProjectAtomicRequest, DisconnectProjectError,
+    DisconnectProjectAtomicRequest, DisconnectProjectError, ReconnectProjectAtomicOutput,
+    ReconnectProjectAtomicRequest, ReconnectProjectError,
 };
 use crate::{NewProject, ProjectRecord, StoreError};
 
@@ -40,6 +42,27 @@ pub(crate) async fn disconnect_atomic(
     })
     .await
     .map_err(map_disconnect_tx_error)
+}
+
+pub(crate) async fn reconnect_atomic(
+    conn: &DatabaseConnection,
+    request: ReconnectProjectAtomicRequest,
+) -> Result<ReconnectProjectAtomicOutput, ReconnectProjectError> {
+    conn.transaction::<_, ReconnectProjectAtomicOutput, ReconnectProjectError>(|txn| {
+        Box::pin(async move {
+            append_events_in_txn(txn, &request.events, request.now)
+                .await
+                .map_err(ReconnectProjectError::Store)?;
+            let record = reconnect_project_in_txn(txn, request.project_id).await?;
+            let specs = read_specs_in_txn(txn, request.project_id).await?;
+            Ok(ReconnectProjectAtomicOutput {
+                project: record,
+                specs,
+            })
+        })
+    })
+    .await
+    .map_err(map_reconnect_tx_error)
 }
 
 async fn insert_project_in_txn(
@@ -77,6 +100,36 @@ async fn disconnect_project_in_txn(
     Ok(ProjectRecord::from(updated))
 }
 
+async fn reconnect_project_in_txn(
+    txn: &DatabaseTransaction,
+    project_id: tanren_identity_policy::ProjectId,
+) -> Result<ProjectRecord, ReconnectProjectError> {
+    let row = entity::projects::Entity::find_by_id(project_id.as_uuid())
+        .one(txn)
+        .await
+        .map_err(StoreError::from)?
+        .ok_or(ReconnectProjectError::NotFound)?;
+
+    let mut active: entity::projects::ActiveModel = row.into();
+    active.disconnected_at = Set(None);
+    let updated = active.update(txn).await.map_err(StoreError::from)?;
+    Ok(ProjectRecord::from(updated))
+}
+
+async fn read_specs_in_txn(
+    txn: &DatabaseTransaction,
+    project_id: tanren_identity_policy::ProjectId,
+) -> Result<Vec<crate::ProjectSpecRecord>, StoreError> {
+    let rows = entity::project_specs::Entity::find()
+        .filter(entity::project_specs::Column::ProjectId.eq(project_id.as_uuid()))
+        .all(txn)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(crate::ProjectSpecRecord::from)
+        .collect())
+}
+
 async fn append_events_in_txn(
     txn: &DatabaseTransaction,
     events: &[serde_json::Value],
@@ -106,6 +159,17 @@ fn map_disconnect_tx_error(
     match err {
         sea_orm::TransactionError::Connection(db_err) => {
             DisconnectProjectError::Store(StoreError::from(db_err))
+        }
+        sea_orm::TransactionError::Transaction(inner) => inner,
+    }
+}
+
+fn map_reconnect_tx_error(
+    err: sea_orm::TransactionError<ReconnectProjectError>,
+) -> ReconnectProjectError {
+    match err {
+        sea_orm::TransactionError::Connection(db_err) => {
+            ReconnectProjectError::Store(StoreError::from(db_err))
         }
         sea_orm::TransactionError::Transaction(inner) => inner,
     }

@@ -16,6 +16,7 @@ Feature: Disconnect a project from Tanren
   blocked until the step is updated):
   "project_connected" event, "project_disconnected" event,
   "project_disconnect_rejected" event,
+  "project_reconnected" event,
   "cross_project_dependency_unresolved" event.
 
   Background:

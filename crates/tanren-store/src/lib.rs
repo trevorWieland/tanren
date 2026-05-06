@@ -27,7 +27,8 @@ pub use traits::{
     ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, ConsumeInvitationError,
     ConsumedInvitation, DependencyLinkStatus, DisconnectProjectAtomicOutput,
     DisconnectProjectAtomicRequest, DisconnectProjectError, ProjectDependencyLink, ProjectStore,
-    ReconnectProjectError, ReconnectedProject,
+    ReconnectProjectAtomicOutput, ReconnectProjectAtomicRequest, ReconnectProjectError,
+    ReconnectedProject,
 };
 
 use async_trait::async_trait;

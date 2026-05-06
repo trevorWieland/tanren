@@ -75,6 +75,20 @@ pub(crate) async fn disconnect_project(
     write_json_line(&response)
 }
 
+pub(crate) async fn reconnect_project(
+    handlers: &Handlers,
+    store: &Store,
+    project_id: ProjectId,
+    account_id: AccountId,
+) -> Result<()> {
+    let actor = ActorContext::from_account_id(account_id);
+    let response = handlers
+        .reconnect_project(store, &actor, project_id)
+        .await
+        .map_err(project_error)?;
+    write_json_line(&response)
+}
+
 pub(crate) async fn project_specs(
     handlers: &Handlers,
     store: &Store,

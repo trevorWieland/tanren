@@ -18,18 +18,18 @@ use tanren_contract::{
     DisconnectProjectResponse, ListProjectsResponse, ProjectDependencyResponse,
     ProjectFailureReason, ProjectView, ReconnectProjectResponse,
 };
-use tanren_identity_policy::{ProjectId, SpecId};
+use tanren_identity_policy::{ProjectId, ProviderConnectionId, SpecId};
 use tanren_policy::{ActorContext, Decision, ProjectAction, evaluate_project_policy};
 use tanren_provider_integrations::ProviderRegistry;
 use tanren_store::{
     AccountStore, ConnectProjectAtomicRequest, DependencyLinkStatus,
     DisconnectProjectAtomicRequest, DisconnectProjectError, NewProject, ProjectStatus,
-    ProjectStore, ReconnectProjectError,
+    ProjectStore, ReconnectProjectAtomicRequest, ReconnectProjectError,
 };
 
 use crate::events::{
     CrossProjectDependencyUnresolved, ProjectConnected, ProjectDisconnectRejected,
-    ProjectDisconnected, ProjectEventKind, project_envelope,
+    ProjectDisconnected, ProjectEventKind, ProjectReconnected, project_envelope,
 };
 use crate::{AppServiceError, Clock};
 
@@ -51,6 +51,43 @@ pub struct ProjectDependencyView {
     pub target_project_id: ProjectId,
     pub resolved: bool,
     pub detected_at: DateTime<Utc>,
+}
+
+async fn resolve_provider_resource<P: ProviderRegistry + ?Sized>(
+    providers: &P,
+    provider_connection_id: ProviderConnectionId,
+    resource_id: &str,
+) -> Result<tanren_provider_integrations::RepositoryResource, AppServiceError> {
+    let provider = providers
+        .get(provider_connection_id)
+        .await
+        .ok_or(AppServiceError::Project(
+            ProjectFailureReason::ProviderConnectionNotFound,
+        ))?;
+
+    let caps = provider.capabilities();
+    if !caps.can_read || !caps.can_assess_merge_permissions {
+        return Err(AppServiceError::Project(
+            ProjectFailureReason::InsufficientProviderCapabilities,
+        ));
+    }
+
+    let resource = provider
+        .resolve_resource(resource_id)
+        .await
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::RepositoryUnavailable))?;
+
+    let merge_perms = provider
+        .merge_permissions(&resource)
+        .await
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::RepositoryUnavailable))?;
+    if !merge_perms.can_push_to_default {
+        return Err(AppServiceError::Project(
+            ProjectFailureReason::RepositoryUnavailable,
+        ));
+    }
+
+    Ok(resource)
 }
 
 pub(crate) async fn connect_project<S, P>(
@@ -86,35 +123,8 @@ where
         return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
     }
 
-    let provider =
-        providers
-            .get(request.provider_connection_id)
-            .await
-            .ok_or(AppServiceError::Project(
-                ProjectFailureReason::ProviderConnectionNotFound,
-            ))?;
-
-    let caps = provider.capabilities();
-    if !caps.can_read || !caps.can_assess_merge_permissions {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::InsufficientProviderCapabilities,
-        ));
-    }
-
-    let resource = provider
-        .resolve_resource(&resource_id)
-        .await
-        .map_err(|_| AppServiceError::Project(ProjectFailureReason::RepositoryUnavailable))?;
-
-    let merge_perms = provider
-        .merge_permissions(&resource)
-        .await
-        .map_err(|_| AppServiceError::Project(ProjectFailureReason::RepositoryUnavailable))?;
-    if !merge_perms.can_push_to_default {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::RepositoryUnavailable,
-        ));
-    }
+    let resource =
+        resolve_provider_resource(providers, request.provider_connection_id, &resource_id).await?;
 
     if let Some(existing) = store
         .find_project_by_org_and_resource(
@@ -129,6 +139,29 @@ where
                 ProjectFailureReason::RepositoryUnavailable,
             ));
         }
+        let reconnect_event = project_envelope(
+            ProjectEventKind::ProjectReconnected,
+            &ProjectReconnected {
+                project_id: existing.id,
+                at: now,
+            },
+        );
+        let output = store
+            .reconnect_project_atomic(ReconnectProjectAtomicRequest {
+                project_id: existing.id,
+                events: vec![reconnect_event],
+                now,
+            })
+            .await
+            .map_err(|e| match e {
+                ReconnectProjectError::NotFound => {
+                    AppServiceError::Project(ProjectFailureReason::ProjectNotFound)
+                }
+                ReconnectProjectError::Store(e) => AppServiceError::Store(e),
+            })?;
+        return Ok(ConnectProjectResponse {
+            project: project_view(&output.project),
+        });
     }
 
     let project_id = ProjectId::fresh();
@@ -335,12 +368,15 @@ where
 
 pub(crate) async fn reconnect_project<S>(
     store: &S,
+    clock: &Clock,
     actor: &ActorContext,
     project_id: ProjectId,
 ) -> Result<ReconnectProjectResponse, AppServiceError>
 where
     S: ProjectStore + ?Sized,
 {
+    let now = clock.now();
+
     let can_see = store
         .account_can_see_project(actor.account_id(), project_id)
         .await?;
@@ -349,8 +385,20 @@ where
         return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
     }
 
-    let reconnected = store
-        .reconnect_project(project_id)
+    let reconnect_event = project_envelope(
+        ProjectEventKind::ProjectReconnected,
+        &ProjectReconnected {
+            project_id,
+            at: now,
+        },
+    );
+
+    let output = store
+        .reconnect_project_atomic(ReconnectProjectAtomicRequest {
+            project_id,
+            events: vec![reconnect_event],
+            now,
+        })
         .await
         .map_err(|e| match e {
             ReconnectProjectError::NotFound => {
@@ -359,7 +407,7 @@ where
             ReconnectProjectError::Store(e) => AppServiceError::Store(e),
         })?;
     Ok(ReconnectProjectResponse {
-        project: project_view(&reconnected.project),
+        project: project_view(&output.project),
     })
 }
 

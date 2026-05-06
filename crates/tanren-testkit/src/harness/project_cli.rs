@@ -1,5 +1,4 @@
 use std::process::Stdio;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use tanren_app_services::project::{ProjectDependencyView, ProjectSpecView};
@@ -9,13 +8,13 @@ use tanren_contract::{
     ReconnectProjectResponse,
 };
 use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId, SpecId};
-use tanren_store::{EventEnvelope, ProjectStore as _};
+use tanren_store::EventEnvelope;
 use tokio::process::Command;
 
 use super::cli::CliHarness;
 use super::project::{
-    ProjectHarness, record_to_view, seed_account_via_store, seed_active_loop_via_store,
-    seed_dependency_via_store, seed_spec_via_store,
+    ProjectHarness, seed_account_via_store, seed_active_loop_via_store, seed_dependency_via_store,
+    seed_spec_via_store,
 };
 use super::{HarnessError, HarnessKind, HarnessResult};
 
@@ -127,13 +126,18 @@ impl ProjectHarness for ProjectCliHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<ReconnectProjectResponse> {
-        let reconnected = Arc::clone(self.inner.store_handle())
-            .reconnect_project(project_id)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("reconnect: {e}")))?;
-        Ok(ReconnectProjectResponse {
-            project: record_to_view(&reconnected.project),
-        })
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let stdout = self
+            .exec_cli(&[
+                "reconnect",
+                "--project-id",
+                &project_id.to_string(),
+                "--account-id",
+                &account_id.to_string(),
+            ])
+            .await?;
+        let response: ReconnectProjectResponse = parse_json_line(&stdout)?;
+        Ok(response)
     }
 
     async fn project_specs(

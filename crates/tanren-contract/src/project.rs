@@ -85,6 +85,15 @@ pub struct DisconnectProjectBody {
     pub account_id: Option<AccountId>,
 }
 
+/// Request body for `POST /projects/{id}/reconnect`.
+#[derive(Debug, Deserialize, JsonSchema, ToSchema)]
+pub struct ReconnectProjectBody {
+    /// Account requesting the reconnect. Ignored by the API (derived from
+    /// session). Retained for backward wire compatibility.
+    #[serde(default)]
+    pub account_id: Option<AccountId>,
+}
+
 /// Wire body for project-flow failures. Follows the shared `{code, summary}`
 /// taxonomy from `docs/architecture/subsystems/interfaces.md`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]

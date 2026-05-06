@@ -238,6 +238,25 @@ impl TanrenMcp {
     }
 
     #[rmcp::tool(
+        name = "project.reconnect",
+        description = "Reconnect a previously disconnected project. Restores the same project id and prior specs. Failure codes: project_not_found, unauthorized."
+    )]
+    async fn project_reconnect(
+        &self,
+        Parameters(params): Parameters<project::ProjectIdParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = self.authenticated_actor()?;
+        match self
+            .handlers
+            .reconnect_project(self.store.as_ref(), &actor, params.project_id)
+            .await
+        {
+            Ok(response) => Ok(project::success(&response)),
+            Err(err) => Ok(project::map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
         name = "project.specs",
         description = "List specs attached to a project."
     )]

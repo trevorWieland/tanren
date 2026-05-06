@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
 use tanren_app_services::project::{ProjectDependencyView, ProjectSpecView};
-use tanren_app_services::{ActorContext, Handlers};
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
     DisconnectProjectResponse, ListProjectsResponse, ProjectView, ReconnectProjectResponse,
@@ -126,13 +125,16 @@ impl ProjectHarness for ProjectApiHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<ReconnectProjectResponse> {
-        let account_id = self.account_id.expect("seed_account must be called first");
-        let actor = ActorContext::from_account_id(account_id);
-        let handlers = Handlers::new();
-        handlers
-            .reconnect_project(self.inner.store_handle().as_ref(), &actor, project_id)
-            .await
-            .map_err(super::project::translate_project_error)
+        let url = format!(
+            "{}/projects/{}/reconnect",
+            self.inner.base_url(),
+            project_id
+        );
+        let body = serde_json::json!({});
+        let json = self.project_json("POST", url, Some(body)).await?;
+        let project: ProjectView = serde_json::from_value(json["project"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode reconnect: {e}")))?;
+        Ok(ReconnectProjectResponse { project })
     }
 
     async fn project_specs(

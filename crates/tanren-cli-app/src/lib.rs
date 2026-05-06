@@ -111,6 +111,18 @@ enum ProjectAction {
         #[arg(long)]
         account_id: String,
     },
+    /// Reconnect a previously disconnected project.
+    Reconnect {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Project id to reconnect.
+        #[arg(long)]
+        project_id: String,
+        /// Account requesting the reconnect.
+        #[arg(long)]
+        account_id: String,
+    },
     /// List specs attached to a project.
     Specs {
         /// Database URL.
@@ -200,6 +212,19 @@ fn dispatch_project(action: ProjectAction) -> Result<()> {
     runtime.block_on(run_project(action))
 }
 
+async fn store_and_ids(
+    database_url: &str,
+    project_id: &str,
+    account_id: &str,
+) -> Result<(Store, ProjectId, AccountId)> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let pid = ProjectId::new(parse_uuid(project_id, "project_id")?);
+    let aid = AccountId::new(parse_uuid(account_id, "account_id")?);
+    Ok((store, pid, aid))
+}
+
 async fn run_project(action: ProjectAction) -> Result<()> {
     let handlers = Handlers::new();
     match action {
@@ -245,55 +270,32 @@ async fn run_project(action: ProjectAction) -> Result<()> {
             project_id,
             account_id,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let project_id = parse_uuid(&project_id, "project_id")?;
-            let account_id = parse_uuid(&account_id, "account_id")?;
-            project::disconnect_project(
-                &handlers,
-                &store,
-                &database_url,
-                ProjectId::new(project_id),
-                AccountId::new(account_id),
-            )
-            .await
+            let (store, pid, aid) = store_and_ids(&database_url, &project_id, &account_id).await?;
+            project::disconnect_project(&handlers, &store, &database_url, pid, aid).await
+        }
+        ProjectAction::Reconnect {
+            database_url,
+            project_id,
+            account_id,
+        } => {
+            let (store, pid, aid) = store_and_ids(&database_url, &project_id, &account_id).await?;
+            project::reconnect_project(&handlers, &store, pid, aid).await
         }
         ProjectAction::Specs {
             database_url,
             project_id,
             account_id,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let project_id = parse_uuid(&project_id, "project_id")?;
-            let account_id = parse_uuid(&account_id, "account_id")?;
-            project::project_specs(
-                &handlers,
-                &store,
-                AccountId::new(account_id),
-                ProjectId::new(project_id),
-            )
-            .await
+            let (store, pid, aid) = store_and_ids(&database_url, &project_id, &account_id).await?;
+            project::project_specs(&handlers, &store, aid, pid).await
         }
         ProjectAction::Dependencies {
             database_url,
             project_id,
             account_id,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let project_id = parse_uuid(&project_id, "project_id")?;
-            let account_id = parse_uuid(&account_id, "account_id")?;
-            project::project_dependencies(
-                &handlers,
-                &store,
-                AccountId::new(account_id),
-                ProjectId::new(project_id),
-            )
-            .await
+            let (store, pid, aid) = store_and_ids(&database_url, &project_id, &account_id).await?;
+            project::project_dependencies(&handlers, &store, aid, pid).await
         }
     }
 }

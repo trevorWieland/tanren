@@ -8,7 +8,7 @@ use tanren_contract::{
     DisconnectProjectResponse, ListProjectsResponse, ReconnectProjectResponse,
 };
 use tanren_identity_policy::{AccountId, Email, OrgId, ProjectId, ProviderConnectionId, SpecId};
-use tanren_store::{AccountStore as _, EventEnvelope, ProjectStore as _};
+use tanren_store::{AccountStore as _, EventEnvelope};
 
 use super::mcp::McpHarness;
 use super::project::{
@@ -89,15 +89,13 @@ impl ProjectHarness for ProjectMcpHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<ReconnectProjectResponse> {
-        let reconnected = self
-            .inner
-            .store_handle()
-            .reconnect_project(project_id)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("reconnect: {e}")))?;
-        Ok(ReconnectProjectResponse {
-            project: super::project::record_to_view(&reconnected.project),
-        })
+        let body = serde_json::json!({
+            "project_id": project_id,
+        });
+        let payload = self.call_project_tool("project.reconnect", body).await?;
+        let resp: ReconnectProjectResponse = serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode reconnect: {e}")))?;
+        Ok(resp)
     }
 
     async fn project_specs(

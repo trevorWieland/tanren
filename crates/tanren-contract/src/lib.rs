@@ -17,7 +17,7 @@ pub use project::{
     ConnectProjectRequest, ConnectProjectResponse, DependencyView, DisconnectProjectBody,
     DisconnectProjectRequest, DisconnectProjectResponse, ListProjectsParams, ListProjectsResponse,
     ProjectDependenciesResponse, ProjectDependencyResponse, ProjectFailureBody,
-    ProjectFailureReason, ProjectIdParams, ProjectSpecsResponse, ProjectView,
+    ProjectFailureReason, ProjectIdParams, ProjectSpecsResponse, ProjectView, ReconnectProjectBody,
     ReconnectProjectResponse, SpecView,
 };
 

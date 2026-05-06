@@ -17,7 +17,8 @@ use crate::entity;
 use crate::traits::{
     ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, DependencyLinkStatus,
     DisconnectProjectAtomicOutput, DisconnectProjectAtomicRequest, DisconnectProjectError,
-    ProjectDependencyLink, ProjectStore, ReconnectProjectError, ReconnectedProject,
+    ProjectDependencyLink, ProjectStore, ReconnectProjectAtomicOutput,
+    ReconnectProjectAtomicRequest, ReconnectProjectError, ReconnectedProject,
 };
 use crate::{
     ProjectDependencyRecord, ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord, StoreError,
@@ -69,6 +70,13 @@ impl ProjectStore for Store {
             project: ProjectRecord::from(updated),
             specs,
         })
+    }
+
+    async fn reconnect_project_atomic(
+        &self,
+        request: ReconnectProjectAtomicRequest,
+    ) -> Result<ReconnectProjectAtomicOutput, ReconnectProjectError> {
+        crate::project_lifecycle::reconnect_atomic(&self.conn, request).await
     }
 
     async fn list_connected_projects_for_account(

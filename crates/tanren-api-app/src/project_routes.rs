@@ -19,7 +19,8 @@ use tanren_app_services::ActorContext;
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DependencyView, DisconnectProjectBody,
     DisconnectProjectRequest, DisconnectProjectResponse, ListProjectsParams, ListProjectsResponse,
-    ProjectDependenciesResponse, ProjectFailureBody, ProjectSpecsResponse, SpecView,
+    ProjectDependenciesResponse, ProjectFailureBody, ProjectSpecsResponse, ReconnectProjectBody,
+    ReconnectProjectResponse, SpecView,
 };
 use tanren_identity_policy::ProjectId;
 use tower_sessions::Session;
@@ -277,6 +278,54 @@ pub(crate) async fn project_dependencies_route(
             )
                 .into_response()
         }
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Reconnect a previously disconnected project.
+#[utoipa::path(
+    post,
+    path = "/projects/{id}/reconnect",
+    request_body = ReconnectProjectBody,
+    params(
+        ("id" = String, Path, description = "Project id to reconnect"),
+    ),
+    responses(
+        (status = 200, body = ReconnectProjectResponse, description = "Project reconnected"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
+        (status = 403, body = ProjectFailureBody, description = "unauthorized"),
+        (status = 404, body = ProjectFailureBody, description = "project_not_found"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn reconnect_project_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path(id): Path<String>,
+    ValidatedJson(_body): ValidatedJson<ReconnectProjectBody>,
+) -> Response {
+    let Some(actor) = extract_actor(&session).await else {
+        return unauthorized_response();
+    };
+    let project_id = match id.parse() {
+        Ok(uuid) => ProjectId::new(uuid),
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ProjectFailureBody {
+                    code: "validation_failed".to_owned(),
+                    summary: "project_id must be a valid UUID".to_owned(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    match state
+        .handlers
+        .reconnect_project(state.store.as_ref(), &actor, project_id)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(err) => map_app_error(err),
     }
 }

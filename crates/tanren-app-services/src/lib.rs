@@ -304,7 +304,7 @@ impl Handlers {
     where
         S: ProjectStore + ?Sized,
     {
-        project::reconnect_project(store, actor, project_id).await
+        project::reconnect_project(store, &self.clock, actor, project_id).await
     }
 }
 

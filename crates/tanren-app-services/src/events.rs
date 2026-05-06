@@ -152,6 +152,7 @@ pub enum ProjectEventKind {
     ProjectConnected,
     ProjectDisconnected,
     ProjectDisconnectRejected,
+    ProjectReconnected,
     CrossProjectDependencyUnresolved,
 }
 
@@ -163,6 +164,7 @@ impl ProjectEventKind {
             Self::ProjectConnected => "project_connected",
             Self::ProjectDisconnected => "project_disconnected",
             Self::ProjectDisconnectRejected => "project_disconnect_rejected",
+            Self::ProjectReconnected => "project_reconnected",
             Self::CrossProjectDependencyUnresolved => "cross_project_dependency_unresolved",
         }
     }
@@ -190,6 +192,13 @@ pub struct ProjectDisconnected {
 pub struct ProjectDisconnectRejected {
     pub project_id: ProjectId,
     pub reason: ProjectFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+/// A previously disconnected project was reconnected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectReconnected {
+    pub project_id: ProjectId,
     pub at: DateTime<Utc>,
 }
 

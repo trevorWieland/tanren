@@ -21,7 +21,8 @@ use crate::draw;
 use crate::project::{
     ProjectActionResult, connect_project_fields, disconnect_project_fields,
     dispatch_connect_project, dispatch_disconnect_project, dispatch_list_projects,
-    dispatch_project_dependencies, list_projects_fields, project_dependencies_fields,
+    dispatch_project_dependencies, dispatch_reconnect_project, list_projects_fields,
+    project_dependencies_fields, reconnect_project_fields,
 };
 use crate::ui::{
     accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
@@ -40,6 +41,7 @@ pub(crate) enum Screen {
     ProjectConnect(FormState),
     ProjectList(FormState),
     ProjectDisconnect(FormState),
+    ProjectReconnect(FormState),
     ProjectDependencies(FormState),
     Outcome(OutcomeView),
 }
@@ -155,6 +157,10 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::ProjectDisconnect),
                 None => Effect::None,
             },
+            Screen::ProjectReconnect(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ProjectReconnect),
+                None => Effect::None,
+            },
             Screen::ProjectDependencies(state) => match handle_form_key(state, key) {
                 Some(action) => Effect::Form(action, FormKind::ProjectDependencies),
                 None => Effect::None,
@@ -201,6 +207,7 @@ impl App {
             FormKind::ProjectConnect
             | FormKind::ProjectList
             | FormKind::ProjectDisconnect
+            | FormKind::ProjectReconnect
             | FormKind::ProjectDependencies => {
                 self.submit_project(kind, &store);
             }
@@ -321,6 +328,12 @@ impl App {
                 };
                 dispatch_disconnect_project(&self.runtime, handlers, store, state)
             }
+            FormKind::ProjectReconnect => {
+                let Screen::ProjectReconnect(state) = &self.screen else {
+                    return;
+                };
+                dispatch_reconnect_project(&self.runtime, handlers, store, state)
+            }
             FormKind::ProjectDependencies => {
                 let Screen::ProjectDependencies(state) = &self.screen else {
                     return;
@@ -351,6 +364,7 @@ impl App {
             | Screen::ProjectConnect(s)
             | Screen::ProjectList(s)
             | Screen::ProjectDisconnect(s)
+            | Screen::ProjectReconnect(s)
             | Screen::ProjectDependencies(s) => Some(s),
             _ => None,
         }
@@ -374,6 +388,9 @@ impl App {
             Screen::ProjectDisconnect(state) => {
                 draw::draw_form(frame, area, "Disconnect project", state);
             }
+            Screen::ProjectReconnect(state) => {
+                draw::draw_form(frame, area, "Reconnect project", state);
+            }
             Screen::ProjectDependencies(state) => {
                 draw::draw_form(frame, area, "Project dependencies", state);
             }
@@ -390,6 +407,7 @@ enum FormKind {
     ProjectConnect,
     ProjectList,
     ProjectDisconnect,
+    ProjectReconnect,
     ProjectDependencies,
 }
 
@@ -436,6 +454,9 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 }
                 MenuChoice::ProjectDisconnect => {
                     Screen::ProjectDisconnect(FormState::new(disconnect_project_fields()))
+                }
+                MenuChoice::ProjectReconnect => {
+                    Screen::ProjectReconnect(FormState::new(reconnect_project_fields()))
                 }
                 MenuChoice::ProjectDependencies => {
                     Screen::ProjectDependencies(FormState::new(project_dependencies_fields()))

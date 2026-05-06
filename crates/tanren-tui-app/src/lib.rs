@@ -96,17 +96,19 @@ pub(crate) enum MenuChoice {
     ProjectConnect,
     ProjectList,
     ProjectDisconnect,
+    ProjectReconnect,
     ProjectDependencies,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::SignUp,
         Self::SignIn,
         Self::AcceptInvitation,
         Self::ProjectConnect,
         Self::ProjectList,
         Self::ProjectDisconnect,
+        Self::ProjectReconnect,
         Self::ProjectDependencies,
     ];
 
@@ -118,6 +120,7 @@ impl MenuChoice {
             Self::ProjectConnect => "Connect project",
             Self::ProjectList => "List projects",
             Self::ProjectDisconnect => "Disconnect project",
+            Self::ProjectReconnect => "Reconnect project",
             Self::ProjectDependencies => "Project dependencies",
         }
     }

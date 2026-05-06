@@ -12,7 +12,7 @@ use tanren_contract::{
     ReconnectProjectResponse,
 };
 use tanren_identity_policy::{AccountId, OrgId, ProjectId, ProviderConnectionId, SpecId};
-use tanren_store::{EventEnvelope, ProjectRecord, ProjectStatus};
+use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{AccountHarness as _, HarnessError, HarnessKind, HarnessResult};
@@ -331,20 +331,6 @@ fn walkdir_files(path: &std::path::Path) -> Vec<PathBuf> {
         }
     }
     r
-}
-
-pub(crate) fn record_to_view(record: &ProjectRecord) -> ProjectView {
-    ProjectView {
-        id: record.id,
-        name: record.name.clone(),
-        org_id: record.org_id,
-        display_ref: record.display_ref.clone(),
-        connected_at: record.connected_at,
-        disconnected_at: match record.status {
-            ProjectStatus::Disconnected(at) => Some(at),
-            ProjectStatus::Connected => None,
-        },
-    }
 }
 
 pub(crate) fn translate_project_error(err: tanren_app_services::AppServiceError) -> HarnessError {

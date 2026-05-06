@@ -16,7 +16,8 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountView, ConnectProjectRequest, ConnectProjectResponse,
     DependencyView, DisconnectProjectBody, DisconnectProjectResponse, ListProjectsResponse,
     ProjectDependenciesResponse, ProjectDependencyResponse, ProjectFailureBody,
-    ProjectSpecsResponse, ProjectView, SessionEnvelope, SignInRequest, SignUpRequest, SpecView,
+    ProjectSpecsResponse, ProjectView, ReconnectProjectBody, ReconnectProjectResponse,
+    SessionEnvelope, SignInRequest, SignUpRequest, SpecView,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -104,6 +105,7 @@ pub struct AcceptInvitationBody {
         crate::project_routes::connect_project_route,
         crate::project_routes::list_projects_route,
         crate::project_routes::disconnect_project_route,
+        crate::project_routes::reconnect_project_route,
         crate::project_routes::project_specs_route,
         crate::project_routes::project_dependencies_route,
     ),
@@ -123,6 +125,8 @@ pub struct AcceptInvitationBody {
         ProjectView,
         DisconnectProjectBody,
         DisconnectProjectResponse,
+        ReconnectProjectBody,
+        ReconnectProjectResponse,
         ProjectDependencyResponse,
         ProjectSpecsResponse,
         SpecView,
@@ -344,6 +348,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(crate::project_routes::connect_project_route))
         .routes(routes!(crate::project_routes::list_projects_route))
         .routes(routes!(crate::project_routes::disconnect_project_route))
+        .routes(routes!(crate::project_routes::reconnect_project_route))
         .routes(routes!(crate::project_routes::project_specs_route))
         .routes(routes!(crate::project_routes::project_dependencies_route))
         .with_state(state)

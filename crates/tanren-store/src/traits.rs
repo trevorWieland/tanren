@@ -192,45 +192,20 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Atomically consume an invitation. Implementations issue a single
     /// conditional UPDATE filtered on `consumed_at IS NULL AND expires_at
-    /// > now` and use a follow-up read to populate the return shape and
-    /// disambiguate the failure taxonomy.
-    ///
-    /// **For the typical invitation-acceptance flow prefer
-    /// [`AccountStore::accept_invitation_atomic`]** — it consumes the
-    /// invitation, creates the account, links the membership, mints the
-    /// session, and appends the success events in one transaction so a
-    /// failure mid-flow leaves the invitation pending. This bare
-    /// `consume_invitation` is retained for any future flow that wants
-    /// to consume-without-creating.
-    ///
-    /// Returns:
-    /// - `Ok(ConsumedInvitation { .. })` when exactly one row was
-    ///   transitioned.
-    /// - `Err(ConsumeInvitationError::NotFound)` when no row matches the
-    ///   token at all.
-    /// - `Err(ConsumeInvitationError::AlreadyConsumed)` when the row
-    ///   exists but `consumed_at` was already set by another caller.
-    /// - `Err(ConsumeInvitationError::Expired)` when the row exists but
-    ///   `expires_at <= now`.
-    /// - `Err(ConsumeInvitationError::Store(_))` for unexpected DB
-    ///   failures.
+    /// > now`. For the typical invitation-acceptance flow prefer
+    /// [`AccountStore::accept_invitation_atomic`].
     async fn consume_invitation(
         &self,
         token: &InvitationToken,
         now: DateTime<Utc>,
     ) -> Result<ConsumedInvitation, ConsumeInvitationError>;
 
-    /// Run the full invitation-acceptance flow as a single transaction:
-    /// consume the invitation, insert the account, link the membership,
-    /// insert the session, and append the success-path
-    /// `account_created` and `invitation_accepted` events. If any step
-    /// fails the transaction rolls back — the invitation row stays
-    /// pending so the user can retry.
-    ///
-    /// The caller pre-derives the password PHC, the session token, the
-    /// membership id and `now`. The implementation owns the inviting-
-    /// org id (it reads it from the consumed row) and stamps it onto
-    /// the inserted account, the membership, and the emitted events.
+    /// Full invitation-acceptance flow as a single transaction: consume
+    /// the invitation, insert the account, link the membership, insert
+    /// the session, and append success events. On failure the transaction
+    /// rolls back. The caller pre-derives the PHC, session token,
+    /// membership id, and `now`; the implementation reads the inviting
+    /// org id from the consumed invitation row.
     async fn accept_invitation_atomic(
         &self,
         request: AcceptInvitationAtomicRequest,
@@ -345,6 +320,28 @@ pub enum ReconnectProjectError {
     Store(#[from] StoreError),
 }
 
+/// Input for [`ProjectStore::reconnect_project_atomic`]. Carries the
+/// pre-built lifecycle events so the store can append them and update
+/// the projection in one transaction.
+#[derive(Debug, Clone)]
+pub struct ReconnectProjectAtomicRequest {
+    /// Project to reconnect.
+    pub project_id: ProjectId,
+    /// Canonical lifecycle events to append before the projection write.
+    pub events: Vec<serde_json::Value>,
+    /// Wall-clock instant for event timestamps.
+    pub now: DateTime<Utc>,
+}
+
+/// Successful return from [`ProjectStore::reconnect_project_atomic`].
+#[derive(Debug, Clone)]
+pub struct ReconnectProjectAtomicOutput {
+    /// The reconnected project record (status is now `Connected`).
+    pub project: ProjectRecord,
+    /// Spec records retained from before the disconnection.
+    pub specs: Vec<ProjectSpecRecord>,
+}
+
 /// Input for [`ProjectStore::connect_project_atomic`]. Bundles the
 /// project row to insert with the lifecycle events to append so the
 /// store can execute both as one transaction. Events are appended
@@ -421,6 +418,14 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         &self,
         project_id: ProjectId,
     ) -> Result<ReconnectedProject, ReconnectProjectError>;
+
+    /// Append the supplied lifecycle events, then clear
+    /// `disconnected_at` on the project row, all in one transaction.
+    /// Returns the updated project record and retained spec history.
+    async fn reconnect_project_atomic(
+        &self,
+        request: ReconnectProjectAtomicRequest,
+    ) -> Result<ReconnectProjectAtomicOutput, ReconnectProjectError>;
 
     /// List all connected (non-disconnected) projects visible to an
     /// account through its org memberships.
