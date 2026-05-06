@@ -20,6 +20,38 @@ export interface AcceptInvitationInput {
   display_name: string;
 }
 
+export interface OrganizationMembershipView {
+  org_id: string;
+  org_name: string;
+}
+
+export interface OrganizationSwitcher {
+  memberships: OrganizationMembershipView[];
+  active_org: string | null;
+}
+
+export interface SwitchActiveOrganizationInput {
+  org_id: string;
+}
+
+export interface SwitchActiveOrganizationResult {
+  account: AccountView;
+}
+
+export interface ListOrganizationProjectsInput {
+  org_id: string;
+}
+
+export interface ProjectView {
+  id: string;
+  name: string;
+  org: string;
+}
+
+export interface ListOrganizationProjectsResult {
+  projects: ProjectView[];
+}
+
 export interface AccountView {
   id: string;
   identifier: string;
@@ -64,6 +96,7 @@ export type AccountFailureCode =
   | "invitation_not_found"
   | "invitation_already_consumed"
   | "invitation_expired"
+  | "organization_not_member"
   | "validation_failed"
   | "unavailable"
   | "internal_error";

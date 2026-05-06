@@ -11,7 +11,9 @@ use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::secret_serde;
-use tanren_identity_policy::{AccountId, Email, Identifier, InvitationToken, OrgId, SessionToken};
+use tanren_identity_policy::{
+    AccountId, Email, Identifier, InvitationToken, OrgId, ProjectId, SessionToken,
+};
 use utoipa::ToSchema;
 
 /// Self-signup request.
@@ -186,6 +188,67 @@ impl SessionEnvelope {
     }
 }
 
+/// View of an organization the caller belongs to, used by the
+/// organization-switcher UI surface.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationMembershipView {
+    /// Organization id.
+    pub org_id: OrgId,
+    /// Human-readable organization name.
+    pub org_name: String,
+}
+
+/// Organization switcher state — lists organizations the caller belongs
+/// to and identifies which one is currently active. Personal accounts
+/// with zero org memberships receive an empty `memberships` vector and
+/// `active_org: None`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationSwitcher {
+    /// Organizations the account is a member of.
+    pub memberships: Vec<OrganizationMembershipView>,
+    /// Currently active organization, if any.
+    pub active_org: Option<OrgId>,
+}
+
+/// Request to switch the active organization for the caller's account.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SwitchActiveOrganizationRequest {
+    /// Target organization to make active.
+    pub org_id: OrgId,
+}
+
+/// Successful switch-active-organization response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SwitchActiveOrganizationResponse {
+    /// Updated account view reflecting the new active organization.
+    pub account: AccountView,
+}
+
+/// Request to list projects scoped to a specific organization.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListOrganizationProjectsRequest {
+    /// Organization whose projects to list.
+    pub org_id: OrgId,
+}
+
+/// External-facing view of a project within an organization.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectView {
+    /// Stable project id.
+    pub id: ProjectId,
+    /// Human-readable project name.
+    pub name: String,
+    /// Owning organization.
+    pub org: OrgId,
+}
+
+/// Successful organization-scoped project list response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListOrganizationProjectsResponse {
+    /// Projects belonging to the requested organization.
+    pub projects: Vec<ProjectView>,
+}
+
 /// Closed taxonomy of account-flow failures.
 ///
 /// Maps onto the shared `{code, summary}` error body documented in
@@ -212,6 +275,8 @@ pub enum AccountFailureReason {
     InvitationExpired,
     /// Invitation token has already been accepted or revoked.
     InvitationAlreadyConsumed,
+    /// Caller is not a member of the target organization.
+    OrganizationNotMember,
 }
 
 impl AccountFailureReason {
@@ -225,6 +290,7 @@ impl AccountFailureReason {
             Self::InvitationNotFound => "invitation_not_found",
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
+            Self::OrganizationNotMember => "organization_not_member",
         }
     }
 
@@ -244,6 +310,9 @@ impl AccountFailureReason {
             Self::InvitationAlreadyConsumed => {
                 "The invitation has already been accepted or was revoked."
             }
+            Self::OrganizationNotMember => {
+                "The account is not a member of the target organization."
+            }
         }
     }
 
@@ -258,6 +327,7 @@ impl AccountFailureReason {
             Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
+            Self::OrganizationNotMember => 403,
         }
     }
 }
