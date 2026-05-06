@@ -120,7 +120,7 @@ where
     })
 }
 
-/// Response for [`project_scoped_views`]. Extends the contract's
+/// Response returned by project-scoped-views queries. Extends the contract's
 /// [`ProjectScopedViews`] with the per-account persisted view state
 /// so callers can restore the exact UI position for the active project.
 #[derive(Debug, Clone, Serialize, Deserialize)]

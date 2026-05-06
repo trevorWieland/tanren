@@ -23,7 +23,6 @@ pub struct ScopedViewsResponse {
     pub specs: Vec<SpecId>,
     pub loops: Vec<LoopId>,
     pub milestones: Vec<MilestoneId>,
-    #[schema(value_type = Object)]
     pub view_state: Option<serde_json::Value>,
 }
 
