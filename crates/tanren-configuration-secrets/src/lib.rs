@@ -5,15 +5,9 @@
 //! recorded in event payloads, projection files, or proof artifacts; only
 //! non-secret metadata is event-replayable.
 
-mod project;
-mod standards;
-
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-pub use project::{ProjectConfig, StandardsConfig};
-pub use standards::{Standard, StandardsBundle, load_standards};
 
 /// Configuration tiers in inheritance order, from most-specific to most-general.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -59,16 +53,4 @@ pub enum ConfigSecretsError {
     /// Lookup found no value at any tier.
     #[error("no value found for key '{0}'")]
     NotFound(String),
-
-    /// Configured standards directory is missing.
-    #[error("standards not found at {path}")]
-    StandardsNotFound { path: String },
-
-    /// A standards markdown file could not be parsed.
-    #[error("standards parse error: {detail} (file: {path})")]
-    StandardsParseError { path: String, detail: String },
-
-    /// Project-level configuration problem.
-    #[error("project config error: {message}")]
-    ProjectConfigError { message: String },
 }

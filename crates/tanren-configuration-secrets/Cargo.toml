@@ -14,5 +14,4 @@ workspace = true
 [dependencies]
 secrecy = { workspace = true }
 serde = { workspace = true }
-serde_yaml = { workspace = true }
 thiserror = { workspace = true }

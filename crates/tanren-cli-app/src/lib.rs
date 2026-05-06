@@ -12,8 +12,6 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
-mod standards;
-
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -65,11 +63,6 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
-    },
-    /// Inspect installed standards.
-    Standards {
-        #[command(subcommand)]
-        action: standards::StandardsAction,
     },
 }
 
@@ -129,7 +122,6 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
-        Some(Command::Standards { action }) => standards::dispatch(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
