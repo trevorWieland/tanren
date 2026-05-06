@@ -5,17 +5,24 @@
 //! behaviour. The underlying repository path supplied in connect requests is
 //! stored as metadata only — the handler never writes to or deletes the
 //! repository directory.
+//!
+//! Every handler receives a typed [`ActorContext`] and evaluates
+//! [`tanren_policy`] before proceeding. Interface layers construct the actor
+//! context from their authenticated session (API/MCP) or local identity
+//! (CLI/TUI) — never from a raw `account_id` in the request body.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
     DisconnectProjectResponse, ListProjectsResponse, ProjectDependencyResponse,
-    ProjectFailureReason, ProjectView,
+    ProjectFailureReason, ProjectView, ReconnectProjectResponse,
 };
-use tanren_identity_policy::{AccountId, ProjectId, SpecId};
+use tanren_identity_policy::{ProjectId, SpecId};
+use tanren_policy::{ActorContext, Decision, ProjectAction, evaluate_project_policy};
 use tanren_store::{
     AccountStore, DependencyLinkStatus, DisconnectProjectError, ProjectStatus, ProjectStore,
+    ReconnectProjectError,
 };
 
 use crate::events::{
@@ -47,6 +54,7 @@ pub struct ProjectDependencyView {
 pub(crate) async fn connect_project<S>(
     store: &S,
     clock: &Clock,
+    actor: &ActorContext,
     request: ConnectProjectRequest,
 ) -> Result<ConnectProjectResponse, AppServiceError>
 where
@@ -60,6 +68,18 @@ where
         return Err(AppServiceError::Project(
             ProjectFailureReason::ValidationFailed,
         ));
+    }
+
+    let org_ids = store.account_org_memberships(actor.account_id()).await?;
+    let resolved_actor = ActorContext::new(actor.account_id(), org_ids);
+    let decision = evaluate_project_policy(
+        &resolved_actor,
+        ProjectAction::Connect,
+        Some(request.org_id),
+        false,
+    );
+    if !matches!(decision, Decision::Allow) {
+        return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
     }
 
     if let Some(existing) = store
@@ -107,13 +127,14 @@ where
 
 pub(crate) async fn list_projects<S>(
     store: &S,
-    account_id: AccountId,
+    actor: &ActorContext,
 ) -> Result<ListProjectsResponse, AppServiceError>
 where
     S: ProjectStore + ?Sized,
 {
+    let _ = evaluate_project_policy(actor, ProjectAction::List, None, true);
     let records = store
-        .list_connected_projects_for_account(account_id)
+        .list_connected_projects_for_account(actor.account_id())
         .await?;
     Ok(ListProjectsResponse {
         projects: records.iter().map(project_view).collect(),
@@ -123,12 +144,21 @@ where
 pub(crate) async fn disconnect_project<S>(
     store: &S,
     clock: &Clock,
+    actor: &ActorContext,
     request: DisconnectProjectRequest,
 ) -> Result<DisconnectProjectResponse, AppServiceError>
 where
     S: AccountStore + ProjectStore + ?Sized,
 {
     let now = clock.now();
+
+    let can_see = store
+        .account_can_see_project(actor.account_id(), request.project_id)
+        .await?;
+    let decision = evaluate_project_policy(actor, ProjectAction::Disconnect, None, can_see);
+    if !matches!(decision, Decision::Allow) {
+        return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
+    }
 
     if store.has_active_loop_fixtures(request.project_id).await? {
         store
@@ -198,7 +228,7 @@ where
         .await?;
 
     let remaining = store
-        .list_connected_projects_for_account(request.account_id)
+        .list_connected_projects_for_account(actor.account_id())
         .await?;
 
     Ok(DisconnectProjectResponse {
@@ -210,11 +240,20 @@ where
 
 pub(crate) async fn project_specs<S>(
     store: &S,
+    actor: &ActorContext,
     project_id: ProjectId,
 ) -> Result<Vec<ProjectSpecView>, AppServiceError>
 where
     S: ProjectStore + ?Sized,
 {
+    let can_see = store
+        .account_can_see_project(actor.account_id(), project_id)
+        .await?;
+    let decision = evaluate_project_policy(actor, ProjectAction::Specs, None, can_see);
+    if !matches!(decision, Decision::Allow) {
+        return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
+    }
+
     let records = store.read_project_specs(project_id).await?;
     Ok(records
         .into_iter()
@@ -229,11 +268,20 @@ where
 
 pub(crate) async fn project_dependencies<S>(
     store: &S,
+    actor: &ActorContext,
     project_id: ProjectId,
 ) -> Result<Vec<ProjectDependencyView>, AppServiceError>
 where
     S: ProjectStore + ?Sized,
 {
+    let can_see = store
+        .account_can_see_project(actor.account_id(), project_id)
+        .await?;
+    let decision = evaluate_project_policy(actor, ProjectAction::Dependencies, None, can_see);
+    if !matches!(decision, Decision::Allow) {
+        return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
+    }
+
     let links = store.read_project_dependencies(project_id).await?;
     Ok(links
         .into_iter()
@@ -245,6 +293,36 @@ where
             detected_at: link.dependency.detected_at,
         })
         .collect())
+}
+
+pub(crate) async fn reconnect_project<S>(
+    store: &S,
+    actor: &ActorContext,
+    project_id: ProjectId,
+) -> Result<ReconnectProjectResponse, AppServiceError>
+where
+    S: ProjectStore + ?Sized,
+{
+    let can_see = store
+        .account_can_see_project(actor.account_id(), project_id)
+        .await?;
+    let decision = evaluate_project_policy(actor, ProjectAction::Reconnect, None, can_see);
+    if !matches!(decision, Decision::Allow) {
+        return Err(AppServiceError::Project(ProjectFailureReason::Unauthorized));
+    }
+
+    let reconnected = store
+        .reconnect_project(project_id)
+        .await
+        .map_err(|e| match e {
+            ReconnectProjectError::NotFound => {
+                AppServiceError::Project(ProjectFailureReason::ProjectNotFound)
+            }
+            ReconnectProjectError::Store(e) => AppServiceError::Store(e),
+        })?;
+    Ok(ReconnectProjectResponse {
+        project: project_view(&reconnected.project),
+    })
 }
 
 fn project_view(record: &tanren_store::ProjectRecord) -> ProjectView {

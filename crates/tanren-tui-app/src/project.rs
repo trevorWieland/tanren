@@ -2,10 +2,14 @@
 //!
 //! Split out of `app.rs` so the tui-app crate stays under the workspace
 //! 500-line line-budget.
+//!
+//! Each dispatch function constructs a typed [`ActorContext`] from the
+//! form-supplied `account_id` field rather than embedding authority inside
+//! the project command body.
 
 use std::sync::Arc;
 
-use tanren_app_services::{AppServiceError, Handlers, Store};
+use tanren_app_services::{ActorContext, AppServiceError, Handlers, Store};
 use tanren_contract::{ProjectFailureReason, ProjectView};
 use tanren_identity_policy::{AccountId, ProjectId};
 use tokio::runtime::Runtime;
@@ -62,11 +66,18 @@ pub(crate) fn disconnect_project_fields() -> Vec<FormField> {
 }
 
 pub(crate) fn project_dependencies_fields() -> Vec<FormField> {
-    vec![FormField {
-        label: "Project ID",
-        secret: false,
-        value: String::new(),
-    }]
+    vec![
+        FormField {
+            label: "Project ID",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Account ID",
+            secret: false,
+            value: String::new(),
+        },
+    ]
 }
 
 pub(crate) fn parse_connect_project(
@@ -101,11 +112,6 @@ pub(crate) fn parse_project_account_ids(
     let project_id = parse_uuid_field(state.value(0), "Project ID")?;
     let account_id = parse_uuid_field(state.value(1), "Account ID")?;
     Ok((ProjectId::new(project_id), AccountId::new(account_id)))
-}
-
-pub(crate) fn parse_project_id(state: &FormState) -> Result<ProjectId, String> {
-    let uuid = parse_uuid_field(state.value(0), "Project ID")?;
-    Ok(ProjectId::new(uuid))
 }
 
 fn parse_uuid_field(raw: &str, label: &str) -> Result<Uuid, String> {
@@ -219,13 +225,14 @@ pub(crate) fn dispatch_connect_project(
         Ok(vals) => vals,
         Err(message) => return ProjectActionResult::Error(message),
     };
+    let actor = ActorContext::from_account_id(account_id);
     let request = tanren_contract::ConnectProjectRequest {
-        account_id,
+        account_id: None,
         org_id,
         name,
         repository_url,
     };
-    match runtime.block_on(handlers.connect_project(store.as_ref(), request)) {
+    match runtime.block_on(handlers.connect_project(store.as_ref(), &actor, request)) {
         Ok(response) => ProjectActionResult::Outcome(connect_project_outcome(&response.project)),
         Err(reason) => ProjectActionResult::Error(render_project_error(reason)),
     }
@@ -241,7 +248,8 @@ pub(crate) fn dispatch_list_projects(
         Ok(id) => id,
         Err(message) => return ProjectActionResult::Error(message),
     };
-    match runtime.block_on(handlers.list_projects(store.as_ref(), account_id)) {
+    let actor = ActorContext::from_account_id(account_id);
+    match runtime.block_on(handlers.list_projects(store.as_ref(), &actor)) {
         Ok(response) => ProjectActionResult::Outcome(list_projects_outcome(&response.projects)),
         Err(reason) => ProjectActionResult::Error(render_project_error(reason)),
     }
@@ -257,11 +265,12 @@ pub(crate) fn dispatch_disconnect_project(
         Ok(vals) => vals,
         Err(message) => return ProjectActionResult::Error(message),
     };
+    let actor = ActorContext::from_account_id(account_id);
     let request = tanren_contract::DisconnectProjectRequest {
         project_id,
-        account_id,
+        account_id: None,
     };
-    match runtime.block_on(handlers.disconnect_project(store.as_ref(), request)) {
+    match runtime.block_on(handlers.disconnect_project(store.as_ref(), &actor, request)) {
         Ok(response) => ProjectActionResult::Outcome(disconnect_project_outcome(
             response.project_id,
             &response.unresolved_inbound_dependencies,
@@ -276,11 +285,12 @@ pub(crate) fn dispatch_project_dependencies(
     store: &Arc<Store>,
     state: &FormState,
 ) -> ProjectActionResult {
-    let project_id = match parse_project_id(state) {
-        Ok(id) => id,
+    let (project_id, account_id) = match parse_project_account_ids(state) {
+        Ok(vals) => vals,
         Err(message) => return ProjectActionResult::Error(message),
     };
-    match runtime.block_on(handlers.project_dependencies(store.as_ref(), project_id)) {
+    let actor = ActorContext::from_account_id(account_id);
+    match runtime.block_on(handlers.project_dependencies(store.as_ref(), &actor, project_id)) {
         Ok(deps) => ProjectActionResult::Outcome(project_dependencies_outcome(&deps)),
         Err(reason) => ProjectActionResult::Error(render_project_error(reason)),
     }

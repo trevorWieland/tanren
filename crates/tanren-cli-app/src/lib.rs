@@ -1,16 +1,14 @@
 //! Tanren scriptable command-line client — runtime library.
 //!
-//! R-0001 (sub-8) promotes the runtime out of `bin/tanren-cli/src/main.rs`
-//! per the thin-binary-crate profile
-//! (`profiles/rust-cargo/architecture/thin-binary-crate.md`). The binary
-//! shrinks to a wiring shell that initializes tracing and calls [`run`];
-//! everything below — `clap` parsing, account-flow dispatch, session
-//! persistence — lives here so the BDD harness can depend on it directly
-//! without spinning up a child process.
+//! R-0001 (sub-8) promotes the runtime out of `bin/tanren-cli/src/main.rs` per the thin-binary-crate
+//! profile (`profiles/rust-cargo/architecture/thin-binary-crate.md`). The
+//! binary shrinks to a wiring shell that initializes tracing and calls
+//! [`run`]; everything below — `clap` parsing, account-flow dispatch,
+//! session persistence — lives here so the BDD harness can depend on it
+//! directly without spinning up a child process.
 //!
 //! The CLI continues to receive bearer-mode `SessionView` responses from
-//! `tanren-app-services` (no cookie jar to use); the cookie envelope
-//! lives only on the api-app surface.
+//! `tanren-app-services` (no cookie jar to use); the cookie envelope lives only on the api-app surface.
 
 mod project;
 
@@ -169,6 +167,9 @@ enum ProjectAction {
         /// Project whose specs to list.
         #[arg(long)]
         project_id: String,
+        /// Account requesting the action.
+        #[arg(long)]
+        account_id: String,
     },
     /// List cross-project dependency links for a project.
     Dependencies {
@@ -178,6 +179,9 @@ enum ProjectAction {
         /// Project whose dependencies to list.
         #[arg(long)]
         project_id: String,
+        /// Account requesting the action.
+        #[arg(long)]
+        account_id: String,
     },
 }
 
@@ -311,22 +315,38 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::Specs {
             database_url,
             project_id,
+            account_id,
         } => {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
             let project_id = parse_uuid(&project_id, "project_id")?;
-            project::project_specs(&handlers, &store, ProjectId::new(project_id)).await
+            let account_id = parse_uuid(&account_id, "account_id")?;
+            project::project_specs(
+                &handlers,
+                &store,
+                AccountId::new(account_id),
+                ProjectId::new(project_id),
+            )
+            .await
         }
         ProjectAction::Dependencies {
             database_url,
             project_id,
+            account_id,
         } => {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
             let project_id = parse_uuid(&project_id, "project_id")?;
-            project::project_dependencies(&handlers, &store, ProjectId::new(project_id)).await
+            let account_id = parse_uuid(&account_id, "account_id")?;
+            project::project_dependencies(
+                &handlers,
+                &store,
+                AccountId::new(account_id),
+                ProjectId::new(project_id),
+            )
+            .await
         }
     }
 }

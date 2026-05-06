@@ -25,7 +25,7 @@ use rmcp::transport::streamable_http_server::{
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{ActorContext, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, ConnectProjectRequest, DisconnectProjectRequest, SignInRequest,
     SignUpRequest,
@@ -74,6 +74,11 @@ pub(crate) struct TanrenMcp {
     /// Cached tool router built from the `#[rmcp::tool]` methods on this
     /// type. Read by the macro-generated `ServerHandler` impl below.
     tool_router: ToolRouter<Self>,
+    /// Account id established by the most recent `account.create` or
+    /// `account.sign_in` call within this MCP session. Project tools
+    /// derive [`ActorContext`] from this — never from a raw field in
+    /// the tool parameters.
+    authenticated_account: Arc<std::sync::Mutex<Option<tanren_identity_policy::AccountId>>>,
 }
 
 impl std::fmt::Debug for TanrenMcp {
@@ -89,6 +94,26 @@ impl TanrenMcp {
             handlers,
             store,
             tool_router: Self::tool_router(),
+            authenticated_account: Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    fn authenticated_actor(&self) -> Result<ActorContext, McpError> {
+        let guard = self
+            .authenticated_account
+            .lock()
+            .map_err(|_| McpError::internal_error("auth state poisoned", None))?;
+        guard.map(ActorContext::from_account_id).ok_or_else(|| {
+            McpError::invalid_request(
+                "No authenticated account. Call account.create or account.sign_in first.",
+                None,
+            )
+        })
+    }
+
+    fn store_account_id(&self, account_id: tanren_identity_policy::AccountId) {
+        if let Ok(mut guard) = self.authenticated_account.lock() {
+            *guard = Some(account_id);
         }
     }
 
@@ -103,7 +128,10 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignUpRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_up(self.store.as_ref(), request).await {
-            Ok(response) => Ok(project::success(&response)),
+            Ok(response) => {
+                self.store_account_id(response.account.id);
+                Ok(project::success(&response))
+            }
             Err(err) => Ok(project::map_failure(err)),
         }
     }
@@ -119,7 +147,10 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignInRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_in(self.store.as_ref(), request).await {
-            Ok(response) => Ok(project::success(&response)),
+            Ok(response) => {
+                self.store_account_id(response.account.id);
+                Ok(project::success(&response))
+            }
             Err(err) => Ok(project::map_failure(err)),
         }
     }
@@ -141,7 +172,10 @@ impl TanrenMcp {
             .accept_invitation(self.store.as_ref(), request)
             .await
         {
-            Ok(response) => Ok(project::success(&response)),
+            Ok(response) => {
+                self.store_account_id(response.account.id);
+                Ok(project::success(&response))
+            }
             Err(err) => Ok(project::map_failure(err)),
         }
     }
@@ -154,9 +188,10 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<ConnectProjectRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let actor = self.authenticated_actor()?;
         match self
             .handlers
-            .connect_project(self.store.as_ref(), request)
+            .connect_project(self.store.as_ref(), &actor, request)
             .await
         {
             Ok(response) => Ok(project::success(&response)),
@@ -170,11 +205,12 @@ impl TanrenMcp {
     )]
     async fn project_list(
         &self,
-        Parameters(params): Parameters<project::ListProjectsParams>,
+        Parameters(_params): Parameters<project::ListProjectsParams>,
     ) -> Result<CallToolResult, McpError> {
+        let actor = self.authenticated_actor()?;
         match self
             .handlers
-            .list_projects(self.store.as_ref(), params.account_id)
+            .list_projects(self.store.as_ref(), &actor)
             .await
         {
             Ok(response) => Ok(project::success(&response)),
@@ -190,9 +226,10 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<DisconnectProjectRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let actor = self.authenticated_actor()?;
         match self
             .handlers
-            .disconnect_project(self.store.as_ref(), request)
+            .disconnect_project(self.store.as_ref(), &actor, request)
             .await
         {
             Ok(response) => Ok(project::success(&response)),
@@ -208,9 +245,10 @@ impl TanrenMcp {
         &self,
         Parameters(params): Parameters<project::ProjectIdParams>,
     ) -> Result<CallToolResult, McpError> {
+        let actor = self.authenticated_actor()?;
         match self
             .handlers
-            .project_specs(self.store.as_ref(), params.project_id)
+            .project_specs(self.store.as_ref(), &actor, params.project_id)
             .await
         {
             Ok(response) => Ok(project::success(&response)),
@@ -226,9 +264,10 @@ impl TanrenMcp {
         &self,
         Parameters(params): Parameters<project::ProjectIdParams>,
     ) -> Result<CallToolResult, McpError> {
+        let actor = self.authenticated_actor()?;
         match self
             .handlers
-            .project_dependencies(self.store.as_ref(), params.project_id)
+            .project_dependencies(self.store.as_ref(), &actor, params.project_id)
             .await
         {
             Ok(response) => Ok(project::success(&response)),

@@ -28,6 +28,7 @@ serde_json = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
+tanren-policy = { path = "../tanren-policy" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }

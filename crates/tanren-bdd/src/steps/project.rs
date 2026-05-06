@@ -12,7 +12,7 @@ async fn given_connected_project(world: &mut TanrenWorld, name: String) {
     let result = ctx
         .harness
         .connect_project(ConnectProjectRequest {
-            account_id: ctx.account_id,
+            account_id: None,
             org_id: ctx.org_id,
             name: name.clone(),
             repository_url: repo_url,
@@ -24,6 +24,7 @@ async fn given_connected_project(world: &mut TanrenWorld, name: String) {
             ctx.connected_project = Some(response.project);
         }
         Err(err) => {
+            let _ = ctx.harness.kind();
             ctx.last_outcome = Some(record_project_failure(err, &mut ctx.last_failure));
         }
     }
@@ -87,7 +88,6 @@ async fn given_temp_repo(world: &mut TanrenWorld) {
 async fn when_disconnect(world: &mut TanrenWorld) {
     let ctx = world.project.as_mut().expect("project context required");
     let project_id = ctx.connected_project_id.expect("project must be connected");
-    let account_id = ctx.account_id;
     ctx.spec_count_before_disconnect = ctx
         .harness
         .project_specs(project_id)
@@ -98,7 +98,7 @@ async fn when_disconnect(world: &mut TanrenWorld) {
         .harness
         .disconnect_project(DisconnectProjectRequest {
             project_id,
-            account_id,
+            account_id: None,
         })
         .await;
     match result {

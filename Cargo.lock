@@ -4172,6 +4172,7 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-policy",
  "tanren-store",
  "tokio",
  "tower-http",
@@ -4193,6 +4194,7 @@ dependencies = [
  "serde_json",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-policy",
  "tanren-store",
  "thiserror 2.0.18",
 ]
@@ -4342,6 +4344,7 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-policy",
  "tokio",
  "tokio-util",
  "tower",
@@ -4388,6 +4391,7 @@ name = "tanren-policy"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "tanren-identity-policy",
  "thiserror 2.0.18",
 ]
 
@@ -4464,6 +4468,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-mcp-app",
+ "tanren-policy",
  "tanren-store",
  "thiserror 2.0.18",
  "tokio",

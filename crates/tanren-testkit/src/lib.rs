@@ -21,6 +21,7 @@ pub use harness::{
     ProjectWebHarness, ProjectWorldState, RepositoryFixture, TuiHarness, WebHarness, event_kinds,
     record_failure, record_project_failure,
 };
+pub use tanren_app_services::ActorContext;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};

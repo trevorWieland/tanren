@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use tanren_app_services::ActorContext;
 use tanren_app_services::project::{ProjectDependencyView, ProjectSpecView};
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
@@ -11,7 +12,7 @@ use tanren_contract::{
     ReconnectProjectResponse,
 };
 use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
-use tanren_store::{EventEnvelope, ProjectRecord, ProjectStatus, ProjectStore as _};
+use tanren_store::{EventEnvelope, ProjectRecord, ProjectStatus};
 
 use super::in_process::InProcessHarness;
 use super::{AccountHarness as _, HarnessError, HarnessKind, HarnessResult};
@@ -53,6 +54,7 @@ pub trait ProjectHarness: Send + std::fmt::Debug {
 
 pub struct ProjectInProcessHarness {
     inner: InProcessHarness,
+    account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for ProjectInProcessHarness {
@@ -66,8 +68,13 @@ impl ProjectInProcessHarness {
     pub async fn new(kind: HarnessKind) -> HarnessResult<Self> {
         Ok(Self {
             inner: InProcessHarness::new(kind).await?,
+            account_id: None,
         })
     }
+}
+
+fn make_actor(account_id: AccountId) -> ActorContext {
+    ActorContext::from_account_id(account_id)
 }
 
 #[async_trait]
@@ -80,9 +87,11 @@ impl ProjectHarness for ProjectInProcessHarness {
         &mut self,
         req: ConnectProjectRequest,
     ) -> HarnessResult<ConnectProjectResponse> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .connect_project(self.inner.store(), req)
+            .connect_project(self.inner.store(), &actor, req)
             .await
             .map_err(translate_project_error)
     }
@@ -91,9 +100,11 @@ impl ProjectHarness for ProjectInProcessHarness {
         &mut self,
         req: DisconnectProjectRequest,
     ) -> HarnessResult<DisconnectProjectResponse> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .disconnect_project(self.inner.store(), req)
+            .disconnect_project(self.inner.store(), &actor, req)
             .await
             .map_err(translate_project_error)
     }
@@ -102,9 +113,10 @@ impl ProjectHarness for ProjectInProcessHarness {
         &mut self,
         account_id: AccountId,
     ) -> HarnessResult<ListProjectsResponse> {
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .list_projects(self.inner.store(), account_id)
+            .list_projects(self.inner.store(), &actor)
             .await
             .map_err(translate_project_error)
     }
@@ -113,24 +125,24 @@ impl ProjectHarness for ProjectInProcessHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<ReconnectProjectResponse> {
-        let r = self
-            .inner
-            .store()
-            .reconnect_project(project_id)
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
+        self.inner
+            .handlers()
+            .reconnect_project(self.inner.store(), &actor, project_id)
             .await
-            .map_err(|e| HarnessError::Transport(format!("reconnect: {e}")))?;
-        Ok(ReconnectProjectResponse {
-            project: record_to_view(&r.project),
-        })
+            .map_err(translate_project_error)
     }
 
     async fn project_specs(
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectSpecView>> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .project_specs(self.inner.store(), project_id)
+            .project_specs(self.inner.store(), &actor, project_id)
             .await
             .map_err(translate_project_error)
     }
@@ -139,9 +151,11 @@ impl ProjectHarness for ProjectInProcessHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectDependencyView>> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .project_dependencies(self.inner.store(), project_id)
+            .project_dependencies(self.inner.store(), &actor, project_id)
             .await
             .map_err(translate_project_error)
     }
@@ -154,6 +168,7 @@ impl ProjectHarness for ProjectInProcessHarness {
             .seed_account_with_org(aid, oid, Utc::now())
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_account: {e}")))?;
+        self.account_id = Some(aid);
         Ok((aid, oid))
     }
 

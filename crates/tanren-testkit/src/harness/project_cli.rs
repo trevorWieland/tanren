@@ -21,6 +21,7 @@ use super::{HarnessError, HarnessKind, HarnessResult};
 
 pub struct ProjectCliHarness {
     inner: CliHarness,
+    account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for ProjectCliHarness {
@@ -33,6 +34,7 @@ impl ProjectCliHarness {
     pub async fn spawn() -> HarnessResult<Self> {
         Ok(Self {
             inner: CliHarness::spawn().await?,
+            account_id: None,
         })
     }
 
@@ -68,11 +70,12 @@ impl ProjectHarness for ProjectCliHarness {
         &mut self,
         req: tanren_contract::ConnectProjectRequest,
     ) -> HarnessResult<ConnectProjectResponse> {
+        let account_id = self.account_id.expect("seed_account must be called first");
         let stdout = self
             .exec_cli(&[
                 "connect",
                 "--account-id",
-                &req.account_id.to_string(),
+                &account_id.to_string(),
                 "--org-id",
                 &req.org_id.to_string(),
                 "--name",
@@ -89,13 +92,14 @@ impl ProjectHarness for ProjectCliHarness {
         &mut self,
         req: DisconnectProjectRequest,
     ) -> HarnessResult<DisconnectProjectResponse> {
+        let account_id = self.account_id.expect("seed_account must be called first");
         let stdout = self
             .exec_cli(&[
                 "disconnect",
                 "--project-id",
                 &req.project_id.to_string(),
                 "--account-id",
-                &req.account_id.to_string(),
+                &account_id.to_string(),
             ])
             .await?;
         let response: DisconnectProjectResponse = parse_json_line(&stdout)?;
@@ -130,8 +134,15 @@ impl ProjectHarness for ProjectCliHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectSpecView>> {
+        let account_id = self.account_id.expect("seed_account must be called first");
         let stdout = self
-            .exec_cli(&["specs", "--project-id", &project_id.to_string()])
+            .exec_cli(&[
+                "specs",
+                "--project-id",
+                &project_id.to_string(),
+                "--account-id",
+                &account_id.to_string(),
+            ])
             .await?;
         let response: ProjectSpecsResponse = parse_json_line(&stdout)?;
         Ok(response
@@ -150,8 +161,15 @@ impl ProjectHarness for ProjectCliHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectDependencyView>> {
+        let account_id = self.account_id.expect("seed_account must be called first");
         let stdout = self
-            .exec_cli(&["dependencies", "--project-id", &project_id.to_string()])
+            .exec_cli(&[
+                "dependencies",
+                "--project-id",
+                &project_id.to_string(),
+                "--account-id",
+                &account_id.to_string(),
+            ])
             .await?;
         let response: ProjectDependenciesResponse = parse_json_line(&stdout)?;
         Ok(response
@@ -168,7 +186,9 @@ impl ProjectHarness for ProjectCliHarness {
     }
 
     async fn seed_account(&mut self) -> HarnessResult<(AccountId, OrgId)> {
-        seed_account_via_store(self.inner.store_handle()).await
+        let result = seed_account_via_store(self.inner.store_handle()).await?;
+        self.account_id = Some(result.0);
+        Ok(result)
     }
 
     async fn seed_spec(&mut self, project_id: ProjectId, title: String) -> HarnessResult<SpecId> {

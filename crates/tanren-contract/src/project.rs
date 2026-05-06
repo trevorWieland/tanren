@@ -58,8 +58,11 @@ pub struct ProjectDependenciesResponse {
 /// `GET /projects` query string.
 #[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
 pub struct ListProjectsParams {
-    /// Account whose projects to list.
-    pub account_id: AccountId,
+    /// Account whose projects to list. Ignored by the API (derived from
+    /// session). Used by the MCP for backward compatibility during the
+    /// transition to session-based auth.
+    #[serde(default)]
+    pub account_id: Option<AccountId>,
 }
 
 /// Parameter type for the `project.specs` and `project.dependencies` MCP
@@ -68,13 +71,18 @@ pub struct ListProjectsParams {
 pub struct ProjectIdParams {
     /// Project to query.
     pub project_id: ProjectId,
+    /// Account performing the query. Required for policy evaluation.
+    #[serde(default)]
+    pub actor_account_id: Option<AccountId>,
 }
 
 /// Request body for `POST /projects/{id}/disconnect`.
 #[derive(Debug, Deserialize, JsonSchema, ToSchema)]
 pub struct DisconnectProjectBody {
-    /// Account requesting the disconnect.
-    pub account_id: AccountId,
+    /// Account requesting the disconnect. Ignored by the API (derived from
+    /// session). Retained for backward wire compatibility.
+    #[serde(default)]
+    pub account_id: Option<AccountId>,
 }
 
 /// Wire body for project-flow failures. Follows the shared `{code, summary}`
@@ -101,8 +109,11 @@ impl ProjectFailureBody {
 /// Request to connect an existing repository as a Tanren project.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConnectProjectRequest {
-    /// Account initiating the connection.
-    pub account_id: AccountId,
+    /// Account initiating the connection. Ignored by all interfaces —
+    /// identity is derived from the typed [`ActorContext`] passed to the
+    /// handler. Retained for backward wire compatibility.
+    #[serde(default)]
+    pub account_id: Option<AccountId>,
     /// Organization that will own the project.
     pub org_id: OrgId,
     /// Human-readable name for the project.
@@ -130,8 +141,11 @@ pub struct ListProjectsResponse {
 pub struct DisconnectProjectRequest {
     /// Project to disconnect.
     pub project_id: ProjectId,
-    /// Account requesting the disconnect.
-    pub account_id: AccountId,
+    /// Account requesting the disconnect. Ignored by all interfaces —
+    /// identity is derived from the typed [`ActorContext`] passed to the
+    /// handler. Retained for backward wire compatibility.
+    #[serde(default)]
+    pub account_id: Option<AccountId>,
 }
 
 /// Successful project-disconnect response.
@@ -211,6 +225,10 @@ pub enum ProjectFailureReason {
     RepositoryUnavailable,
     /// User-supplied input failed validation before any verification could run.
     ValidationFailed,
+    /// The authenticated actor is not authorized to perform the requested
+    /// action on the project. Returned when the policy layer denies access
+    /// based on org membership or project visibility.
+    Unauthorized,
 }
 
 impl ProjectFailureReason {
@@ -222,6 +240,7 @@ impl ProjectFailureReason {
             Self::ProjectNotFound => "project_not_found",
             Self::RepositoryUnavailable => "repository_unavailable",
             Self::ValidationFailed => "validation_failed",
+            Self::Unauthorized => "unauthorized",
         }
     }
 
@@ -239,6 +258,9 @@ impl ProjectFailureReason {
             Self::ValidationFailed => {
                 "The submitted input did not satisfy contract-level validation."
             }
+            Self::Unauthorized => {
+                "The authenticated actor is not authorized to perform this action."
+            }
         }
     }
 
@@ -251,6 +273,7 @@ impl ProjectFailureReason {
             Self::ProjectNotFound => 404,
             Self::ActiveLoopExists | Self::RepositoryUnavailable => 409,
             Self::ValidationFailed => 400,
+            Self::Unauthorized => 403,
         }
     }
 }

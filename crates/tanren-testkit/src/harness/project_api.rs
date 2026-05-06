@@ -1,22 +1,25 @@
 use async_trait::async_trait;
+use chrono::Utc;
 use serde_json::Value;
 use tanren_app_services::project::{ProjectDependencyView, ProjectSpecView};
+use tanren_app_services::{ActorContext, Handlers};
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
     DisconnectProjectResponse, ListProjectsResponse, ProjectView, ReconnectProjectResponse,
+    SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
-use tanren_store::EventEnvelope;
+use tanren_identity_policy::{AccountId, Email, OrgId, ProjectId, SpecId};
+use tanren_store::{AccountStore as _, EventEnvelope};
 
 use super::api::ApiHarness;
 use super::project::{
-    ProjectHarness, record_to_view, seed_account_via_store, seed_active_loop_via_store,
-    seed_dependency_via_store, seed_spec_via_store,
+    ProjectHarness, seed_active_loop_via_store, seed_dependency_via_store, seed_spec_via_store,
 };
 use super::{HarnessError, HarnessKind, HarnessResult};
 
 pub struct ProjectApiHarness {
     inner: ApiHarness,
+    account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for ProjectApiHarness {
@@ -29,6 +32,7 @@ impl ProjectApiHarness {
     pub async fn spawn() -> HarnessResult<Self> {
         Ok(Self {
             inner: ApiHarness::spawn().await?,
+            account_id: None,
         })
     }
 
@@ -96,7 +100,7 @@ impl ProjectHarness for ProjectApiHarness {
             self.inner.base_url(),
             req.project_id
         );
-        let body = serde_json::json!({ "account_id": req.account_id });
+        let body = serde_json::json!({});
         let json = self.project_json("POST", url, Some(body)).await?;
         let resp: DisconnectProjectResponse = serde_json::from_value(json)
             .map_err(|e| HarnessError::Transport(format!("decode disconnect: {e}")))?;
@@ -105,13 +109,9 @@ impl ProjectHarness for ProjectApiHarness {
 
     async fn list_projects(
         &mut self,
-        account_id: AccountId,
+        _account_id: AccountId,
     ) -> HarnessResult<ListProjectsResponse> {
-        let url = format!(
-            "{}/projects?account_id={}",
-            self.inner.base_url(),
-            account_id
-        );
+        let url = format!("{}/projects", self.inner.base_url());
         let json = self.project_json("GET", url, None).await?;
         let resp: ListProjectsResponse = serde_json::from_value(json)
             .map_err(|e| HarnessError::Transport(format!("decode list: {e}")))?;
@@ -122,16 +122,13 @@ impl ProjectHarness for ProjectApiHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<ReconnectProjectResponse> {
-        use tanren_store::ProjectStore as _;
-        let reconnected = self
-            .inner
-            .store_handle()
-            .reconnect_project(project_id)
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = ActorContext::from_account_id(account_id);
+        let handlers = Handlers::new();
+        handlers
+            .reconnect_project(self.inner.store_handle().as_ref(), &actor, project_id)
             .await
-            .map_err(|e| HarnessError::Transport(format!("reconnect: {e}")))?;
-        Ok(ReconnectProjectResponse {
-            project: record_to_view(&reconnected.project),
-        })
+            .map_err(super::project::translate_project_error)
     }
 
     async fn project_specs(
@@ -173,7 +170,31 @@ impl ProjectHarness for ProjectApiHarness {
     }
 
     async fn seed_account(&mut self) -> HarnessResult<(AccountId, OrgId)> {
-        seed_account_via_store(self.inner.store_handle()).await
+        let email_addr = format!(
+            "project-harness-{}@example.com",
+            uuid::Uuid::new_v4().simple()
+        );
+        let email = Email::parse(&email_addr)
+            .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?;
+        let password = secrecy::SecretString::from("harness-password-123456".to_owned());
+        let session = <ApiHarness as super::AccountHarness>::sign_up(
+            &mut self.inner,
+            SignUpRequest {
+                email,
+                password,
+                display_name: "Project Harness".to_owned(),
+            },
+        )
+        .await?;
+        let account_id = session.account_id;
+        let oid = OrgId::fresh();
+        self.inner
+            .store_handle()
+            .insert_membership(account_id, oid, Utc::now())
+            .await
+            .map_err(|e| HarnessError::Transport(format!("insert membership: {e}")))?;
+        self.account_id = Some(account_id);
+        Ok((account_id, oid))
     }
 
     async fn seed_spec(&mut self, project_id: ProjectId, title: String) -> HarnessResult<SpecId> {

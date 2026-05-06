@@ -182,6 +182,45 @@ impl ProjectStore for Store {
             .await?;
         Ok(count > 0)
     }
+
+    async fn account_can_see_project(
+        &self,
+        account_id: AccountId,
+        project_id: ProjectId,
+    ) -> Result<bool, StoreError> {
+        let org_ids: Vec<Uuid> = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|m| m.org_id)
+            .collect();
+
+        if org_ids.is_empty() {
+            return Ok(false);
+        }
+
+        let count = entity::projects::Entity::find()
+            .filter(entity::projects::Column::Id.eq(project_id.as_uuid()))
+            .filter(entity::projects::Column::OrgId.is_in(org_ids))
+            .count(&self.conn)
+            .await?;
+        Ok(count > 0)
+    }
+
+    async fn account_org_memberships(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrgId>, StoreError> {
+        let org_ids: Vec<OrgId> = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|m| OrgId::new(m.org_id))
+            .collect();
+        Ok(org_ids)
+    }
 }
 
 async fn read_specs(

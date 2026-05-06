@@ -4,21 +4,49 @@
 //! 500-line line-budget. The connect endpoint also handles reconnecting
 //! a previously disconnected project — the handler decides based on
 //! existing state.
+//!
+//! Every route constructs a typed [`ActorContext`] from the authenticated
+//! session cookie. When no session is present the route returns 401 —
+//! the caller-supplied `account_id` in request bodies and query
+//! parameters is deserialized for wire-compat but is not trusted as the
+//! source of truth for authorization.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use tanren_app_services::ActorContext;
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DependencyView, DisconnectProjectBody,
     DisconnectProjectRequest, DisconnectProjectResponse, ListProjectsParams, ListProjectsResponse,
-    ProjectDependenciesResponse, ProjectSpecsResponse, SpecView,
+    ProjectDependenciesResponse, ProjectFailureBody, ProjectSpecsResponse, SpecView,
 };
 use tanren_identity_policy::ProjectId;
+use tower_sessions::Session;
 
 use crate::AppState;
+use crate::cookies::SESSION_KEY_ACCOUNT;
 use crate::errors::{ValidatedJson, map_app_error};
-use tanren_contract::ProjectFailureBody;
+
+fn unauthorized_response() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ProjectFailureBody {
+            code: "unauthorized".to_owned(),
+            summary: "No authenticated session found.".to_owned(),
+        }),
+    )
+        .into_response()
+}
+
+async fn extract_actor(session: &Session) -> Option<ActorContext> {
+    session
+        .get::<tanren_identity_policy::AccountId>(SESSION_KEY_ACCOUNT)
+        .await
+        .ok()
+        .flatten()
+        .map(ActorContext::from_account_id)
+}
 
 /// Connect (or reconnect) a repository as a Tanren project.
 #[utoipa::path(
@@ -28,17 +56,22 @@ use tanren_contract::ProjectFailureBody;
     responses(
         (status = 201, body = ConnectProjectResponse, description = "Project connected (or reconnected)"),
         (status = 400, body = ProjectFailureBody, description = "validation_failed"),
+        (status = 403, body = ProjectFailureBody, description = "unauthorized"),
         (status = 409, body = ProjectFailureBody, description = "repository_unavailable or active_loop_exists"),
     ),
     tag = "projects",
 )]
 pub(crate) async fn connect_project_route(
     State(state): State<AppState>,
+    session: Session,
     ValidatedJson(request): ValidatedJson<ConnectProjectRequest>,
 ) -> Response {
+    let Some(actor) = extract_actor(&session).await else {
+        return unauthorized_response();
+    };
     match state
         .handlers
-        .connect_project(state.store.as_ref(), request)
+        .connect_project(state.store.as_ref(), &actor, request)
         .await
     {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
@@ -51,7 +84,7 @@ pub(crate) async fn connect_project_route(
     get,
     path = "/projects",
     params(
-        ("account_id" = String, Query, description = "Account whose projects to list"),
+        ("account_id" = String, Query, description = "Account whose projects to list (ignored — derived from session)"),
     ),
     responses(
         (status = 200, body = ListProjectsResponse, description = "Project list"),
@@ -61,11 +94,15 @@ pub(crate) async fn connect_project_route(
 )]
 pub(crate) async fn list_projects_route(
     State(state): State<AppState>,
-    Query(query): Query<ListProjectsParams>,
+    session: Session,
+    Query(_query): Query<ListProjectsParams>,
 ) -> Response {
+    let Some(actor) = extract_actor(&session).await else {
+        return unauthorized_response();
+    };
     match state
         .handlers
-        .list_projects(state.store.as_ref(), query.account_id)
+        .list_projects(state.store.as_ref(), &actor)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -93,9 +130,13 @@ pub(crate) async fn list_projects_route(
 )]
 pub(crate) async fn disconnect_project_route(
     State(state): State<AppState>,
+    session: Session,
     Path(id): Path<String>,
-    ValidatedJson(body): ValidatedJson<DisconnectProjectBody>,
+    ValidatedJson(_body): ValidatedJson<DisconnectProjectBody>,
 ) -> Response {
+    let Some(actor) = extract_actor(&session).await else {
+        return unauthorized_response();
+    };
     let project_id = match id.parse() {
         Ok(uuid) => ProjectId::new(uuid),
         Err(_) => {
@@ -111,11 +152,11 @@ pub(crate) async fn disconnect_project_route(
     };
     let request = DisconnectProjectRequest {
         project_id,
-        account_id: body.account_id,
+        account_id: None,
     };
     match state
         .handlers
-        .disconnect_project(state.store.as_ref(), request)
+        .disconnect_project(state.store.as_ref(), &actor, request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -138,8 +179,12 @@ pub(crate) async fn disconnect_project_route(
 )]
 pub(crate) async fn project_specs_route(
     State(state): State<AppState>,
+    session: Session,
     Path(id): Path<String>,
 ) -> Response {
+    let Some(actor) = extract_actor(&session).await else {
+        return unauthorized_response();
+    };
     let project_id = match id.parse() {
         Ok(uuid) => ProjectId::new(uuid),
         Err(_) => {
@@ -155,7 +200,7 @@ pub(crate) async fn project_specs_route(
     };
     match state
         .handlers
-        .project_specs(state.store.as_ref(), project_id)
+        .project_specs(state.store.as_ref(), &actor, project_id)
         .await
     {
         Ok(specs) => {
@@ -189,8 +234,12 @@ pub(crate) async fn project_specs_route(
 )]
 pub(crate) async fn project_dependencies_route(
     State(state): State<AppState>,
+    session: Session,
     Path(id): Path<String>,
 ) -> Response {
+    let Some(actor) = extract_actor(&session).await else {
+        return unauthorized_response();
+    };
     let project_id = match id.parse() {
         Ok(uuid) => ProjectId::new(uuid),
         Err(_) => {
@@ -206,7 +255,7 @@ pub(crate) async fn project_dependencies_route(
     };
     match state
         .handlers
-        .project_dependencies(state.store.as_ref(), project_id)
+        .project_dependencies(state.store.as_ref(), &actor, project_id)
         .await
     {
         Ok(deps) => {

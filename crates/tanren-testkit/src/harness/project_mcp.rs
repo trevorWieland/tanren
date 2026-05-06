@@ -1,22 +1,24 @@
 use async_trait::async_trait;
+use chrono::Utc;
+use secrecy::ExposeSecret;
 use serde_json::Value;
 use tanren_app_services::project::{ProjectDependencyView, ProjectSpecView};
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
     DisconnectProjectResponse, ListProjectsResponse, ReconnectProjectResponse,
 };
-use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
-use tanren_store::{EventEnvelope, ProjectStore as _};
+use tanren_identity_policy::{AccountId, Email, OrgId, ProjectId, SpecId};
+use tanren_store::{AccountStore as _, EventEnvelope, ProjectStore as _};
 
 use super::mcp::McpHarness;
 use super::project::{
-    ProjectHarness, record_to_view, seed_account_via_store, seed_active_loop_via_store,
-    seed_dependency_via_store, seed_spec_via_store,
+    ProjectHarness, seed_active_loop_via_store, seed_dependency_via_store, seed_spec_via_store,
 };
 use super::{HarnessError, HarnessKind, HarnessResult};
 
 pub struct ProjectMcpHarness {
     inner: McpHarness,
+    account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for ProjectMcpHarness {
@@ -29,6 +31,7 @@ impl ProjectMcpHarness {
     pub async fn spawn() -> HarnessResult<Self> {
         Ok(Self {
             inner: McpHarness::spawn().await?,
+            account_id: None,
         })
     }
 
@@ -69,9 +72,9 @@ impl ProjectHarness for ProjectMcpHarness {
 
     async fn list_projects(
         &mut self,
-        account_id: AccountId,
+        _account_id: AccountId,
     ) -> HarnessResult<ListProjectsResponse> {
-        let body = serde_json::json!({ "account_id": account_id });
+        let body = serde_json::json!({});
         let payload = self.call_project_tool("project.list", body).await?;
         let resp: ListProjectsResponse = serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode list: {e}")))?;
@@ -89,7 +92,7 @@ impl ProjectHarness for ProjectMcpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("reconnect: {e}")))?;
         Ok(ReconnectProjectResponse {
-            project: record_to_view(&reconnected.project),
+            project: super::project::record_to_view(&reconnected.project),
         })
     }
 
@@ -97,7 +100,9 @@ impl ProjectHarness for ProjectMcpHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectSpecView>> {
-        let body = serde_json::json!({ "project_id": project_id });
+        let body = serde_json::json!({
+            "project_id": project_id,
+        });
         let payload = self.call_project_tool("project.specs", body).await?;
         let specs: Vec<ProjectSpecView> = serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode specs: {e}")))?;
@@ -108,7 +113,9 @@ impl ProjectHarness for ProjectMcpHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectDependencyView>> {
-        let body = serde_json::json!({ "project_id": project_id });
+        let body = serde_json::json!({
+            "project_id": project_id,
+        });
         let payload = self.call_project_tool("project.dependencies", body).await?;
         let deps: Vec<ProjectDependencyView> = serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode deps: {e}")))?;
@@ -116,7 +123,31 @@ impl ProjectHarness for ProjectMcpHarness {
     }
 
     async fn seed_account(&mut self) -> HarnessResult<(AccountId, OrgId)> {
-        seed_account_via_store(self.inner.store_handle()).await
+        let email_addr = format!(
+            "project-harness-{}@example.com",
+            uuid::Uuid::new_v4().simple()
+        );
+        let email = Email::parse(&email_addr)
+            .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?;
+        let password = secrecy::SecretString::from("harness-password-123456".to_owned());
+        let body = serde_json::json!({
+            "email": email.as_str(),
+            "password": password.expose_secret(),
+            "display_name": "Project Harness",
+        });
+        let payload = self.call_project_tool("account.create", body).await?;
+        let account_id: AccountId = serde_json::from_value(payload["account"]["id"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode account.id: {e}")))?;
+
+        let oid = OrgId::fresh();
+        self.inner
+            .store_handle()
+            .insert_membership(account_id, oid, Utc::now())
+            .await
+            .map_err(|e| HarnessError::Transport(format!("insert membership: {e}")))?;
+
+        self.account_id = Some(account_id);
+        Ok((account_id, oid))
     }
 
     async fn seed_spec(&mut self, project_id: ProjectId, title: String) -> HarnessResult<SpecId> {

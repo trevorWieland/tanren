@@ -1,19 +1,29 @@
 //! MCP project tool shared helper functions.
 //!
 //! Parameter types for list/specs/dependencies tools are re-exported from
-//! `tanren_contract` so every interface shares the same shapes.
+//! `tanren_contract` so every interface shares the same shapes. The MCP
+//! derives the [`ActorContext`] from its stored authenticated account
+//! state — tool parameters do not carry authority.
 //!
 //! The `success` and `map_failure` helpers are relocated from `lib.rs` so
 //! both account and project tools can share them without growing `lib.rs`
 //! past the workspace 500-line budget.
 
 use rmcp::model::{CallToolResult, Content};
-use serde::Serialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
 use tanren_contract::ProjectFailureBody;
 
-pub(crate) use tanren_contract::{ListProjectsParams, ProjectIdParams};
+pub(crate) use tanren_contract::ListProjectsParams;
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(crate) struct ProjectIdParams {
+    pub project_id: tanren_identity_policy::ProjectId,
+    #[serde(default)]
+    pub actor_account_id: Option<tanren_identity_policy::AccountId>,
+}
 
 pub(crate) fn success<T: Serialize>(value: &T) -> CallToolResult {
     let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());

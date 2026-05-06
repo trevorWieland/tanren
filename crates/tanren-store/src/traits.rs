@@ -424,4 +424,21 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
     /// Return `true` when at least one active loop fixture exists for
     /// the project.
     async fn has_active_loop_fixtures(&self, project_id: ProjectId) -> Result<bool, StoreError>;
+
+    /// Return `true` when the account is a member of the org that owns
+    /// the project. Used by the policy path to enforce project-level
+    /// visibility for disconnect, reconnect, specs, and dependencies.
+    async fn account_can_see_project(
+        &self,
+        account_id: AccountId,
+        project_id: ProjectId,
+    ) -> Result<bool, StoreError>;
+
+    /// Return the org ids the account is a member of. Used by the
+    /// policy path to construct [`ActorContext`] and to evaluate
+    /// connect actions.
+    async fn account_org_memberships(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrgId>, StoreError>;
 }

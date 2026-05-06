@@ -14,10 +14,11 @@ use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ConnectProjectRequest,
     ConnectProjectResponse, ContractVersion, DisconnectProjectRequest, DisconnectProjectResponse,
-    ListProjectsResponse, ProjectFailureReason, SignInRequest, SignInResponse, SignUpRequest,
-    SignUpResponse,
+    ListProjectsResponse, ProjectFailureReason, ReconnectProjectResponse, SignInRequest,
+    SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier, ProjectId};
+use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier, ProjectId};
+pub use tanren_policy::ActorContext;
 pub use tanren_store::{AccountStore, ProjectStore, Store};
 
 use std::sync::Arc;
@@ -206,56 +207,72 @@ impl Handlers {
     pub async fn connect_project<S>(
         &self,
         store: &S,
+        actor: &ActorContext,
         request: ConnectProjectRequest,
     ) -> Result<ConnectProjectResponse, AppServiceError>
     where
         S: AccountStore + ProjectStore + ?Sized,
     {
-        project::connect_project(store, &self.clock, request).await
+        project::connect_project(store, &self.clock, actor, request).await
     }
 
     pub async fn list_projects<S>(
         &self,
         store: &S,
-        account_id: AccountId,
+        actor: &ActorContext,
     ) -> Result<ListProjectsResponse, AppServiceError>
     where
         S: ProjectStore + ?Sized,
     {
-        project::list_projects(store, account_id).await
+        project::list_projects(store, actor).await
     }
 
     pub async fn disconnect_project<S>(
         &self,
         store: &S,
+        actor: &ActorContext,
         request: DisconnectProjectRequest,
     ) -> Result<DisconnectProjectResponse, AppServiceError>
     where
         S: AccountStore + ProjectStore + ?Sized,
     {
-        project::disconnect_project(store, &self.clock, request).await
+        project::disconnect_project(store, &self.clock, actor, request).await
     }
 
     pub async fn project_specs<S>(
         &self,
         store: &S,
+        actor: &ActorContext,
         project_id: ProjectId,
     ) -> Result<Vec<project::ProjectSpecView>, AppServiceError>
     where
         S: ProjectStore + ?Sized,
     {
-        project::project_specs(store, project_id).await
+        project::project_specs(store, actor, project_id).await
     }
 
     pub async fn project_dependencies<S>(
         &self,
         store: &S,
+        actor: &ActorContext,
         project_id: ProjectId,
     ) -> Result<Vec<project::ProjectDependencyView>, AppServiceError>
     where
         S: ProjectStore + ?Sized,
     {
-        project::project_dependencies(store, project_id).await
+        project::project_dependencies(store, actor, project_id).await
+    }
+
+    pub async fn reconnect_project<S>(
+        &self,
+        store: &S,
+        actor: &ActorContext,
+        project_id: ProjectId,
+    ) -> Result<ReconnectProjectResponse, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::reconnect_project(store, actor, project_id).await
     }
 }
 

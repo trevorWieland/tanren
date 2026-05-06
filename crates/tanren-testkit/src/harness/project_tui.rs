@@ -1,19 +1,21 @@
 use async_trait::async_trait;
 use chrono::Utc;
+use tanren_app_services::ActorContext;
 use tanren_app_services::project::{ProjectDependencyView, ProjectSpecView};
 use tanren_contract::{
     ConnectProjectRequest, ConnectProjectResponse, DisconnectProjectRequest,
     DisconnectProjectResponse, ListProjectsResponse, ReconnectProjectResponse,
 };
 use tanren_identity_policy::{AccountId, OrgId, ProjectId, SpecId};
-use tanren_store::{EventEnvelope, ProjectStore as _};
+use tanren_store::EventEnvelope;
 
-use super::project::{ProjectHarness, record_to_view, translate_project_error};
+use super::project::{ProjectHarness, translate_project_error};
 use super::tui::TuiHarness;
 use super::{HarnessError, HarnessKind, HarnessResult};
 
 pub struct ProjectTuiHarness {
     inner: TuiHarness,
+    account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for ProjectTuiHarness {
@@ -26,8 +28,13 @@ impl ProjectTuiHarness {
     pub async fn spawn() -> HarnessResult<Self> {
         Ok(Self {
             inner: TuiHarness::spawn().await?,
+            account_id: None,
         })
     }
+}
+
+fn make_actor(account_id: AccountId) -> ActorContext {
+    ActorContext::from_account_id(account_id)
 }
 
 #[async_trait]
@@ -40,9 +47,11 @@ impl ProjectHarness for ProjectTuiHarness {
         &mut self,
         req: ConnectProjectRequest,
     ) -> HarnessResult<ConnectProjectResponse> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .connect_project(self.inner.store_handle(), req)
+            .connect_project(self.inner.store_handle(), &actor, req)
             .await
             .map_err(translate_project_error)
     }
@@ -51,9 +60,11 @@ impl ProjectHarness for ProjectTuiHarness {
         &mut self,
         req: DisconnectProjectRequest,
     ) -> HarnessResult<DisconnectProjectResponse> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .disconnect_project(self.inner.store_handle(), req)
+            .disconnect_project(self.inner.store_handle(), &actor, req)
             .await
             .map_err(translate_project_error)
     }
@@ -62,9 +73,10 @@ impl ProjectHarness for ProjectTuiHarness {
         &mut self,
         account_id: AccountId,
     ) -> HarnessResult<ListProjectsResponse> {
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .list_projects(self.inner.store_handle(), account_id)
+            .list_projects(self.inner.store_handle(), &actor)
             .await
             .map_err(translate_project_error)
     }
@@ -73,24 +85,24 @@ impl ProjectHarness for ProjectTuiHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<ReconnectProjectResponse> {
-        let r = self
-            .inner
-            .store_handle()
-            .reconnect_project(project_id)
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
+        self.inner
+            .handlers()
+            .reconnect_project(self.inner.store_handle(), &actor, project_id)
             .await
-            .map_err(|e| HarnessError::Transport(format!("reconnect: {e}")))?;
-        Ok(ReconnectProjectResponse {
-            project: record_to_view(&r.project),
-        })
+            .map_err(translate_project_error)
     }
 
     async fn project_specs(
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectSpecView>> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .project_specs(self.inner.store_handle(), project_id)
+            .project_specs(self.inner.store_handle(), &actor, project_id)
             .await
             .map_err(translate_project_error)
     }
@@ -99,9 +111,11 @@ impl ProjectHarness for ProjectTuiHarness {
         &mut self,
         project_id: ProjectId,
     ) -> HarnessResult<Vec<ProjectDependencyView>> {
+        let account_id = self.account_id.expect("seed_account must be called first");
+        let actor = make_actor(account_id);
         self.inner
             .handlers()
-            .project_dependencies(self.inner.store_handle(), project_id)
+            .project_dependencies(self.inner.store_handle(), &actor, project_id)
             .await
             .map_err(translate_project_error)
     }
@@ -114,6 +128,7 @@ impl ProjectHarness for ProjectTuiHarness {
             .seed_account_with_org(aid, oid, Utc::now())
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_account: {e}")))?;
+        self.account_id = Some(aid);
         Ok((aid, oid))
     }
 
