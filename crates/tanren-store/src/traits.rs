@@ -27,12 +27,14 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use tanren_configuration_secrets::{CredentialId, UserSettingKey};
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, CredentialRecord, EventEnvelope, InvitationRecord, NewAccount, NewCredential,
+    NewUserConfigValue, SessionRecord, StoreError, UpdateCredential, UserConfigRecord,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -252,6 +254,79 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    /// List all user-tier configuration values for an account.
+    async fn list_user_config(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<UserConfigRecord>, StoreError>;
+
+    /// Get a single user-tier configuration value. Returns `None` when
+    /// the key has no value set at the user tier.
+    async fn get_user_config(
+        &self,
+        account_id: AccountId,
+        key: UserSettingKey,
+    ) -> Result<Option<UserConfigRecord>, StoreError>;
+
+    /// Set (upsert) a single user-tier configuration value.
+    async fn set_user_config(
+        &self,
+        input: NewUserConfigValue,
+    ) -> Result<UserConfigRecord, StoreError>;
+
+    /// Remove a single user-tier configuration value. Returns `true`
+    /// when a row was present and deleted. `now` is used for the
+    /// removal event-log entry.
+    async fn remove_user_config(
+        &self,
+        account_id: AccountId,
+        key: UserSettingKey,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StoreError>;
+
+    /// List all credential metadata for an account. Secret values are
+    /// never included — only redacted metadata rows are returned.
+    async fn list_credentials(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<CredentialRecord>, StoreError>;
+
+    /// Get a single credential's metadata by id. Secret values are never
+    /// included. Returns `None` when no credential matches.
+    async fn get_credential(
+        &self,
+        id: CredentialId,
+    ) -> Result<Option<CredentialRecord>, StoreError>;
+
+    /// Add a new credential. The caller encrypts the secret value before
+    /// handing it to the store. Returns the stored metadata (no secret).
+    async fn add_credential(&self, input: NewCredential) -> Result<CredentialRecord, StoreError>;
+
+    /// Update an existing credential's value and optionally its metadata.
+    /// Returns `Ok(Some(record))` on success, `Ok(None)` when no
+    /// credential matches the supplied id.
+    async fn update_credential(
+        &self,
+        input: UpdateCredential,
+    ) -> Result<Option<CredentialRecord>, StoreError>;
+
+    /// Remove a credential. Returns `true` when a row was deleted.
+    /// `now` is used for the removal event-log entry.
+    async fn remove_credential(
+        &self,
+        id: CredentialId,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StoreError>;
+
+    /// Resolve an active session token to its owning account id.
+    /// Returns `None` when the token has no matching row or the
+    /// session has expired.
+    async fn find_account_id_by_session_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<AccountId>, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].

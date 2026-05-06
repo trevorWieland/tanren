@@ -8,12 +8,18 @@
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::{
+    CredentialId, CredentialKind, CredentialScope, UserSettingKey, UserSettingValue,
+};
 use tanren_identity_policy::{
     AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{
+    StoreError, credential_kind_from_db, credential_scope_from_db, parse_db_identifier,
+    parse_db_invitation_token, setting_key_from_db,
+};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -164,4 +170,136 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted user-tier configuration row. Exposed as a typed envelope;
+/// the `key` and `value` carry the validated domain types.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserConfigRecord {
+    /// Account this setting belongs to.
+    pub account_id: AccountId,
+    /// The setting key.
+    pub key: UserSettingKey,
+    /// The validated value.
+    pub value: UserSettingValue,
+    /// Wall-clock time the value was last set.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::user_config_values::Model> for UserConfigRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::user_config_values::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            account_id: AccountId::new(model.account_id),
+            key: setting_key_from_db(&model.key)?,
+            value: UserSettingValue::parse(&model.value).map_err(|cause| {
+                StoreError::Deserialization {
+                    entity: "user_config_values",
+                    column: "value",
+                    cause: cause.to_string(),
+                }
+            })?,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
+/// Persisted credential row — metadata only. The encrypted secret value is
+/// intentionally excluded from this envelope so that callers of the store
+/// read/list paths never receive raw (or even encrypted) credential
+/// material.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialRecord {
+    /// Stable credential identifier.
+    pub id: CredentialId,
+    /// Account this credential belongs to.
+    pub account_id: AccountId,
+    /// Credential kind from the typed registry.
+    pub kind: CredentialKind,
+    /// Ownership scope.
+    pub scope: CredentialScope,
+    /// Human-readable name chosen by the user.
+    pub name: String,
+    /// Optional longer description.
+    pub description: Option<String>,
+    /// Provider or adapter this credential targets.
+    pub provider: Option<String>,
+    /// Wall-clock time the credential was first stored.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the credential value was last replaced.
+    pub updated_at: Option<DateTime<Utc>>,
+    /// `true` when an encrypted value has been written.
+    pub present: bool,
+}
+
+impl TryFrom<entity::user_credentials::Model> for CredentialRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::user_credentials::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: CredentialId::new(model.id),
+            account_id: AccountId::new(model.account_id),
+            kind: credential_kind_from_db(&model.kind)?,
+            scope: credential_scope_from_db(&model.scope)?,
+            name: model.name,
+            description: model.description,
+            provider: model.provider,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+            present: !model.encrypted_value.is_empty(),
+        })
+    }
+}
+
+/// Input shape for [`crate::AccountStore::set_user_config`].
+#[derive(Debug, Clone)]
+pub struct NewUserConfigValue {
+    /// Account the setting belongs to.
+    pub account_id: AccountId,
+    /// Which user-tier setting to set.
+    pub key: UserSettingKey,
+    /// Validated setting value.
+    pub value: UserSettingValue,
+    /// Wall-clock time for the upsert.
+    pub now: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::AccountStore::add_credential`]. The caller
+/// encrypts the secret value before handing it to the store.
+#[derive(Debug, Clone)]
+pub struct NewCredential {
+    /// Account the credential belongs to.
+    pub account_id: AccountId,
+    /// Credential kind from the typed registry.
+    pub kind: CredentialKind,
+    /// Ownership scope.
+    pub scope: CredentialScope,
+    /// Human-readable name unique per owner + kind.
+    pub name: String,
+    /// Optional longer description.
+    pub description: Option<String>,
+    /// Provider or adapter this credential targets, if applicable.
+    pub provider: Option<String>,
+    /// Encrypted secret value. The store persists this blob as-is; the
+    /// app-service layer is responsible for encryption.
+    pub encrypted_value: Vec<u8>,
+    /// Wall-clock time for the insert.
+    pub now: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::AccountStore::update_credential`]. Only
+/// non-`None` fields are overwritten.
+#[derive(Debug, Clone)]
+pub struct UpdateCredential {
+    /// Stable credential identifier to update.
+    pub id: CredentialId,
+    /// Updated human-readable name, if changing.
+    pub name: Option<String>,
+    /// Updated description, if changing.
+    pub description: Option<String>,
+    /// Replacement encrypted secret value.
+    pub encrypted_value: Vec<u8>,
+    /// Wall-clock time for the update.
+    pub now: DateTime<Utc>,
 }

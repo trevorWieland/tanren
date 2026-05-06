@@ -12,15 +12,20 @@ mod entity;
 mod migration;
 mod records;
 mod traits;
+mod user_configuration;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, CredentialRecord, InvitationRecord, MembershipRecord, NewAccount, NewCredential,
+    NewInvitation, NewUserConfigValue, SessionRecord, UpdateCredential, UserConfigRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
     ConsumeInvitationError, ConsumedInvitation,
+};
+pub(crate) use user_configuration::{
+    credential_kind_from_db, credential_scope_from_db, setting_key_from_db,
 };
 
 use async_trait::async_trait;
@@ -32,6 +37,7 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::{CredentialId, UserSettingKey};
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
     ValidationError,
@@ -308,6 +314,79 @@ impl AccountStore for Store {
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
     }
+
+    async fn list_user_config(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<UserConfigRecord>, StoreError> {
+        user_configuration::list_user_config(&self.conn, account_id).await
+    }
+
+    async fn get_user_config(
+        &self,
+        account_id: AccountId,
+        key: UserSettingKey,
+    ) -> Result<Option<UserConfigRecord>, StoreError> {
+        user_configuration::get_user_config(&self.conn, account_id, key).await
+    }
+
+    async fn set_user_config(
+        &self,
+        input: NewUserConfigValue,
+    ) -> Result<UserConfigRecord, StoreError> {
+        user_configuration::set_user_config(&self.conn, input).await
+    }
+
+    async fn remove_user_config(
+        &self,
+        account_id: AccountId,
+        key: UserSettingKey,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StoreError> {
+        user_configuration::remove_user_config(&self.conn, account_id, key, now).await
+    }
+
+    async fn list_credentials(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<CredentialRecord>, StoreError> {
+        user_configuration::list_credentials(&self.conn, account_id).await
+    }
+
+    async fn get_credential(
+        &self,
+        id: CredentialId,
+    ) -> Result<Option<CredentialRecord>, StoreError> {
+        user_configuration::get_credential(&self.conn, id).await
+    }
+
+    async fn add_credential(&self, input: NewCredential) -> Result<CredentialRecord, StoreError> {
+        user_configuration::add_credential(&self.conn, input).await
+    }
+
+    async fn update_credential(
+        &self,
+        input: UpdateCredential,
+    ) -> Result<Option<CredentialRecord>, StoreError> {
+        user_configuration::update_credential(&self.conn, input).await
+    }
+
+    async fn remove_credential(
+        &self,
+        id: CredentialId,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StoreError> {
+        user_configuration::remove_credential(&self.conn, id, now).await
+    }
+
+    async fn find_account_id_by_session_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<AccountId>, StoreError> {
+        user_configuration::find_account_id_by_session_token(&self.conn, token.expose_secret(), now)
+            .await
+    }
 }
 
 /// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
@@ -382,5 +461,14 @@ pub enum StoreError {
         /// The underlying validation error.
         #[source]
         cause: ValidationError,
+    },
+    /// A stored enum-string could not be deserialized back to its
+    /// domain type. Indicates a row was written with a variant unknown
+    /// to this build — surfaces as a distinct error for triage.
+    #[error("data deserialization error in `{entity}.{column}`: {cause}")]
+    Deserialization {
+        entity: &'static str,
+        column: &'static str,
+        cause: String,
     },
 }
