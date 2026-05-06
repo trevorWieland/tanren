@@ -6,9 +6,9 @@
 //! `tests/bdd/features/`), so the same scenarios prove themselves twice:
 //!
 //! - **Rust BDD** (this crate, fast feedback): every `@web` scenario
-//!   routes through this harness, which falls back to the in-process
-//!   `Handlers` dispatch. The witness is the cucumber-rs run executed
-//!   by `just tests` and `cargo run -p tanren-bdd --bin tanren-bdd-runner`.
+//!   routes through this `WebHarness` wrapper, which falls back to the
+//!   in-process `Handlers` dispatch. The witness is the cucumber-rs run
+//!   executed by `just tests`.
 //! - **playwright-bdd** (`apps/web/tests/bdd/`, real browser): the same
 //!   `@web` scenarios run end-to-end against a Playwright-driven Chromium
 //!   that hits a Next.js dev server pointed at a freshly spawned
@@ -21,6 +21,7 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
+use tanren_app_services::{Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_store::EventEnvelope;
 
@@ -30,9 +31,11 @@ use super::{
     HarnessSession,
 };
 
-/// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
+/// `@web` harness — wrapper around [`InProcessHarness`]. The
 /// real-browser proof lives on the Node side via `playwright-bdd`; this
 /// harness keeps the Rust BDD runner self-contained for fast feedback.
+/// Exposes the underlying store and handlers so that `ProjectWebHarness`
+/// can drive project operations through the same per-surface seam.
 #[derive(Debug)]
 pub struct WebHarness {
     inner: InProcessHarness,
@@ -49,6 +52,20 @@ impl WebHarness {
         Ok(Self {
             inner: InProcessHarness::new(HarnessKind::Web).await?,
         })
+    }
+
+    #[must_use]
+    pub(crate) fn store_handle(&self) -> &Store {
+        self.inner.store()
+    }
+
+    pub(crate) fn store_handle_mut(&mut self) -> &mut Store {
+        self.inner.store_mut()
+    }
+
+    #[must_use]
+    pub(crate) fn handlers(&self) -> &Handlers {
+        self.inner.handlers()
     }
 }
 

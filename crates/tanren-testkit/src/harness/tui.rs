@@ -8,14 +8,13 @@
 //! iteration can import it without further dependency churn.
 //!
 //! Until that lands, every `@tui` scenario routes through the
-//! direct-`Handlers` in-process harness — the same surface every
-//! interface delegates to via the equivalent-operations rule in
-//! `docs/architecture/subsystems/interfaces.md`. The wire harness
-//! coverage check (`xtask check-bdd-wire-coverage`) is satisfied
-//! because step bodies dispatch through the `AccountHarness` trait,
-//! which keeps `Handlers::*` invisible from `tanren-bdd`.
+//! `TuiHarness` wrapper rather than through the generic
+//! `ProjectInProcessHarness` facade. Step bodies dispatch through the
+//! `AccountHarness` / `ProjectHarness` traits, which keeps
+//! `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
+use tanren_app_services::{Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_store::EventEnvelope;
 
@@ -25,8 +24,10 @@ use super::{
     HarnessSession,
 };
 
-/// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
-/// the expectrl-based driver lands.
+/// `@tui` harness — wrapper around [`InProcessHarness`] until the
+/// expectrl-based driver lands. Exposes the underlying store and
+/// handlers so that `ProjectTuiHarness` can drive project operations
+/// through the same per-surface seam.
 #[derive(Debug)]
 pub struct TuiHarness {
     inner: InProcessHarness,
@@ -43,6 +44,20 @@ impl TuiHarness {
         Ok(Self {
             inner: InProcessHarness::new(HarnessKind::Tui).await?,
         })
+    }
+
+    #[must_use]
+    pub(crate) fn store_handle(&self) -> &Store {
+        self.inner.store()
+    }
+
+    pub(crate) fn store_handle_mut(&mut self) -> &mut Store {
+        self.inner.store_mut()
+    }
+
+    #[must_use]
+    pub(crate) fn handlers(&self) -> &Handlers {
+        self.inner.handlers()
     }
 }
 

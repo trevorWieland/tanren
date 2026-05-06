@@ -37,9 +37,11 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
-    SpecId, ValidationError,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    ValidationError,
 };
+#[cfg(feature = "test-hooks")]
+use tanren_identity_policy::{ProjectId, SpecId};
 use thiserror::Error;
 use uuid::Uuid;
 

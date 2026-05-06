@@ -38,7 +38,7 @@ pub(crate) async fn connect_project(
         name = response.project.name,
         org = response.project.org_id,
         repo = response.project.repository_url,
-        at = response.project.connected_at,
+        at = response.project.connected_at.to_rfc3339(),
     )
     .context("write connect-project result")?;
     Ok(())
@@ -67,7 +67,7 @@ pub(crate) async fn list_projects(
                 name = p.name,
                 org = p.org_id,
                 repo = p.repository_url,
-                at = p.connected_at,
+                at = p.connected_at.to_rfc3339(),
             )
             .context("write list-projects result")?;
         }
@@ -132,7 +132,7 @@ pub(crate) async fn project_specs(
                 id = s.id,
                 pid = s.project_id,
                 title = s.title,
-                at = s.created_at,
+                at = s.created_at.to_rfc3339(),
             )
             .context("write project-specs result")?;
         }

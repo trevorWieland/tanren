@@ -50,6 +50,8 @@ mod project;
 mod project_api;
 mod project_cli;
 mod project_mcp;
+mod project_tui;
+mod project_web;
 mod tui;
 mod web;
 
@@ -72,12 +74,14 @@ pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
 pub use project::{
-    ProjectHarness, ProjectInProcessHarness, ProjectOutcome, ProjectTuiHarness, ProjectWebHarness,
-    ProjectWorldState, RepositoryFixture, record_project_failure,
+    ProjectHarness, ProjectInProcessHarness, ProjectOutcome, ProjectWorldState, RepositoryFixture,
+    record_project_failure,
 };
 pub use project_api::ProjectApiHarness;
 pub use project_cli::ProjectCliHarness;
 pub use project_mcp::ProjectMcpHarness;
+pub use project_tui::ProjectTuiHarness;
+pub use project_web::ProjectWebHarness;
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 
