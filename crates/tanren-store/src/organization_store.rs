@@ -99,13 +99,12 @@ impl OrganizationStore for Store {
         permission: OrgPermission,
     ) -> Result<u64, StoreError> {
         let perm_str = records::org_permission_to_str(permission).to_owned();
-        let rows: Vec<entity::organization_permission_grants::Model> =
-            entity::organization_permission_grants::Entity::find()
-                .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
-                .filter(entity::organization_permission_grants::Column::Permission.eq(perm_str))
-                .all(&self.conn)
-                .await?;
-        Ok(u64::try_from(rows.len()).unwrap_or(0))
+        let count = entity::organization_permission_grants::Entity::find()
+            .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
+            .filter(entity::organization_permission_grants::Column::Permission.eq(perm_str))
+            .count(&self.conn)
+            .await?;
+        Ok(count)
     }
 
     async fn count_organization_projects(&self, _org_id: OrgId) -> Result<u64, StoreError> {

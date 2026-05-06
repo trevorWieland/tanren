@@ -1,7 +1,8 @@
 use sea_orm::{
-    ActiveModelTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction, Set,
+    ActiveModelTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, Set,
     TransactionTrait,
 };
+use tanren_identity_policy::OrganizationName;
 use uuid::Uuid;
 
 use crate::StoreError;
@@ -17,6 +18,13 @@ pub(crate) async fn run(
     conn: &DatabaseConnection,
     request: CreateOrganizationAtomicRequest,
 ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError> {
+    OrganizationName::parse(&request.organization.canonical_name).map_err(|cause| {
+        CreateOrganizationError::Store(StoreError::DataInvariant {
+            column: "canonical_name",
+            cause,
+        })
+    })?;
+
     let key = request.request_id.clone();
     let account_id = request.organization.creator_account_id.as_uuid();
     let canonical_name = request.organization.canonical_name.clone();
@@ -107,16 +115,14 @@ async fn run_creation_in_txn(
     )
     .await?;
 
-    for perm in &bootstrap_permissions {
-        insert_permission_grant_in_txn(
-            txn,
-            organization.id,
-            organization.creator_account_id,
-            *perm,
-            now,
-        )
-        .await?;
-    }
+    insert_permission_grants_batch_in_txn(
+        txn,
+        organization.id,
+        organization.creator_account_id,
+        &bootstrap_permissions,
+        now,
+    )
+    .await?;
 
     insert_event_in_txn(txn, &event_payload, now).await?;
 
@@ -177,8 +183,7 @@ async fn insert_organization_in_txn(
     let inserted = match model.insert(txn).await {
         Ok(a) => a,
         Err(err) => {
-            let lower = err.to_string().to_lowercase();
-            if lower.contains("unique") || lower.contains("duplicate") {
+            if is_unique_violation(&err) {
                 return Err(CreateOrganizationError::DuplicateName);
             }
             return Err(StoreError::from(err).into());
@@ -209,22 +214,40 @@ async fn insert_membership_in_txn(
     })
 }
 
-async fn insert_permission_grant_in_txn(
+async fn insert_permission_grants_batch_in_txn(
     txn: &DatabaseTransaction,
     org_id: tanren_identity_policy::OrgId,
     account_id: tanren_identity_policy::AccountId,
-    permission: tanren_identity_policy::OrgPermission,
+    permissions: &[tanren_identity_policy::OrgPermission],
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), CreateOrganizationError> {
-    let model = entity::organization_permission_grants::ActiveModel {
-        id: Set(Uuid::now_v7()),
-        org_id: Set(org_id.as_uuid()),
-        account_id: Set(account_id.as_uuid()),
-        permission: Set(org_permission_to_str(permission).to_owned()),
-        granted_at: Set(now),
-    };
-    model.insert(txn).await.map_err(StoreError::from)?;
+    if permissions.is_empty() {
+        return Ok(());
+    }
+    let models: Vec<entity::organization_permission_grants::ActiveModel> = permissions
+        .iter()
+        .map(
+            |&perm| entity::organization_permission_grants::ActiveModel {
+                id: Set(Uuid::now_v7()),
+                org_id: Set(org_id.as_uuid()),
+                account_id: Set(account_id.as_uuid()),
+                permission: Set(org_permission_to_str(perm).to_owned()),
+                granted_at: Set(now),
+            },
+        )
+        .collect();
+    entity::organization_permission_grants::Entity::insert_many(models)
+        .exec(txn)
+        .await
+        .map_err(StoreError::from)?;
     Ok(())
+}
+
+fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
+    matches!(
+        err.sql_err(),
+        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
+    )
 }
 
 fn map_transaction_error(

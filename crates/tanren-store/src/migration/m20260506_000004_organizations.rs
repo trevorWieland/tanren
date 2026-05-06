@@ -106,10 +106,29 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_org_permission_grants_org_permission")
+                    .table(OrganizationPermissionGrants::Table)
+                    .col(OrganizationPermissionGrants::OrgId)
+                    .col(OrganizationPermissionGrants::Permission)
+                    .to_owned(),
+            )
+            .await?;
+
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_index(
+                Index::drop()
+                    .name("idx_org_permission_grants_org_permission")
+                    .table(OrganizationPermissionGrants::Table)
+                    .to_owned(),
+            )
+            .await?;
         manager
             .drop_index(
                 Index::drop()
